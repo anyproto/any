@@ -1,0 +1,1503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>any</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2129;
+    --border: #30363d;
+    --border-soft: #21262d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --accent: #2f81f7;
+    --accent-fade: #1f4e8c;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; height: 100%; }
+  body { font: 14px/1.45 system-ui, -apple-system, sans-serif; display: flex; }
+
+  /* ---------- right sidebar: request/response log ---------- */
+  aside.netlog {
+    width: 360px; flex-shrink: 0; background: var(--panel);
+    border-left: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden; transition: width .15s ease;
+  }
+  aside.netlog.collapsed { width: 36px; }
+  aside.netlog .netlog-head {
+    padding: 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  aside.netlog.collapsed .netlog-head { padding: 12px 8px; flex-direction: column; }
+  aside.netlog .netlog-head h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0;
+  }
+  aside.netlog.collapsed .netlog-head h2 { writing-mode: vertical-rl; transform: rotate(180deg); }
+  aside.netlog .netlog-head .actions { display: flex; gap: 6px; }
+  aside.netlog.collapsed .netlog-head .actions { flex-direction: column; }
+  aside.netlog.collapsed .netlog-list { display: none; }
+
+  .netlog-list { flex: 1; overflow-y: auto; }
+  .netlog-entry {
+    border-bottom: 1px solid var(--border-soft); padding: 6px 12px; cursor: pointer;
+    font: 12px var(--mono);
+  }
+  .netlog-entry:hover { background: var(--panel-2); }
+  .netlog-entry .head {
+    display: flex; align-items: center; gap: 6px; line-height: 1.5;
+  }
+  .netlog-entry .method {
+    color: var(--text); font-weight: 600; padding: 0 4px; border-radius: 3px;
+    background: var(--border-soft); flex-shrink: 0; font-size: 10px;
+  }
+  .netlog-entry .method.GET    { color: var(--accent); }
+  .netlog-entry .method.POST   { color: var(--ok); }
+  .netlog-entry .method.DELETE { color: var(--err); }
+  .netlog-entry .method.PUT,
+  .netlog-entry .method.PATCH  { color: var(--warn); }
+  .netlog-entry .path { flex: 1; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .netlog-entry .status {
+    font-weight: 600; flex-shrink: 0; padding: 0 4px; border-radius: 3px; background: var(--border-soft);
+    font-size: 10px;
+  }
+  .netlog-entry .status.ok  { color: var(--ok); }
+  .netlog-entry .status.err { color: var(--err); }
+  .netlog-entry .ts { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .netlog-entry .body { display: none; margin-top: 6px; }
+  .netlog-entry.open  { background: var(--panel-2); }
+  .netlog-entry.open .body { display: block; }
+  .netlog-entry .body .label {
+    font-size: 10px; text-transform: uppercase; color: var(--muted);
+    letter-spacing: .04em; margin-top: 4px;
+  }
+  .netlog-entry .body pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+    padding: 6px; margin: 2px 0 0; font: 11px var(--mono); white-space: pre-wrap;
+    word-break: break-all; max-height: 240px; overflow: auto;
+  }
+
+  /* ---------- sidebar ---------- */
+  aside.sidebar {
+    width: 260px; flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
+  }
+  aside .brand { padding: 16px; border-bottom: 1px solid var(--border); }
+  aside .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+  aside .brand .acct { margin-top: 4px; font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+  aside .brand .health { margin-top: 6px; font: 11px var(--mono); color: var(--muted); }
+  aside .brand .health.ok { color: var(--ok); }
+  aside .brand .health.err { color: var(--err); }
+
+  aside .group { padding: 12px 12px 8px; }
+  aside .group h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center;
+  }
+  aside ul.list { list-style: none; padding: 0; margin: 0; flex: 1; overflow-y: auto; }
+  aside ul.list li {
+    padding: 6px 12px; cursor: pointer; border-left: 2px solid transparent;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  aside ul.list li:hover { background: var(--panel-2); }
+  aside ul.list li.active { background: var(--accent-fade); border-left-color: var(--accent); }
+  aside ul.list li .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  aside ul.list li.deleted .name { text-decoration: line-through; color: var(--muted); }
+  aside ul.list li .badge { font: 10px var(--mono); color: var(--muted); flex-shrink: 0; }
+  aside ul.list li.deleted .badge { color: var(--err); }
+
+  /* ---------- main ---------- */
+  main {
+    flex: 1; min-width: 0;
+    height: 100vh; overflow-y: auto; overflow-x: hidden;
+    padding: 16px 24px;
+  }
+  /* Stack cards/headers with a uniform gap without using flex on
+     `main` — flex column + explicit height on the same element fights
+     with internal `<details>` and `<pre>` content and has been known
+     to disable the vertical scrollbar entirely. */
+  main > * + * { margin-top: 16px; }
+  main .empty {
+    margin: 25vh auto 0; text-align: center; color: var(--muted); font-size: 14px; max-width: 360px;
+  }
+  main .empty code { font: 12px var(--mono); background: var(--panel-2); padding: 2px 6px; border-radius: 3px; }
+
+  .space-header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .space-header h2 { margin: 0; font-size: 20px; }
+  .space-header .id { font: 11px var(--mono); color: var(--muted); margin-left: 6px; }
+  .space-header .meta { font: 12px var(--mono); color: var(--muted); }
+
+  .columns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; align-items: start; }
+  @media (max-width: 1100px) { .columns { grid-template-columns: 1fr; } }
+
+  section.card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  section.card > header {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel-2);
+  }
+  section.card > header h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  section.card > .body { padding: 12px; }
+
+  .item { border: 1px solid var(--border-soft); border-radius: 4px; margin-bottom: 8px; }
+  .item:last-child { margin-bottom: 0; }
+  .item > header {
+    padding: 8px 10px; cursor: pointer; display: flex; align-items: center;
+    justify-content: space-between; gap: 8px;
+  }
+  .item > header:hover { background: var(--panel-2); }
+  .item > header .name { font-weight: 500; }
+  .item > header .id { font: 11px var(--mono); color: var(--muted); }
+  .item > header .badge {
+    font: 10px var(--mono); padding: 1px 6px; border-radius: 99px;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
+  }
+  .item > .body { display: none; padding: 10px; border-top: 1px solid var(--border-soft); }
+  .item.open > .body { display: block; }
+  .item.open > header { background: var(--panel-2); }
+
+  .prop-list { list-style: none; margin: 0; padding: 0; font: 12px var(--mono); }
+  .prop-list li { padding: 3px 0; display: flex; gap: 8px; align-items: center; }
+  .prop-list li .pname { color: var(--text); }
+  .prop-list li .pkind { color: var(--accent); }
+  .prop-list li .pid { color: var(--muted); margin-left: auto; }
+
+  /* forms */
+  .field { margin-bottom: 8px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; background: var(--bg); color: var(--text); font: 13px var(--mono);
+    border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); }
+  textarea { min-height: 56px; resize: vertical; }
+
+  button {
+    background: var(--accent); color: #fff; border: 0; padding: 5px 10px; border-radius: 4px;
+    font-size: 12px; cursor: pointer; line-height: 1; height: 24px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  button.ghost:hover { color: var(--text); border-color: var(--text); }
+  button.danger { background: #6e2424; }
+  button.icon { padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 14px; }
+
+  .form-toggle {
+    background: var(--panel-2); border: 1px dashed var(--border); border-radius: 4px;
+    padding: 10px; margin-bottom: 8px;
+  }
+  .form-toggle.collapsed { display: none; }
+  .form-row { display: flex; gap: 8px; }
+  .form-row > * { flex: 1; }
+  .form-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+  .obj-edit-row {
+    display: grid; grid-template-columns: 1fr 1.5fr 60px; gap: 8px; align-items: center; margin-bottom: 6px;
+    padding: 4px 0;
+  }
+  .obj-edit-row .pname { font-size: 12px; }
+  .obj-edit-row .pname .pkind { color: var(--accent); font: 11px var(--mono); margin-left: 4px; }
+  .obj-edit-row .pname .pid { display: block; font: 10px var(--mono); color: var(--muted); }
+
+  .toast {
+    position: fixed; bottom: 16px; right: 16px; z-index: 100;
+    background: var(--panel); border: 1px solid var(--border); padding: 10px 14px;
+    border-radius: 6px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    max-width: 360px; transform: translateY(40px); opacity: 0; transition: all .2s;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.err { border-color: var(--err); }
+  .toast.ok { border-color: var(--ok); }
+  .toast .body { font: 11px var(--mono); color: var(--muted); margin-top: 4px; word-break: break-word; max-height: 100px; overflow: auto; }
+
+  details.raw { margin-top: 12px; }
+  details.raw summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+  details.raw pre { font: 11px var(--mono); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+
+  .row { display: flex; gap: 8px; align-items: center; }
+  .spacer { flex: 1; }
+  .pill {
+    font: 10px var(--mono); background: var(--panel-2); color: var(--muted);
+    padding: 1px 6px; border-radius: 99px; border: 1px solid var(--border);
+  }
+
+  /* Type tabs in the objects card. Horizontal scroll-snap when there
+     are too many to fit; subtle bottom border stitches them to the
+     list below. */
+  .obj-tabs {
+    display: flex; gap: 4px; margin-bottom: 10px;
+    overflow-x: auto; padding-bottom: 2px;
+    border-bottom: 1px solid var(--border-soft);
+    scrollbar-width: thin;
+  }
+  .obj-tab {
+    background: transparent; color: var(--muted); border: 0;
+    border-bottom: 2px solid transparent; padding: 4px 10px;
+    font: 12px system-ui; cursor: pointer; height: auto;
+    border-radius: 0; white-space: nowrap; flex-shrink: 0;
+  }
+  .obj-tab:hover { color: var(--text); }
+  .obj-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .obj-tab-count {
+    margin-left: 4px; font: 10px var(--mono);
+    background: var(--panel-2); color: var(--muted);
+    padding: 0 5px; border-radius: 99px;
+    border: 1px solid var(--border);
+  }
+  .obj-tab.active .obj-tab-count { color: var(--text); }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">
+    <h1>any</h1>
+    <div class="acct" id="acct-id">—</div>
+    <div class="health" id="health">checking…</div>
+  </div>
+
+  <div class="group">
+    <h2>spaces <button class="ghost" id="btn-new-space-toggle" title="new space">+</button></h2>
+    <div class="form-toggle collapsed" id="form-new-space">
+      <div class="field"><label>name</label><input type="text" id="new-space-name" value="Demo"></div>
+      <div class="field"><label>description (optional)</label><input type="text" id="new-space-description"></div>
+      <div class="field"><label>spaceType</label><input type="text" id="new-space-type" value="regular"></div>
+      <div class="form-actions">
+        <button id="btn-new-space-create">create</button>
+        <button class="ghost" id="btn-new-space-cancel">cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <ul class="list" id="space-list"></ul>
+</aside>
+
+<main id="main">
+  <div class="empty" id="empty-state">
+    <p>pick a space on the left, or create one with <code>+</code>.</p>
+    <p>types and objects are read live from the server (objects via <code>POST /objects/query</code> on space switch; tab to filter by type).</p>
+  </div>
+</main>
+
+<aside class="netlog" id="netlog">
+  <div class="netlog-head">
+    <h2>network</h2>
+    <div class="actions">
+      <button class="ghost" id="btn-netlog-clear" title="clear log">clear</button>
+      <button class="ghost" id="btn-netlog-toggle" title="collapse / expand">⇔</button>
+    </div>
+  </div>
+  <div class="netlog-list" id="netlog-list"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  // ---------- network log ----------
+  // Capped FIFO of every API exchange so the right sidebar can render
+  // exactly what went over the wire. Newest first.
+  const NetLog = {
+    cap: 100,
+    entries: [],
+    push(entry) {
+      this.entries.unshift(entry);
+      if (this.entries.length > this.cap) this.entries.length = this.cap;
+      renderNetLog();
+    },
+    clear() { this.entries = []; renderNetLog(); },
+  };
+
+  // ---------- API ----------
+  const api = {
+    async call(method, path, body) {
+      const init = { method, headers: {} };
+      let reqBody = null;
+      if (body !== undefined && body !== null) {
+        init.body = typeof body === 'string' ? body : JSON.stringify(body);
+        init.headers['Content-Type'] = 'application/json';
+        reqBody = init.body;
+      }
+      const startedAt = performance.now();
+      const ts = new Date();
+      let resp, text = '', err = null;
+      try {
+        resp = await fetch(path, init);
+        text = await resp.text();
+      } catch (e) {
+        err = e;
+      }
+      const dur = Math.round(performance.now() - startedAt);
+      let json = null; try { json = text ? JSON.parse(text) : null; } catch (e) {}
+      NetLog.push({
+        ts, method, path,
+        status: err ? 0 : resp.status,
+        statusText: err ? (err.message || 'error') : resp.statusText,
+        ok: !err && resp.ok,
+        durationMs: dur,
+        reqBody, respBody: text,
+      });
+      if (err) throw err;
+      return { ok: resp.ok, status: resp.status, body: text, json };
+    },
+    get(p) { return this.call('GET', p); },
+    post(p, b) { return this.call('POST', p, b); },
+    del(p) { return this.call('DELETE', p); },
+  };
+
+  // ---------- state ----------
+  // App state is keyed by accountId so multiple wallets on the same
+  // browser don't smash each other's local view. The server is the
+  // source of truth for spaces; types and objects are tracked locally
+  // because the SDK has no list endpoints for them yet.
+  const App = {
+    accountId: null,
+    activeSpaceId: null,
+    spaces: {},  // id → { info, types: { id → {id, name, description, props: [{id,name,kind,xKey}]} },
+                 //         objects: { id → {id, types: [typeId], lastRecord: <record from Get>} } }
+    openItems: new Set(), // ids of expanded type/object cards (UI only, not persisted)
+
+    storageKey() { return 'any-app:' + (this.accountId || 'unknown'); },
+
+    persist() {
+      try {
+        const snap = { activeSpaceId: this.activeSpaceId, spaces: {} };
+        for (const [id, s] of Object.entries(this.spaces)) {
+          snap.spaces[id] = { types: s.types, objects: s.objects };
+        }
+        localStorage.setItem(this.storageKey(), JSON.stringify(snap));
+      } catch (e) {}
+    },
+    rehydrate() {
+      try {
+        const raw = localStorage.getItem(this.storageKey());
+        if (!raw) return;
+        const snap = JSON.parse(raw);
+        this.activeSpaceId = snap.activeSpaceId || null;
+        for (const [id, s] of Object.entries(snap.spaces || {})) {
+          // De-duplicate type.props by propId. Older builds pushed on
+          // every AddProperty call without checking for an existing
+          // entry; that left repeated rows in localStorage that all
+          // bound to the same propId and rendered as identical inputs.
+          const types = s.types || {};
+          for (const t of Object.values(types)) {
+            if (!Array.isArray(t.props)) { t.props = []; continue; }
+            const seen = new Set();
+            t.props = t.props.filter(p => {
+              if (!p || !p.id || seen.has(p.id)) return false;
+              seen.add(p.id);
+              return true;
+            });
+          }
+          this.spaces[id] = { info: null, types, objects: s.objects || {} };
+        }
+      } catch (e) {}
+    },
+
+    activeSpace() { return this.activeSpaceId ? this.spaces[this.activeSpaceId] : null; },
+  };
+
+  // ---------- toast ----------
+  let toastTimer = null;
+  function toast(kind, msg, body) {
+    const el = document.getElementById('toast');
+    el.className = 'toast show ' + (kind || '');
+    el.innerHTML = '<div>' + escapeHTML(msg) + '</div>' +
+      (body ? '<div class="body">' + escapeHTML(body) + '</div>' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, kind === 'err' ? 6000 : 2500);
+  }
+
+  // ---------- helpers ----------
+  function escapeHTML(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function shortId(s) { return s ? (s.length > 12 ? s.slice(0, 8) + '…' + s.slice(-3) : s) : ''; }
+  function prettyJSON(v) { try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); } }
+
+  // Coerce a string from a text input back into a typed JS value based
+  // on the property's kind. Used when building a setBase patch.
+  function coerce(raw, kind) {
+    if (kind === 'string') return raw;
+    if (kind === 'number') {
+      if (raw === '' || raw == null) return null;
+      const n = Number(raw);
+      if (Number.isNaN(n)) throw new Error('not a number: ' + raw);
+      return n;
+    }
+    if (kind === 'boolean') return raw === 'true' || raw === true;
+    if (kind === 'null') return null;
+    if (kind === 'array' || kind === 'object') {
+      if (raw === '' || raw == null) return kind === 'array' ? [] : {};
+      return JSON.parse(raw);
+    }
+    return raw;
+  }
+  function stringify(v, kind) {
+    if (v == null) return '';
+    if (kind === 'array' || kind === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  // ---------- API actions ----------
+  async function loadAccount() {
+    const r = await api.get('/v1/account');
+    if (!r.ok) throw new Error('GET /v1/account: ' + r.body);
+    App.accountId = r.json.id;
+    document.getElementById('acct-id').textContent = App.accountId;
+  }
+  async function refreshSpaces() {
+    const r = await api.get('/v1/spaces');
+    if (!r.ok) throw new Error('GET /v1/spaces: ' + r.body);
+    const list = (r.json && r.json.spaces) || [];
+    const seen = new Set();
+    for (const info of list) {
+      seen.add(info.id);
+      if (!App.spaces[info.id]) App.spaces[info.id] = { info, types: {}, objects: {} };
+      App.spaces[info.id].info = info;
+    }
+    // Drop spaces the server no longer knows about (e.g. wiped data dir).
+    for (const id of Object.keys(App.spaces)) {
+      if (!seen.has(id)) delete App.spaces[id];
+    }
+    if (App.activeSpaceId && !App.spaces[App.activeSpaceId]) App.activeSpaceId = null;
+    if (!App.activeSpaceId) {
+      const firstActive = list.find(s => s.status === 'active');
+      if (firstActive) App.activeSpaceId = firstActive.id;
+    }
+  }
+  async function createSpace({ name, description, spaceType }) {
+    const r = await api.post('/v1/spaces', { name, description, spaceType });
+    if (!r.ok) { toast('err', 'create space failed', r.body); return null; }
+    App.spaces[r.json.id] = { info: r.json, types: {}, objects: {} };
+    App.activeSpaceId = r.json.id;
+    toast('ok', 'space created');
+    return r.json;
+  }
+  async function deleteSpace(id) {
+    const r = await api.del('/v1/spaces/' + encodeURIComponent(id));
+    if (!r.ok) { toast('err', 'delete space failed', r.body); return false; }
+    if (App.spaces[id]) App.spaces[id].info.status = 'deleted';
+    toast('ok', 'space deleted (soft)');
+    return true;
+  }
+  async function createType(spaceId, { name, description }) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/types', { name, description });
+    if (!r.ok) { toast('err', 'create type failed', r.body); return null; }
+    const t = { id: r.json.typeId, name, description, props: [] };
+    App.spaces[spaceId].types[t.id] = t;
+    toast('ok', 'type created');
+    return t;
+  }
+  async function addProperty(spaceId, typeId, { name, xKey, kind }) {
+    const r = await api.post(
+      '/v1/spaces/' + spaceId + '/types/' + typeId + '/properties',
+      { name, xKey, kind });
+    if (!r.ok) { toast('err', 'add property failed', r.body); return null; }
+    const p = { id: r.json.propId, name, xKey, kind };
+    // De-duplicate by propId. AddProperty is content-addressable on the
+    // SDK side (propId = base58(xxh3-64(changeId))), so retried calls
+    // with the same name/kind/xKey return the same id — without dedup
+    // the local array grows duplicates that all read the same value.
+    const existing = App.spaces[spaceId].types[typeId].props.find(x => x.id === p.id);
+    if (existing) Object.assign(existing, p);
+    else App.spaces[spaceId].types[typeId].props.push(p);
+    toast('ok', 'property added');
+    return p;
+  }
+  async function createObject(spaceId, { types, initialProperties }) {
+    const body = { types };
+    if (initialProperties && Object.keys(initialProperties).length) body.initialProperties = initialProperties;
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects', body);
+    if (!r.ok) { toast('err', 'create object failed', r.body); return null; }
+    const o = { id: r.json.objectId, types, lastRecord: null };
+    App.spaces[spaceId].objects[o.id] = o;
+    toast('ok', 'object created');
+    return o;
+  }
+  async function loadObject(spaceId, objectId) {
+    const r = await api.get('/v1/spaces/' + spaceId + '/properties/' + objectId);
+    if (!r.ok) { toast('err', 'load properties failed', r.body); return null; }
+    const obj = App.spaces[spaceId].objects[objectId];
+    if (obj) obj.lastRecord = r.json.record;
+    return r.json.record;
+  }
+  async function setBase(spaceId, objectId, typeId, patch) {
+    const r = await api.post(
+      '/v1/spaces/' + spaceId + '/properties/' + objectId + '/base/' + typeId,
+      { patch });
+    if (!r.ok) { toast('err', 'save failed', r.body); return null; }
+    const rejections = (r.json && r.json.rejections) || [];
+    if (rejections.length > 0) {
+      // Partial success: change committed but the handler refused
+      // some ops. Surface the per-op reasons; the user can fix the
+      // value or kind and try again.
+      const lines = rejections.map(rej => '· ' + rej.reason).join('\n');
+      toast('err', rejections.length + ' op(s) rejected', lines);
+    } else {
+      toast('ok', 'saved · v' + (r.json.versionId || ''));
+    }
+    await loadObject(spaceId, objectId);
+    return r.json;
+  }
+  async function deleteObject(spaceId, objectId) {
+    const r = await api.del('/v1/spaces/' + spaceId + '/objects/' + objectId);
+    if (!r.ok) { toast('err', 'delete object failed', r.body); return false; }
+    delete App.spaces[spaceId].objects[objectId];
+    App.openItems.delete('obj:' + objectId);
+    toast('ok', 'object deleted');
+    return true;
+  }
+  async function querySpace(spaceId, body) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/query', body);
+    if (!r.ok) { toast('err', 'query failed', r.body); return null; }
+    return r.json;
+  }
+  async function querySpaceObjects(spaceId, body) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', body);
+    if (!r.ok) { toast('err', 'objects query failed', r.body); return null; }
+    return r.json;
+  }
+  // pickRecordIds extracts `id` from each returned record (cross-object
+  // query rows include the object id as a top-level field).
+  function pickRecordIds(records) {
+    const out = [];
+    for (const raw of records || []) {
+      try {
+        const j = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (j && j.id) out.push(j.id);
+      } catch (e) {}
+    }
+    return out;
+  }
+  // refreshObjects pulls the live list of objects from the per-space
+  // `objects` collection via POST /objects/query (empty filter) and
+  // reconciles into App.spaces[spaceId].objects. Each row has a
+  // top-level `id` (objectId) and `any.types` (the bound type ids).
+  // Type rows are excluded — they show up in the same collection but
+  // are managed by the types card.
+  //
+  // We cap the response with a hard limit so a runaway space doesn't
+  // OOM the page; surface a `truncatedAt` flag when we hit it.
+  async function refreshObjects(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    const limit = 500;
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', { limit });
+    if (!r.ok) { toast('err', 'list objects failed', r.body); return; }
+    const records = (r.json && r.json.records) || [];
+    const seen = new Set();
+    for (const raw of records) {
+      let rec; try { rec = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { continue; }
+      if (!rec || !rec.id) continue;
+      // Skip type-meta rows (the per-space `objects` collection holds
+      // both regular objects and types — types carry __type__ in
+      // any.types). The types card handles those separately.
+      const types = (rec.any && Array.isArray(rec.any.types)) ? rec.any.types : [];
+      if (types.includes('__type__')) continue;
+      seen.add(rec.id);
+      const existing = sp.objects[rec.id];
+      const userTypes = types.filter(t => t !== '__type__');
+      if (!existing) {
+        sp.objects[rec.id] = { id: rec.id, types: userTypes, lastRecord: rec };
+      } else {
+        existing.types = userTypes.length ? userTypes : existing.types;
+        existing.lastRecord = rec;
+      }
+    }
+    // Drop locally-known objects the server no longer surfaces — most
+    // commonly because they were deleted on another peer.
+    for (const id of Object.keys(sp.objects)) {
+      if (!seen.has(id)) delete sp.objects[id];
+    }
+    sp.objectsTruncated = records.length >= limit;
+  }
+
+  // refreshTypes pulls the live list from the server and reconciles
+  // it with App.spaces[spaceId].types. For each type returned we keep
+  // the existing local state (so xKey we recorded on AddProperty
+  // stays) and merge in server-side fields. Property defs are then
+  // refreshed type-by-type via Types.Properties.
+  async function refreshTypes(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    const r = await api.get('/v1/spaces/' + spaceId + '/types');
+    if (!r.ok) { toast('err', 'list types failed', r.body); return; }
+    const list = (r.json && r.json.types) || [];
+    const seen = new Set();
+    for (const t of list) {
+      seen.add(t.id);
+      const existing = sp.types[t.id] || { id: t.id, props: [] };
+      sp.types[t.id] = {
+        id:          t.id,
+        name:        t.name || existing.name || '',
+        description: t.description || existing.description || '',
+        builtIn:     !!t.builtIn,
+        props:       existing.props || [],
+      };
+    }
+    for (const id of Object.keys(sp.types)) {
+      if (!seen.has(id)) delete sp.types[id];
+    }
+    // Fetch properties for each type. The built-in `any` ships its own
+    // hardcoded list; user types come from their `defs` dataset.
+    await Promise.all(list.map(async (t) => {
+      const pr = await api.get('/v1/spaces/' + spaceId + '/types/' + t.id + '/properties');
+      if (!pr.ok) return;
+      const props = (pr.json && pr.json.properties) || [];
+      sp.types[t.id].props = props.map(p => ({
+        id: p.id, name: p.name, description: p.description,
+        xKey: p.xKey, kind: p.kind || 'string',
+      }));
+    }));
+  }
+
+  // ---------- render ----------
+  function renderSidebar() {
+    const ul = document.getElementById('space-list');
+    const all = Object.values(App.spaces);
+    all.sort((a, b) => {
+      // active first, deleted last; stable by name
+      const sa = a.info?.status === 'active' ? 0 : (a.info?.status === 'deleted' ? 2 : 1);
+      const sb = b.info?.status === 'active' ? 0 : (b.info?.status === 'deleted' ? 2 : 1);
+      if (sa !== sb) return sa - sb;
+      return (a.info?.name || '').localeCompare(b.info?.name || '');
+    });
+    ul.innerHTML = all.map(s => {
+      const info = s.info || {};
+      const cls = [
+        info.id === App.activeSpaceId ? 'active' : '',
+        info.status === 'deleted' ? 'deleted' : '',
+      ].filter(Boolean).join(' ');
+      return '<li class="' + cls + '" data-id="' + escapeHTML(info.id) + '">' +
+        '<span class="name">' + escapeHTML(info.name || '(unnamed)') + '</span>' +
+        '<span class="badge">' + escapeHTML(info.status || '?') + '</span>' +
+      '</li>';
+    }).join('');
+  }
+
+  function renderMain() {
+    const main = document.getElementById('main');
+    const sp = App.activeSpace();
+    if (!sp || !sp.info) {
+      main.innerHTML = '<div class="empty">' +
+        '<p>pick a space on the left, or create one with <code>+</code>.</p>' +
+        '<p>types are read live from the server; objects are tracked locally because the SDK doesn\'t expose <code>Objects.List</code> yet.</p>' +
+      '</div>';
+      return;
+    }
+    const info = sp.info;
+    const isDeleted = info.status === 'deleted';
+    main.innerHTML =
+      '<div class="space-header">' +
+        '<div>' +
+          '<h2>' + escapeHTML(info.name || '(unnamed)') +
+            '<span class="id">' + escapeHTML(shortId(info.id)) + '</span>' +
+          '</h2>' +
+          '<div class="meta">status: ' + escapeHTML(info.status) +
+            (info.ownRole ? ' · role: ' + escapeHTML(info.ownRole) : '') +
+            (info.spaceType ? ' · type: ' + escapeHTML(info.spaceType) : '') +
+            ' · created ' + escapeHTML((info.createdAt || '').slice(0, 19)) +
+          '</div>' +
+        '</div>' +
+        '<div class="row">' +
+          (isDeleted ? '<span class="pill">soft-deleted</span>' :
+            '<button class="danger" data-act="delete-space">delete space</button>') +
+        '</div>' +
+      '</div>' +
+      '<div class="columns">' +
+        renderTypesCard(sp) +
+        renderObjectsCard(sp) +
+      '</div>' +
+      renderQueryCard(sp);
+  }
+
+  function renderQueryCard(sp) {
+    const last = App.lastQuery;
+    const params = App.lastQueryParams || {};
+    const scope = App.queryScope || 'space'; // 'space' = cross-object, 'object' = per-object
+    const records = (last && last.records) || [];
+    const recordsHTML = !last
+      ? '<p style="color:var(--muted);font-size:12px;margin:8px 0 0">no query run yet.</p>'
+      : records.length === 0
+        ? '<p style="color:var(--muted);font-size:12px;margin:8px 0 0">no records.</p>'
+        : '<div style="margin-top:8px;font:11px var(--mono);color:var(--muted)">' +
+            records.length + ' record(s) — endpoint: <code>' +
+            (App.lastQueryScope === 'object' ? 'POST /query (per-object)' : 'POST /objects/query (cross-object)') +
+            '</code></div>' +
+          records.map(r =>
+            '<details class="raw" open><summary>record</summary>' +
+              '<pre>' + escapeHTML(prettyJSON(r)) + '</pre>' +
+            '</details>'
+          ).join('');
+
+    const limitVal  = escapeHTML(String(params.limit || 10));
+    const filterVal = escapeHTML(params.filter ? JSON.stringify(params.filter, null, 2) : '');
+    const sortVal   = escapeHTML((params.sort || []).join(','));
+
+    // Per-object fields hidden unless scope=object.
+    const perObjectFields = scope === 'object'
+      ? '<div class="form-row">' +
+          '<div class="field"><label>objectId</label>' +
+            '<input type="text" id="query-objectid" value="' + escapeHTML(params.objectId || '') + '" placeholder="(an object id in this space)"></div>' +
+          '<div class="field"><label>dataset</label>' +
+            '<input type="text" id="query-dataset" value="' + escapeHTML(params.dataset || 'properties') + '" placeholder="dataset name"></div>' +
+        '</div>'
+      : '';
+
+    const examples = scope === 'object'
+      ? '{"any.name":"Movie"}'
+      : '{"' + (Object.values(sp.types).filter(t => !t.builtIn)[0]?.id || '<typeId>') +
+          '.<propId>":"Casablanca"}';
+
+    return '<section class="card">' +
+      '<header><h3>query</h3>' +
+        '<div class="row" style="font:11px var(--mono);gap:6px">' +
+          '<button class="' + (scope === 'space' ? '' : 'ghost') + '" data-act="query-scope-space">cross-object</button>' +
+          '<button class="' + (scope === 'object' ? '' : 'ghost') + '" data-act="query-scope-object">per-object</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          (scope === 'space'
+            ? 'cross-object: <code>POST /v1/spaces/:id/objects/query</code> — finds objects in this space matching the filter.'
+            : 'per-object: <code>POST /v1/spaces/:id/query</code> — reads one of an object\'s own datasets (e.g. a type\'s <code>properties</code> defs).') +
+        '</p>' +
+        perObjectFields +
+        '<div class="form-row">' +
+          '<div class="field" style="max-width:140px"><label>limit</label>' +
+            '<input type="number" id="query-limit" value="' + limitVal + '"></div>' +
+          '<div class="field"><label>sort (comma-separated, prefix - for desc)</label>' +
+            '<input type="text" id="query-sort" value="' + sortVal + '" placeholder="-_ver.id"></div>' +
+        '</div>' +
+        '<div class="field"><label>filter (JSON, optional)</label>' +
+          '<textarea id="query-filter" placeholder=\'' + escapeHTML(examples) + '\'>' + filterVal + '</textarea>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button data-act="run-query">run query</button>' +
+          '<button class="ghost" data-act="query-clear">clear results</button>' +
+          (scope === 'space' && records.length > 0
+            ? '<button class="ghost" data-act="query-import">import ' + records.length + ' into objects</button>'
+            : '') +
+        '</div>' +
+        recordsHTML +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderTypesCard(sp) {
+    const types = Object.values(sp.types).slice().sort((a, b) => {
+      // built-ins first, then by name
+      if (!!a.builtIn !== !!b.builtIn) return a.builtIn ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const items = types.length === 0
+      ? '<p style="color:var(--muted);font-size:13px;margin:4px 0">no types yet — create one to define properties.</p>'
+      : types.map(renderTypeItem).join('');
+    return '<section class="card">' +
+      '<header><h3>types</h3>' +
+        '<button class="ghost" data-act="new-type-toggle">+ new type</button>' +
+      '</header>' +
+      '<div class="body">' +
+        '<div class="form-toggle collapsed" data-form="new-type">' +
+          '<div class="form-row">' +
+            '<div class="field"><label>name</label><input type="text" data-input="type-name" value="Movie"></div>' +
+            '<div class="field"><label>description</label><input type="text" data-input="type-description"></div>' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<button data-act="create-type">create</button>' +
+            '<button class="ghost" data-act="new-type-toggle">cancel</button>' +
+          '</div>' +
+        '</div>' +
+        items +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderTypeItem(t) {
+    const open = App.openItems.has('type:' + t.id);
+    // Detect same-name collisions so we can suffix #N. Same-name props
+    // are legal — the SDK mints a new propId per AddProperty call —
+    // but they confuse the editor unless surfaced.
+    const nameCounts = {};
+    for (const p of t.props || []) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
+    const nameOrdinals = {};
+    const dupNames = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
+    const dupBadge = dupNames.length
+      ? ' <span class="pill" style="border-color:var(--warn);color:var(--warn)" title="duplicate property names: ' +
+          escapeHTML(dupNames.join(', ')) + '">name collision</span>'
+      : '';
+    const propsHTML = t.props.length === 0
+      ? '<p style="color:var(--muted);font-size:12px">no properties.</p>'
+      : '<ul class="prop-list">' + t.props.map(p => {
+          let label = escapeHTML(p.name);
+          if (nameCounts[p.name] > 1) {
+            nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
+            label += ' <span class="pill">#' + nameOrdinals[p.name] + '</span>';
+          }
+          return '<li>' +
+            '<span class="pname">' + label + '</span>' +
+            '<span class="pkind">' + escapeHTML(p.kind) + '</span>' +
+            (p.xKey ? '<span class="pill">xKey: ' + escapeHTML(p.xKey) + '</span>' : '') +
+            '<span class="pid" title="' + escapeHTML(p.id) + '">' + escapeHTML(p.id) + '</span>' +
+          '</li>';
+        }).join('') + '</ul>';
+    const addPropForm = t.builtIn ? '' :
+      '<div class="form-toggle collapsed" data-form="add-prop:' + escapeHTML(t.id) + '">' +
+        '<div class="form-row">' +
+          '<div class="field"><label>name</label><input type="text" data-input="prop-name:' + escapeHTML(t.id) + '" value="Title"></div>' +
+          '<div class="field"><label>xKey</label><input type="text" data-input="prop-xkey:' + escapeHTML(t.id) + '" value="title"></div>' +
+          '<div class="field"><label>kind</label>' +
+            '<select data-input="prop-kind:' + escapeHTML(t.id) + '">' +
+              ['string','number','boolean','null','array','object'].map(k =>
+                '<option>' + k + '</option>').join('') +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button data-act="add-prop" data-id="' + escapeHTML(t.id) + '">add property</button>' +
+          '<button class="ghost" data-act="add-prop-toggle" data-id="' + escapeHTML(t.id) + '">cancel</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-actions" style="margin-top:8px">' +
+        '<button class="ghost" data-act="add-prop-toggle" data-id="' + escapeHTML(t.id) + '">+ add property</button>' +
+      '</div>';
+    const builtBadge = t.builtIn ? ' <span class="pill">built-in</span>' : '';
+    return '<div class="item ' + (open ? 'open' : '') + '" data-type-id="' + escapeHTML(t.id) + '">' +
+      '<header data-act="toggle-type" data-id="' + escapeHTML(t.id) + '">' +
+        '<span><span class="name">' + escapeHTML(t.name || '(no name)') + '</span>' + builtBadge + dupBadge + ' ' +
+          '<span class="badge">' + t.props.length + ' props</span></span>' +
+        '<span class="id" title="' + escapeHTML(t.id) + '">' + escapeHTML(shortId(t.id)) + '</span>' +
+      '</header>' +
+      '<div class="body">' +
+        propsHTML +
+        addPropForm +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderObjectsCard(sp) {
+    // Exclude the synthetic `any` built-in from "bind to types" — it's
+    // attached implicitly and SetBase /base/any isn't a typical flow.
+    const userTypes = Object.values(sp.types).filter(t => !t.builtIn);
+    const filterTypeId = App.objectsFilterTypeId || '';
+    const allObjects = Object.values(sp.objects);
+    const filteredObjects = filterTypeId
+      ? allObjects.filter(o => (o.types || []).includes(filterTypeId))
+      : allObjects;
+    const items = filteredObjects.length === 0
+      ? (allObjects.length === 0
+          ? '<p style="color:var(--muted);font-size:13px;margin:4px 0">no objects yet.</p>'
+          : '<p style="color:var(--muted);font-size:13px;margin:4px 0">no objects match the filter.</p>')
+      : filteredObjects.map(o => renderObjectItem(sp, o)).join('');
+    const typeChooser = userTypes.length === 0
+      ? '<p style="color:var(--muted);font-size:12px">create a type first to bind objects to it.</p>'
+      : '<div class="field"><label>bind to types</label>' +
+          userTypes.map(t =>
+            '<label style="display:block;font:12px var(--mono);color:var(--text);text-transform:none">' +
+              '<input type="checkbox" data-input="new-obj-type" value="' + escapeHTML(t.id) + '"> ' +
+              escapeHTML(t.name) + ' <span class="pill">' + escapeHTML(shortId(t.id)) + '</span>' +
+            '</label>'
+          ).join('') +
+        '</div>';
+    const truncatedNote = sp.objectsTruncated
+      ? '<p style="color:var(--warn);font-size:11px;margin:0 0 8px">truncated at server-side limit (500) — narrow with the query card to find specific objects.</p>'
+      : '';
+    // Tabs by type: one tab per user type plus an "all" tab on the
+    // left. Counts shown inline so the user sees sizes at a glance.
+    // Clicking a tab sets App.objectsFilterTypeId and re-renders.
+    const tab = (id, label, count, active) =>
+      '<button class="obj-tab' + (active ? ' active' : '') + '"' +
+        ' data-act="filter-objects-by-type"' +
+        ' data-id="' + escapeHTML(id) + '">' +
+        escapeHTML(label) +
+        ' <span class="obj-tab-count">' + count + '</span>' +
+      '</button>';
+    const tabs =
+      '<div class="obj-tabs">' +
+        tab('', 'all', allObjects.length, filterTypeId === '') +
+        userTypes.map(t => {
+          const n = allObjects.filter(o => (o.types || []).includes(t.id)).length;
+          return tab(t.id, t.name || '(unnamed)', n, filterTypeId === t.id);
+        }).join('') +
+      '</div>';
+    return '<section class="card">' +
+      '<header><h3>objects</h3>' +
+        '<div class="row" style="gap:6px">' +
+          '<button class="ghost" data-act="refresh-objects">refresh</button>' +
+          '<button class="ghost" data-act="new-object-toggle">+ new object</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        truncatedNote +
+        tabs +
+        '<div class="form-toggle collapsed" data-form="new-object">' +
+          typeChooser +
+          '<div class="form-actions">' +
+            '<button data-act="create-object">create</button>' +
+            '<button class="ghost" data-act="new-object-toggle">cancel</button>' +
+          '</div>' +
+        '</div>' +
+        items +
+      '</div>' +
+    '</section>';
+  }
+
+  // Auto-managed props on the `any` built-in type. The SDK populates
+  // these (id, author, spaceId, createdAt); attempting to set them via
+  // SetBase is silly — render them read-only so the user still sees
+  // the values without an input control.
+  const ANY_AUTO_PROP_IDS = new Set(['id', 'author', 'spaceId', 'createdAt']);
+
+  function renderObjectItem(sp, o) {
+    const open = App.openItems.has('obj:' + o.id);
+    // Always include the `any` built-in alongside the explicitly-bound
+    // user types so name/description/icon/types are editable on every
+    // object. Built-in `any` doesn't appear in the local o.types because
+    // the SDK attaches it implicitly.
+    const boundIds = new Set(o.types || []);
+    if (sp.types['any']) boundIds.add('any');
+    const boundTypes = Array.from(boundIds).map(tid => sp.types[tid]).filter(Boolean);
+    // Order: built-in `any` first (so name/description appear at the
+    // top of the editor), then user types.
+    boundTypes.sort((a, b) => (b.builtIn ? 1 : 0) - (a.builtIn ? 1 : 0));
+    const badges = (o.types || []).map(tid => {
+      const t = sp.types[tid];
+      const label = t ? t.name : shortId(tid);
+      return '<span class="badge">' + escapeHTML(label) + '</span>';
+    }).join(' ');
+    let body = '';
+    if (open) {
+      const rows = [];
+      const rec = o.lastRecord || {};
+      for (const t of boundTypes) {
+        const tnode = rec[t.id] || {};
+        // Defensive dedupe at render time: if the in-memory props
+        // array somehow has multiple entries for the same propId
+        // (legacy state from before AddProperty deduped), fold them.
+        const seen = new Set();
+        const uniqueProps = (t.props || []).filter(p => {
+          if (!p || !p.id || seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        });
+        // Number same-named props within this type so the editor
+        // makes it visible that they're distinct propIds.
+        const nameCounts = {};
+        for (const p of uniqueProps) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
+        const nameOrdinals = {};
+        for (const p of uniqueProps) {
+          const cur = tnode[p.id];
+          const readOnly = t.id === 'any' && ANY_AUTO_PROP_IDS.has(p.id);
+          let suffix = '';
+          if (nameCounts[p.name] > 1) {
+            nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
+            suffix = ' #' + nameOrdinals[p.name];
+          }
+          rows.push(renderEditRow(o.id, t, p, cur, readOnly, suffix));
+        }
+      }
+      const editor = rows.length === 0
+        ? '<p style="color:var(--muted);font-size:12px">no editable properties — bound types have no property definitions yet.</p>'
+        : rows.join('');
+      body =
+        '<div class="row" style="margin-bottom:8px">' +
+          '<button class="ghost" data-act="reload-object" data-id="' + escapeHTML(o.id) + '">reload</button>' +
+          '<button class="ghost" data-act="query-object" data-id="' + escapeHTML(o.id) + '">query</button>' +
+          '<span class="spacer"></span>' +
+          '<button data-act="save-object" data-id="' + escapeHTML(o.id) + '">save changes</button>' +
+          '<button class="danger" data-act="delete-object" data-id="' + escapeHTML(o.id) + '">delete</button>' +
+        '</div>' +
+        editor +
+        '<details class="raw"><summary>raw record (anyenc)</summary>' +
+          '<pre>' + escapeHTML(prettyJSON(o.lastRecord)) + '</pre>' +
+        '</details>';
+    }
+    return '<div class="item ' + (open ? 'open' : '') + '" data-obj-id="' + escapeHTML(o.id) + '">' +
+      '<header data-act="toggle-object" data-id="' + escapeHTML(o.id) + '">' +
+        '<span><span class="name">' + escapeHTML(shortId(o.id)) + '</span> ' + badges + '</span>' +
+        '<span class="id">' + escapeHTML(o.id) + '</span>' +
+      '</header>' +
+      '<div class="body">' + body + '</div>' +
+    '</div>';
+  }
+
+  function renderEditRow(objectId, t, p, cur, readOnly, suffix) {
+    // Scope the data-edit key by objectId so simultaneously-expanded
+    // object editors don't trample each other's inputs when the global
+    // querySelector runs in saveObjectChanges.
+    const inputId = 'edit:' + objectId + ':' + t.id + ':' + p.id;
+    const dataAttr = readOnly ? '' : ' data-edit="' + escapeHTML(inputId) + '"';
+    suffix = suffix || '';
+    const ro = readOnly ? ' disabled' : '';
+    let control;
+    if (readOnly) {
+      // Read-only rows render the current value as plain text — no
+      // input control. Includes "(unset)" for fields the SDK hasn't
+      // populated yet (e.g. createdAt before any write lands).
+      const display = cur === undefined ? '(unset)' : stringify(cur, p.kind);
+      control = '<div style="font:12px var(--mono);color:var(--muted);padding:6px 0">' +
+        escapeHTML(display) + '</div>';
+    } else if (p.kind === 'boolean') {
+      control =
+        '<select' + dataAttr + ro + '>' +
+          '<option value=""' + (cur === undefined ? ' selected' : '') + '>(unset)</option>' +
+          '<option value="true"' + (cur === true ? ' selected' : '') + '>true</option>' +
+          '<option value="false"' + (cur === false ? ' selected' : '') + '>false</option>' +
+        '</select>';
+    } else if (p.kind === 'number') {
+      control = '<input type="number"' + dataAttr + ro + ' value="' + escapeHTML(stringify(cur, p.kind)) + '">';
+    } else if (p.kind === 'array' || p.kind === 'object') {
+      control = '<textarea' + dataAttr + ro + ' placeholder="JSON ' + p.kind + '">' + escapeHTML(stringify(cur, p.kind)) + '</textarea>';
+    } else {
+      control = '<input type="text"' + dataAttr + ro + ' value="' + escapeHTML(stringify(cur, p.kind)) + '">';
+    }
+    const tag = readOnly
+      ? '<span class="pill" title="auto-managed by SDK">auto</span>'
+      : (cur === undefined ? '<span class="pill">unset</span>' : '');
+    return '<div class="obj-edit-row">' +
+      '<div class="pname" title="' + escapeHTML(p.id) + '">' + escapeHTML(p.name) + escapeHTML(suffix) +
+        '<span class="pkind">' + escapeHTML(p.kind) + '</span>' +
+        '<span class="pid" title="' + escapeHTML(p.id) + '">' + escapeHTML(t.name) + ' / ' + escapeHTML(p.id) + '</span>' +
+      '</div>' +
+      '<div>' + control + '</div>' +
+      '<div style="font:11px var(--mono);color:var(--muted);text-align:right">' + tag + '</div>' +
+    '</div>';
+  }
+
+  function render() {
+    renderSidebar();
+    renderMain();
+  }
+
+  // ---------- network log render ----------
+  function fmtTime(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function pretty(text) {
+    if (!text) return '';
+    try { return JSON.stringify(JSON.parse(text), null, 2); } catch (e) { return text; }
+  }
+  function renderNetLog() {
+    const list = document.getElementById('netlog-list');
+    if (!list) return;
+    if (NetLog.entries.length === 0) {
+      list.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:12px">no requests yet.</div>';
+      return;
+    }
+    list.innerHTML = NetLog.entries.map((e, i) => {
+      const sCls = e.ok ? 'ok' : (e.status === 0 ? 'err' : 'err');
+      const sTxt = e.status === 0 ? 'ERR' : String(e.status);
+      const reqHTML = e.reqBody
+        ? '<div class="label">request body</div><pre>' + escapeHTML(pretty(e.reqBody)) + '</pre>'
+        : '';
+      const respHTML = '<div class="label">response body</div><pre>' +
+        escapeHTML(e.respBody ? pretty(e.respBody) : (e.statusText || '(empty)')) + '</pre>';
+      return '<div class="netlog-entry" data-net-i="' + i + '">' +
+        '<div class="head">' +
+          '<span class="ts">' + fmtTime(e.ts) + '</span>' +
+          '<span class="method ' + escapeHTML(e.method) + '">' + escapeHTML(e.method) + '</span>' +
+          '<span class="path" title="' + escapeHTML(e.path) + '">' + escapeHTML(e.path) + '</span>' +
+          '<span class="status ' + sCls + '">' + sTxt + '</span>' +
+          '<span class="ts">' + e.durationMs + 'ms</span>' +
+        '</div>' +
+        '<div class="body">' + reqHTML + respHTML + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ---------- event delegation ----------
+  function val(sel, root) { const el = (root || document).querySelector(sel); return el ? el.value : ''; }
+  function toggle(sel) {
+    const el = document.querySelector(sel);
+    if (el) el.classList.toggle('collapsed');
+  }
+
+  document.addEventListener('click', async (e) => {
+    const t = e.target;
+
+    // network log: click an entry to expand/collapse.
+    const ne = t.closest && t.closest('.netlog-entry');
+    if (ne) {
+      ne.classList.toggle('open');
+      return;
+    }
+
+    // sidebar: pick a space
+    const li = t.closest && t.closest('li[data-id]');
+    if (li) {
+      App.activeSpaceId = li.dataset.id;
+      App.openItems.clear();
+      App.persist();
+      render();
+      // Refresh both types and objects from the server in the
+      // background; the first paint is good enough with whatever's
+      // cached locally and the second paint reconciles.
+      Promise.all([
+        refreshTypes(App.activeSpaceId),
+        refreshObjects(App.activeSpaceId),
+      ]).then(() => { App.persist(); render(); }).catch(() => {});
+      return;
+    }
+
+    if (!t.dataset || !t.dataset.act) return;
+    const act = t.dataset.act;
+    const id = t.dataset.id;
+
+    try {
+      switch (act) {
+        case 'new-type-toggle':
+          toggle('[data-form="new-type"]');
+          break;
+        case 'new-object-toggle':
+          toggle('[data-form="new-object"]');
+          break;
+        case 'add-prop-toggle':
+          toggle('[data-form="add-prop:' + cssEsc(id) + '"]');
+          break;
+        case 'toggle-type':
+          toggleOpen('type:' + id); render(); break;
+        case 'toggle-object':
+          if (!App.openItems.has('obj:' + id)) {
+            // Auto-load on first open.
+            App.openItems.add('obj:' + id);
+            render();
+            await loadObject(App.activeSpaceId, id);
+            render();
+          } else {
+            App.openItems.delete('obj:' + id);
+            render();
+          }
+          break;
+        case 'reload-object':
+          await loadObject(App.activeSpaceId, id);
+          render();
+          break;
+        case 'create-type': {
+          const name = val('[data-input="type-name"]');
+          const description = val('[data-input="type-description"]');
+          if (!name) { toast('err', 'name required'); return; }
+          const created = await createType(App.activeSpaceId, { name, description });
+          if (created) { App.openItems.add('type:' + created.id); App.persist(); render(); }
+          break;
+        }
+        case 'add-prop': {
+          const name = val('[data-input="prop-name:' + cssEsc(id) + '"]');
+          const xKey = val('[data-input="prop-xkey:' + cssEsc(id) + '"]');
+          const kind = val('[data-input="prop-kind:' + cssEsc(id) + '"]');
+          if (!name) { toast('err', 'name required'); return; }
+          await addProperty(App.activeSpaceId, id, { name, xKey, kind });
+          // Pull the canonical list from the server so any local
+          // duplicates from older sessions get reconciled away.
+          await refreshTypes(App.activeSpaceId);
+          App.persist();
+          App.openItems.add('type:' + id);
+          render();
+          toggle('[data-form="add-prop:' + cssEsc(id) + '"]');
+          break;
+        }
+        case 'create-object': {
+          const checks = document.querySelectorAll('[data-input="new-obj-type"]:checked');
+          const types = Array.from(checks).map(c => c.value);
+          if (types.length === 0) { toast('err', 'pick at least one type'); return; }
+          const o = await createObject(App.activeSpaceId, { types });
+          if (o) {
+            App.openItems.add('obj:' + o.id);
+            App.persist();
+            render();
+            // Refresh both this object's record and the per-space list
+            // so the new row appears in any active type-tab counts.
+            await Promise.all([
+              loadObject(App.activeSpaceId, o.id),
+              refreshObjects(App.activeSpaceId),
+            ]);
+            App.persist();
+            render();
+          }
+          break;
+        }
+        case 'save-object': {
+          await saveObjectChanges(App.activeSpaceId, id);
+          break;
+        }
+        case 'delete-object': {
+          if (!confirm('delete object ' + id + '?')) return;
+          if (await deleteObject(App.activeSpaceId, id)) {
+            App.persist(); render();
+            // Refresh from the server so other peers' deletes also
+            // surface; cheap because /objects/query is paginated.
+            refreshObjects(App.activeSpaceId).then(() => { App.persist(); render(); }).catch(() => {});
+          }
+          break;
+        }
+        case 'refresh-objects': {
+          await refreshObjects(App.activeSpaceId);
+          App.persist();
+          render();
+          break;
+        }
+        case 'filter-objects-by-type': {
+          App.objectsFilterTypeId = id || '';
+          render();
+          break;
+        }
+        case 'query-object': {
+          // Shortcut: cross-object query filtered by this object id.
+          const body = { filter: { id: id }, limit: 10 };
+          const r = await querySpaceObjects(App.activeSpaceId, body);
+          if (r) {
+            App.lastQuery = r;
+            App.lastQueryParams = body;
+            App.lastQueryScope = 'space';
+            App.queryScope = 'space';
+            render();
+            toast('ok', 'query: ' + (r.records || []).length + ' record(s)');
+          }
+          break;
+        }
+        case 'query-scope-space': {
+          App.queryScope = 'space';
+          render();
+          break;
+        }
+        case 'query-scope-object': {
+          App.queryScope = 'object';
+          render();
+          break;
+        }
+        case 'query-clear': {
+          App.lastQuery = null;
+          App.lastQueryParams = null;
+          App.lastQueryScope = null;
+          render();
+          break;
+        }
+        case 'query-import': {
+          // Take cross-object query results and add them to the local
+          // objects view. Each record's `id` is the objectId; we read
+          // `any.types` to figure out which types it's bound to.
+          const sp = App.activeSpace();
+          if (!sp || !App.lastQuery) return;
+          let added = 0;
+          for (const raw of App.lastQuery.records || []) {
+            let r; try { r = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { continue; }
+            const oid = r && r.id;
+            if (!oid) continue;
+            const types = (r.any && Array.isArray(r.any.types)) ? r.any.types.filter(t => t !== '__type__') : [];
+            if (!sp.objects[oid]) {
+              sp.objects[oid] = { id: oid, types, lastRecord: r };
+              added++;
+            } else {
+              sp.objects[oid].types = types.length ? types : sp.objects[oid].types;
+              sp.objects[oid].lastRecord = r;
+            }
+          }
+          App.persist();
+          render();
+          toast('ok', 'imported ' + added + ' new object(s)');
+          break;
+        }
+        case 'delete-space': {
+          if (!confirm('delete space ' + (App.activeSpace().info.name || '') + '? (soft delete)')) return;
+          if (await deleteSpace(App.activeSpaceId)) { App.persist(); render(); }
+          break;
+        }
+        case 'run-query': {
+          const scope = App.queryScope || 'space';
+          const limit = parseInt(val('#query-limit') || '10', 10) || 0;
+          const filterRaw = val('#query-filter');
+          const sortRaw = val('#query-sort');
+          const body = {};
+          if (limit > 0) body.limit = limit;
+          if (filterRaw) {
+            try { body.filter = JSON.parse(filterRaw); }
+            catch (e) { toast('err', 'filter is not JSON', e.message); return; }
+          }
+          if (sortRaw) {
+            body.sort = sortRaw.split(',').map(s => s.trim()).filter(Boolean);
+          }
+          let r;
+          if (scope === 'object') {
+            body.objectId = val('#query-objectid');
+            body.dataset  = val('#query-dataset') || 'properties';
+            if (!body.objectId) { toast('err', 'objectId required'); return; }
+            r = await querySpace(App.activeSpaceId, body);
+          } else {
+            r = await querySpaceObjects(App.activeSpaceId, body);
+          }
+          if (r) {
+            App.lastQuery = r;
+            App.lastQueryParams = body;
+            App.lastQueryScope = scope;
+            render();
+            toast('ok', 'query: ' + (r.records || []).length + ' record(s)');
+          }
+          break;
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast('err', 'error', err.message || String(err));
+    }
+  });
+
+  function toggleOpen(key) {
+    if (App.openItems.has(key)) App.openItems.delete(key);
+    else App.openItems.add(key);
+  }
+  function cssEsc(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, m => '\\' + m); }
+
+  async function saveObjectChanges(spaceId, objectId) {
+    const sp = App.spaces[spaceId];
+    const obj = sp.objects[objectId];
+    if (!obj) return;
+    const rec = obj.lastRecord || {};
+    // Find this object's editor container by walking object-id holders
+    // — anchoring with a CSS attribute selector built from a CID (which
+    // has dots, may have other reserved chars) is fragile. Iterating in
+    // JS bypasses the escaping question entirely.
+    let root = null;
+    for (const node of document.querySelectorAll('[data-obj-id]')) {
+      if (node.getAttribute('data-obj-id') === objectId) { root = node; break; }
+    }
+    if (!root) {
+      toast('err', 'object editor not found in DOM');
+      return;
+    }
+    // Group by type so we can issue one setBase per type. Walk every
+    // [data-edit] input under root and parse the
+    //   "edit:<objectId>:<typeId>:<propId>"
+    // key off the attribute. This makes accidental cross-object writes
+    // structurally impossible: if we're inside object A's container,
+    // the only data-edit nodes here are A's. (We also assert the
+    // objectId in the key matches what we expect, as a tripwire.)
+    const patches = {};
+    const inputs = root.querySelectorAll('[data-edit]');
+    for (const el of inputs) {
+      const key = el.getAttribute('data-edit') || '';
+      // Format: edit:<objectId>:<typeId>:<propId>
+      // objectId can contain ':' on theory? today it's a CID + ".N", no ':'.
+      // We split greedily but verify the prefix.
+      if (!key.startsWith('edit:')) continue;
+      const rest = key.slice('edit:'.length);
+      // Take objectId as the longest prefix matching our expected id,
+      // then split the remainder into type/prop on ':'.
+      if (!rest.startsWith(objectId + ':')) continue;
+      const tail = rest.slice(objectId.length + 1);
+      const colon = tail.indexOf(':');
+      if (colon < 0) continue;
+      const tid = tail.slice(0, colon);
+      const pid = tail.slice(colon + 1);
+      const t = sp.types[tid];
+      if (!t) continue;
+      const p = (t.props || []).find(x => x.id === pid);
+      if (!p) continue;
+      const raw = el.value;
+      const cur = (rec[tid] || {})[pid];
+      let parsed;
+      try { parsed = coerce(raw, p.kind); }
+      catch (e) { toast('err', 'bad value for ' + p.name, e.message); return; }
+      if (JSON.stringify(parsed) === JSON.stringify(cur)) continue;
+      if (cur === undefined && (parsed === '' || parsed === null) && p.kind !== 'null') continue;
+      patches[tid] = patches[tid] || {};
+      patches[tid][pid] = parsed;
+    }
+    const typeIds = Object.keys(patches);
+    if (typeIds.length === 0) { toast('ok', 'no changes'); return; }
+    for (const tid of typeIds) {
+      const r = await setBase(spaceId, objectId, tid, patches[tid]);
+      if (!r) return;
+    }
+    App.persist();
+    render();
+  }
+
+  // network log toolbar
+  document.getElementById('btn-netlog-clear').addEventListener('click', (e) => {
+    e.stopPropagation();
+    NetLog.clear();
+  });
+  document.getElementById('btn-netlog-toggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('netlog').classList.toggle('collapsed');
+  });
+
+  // sidebar form
+  document.getElementById('btn-new-space-toggle').addEventListener('click', () => toggle('#form-new-space'));
+  document.getElementById('btn-new-space-cancel').addEventListener('click', () => toggle('#form-new-space'));
+  document.getElementById('btn-new-space-create').addEventListener('click', async () => {
+    const name = document.getElementById('new-space-name').value;
+    const description = document.getElementById('new-space-description').value;
+    const spaceType = document.getElementById('new-space-type').value;
+    if (!name) { toast('err', 'name required'); return; }
+    const created = await createSpace({ name, description, spaceType });
+    if (created) {
+      toggle('#form-new-space');
+      App.persist();
+      render();
+      Promise.all([refreshTypes(created.id), refreshObjects(created.id)])
+        .then(() => { App.persist(); render(); }).catch(() => {});
+    }
+  });
+
+  // ---------- health probe ----------
+  async function probeHealth() {
+    const el = document.getElementById('health');
+    try {
+      const r = await fetch('/v1/health');
+      if (r.ok) {
+        const j = await r.json();
+        el.className = 'health ok';
+        el.textContent = 'ok · v' + j.version;
+      } else {
+        el.className = 'health err';
+        el.textContent = 'health ' + r.status;
+      }
+    } catch (e) {
+      el.className = 'health err';
+      el.textContent = 'unreachable';
+    }
+  }
+
+  // ---------- boot ----------
+  (async () => {
+    try {
+      await loadAccount();
+    } catch (e) {
+      toast('err', 'cannot load account', e.message);
+      return;
+    }
+    App.rehydrate();
+    try { await refreshSpaces(); }
+    catch (e) { toast('err', 'cannot list spaces', e.message); }
+    App.persist();
+    render();
+    renderNetLog();
+    probeHealth();
+    setInterval(probeHealth, 15000);
+    if (App.activeSpaceId) {
+      Promise.all([
+        refreshTypes(App.activeSpaceId),
+        refreshObjects(App.activeSpaceId),
+      ]).then(() => { App.persist(); render(); }).catch(() => {});
+    }
+  })();
+
+})();
+</script>
+
+</body>
+</html>
