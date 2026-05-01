@@ -66,6 +66,7 @@ property.immutable_field         # attempt to update type-shape field
 sdk.not_implemented              # 501 — SDK placeholder (ACL, members, sync)
 sdk.not_found                    # 404 — SDK reports the target is gone (deleted, never existed as a type, etc.)
 
+server.unavailable               # 503 — request cancelled / server shutting down
 internal                         # catch-all for 500s
 ```
 

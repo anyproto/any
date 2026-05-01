@@ -14,6 +14,12 @@
 
 ## Command surface
 
+> **v1 status:** only the **Meta** commands below are wired in
+> `internal/cli/`. Everything else in this doc is the planned 1:1
+> mirror of the HTTP surface — already callable via `curl`, but no CLI
+> subcommand yet. Sections that are not yet implemented are marked
+> **(planned)** in their headers.
+
 ### Meta
 
 ```
@@ -30,14 +36,14 @@ mnemonic to stderr and exits. If you skip it and go straight to
 prints the mnemonic once; `any init` just gives you a moment to copy
 it before the server binds anything.
 
-### Account
+### Account (planned)
 
 ```
 any account show
 any account update-metadata --name "..." [--description "..."] [--icon CID]
 ```
 
-### Spaces
+### Spaces (planned)
 
 ```
 any space create --name "..."
@@ -49,7 +55,7 @@ any space derive [--seed <hex>]
 any space one-to-one <otherIdentity>
 ```
 
-### Objects
+### Objects (planned)
 
 ```
 any object create <spaceId> [--type <typeId>]... [--property <typeId>.<key>=<value>]...
@@ -57,7 +63,7 @@ any object derive <spaceId> --seed <hex> [--type <typeId>]...
 any object delete <spaceId> <objectId>
 ```
 
-### Data plane
+### Data plane (planned)
 
 ```
 any query  <spaceId> <objectId> <dataset> [--filter FILE|-] [--sort ...] [--limit N] [--offset N] [--include-variants] [--include-meta]
@@ -68,7 +74,7 @@ any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
 No `any subscribe` in v1. If you need to observe state, poll with
 `any query`.
 
-### Types & properties
+### Types & properties (planned)
 
 ```
 any type list <spaceId>
@@ -88,7 +94,7 @@ any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```
 
-### Members & ACL (server returns 501 until SDK lands them)
+### Members & ACL (planned — server returns 501 until SDK lands them)
 
 ```
 any members list <spaceId>
@@ -102,7 +108,7 @@ any acl transfer-owner <spaceId> <identity>
 any acl self-remove    <spaceId>
 ```
 
-### Sync status (server returns 501 until SDK lands it)
+### Sync status (planned — server returns 501 until SDK lands it)
 
 ```
 any sync-status space  <spaceId>
