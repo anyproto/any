@@ -61,6 +61,7 @@ and both are deferred.
   - Objects (create, derive, delete)
   - Data plane: query, modify, delete-records
   - Types and properties (full SDK surface that ships)
+  - Subscribe (per-(object, dataset) and per-space firehose) over Server-Sent Events
   - ACL, members — placeholders today on the SDK; routes mirror the
     eventual SDK shape, return 501 until the SDK lands them.
   - Sync status — same: routes present, 501 until the SDK lands.
@@ -69,9 +70,6 @@ and both are deferred.
 
 ## What's out of scope (v1)
 
-- **Subscriptions.** No `/subscribe` endpoint, no event stream. When we
-  add it we will likely use WebSocket, but the shape depends on what
-  v1 teaches us about client usage patterns. See `04-events.md`.
 - Remote access. TCP is localhost-only; no auth tokens.
 - Install / service files. You run `any run` by hand. A future
   installer (ollama-style one-liner) comes after v1 stabilises.

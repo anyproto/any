@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -74,11 +75,16 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}()
 
 	shutdown := make(chan struct{}, 1)
+	streamsCtx, cancelStreams := context.WithCancel(context.Background())
+	defer cancelStreams()
 	deps := &deps{
-		account:   account,
-		startedAt: time.Now().UTC(),
-		shutdown:  shutdown,
-		sdk:       sdk,
+		account:        account,
+		startedAt:      time.Now().UTC(),
+		shutdown:       shutdown,
+		sdk:            sdk,
+		shutdownCtx:    streamsCtx,
+		cancelShutdown: cancelStreams,
+		streamsWG:      &sync.WaitGroup{},
 	}
 	e := buildEcho(deps)
 
@@ -102,10 +108,41 @@ func Run(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
+	// Signal SSE/streaming handlers to wrap up so their final `closed`
+	// frame lands before the listener tears the socket down. Then bound
+	// the rest of the shutdown by gracefulShutdownDeadline; e.Shutdown
+	// stops accepting new connections and waits for in-flight handlers
+	// to return.
+	deps.cancelShutdown()
+	if !waitTimeout(deps.streamsWG, gracefulShutdownDeadline) {
+		lg.Warn("graceful shutdown: streaming handlers did not finish in time")
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulShutdownDeadline)
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		lg.Warn("graceful shutdown", zap.Error(err))
 	}
 	return nil
+}
+
+// waitTimeout returns true if wg drains within d, false otherwise.
+// The streaming-handler drain races the overall shutdown deadline —
+// if a handler is wedged on a slow client write it gets cut off
+// rather than blocking the shutdown indefinitely.
+func waitTimeout(wg *sync.WaitGroup, d time.Duration) bool {
+	if wg == nil {
+		return true
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }

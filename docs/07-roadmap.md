@@ -29,15 +29,17 @@ candidates based on what's already visible:
   binary and wires `systemd --user` / `launchctl` to start `any run`
   on login.
 
-## v2 — subscriptions
+## v1.x — WebSocket multiplex (maybe)
 
-Most likely WebSocket. Decisions deferred until we have prototype
-usage to point at. See `04-events.md` for the tradeoff list.
+Subscriptions shipped in v1 over SSE (see `04-events.md`). If a
+consumer needs many subscriptions per connection or client-originated
+control frames, `/v2/subscribe` over WebSocket becomes the right
+addition. Additive — SSE endpoints stay.
 
 ## v2 — remote access
 
-Once subscriptions land, remote access (LAN or internet) becomes
-useful. Needs:
+Now that subscriptions have shipped, remote access (LAN or internet)
+becomes useful. Needs:
 
 - TCP auth — token stored at `~/.any/token`, `Authorization: Bearer`.
 - TLS story — bring-your-own-cert for now, reverse proxy in front.
@@ -192,6 +194,17 @@ Not this repo's work; gate on the SDK:
   Required because once the tree is gone, the per-object Modify path
   can't write the tombstone, and queries would keep returning the
   ghost row indefinitely.
+- **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
+  and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply
+  events as Server-Sent Events. Wire format: `event: ready` →
+  `event: changes` (JSON array, free batching via `mb.Wait`) →
+  `event: lagged` (when `Subscription.Dropped` grows) →
+  `event: closed{reason}` on shutdown. The handler races
+  `mb.Mailbox.Wait` against a per-process `shutdownCtx`; `server.Run`
+  cancels it and waits on `streamsWG` (10s deadline) so in-flight
+  streams emit their terminal frame before the listener tears down.
+  CLI `any subscribe …` and `internal/client.StreamSubscribe…` ship
+  alongside.
 - **Nav virtual built-in + tree UI** — `internal/nav` defines a
   synthetic `nav` type (`type` 1=item / 2=folder, `parentId`, `pos`
   via lexid). `POST /v1/spaces/:id/objects` auto-stamps these on every

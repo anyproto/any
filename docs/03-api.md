@@ -53,6 +53,7 @@
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`         |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Get`           |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Set`           |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/subscribe`         | `Space.Subscribe` (SSE)  |
 
 The two `markdown` routes are aggregating endpoints (each one bundles
 several SDK calls) and are a deliberate exception to the "endpoints
@@ -154,7 +155,66 @@ Two query endpoints, scoped differently:
   to the shared per-space collection.
 
 Both use POST (not GET) because the filter/sort body doesn't fit
-cleanly in a query string. **No `/subscribe` in v1** — see `04-events.md`.
+cleanly in a query string. For live updates use the SSE
+subscribe endpoints — see `04-events.md`.
+
+#### Subscribe (Server-Sent Events)
+
+Two endpoints, mirroring the SDK's `Space.Subscribe(objectId, dataset)`
+and `Space.SubscribeProperties()` 1:1:
+
+```
+GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=<name>
+GET /v1/spaces/:spaceId/properties/subscribe
+```
+
+Response is `Content-Type: text/event-stream`. Errors before the
+stream opens use the canonical JSON envelope (`request.missing_field`,
+`space.not_found`, ...). Once the response status is 200, problems
+become SSE `event: closed` frames.
+
+Wire format:
+
+```
+event: ready
+data: {}
+
+event: changes
+id: 47
+data: [{"spaceId":"...","objectId":"...","dataset":"objects","addSeq":42},
+       {"spaceId":"...","objectId":"...","dataset":"objects","addSeq":47}]
+
+event: lagged
+data: {"total": 3}
+
+: keepalive
+
+event: closed
+data: {"reason": "server_shutdown"}
+```
+
+- `ready` is sent once after the SDK Subscribe call returns. Wait for
+  it before treating the stream as live.
+- `changes` carries a JSON array of zero-or-more events. Wait
+  coalesces every event accumulated during the previous write into a
+  single frame, so a slow client / network produces fewer, larger
+  frames rather than head-of-line stalls. `id:` is the max `addSeq`
+  in the batch (preserves Last-Event-ID semantics for future resume).
+- `lagged` is emitted before a `changes` frame whenever the SDK has
+  dropped events for this subscriber (slow consumer hit the per-
+  subscriber mailbox cap). `total` is the cumulative drop count.
+  Treat any `lagged` as "the in-stream events are no longer a full
+  picture — re-Query for current state".
+- `: keepalive` comments arrive every 25s during silence to defeat
+  idle middlebox timeouts.
+- `closed` is the terminal frame. Reasons: `server_shutdown` (signal
+  or `POST /v1/shutdown`), `sdk_closed` (space or SDK released the
+  subscription). Reconnect after either.
+
+Subscriptions deliver events from registration onward only — there is
+no replay. Cold-state callers must `Query` separately. POST to
+`/spaces/:spaceId/shutdown` doesn't exist; the per-subscription close
+is just disconnecting (or the server `closed` frame).
 
 ### Types
 
@@ -171,14 +231,15 @@ cleanly in a query string. **No `/subscribe` in v1** — see `04-events.md`.
 
 ### Properties (values on objects)
 
-| Method | Path                                                          | Purpose                       |
-|--------|---------------------------------------------------------------|-------------------------------|
-| GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`           |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/base/:typeId`       | `PropertiesAPI.SetBase`       |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/account/:typeId`    | `PropertiesAPI.SetAccount`    |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/device/:typeId`     | `PropertiesAPI.SetDevice`     |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`    |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`    |
+| Method | Path                                                          | Purpose                          |
+|--------|---------------------------------------------------------------|----------------------------------|
+| GET    | `/v1/spaces/:spaceId/properties/subscribe`                    | `Space.SubscribeProperties` (SSE) |
+| GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`              |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/base/:typeId`       | `PropertiesAPI.SetBase`          |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/account/:typeId`    | `PropertiesAPI.SetAccount`       |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/device/:typeId`     | `PropertiesAPI.SetDevice`        |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
 
 ### Members & ACL (routes present, handlers return 501 until SDK lands them)
 

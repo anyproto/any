@@ -19,6 +19,16 @@ Two implementation slices landed:
    `POST /v1/spaces/:id/objects/query` filtered by `nav.parentId`); the
    space picker moved to the top of the right netlog sidebar as a
    `<select>` + popup form.
+4. **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
+   and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply events
+   as Server-Sent Events. Frames: `ready` → `changes` (JSON array, free
+   batching from `mb.MB.Wait`) → `lagged` (when `Subscription.Dropped`
+   grows) → `closed{reason}` on graceful shutdown. `server.Run` cancels a
+   per-process `shutdownCtx` and waits on `streamsWG` (10s deadline) so
+   in-flight streams emit their terminal frame before the listener tears
+   down. CLI: `any subscribe SPACE OBJ --dataset NAME` /
+   `any subscribe SPACE --properties` — one JSON line per frame on stdout.
+   Wire format and contract in `docs/03-api.md` § Subscribe and `docs/04-events.md`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
