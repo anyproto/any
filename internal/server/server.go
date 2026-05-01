@@ -91,6 +91,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 		serveErr <- nil
 	}()
 	lg.Info("listening", zap.String("addr", cfg.Listen.Addr), zap.String("account", account))
+	lg.Info("web ui", zap.String("url", "http://"+cfg.Listen.Addr+"/ui"))
 
 	select {
 	case <-ctx.Done():

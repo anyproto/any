@@ -6,7 +6,7 @@ require (
 	github.com/anyproto/any-store v0.4.7-0.20260218145837-38e0159b0ddb
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.3
 	github.com/anyproto/any-sync v0.12.3
-	github.com/anyproto/any-sync-sdk v0.0.0-00010101000000-000000000000
+	github.com/anyproto/any-sync-sdk v0.0.0-20260501141448-8988d5b159a2
 	github.com/anyproto/lexid v0.0.6
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/sergi/go-diff v1.4.0
@@ -98,5 +98,3 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 	storj.io/drpc v0.0.34 // indirect
 )
-
-replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk2
