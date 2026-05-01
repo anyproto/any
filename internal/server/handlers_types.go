@@ -9,6 +9,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/nav"
 )
 
 // typeCreate handles POST /v1/spaces/:spaceId/types.
@@ -69,7 +70,9 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
 }
 
-// typeList handles GET /v1/spaces/:spaceId/types.
+// typeList handles GET /v1/spaces/:spaceId/types. The virtual `nav`
+// built-in is injected — the SDK doesn't know about it, but every
+// space has it conceptually since objectCreate auto-stamps nav rows.
 func (d *deps) typeList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -79,10 +82,11 @@ func (d *deps) typeList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	out := make([]api.TypeInfo, 0, len(infos))
+	out := make([]api.TypeInfo, 0, len(infos)+1)
 	for _, t := range infos {
 		out = append(out, typeInfoToAPI(t))
 	}
+	out = append(out, nav.TypeInfo())
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
 }
 
@@ -96,6 +100,9 @@ func (d *deps) typeGet(c echo.Context) error {
 	typeId := c.Param("typeId")
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	}
+	if typeId == nav.TypeId {
+		return c.JSON(http.StatusOK, nav.TypeInfo())
 	}
 	info, err := sp.Types().Get(c.Request().Context(), typeId)
 	if err != nil {
@@ -120,6 +127,9 @@ func (d *deps) typeProperties(c echo.Context) error {
 	typeId := c.Param("typeId")
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	}
+	if typeId == nav.TypeId {
+		return c.JSON(http.StatusOK, api.PropertiesListResponse{Properties: nav.PropertyDefs()})
 	}
 	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 	if err != nil {

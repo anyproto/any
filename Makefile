@@ -15,7 +15,7 @@ LDFLAGS := -s -w \
 
 build:
 	@mkdir -p $(OUT)
-	go build -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
+	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 
 test:
 	go test ./...

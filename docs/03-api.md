@@ -51,6 +51,87 @@
 | POST   | `/v1/spaces/:spaceId/objects/derive`                      | `Objects.Derive`         |
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.All` |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`         |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Get`           |
+| PUT    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Set`           |
+
+The two `markdown` routes are aggregating endpoints (each one bundles
+several SDK calls) and are a deliberate exception to the "endpoints
+map 1:1 onto SDK methods" rule. They exist because the diff between
+the supplied content and the stored blocks runs server-side; pushing
+that round-trip to the client would mean exposing the splitter / diff
+machinery over the wire. `GET` returns `{"content": "..."}`; `PUT`
+takes `{"content": "..."}` and replies with `{"inserted":[…lexids…],
+"updated":[…], "deleted":[…], "unchanged": N}`.
+
+#### `nav` auto-stamping on `Objects.Create`
+
+Every new object gets a `nav` row stamped on it server-side: `nav` is
+appended to `any.types` and three property values land on the
+per-space `objects` collection — `nav.type` (1 = item, 2 = folder),
+`nav.parentId` (string id of the parent folder; `""` = root) and
+`nav.pos` (lexid for ordering inside a parent). See `internal/nav` for
+the constants. The body accepts an optional `"nav"` block to override
+defaults:
+
+```json
+{
+  "types": ["..."],
+  "initialProperties": { "...": { "...": "..." } },
+  "nav": {
+    "type":     2,
+    "parentId": "obj_parent_id",
+    "pos":      "PPQY"
+  }
+}
+```
+
+`nav.pos` defaults to the next lexid after the current max pos in the
+target folder (queried server-side at create time); `Middle()` when
+the folder is empty. Mirrors anytype-heart's `LexId.Next(prev)`
+pattern. Trees are built by querying the per-space `objects`
+collection — no dedicated tree endpoint:
+
+```bash
+# children of folder X, in order:
+curl -X POST /v1/spaces/$SPID/objects/query -d '{
+  "filter": { "nav.parentId": "obj_X" },
+  "sort":   [ "nav.pos" ]
+}'
+```
+
+`nav` is a **virtual built-in type** — surfaced through
+`GET /v1/spaces/:spaceId/types` (BuiltIn=true) and
+`GET /v1/spaces/:spaceId/types/nav/properties`, but not registered
+through the SDK's `handler.Type` machinery (no separate dataset, no
+custom validator). Property paths use literal string keys
+(`nav.parentId` etc.), not content-addressable propIds.
+
+#### Moves (drag-and-drop)
+
+Tree moves use the existing `setBase` endpoint — no dedicated move
+route. To relocate object `oid` under `newParent` at lexid pos `p`:
+
+```
+POST /v1/spaces/:spaceId/properties/:oid/base/nav
+{ "patch": { "parentId": "<newParent>", "pos": "<p>" } }
+```
+
+Both fields land in one DAG change. The web UI ports the lexid
+allocator to JavaScript (alphabet `CharsAllNoEscape`, blockSize=4,
+stepSize=100 — match the Go side byte-for-byte) so the client can
+compute drop-target positions without a server round-trip.
+
+#### Object deletion
+
+`Objects.Delete` only deletes the any-sync tree; the projection row
+in the per-space `objects` collection survives the call (the any-store
+collection isn't tied to the tree's lifecycle). The SDK's query
+iterator filters rows that carry `_deletedAt`, so the server's
+`DELETE /v1/spaces/:spaceId/objects/:objectId` first writes a
+record-level tombstone via `space.Delete(ObjectId, Dataset:"objects",
+RecordIds:[oid])` and **then** runs `Objects.Delete`. Order matters —
+once the tree is gone the per-object Modify path can no longer write
+the tombstone and the row would linger in queries indefinitely.
 
 ### Data plane
 

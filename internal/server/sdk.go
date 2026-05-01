@@ -9,8 +9,10 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
+	"github.com/anyproto/any-sync-sdk/handler"
 
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/markdown"
 )
 
 // OpenSDK boots the SDK against the wallet provider and the project
@@ -43,6 +45,13 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		Log:     cfg.Log,
+		// Hardcoded types this server adds on top of the SDK's
+		// built-ins. Each entry registers its handler(s) with every
+		// per-object Controller, so writes targeting the type's
+		// dataset(s) flow through the type's validation logic.
+		Types: []handler.Type{
+			markdown.NewType(),
+		},
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
