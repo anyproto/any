@@ -15,6 +15,31 @@ HTTP API plus a CLI client.
 - **Thin CLI, thick server**: the server holds the SDK, any-store, and the
   any-sync connections. The CLI only builds requests and renders responses.
 
+## Install
+
+`any-sync-sdk` is a private repo today, so `go install` needs
+`GOPRIVATE` and an SSH-rewrite for `github.com/anyproto/*`:
+
+```sh
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+GOPRIVATE=github.com/anyproto go install github.com/anyproto/any/cmd/any@latest
+```
+
+This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`).
+
+## Quick start
+
+```sh
+any init      # creates ~/.any/, writes wallet.key, prints mnemonic to stderr
+any run       # foreground HTTP server on 127.0.0.1:7001
+any status    # in another shell — GET /v1/health
+any stop      # POST /v1/shutdown
+```
+
+`any init` is optional — `any run` will create the wallet on first
+boot too. Run `init` first if you want a moment to copy the mnemonic
+before the server starts binding.
+
 ## Why / what's this for in v1
 
 This is a **prototype** — its first job is to let us actually use the SDK
