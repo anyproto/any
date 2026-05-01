@@ -79,10 +79,10 @@ clear message. Stale locks (PID no longer exists) are reclaimed.
 ├── wallet.key          # auth.FileProvider wallet (mode 0600)
 ├── server.pid          # lock file
 ├── config.yaml         # optional, if not passed via --config
-└── storage/            # any-store DB(s) — owned by the SDK
+└── sdk/                # any-store DB(s) — owned by the SDK
 ```
 
-The SDK's `config.Storage.DataDir` points at `<data-dir>/storage/`.
+The SDK's `config.Storage.DataDir` points at `<data-dir>/sdk/`.
 Server-specific files live directly under `<data-dir>/`.
 
 ## Logging

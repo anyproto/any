@@ -181,3 +181,23 @@ Not this repo's work; gate on the SDK:
   instances. The existing `/v1/spaces/:id/query` keeps its body shape
   but its useful scope narrowed — it's now mainly for reading a type
   object's `properties` (definitions) dataset, since values moved.
+- **Markdown round-trip** — `GET /v1/spaces/:id/objects/:objectId/markdown`
+  and `PUT .../markdown` wired against `internal/markdown` (block-tree
+  diff against the existing record set, applied as a single `Modify`
+  batch). PUT response surfaces per-block `{inserted, updated, deleted,
+  unchanged}` counts so the editor can show what landed.
+- **Two-step object delete** — `DELETE /v1/spaces/:id/objects/:objectId`
+  now tombstones the row in the per-space `objects` collection
+  *before* tearing down the any-sync tree (`handlers_objects.go`).
+  Required because once the tree is gone, the per-object Modify path
+  can't write the tombstone, and queries would keep returning the
+  ghost row indefinitely.
+- **Nav virtual built-in + tree UI** — `internal/nav` defines a
+  synthetic `nav` type (`type` 1=item / 2=folder, `parentId`, `pos`
+  via lexid). `POST /v1/spaces/:id/objects` auto-stamps these on every
+  create (`injectNavDefaults` — caller-supplied values win, otherwise
+  defaults: item, root parent, next-pos after the folder's current max).
+  `GET /v1/spaces/:id/types` surfaces `nav` alongside the SDK types so
+  the UI can render an editor for it. The web UI's left sidebar is now
+  a lazy-loaded tree (queries `nav.parentId` per folder); the space
+  picker moved to the right sidebar.

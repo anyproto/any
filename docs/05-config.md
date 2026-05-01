@@ -56,6 +56,7 @@ Prefix `ANY_`, underscores map to nested fields. Examples:
 ```
 ANY_DATA_DIR=/var/lib/any
 ANY_LISTEN_ADDR=127.0.0.1:7002
+ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
 ```

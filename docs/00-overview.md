@@ -96,9 +96,14 @@ any/
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
+│   │   └── web/          embedded single-page UI served at /
 │   ├── api/              request/response types shared by server and cli
 │   ├── client/           HTTP client used by cli/ to call server/
-│   └── config/           config file + env var loading
+│   ├── config/           config file + env var loading
+│   ├── markdown/         block-tree diff for the markdown round-trip
+│   ├── nav/              virtual `nav` type (folder/item, parentId, pos)
+│   ├── version/          binary version string
+│   └── e2e/              full-stack tests (real SDK)
 └── docs/                 this directory
 ```
 
