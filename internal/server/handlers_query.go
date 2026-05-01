@@ -45,7 +45,7 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 			q = q.Filter(filter)
 		}
 		if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-			keys := make([]string, 0, len(sortArr))
+			keys := make([]any, 0, len(sortArr))
 			for _, s := range sortArr {
 				keys = append(keys, string(s.GetStringBytes()))
 			}
@@ -141,7 +141,7 @@ func (d *deps) spaceQuery(c echo.Context) error {
 		q = q.Filter(filter)
 	}
 	if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-		keys := make([]string, 0, len(sortArr))
+		keys := make([]any, 0, len(sortArr))
 		for _, s := range sortArr {
 			keys = append(keys, string(s.GetStringBytes()))
 		}
