@@ -47,6 +47,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newInitCmd(),
 		newStatusCmd(),
 		newStopCmd(),
+		newSubscribeCmd(),
 		newVersionCmd(),
 	)
 	return root

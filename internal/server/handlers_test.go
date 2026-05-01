@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +20,10 @@ import (
 const stagingPath = "../../../test-etc/staging.yml"
 
 // newTestDeps boots the server's deps in-process: wallet, SDK, fake
-// shutdown channel. Returns a teardown that closes the SDK. Skips the
-// test if the staging nodeconf isn't checked out alongside the repo.
+// shutdown channel + shutdownCtx. Returns a teardown that closes the
+// SDK. Skips the test if the staging nodeconf isn't checked out
+// alongside the repo. Tests that need to trip shutdown mid-handler
+// can call deps.cancelShutdown directly.
 func newTestDeps(t *testing.T) (*deps, func()) {
 	t.Helper()
 	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
@@ -52,13 +55,19 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 		t.Fatalf("AccountID: %v", err)
 	}
 
+	shutdownCtx, cancelShutdown := context.WithCancel(context.Background())
 	d := &deps{
-		account:   account,
-		startedAt: time.Now().UTC(),
-		shutdown:  make(chan struct{}, 1),
-		sdk:       sdk,
+		account:        account,
+		startedAt:      time.Now().UTC(),
+		shutdown:       make(chan struct{}, 1),
+		sdk:            sdk,
+		shutdownCtx:    shutdownCtx,
+		cancelShutdown: cancelShutdown,
+		streamsWG:      &sync.WaitGroup{},
 	}
 	return d, func() {
+		cancelShutdown()
+		d.streamsWG.Wait()
 		if err := sdk.Close(); err != nil {
 			t.Logf("sdk close: %v", err)
 		}

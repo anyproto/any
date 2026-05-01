@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -16,6 +18,11 @@ import (
 // for /health, the start time, the shutdown signal, and a live SDK
 // handle once the SDK slice landed. It is built once in server.Run and
 // shared across all routes via closures registered on echo.
+//
+// The shutdownCtx / streamsWG pair coordinates graceful teardown for
+// long-running streaming handlers (SSE subscribe). server.Run cancels
+// shutdownCtx when teardown begins; handlers select on it and exit;
+// streamsWG lets Run wait for them to finish before returning.
 type deps struct {
 	account   string
 	startedAt time.Time
@@ -23,6 +30,17 @@ type deps struct {
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
 	sdk      *anysyncsdk.SDK
+
+	// shutdownCtx cancels when graceful teardown begins. Streaming
+	// handlers select on Done to write their final `closed` frame and
+	// exit. Nil-tolerant: tests that don't go through server.Run leave
+	// it unset and SSE handlers fall back to never-cancel context.
+	// cancelShutdown is the matching CancelFunc; server.Run trips it
+	// before draining streamsWG so handlers wake up and emit their
+	// terminal frame inside the shutdown deadline.
+	shutdownCtx    context.Context
+	cancelShutdown context.CancelFunc
+	streamsWG      *sync.WaitGroup
 }
 
 func (d *deps) health(c echo.Context) error {

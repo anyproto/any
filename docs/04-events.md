@@ -1,54 +1,79 @@
-# Events / Subscriptions (deferred)
+# Events / Subscriptions
 
-**Not in v1.** There is no `/subscribe` endpoint. Callers that need to
-observe state poll with `GET /v1/spaces/:spaceId` (for metadata) or
-`POST /v1/spaces/:spaceId/query` (for data).
+**Shipped in v1 over Server-Sent Events.** Two endpoints, mirroring the
+SDK's `Space.Subscribe(objectId, dataset)` and `Space.SubscribeProperties()`
+1:1. The full wire format is documented in `03-api.md` § "Subscribe
+(Server-Sent Events)"; this file records the design rationale and the
+contract clients must respect.
 
-## Why defer
+## Why SSE (not WebSocket)
 
-The v1 goal is to surface the API shape quickly and let us see where the
-SDK surface is painful. Subscriptions are the largest single piece of
-machinery (long-lived connection, reconnection, overflow handling,
-session-based filtering) and they don't need to be right-first-time.
-Better to ship the rest, then decide — once we have real usage — whether
-the transport should be WebSocket, SSE, HTTP long-poll, or something
-else. That's this file's one job until we're ready: record the options
-and the tradeoffs so the decision is quick when we get to it.
+We considered WebSocket, NDJSON, and SSE. SSE won on the v1 axis:
 
-## Likely direction
+- One-way is enough — `Event{SpaceId, ObjectId, Dataset, AddSeq}` flows
+  server → client; the client never pushes back into the subscription.
+- Plain HTTP/1.1 — works through any HTTP middleware, debuggable with
+  `curl -N`, no upgrade handshake or framing to write.
+- Auto-reconnect comes built-in to browser EventSource, which lines up
+  with the SDK's "re-Query on (re)connect for cold state" contract.
+- WebSocket's main wins are bidirectional control frames (we don't
+  need them in v1) and multiplexing many subscriptions on one
+  connection (SSE-per-target is fine while we have a handful of
+  consumers).
 
-**WebSocket**, bound to the same server on `127.0.0.1:7001`, upgraded
-via an `/v2/subscribe` endpoint (note: bumps the version). Reasons:
+If multiplexing or client-side control frames become load-bearing
+later, `/v2/subscribe` over WebSocket is still on the table — additive
+to the SSE endpoints, not a replacement.
 
-- Language-binding support is uniformly good.
-- The same connection can multiplex multiple subscriptions (subscribe
-  to space A, then later subscribe to space B) without opening new
-  HTTP connections.
-- Future writes from the client (e.g. ack/flow-control frames) are
-  trivial to add.
+## Contract that clients must respect
 
-## Alternatives
+1. **Events deliver from registration onward.** There is no replay.
+   On (re)connect, query for cold state separately if you need it.
+2. **`lagged` means re-Query.** When the SDK drops events for a slow
+   consumer (per-subscriber mailbox cap = 64 events, drop-on-overflow
+   policy), the server emits `event: lagged` before the next
+   `changes` frame. The dropped events are gone. Treat `lagged` as a
+   prompt to re-Query the affected dataset; in-stream events are no
+   longer a full picture.
+3. **Wait for `ready` before treating the stream as live.** Errors
+   that happen before the SDK Subscribe call returns surface as a
+   regular JSON error envelope, not SSE.
+4. **`closed` is terminal.** Reconnect after `closed`; treat
+   `closed{server_shutdown}` and `closed{sdk_closed}` as transient.
+   A bare EOF without a `closed` frame is a transport problem (also
+   reconnect, but log it).
+5. **No per-field deltas.** `Event` is a routing tuple plus AddSeq.
+   Re-Query for the current state of any record you care about.
 
-- **NDJSON over a streaming HTTP response**. Simpler server; no
-  upgrade; any HTTP client can consume it with a line reader. Downside:
-  no standard for multiplexing, no flow control, reconnection is
-  ad-hoc.
-- **SSE**. Cleaner than NDJSON (has `Last-Event-ID`, event types,
-  standard reconnect), but still unidirectional. If we never need
-  client-originated frames, SSE is a fine pick; if we do, WebSocket
-  is simpler overall.
+## Lifecycle / shutdown
 
-## When we implement
+The server cancels a per-process `shutdownCtx` on graceful teardown
+(SIGINT/SIGTERM or `POST /v1/shutdown`); streaming handlers select on
+it, emit `event: closed{server_shutdown}`, and drop a `streamsWG`
+counter. `server.Run` waits up to `gracefulShutdownDeadline` (10s) for
+that counter to drain before calling `e.Shutdown`. A handler wedged on
+a slow client write past the deadline gets cut off with the rest of
+the listener.
 
-Pin:
+## Capacity / overflow
 
-1. Transport (WebSocket most likely).
-2. Multiplexing scheme — one connection per subscription, or multiplex
-   via frame envelopes?
-3. Event shape — mirror `space.Event` from the SDK, plus a framing
-   envelope for errors, heartbeats, and future event kinds.
-4. Reconnection — event id cursor? Best-effort re-query? Both?
-5. Overflow — what the server does when the client is slow (drop
-   oldest vs close the stream).
-6. Versioning — bump to `/v2/` or add subscriptions as an additive
-   `/v1/` feature? Leaning additive if we're careful.
+Per-subscriber mailbox capacity is the SDK default (64). The
+dispatcher uses `mb.TryAdd` — non-blocking, drops on overflow,
+increments `Subscription.Dropped`. The HTTP handler reads the dropped
+counter on every batch and emits `event: lagged{total: <count>}` when
+it grows. v1 does not close the stream on lag — the consumer decides
+whether to reconnect or just re-Query the dataset.
+
+## Open / future
+
+- **Resume from `Last-Event-ID`.** The handler already emits `id:` as
+  the max AddSeq in each batch. Plumbing that into a resume API
+  requires SDK support (replay from a sequence id), which doesn't
+  exist yet.
+- **Filtered subscriptions.** Today only `(objectId, dataset)` and the
+  per-space firehose. If a UI needs a typed-property filter, layer it
+  on top via `mb.WaitCond.WithFilter` server-side rather than rolling
+  yet another endpoint shape.
+- **WebSocket multiplex.** If a consumer wants many subscriptions per
+  connection, `/v2/subscribe` over WS becomes the right answer.
+  Additive — SSE endpoints stay.

@@ -98,3 +98,5 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 	storj.io/drpc v0.0.34 // indirect
 )
+
+replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk2

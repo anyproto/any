@@ -30,6 +30,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
 	g.GET("/spaces/:spaceId/objects/:objectId/markdown", d.markdownGet)
 	g.PUT("/spaces/:spaceId/objects/:objectId/markdown", d.markdownSet)
+	g.GET("/spaces/:spaceId/objects/:objectId/subscribe", d.subscribeObject)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
@@ -45,6 +46,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.UpdatePropertyMeta"))
 
 	// Properties.
+	g.GET("/spaces/:spaceId/properties/subscribe", d.subscribeProperties)
 	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
 	g.POST("/spaces/:spaceId/properties/:objectId/base/:typeId", d.propertiesSetBase)
 	g.POST("/spaces/:spaceId/properties/:objectId/account/:typeId", notImplemented("Properties.SetAccount"))

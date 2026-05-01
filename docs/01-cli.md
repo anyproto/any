@@ -71,8 +71,24 @@ any modify <spaceId> <objectId> <dataset> --file FILE|-
 any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
 ```
 
-No `any subscribe` in v1. If you need to observe state, poll with
-`any query`.
+### Subscribe
+
+```
+any subscribe <spaceId> <objectId> --dataset <name>
+any subscribe <spaceId> --properties
+```
+
+Streams CRDT apply events over Server-Sent Events. Output is one JSON
+object per SSE frame on stdout — `{"event": "<name>", "data": <payload>}`
+— so the stream pipes cleanly through `jq`:
+
+```bash
+any subscribe $SPID $OBJID --dataset objects \
+  | jq 'select(.event=="changes") | .data[]'
+```
+
+`--timeout` does not apply (streams are long-lived). Cancel with
+Ctrl-C. See `04-events.md` for the contract.
 
 ### Types & properties (planned)
 
