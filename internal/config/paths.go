@@ -1,0 +1,71 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// ExpandTilde resolves a leading "~" to the user's home directory.
+// Returns the input unchanged when no home can be resolved or no tilde
+// is present.
+func ExpandTilde(p string) string {
+	if p == "" || p[0] != '~' {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
+
+// EnsureDataDir creates the data directory (mode 0700) if it does not
+// exist and returns its absolute, tilde-expanded path.
+func EnsureDataDir(raw string) (string, error) {
+	p, err := filepath.Abs(ExpandTilde(raw))
+	if err != nil {
+		return "", fmt.Errorf("resolve data dir: %w", err)
+	}
+	if err := os.MkdirAll(p, 0o700); err != nil {
+		return "", fmt.Errorf("create data dir %s: %w", p, err)
+	}
+	return p, nil
+}
+
+// WalletPath returns the effective wallet file path for the config:
+// cfg.Auth.WalletPath when set, otherwise <dataDir>/wallet.key.
+func WalletPath(cfg Config, dataDir string) string {
+	if cfg.Auth.WalletPath != "" {
+		return ExpandTilde(cfg.Auth.WalletPath)
+	}
+	return filepath.Join(dataDir, "wallet.key")
+}
+
+// PIDPath returns <dataDir>/server.pid.
+func PIDPath(dataDir string) string {
+	return filepath.Join(dataDir, "server.pid")
+}
+
+// ConfigSearchPaths lists the files to probe when --config is not
+// specified, in priority order.
+func ConfigSearchPaths(dataDir string) []string {
+	var out []string
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		out = append(out, filepath.Join(xdg, "any", "config.yaml"))
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		out = append(out, filepath.Join(home, ".config", "any", "config.yaml"))
+	}
+	if dataDir != "" {
+		out = append(out, filepath.Join(dataDir, "config.yaml"))
+	}
+	return out
+}

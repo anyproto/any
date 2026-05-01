@@ -1,0 +1,2489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>any</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2129;
+    --border: #30363d;
+    --border-soft: #21262d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --accent: #2f81f7;
+    --accent-fade: #1f4e8c;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; height: 100%; }
+  body { font: 14px/1.45 system-ui, -apple-system, sans-serif; display: flex; }
+
+  /* ---------- right sidebar: request/response log ---------- */
+  aside.netlog {
+    width: 360px; flex-shrink: 0; background: var(--panel);
+    border-left: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden; transition: width .15s ease;
+  }
+  aside.netlog.collapsed { width: 36px; }
+  aside.netlog .netlog-head {
+    padding: 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  aside.netlog.collapsed .netlog-head { padding: 12px 8px; flex-direction: column; }
+  aside.netlog .netlog-head h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0;
+  }
+  aside.netlog.collapsed .netlog-head h2 { writing-mode: vertical-rl; transform: rotate(180deg); }
+  aside.netlog .netlog-head .actions { display: flex; gap: 6px; }
+  aside.netlog.collapsed .netlog-head .actions { flex-direction: column; }
+  aside.netlog.collapsed .netlog-list { display: none; }
+
+  .netlog-list { flex: 1; overflow-y: auto; }
+  .netlog-entry {
+    border-bottom: 1px solid var(--border-soft); padding: 6px 12px; cursor: pointer;
+    font: 12px var(--mono);
+  }
+  .netlog-entry:hover { background: var(--panel-2); }
+  .netlog-entry .head {
+    display: flex; align-items: center; gap: 6px; line-height: 1.5;
+  }
+  .netlog-entry .method {
+    color: var(--text); font-weight: 600; padding: 0 4px; border-radius: 3px;
+    background: var(--border-soft); flex-shrink: 0; font-size: 10px;
+  }
+  .netlog-entry .method.GET    { color: var(--accent); }
+  .netlog-entry .method.POST   { color: var(--ok); }
+  .netlog-entry .method.PUT,
+  .netlog-entry .method.PATCH  { color: var(--warn); }
+  .netlog-entry .method.DELETE { color: var(--err); }
+  .netlog-entry .path { flex: 1; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .netlog-entry .status {
+    font-weight: 600; flex-shrink: 0; padding: 0 4px; border-radius: 3px; background: var(--border-soft);
+    font-size: 10px;
+  }
+  .netlog-entry .status.ok  { color: var(--ok); }
+  .netlog-entry .status.err { color: var(--err); }
+  .netlog-entry .ts { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .netlog-entry .body { display: none; margin-top: 6px; }
+  .netlog-entry.open  { background: var(--panel-2); }
+  .netlog-entry.open .body { display: block; }
+  .netlog-entry .body .label {
+    font-size: 10px; text-transform: uppercase; color: var(--muted);
+    letter-spacing: .04em; margin-top: 4px;
+  }
+  .netlog-entry .body pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+    padding: 6px; margin: 2px 0 0; font: 11px var(--mono); white-space: pre-wrap;
+    word-break: break-all; max-height: 240px; overflow: auto;
+  }
+
+  /* ---------- sidebar ---------- */
+  aside.sidebar {
+    width: 260px; flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
+  }
+  aside .brand { padding: 16px; border-bottom: 1px solid var(--border); }
+  aside .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+  aside .brand .acct { margin-top: 4px; font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+  aside .brand .health { margin-top: 6px; font: 11px var(--mono); color: var(--muted); }
+  aside .brand .health.ok { color: var(--ok); }
+  aside .brand .health.err { color: var(--err); }
+
+  aside .group { padding: 12px 12px 8px; }
+  aside .group h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center;
+  }
+
+  /* ---------- left tree ---------- */
+  aside.sidebar .tree-head {
+    padding: 12px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  aside.sidebar .tree-head h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); margin: 0;
+  }
+  aside.sidebar .tree-head .actions { display: flex; gap: 4px; }
+  aside.sidebar .tree {
+    flex: 1; overflow-y: auto; padding: 4px 0;
+  }
+  .tree-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px 3px 4px; cursor: pointer;
+    color: var(--text); font-size: 13px; line-height: 1.35;
+    border-left: 2px solid transparent;
+    user-select: none;
+    position: relative;
+  }
+  .tree-row:hover { background: var(--panel-2); }
+  .tree-row.active { background: var(--accent-fade); border-left-color: var(--accent); }
+  .tree-row.dragging { opacity: 0.4; }
+  .tree-row.drop-into { background: var(--accent-fade); outline: 1px solid var(--accent); }
+  .tree-row.drop-before::before {
+    content: ''; position: absolute; left: 0; right: 0; top: -1px;
+    height: 2px; background: var(--accent);
+  }
+  .tree-row.drop-after::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--accent);
+  }
+  .tree-droproot {
+    min-height: 24px; padding: 4px 12px;
+    color: var(--muted); font: 11px var(--mono);
+  }
+  .tree-droproot.drop-active {
+    background: var(--accent-fade); outline: 1px dashed var(--accent);
+    color: var(--text);
+  }
+  .tree-empty.drop-active {
+    background: var(--accent-fade); outline: 1px dashed var(--accent);
+    color: var(--text);
+  }
+  .tree-row .chevron {
+    width: 14px; flex-shrink: 0; color: var(--muted);
+    text-align: center; font-size: 10px; cursor: pointer;
+  }
+  .tree-row .chevron.empty { visibility: hidden; }
+  .tree-row .icon-glyph {
+    width: 14px; flex-shrink: 0; text-align: center; color: var(--muted); font-size: 12px;
+  }
+  .tree-row .name {
+    flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tree-row .row-actions { display: none; gap: 2px; }
+  .tree-row:hover .row-actions { display: flex; }
+  .tree-row .row-actions button {
+    background: transparent; color: var(--muted); border: 0;
+    padding: 0; width: 18px; height: 18px; font-size: 11px;
+    cursor: pointer; line-height: 1;
+  }
+  .tree-row .row-actions button:hover { color: var(--text); }
+  .tree-empty {
+    padding: 8px 14px; color: var(--muted); font-size: 12px;
+  }
+  .tree-loading {
+    padding: 4px 14px; color: var(--muted); font: 11px var(--mono);
+  }
+
+  /* ---------- right-sidebar space picker ---------- */
+  aside.netlog .space-picker {
+    padding: 10px 12px; display: flex; gap: 6px; align-items: center;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  aside.netlog .space-picker select {
+    flex: 1; background: var(--bg); color: var(--text);
+    font: 12px var(--mono); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 6px;
+  }
+  aside.netlog #form-new-space {
+    margin: 8px 12px;
+  }
+  aside.netlog.collapsed .space-picker { display: none; }
+  aside.netlog.collapsed #form-new-space { display: none; }
+
+  /* ---------- main ---------- */
+  main {
+    flex: 1; min-width: 0;
+    height: 100vh; overflow-y: auto; overflow-x: hidden;
+    padding: 16px 24px;
+  }
+  main > * + * { margin-top: 16px; }
+  main .empty {
+    margin: 25vh auto 0; text-align: center; color: var(--muted); font-size: 14px; max-width: 360px;
+  }
+  main .empty code { font: 12px var(--mono); background: var(--panel-2); padding: 2px 6px; border-radius: 3px; }
+  main a.link, main a.back { color: var(--accent); text-decoration: none; }
+  main a.link:hover, main a.back:hover { text-decoration: underline; }
+
+  .space-header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .space-header h2 { margin: 0; font-size: 20px; }
+  .space-header .id { font: 11px var(--mono); color: var(--muted); margin-left: 6px; }
+  .space-header .meta { font: 12px var(--mono); color: var(--muted); }
+
+  /* ---------- top tabs (objects / types / query) ---------- */
+  .page-tabs {
+    display: flex; gap: 4px; margin-top: 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .page-tabs .tab {
+    color: var(--muted); text-decoration: none;
+    padding: 6px 14px; border-bottom: 2px solid transparent;
+    font-size: 13px; line-height: 1.4;
+  }
+  .page-tabs .tab:hover { color: var(--text); }
+  .page-tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  /* ---------- object-edit page header ---------- */
+  .page-head { margin-bottom: 16px; }
+  .page-head .back {
+    display: inline-block; color: var(--muted); text-decoration: none;
+    font-size: 12px;
+  }
+  .page-head .back:hover { color: var(--text); }
+  .page-head .page-title { font-size: 24px; margin: 10px 0 4px; line-height: 1.2; }
+  .page-head .page-sub {
+    font: 11px var(--mono); color: var(--muted);
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  }
+
+  /* ---------- objects list rows ---------- */
+  .obj-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 4px;
+    color: inherit; text-decoration: none; margin-bottom: 6px;
+  }
+  .obj-row:hover { background: var(--panel-2); border-color: var(--border); }
+  .obj-row .name { font-weight: 500; }
+  .obj-row .row-meta {
+    display: flex; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--muted);
+    white-space: nowrap;
+  }
+
+  section.card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  section.card > header {
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel-2);
+  }
+  section.card > header h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  section.card > .body { padding: 12px; }
+
+  /* ---------- type cards (collapsible <details>) ---------- */
+  details.type-card {
+    border: 1px solid var(--border-soft); border-radius: 4px;
+    margin-bottom: 8px;
+  }
+  details.type-card[open] { border-color: var(--border); }
+  details.type-card > summary {
+    list-style: none; padding: 8px 10px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+  }
+  details.type-card > summary::-webkit-details-marker { display: none; }
+  details.type-card > summary:hover { background: var(--panel-2); }
+  details.type-card > summary .name { font-weight: 500; }
+  details.type-card > summary .id { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
+  details.type-card > .type-body {
+    padding: 10px; border-top: 1px solid var(--border-soft);
+  }
+
+  /* ---------- type sections inside object editor ---------- */
+  .type-section {
+    margin-bottom: 14px; padding: 10px;
+    border: 1px solid var(--border-soft); border-radius: 4px;
+  }
+  .type-section h4 {
+    margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); display: flex; align-items: center; gap: 6px;
+  }
+
+  /* ---------- bind-types panel ---------- */
+  details.bind-types { margin-top: 12px; }
+  details.bind-types > summary {
+    cursor: pointer; color: var(--muted); font-size: 12px; padding: 4px 0;
+  }
+  details.bind-types .bind-list {
+    margin-top: 6px; padding: 8px;
+    border: 1px dashed var(--border); border-radius: 4px;
+  }
+  details.bind-types .bind-item {
+    display: block; font: 12px var(--mono); text-transform: none; padding: 2px 0;
+  }
+
+  .prop-list { list-style: none; margin: 0; padding: 0; font: 12px var(--mono); }
+  .prop-list li { padding: 3px 0; display: flex; gap: 8px; align-items: center; }
+  .prop-list li .pname { color: var(--text); }
+  .prop-list li .pkind { color: var(--accent); }
+  .prop-list li .pid { color: var(--muted); margin-left: auto; }
+
+  /* forms */
+  .field { margin-bottom: 8px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%; background: var(--bg); color: var(--text); font: 13px var(--mono);
+    border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); }
+  textarea { min-height: 56px; resize: vertical; }
+
+  button {
+    background: var(--accent); color: #fff; border: 0; padding: 5px 10px; border-radius: 4px;
+    font-size: 12px; cursor: pointer; line-height: 1; height: 24px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  button.ghost:hover { color: var(--text); border-color: var(--text); }
+  button.danger { background: #6e2424; }
+  button.icon { padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 14px; }
+
+  .form-toggle {
+    background: var(--panel-2); border: 1px dashed var(--border); border-radius: 4px;
+    padding: 10px; margin-bottom: 8px;
+  }
+  .form-toggle.collapsed { display: none; }
+  .form-row { display: flex; gap: 8px; }
+  .form-row > * { flex: 1; }
+  .form-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+  .obj-edit-row {
+    display: grid; grid-template-columns: 1fr 1.5fr 60px; gap: 8px; align-items: center; margin-bottom: 6px;
+    padding: 4px 0;
+  }
+  .obj-edit-row .pname { font-size: 12px; }
+  .obj-edit-row .pname .pkind { color: var(--accent); font: 11px var(--mono); margin-left: 4px; }
+  .obj-edit-row .pname .pid { display: block; font: 10px var(--mono); color: var(--muted); }
+
+  .toast {
+    position: fixed; bottom: 16px; right: 16px; z-index: 100;
+    background: var(--panel); border: 1px solid var(--border); padding: 10px 14px;
+    border-radius: 6px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+    max-width: 360px; transform: translateY(40px); opacity: 0; transition: all .2s;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.err { border-color: var(--err); }
+  .toast.ok { border-color: var(--ok); }
+  .toast .body { font: 11px var(--mono); color: var(--muted); margin-top: 4px; word-break: break-word; max-height: 100px; overflow: auto; }
+
+  details.raw { margin-top: 12px; }
+  details.raw summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+  details.raw pre { font: 11px var(--mono); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+
+  .row { display: flex; gap: 8px; align-items: center; }
+  .spacer { flex: 1; }
+  .pill {
+    font: 10px var(--mono); background: var(--panel-2); color: var(--muted);
+    padding: 1px 6px; border-radius: 99px; border: 1px solid var(--border);
+  }
+
+  /* Type tabs in the objects card. Horizontal scroll-snap when there
+     are too many to fit; subtle bottom border stitches them to the
+     list below. */
+  .obj-tabs {
+    display: flex; gap: 4px; margin-bottom: 10px;
+    overflow-x: auto; padding-bottom: 2px;
+    border-bottom: 1px solid var(--border-soft);
+    scrollbar-width: thin;
+  }
+  .obj-tab {
+    background: transparent; color: var(--muted); border: 0;
+    border-bottom: 2px solid transparent; padding: 4px 10px;
+    font: 12px system-ui; cursor: pointer; height: auto;
+    border-radius: 0; white-space: nowrap; flex-shrink: 0;
+    text-decoration: none;
+  }
+  .obj-tab:hover { color: var(--text); }
+  .obj-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .obj-tab-count {
+    margin-left: 4px; font: 10px var(--mono);
+    background: var(--panel-2); color: var(--muted);
+    padding: 0 5px; border-radius: 99px;
+    border: 1px solid var(--border);
+  }
+  .obj-tab.active .obj-tab-count { color: var(--text); }
+
+  /* ---------- EasyMDE dark overrides ----------
+     EasyMDE/CodeMirror ship with light defaults; restyle the surfaces
+     that contrast against our dark theme. The container itself and
+     the toolbar stay close to the panel colors so the editor feels
+     like a first-class part of the page. */
+  .EasyMDEContainer { background: var(--bg); }
+  .EasyMDEContainer .CodeMirror,
+  .EasyMDEContainer .editor-preview,
+  .EasyMDEContainer .editor-preview-side {
+    background: var(--bg); color: var(--text);
+    border-color: var(--border);
+  }
+  .EasyMDEContainer .CodeMirror-cursor { border-left-color: var(--text); }
+  .EasyMDEContainer .CodeMirror-selected { background: var(--accent-fade); }
+  .EasyMDEContainer .CodeMirror-line ::selection { background: var(--accent-fade); }
+  .EasyMDEContainer .editor-toolbar {
+    background: var(--panel-2); border-color: var(--border);
+    opacity: 1;
+  }
+  .EasyMDEContainer .editor-toolbar button {
+    color: var(--text); border-color: transparent;
+  }
+  .EasyMDEContainer .editor-toolbar button:hover,
+  .EasyMDEContainer .editor-toolbar button.active {
+    background: var(--panel); border-color: var(--border);
+  }
+  .EasyMDEContainer .editor-toolbar i.separator {
+    border-left: 1px solid var(--border); border-right-color: transparent;
+  }
+  .EasyMDEContainer .editor-statusbar { color: var(--muted); }
+  .EasyMDEContainer .editor-preview pre,
+  .EasyMDEContainer .editor-preview-side pre {
+    background: var(--panel-2); color: var(--text);
+  }
+  .EasyMDEContainer .editor-preview code,
+  .EasyMDEContainer .editor-preview-side code {
+    background: var(--panel-2); padding: 1px 4px; border-radius: 3px;
+  }
+  .EasyMDEContainer .editor-preview blockquote,
+  .EasyMDEContainer .editor-preview-side blockquote {
+    color: var(--muted); border-left-color: var(--border);
+  }
+  .md-card .body { padding: 0; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">
+    <h1>any</h1>
+    <div class="acct" id="acct-id">—</div>
+    <div class="health" id="health">checking…</div>
+  </div>
+
+  <div class="tree-head">
+    <h2>tree</h2>
+    <div class="actions">
+      <button class="ghost icon" data-act="tree-new-item" title="new item at root">+</button>
+      <button class="ghost icon" data-act="tree-new-folder" title="new folder at root">+▸</button>
+      <button class="ghost icon" data-act="tree-refresh" title="refresh">⟳</button>
+    </div>
+  </div>
+  <div class="tree" id="tree"></div>
+</aside>
+
+<main id="main">
+  <div class="empty" id="empty-state">
+    <p>pick a space on the right, or create one with <code>+</code>.</p>
+  </div>
+</main>
+
+<aside class="netlog" id="netlog">
+  <div class="space-picker">
+    <select id="space-select" title="active space"></select>
+    <button class="ghost icon" id="btn-new-space-toggle" title="new space">+</button>
+  </div>
+  <div class="form-toggle collapsed" id="form-new-space">
+    <div class="field"><label>name</label><input type="text" id="new-space-name" value="Demo"></div>
+    <div class="field"><label>description (optional)</label><input type="text" id="new-space-description"></div>
+    <div class="form-actions">
+      <button id="btn-new-space-create">create</button>
+      <button class="ghost" id="btn-new-space-cancel">cancel</button>
+    </div>
+  </div>
+
+  <div class="netlog-head">
+    <h2>network</h2>
+    <div class="actions">
+      <button class="ghost" id="btn-netlog-clear" title="clear log">clear</button>
+      <button class="ghost" id="btn-netlog-toggle" title="collapse / expand">⇔</button>
+    </div>
+  </div>
+  <div class="netlog-list" id="netlog-list"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ---------- constants ----------
+  const MD_TYPE_ID = 'md';
+  const NAV_TYPE_ID = 'nav';
+  const NAV_TYPE_ITEM = 1;
+  const NAV_TYPE_FOLDER = 2;
+  const NAV_ROOT_PARENT = '';
+  const ANY_AUTO_PROP_IDS = new Set(['id', 'author', 'spaceId', 'createdAt']);
+  const OBJECTS_QUERY_LIMIT = 500;
+  const TREE_PAGE_SIZE = 200;
+
+  // ---------- lexid (JS port of github.com/anyproto/lexid) ----------
+  // The server's `nav.pos` allocator uses CharsAllNoEscape +
+  // blockSize=4 + stepSize=100. Drag/drop needs to allocate new pos
+  // values client-side; if we used a generic midstring algorithm,
+  // values would land outside the alphabet and the server's later
+  // Next() calls (e.g. on object create) would walk into undefined
+  // territory in nextChar[] lookups. So we mirror the Go logic
+  // byte-for-byte. Any divergence here will silently corrupt sort
+  // order over time — keep in sync with /home/che/go/pkg/mod/.../lexid.go.
+  const LEXID_CHARS = (() => {
+    // Visible ASCII (33–126) minus " (34) and \ (92).
+    const out = [];
+    for (let i = 33; i <= 126; i++) {
+      if (i === 34 || i === 92) continue;
+      out.push(i);
+    }
+    return out; // already sorted by byte
+  })();
+  const LEXID_BLOCK = 4;
+  const LEXID_STEP = 100;
+  const LEXID_LOWER = LEXID_CHARS[0];
+  const LEXID_UPPER = LEXID_CHARS[LEXID_CHARS.length - 1];
+  const LEXID_NEXT_CHAR = (() => {
+    const arr = new Uint8Array(256).fill(LEXID_LOWER);
+    for (let i = 0; i < LEXID_CHARS.length; i++) {
+      arr[LEXID_CHARS[i]] = LEXID_CHARS[(i + 1) % LEXID_CHARS.length];
+    }
+    return arr;
+  })();
+  const LEXID_INDEX = (() => {
+    const arr = new Int16Array(256).fill(-1);
+    for (let i = 0; i < LEXID_CHARS.length; i++) {
+      arr[LEXID_CHARS[i]] = i;
+    }
+    return arr;
+  })();
+  function lexidPadding(s, pad) {
+    const out = new Array(s.length + pad);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    for (let i = 0; i < pad; i++) {
+      out[s.length + i] = (i === pad - 1) ? LEXID_NEXT_CHAR[LEXID_LOWER] : LEXID_LOWER;
+    }
+    return String.fromCharCode.apply(null, out);
+  }
+  function lexidNextStep(prev, step) {
+    if (prev === '') {
+      const first = new Array(LEXID_BLOCK);
+      for (let i = 0; i < LEXID_BLOCK; i++) {
+        first[i] = (i === LEXID_BLOCK - 1) ? LEXID_NEXT_CHAR[LEXID_LOWER] : LEXID_LOWER;
+      }
+      prev = String.fromCharCode.apply(null, first);
+    }
+    const padNeeded = LEXID_BLOCK - (prev.length % LEXID_BLOCK);
+    if (padNeeded !== LEXID_BLOCK) return lexidPadding(prev, padNeeded);
+
+    let bytes = new Array(prev.length);
+    for (let i = 0; i < prev.length; i++) bytes[i] = prev.charCodeAt(i);
+
+    while (true) {
+      let carry = 1;
+      for (let s = 0; s < step; s++) {
+        carry = 1;
+        for (let i = bytes.length - 1; i >= 0; i--) {
+          if (carry === 0) break;
+          const nv = LEXID_NEXT_CHAR[bytes[i]];
+          if (nv === LEXID_LOWER) {
+            bytes[i] = (i === bytes.length - 1) ? LEXID_NEXT_CHAR[LEXID_LOWER] : nv;
+            carry = 1;
+          } else {
+            bytes[i] = nv;
+            carry = 0;
+          }
+        }
+        if (carry !== 0) break;
+      }
+      if (carry === 1) {
+        // pad and retry
+        prev = lexidPadding(String.fromCharCode.apply(null, bytes), LEXID_BLOCK);
+        bytes = new Array(prev.length);
+        for (let i = 0; i < prev.length; i++) bytes[i] = prev.charCodeAt(i);
+        continue;
+      }
+      break;
+    }
+    return String.fromCharCode.apply(null, bytes);
+  }
+  function lexidPrevStep(next, step) {
+    if (next === '') {
+      const last = new Array(LEXID_BLOCK).fill(LEXID_UPPER);
+      return String.fromCharCode.apply(null, last);
+    }
+    let bytes = new Array(next.length);
+    for (let i = 0; i < next.length; i++) {
+      const c = next.charCodeAt(i);
+      if (LEXID_INDEX[c] === -1) return '';
+      bytes[i] = c;
+    }
+    let remaining = step;
+    while (remaining > 0) {
+      let borrow = 1;
+      for (let i = bytes.length - 1; i >= 0; i--) {
+        if (borrow === 0) break;
+        const idx = LEXID_INDEX[bytes[i]];
+        let newIdx = idx - 1;
+        if (newIdx < 0) {
+          newIdx = LEXID_CHARS.length - 1;
+          borrow = 1;
+        } else {
+          borrow = 0;
+        }
+        bytes[i] = LEXID_CHARS[newIdx];
+      }
+      if (borrow !== 0) {
+        if (bytes.length <= LEXID_BLOCK) return '';
+        bytes = bytes.slice(0, bytes.length - LEXID_BLOCK);
+        if (remaining > 1 && bytes.length > 0) {
+          for (let j = 0; j < bytes.length; j++) bytes[j] = LEXID_UPPER;
+        }
+      }
+      remaining--;
+      // Trailing-zero padding check (matches Go).
+      if (bytes.length > 0 && bytes[bytes.length - 1] === LEXID_LOWER) {
+        let isMin = true;
+        for (let i = 0; i < bytes.length; i++) {
+          if (bytes[i] !== LEXID_LOWER) { isMin = false; break; }
+        }
+        if (isMin) {
+          for (let i = 0; i < LEXID_BLOCK; i++) bytes.push(LEXID_UPPER);
+        }
+      }
+    }
+    return String.fromCharCode.apply(null, bytes);
+  }
+  function lexidApproxDistance(id1, id2) {
+    const size = Math.min(id1.length, id2.length);
+    let distance = 0, mult = 1;
+    for (let i = size - 1; i >= 0; i--) {
+      const i1 = LEXID_INDEX[id1.charCodeAt(i)];
+      const i2 = LEXID_INDEX[id2.charCodeAt(i)];
+      distance += (i2 - i1) * mult;
+      mult *= LEXID_CHARS.length;
+    }
+    return distance;
+  }
+  function lexidAddTail(prev) {
+    const middle = LEXID_CHARS[(LEXID_CHARS.length / 2) | 0];
+    return lexidPadding(prev + String.fromCharCode(middle), LEXID_BLOCK - 1);
+  }
+  function lexidMiddle() {
+    const m = LEXID_CHARS[(LEXID_CHARS.length / 2) | 0];
+    return String.fromCharCode(m).repeat(LEXID_BLOCK);
+  }
+  function lexidNext(prev) { return lexidNextStep(prev, LEXID_STEP); }
+  function lexidPrev(next) { return lexidPrevStep(next, LEXID_STEP); }
+  function lexidNextBefore(prev, before) {
+    if (before <= prev) throw new Error('NextBefore: before <= prev (' + JSON.stringify({prev, before}) + ')');
+    let prevPad = prev, beforePad = before;
+    let p = LEXID_BLOCK - (prevPad.length % LEXID_BLOCK);
+    if (p !== LEXID_BLOCK) prevPad = lexidPadding(prevPad, p);
+    p = LEXID_BLOCK - (beforePad.length % LEXID_BLOCK);
+    if (p !== LEXID_BLOCK) beforePad = lexidPadding(beforePad, p);
+    if (prev === '' || before.startsWith(prev)) {
+      const beforeTail = before.slice(prev.length);
+      if (beforeTail === lexidPadding('', beforeTail.length)) {
+        const padTo = LEXID_BLOCK * ((beforePad.length / LEXID_BLOCK) | 0);
+        prevPad = lexidPadding(prevPad, padTo);
+        if (prevPad === beforePad) {
+          prevPad = lexidPadding('', padTo + LEXID_BLOCK);
+        }
+      }
+    }
+    const lDiff = prevPad.length - beforePad.length;
+    if (lDiff > 0) beforePad = lexidPadding(beforePad, lDiff);
+    else if (lDiff < 0) prevPad = lexidPadding(prevPad, -lDiff);
+
+    const dist = lexidApproxDistance(prevPad, beforePad);
+    if (dist > 0) {
+      let step = LEXID_STEP;
+      while (step / dist > 0.3) step = (step / 2) | 0;
+      if (step > 0) {
+        const next = lexidNextStep(prevPad, step);
+        if (next < before) return next;
+      }
+    }
+    const next = lexidAddTail(prevPad);
+    if (prev > next || next > before) {
+      throw new Error('lexid: cannot allocate between ' + JSON.stringify(prev) + ' and ' + JSON.stringify(before));
+    }
+    return next;
+  }
+  // posBetween mirrors nav.PosBetween server-side: empty bounds mean
+  // "outside everything", so prev='' allocates Prev(next), next=''
+  // allocates Next(prev), both empty allocates Middle().
+  function navPosBetween(prev, next) {
+    if (!prev && !next) return lexidMiddle();
+    if (!next) return lexidNext(prev);
+    if (!prev) return lexidPrev(next);
+    return lexidNextBefore(prev, next);
+  }
+
+  // ---------- network log ----------
+  // Capped FIFO of every API exchange so the right sidebar can render
+  // exactly what went over the wire. Newest first.
+  const NetLog = {
+    cap: 100,
+    entries: [],
+    push(entry) {
+      this.entries.unshift(entry);
+      if (this.entries.length > this.cap) this.entries.length = this.cap;
+      renderNetLog();
+    },
+    clear() { this.entries = []; renderNetLog(); },
+  };
+
+  // ---------- API ----------
+  const api = {
+    async call(method, path, body) {
+      const init = { method, headers: {} };
+      let reqBody = null;
+      if (body !== undefined && body !== null) {
+        init.body = typeof body === 'string' ? body : JSON.stringify(body);
+        init.headers['Content-Type'] = 'application/json';
+        reqBody = init.body;
+      }
+      const startedAt = performance.now();
+      const ts = new Date();
+      let resp, text = '', err = null;
+      try {
+        resp = await fetch(path, init);
+        text = await resp.text();
+      } catch (e) {
+        err = e;
+      }
+      const dur = Math.round(performance.now() - startedAt);
+      let json = null; try { json = text ? JSON.parse(text) : null; } catch (e) {}
+      NetLog.push({
+        ts, method, path,
+        status: err ? 0 : resp.status,
+        statusText: err ? (err.message || 'error') : resp.statusText,
+        ok: !err && resp.ok,
+        durationMs: dur,
+        reqBody, respBody: text,
+      });
+      if (err) throw err;
+      return { ok: resp.ok, status: resp.status, body: text, json };
+    },
+    get(p) { return this.call('GET', p); },
+    post(p, b) { return this.call('POST', p, b); },
+    put(p, b) { return this.call('PUT', p, b); },
+    del(p) { return this.call('DELETE', p); },
+  };
+
+  // ---------- state ----------
+  // The page is driven by location.hash. App.route is the parsed
+  // shape; renderMain dispatches on route.name. Spaces, types, and
+  // object metadata are cached in App.spaces (keyed by spaceId) and
+  // persisted to localStorage. Markdown content lives on
+  // App.spaces[id].objects[oid].markdownContent — cache-only, NOT
+  // persisted (would balloon the localStorage budget).
+  const App = {
+    accountId: null,
+    route: { name: 'home' },
+    spaces: {},
+    queryScope: 'space',
+    lastQuery: null, lastQueryParams: null, lastQueryScope: null,
+
+    storageKey() { return 'any-app:' + (this.accountId || 'unknown'); },
+
+    persist() {
+      try {
+        const snap = { spaces: {} };
+        for (const [id, s] of Object.entries(this.spaces)) {
+          const objs = {};
+          for (const [oid, o] of Object.entries(s.objects || {})) {
+            const { markdownContent, ...rest } = o;
+            objs[oid] = rest;
+          }
+          snap.spaces[id] = {
+            types: s.types, objects: objs,
+            // Persist only the expanded-folder set across reloads;
+            // children are always re-fetched.
+            expanded: Array.from((s.tree && s.tree.expanded) || []),
+          };
+        }
+        localStorage.setItem(this.storageKey(), JSON.stringify(snap));
+      } catch (e) {}
+    },
+    rehydrate() {
+      try {
+        const raw = localStorage.getItem(this.storageKey());
+        if (!raw) return;
+        const snap = JSON.parse(raw);
+        for (const [id, s] of Object.entries(snap.spaces || {})) {
+          // De-duplicate type.props by propId. Older builds pushed on
+          // every AddProperty call without checking for an existing
+          // entry; that left repeated rows in localStorage that all
+          // bound to the same propId and rendered as identical inputs.
+          const types = s.types || {};
+          for (const t of Object.values(types)) {
+            if (!Array.isArray(t.props)) { t.props = []; continue; }
+            const seen = new Set();
+            t.props = t.props.filter(p => {
+              if (!p || !p.id || seen.has(p.id)) return false;
+              seen.add(p.id);
+              return true;
+            });
+          }
+          this.spaces[id] = {
+            info: null, types, objects: s.objects || {},
+            tree: {
+              children: {}, // not persisted — re-fetched on demand
+              expanded: new Set(s.expanded || []),
+              loading: new Set(),
+            },
+          };
+        }
+      } catch (e) {}
+    },
+
+    activeSpace() { return this.route?.spaceId ? this.spaces[this.route.spaceId] : null; },
+  };
+
+  // ---------- helpers ----------
+  function escapeHTML(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function shortId(s) { return s ? (s.length > 12 ? s.slice(0, 8) + '…' + s.slice(-3) : s) : ''; }
+  function prettyJSON(v) { try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); } }
+  function fmtTime(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function pretty(text) {
+    if (!text) return '';
+    try { return JSON.stringify(JSON.parse(text), null, 2); } catch (e) { return text; }
+  }
+  function cssEsc(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, m => '\\' + m); }
+  function val(sel, root) { const el = (root || document).querySelector(sel); return el ? el.value : ''; }
+  function toggle(sel) {
+    const el = document.querySelector(sel);
+    if (el) el.classList.toggle('collapsed');
+  }
+  function coerce(raw, kind) {
+    if (kind === 'string') return raw;
+    if (kind === 'number') {
+      if (raw === '' || raw == null) return null;
+      const n = Number(raw);
+      if (Number.isNaN(n)) throw new Error('not a number: ' + raw);
+      return n;
+    }
+    if (kind === 'boolean') return raw === 'true' || raw === true;
+    if (kind === 'null') return null;
+    if (kind === 'array' || kind === 'object') {
+      if (raw === '' || raw == null) return kind === 'array' ? [] : {};
+      return JSON.parse(raw);
+    }
+    return raw;
+  }
+  function stringify(v, kind) {
+    if (v == null) return '';
+    if (kind === 'array' || kind === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  // ---------- toast ----------
+  let toastTimer = null;
+  function toast(kind, msg, body) {
+    const el = document.getElementById('toast');
+    el.className = 'toast show ' + (kind || '');
+    el.innerHTML = '<div>' + escapeHTML(msg) + '</div>' +
+      (body ? '<div class="body">' + escapeHTML(body) + '</div>' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, kind === 'err' ? 6000 : 2500);
+  }
+
+  // ---------- API actions ----------
+  async function loadAccount() {
+    const r = await api.get('/v1/account');
+    if (!r.ok) throw new Error('GET /v1/account: ' + r.body);
+    App.accountId = r.json.id;
+    document.getElementById('acct-id').textContent = App.accountId;
+  }
+  function ensureSpace(id, info) {
+    if (!App.spaces[id]) {
+      App.spaces[id] = {
+        info: info || null,
+        types: {},
+        objects: {},
+        tree: { children: {}, expanded: new Set(), loading: new Set() },
+      };
+    } else if (info) {
+      App.spaces[id].info = info;
+    }
+    return App.spaces[id];
+  }
+  async function refreshSpaces() {
+    const r = await api.get('/v1/spaces');
+    if (!r.ok) throw new Error('GET /v1/spaces: ' + r.body);
+    const list = (r.json && r.json.spaces) || [];
+    const seen = new Set();
+    for (const info of list) {
+      seen.add(info.id);
+      ensureSpace(info.id, info);
+    }
+    for (const id of Object.keys(App.spaces)) {
+      if (!seen.has(id)) delete App.spaces[id];
+    }
+  }
+  async function createSpace({ name, description }) {
+    const r = await api.post('/v1/spaces', { name, description });
+    if (!r.ok) { toast('err', 'create space failed', r.body); return null; }
+    ensureSpace(r.json.id, r.json);
+    toast('ok', 'space created');
+    return r.json;
+  }
+  async function deleteSpace(id) {
+    const r = await api.del('/v1/spaces/' + encodeURIComponent(id));
+    if (!r.ok) { toast('err', 'delete space failed', r.body); return false; }
+    if (App.spaces[id]) App.spaces[id].info.status = 'deleted';
+    toast('ok', 'space deleted (soft)');
+    return true;
+  }
+  async function createType(spaceId, { name, description }) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/types', { name, description });
+    if (!r.ok) { toast('err', 'create type failed', r.body); return null; }
+    const t = { id: r.json.typeId, name, description, props: [] };
+    App.spaces[spaceId].types[t.id] = t;
+    toast('ok', 'type created');
+    return t;
+  }
+  async function addProperty(spaceId, typeId, { name, xKey, kind }) {
+    const r = await api.post(
+      '/v1/spaces/' + spaceId + '/types/' + typeId + '/properties',
+      { name, xKey, kind });
+    if (!r.ok) { toast('err', 'add property failed', r.body); return null; }
+    const p = { id: r.json.propId, name, xKey, kind };
+    const existing = App.spaces[spaceId].types[typeId].props.find(x => x.id === p.id);
+    if (existing) Object.assign(existing, p);
+    else App.spaces[spaceId].types[typeId].props.push(p);
+    toast('ok', 'property added');
+    return p;
+  }
+  async function createObject(spaceId, { types, initialProperties, nav }) {
+    const body = {};
+    if (types && types.length) body.types = types;
+    if (initialProperties && Object.keys(initialProperties).length) body.initialProperties = initialProperties;
+    if (nav) body.nav = nav;
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects', body);
+    if (!r.ok) { toast('err', 'create object failed', r.body); return null; }
+    const o = { id: r.json.objectId, types: types || [], lastRecord: null };
+    App.spaces[spaceId].objects[o.id] = o;
+    toast('ok', 'object created');
+    return o;
+  }
+  // loadTreeChildren queries POST /v1/spaces/:id/objects/query for
+  // direct children of `parentId`, sorted by nav.pos. Cached on
+  // App.spaces[id].tree.children[parentId]; rerunning replaces the
+  // cached list. Folder rows in the returned set seed
+  // App.spaces[id].objects so the editor / sibling code has a name to
+  // render before a full record load.
+  async function loadTreeChildren(spaceId, parentId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return [];
+    if (sp.tree.loading.has(parentId)) return sp.tree.children[parentId] || [];
+    sp.tree.loading.add(parentId);
+    try {
+      const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', {
+        filter: { 'nav.parentId': parentId },
+        sort: ['nav.pos'],
+        limit: TREE_PAGE_SIZE,
+      });
+      if (!r.ok) {
+        toast('err', 'tree load failed', r.body);
+        return sp.tree.children[parentId] || [];
+      }
+      const records = (r.json && r.json.records) || [];
+      const children = [];
+      for (const raw of records) {
+        let rec; try { rec = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { continue; }
+        if (!rec || !rec.id) continue;
+        // Skip type-meta rows — types are objects too in this collection.
+        const typesArr = (rec.any && Array.isArray(rec.any.types)) ? rec.any.types : [];
+        if (typesArr.includes('__type__')) continue;
+        const navNode = rec.nav || {};
+        const child = {
+          id: rec.id,
+          name: (rec.any && rec.any.name) || '',
+          navType: navNode.type || NAV_TYPE_ITEM,
+          parentId: navNode.parentId || '',
+          pos: navNode.pos || '',
+          types: typesArr.filter(t => t !== '__type__'),
+        };
+        children.push(child);
+        // Seed objects map so list rendering and editor pick up
+        // names / types without a separate load.
+        const existing = sp.objects[rec.id];
+        if (!existing) {
+          sp.objects[rec.id] = { id: rec.id, types: child.types, lastRecord: rec };
+        } else {
+          existing.types = child.types.length ? child.types : existing.types;
+          existing.lastRecord = rec;
+        }
+      }
+      sp.tree.children[parentId] = children;
+      return children;
+    } finally {
+      sp.tree.loading.delete(parentId);
+    }
+  }
+  async function loadObject(spaceId, objectId) {
+    const r = await api.get('/v1/spaces/' + spaceId + '/properties/' + objectId);
+    if (!r.ok) { toast('err', 'load properties failed', r.body); return null; }
+    const obj = App.spaces[spaceId].objects[objectId];
+    if (obj) obj.lastRecord = r.json.record;
+    return r.json.record;
+  }
+  async function setBase(spaceId, objectId, typeId, patch) {
+    const r = await api.post(
+      '/v1/spaces/' + spaceId + '/properties/' + objectId + '/base/' + typeId,
+      { patch });
+    if (!r.ok) { toast('err', 'save failed', r.body); return null; }
+    const rejections = (r.json && r.json.rejections) || [];
+    if (rejections.length > 0) {
+      const lines = rejections.map(rej => '· ' + rej.reason).join('\n');
+      toast('err', rejections.length + ' op(s) rejected', lines);
+    } else {
+      toast('ok', 'saved · v' + (r.json.versionId || ''));
+    }
+    await loadObject(spaceId, objectId);
+    return r.json;
+  }
+  async function deleteObject(spaceId, objectId) {
+    const r = await api.del('/v1/spaces/' + spaceId + '/objects/' + objectId);
+    if (!r.ok) { toast('err', 'delete object failed', r.body); return false; }
+    delete App.spaces[spaceId].objects[objectId];
+    toast('ok', 'object deleted');
+    return true;
+  }
+  async function querySpace(spaceId, body) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/query', body);
+    if (!r.ok) { toast('err', 'query failed', r.body); return null; }
+    return r.json;
+  }
+  async function querySpaceObjects(spaceId, body) {
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', body);
+    if (!r.ok) { toast('err', 'objects query failed', r.body); return null; }
+    return r.json;
+  }
+  async function loadMarkdown(spaceId, objectId) {
+    const r = await api.get('/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/markdown');
+    if (!r.ok) { toast('err', 'load markdown failed', r.body); return null; }
+    const obj = App.spaces[spaceId]?.objects[objectId];
+    if (obj) obj.markdownContent = (r.json && typeof r.json.content === 'string') ? r.json.content : '';
+    return obj ? obj.markdownContent : '';
+  }
+  async function saveMarkdown(spaceId, objectId, content) {
+    const r = await api.put(
+      '/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/markdown',
+      { content });
+    if (!r.ok) { toast('err', 'save markdown failed', r.body); return null; }
+    const j = r.json || {};
+    const ins = (j.inserted || []).length;
+    const upd = (j.updated || []).length;
+    const del = (j.deleted || []).length;
+    const unc = j.unchanged || 0;
+    toast('ok', 'markdown saved',
+      ins + ' inserted · ' + upd + ' updated · ' + del + ' deleted · ' + unc + ' unchanged');
+    const obj = App.spaces[spaceId]?.objects[objectId];
+    if (obj) obj.markdownContent = content;
+    return j;
+  }
+  // bindTypes attaches additional type ids to an existing object by
+  // setting any.types to the merged list. Reloads the record so the
+  // editor picks up the new type defs on the next render.
+  async function bindTypes(spaceId, objectId, addedTypeIds) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return false;
+    const obj = sp.objects[objectId];
+    if (!obj) return false;
+    const existing = (obj.types || []).slice();
+    const merged = Array.from(new Set([...existing, ...addedTypeIds]));
+    if (merged.length === existing.length) {
+      toast('ok', 'no new types to bind');
+      return false;
+    }
+    const r = await setBase(spaceId, objectId, 'any', { types: merged });
+    if (!r) return false;
+    const rec = obj.lastRecord || {};
+    const recTypes = (rec.any && Array.isArray(rec.any.types))
+      ? rec.any.types.filter(t => t !== '__type__')
+      : merged;
+    obj.types = recTypes;
+    return true;
+  }
+  // refreshObjects pulls the live list from the per-space `objects`
+  // collection and reconciles into App.spaces[spaceId].objects.
+  async function refreshObjects(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', { limit: OBJECTS_QUERY_LIMIT });
+    if (!r.ok) { toast('err', 'list objects failed', r.body); return; }
+    const records = (r.json && r.json.records) || [];
+    const seen = new Set();
+    for (const raw of records) {
+      let rec; try { rec = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { continue; }
+      if (!rec || !rec.id) continue;
+      // Skip type-meta rows (the per-space `objects` collection holds
+      // both regular objects and types — types carry __type__ in
+      // any.types). The types page handles those separately.
+      const types = (rec.any && Array.isArray(rec.any.types)) ? rec.any.types : [];
+      if (types.includes('__type__')) continue;
+      seen.add(rec.id);
+      const existing = sp.objects[rec.id];
+      const userTypes = types.filter(t => t !== '__type__');
+      if (!existing) {
+        sp.objects[rec.id] = { id: rec.id, types: userTypes, lastRecord: rec };
+      } else {
+        existing.types = userTypes.length ? userTypes : existing.types;
+        existing.lastRecord = rec;
+      }
+    }
+    for (const id of Object.keys(sp.objects)) {
+      if (!seen.has(id)) delete sp.objects[id];
+    }
+    sp.objectsTruncated = records.length >= OBJECTS_QUERY_LIMIT;
+  }
+  async function refreshTypes(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    const r = await api.get('/v1/spaces/' + spaceId + '/types');
+    if (!r.ok) { toast('err', 'list types failed', r.body); return; }
+    const list = (r.json && r.json.types) || [];
+    const seen = new Set();
+    for (const t of list) {
+      seen.add(t.id);
+      const existing = sp.types[t.id] || { id: t.id, props: [] };
+      sp.types[t.id] = {
+        id:          t.id,
+        name:        t.name || existing.name || '',
+        description: t.description || existing.description || '',
+        builtIn:     !!t.builtIn,
+        props:       existing.props || [],
+      };
+    }
+    for (const id of Object.keys(sp.types)) {
+      if (!seen.has(id)) delete sp.types[id];
+    }
+    await Promise.all(list.map(async (t) => {
+      const pr = await api.get('/v1/spaces/' + spaceId + '/types/' + t.id + '/properties');
+      if (!pr.ok) return;
+      const props = (pr.json && pr.json.properties) || [];
+      sp.types[t.id].props = props.map(p => ({
+        id: p.id, name: p.name, description: p.description,
+        xKey: p.xKey, kind: p.kind || 'string',
+      }));
+    }));
+  }
+
+  // ---------- tree actions ----------
+  // refreshTree drops every cached child list for the space and
+  // re-fetches the root level plus every currently-expanded folder.
+  // Call this after any operation that could rename or move objects
+  // — the tree's cached `name` / `pos` entries don't otherwise update.
+  async function refreshTree(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    sp.tree.children = {};
+    const ids = [NAV_ROOT_PARENT, ...Array.from(sp.tree.expanded || [])];
+    await Promise.all(ids.map(id => loadTreeChildren(spaceId, id)));
+    renderTree();
+  }
+
+  async function toggleFolder(spaceId, folderId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    if (sp.tree.expanded.has(folderId)) {
+      sp.tree.expanded.delete(folderId);
+    } else {
+      sp.tree.expanded.add(folderId);
+      if (!sp.tree.children[folderId]) {
+        renderTree(); // show loading
+        await loadTreeChildren(spaceId, folderId);
+      }
+    }
+    App.persist();
+  }
+
+  // createTreeChild creates a new item or folder under parentId. Empty
+  // parentId means "at root". Reloads the tree so the new row appears,
+  // and navigates into the new object's editor on success.
+  async function createTreeChild(spaceId, parentId, navType) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    const o = await createObject(spaceId, {
+      types: [],
+      nav: { type: navType, parentId: parentId || '' },
+    });
+    if (!o) return;
+    // For folders we expand them so the user sees they can drop
+    // children inside.
+    if (navType === NAV_TYPE_FOLDER) sp.tree.expanded.add(o.id);
+    await refreshTree(spaceId);
+    App.persist();
+    navigate(spaceUrl(spaceId, 'objects', o.id));
+  }
+
+  // ---------- router ----------
+  // Hash routes parsed by parseHash:
+  //   #/spaces/:id                   → space-objects
+  //   #/spaces/:id/objects[?type=Y]  → space-objects (optionally filtered)
+  //   #/spaces/:id/objects/:oid      → object-edit
+  //   #/spaces/:id/types             → space-types
+  //   #/spaces/:id/query             → space-query
+  function parseHash() {
+    const h = location.hash || '';
+    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
+    if (!m) return { name: 'home' };
+    const spaceId = decodeURIComponent(m[1]);
+    const section = m[2] || 'objects';
+    const param = m[3];
+    const qs = new URLSearchParams(m[4] || '');
+    if (section === 'objects' && param) {
+      return { name: 'object-edit', spaceId, objectId: decodeURIComponent(param) };
+    }
+    if (section === 'types') return { name: 'space-types', spaceId };
+    if (section === 'query') return { name: 'space-query', spaceId };
+    return { name: 'space-objects', spaceId, typeFilter: qs.get('type') || '' };
+  }
+  function spaceUrl(id, section, param) {
+    let u = '#/spaces/' + encodeURIComponent(id);
+    if (section) u += '/' + section;
+    if (param != null && param !== '') u += '/' + encodeURIComponent(param);
+    return u;
+  }
+  function navigate(hash) {
+    if (location.hash === hash) onHashChange();
+    else location.hash = hash;
+  }
+  async function onHashChange() {
+    unmountEditor();
+    App.route = parseHash();
+    render();
+    if (!App.route.spaceId) return;
+    try { await ensurePageData(App.route); } catch (e) {}
+    App.persist();
+    render();
+  }
+  // ensurePageData makes a best-effort fetch of whatever the new page
+  // needs to look right. Failures are surfaced by inner toasts; we
+  // never throw out so the page still shows what we have cached.
+  async function ensurePageData(route) {
+    const sp = App.spaces[route.spaceId];
+    if (!sp) return;
+    await Promise.all([
+      refreshTypes(route.spaceId),
+      refreshObjects(route.spaceId),
+      // Tree's root level is always loaded for the active space.
+      // Children of expanded folders re-fetched in parallel so a fresh
+      // page reload restores the previous view.
+      loadTreeChildren(route.spaceId, NAV_ROOT_PARENT),
+      ...Array.from(sp.tree.expanded || []).map(id =>
+        loadTreeChildren(route.spaceId, id)
+      ),
+    ]);
+    if (route.name === 'object-edit') {
+      await loadObject(route.spaceId, route.objectId);
+      const o = sp.objects[route.objectId];
+      if (o) {
+        const types = (o.lastRecord?.any?.types) || o.types || [];
+        if (types.includes(MD_TYPE_ID) && o.markdownContent === undefined) {
+          await loadMarkdown(route.spaceId, route.objectId);
+        }
+      }
+    }
+  }
+
+  // ---------- markdown editor (EasyMDE) ----------
+  // EasyMDE wraps a textarea with its own DOM. innerHTML on `main`
+  // wipes that wrapper, so we must call toTextArea() *before* the
+  // overwrite (renderMain does that via unmountEditor). After the new
+  // markup is in the DOM, mountEditorForObject finds the new textarea
+  // and constructs a fresh instance bound to the cached content.
+  let activeEditor = null;
+  function mountEditorForObject(sp, oid) {
+    const o = sp.objects[oid];
+    if (!o) return;
+    const types = (o.lastRecord?.any?.types) || o.types || [];
+    if (!types.includes(MD_TYPE_ID)) return;
+    if (o.markdownContent === undefined) return;
+    if (typeof EasyMDE === 'undefined') {
+      // CDN script not yet loaded — retry shortly. mountEditor is
+      // idempotent (we destroy any previous instance first), and
+      // navigating away cancels the chain by virtue of renderMain
+      // calling unmountEditor + finding no textarea.
+      setTimeout(() => mountEditorForObject(sp, oid), 200);
+      return;
+    }
+    const ta = document.getElementById('md-editor');
+    if (!ta) return;
+    activeEditor = new EasyMDE({
+      element: ta,
+      initialValue: o.markdownContent,
+      spellChecker: false,
+      autofocus: false,
+      status: ['lines', 'words', 'cursor'],
+      minHeight: '480px',
+      sideBySideFullscreen: false,
+      toolbar: ['bold', 'italic', 'heading', '|',
+                'quote', 'unordered-list', 'ordered-list', '|',
+                'link', 'code', 'horizontal-rule', '|',
+                'preview', 'side-by-side', 'fullscreen', '|',
+                'guide'],
+    });
+  }
+  function unmountEditor() {
+    if (activeEditor) {
+      try { activeEditor.toTextArea(); } catch (e) {}
+      activeEditor = null;
+    }
+  }
+  function editorValue() { return activeEditor ? activeEditor.value() : ''; }
+  function editorSetValue(v) { if (activeEditor) activeEditor.value(v); }
+
+  // ---------- render: dispatcher ----------
+  function render() {
+    renderSidebar();
+    renderMain();
+  }
+
+  function renderSidebar() {
+    renderSpaceSelector();
+    renderTree();
+  }
+
+  function renderSpaceSelector() {
+    const selEl = document.getElementById('space-select');
+    if (!selEl) return;
+    const all = Object.values(App.spaces);
+    all.sort((a, b) => {
+      const sa = a.info?.status === 'active' ? 0 : (a.info?.status === 'deleted' ? 2 : 1);
+      const sb = b.info?.status === 'active' ? 0 : (b.info?.status === 'deleted' ? 2 : 1);
+      if (sa !== sb) return sa - sb;
+      return (a.info?.name || '').localeCompare(b.info?.name || '');
+    });
+    const cur = App.route?.spaceId || '';
+    let html = '<option value="">— pick a space —</option>';
+    for (const s of all) {
+      const info = s.info || {};
+      const isSel = info.id === cur ? ' selected' : '';
+      const tag = info.status === 'deleted' ? ' (deleted)' : '';
+      html += '<option value="' + escapeHTML(info.id) + '"' + isSel + '>' +
+        escapeHTML((info.name || '(unnamed)') + tag) +
+      '</option>';
+    }
+    selEl.innerHTML = html;
+  }
+
+  // renderTree renders the active space's object tree into the left
+  // sidebar. Roots (parentId === "") are always rendered; folders are
+  // expanded only when their id is in tree.expanded. Lazy-load happens
+  // on click — see the 'tree-toggle' action in the click handler.
+  function renderTree() {
+    const root = document.getElementById('tree');
+    if (!root) return;
+    const sp = App.activeSpace();
+    if (!sp || !sp.info) {
+      root.innerHTML = '<div class="tree-empty">no space selected.</div>';
+      return;
+    }
+    const rootKids = sp.tree.children[NAV_ROOT_PARENT];
+    if (rootKids === undefined) {
+      root.innerHTML = '<div class="tree-loading">loading…</div>';
+      return;
+    }
+    const empty = rootKids.length === 0
+      ? '<div class="tree-empty">empty — create an item or folder above.</div>'
+      : renderTreeChildren(sp, NAV_ROOT_PARENT, 0);
+    // Drop-zone footer: lets the user drop items at the end of root
+    // even when the tree is empty or full.
+    root.innerHTML = empty +
+      '<div class="tree-droproot" data-tree-droproot="1">drop here for root</div>';
+  }
+
+  function renderTreeChildren(sp, parentId, depth) {
+    const kids = sp.tree.children[parentId] || [];
+    return kids.map(child => renderTreeRow(sp, child, depth)).join('');
+  }
+
+  function renderTreeRow(sp, child, depth) {
+    const isFolder = child.navType === NAV_TYPE_FOLDER;
+    const expanded = isFolder && sp.tree.expanded.has(child.id);
+    const active = App.route?.objectId === child.id ? ' active' : '';
+    const indent = 'padding-left:' + (8 + depth * 14) + 'px;';
+    const chevron = isFolder
+      ? '<span class="chevron" data-tree-act="toggle" data-id="' + escapeHTML(child.id) + '">' +
+          (expanded ? '▼' : '▶') + '</span>'
+      : '<span class="chevron empty">·</span>';
+    const glyph = isFolder ? '📁' : '📄';
+    const name = child.name || '(unnamed)';
+    const actions = isFolder
+      ? '<div class="row-actions">' +
+          '<button title="new item in this folder" data-tree-act="new-item" data-id="' + escapeHTML(child.id) + '">+</button>' +
+          '<button title="new sub-folder" data-tree-act="new-folder" data-id="' + escapeHTML(child.id) + '">+▸</button>' +
+        '</div>'
+      : '';
+    let html = '<div class="tree-row' + active + '" style="' + indent + '"' +
+      ' draggable="true"' +
+      ' data-tree-act="open"' +
+      ' data-id="' + escapeHTML(child.id) + '"' +
+      ' data-parent="' + escapeHTML(child.parentId || '') + '"' +
+      ' data-pos="' + escapeHTML(child.pos || '') + '"' +
+      ' data-folder="' + (isFolder ? '1' : '0') + '">' +
+      chevron +
+      '<span class="icon-glyph">' + glyph + '</span>' +
+      '<span class="name" title="' + escapeHTML(child.id) + '">' + escapeHTML(name) + '</span>' +
+      actions +
+    '</div>';
+    if (expanded) {
+      const sub = sp.tree.children[child.id];
+      if (sub === undefined) {
+        html += '<div class="tree-loading" style="padding-left:' + (22 + depth * 14) + 'px">loading…</div>';
+      } else if (sub.length === 0) {
+        html += '<div class="tree-empty" data-tree-empty-folder="' + escapeHTML(child.id) + '" style="padding-left:' + (22 + depth * 14) + 'px">empty folder.</div>';
+      } else {
+        html += renderTreeChildren(sp, child.id, depth + 1);
+      }
+    }
+    return html;
+  }
+
+  function renderMain() {
+    unmountEditor();
+    const main = document.getElementById('main');
+    const r = App.route;
+    if (!r.spaceId) {
+      main.innerHTML =
+        '<div class="empty">' +
+          '<p>pick a space on the left, or create one with <code>+</code>.</p>' +
+        '</div>';
+      return;
+    }
+    const sp = App.spaces[r.spaceId];
+    if (!sp) {
+      main.innerHTML = '<div class="empty"><p>unknown space — maybe deleted?</p></div>';
+      return;
+    }
+    if (!sp.info) {
+      main.innerHTML = '<div class="empty"><p>loading…</p></div>';
+      return;
+    }
+    if (r.name === 'object-edit') {
+      main.innerHTML = renderObjectEditPage(sp, r.objectId);
+      mountEditorForObject(sp, r.objectId);
+      return;
+    }
+    let body, activeTab;
+    switch (r.name) {
+      case 'space-types':
+        body = renderTypesPage(sp); activeTab = 'types'; break;
+      case 'space-query':
+        body = renderQueryPage(sp); activeTab = 'query'; break;
+      case 'space-objects':
+      default:
+        body = renderObjectsPage(sp, r.typeFilter || ''); activeTab = 'objects';
+    }
+    main.innerHTML = renderSpaceShell(sp, activeTab) + body;
+  }
+
+  function renderSpaceShell(sp, activeTab) {
+    const info = sp.info;
+    const isDeleted = info.status === 'deleted';
+    const tab = (key, label) => {
+      const cls = activeTab === key ? 'tab active' : 'tab';
+      return '<a class="' + cls + '" href="' + spaceUrl(info.id, key) + '">' +
+        escapeHTML(label) + '</a>';
+    };
+    return '<div class="space-header">' +
+      '<div>' +
+        '<h2>' + escapeHTML(info.name || '(unnamed)') +
+          '<span class="id">' + escapeHTML(shortId(info.id)) + '</span>' +
+        '</h2>' +
+        '<div class="meta">status: ' + escapeHTML(info.status) +
+          (info.ownRole ? ' · role: ' + escapeHTML(info.ownRole) : '') +
+          (info.spaceType ? ' · type: ' + escapeHTML(info.spaceType) : '') +
+          ' · created ' + escapeHTML((info.createdAt || '').slice(0, 19)) +
+        '</div>' +
+      '</div>' +
+      '<div class="row">' +
+        (isDeleted ? '<span class="pill">soft-deleted</span>' :
+          '<button class="danger" data-act="delete-space">delete space</button>') +
+      '</div>' +
+    '</div>' +
+    '<div class="page-tabs">' +
+      tab('objects', 'Objects') +
+      tab('types', 'Types') +
+      tab('query', 'Query') +
+    '</div>';
+  }
+
+  // ---------- page: objects ----------
+  function renderObjectsPage(sp, typeFilter) {
+    // SDK-registered types (markdown etc.) surface as builtIn=true
+    // but should still appear here — the only exclusion is the
+    // synthetic `any` (auto-attached to every object).
+    const filterableTypes = Object.values(sp.types).filter(t => t.id !== 'any');
+    const allObjects = Object.values(sp.objects);
+    const filteredObjects = typeFilter
+      ? allObjects.filter(o => (o.types || []).includes(typeFilter))
+      : allObjects;
+    filteredObjects.sort((a, b) => {
+      const an = (a.lastRecord && a.lastRecord.any && a.lastRecord.any.name) || a.id;
+      const bn = (b.lastRecord && b.lastRecord.any && b.lastRecord.any.name) || b.id;
+      return String(an).localeCompare(String(bn));
+    });
+    const items = filteredObjects.length === 0
+      ? (allObjects.length === 0
+          ? '<p style="color:var(--muted);font-size:13px;margin:4px 0">no objects yet — create one with <code>+ new object</code>.</p>'
+          : '<p style="color:var(--muted);font-size:13px;margin:4px 0">no objects match the filter.</p>')
+      : filteredObjects.map(o => renderObjectRow(sp, o)).join('');
+    const truncatedNote = sp.objectsTruncated
+      ? '<p style="color:var(--warn);font-size:11px;margin:0 0 8px">truncated at server-side limit (' + OBJECTS_QUERY_LIMIT + ') — narrow with the query tab.</p>'
+      : '';
+    const tabBtn = (id, label, count, active) =>
+      '<a class="obj-tab' + (active ? ' active' : '') + '"' +
+        ' href="' + spaceUrl(sp.info.id, 'objects') + (id ? ('?type=' + encodeURIComponent(id)) : '') + '">' +
+        escapeHTML(label) +
+        ' <span class="obj-tab-count">' + count + '</span>' +
+      '</a>';
+    const tabs =
+      '<div class="obj-tabs">' +
+        tabBtn('', 'all', allObjects.length, !typeFilter) +
+        filterableTypes.map(t => {
+          const n = allObjects.filter(o => (o.types || []).includes(t.id)).length;
+          return tabBtn(t.id, t.name || t.id, n, typeFilter === t.id);
+        }).join('') +
+      '</div>';
+    const userTypes = filterableTypes;
+    const typeChooser = userTypes.length === 0
+      ? '<p style="color:var(--muted);font-size:12px">create a type first to bind objects to it.</p>'
+      : '<div class="field"><label>bind to types</label>' +
+          userTypes.map(t =>
+            '<label style="display:block;font:12px var(--mono);color:var(--text);text-transform:none">' +
+              '<input type="checkbox" data-input="new-obj-type" value="' + escapeHTML(t.id) + '"> ' +
+              escapeHTML(t.name || t.id) + ' <span class="pill">' + escapeHTML(shortId(t.id)) + '</span>' +
+            '</label>'
+          ).join('') +
+        '</div>';
+    const newForm =
+      '<div class="form-toggle collapsed" data-form="new-object">' +
+        typeChooser +
+        '<div class="form-actions">' +
+          '<button data-act="create-object">create</button>' +
+          '<button class="ghost" data-act="new-object-toggle">cancel</button>' +
+        '</div>' +
+      '</div>';
+    return '<section class="card">' +
+      '<header><h3>objects</h3>' +
+        '<div class="row" style="gap:6px">' +
+          '<button class="ghost" data-act="refresh-objects">refresh</button>' +
+          '<button class="ghost" data-act="new-object-toggle">+ new object</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        truncatedNote +
+        tabs +
+        newForm +
+        items +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderObjectRow(sp, o) {
+    const anyName = o.lastRecord && o.lastRecord.any && o.lastRecord.any.name;
+    const display = anyName ? anyName : '(unnamed) ' + shortId(o.id);
+    const typeBadges = (o.types || []).map(tid => {
+      const t = sp.types[tid];
+      const label = t ? (t.name || t.id) : shortId(tid);
+      return '<span class="badge">' + escapeHTML(label) + '</span>';
+    }).join(' ');
+    const link = spaceUrl(sp.info.id, 'objects', o.id);
+    return '<a class="obj-row" href="' + link + '">' +
+      '<span class="name">' + escapeHTML(display) + '</span>' +
+      '<span class="row-meta">' + typeBadges +
+        ' <span class="id">' + escapeHTML(shortId(o.id)) + '</span></span>' +
+    '</a>';
+  }
+
+  // ---------- page: types ----------
+  function renderTypesPage(sp) {
+    const types = Object.values(sp.types).slice().sort((a, b) => {
+      if (!!a.builtIn !== !!b.builtIn) return a.builtIn ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    const items = types.length === 0
+      ? '<p style="color:var(--muted);font-size:13px;margin:4px 0">no types yet — create one to define properties.</p>'
+      : types.map(renderTypeItem).join('');
+    return '<section class="card">' +
+      '<header><h3>types</h3>' +
+        '<button class="ghost" data-act="new-type-toggle">+ new type</button>' +
+      '</header>' +
+      '<div class="body">' +
+        '<div class="form-toggle collapsed" data-form="new-type">' +
+          '<div class="form-row">' +
+            '<div class="field"><label>name</label><input type="text" data-input="type-name" value="Movie"></div>' +
+            '<div class="field"><label>description</label><input type="text" data-input="type-description"></div>' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<button data-act="create-type">create</button>' +
+            '<button class="ghost" data-act="new-type-toggle">cancel</button>' +
+          '</div>' +
+        '</div>' +
+        items +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderTypeItem(t) {
+    const nameCounts = {};
+    for (const p of t.props || []) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
+    const nameOrdinals = {};
+    const dupNames = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
+    const dupBadge = dupNames.length
+      ? ' <span class="pill" style="border-color:var(--warn);color:var(--warn)" title="duplicate property names: ' +
+          escapeHTML(dupNames.join(', ')) + '">name collision</span>'
+      : '';
+    const propsHTML = (t.props || []).length === 0
+      ? '<p style="color:var(--muted);font-size:12px">no properties.</p>'
+      : '<ul class="prop-list">' + t.props.map(p => {
+          let label = escapeHTML(p.name);
+          if (nameCounts[p.name] > 1) {
+            nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
+            label += ' <span class="pill">#' + nameOrdinals[p.name] + '</span>';
+          }
+          return '<li>' +
+            '<span class="pname">' + label + '</span>' +
+            '<span class="pkind">' + escapeHTML(p.kind) + '</span>' +
+            (p.xKey ? '<span class="pill">xKey: ' + escapeHTML(p.xKey) + '</span>' : '') +
+            '<span class="pid" title="' + escapeHTML(p.id) + '">' + escapeHTML(p.id) + '</span>' +
+          '</li>';
+        }).join('') + '</ul>';
+    const addPropForm = t.builtIn ? '' :
+      '<div class="form-toggle collapsed" data-form="add-prop:' + escapeHTML(t.id) + '">' +
+        '<div class="form-row">' +
+          '<div class="field"><label>name</label><input type="text" data-input="prop-name:' + escapeHTML(t.id) + '" value="Title"></div>' +
+          '<div class="field"><label>xKey</label><input type="text" data-input="prop-xkey:' + escapeHTML(t.id) + '" value="title"></div>' +
+          '<div class="field"><label>kind</label>' +
+            '<select data-input="prop-kind:' + escapeHTML(t.id) + '">' +
+              ['string','number','boolean','null','array','object'].map(k =>
+                '<option>' + k + '</option>').join('') +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button data-act="add-prop" data-id="' + escapeHTML(t.id) + '">add property</button>' +
+          '<button class="ghost" data-act="add-prop-toggle" data-id="' + escapeHTML(t.id) + '">cancel</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-actions" style="margin-top:8px">' +
+        '<button class="ghost" data-act="add-prop-toggle" data-id="' + escapeHTML(t.id) + '">+ add property</button>' +
+      '</div>';
+    const builtBadge = t.builtIn ? ' <span class="pill">built-in</span>' : '';
+    return '<details class="type-card">' +
+      '<summary>' +
+        '<span class="name">' + escapeHTML(t.name || '(no name)') + '</span>' + builtBadge + dupBadge +
+        ' <span class="badge">' + (t.props || []).length + ' props</span>' +
+        '<span class="id" title="' + escapeHTML(t.id) + '">' + escapeHTML(shortId(t.id)) + '</span>' +
+      '</summary>' +
+      '<div class="type-body">' +
+        propsHTML +
+        addPropForm +
+      '</div>' +
+    '</details>';
+  }
+
+  // ---------- page: query ----------
+  function renderQueryPage(sp) {
+    const last = App.lastQuery;
+    const params = App.lastQueryParams || {};
+    const scope = App.queryScope || 'space';
+    const records = (last && last.records) || [];
+    const recordsHTML = !last
+      ? '<p style="color:var(--muted);font-size:12px;margin:8px 0 0">no query run yet.</p>'
+      : records.length === 0
+        ? '<p style="color:var(--muted);font-size:12px;margin:8px 0 0">no records.</p>'
+        : '<div style="margin-top:8px;font:11px var(--mono);color:var(--muted)">' +
+            records.length + ' record(s)' +
+          '</div>' +
+          records.map(r =>
+            '<details class="raw" open><summary>record</summary>' +
+              '<pre>' + escapeHTML(prettyJSON(r)) + '</pre>' +
+            '</details>'
+          ).join('');
+    const limitVal  = escapeHTML(String(params.limit || 10));
+    const filterVal = escapeHTML(params.filter ? JSON.stringify(params.filter, null, 2) : '');
+    const sortVal   = escapeHTML((params.sort || []).join(','));
+    const perObjectFields = scope === 'object'
+      ? '<div class="form-row">' +
+          '<div class="field"><label>objectId</label>' +
+            '<input type="text" id="query-objectid" value="' + escapeHTML(params.objectId || '') + '"></div>' +
+          '<div class="field"><label>dataset</label>' +
+            '<input type="text" id="query-dataset" value="' + escapeHTML(params.dataset || 'properties') + '"></div>' +
+        '</div>'
+      : '';
+    return '<section class="card">' +
+      '<header><h3>query</h3>' +
+        '<div class="row" style="font:11px var(--mono);gap:6px">' +
+          '<button class="' + (scope === 'space' ? '' : 'ghost') + '" data-act="query-scope-space">cross-object</button>' +
+          '<button class="' + (scope === 'object' ? '' : 'ghost') + '" data-act="query-scope-object">per-object</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          (scope === 'space'
+            ? 'cross-object: <code>POST /v1/spaces/:id/objects/query</code>'
+            : 'per-object: <code>POST /v1/spaces/:id/query</code>') +
+        '</p>' +
+        perObjectFields +
+        '<div class="form-row">' +
+          '<div class="field" style="max-width:140px"><label>limit</label>' +
+            '<input type="number" id="query-limit" value="' + limitVal + '"></div>' +
+          '<div class="field"><label>sort (comma-separated)</label>' +
+            '<input type="text" id="query-sort" value="' + sortVal + '"></div>' +
+        '</div>' +
+        '<div class="field"><label>filter (JSON, optional)</label>' +
+          '<textarea id="query-filter">' + filterVal + '</textarea>' +
+        '</div>' +
+        '<div class="form-actions">' +
+          '<button data-act="run-query">run query</button>' +
+          '<button class="ghost" data-act="query-clear">clear results</button>' +
+        '</div>' +
+        recordsHTML +
+      '</div>' +
+    '</section>';
+  }
+
+  // ---------- page: object-edit ----------
+  function renderObjectEditPage(sp, oid) {
+    const o = sp.objects[oid];
+    if (!o) {
+      return '<div class="page-head">' +
+        '<a class="back" href="' + spaceUrl(sp.info.id, 'objects') + '">← back to objects</a>' +
+      '</div>' +
+      '<div class="empty"><p>object not found.</p></div>';
+    }
+    const anyName = o.lastRecord && o.lastRecord.any && o.lastRecord.any.name;
+    const display = anyName ? anyName : '(unnamed) ' + shortId(o.id);
+    // Always include the `any` built-in alongside the explicitly-bound
+    // user types so name/description/icon are editable on every object.
+    const boundIds = new Set(o.types || []);
+    if (sp.types['any']) boundIds.add('any');
+    const boundTypes = Array.from(boundIds).map(tid => sp.types[tid]).filter(Boolean);
+    boundTypes.sort((a, b) => (b.id === 'any' ? 1 : 0) - (a.id === 'any' ? 1 : 0));
+    const rec = o.lastRecord || {};
+    const sections = boundTypes.map(t => renderObjectTypeSection(o, t, rec)).filter(Boolean).join('');
+
+    const userTypes = Object.values(sp.types).filter(t => t.id !== 'any');
+    const unbound = userTypes.filter(t => !boundIds.has(t.id));
+    const bindForm = unbound.length === 0 ? '' :
+      '<details class="bind-types">' +
+        '<summary>+ bind another type</summary>' +
+        '<div class="bind-list">' +
+          unbound.map(t =>
+            '<label class="bind-item">' +
+              '<input type="checkbox" data-input="bind-type" value="' + escapeHTML(t.id) + '"> ' +
+              escapeHTML(t.name || t.id) +
+              ' <span class="pill">' + escapeHTML(shortId(t.id)) + '</span>' +
+            '</label>'
+          ).join('') +
+          '<div class="form-actions"><button data-act="bind-types" data-id="' + escapeHTML(o.id) + '">bind</button></div>' +
+        '</div>' +
+      '</details>';
+
+    let mdSection = '';
+    if (boundIds.has(MD_TYPE_ID)) {
+      if (o.markdownContent === undefined) {
+        mdSection =
+          '<section class="card md-card"><header><h3>markdown</h3></header><div class="body" style="padding:12px">' +
+            '<p style="color:var(--muted);font-size:12px;margin:0">loading…</p>' +
+          '</div></section>';
+      } else {
+        mdSection =
+          '<section class="card md-card">' +
+            '<header><h3>markdown</h3>' +
+              '<div class="row" style="gap:6px">' +
+                '<button class="ghost" data-act="reload-markdown" data-id="' + escapeHTML(o.id) + '">reload</button>' +
+                '<button data-act="save-markdown" data-id="' + escapeHTML(o.id) + '">save</button>' +
+              '</div>' +
+            '</header>' +
+            '<div class="body">' +
+              '<textarea id="md-editor">' + escapeHTML(o.markdownContent) + '</textarea>' +
+            '</div>' +
+          '</section>';
+      }
+    }
+
+    const typeBadges = (o.types || []).map(tid => {
+      const t = sp.types[tid];
+      return '<span class="badge">' + escapeHTML(t ? (t.name || tid) : shortId(tid)) + '</span>';
+    }).join(' ');
+
+    return '<div class="page-head">' +
+      '<a class="back" href="' + spaceUrl(sp.info.id, 'objects') + '">← back to objects</a>' +
+      '<h1 class="page-title">' + escapeHTML(display) + '</h1>' +
+      '<div class="page-sub">' +
+        '<span class="id">' + escapeHTML(o.id) + '</span> ' + typeBadges +
+      '</div>' +
+      '<div class="row" style="margin-top:10px">' +
+        '<button class="ghost" data-act="reload-object" data-id="' + escapeHTML(o.id) + '">reload</button>' +
+        '<span class="spacer"></span>' +
+        '<button data-act="save-object" data-id="' + escapeHTML(o.id) + '">save changes</button>' +
+        '<button class="danger" data-act="delete-object" data-id="' + escapeHTML(o.id) + '">delete</button>' +
+      '</div>' +
+    '</div>' +
+    '<section class="card">' +
+      '<header><h3>properties</h3></header>' +
+      '<div class="body">' +
+        (sections || '<p style="color:var(--muted);font-size:12px">no editable properties — bound types have no property definitions.</p>') +
+        bindForm +
+      '</div>' +
+    '</section>' +
+    mdSection +
+    '<details class="raw"><summary>raw record (anyenc)</summary>' +
+      '<pre>' + escapeHTML(prettyJSON(o.lastRecord)) + '</pre>' +
+    '</details>';
+  }
+
+  function renderObjectTypeSection(o, t, rec) {
+    if (t.id === MD_TYPE_ID) return ''; // md has no editable props in v1
+    if (t.id === NAV_TYPE_ID) return ''; // nav is managed by the left tree
+    const tnode = rec[t.id] || {};
+    const seen = new Set();
+    const props = (t.props || []).filter(p => {
+      if (!p || !p.id || seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+    const builtBadge = t.id === 'any' ? ' <span class="pill">built-in</span>' : '';
+    if (props.length === 0) {
+      return '<div class="type-section"><h4>' + escapeHTML(t.name || t.id) + builtBadge + '</h4>' +
+        '<p style="color:var(--muted);font-size:12px;margin:0">no property definitions.</p>' +
+      '</div>';
+    }
+    const nameCounts = {};
+    for (const p of props) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
+    const nameOrdinals = {};
+    const rows = props.map(p => {
+      const readOnly = t.id === 'any' && ANY_AUTO_PROP_IDS.has(p.id);
+      // any-scope auto props (id, author, spaceId, createdAt) live at
+      // the record root, alongside id — not under rec.any.
+      const cur = readOnly ? rec[p.id] : tnode[p.id];
+      let suffix = '';
+      if (nameCounts[p.name] > 1) {
+        nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
+        suffix = ' #' + nameOrdinals[p.name];
+      }
+      return renderEditRow(o.id, t, p, cur, readOnly, suffix);
+    }).join('');
+    return '<div class="type-section"><h4>' + escapeHTML(t.name || t.id) + builtBadge + '</h4>' +
+      rows +
+    '</div>';
+  }
+
+  function renderEditRow(objectId, t, p, cur, readOnly, suffix) {
+    const inputId = 'edit:' + objectId + ':' + t.id + ':' + p.id;
+    const dataAttr = readOnly ? '' : ' data-edit="' + escapeHTML(inputId) + '"';
+    suffix = suffix || '';
+    const ro = readOnly ? ' disabled' : '';
+    let control;
+    if (readOnly) {
+      const display = cur === undefined ? '(unset)' : stringify(cur, p.kind);
+      control = '<div style="font:12px var(--mono);color:var(--muted);padding:6px 0">' +
+        escapeHTML(display) + '</div>';
+    } else if (p.kind === 'boolean') {
+      control =
+        '<select' + dataAttr + ro + '>' +
+          '<option value=""' + (cur === undefined ? ' selected' : '') + '>(unset)</option>' +
+          '<option value="true"' + (cur === true ? ' selected' : '') + '>true</option>' +
+          '<option value="false"' + (cur === false ? ' selected' : '') + '>false</option>' +
+        '</select>';
+    } else if (p.kind === 'number') {
+      control = '<input type="number"' + dataAttr + ro + ' value="' + escapeHTML(stringify(cur, p.kind)) + '">';
+    } else if (p.kind === 'array' || p.kind === 'object') {
+      control = '<textarea' + dataAttr + ro + ' placeholder="JSON ' + p.kind + '">' + escapeHTML(stringify(cur, p.kind)) + '</textarea>';
+    } else {
+      control = '<input type="text"' + dataAttr + ro + ' value="' + escapeHTML(stringify(cur, p.kind)) + '">';
+    }
+    const tag = readOnly
+      ? '<span class="pill" title="auto-managed by SDK">auto</span>'
+      : (cur === undefined ? '<span class="pill">unset</span>' : '');
+    return '<div class="obj-edit-row">' +
+      '<div class="pname" title="' + escapeHTML(p.id) + '">' + escapeHTML(p.name) + escapeHTML(suffix) +
+        '<span class="pkind">' + escapeHTML(p.kind) + '</span>' +
+        '<span class="pid" title="' + escapeHTML(p.id) + '">' + escapeHTML(p.id) + '</span>' +
+      '</div>' +
+      '<div>' + control + '</div>' +
+      '<div style="font:11px var(--mono);color:var(--muted);text-align:right">' + tag + '</div>' +
+    '</div>';
+  }
+
+  // ---------- tree drag-and-drop ----------
+  // Drag state lives on App.drag. Set on dragstart from a tree row;
+  // cleared on dragend or after a successful drop.
+  App.drag = null;
+
+  function dragRowSelector(t) { return t.closest && t.closest('.tree-row[data-id]'); }
+  function dragRootSelector(t) { return t.closest && t.closest('[data-tree-droproot]'); }
+  function dragEmptyFolderSelector(t) { return t.closest && t.closest('[data-tree-empty-folder]'); }
+
+  // dropZoneOf classifies a dragover event relative to a tree-row:
+  // top quarter → 'before', middle half → 'into' (folders only,
+  // otherwise 'after'), bottom quarter → 'after'. Returns null on
+  // unrecognized targets.
+  function dropZoneOf(row, event) {
+    const rect = row.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+    const isFolder = row.dataset.folder === '1';
+    if (y < rect.height * 0.25) return 'before';
+    if (y > rect.height * 0.75) return 'after';
+    return isFolder ? 'into' : 'after';
+  }
+
+  // clearDropMarkers removes any drop-target highlight classes. Called
+  // before painting the new target on dragover and on dragend/drop.
+  function clearDropMarkers() {
+    document.querySelectorAll('.tree-row.drop-into, .tree-row.drop-before, .tree-row.drop-after, .tree-droproot.drop-active, .tree-empty.drop-active')
+      .forEach(el => {
+        el.classList.remove('drop-into', 'drop-before', 'drop-after', 'drop-active');
+      });
+  }
+
+  // isDescendant returns true if `targetId` is a descendant (or self)
+  // of `ancestorId` in the cached tree. Used to forbid drops that
+  // would create a cycle (folder into itself or its subtree).
+  function isDescendant(sp, ancestorId, targetId) {
+    if (!ancestorId) return false; // root has no ancestor cycle
+    if (ancestorId === targetId) return true;
+    const visit = [ancestorId];
+    while (visit.length) {
+      const cur = visit.pop();
+      const kids = sp.tree.children[cur] || [];
+      for (const k of kids) {
+        if (k.id === targetId) return true;
+        if (k.navType === NAV_TYPE_FOLDER) visit.push(k.id);
+      }
+    }
+    return false;
+  }
+
+  // resolveDrop computes (newParentId, newPos) from a drop event.
+  // Returns null when the drop is invalid (cycle, no-op move).
+  function resolveDrop(sp, draggedId, target, zone) {
+    let parentId, prevPos = '', nextPos = '';
+    if (target.kind === 'root') {
+      parentId = NAV_ROOT_PARENT;
+      const kids = sp.tree.children[NAV_ROOT_PARENT] || [];
+      // Drop at end of root.
+      const last = kids[kids.length - 1];
+      prevPos = last ? last.pos : '';
+    } else if (zone === 'into') {
+      parentId = target.id;
+      const kids = sp.tree.children[parentId] || [];
+      const last = kids[kids.length - 1];
+      prevPos = last ? last.pos : '';
+    } else {
+      // before/after: same parent as the target row, position relative
+      // to it. Reads parent siblings from cache so prev/next bound
+      // computations work even when the target is mid-list.
+      parentId = target.parentId;
+      const kids = sp.tree.children[parentId] || [];
+      const idx = kids.findIndex(k => k.id === target.id);
+      if (idx < 0) return null;
+      if (zone === 'before') {
+        prevPos = idx > 0 ? kids[idx - 1].pos : '';
+        nextPos = kids[idx].pos;
+      } else { // after
+        prevPos = kids[idx].pos;
+        nextPos = idx + 1 < kids.length ? kids[idx + 1].pos : '';
+      }
+    }
+    if (isDescendant(sp, draggedId, parentId)) return null;
+    // No-op detection: dragging a row into the slot it already occupies.
+    const dragged = findChild(sp, draggedId);
+    if (dragged && dragged.parentId === parentId &&
+        dragged.pos > prevPos && (!nextPos || dragged.pos < nextPos)) {
+      // The dragged row already sits in this gap — would just rewrite
+      // the same slot. Skip the network round-trip.
+      return null;
+    }
+    let pos;
+    try { pos = navPosBetween(prevPos, nextPos); }
+    catch (e) {
+      console.error('lexid alloc failed', e, { prevPos, nextPos });
+      toast('err', 'cannot place here', e.message || String(e));
+      return null;
+    }
+    return { parentId, pos };
+  }
+
+  // findChild walks the cached children sets to locate a row by id.
+  // Used by resolveDrop's no-op detection.
+  function findChild(sp, id) {
+    for (const k of Object.keys(sp.tree.children)) {
+      const list = sp.tree.children[k] || [];
+      for (const c of list) {
+        if (c.id === id) return c;
+      }
+    }
+    return null;
+  }
+
+  document.addEventListener('dragstart', (e) => {
+    const row = dragRowSelector(e.target);
+    if (!row) return;
+    App.drag = {
+      id: row.dataset.id,
+      parentId: row.dataset.parent || '',
+      pos: row.dataset.pos || '',
+    };
+    row.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      // Some browsers ignore drops without setData.
+      e.dataTransfer.setData('text/plain', row.dataset.id);
+    }
+  });
+
+  document.addEventListener('dragend', () => {
+    document.querySelectorAll('.tree-row.dragging').forEach(el => el.classList.remove('dragging'));
+    clearDropMarkers();
+    App.drag = null;
+  });
+
+  document.addEventListener('dragover', (e) => {
+    if (!App.drag) return;
+    const row = dragRowSelector(e.target);
+    const rootZone = dragRootSelector(e.target);
+    const emptyZone = dragEmptyFolderSelector(e.target);
+    if (!row && !rootZone && !emptyZone) return;
+    e.preventDefault(); // allow drop
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    clearDropMarkers();
+    if (row) {
+      // Don't show drop hints on the dragged row itself.
+      if (row.dataset.id === App.drag.id) return;
+      const zone = dropZoneOf(row, e);
+      row.classList.add('drop-' + zone);
+    } else if (emptyZone) {
+      emptyZone.classList.add('drop-active');
+    } else {
+      rootZone.classList.add('drop-active');
+    }
+  });
+
+  document.addEventListener('drop', async (e) => {
+    if (!App.drag) return;
+    const row = dragRowSelector(e.target);
+    const rootZone = dragRootSelector(e.target);
+    const emptyZone = dragEmptyFolderSelector(e.target);
+    if (!row && !rootZone && !emptyZone) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const draggedId = App.drag.id;
+    clearDropMarkers();
+    document.querySelectorAll('.tree-row.dragging').forEach(el => el.classList.remove('dragging'));
+    App.drag = null;
+
+    const sp = App.activeSpace();
+    if (!sp) return;
+
+    let target, zone;
+    if (row && row.dataset.id !== draggedId) {
+      target = {
+        kind: 'row',
+        id: row.dataset.id,
+        parentId: row.dataset.parent || '',
+        pos: row.dataset.pos || '',
+      };
+      zone = dropZoneOf(row, e);
+    } else if (emptyZone) {
+      target = { kind: 'row', id: emptyZone.dataset.treeEmptyFolder, parentId: '', pos: '' };
+      zone = 'into';
+    } else if (rootZone) {
+      target = { kind: 'root' };
+      zone = 'into';
+    } else {
+      return;
+    }
+    const result = resolveDrop(sp, draggedId, target, zone);
+    if (!result) return;
+    try {
+      // Single setBase on the `nav` namespace flips both fields atomically.
+      const r = await setBase(App.route.spaceId, draggedId, NAV_TYPE_ID, {
+        parentId: result.parentId,
+        pos: result.pos,
+      });
+      if (!r) return;
+      await refreshTree(App.route.spaceId);
+      App.persist();
+    } catch (err) {
+      console.error(err);
+      toast('err', 'drop failed', err.message || String(err));
+    }
+  });
+
+  // ---------- net log render ----------
+  function renderNetLog() {
+    const list = document.getElementById('netlog-list');
+    if (!list) return;
+    if (NetLog.entries.length === 0) {
+      list.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:12px">no requests yet.</div>';
+      return;
+    }
+    list.innerHTML = NetLog.entries.map((e, i) => {
+      const sCls = e.ok ? 'ok' : 'err';
+      const sTxt = e.status === 0 ? 'ERR' : String(e.status);
+      const reqHTML = e.reqBody
+        ? '<div class="label">request body</div><pre>' + escapeHTML(pretty(e.reqBody)) + '</pre>'
+        : '';
+      const respHTML = '<div class="label">response body</div><pre>' +
+        escapeHTML(e.respBody ? pretty(e.respBody) : (e.statusText || '(empty)')) + '</pre>';
+      return '<div class="netlog-entry" data-net-i="' + i + '">' +
+        '<div class="head">' +
+          '<span class="ts">' + fmtTime(e.ts) + '</span>' +
+          '<span class="method ' + escapeHTML(e.method) + '">' + escapeHTML(e.method) + '</span>' +
+          '<span class="path" title="' + escapeHTML(e.path) + '">' + escapeHTML(e.path) + '</span>' +
+          '<span class="status ' + sCls + '">' + sTxt + '</span>' +
+          '<span class="ts">' + e.durationMs + 'ms</span>' +
+        '</div>' +
+        '<div class="body">' + reqHTML + respHTML + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ---------- click handlers ----------
+  document.addEventListener('click', async (e) => {
+    const t = e.target;
+    const ne = t.closest && t.closest('.netlog-entry');
+    if (ne) { ne.classList.toggle('open'); return; }
+
+    // tree row click: chevron toggles expand; everything else opens
+    // the object editor (for items) or toggles the folder (for
+    // folders, when the row body — not the chevron — is clicked).
+    const treeChev = t.closest && t.closest('[data-tree-act]');
+    if (treeChev) {
+      const act = treeChev.dataset.treeAct;
+      const id = treeChev.dataset.id;
+      const sp = App.activeSpace();
+      if (!sp) return;
+      e.stopPropagation();
+      try {
+        if (act === 'toggle') {
+          await toggleFolder(App.route.spaceId, id);
+          renderTree();
+        } else if (act === 'open') {
+          // Body click — open the editor. Folders can be renamed and
+          // their nav fields tweaked there. Use the chevron to expand.
+          navigate(spaceUrl(App.route.spaceId, 'objects', id));
+        } else if (act === 'new-item') {
+          await createTreeChild(App.route.spaceId, id, NAV_TYPE_ITEM);
+        } else if (act === 'new-folder') {
+          await createTreeChild(App.route.spaceId, id, NAV_TYPE_FOLDER);
+        }
+      } catch (err) {
+        console.error(err);
+        toast('err', 'tree action failed', err.message || String(err));
+      }
+      return;
+    }
+
+    if (!t.dataset || !t.dataset.act) return;
+    const act = t.dataset.act;
+    const id = t.dataset.id;
+    const spaceId = App.route.spaceId;
+
+    try {
+      switch (act) {
+        case 'tree-new-item':
+          if (!spaceId) { toast('err', 'pick a space first'); break; }
+          await createTreeChild(spaceId, NAV_ROOT_PARENT, NAV_TYPE_ITEM);
+          break;
+        case 'tree-new-folder':
+          if (!spaceId) { toast('err', 'pick a space first'); break; }
+          await createTreeChild(spaceId, NAV_ROOT_PARENT, NAV_TYPE_FOLDER);
+          break;
+        case 'tree-refresh':
+          if (!spaceId) break;
+          await refreshTree(spaceId);
+          break;
+        case 'new-type-toggle':
+          toggle('[data-form="new-type"]'); break;
+        case 'new-object-toggle':
+          toggle('[data-form="new-object"]'); break;
+        case 'add-prop-toggle':
+          toggle('[data-form="add-prop:' + cssEsc(id) + '"]'); break;
+        case 'reload-object':
+          await loadObject(spaceId, id); render(); break;
+        case 'create-type': {
+          const name = val('[data-input="type-name"]');
+          const description = val('[data-input="type-description"]');
+          if (!name) { toast('err', 'name required'); return; }
+          await createType(spaceId, { name, description });
+          App.persist();
+          render();
+          break;
+        }
+        case 'add-prop': {
+          const name = val('[data-input="prop-name:' + cssEsc(id) + '"]');
+          const xKey = val('[data-input="prop-xkey:' + cssEsc(id) + '"]');
+          const kind = val('[data-input="prop-kind:' + cssEsc(id) + '"]');
+          if (!name) { toast('err', 'name required'); return; }
+          await addProperty(spaceId, id, { name, xKey, kind });
+          await refreshTypes(spaceId);
+          App.persist();
+          render();
+          toggle('[data-form="add-prop:' + cssEsc(id) + '"]');
+          break;
+        }
+        case 'create-object': {
+          const checks = document.querySelectorAll('[data-input="new-obj-type"]:checked');
+          const types = Array.from(checks).map(c => c.value);
+          if (types.length === 0) { toast('err', 'pick at least one type'); return; }
+          const o = await createObject(spaceId, { types });
+          if (o) {
+            App.persist();
+            // New object lands at root with a fresh nav row; full tree
+            // refresh keeps any sibling positions in sync too.
+            refreshTree(spaceId).catch(() => {});
+            // Navigate straight into the new object's editor — the
+            // most common next step is to fill in name/properties.
+            navigate(spaceUrl(spaceId, 'objects', o.id));
+          }
+          break;
+        }
+        case 'save-object':
+          await saveObjectChanges(spaceId, id);
+          break;
+        case 'delete-object': {
+          if (!confirm('delete object ' + id + '?')) return;
+          if (await deleteObject(spaceId, id)) {
+            App.persist();
+            navigate(spaceUrl(spaceId, 'objects'));
+            const sp = App.activeSpace();
+            if (sp) sp.tree.expanded.delete(id);
+            // Full refresh — the row is now tombstoned server-side,
+            // so re-querying drops it from every folder it appeared in.
+            await refreshTree(spaceId);
+            refreshObjects(spaceId).then(() => { App.persist(); render(); }).catch(() => {});
+          }
+          break;
+        }
+        case 'refresh-objects':
+          await refreshObjects(spaceId); App.persist(); render(); break;
+        case 'bind-types': {
+          const checks = document.querySelectorAll('[data-input="bind-type"]:checked');
+          const tids = Array.from(checks).map(c => c.value);
+          if (tids.length === 0) { toast('err', 'pick at least one type'); return; }
+          const ok = await bindTypes(spaceId, id, tids);
+          if (!ok) break;
+          await refreshTypes(spaceId);
+          if (tids.includes(MD_TYPE_ID)) {
+            const sp = App.spaces[spaceId];
+            const o2 = sp && sp.objects[id];
+            if (o2 && o2.markdownContent === undefined) {
+              await loadMarkdown(spaceId, id);
+            }
+          }
+          // bindTypes may rewrite any.types — that doesn't change
+          // tree position, but if the user binds nav explicitly we
+          // want to surface fresh rows just in case.
+          refreshTree(spaceId).catch(() => {});
+          App.persist();
+          render();
+          break;
+        }
+        case 'save-markdown': {
+          // Read from EasyMDE and PUT. No render — destroying the
+          // editor on save would lose cursor/scroll state.
+          const content = editorValue();
+          await saveMarkdown(spaceId, id, content);
+          App.persist();
+          break;
+        }
+        case 'reload-markdown': {
+          const sp = App.spaces[spaceId];
+          const o3 = sp && sp.objects[id];
+          if (o3) o3.markdownContent = undefined;
+          await loadMarkdown(spaceId, id);
+          if (o3 && typeof o3.markdownContent === 'string') {
+            editorSetValue(o3.markdownContent);
+            toast('ok', 'reloaded');
+          }
+          break;
+        }
+        case 'delete-space': {
+          if (!confirm('delete space ' + (App.activeSpace().info.name || '') + '? (soft delete)')) return;
+          if (await deleteSpace(spaceId)) { App.persist(); render(); }
+          break;
+        }
+        case 'query-scope-space': App.queryScope = 'space'; render(); break;
+        case 'query-scope-object': App.queryScope = 'object'; render(); break;
+        case 'query-clear':
+          App.lastQuery = null; App.lastQueryParams = null; App.lastQueryScope = null;
+          render(); break;
+        case 'run-query': {
+          const scope = App.queryScope || 'space';
+          const limit = parseInt(val('#query-limit') || '10', 10) || 0;
+          const filterRaw = val('#query-filter');
+          const sortRaw = val('#query-sort');
+          const body = {};
+          if (limit > 0) body.limit = limit;
+          if (filterRaw) {
+            try { body.filter = JSON.parse(filterRaw); }
+            catch (e) { toast('err', 'filter is not JSON', e.message); return; }
+          }
+          if (sortRaw) {
+            body.sort = sortRaw.split(',').map(s => s.trim()).filter(Boolean);
+          }
+          let r;
+          if (scope === 'object') {
+            body.objectId = val('#query-objectid');
+            body.dataset  = val('#query-dataset') || 'properties';
+            if (!body.objectId) { toast('err', 'objectId required'); return; }
+            r = await querySpace(spaceId, body);
+          } else {
+            r = await querySpaceObjects(spaceId, body);
+          }
+          if (r) {
+            App.lastQuery = r;
+            App.lastQueryParams = body;
+            App.lastQueryScope = scope;
+            render();
+            toast('ok', 'query: ' + (r.records || []).length + ' record(s)');
+          }
+          break;
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast('err', 'error', err.message || String(err));
+    }
+  });
+
+  // saveObjectChanges scans `[data-edit]` inputs across the entire
+  // main pane (the object-edit page is one object at a time, so no
+  // per-container scoping is needed). The data-edit key encodes
+  // edit:<objectId>:<typeId>:<propId>; we verify the objectId prefix
+  // before applying so a stray input from a different page can't
+  // sneak in.
+  async function saveObjectChanges(spaceId, objectId) {
+    const sp = App.spaces[spaceId];
+    const obj = sp.objects[objectId];
+    if (!obj) return;
+    const rec = obj.lastRecord || {};
+    const root = document.getElementById('main');
+    if (!root) return;
+    const patches = {};
+    const inputs = root.querySelectorAll('[data-edit]');
+    for (const el of inputs) {
+      const key = el.getAttribute('data-edit') || '';
+      if (!key.startsWith('edit:')) continue;
+      const rest = key.slice('edit:'.length);
+      if (!rest.startsWith(objectId + ':')) continue;
+      const tail = rest.slice(objectId.length + 1);
+      const colon = tail.indexOf(':');
+      if (colon < 0) continue;
+      const tid = tail.slice(0, colon);
+      const pid = tail.slice(colon + 1);
+      const tt = sp.types[tid];
+      if (!tt) continue;
+      const pp = (tt.props || []).find(x => x.id === pid);
+      if (!pp) continue;
+      const raw = el.value;
+      const cur = (rec[tid] || {})[pid];
+      let parsed;
+      try { parsed = coerce(raw, pp.kind); }
+      catch (e) { toast('err', 'bad value for ' + pp.name, e.message); return; }
+      if (JSON.stringify(parsed) === JSON.stringify(cur)) continue;
+      if (cur === undefined && (parsed === '' || parsed === null) && pp.kind !== 'null') continue;
+      patches[tid] = patches[tid] || {};
+      patches[tid][pid] = parsed;
+    }
+    const typeIds = Object.keys(patches);
+    if (typeIds.length === 0) { toast('ok', 'no changes'); return; }
+    for (const tid of typeIds) {
+      const r = await setBase(spaceId, objectId, tid, patches[tid]);
+      if (!r) return;
+    }
+    // Saves can touch any.name (rename) or nav.* (move/reorder) — both
+    // invalidate the tree's cached child entries. Cheap full refresh.
+    refreshTree(spaceId).catch(() => {});
+    App.persist();
+    render();
+  }
+
+  // ---------- network log toolbar ----------
+  document.getElementById('btn-netlog-clear').addEventListener('click', (e) => {
+    e.stopPropagation(); NetLog.clear();
+  });
+  document.getElementById('btn-netlog-toggle').addEventListener('click', (e) => {
+    e.stopPropagation(); document.getElementById('netlog').classList.toggle('collapsed');
+  });
+
+  // ---------- right-sidebar space picker ----------
+  document.getElementById('btn-new-space-toggle').addEventListener('click', () => toggle('#form-new-space'));
+  document.getElementById('btn-new-space-cancel').addEventListener('click', () => toggle('#form-new-space'));
+  document.getElementById('btn-new-space-create').addEventListener('click', async () => {
+    const name = document.getElementById('new-space-name').value;
+    const description = document.getElementById('new-space-description').value;
+    if (!name) { toast('err', 'name required'); return; }
+    const created = await createSpace({ name, description });
+    if (created) {
+      toggle('#form-new-space');
+      App.persist();
+      navigate(spaceUrl(created.id, 'objects'));
+    }
+  });
+  document.getElementById('space-select').addEventListener('change', (e) => {
+    const id = e.target.value;
+    if (!id) return;
+    navigate(spaceUrl(id, 'objects'));
+  });
+
+  // ---------- health probe ----------
+  async function probeHealth() {
+    const el = document.getElementById('health');
+    try {
+      const r = await fetch('/v1/health');
+      if (r.ok) {
+        const j = await r.json();
+        el.className = 'health ok';
+        el.textContent = 'ok · v' + j.version;
+      } else {
+        el.className = 'health err';
+        el.textContent = 'health ' + r.status;
+      }
+    } catch (e) {
+      el.className = 'health err';
+      el.textContent = 'unreachable';
+    }
+  }
+
+  // ---------- boot ----------
+  window.addEventListener('hashchange', onHashChange);
+
+  (async () => {
+    try { await loadAccount(); }
+    catch (e) { toast('err', 'cannot load account', e.message); return; }
+
+    App.rehydrate();
+    try { await refreshSpaces(); }
+    catch (e) { toast('err', 'cannot list spaces', e.message); }
+
+    App.route = parseHash();
+    if (!App.route.spaceId) {
+      // No space in the URL — drop into the first active space's
+      // objects page so the page isn't blank on first load.
+      const firstActive = Object.values(App.spaces).find(s => s.info?.status === 'active');
+      if (firstActive) {
+        location.replace(spaceUrl(firstActive.info.id, 'objects'));
+        App.route = parseHash();
+      }
+    }
+
+    App.persist();
+    render();
+    renderNetLog();
+    probeHealth();
+    setInterval(probeHealth, 15000);
+
+    if (App.route.spaceId) {
+      try { await ensurePageData(App.route); } catch (e) {}
+      App.persist();
+      render();
+    }
+  })();
+
+})();
+</script>
+
+</body>
+</html>

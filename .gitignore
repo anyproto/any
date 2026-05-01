@@ -1,0 +1,20 @@
+# Built binaries
+/any
+/any.mac
+/bin/
+
+# Go test/coverage artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Editor scratch
+.idea/
+.vscode/
+*.swp
+*~
+
+# Working prompt drafts (not part of the project surface)
+prompt.md
+prompt-*.md

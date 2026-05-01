@@ -1,0 +1,34 @@
+package server
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/anyproto/any-sync-sdk/auth"
+	"github.com/anyproto/any-sync/util/crypto"
+)
+
+// OpenWallet loads or creates the file-backed wallet at path. On first
+// generation the returned firstRun flag is true, and the caller is
+// expected to display Mnemonic() once.
+func OpenWallet(path, passkey string) (provider *auth.FileProvider, firstRun bool, err error) {
+	p, err := auth.NewFileProvider(auth.FileProviderConfig{Path: path, Passkey: passkey})
+	if err != nil {
+		return nil, false, fmt.Errorf("open wallet: %w", err)
+	}
+	return p, p.Created(), nil
+}
+
+// AccountID returns the anytype account identifier derived from the
+// provider's account key — the string health exposes as "account".
+func AccountID(ctx context.Context, p *auth.FileProvider) (string, error) {
+	raw, err := p.AccountKey(ctx)
+	if err != nil {
+		return "", err
+	}
+	priv, err := crypto.UnmarshalEd25519PrivateKey(raw)
+	if err != nil {
+		return "", fmt.Errorf("unmarshal account key: %w", err)
+	}
+	return priv.GetPublic().Account(), nil
+}
