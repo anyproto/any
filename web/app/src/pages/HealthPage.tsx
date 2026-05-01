@@ -1,34 +1,24 @@
 import { useAtom } from 'jotai';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import { themePreferenceAtom, type ThemePreference } from '@/atoms/theme';
+import { HealthCard } from '@/components/health/HealthCard';
+import { useHealth } from '@/lib/api/meta';
 
 /**
  * Health page — the only screen in PR #1.
  *
- * Stage 1 stub: just enough surface to verify the dev loop and embed
- * pipeline are wired correctly. Stage 3 fills in the real
- * `/v1/health` query + three-state `HealthCard`.
+ * Renders a three-state card for /v1/health. Replaced by the 3-pane
+ * layout shell in PR #2.
  */
 export function HealthPage() {
+  const health = useHealth();
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">any</h1>
         <ThemeToggle />
       </header>
-
-      <section
-        aria-labelledby="health-heading"
-        className="rounded-lg border border-foreground/10 bg-background p-6 shadow-sm"
-      >
-        <h2 id="health-heading" className="mb-2 text-base font-medium">
-          Server health
-        </h2>
-        <p className="text-foreground/70">
-          Wiring under construction — the live <code>/v1/health</code> query
-          lands in stage 3.
-        </p>
-      </section>
+      <HealthCard query={health} />
     </main>
   );
 }
