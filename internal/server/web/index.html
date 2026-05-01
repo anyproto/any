@@ -272,7 +272,6 @@
     <div class="form-toggle collapsed" id="form-new-space">
       <div class="field"><label>name</label><input type="text" id="new-space-name" value="Demo"></div>
       <div class="field"><label>description (optional)</label><input type="text" id="new-space-description"></div>
-      <div class="field"><label>spaceType</label><input type="text" id="new-space-type" value="regular"></div>
       <div class="form-actions">
         <button id="btn-new-space-create">create</button>
         <button class="ghost" id="btn-new-space-cancel">cancel</button>
@@ -478,8 +477,8 @@
       if (firstActive) App.activeSpaceId = firstActive.id;
     }
   }
-  async function createSpace({ name, description, spaceType }) {
-    const r = await api.post('/v1/spaces', { name, description, spaceType });
+  async function createSpace({ name, description }) {
+    const r = await api.post('/v1/spaces', { name, description });
     if (!r.ok) { toast('err', 'create space failed', r.body); return null; }
     App.spaces[r.json.id] = { info: r.json, types: {}, objects: {} };
     App.activeSpaceId = r.json.id;
@@ -1441,9 +1440,8 @@
   document.getElementById('btn-new-space-create').addEventListener('click', async () => {
     const name = document.getElementById('new-space-name').value;
     const description = document.getElementById('new-space-description').value;
-    const spaceType = document.getElementById('new-space-type').value;
     if (!name) { toast('err', 'name required'); return; }
-    const created = await createSpace({ name, description, spaceType });
+    const created = await createSpace({ name, description });
     if (created) {
       toggle('#form-new-space');
       App.persist();

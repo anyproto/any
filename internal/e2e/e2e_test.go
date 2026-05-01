@@ -95,7 +95,7 @@ func TestE2E_FullFlow(t *testing.T) {
 	var spaceID string
 	t.Run("POST /v1/spaces creates", func(t *testing.T) {
 		var created map[string]any
-		body := `{"name":"E2E","description":"e2e-smoke","spaceType":"regular"}`
+		body := `{"name":"E2E","description":"e2e-smoke"}`
 		mustJSON(t, http.MethodPost, base+"/v1/spaces", body, http.StatusCreated, &created)
 		id, _ := created["id"].(string)
 		if id == "" {
