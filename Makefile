@@ -11,11 +11,35 @@ LDFLAGS := -s -w \
 	-X $(PKG)/internal/version.Commit=$(COMMIT) \
 	-X $(PKG)/internal/version.BuildDate=$(DATE)
 
-.PHONY: build test vet tidy clean
+WEBAPP  := web/app
+EMBED   := internal/server/webapp/dist
 
-build:
+.PHONY: build test vet tidy clean web web-clean web-install
+
+build: web
 	@mkdir -p $(OUT)
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
+
+# Build the SPA, then mirror its dist/ into the directory the Go
+# binary embeds via //go:embed. See docs/08-app-architecture.md.
+web: web-install
+	cd $(WEBAPP) && pnpm build
+	rm -rf $(EMBED)
+	mkdir -p $(EMBED)
+	cp -r $(WEBAPP)/dist/. $(EMBED)/
+	@echo "" > $(EMBED)/.gitkeep
+
+# Install SPA deps idempotently. CI uses --frozen-lockfile.
+web-install:
+	@if [ ! -d $(WEBAPP)/node_modules ]; then \
+		cd $(WEBAPP) && pnpm install --frozen-lockfile; \
+	fi
+
+web-clean:
+	rm -rf $(WEBAPP)/dist $(WEBAPP)/node_modules
+	rm -rf $(EMBED)
+	mkdir -p $(EMBED)
+	@echo "" > $(EMBED)/.gitkeep
 
 test:
 	go test ./...
@@ -26,5 +50,5 @@ vet:
 tidy:
 	go mod tidy
 
-clean:
+clean: web-clean
 	rm -rf $(OUT)

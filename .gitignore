@@ -18,3 +18,21 @@ coverage.html
 # Working prompt drafts (not part of the project surface)
 prompt.md
 prompt-*.md
+
+# Frontend build artifacts
+/web/app/node_modules
+/web/app/dist
+/web/app/.vite
+/web/app/coverage
+/web/app/playwright-report
+/web/app/test-results
+/web/app/storybook-static
+
+# Embedded SPA build output — contents ignored, .gitkeep tracked.
+/internal/server/webapp/dist/*
+!/internal/server/webapp/dist/.gitkeep
+
+# Cowork-mode artifacts (not part of the project surface)
+/dist/
+.git-broken/
+any-go-tmp-umask
