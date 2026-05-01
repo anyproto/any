@@ -1,0 +1,385 @@
+package chat
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/anyproto/any-store/v2/anyenc"
+
+	"github.com/anyproto/any-sync-sdk/handler"
+)
+
+const (
+	alice = "alice"
+	bob   = "bob"
+)
+
+// hand-built crdt.Change — handler tests don't boot the SDK; they
+// just need the metadata that ChangeCtx exposes.
+func makeChange(creator string, ts int64) *handler.Change {
+	return &handler.Change{
+		SpaceId:   "space",
+		ObjectId:  "obj",
+		Dataset:   Dataset,
+		ChangeId:  "ch1",
+		VersionId: "v1",
+		Creator:   creator,
+		Timestamp: ts,
+	}
+}
+
+// existingMessage builds the pre-state anyenc record passed via
+// ChangeCtx.Before. Mirrors what BeforeCreate would have stamped.
+func existingMessage(arena *anyenc.Arena, creator string, createdAt int64, text string) *anyenc.Value {
+	rec := arena.NewObject()
+	rec.Set("id", arena.NewString("msg1"))
+	rec.Set(FieldCreator, arena.NewString(creator))
+	rec.Set(FieldCreatedAt, arena.NewNumberInt(int(createdAt)))
+	rec.Set(FieldModifiedAt, arena.NewNumberInt(int(createdAt)))
+	rec.Set(FieldText, arena.NewString(text))
+	return rec
+}
+
+// --- BeforeCreate ----------------------------------------------------------
+
+func TestBeforeCreate_StampsServerFields(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString("hello"))
+
+	rec := &handler.RecordChange{
+		Id:     "",
+		Upsert: true,
+		Ops: []handler.Op{{
+			Type:    handler.OpSet,
+			Path:    nil,
+			Payload: payload,
+		}},
+	}
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	sink := &handler.Sink{}
+
+	if err := (messagesHandler{}).BeforeCreate(ctx, rec, sink); err != nil {
+		t.Fatalf("BeforeCreate: %v", err)
+	}
+	// We can't introspect Sink directly (private fields), but the
+	// shape is exercised via the apply loop in the end-to-end tests.
+	// Smoke that no error escapes.
+}
+
+func TestBeforeCreate_Rejects(t *testing.T) {
+	cases := []struct {
+		name   string
+		build  func(arena *anyenc.Arena) *handler.RecordChange
+		wantIn string
+	}{
+		{
+			name: "empty text",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString(""))
+				return setRoot(a, p)
+			},
+			wantIn: "text required",
+		},
+		{
+			name: "missing text",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldReplyToMessageId, a.NewString("m"))
+				return setRoot(a, p)
+			},
+			wantIn: "text required",
+		},
+		{
+			name: "text not a string",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewNumberInt(42))
+				return setRoot(a, p)
+			},
+			wantIn: "text must be a string",
+		},
+		{
+			name: "text too long",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString(strings.Repeat("x", MaxTextBytes+1)))
+				return setRoot(a, p)
+			},
+			wantIn: "text too long",
+		},
+		{
+			name: "extra field — creator (spoof attempt)",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				p.Set(FieldCreator, a.NewString("evil"))
+				return setRoot(a, p)
+			},
+			wantIn: "field_not_allowed: creator",
+		},
+		{
+			name: "extra field — createdAt",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				p.Set(FieldCreatedAt, a.NewNumberInt(0))
+				return setRoot(a, p)
+			},
+			wantIn: "field_not_allowed: createdAt",
+		},
+		{
+			name: "non-set op",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				return &handler.RecordChange{
+					Id:     "",
+					Upsert: true,
+					Ops: []handler.Op{{
+						Type:    handler.OpAddToSet,
+						Path:    []string{"x"},
+						Payload: a.NewString("y"),
+					}},
+				}
+			},
+			wantIn: "expected multi-field $set",
+		},
+		{
+			name: "two ops",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				return &handler.RecordChange{
+					Id:     "",
+					Upsert: true,
+					Ops: []handler.Op{
+						{Type: handler.OpSet, Path: nil, Payload: a.NewObject()},
+						{Type: handler.OpSet, Path: []string{"x"}, Payload: a.NewString("y")},
+					},
+				}
+			},
+			wantIn: "expected exactly one",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			arena := &anyenc.Arena{}
+			rec := tc.build(arena)
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			sink := &handler.Sink{}
+			err := (messagesHandler{}).BeforeCreate(ctx, rec, sink)
+			if err == nil {
+				t.Fatalf("expected validation error containing %q", tc.wantIn)
+			}
+			if !errors.Is(err, handler.ErrValidation) {
+				t.Errorf("err is not ErrValidation: %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantIn) {
+				t.Errorf("err = %q, want contains %q", err.Error(), tc.wantIn)
+			}
+		})
+	}
+}
+
+func setRoot(a *anyenc.Arena, payload *anyenc.Value) *handler.RecordChange {
+	return &handler.RecordChange{
+		Id:     "",
+		Upsert: true,
+		Ops:    []handler.Op{{Type: handler.OpSet, Path: nil, Payload: payload}},
+	}
+}
+
+// --- BeforeModify (text) ---------------------------------------------------
+
+func TestBeforeModify_TextEdit_Author(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "old")
+	op := &handler.Op{
+		Type:    handler.OpSet,
+		Path:    []string{FieldText},
+		Payload: arena.NewString("new"),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(alice, 1700000050),
+		Before: before,
+	}
+	sink := &handler.Sink{}
+	if err := (messagesHandler{}).BeforeModify(ctx, nil, op, sink); err != nil {
+		t.Fatalf("BeforeModify text by author: %v", err)
+	}
+}
+
+func TestBeforeModify_TextEdit_NotAuthor(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "old")
+	op := &handler.Op{
+		Type:    handler.OpSet,
+		Path:    []string{FieldText},
+		Payload: arena.NewString("new"),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+	if err == nil || !errors.Is(err, handler.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "not_author") {
+		t.Errorf("err = %q, want not_author", err.Error())
+	}
+}
+
+func TestBeforeModify_TextEdit_TooLong(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "old")
+	op := &handler.Op{
+		Type:    handler.OpSet,
+		Path:    []string{FieldText},
+		Payload: arena.NewString(strings.Repeat("x", MaxTextBytes+1)),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(alice, 1700000050),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+	if err == nil || !strings.Contains(err.Error(), "text too long") {
+		t.Fatalf("expected text-too-long rejection, got %v", err)
+	}
+}
+
+// --- BeforeModify (reactions) ---------------------------------------------
+
+func TestBeforeModify_Reaction_OwnSlot(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	op := &handler.Op{
+		Type:    handler.OpAddToSet,
+		Path:    []string{FieldReactions, bob},
+		Payload: arena.NewString("👍"),
+	}
+	// bob is reacting; path[1] == change.Creator. Allowed.
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	if err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{}); err != nil {
+		t.Fatalf("react own slot: %v", err)
+	}
+}
+
+func TestBeforeModify_Reaction_ForeignSlot(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	op := &handler.Op{
+		Type:    handler.OpAddToSet,
+		Path:    []string{FieldReactions, alice}, // bob trying to add for alice
+		Payload: arena.NewString("👍"),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+	if err == nil || !strings.Contains(err.Error(), "not_own_reaction_key") {
+		t.Fatalf("expected not_own_reaction_key, got %v", err)
+	}
+}
+
+func TestBeforeModify_Reaction_SetRejected(t *testing.T) {
+	// $set on reactions.<own> would replace the array — reject; only
+	// $addToSet / $pull permitted.
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	op := &handler.Op{
+		Type:    handler.OpSet,
+		Path:    []string{FieldReactions, bob},
+		Payload: arena.NewArray(),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+	if err == nil || !strings.Contains(err.Error(), "field_not_modifiable") {
+		t.Fatalf("expected field_not_modifiable on $set reactions.x, got %v", err)
+	}
+}
+
+func TestBeforeModify_Reaction_EmojiTooLong(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	op := &handler.Op{
+		Type:    handler.OpAddToSet,
+		Path:    []string{FieldReactions, bob},
+		Payload: arena.NewString(strings.Repeat("x", MaxEmojiBytes+1)),
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+	if err == nil || !strings.Contains(err.Error(), "emoji too long") {
+		t.Fatalf("expected emoji too long, got %v", err)
+	}
+}
+
+// --- BeforeModify (disallowed paths) --------------------------------------
+
+func TestBeforeModify_DisallowedPath(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	cases := [][]string{
+		{FieldCreator},
+		{FieldCreatedAt},
+		{FieldModifiedAt},
+		{FieldReplyToMessageId},
+		{"_ver", "id"},
+		{"_deletedAt"},
+		{"unknown"},
+	}
+	for _, path := range cases {
+		t.Run(strings.Join(path, "."), func(t *testing.T) {
+			op := &handler.Op{
+				Type:    handler.OpSet,
+				Path:    path,
+				Payload: arena.NewString("x"),
+			}
+			ctx := &handler.ChangeCtx{
+				Change: makeChange(alice, 1700000050),
+				Before: before,
+			}
+			err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+			if err == nil || !strings.Contains(err.Error(), "field_not_modifiable") {
+				t.Errorf("path %v: expected field_not_modifiable, got %v", path, err)
+			}
+		})
+	}
+}
+
+// --- BeforeDelete ---------------------------------------------------------
+
+func TestBeforeDelete_Author(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(alice, 1700000100),
+		Before: before,
+	}
+	if err := (messagesHandler{}).BeforeDelete(ctx, nil, &handler.Sink{}); err != nil {
+		t.Fatalf("delete by author: %v", err)
+	}
+}
+
+func TestBeforeDelete_NotAuthor(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000100),
+		Before: before,
+	}
+	err := (messagesHandler{}).BeforeDelete(ctx, nil, &handler.Sink{})
+	if err == nil || !errors.Is(err, handler.ErrValidation) ||
+		!strings.Contains(err.Error(), "not_author") {
+		t.Fatalf("expected not_author rejection, got %v", err)
+	}
+}

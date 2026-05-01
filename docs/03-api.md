@@ -241,6 +241,97 @@ is just disconnecting (or the server `closed` frame).
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
 
+### Chat (built-in `chat` type)
+
+| Method | Path                                                                     | Purpose                  |
+|--------|--------------------------------------------------------------------------|--------------------------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/messages`                         | send a message           |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/messages`                         | list messages            |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId`                  | edit own message text    |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId`                  | delete own message       |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId/reactions/:emoji` | toggle own reaction      |
+
+Liveness is the existing subscribe endpoint with `dataset=chat_messages`:
+
+```
+GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=chat_messages
+```
+
+Clients re-query for the new message body when a `changes` frame
+arrives (the SSE event is just the routing tuple — see `04-events.md`).
+
+#### Message wire shape
+
+```json
+{
+  "id":               "<change-derived id>",
+  "creator":          "<accountId>",
+  "createdAt":        1714597200,
+  "modifiedAt":       1714597200,
+  "replyToMessageId": "<msgId>",
+  "text":             "**hi** _there_",
+  "reactions":        { "👍": ["<id1>", "<id2>"] }
+}
+```
+
+`createdAt` and `modifiedAt` are unix-seconds, server-stamped. They
+are equal on a never-edited message — clients detect edits by
+comparing them. `text` is markdown; rendering is the client's
+problem (`internal/markdown` exists if anyone wants to round-trip).
+
+`reactions` are emoji-keyed on the wire but stored identity-keyed —
+the API server transposes on read. Authorization on writes is a
+single path-segment compare against `ctx.Change.Creator` in the
+handler: only the change's signer can write into
+`reactions.<that-identity>`. See `internal/chat/handler.go`.
+
+#### Send
+
+`POST /v1/spaces/:spaceId/objects/:objectId/messages`
+
+```json
+{ "text": "hello", "replyToMessageId": "abc" }
+```
+
+`text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
+bytes, and a soft reference — the server doesn't validate that the
+target exists. Returns 201 with the full message record (server-
+stamped fields included).
+
+#### List
+
+`GET /v1/spaces/:spaceId/objects/:objectId/messages?before=&after=&limit=`
+
+Returns messages in ascending creation order (oldest first). Cursors
+`before` / `after` are message ids; the server resolves them to the
+underlying `_ver.id` boundary (the SDK's stable creation-version
+marker — set once on creation, never updated by edits, so reordering
+on edit is impossible). `limit` defaults to 50, max 200.
+
+```json
+{ "messages": [ /* ChatMessage, ... */ ] }
+```
+
+#### Edit / delete (own only)
+
+`PATCH .../messages/:msgId` body `{ "text": "..." }` replaces the
+text and bumps `modifiedAt`. `DELETE .../messages/:msgId` tombstones
+the record. Both return `403 chat.not_author` for non-authors and
+`404 chat.not_found` for unknown ids. The handler enforces the same
+rules for peer-originated changes.
+
+#### React (toggle)
+
+`POST .../messages/:msgId/reactions/:emoji` (no body) toggles the
+caller's reaction: adds the emoji to `reactions.<callerId>` if
+absent, removes it if present. The CRDT op is `$addToSet` /
+`$pull` against the caller's identity-keyed slot, so two clients
+toggling at the same time can't corrupt each other. Response:
+
+```json
+{ "reactions": { "👍": ["<id>"], "🎉": ["<id>"] } }
+```
+
 ### Members & ACL (routes present, handlers return 501 until SDK lands them)
 
 | Method | Path                                                 | Purpose                            |

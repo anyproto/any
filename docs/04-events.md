@@ -64,6 +64,17 @@ counter on every batch and emits `event: lagged{total: <count>}` when
 it grows. v1 does not close the stream on lag — the consumer decides
 whether to reconnect or just re-Query the dataset.
 
+## Used by
+
+- **Tree UI** — left sidebar subscribes via `?dataset=objects` (the
+  per-space firehose) and re-queries the affected folder on each
+  `changes` frame. Stale-after-snapshot was the immediate trigger for
+  shipping subscriptions in v1.
+- **Chat** — clients open `subscribe?dataset=chat_messages` against a
+  chat object and re-`list` when notified. The chat type is a plain
+  `handler.Type` — no chat-specific subscribe endpoint, the generic
+  primitive is enough.
+
 ## Open / future
 
 - **Resume from `Last-Event-ID`.** The handler already emits `id:` as

@@ -71,6 +71,31 @@ any modify <spaceId> <objectId> <dataset> --file FILE|-
 any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
 ```
 
+### Chat
+
+```
+any chat send   <spaceId> <objectId> --text "..." | --file FILE | -  [--reply-to <msgId>]
+any chat list   <spaceId> <objectId> [--before <msgId>] [--after <msgId>] [--limit N]
+any chat edit   <spaceId> <objectId> <msgId> --text "..." | --file FILE | -
+any chat delete <spaceId> <objectId> <msgId>
+any chat react  <spaceId> <objectId> <msgId> <emoji>
+```
+
+`text` is markdown; `--file -` reads from stdin so multi-line content
+pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
+delete only work on your own messages (server returns 403 otherwise).
+React is a toggle — adds the emoji on the first call, removes on the
+second.
+
+For tailing live updates, use the existing subscribe primitive:
+
+```
+any subscribe <spaceId> <objectId> --dataset chat_messages
+```
+
+The SSE stream carries routing tuples; clients re-`list` for the new
+message body when a `changes` frame arrives.
+
 ### Subscribe
 
 ```
