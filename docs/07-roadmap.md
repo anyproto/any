@@ -194,6 +194,27 @@ Not this repo's work; gate on the SDK:
   Required because once the tree is gone, the per-object Modify path
   can't write the tombstone, and queries would keep returning the
   ghost row indefinitely.
+- **Chat built-in type** — `internal/chat` registers a `handler.Type`
+  whose per-object `chat_messages` dataset stores one record per
+  message. Aggregating endpoints under `/v1/spaces/:id/objects/:objectId/messages`
+  cover send / list / edit / delete; reactions toggle via
+  `…/messages/:msgId/reactions/:emoji`. Storage shape:
+  `{id, creator, createdAt, modifiedAt, replyToMessageId, text, reactions}`,
+  reactions identity-keyed (`reactions.<accountId> = [<emoji>, ...]`)
+  so authorization on write is a single path-segment compare against
+  `ctx.Change.Creator`; the API server transposes to emoji-keyed on
+  read because clients expect that shape. Server-stamped fields
+  (`creator`, `createdAt`, `modifiedAt`) come from `sink.Derive`,
+  invisible to client payloads — handler rejects creates carrying
+  any field other than `text` / `replyToMessageId`. Edit / delete
+  enforce author-only (`ctx.Before.creator == ctx.Change.Creator`),
+  surfaced as 403 `chat.not_author`. Chronological order uses the
+  SDK's existing `_ver.id` creation marker; pagination cursors are
+  message ids that resolve to that boundary. Liveness reuses the
+  generic subscribe primitive with `dataset=chat_messages`. Out of
+  scope for v1: pinned, read tracking / mentions, attachments,
+  blocks (typed text/link/embed/quote), per-emoji-per-identity
+  unread reaction tracking — all live as v1.x followups.
 - **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
   and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply
   events as Server-Sent Events. Wire format: `event: ready` →

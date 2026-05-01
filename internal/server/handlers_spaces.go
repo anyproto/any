@@ -31,6 +31,15 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/objects/:objectId/markdown", d.markdownGet)
 	g.PUT("/spaces/:spaceId/objects/:objectId/markdown", d.markdownSet)
 	g.GET("/spaces/:spaceId/objects/:objectId/subscribe", d.subscribeObject)
+
+	// Chat (built-in type — see internal/chat). Liveness reuses the
+	// existing /subscribe?dataset=chat_messages — no chat-specific
+	// subscribe endpoint.
+	g.POST("/spaces/:spaceId/objects/:objectId/messages", d.chatSend)
+	g.GET("/spaces/:spaceId/objects/:objectId/messages", d.chatList)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/messages/:msgId", d.chatEdit)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/messages/:msgId", d.chatDelete)
+	g.POST("/spaces/:spaceId/objects/:objectId/messages/:msgId/reactions/:emoji", d.chatReact)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)

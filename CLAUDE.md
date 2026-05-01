@@ -29,6 +29,20 @@ Two implementation slices landed:
    down. CLI: `any subscribe SPACE OBJ --dataset NAME` /
    `any subscribe SPACE --properties` — one JSON line per frame on stdout.
    Wire format and contract in `docs/03-api.md` § Subscribe and `docs/04-events.md`.
+5. **Chat built-in type** — `internal/chat` registers a `handler.Type`
+   for per-object `chat_messages` records. Endpoints under
+   `/v1/spaces/:id/objects/:objectId/messages` cover send/list/edit/delete;
+   `…/messages/:msgId/reactions/:emoji` is a toggle. Reactions are
+   identity-keyed in storage (`reactions.<accountId> = [emoji, ...]`)
+   so the handler authorization is `op.Path[1] == ctx.Change.Creator`;
+   the API server transposes to emoji-keyed on read. Server-stamped
+   `creator` / `createdAt` / `modifiedAt` come from `sink.Derive`;
+   handler rejects any client payload that tries to set them. Edit /
+   delete enforce author-only via `ctx.Before.creator == ctx.Change.Creator`.
+   Chronological order is the SDK's `_ver.id` creation marker (set
+   once on creation, never bumped by edits — same role heart's `_o.id`
+   plays). Liveness reuses the generic subscribe primitive with
+   `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

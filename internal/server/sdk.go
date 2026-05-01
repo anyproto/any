@@ -11,6 +11,7 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
+	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/markdown"
 )
@@ -51,6 +52,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		// dataset(s) flow through the type's validation logic.
 		Types: []handler.Type{
 			markdown.NewType(),
+			chat.NewType(),
 		},
 	}
 	if cfg.Sync.DialTimeout != "" {
