@@ -23,11 +23,11 @@ export function HealthPage() {
   );
 }
 
-const OPTIONS: ReadonlyArray<{
+const OPTIONS: readonly {
   value: ThemePreference;
   label: string;
   icon: typeof Sun;
-}> = [
+}[] = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'system', label: 'System', icon: Monitor },
   { value: 'dark', label: 'Dark', icon: Moon },

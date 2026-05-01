@@ -31,6 +31,12 @@
     "outDir": "./dist",
     "noEmit": true
   },
-  "include": ["src", "src/**/*.tsx", "src/**/*.ts"],
+  "include": [
+    "src",
+    "src/**/*.tsx",
+    "src/**/*.ts",
+    ".storybook/**/*.tsx",
+    ".storybook/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

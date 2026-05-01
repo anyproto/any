@@ -22,8 +22,6 @@
   "include": [
     "vite.config.ts",
     "vitest.config.ts",
-    "playwright.config.ts",
-    ".storybook/**/*.ts",
-    ".storybook/**/*.tsx"
+    "playwright.config.ts"
   ]
 }
