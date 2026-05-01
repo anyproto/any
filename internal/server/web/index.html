@@ -998,8 +998,10 @@
         for (const p of uniqueProps) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
         const nameOrdinals = {};
         for (const p of uniqueProps) {
-          const cur = tnode[p.id];
           const readOnly = t.id === 'any' && ANY_AUTO_PROP_IDS.has(p.id);
+          // any-scope auto props (id, author, spaceId, createdAt) live at
+          // the record root, alongside id — not under rec.any.
+          const cur = readOnly ? rec[p.id] : tnode[p.id];
           let suffix = '';
           if (nameCounts[p.name] > 1) {
             nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
