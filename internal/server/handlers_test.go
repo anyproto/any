@@ -111,7 +111,7 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	}
 
 	// POST /v1/spaces → creates a space.
-	body := `{"name":"Demo","description":"smoke","spaceType":"regular"}`
+	body := `{"name":"Demo","description":"smoke"}`
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /v1/spaces status = %d body=%s", rec.Code, rec.Body.String())
