@@ -28,7 +28,7 @@ func TestServer_UIIndex(t *testing.T) {
 	body := rec.Body.String()
 	// The page is the embedded app shell — assert on a few stable
 	// landmarks (title, sidebar/netlog roots, an API path the JS calls).
-	for _, want := range []string{"<title>any</title>", `id="space-list"`, `id="netlog"`, "/v1/spaces"} {
+	for _, want := range []string{"<title>any</title>", `id="tree"`, `id="space-select"`, `id="netlog"`, "/v1/spaces"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q", want)
 		}

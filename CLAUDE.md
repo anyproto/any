@@ -12,6 +12,13 @@ Two implementation slices landed:
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
+3. **`nav` virtual built-in + tree UI** — every new object is auto-stamped
+   with `nav.type` / `nav.parentId` / `nav.pos` on create (`internal/nav`,
+   `internal/server/handlers_objects.go::injectNavDefaults`). The web UI's
+   left sidebar now renders an object tree (lazy-loaded via
+   `POST /v1/spaces/:id/objects/query` filtered by `nav.parentId`); the
+   space picker moved to the top of the right netlog sidebar as a
+   `<select>` + popup form.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

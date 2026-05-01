@@ -28,6 +28,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/derive", d.objectDerive)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
+	g.GET("/spaces/:spaceId/objects/:objectId/markdown", d.markdownGet)
+	g.PUT("/spaces/:spaceId/objects/:objectId/markdown", d.markdownSet)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
