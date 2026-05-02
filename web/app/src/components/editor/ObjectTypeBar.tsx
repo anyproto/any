@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/Popover';
 import { Input } from '@/components/ui/Input';
 import { CreateTypeDialog } from '@/components/types/CreateTypeDialog';
+import { AddColumnPopover } from '@/components/tables/AddColumnPopover';
 import { TextCell } from '@/components/tables/cells/TextCell';
 import { NumberCell } from '@/components/tables/cells/NumberCell';
 import { BoolCell } from '@/components/tables/cells/BoolCell';
@@ -196,36 +197,66 @@ function TypePropertiesPanel({
     );
   }
 
-  if (visibleProps.length === 0) {
-    return (
-      <div className="mt-3 px-1 text-[13px] text-foreground/40">
-        This list has no properties yet.
-      </div>
-    );
-  }
-
   return (
-    <dl className="mt-3 grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-0.5">
-      {visibleProps.map((p) => {
-        const propLabel = p.name?.trim() || `Property ${p.id.slice(0, 6)}…`;
-        const value = readPropValue(row, typeId, p.id);
-        return (
-          <div className="contents" key={p.id}>
-            <dt className="truncate text-[13px] text-foreground/55">
-              {propLabel}
-            </dt>
-            <dd className="min-w-0">
-              <PropertyValue
-                prop={p}
-                rowId={row.id}
-                value={value}
-                onCommit={(v) => onCommit(p.id, v)}
-              />
-            </dd>
-          </div>
-        );
-      })}
-    </dl>
+    // Group container so the "+ Add Property" row only appears on
+    // hover of this zone, then a thin divider below to set it apart
+    // from the BlockNote body.
+    <div className="group/typepanel mt-3">
+      {visibleProps.length === 0 ? (
+        <div className="px-1 text-[13px] text-foreground/40">
+          This list has no properties yet.
+        </div>
+      ) : (
+        <dl className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-0.5">
+          {visibleProps.map((p) => {
+            const propLabel = p.name?.trim() || `Property ${p.id.slice(0, 6)}…`;
+            const value = readPropValue(row, typeId, p.id);
+            return (
+              <div className="contents" key={p.id}>
+                <dt className="truncate text-[13px] text-foreground/55">
+                  {propLabel}
+                </dt>
+                <dd className="min-w-0">
+                  <PropertyValue
+                    prop={p}
+                    rowId={row.id}
+                    value={value}
+                    onCommit={(v) => onCommit(p.id, v)}
+                  />
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+
+      {/* Hover-revealed "+ Add Property" row. Reuses AddColumnPopover
+          (the same surface used by the table view's column +). */}
+      <div
+        className={cn(
+          'mt-1 transition-opacity duration-150',
+          'opacity-0 group-hover/typepanel:opacity-100 focus-within:opacity-100',
+        )}
+      >
+        <AddColumnPopover spaceId={spaceId} typeId={typeId}>
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-[13px] text-foreground/55',
+              'hover:bg-foreground/[0.04] hover:text-foreground/80',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Add Property
+          </button>
+        </AddColumnPopover>
+      </div>
+
+      {/* Thin divider between the property zone and the editor blocks
+          below — matches the editor's hr token. */}
+      <hr className="mt-3 border-0 border-t border-foreground/[0.08]" />
+    </div>
   );
 }
 

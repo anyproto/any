@@ -24,6 +24,12 @@ import { cn } from '@/lib/cn';
 interface Props {
   spaceId: string;
   typeId: string;
+  /**
+   * Optional custom trigger. When provided it replaces the default
+   * 32×32 `+` button — useful for surfaces like the object type
+   * bar that want a labeled "Add Property" link instead.
+   */
+  children?: React.ReactNode;
 }
 
 const KIND_OPTIONS: { value: UIPropertyKind; label: string }[] = [
@@ -64,7 +70,7 @@ type Tab = 'new' | 'reuse';
  *     mutation with that property's (name, kind, xKey) — see
  *     docs/specs/PR-022-reuse-property-shape.md.
  */
-export function AddColumnPopover({ spaceId, typeId }: Props) {
+export function AddColumnPopover({ spaceId, typeId, children }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('new');
 
@@ -76,18 +82,20 @@ export function AddColumnPopover({ spaceId, typeId }: Props) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label="Add column"
-          title="Add column"
-          className={cn(
-            'flex h-8 w-8 items-center justify-center text-foreground/50',
-            'hover:bg-foreground/5 hover:text-foreground',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-          )}
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-        </button>
+        {children ?? (
+          <button
+            type="button"
+            aria-label="Add column"
+            title="Add column"
+            className={cn(
+              'flex h-8 w-8 items-center justify-center text-foreground/50',
+              'hover:bg-foreground/5 hover:text-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={2} className="w-80 p-0">
         <div role="tablist" className="flex border-b border-foreground/10 px-1 pt-1">
