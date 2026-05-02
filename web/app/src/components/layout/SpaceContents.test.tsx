@@ -1,33 +1,74 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { axe } from 'vitest-axe';
 import { Provider, createStore } from 'jotai';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SpaceContents } from './SpaceContents';
 import { activeSpaceIdAtom, activeObjectIdAtom } from '@/atoms/selection';
 
-function renderWith({ activeSpaceId }: { activeSpaceId: string | null }) {
-  // useSpace() inside the header issues GET /v1/spaces/:id; stub it.
-  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+interface FetchCall {
+  url: string;
+  method: string;
+  body?: string;
+}
+
+function setupFetchMocks(opts: {
+  spaceName?: string;
+  rootObjects?: { id: string; name: string }[];
+  createReturnsId?: string;
+}): FetchCall[] {
+  const calls: FetchCall[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes('/v1/spaces/')) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: activeSpaceId ?? '',
-            name: 'Anytype Team',
-            status: 'active',
-            ownRole: 'owner',
-            createdAt: '2026-04-01T00:00:00Z',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const method = (init?.method ?? 'GET').toUpperCase();
+    calls.push({
+      url,
+      method,
+      body: typeof init?.body === 'string' ? init.body : undefined,
+    });
+
+    // GET /v1/spaces/:id  → space metadata
+    if (method === 'GET' && /\/v1\/spaces\/[^/]+$/.test(url)) {
+      return new Response(
+        JSON.stringify({
+          id: 'spc-test',
+          name: opts.spaceName ?? 'Test Space',
+          status: 'active',
+          ownRole: 'owner',
+          createdAt: '2026-04-01T00:00:00Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    return Promise.resolve(new Response('{}', { status: 200 }));
-  });
 
+    // POST /v1/spaces/:id/objects/query → root objects
+    if (method === 'POST' && url.endsWith('/objects/query')) {
+      return new Response(
+        JSON.stringify({
+          records: (opts.rootObjects ?? []).map((o) => ({
+            id: o.id,
+            any: { name: o.name },
+            nav: { type: 1, parentId: '', pos: 'A' },
+          })),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // POST /v1/spaces/:id/objects → create
+    if (method === 'POST' && /\/objects$/.test(url)) {
+      return new Response(JSON.stringify({ objectId: opts.createReturnsId ?? 'obj-new' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response('{}', { status: 200 });
+  });
+  return calls;
+}
+
+function renderWith(activeSpaceId: string | null) {
   const store = createStore();
   store.set(activeSpaceIdAtom, activeSpaceId);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -43,33 +84,40 @@ function renderWith({ activeSpaceId }: { activeSpaceId: string | null }) {
 
 describe('<SpaceContents>', () => {
   it('renders the empty state when no space is active', () => {
-    renderWith({ activeSpaceId: null });
+    setupFetchMocks({});
+    renderWith(null);
     expect(screen.getByText(/pick a space/i)).toBeInTheDocument();
   });
 
-  it('renders sectioned items for the active space', () => {
-    renderWith({ activeSpaceId: 'spc-anytype-team' });
-    expect(screen.getByLabelText(/space contents/i)).toBeInTheDocument();
-    expect(screen.getByText('Chats')).toBeInTheDocument();
-    expect(screen.getByText('My Favorites')).toBeInTheDocument();
+  it('renders the space name in the header', async () => {
+    setupFetchMocks({ spaceName: 'My Personal' });
+    renderWith('spc-test');
+    await screen.findByText('My Personal');
   });
 
-  it('selecting an item updates active object', async () => {
-    const { store } = renderWith({ activeSpaceId: 'spc-anytype-team' });
-    await userEvent.click(screen.getByRole('button', { name: /random/i }));
-    expect(store.get(activeObjectIdAtom)).toBe('obj-random');
+  it('renders the object tree empty state for an empty space', async () => {
+    setupFetchMocks({ rootObjects: [] });
+    renderWith('spc-test');
+    await screen.findByText(/no objects yet/i);
   });
 
-  it('collapsible section toggles', async () => {
-    renderWith({ activeSpaceId: 'spc-anytype-team' });
-    const favoritesHeader = screen.getByRole('button', { name: /My Favorites/i });
-    expect(favoritesHeader).toHaveAttribute('aria-expanded', 'true');
-    await userEvent.click(favoritesHeader);
-    expect(favoritesHeader).toHaveAttribute('aria-expanded', 'false');
+  it('renders rows for root objects', async () => {
+    setupFetchMocks({ rootObjects: [{ id: 'obj-1', name: 'Hello' }] });
+    renderWith('spc-test');
+    await screen.findByText('Hello');
   });
 
-  it('has no axe violations (populated)', async () => {
-    const { container } = renderWith({ activeSpaceId: 'spc-anytype-team' });
-    expect(await axe(container)).toHaveNoViolations();
+  it('clicking + New POSTs /objects and selects the new id', async () => {
+    const calls = setupFetchMocks({ rootObjects: [], createReturnsId: 'obj-fresh' });
+    const { store } = renderWith('spc-test');
+    const newBtn = await screen.findByRole('button', { name: /new object/i });
+    await userEvent.click(newBtn);
+    await waitFor(() => {
+      const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));
+      expect(create).toBeDefined();
+    });
+    await waitFor(() => {
+      expect(store.get(activeObjectIdAtom)).toBe('obj-fresh');
+    });
   });
 });

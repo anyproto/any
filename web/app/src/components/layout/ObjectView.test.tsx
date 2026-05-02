@@ -27,18 +27,23 @@ describe('<ObjectView>', () => {
     expect(screen.getByText(/Pick an item/i)).toBeInTheDocument();
   });
 
-  it('shows the selected object body and title', () => {
-    renderWith({ activeObjectId: 'obj-random' });
-    expect(screen.getByRole('heading', { level: 1, name: /random/i })).toBeInTheDocument();
+  it('shows the selected object id and a placeholder body', () => {
+    renderWith({ activeObjectId: 'obj-random-12345678' });
+    // Title is "Object obj-rand…" (first 8 chars + ellipsis).
+    expect(
+      screen.getByRole('heading', { level: 1, name: /object obj-rand/i }),
+    ).toBeInTheDocument();
+    // Full id rendered in the body.
+    expect(screen.getByText('obj-random-12345678')).toBeInTheDocument();
   });
 
   it('breadcrumb is rendered when selected', () => {
-    renderWith({ activeObjectId: 'obj-random' });
+    renderWith({ activeObjectId: 'obj-random-12345678' });
     expect(screen.getByLabelText('Breadcrumb')).toBeInTheDocument();
   });
 
   it('has no axe violations (selected)', async () => {
-    const { container } = renderWith({ activeObjectId: 'obj-random' });
+    const { container } = renderWith({ activeObjectId: 'obj-random-12345678' });
     expect(await axe(container)).toHaveNoViolations();
   });
 });

@@ -2,7 +2,6 @@ import { useAtom } from 'jotai';
 import { ArrowLeft, ArrowRight, ChevronRight, X } from 'lucide-react';
 import { activeObjectIdAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
-import { mockObjectById } from '@/lib/mock-data';
 import { HealthCard } from '@/components/health/HealthCard';
 import { useHealth } from '@/lib/api/meta';
 import { cn } from '@/lib/cn';
@@ -10,16 +9,15 @@ import { cn } from '@/lib/cn';
 /**
  * Pane 3 — open object.
  *
- * Empty state (nothing selected): a friendly hint, plus the existing
- * /v1/health card so the dev surface is still visible (deleted in
- * PR #3+ when a real Settings surface exists).
+ * Empty state: hint + the existing /v1/health card (kept here until
+ * a real Settings page lands).
  *
- * Selected state: breadcrumb + back/forward + mock title and body.
+ * Selected state: shows the id + a placeholder body. The real editor
+ * (BlockNote on /v1/spaces/:s/objects/:o/markdown) lands in PR #6.
  */
 export function ObjectView() {
   const [activeObjectId, setActiveObjectId] = useAtom(activeObjectIdAtom);
   const setFocused = useAtom(focusedPaneAtom)[1];
-  const obj = mockObjectById(activeObjectId);
 
   return (
     <section
@@ -29,21 +27,25 @@ export function ObjectView() {
       className="flex h-full flex-col bg-background"
     >
       <Header
-        breadcrumb={obj?.breadcrumb}
-        onClose={obj ? () => setActiveObjectId(null) : undefined}
+        objectId={activeObjectId}
+        onClose={activeObjectId ? () => setActiveObjectId(null) : undefined}
       />
       <div className="flex-1 overflow-y-auto">
-        {obj ? <ObjectBody title={obj.title} body={obj.body} /> : <EmptyState />}
+        {activeObjectId ? (
+          <ObjectBody objectId={activeObjectId} />
+        ) : (
+          <EmptyState />
+        )}
       </div>
     </section>
   );
 }
 
 function Header({
-  breadcrumb,
+  objectId,
   onClose,
 }: {
-  breadcrumb?: string[] | undefined;
+  objectId: string | null;
   onClose?: (() => void) | undefined;
 }) {
   return (
@@ -52,7 +54,11 @@ function Header({
         <NavButton aria-label="Back" disabled icon={<ArrowLeft className="h-4 w-4" />} />
         <NavButton aria-label="Forward" disabled icon={<ArrowRight className="h-4 w-4" />} />
       </div>
-      <Breadcrumb segments={breadcrumb ?? []} />
+      {objectId ? (
+        <Breadcrumb segments={[`Object ${objectId.slice(0, 8)}…`]} />
+      ) : (
+        <div aria-hidden className="flex-1" />
+      )}
       <div className="flex items-center gap-1">
         {onClose && (
           <NavButton
@@ -92,7 +98,6 @@ function NavButton({
 }
 
 function Breadcrumb({ segments }: { segments: string[] }) {
-  if (segments.length === 0) return <div aria-hidden className="flex-1" />;
   return (
     <nav
       aria-label="Breadcrumb"
@@ -113,14 +118,21 @@ function Breadcrumb({ segments }: { segments: string[] }) {
   );
 }
 
-function ObjectBody({ title, body }: { title: string; body: string[] }) {
+function ObjectBody({ objectId }: { objectId: string }) {
   return (
     <article className="mx-auto max-w-2xl px-8 py-10">
-      <h1 className="mb-6 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
-      <div className="space-y-4 text-[15px] leading-7 text-foreground/85">
-        {body.map((p, i) => (
-          <p key={i}>{p}</p>
-        ))}
+      <h1 className="mb-3 text-3xl font-semibold tracking-tight text-foreground">
+        Object {objectId.slice(0, 8)}…
+      </h1>
+      <p className="text-sm text-foreground/60">
+        Object id: <code className="font-mono">{objectId}</code>
+      </p>
+      <div className="mt-6 space-y-4 text-[15px] leading-7 text-foreground/85">
+        <p>
+          The editor lands in PR #6 — BlockNote wired to{' '}
+          <code className="font-mono">GET/PUT /v1/spaces/:s/objects/:o/markdown</code>.
+          Until then this pane just confirms which object is selected.
+        </p>
       </div>
     </article>
   );
@@ -131,8 +143,9 @@ function EmptyState() {
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6 p-8">
       <p className="text-sm text-foreground/60">
-        Pick an item from the sidebar to view it. Until PR #3 lands a real Settings page,
-        the server health is shown here for convenience.
+        Pick an item from the sidebar to view it. Until PR #3+ lands a
+        real Settings page, the server health card is shown here for
+        convenience.
       </p>
       <HealthCard query={health} />
     </div>
