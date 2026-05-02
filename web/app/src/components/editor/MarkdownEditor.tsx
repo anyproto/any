@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api/client';
 import { resolvedThemeAtom } from '@/atoms/theme';
 import { reduce, initial, type SaveState } from './saveMachine';
 import { OrphanCleanup } from './OrphanCleanup';
+import { ObjectTitle } from './ObjectTitle';
 import './blocknote-theme.css';
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -172,6 +173,7 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
 
   return (
     <div className="mx-auto max-w-2xl px-8 py-6">
+      <ObjectTitle spaceId={spaceId} objectId={objectId} />
       <BlockNoteView editor={editor} theme={theme} onChange={handleChange} />
     </div>
   );

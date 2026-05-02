@@ -135,6 +135,62 @@ export function useObjectsByType(
 }
 
 /**
+ * Read just the name for one object. Implemented via the same
+ * /objects/query endpoint with an id filter — no per-object GET
+ * exists yet. Cache key is per (space, object) so the title in the
+ * editor and the row in the sidebar can share a cell when they
+ * happen to converge.
+ */
+export function useObjectName(spaceId: string | null, objectId: string | null) {
+  return useQuery({
+    queryKey: spaceId && objectId
+      ? (['objects', spaceId, 'name', objectId] as const)
+      : (['objects', '__none__', 'name', '__none__'] as const),
+    queryFn: async ({ signal }) => {
+      const records = await queryObjects(
+        spaceId!,
+        { filter: { id: objectId! }, limit: 1 },
+        signal,
+      );
+      const row = records[0];
+      return row?.any?.name ?? '';
+    },
+    enabled: spaceId != null && objectId != null,
+  });
+}
+
+/**
+ * Rename without needing to know the parent — used by the editor
+ * title (which doesn't have parent context handy). Invalidates every
+ * objects-cache slice for the space so trees, tables and pickers
+ * pick up the new name lazily.
+ */
+export function useRenameObjectAnywhere(spaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ objectId, name }: { objectId: string; name: string }) => {
+      if (!spaceId) throw new Error('useRenameObjectAnywhere: no active space');
+      return setObjectProperty(spaceId, objectId, ANY_TYPE_ID, { name });
+    },
+    onSuccess: (_data, { objectId, name }) => {
+      if (!spaceId) return;
+      // Patch the per-object name cache eagerly so the title input
+      // doesn't flash back to the previous value before the refetch.
+      qc.setQueryData(
+        ['objects', spaceId, 'name', objectId] as const,
+        name,
+      );
+      void qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey;
+          return Array.isArray(k) && k[0] === 'objects' && k[1] === spaceId;
+        },
+      });
+    },
+  });
+}
+
+/**
  * All "real" (item) objects in the space — used by the Relation
  * picker. Filtered to nav.type=1 so folders don't appear in the
  * picker. Sorted by most-recently-touched (-nav.pos as a stand-in
