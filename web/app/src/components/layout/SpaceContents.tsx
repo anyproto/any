@@ -168,7 +168,7 @@ function Header({ spaceId }: { spaceId: string }) {
               {userTypes.length > 0 && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Custom types</DropdownMenuLabel>
+                  <DropdownMenuLabel>Lists</DropdownMenuLabel>
                   {userTypes.map((t) => {
                     const label = t.name?.trim() || `Untitled (${t.id.slice(0, 6)}…)`;
                     return (
@@ -186,7 +186,7 @@ function Header({ spaceId }: { spaceId: string }) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setCreateTypeOpen(true)}>
                 <Settings2 className="h-3.5 w-3.5 text-foreground/60" aria-hidden />
-                Create type…
+                Create list…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -251,14 +251,14 @@ function TypesSection({
   return (
     <>
       <SectionHeader
-        label="Types"
+        label="Lists"
         expanded={expanded}
         onToggle={onToggle}
         action={
           <button
             type="button"
-            aria-label="New type"
-            title="New type"
+            aria-label="New list"
+            title="New list"
             onClick={(e) => {
               e.stopPropagation();
               setCreateTypeOpen(true);
@@ -278,7 +278,7 @@ function TypesSection({
         <ul className="mt-1 px-1">
           {userTypes.length === 0 ? (
             <li className="px-3 py-2 text-xs text-foreground/40">
-              No custom types yet.
+              No lists yet.
             </li>
           ) : (
             userTypes.map((t) => <TypeRow key={t.id} spaceId={spaceId} type={t} />)

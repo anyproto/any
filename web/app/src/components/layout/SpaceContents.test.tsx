@@ -164,11 +164,12 @@ describe('<SpaceContents>', () => {
     expect(
       await screen.findByRole('button', { name: /edit space/i }),
     ).toBeInTheDocument();
-    // Types section header still present.
-    expect(await screen.findByRole('button', { name: /^types/i })).toBeInTheDocument();
+    // Lists section header still present (was "Types" — UX renamed
+    // to "Lists" while the wire/code term stays "type").
+    expect(await screen.findByRole('button', { name: /^lists/i })).toBeInTheDocument();
   });
 
-  it('Types section is collapsed by default; expanding shows user types only', async () => {
+  it('Lists section is collapsed by default; expanding shows user types only', async () => {
     setupFetchMocks({
       rootObjects: [],
       types: [
@@ -178,12 +179,12 @@ describe('<SpaceContents>', () => {
     });
     renderWith('spc-test');
     // Collapsed → user type not visible yet.
-    const typesHeader = await screen.findByRole('button', { name: /^types/i });
-    expect(typesHeader).toHaveAttribute('aria-expanded', 'false');
+    const listsHeader = await screen.findByRole('button', { name: /^lists/i });
+    expect(listsHeader).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Recipe')).not.toBeInTheDocument();
 
-    await userEvent.click(typesHeader);
-    expect(typesHeader).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(listsHeader);
+    expect(listsHeader).toHaveAttribute('aria-expanded', 'true');
     await screen.findByText('Recipe');
     // Built-in stays hidden.
     expect(screen.queryByText('Built-in')).not.toBeInTheDocument();

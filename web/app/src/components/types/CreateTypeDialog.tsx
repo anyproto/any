@@ -82,7 +82,7 @@ export function CreateTypeDialog({ open, onOpenChange }: Props) {
           dispatch({ type: 'progress', completed: 1 + createdProps });
         }
         dispatch({ type: 'create_ok', typeId });
-        toast.success(`Created type “${state.name}”`);
+        toast.success(`Created list “${state.name}”`);
         onOpenChange(false);
       } catch (err) {
         if (cancelled) return;
@@ -123,9 +123,9 @@ function Step({
     return (
       <>
         <DialogHeader>
-          <DialogTitle>Create a type</DialogTitle>
+          <DialogTitle>Create a list</DialogTitle>
           <DialogDescription>
-            A type defines a kind of object — like Recipe, Contact, or Book.
+            A list groups objects of one kind — like Recipes, Contacts, or Books.
           </DialogDescription>
         </DialogHeader>
         <div className="mt-4 space-y-3">
@@ -147,7 +147,7 @@ function Step({
               onChange={(e) =>
                 dispatch({ type: 'edit_description', description: e.target.value })
               }
-              placeholder="What is this type for?"
+              placeholder="What is this list for?"
               rows={2}
             />
           </div>
@@ -194,7 +194,7 @@ function Step({
         <DialogHeader>
           <DialogTitle>Confirm</DialogTitle>
           <DialogDescription>
-            Creating this will define the type and add {state.properties.length}{' '}
+            Creating this will define the list and add {state.properties.length}{' '}
             {state.properties.length === 1 ? 'property' : 'properties'}.
           </DialogDescription>
         </DialogHeader>
@@ -257,7 +257,7 @@ function Step({
             <code className="font-mono">{state.error.code}</code> — {state.error.message}
             {state.partial.typeId && (
               <span className="mt-2 block text-foreground/70">
-                The type itself was created ({state.partial.createdProps}/
+                The list itself was created ({state.partial.createdProps}/
                 {state.properties.length} properties added). Retry to finish.
               </span>
             )}
