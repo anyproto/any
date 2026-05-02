@@ -1,0 +1,168 @@
+[
+  {
+    "op": "Middle",
+    "args": [],
+    "expected": "PPPP"
+  },
+  {
+    "op": "Next",
+    "args": [
+      ""
+    ],
+    "expected": "!!#,"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!#,"
+    ],
+    "expected": "!!$5"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!$5"
+    ],
+    "expected": "!!%\u003e"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!%\u003e"
+    ],
+    "expected": "!!\u0026G"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!\u0026G"
+    ],
+    "expected": "!!'P"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!'P"
+    ],
+    "expected": "!!(Y"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!(Y"
+    ],
+    "expected": "!!)c"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!)c"
+    ],
+    "expected": "!!*l"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!*l"
+    ],
+    "expected": "!!+u"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "!!+u"
+    ],
+    "expected": "!!,~"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPPP"
+    ],
+    "expected": "PPQY"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPQY"
+    ],
+    "expected": "PPRc"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPRc"
+    ],
+    "expected": "PPSl"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPSl"
+    ],
+    "expected": "PPTu"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPTu"
+    ],
+    "expected": "PPU~"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPU~"
+    ],
+    "expected": "PPW+"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPW+"
+    ],
+    "expected": "PPX4"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPX4"
+    ],
+    "expected": "PPY="
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPY="
+    ],
+    "expected": "PPZF"
+  },
+  {
+    "op": "Next",
+    "args": [
+      "PPZF"
+    ],
+    "expected": "PP[O"
+  },
+  {
+    "op": "NextBefore",
+    "args": [
+      "",
+      "PPPP"
+    ],
+    "expected": "!!#,"
+  },
+  {
+    "op": "NextBefore",
+    "args": [
+      "PPPP",
+      "PPPR"
+    ],
+    "expected": "PPPPP!!#"
+  },
+  {
+    "op": "CharsAllNoEscape",
+    "args": [],
+    "expected": "!#$%\u0026'()*+,-./0123456789:;\u003c=\u003e?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+  }
+]

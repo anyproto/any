@@ -201,6 +201,102 @@ export function useRenameObject(spaceId: string | null) {
   });
 }
 
+export interface MoveArgs {
+  objectId: string;
+  fromParentId: string;
+  toParentId: string;
+  /** New nav.pos string (computed via lexid client-side). */
+  pos: string;
+}
+
+/**
+ * Move an object to a new parent + position.
+ *
+ * Sends `POST .../properties/:o/base/nav` with `{patch: {parentId, pos}}`
+ * — the server commits both fields in one DAG change.
+ *
+ * Optimistic: removes the row from the source parent's cached
+ * children and inserts it into the target's, sorted by nav.pos.
+ * Rolls back on error.
+ */
+export function useMoveObject(spaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ objectId, toParentId, pos }: MoveArgs) => {
+      if (!spaceId) throw new Error('useMoveObject: no active space');
+      return setObjectProperty(spaceId, objectId, 'nav', { parentId: toParentId, pos });
+    },
+    onMutate: async ({ objectId, fromParentId, toParentId, pos }) => {
+      if (!spaceId) return;
+      const fromKey = KEYS.childrenOf(spaceId, fromParentId);
+      const toKey = KEYS.childrenOf(spaceId, toParentId);
+      await Promise.all([
+        qc.cancelQueries({ queryKey: fromKey }),
+        qc.cancelQueries({ queryKey: toKey }),
+      ]);
+      const fromPrev = qc.getQueryData<ObjectRecord[]>(fromKey);
+      const toPrev = qc.getQueryData<ObjectRecord[]>(toKey);
+
+      // Find the row in source parent's cached list.
+      const movedRow =
+        fromPrev?.find((r) => r.id === objectId) ??
+        toPrev?.find((r) => r.id === objectId); // same-parent moves
+      if (!movedRow) return { fromPrev, toPrev, fromKey, toKey };
+
+      // Patch the moved row's nav.parentId + nav.pos optimistically.
+      const updatedRow: ObjectRecord = {
+        ...movedRow,
+        nav: { ...(movedRow.nav ?? {}), parentId: toParentId, pos },
+      };
+
+      if (fromParentId !== toParentId) {
+        if (fromPrev) {
+          qc.setQueryData<ObjectRecord[]>(
+            fromKey,
+            fromPrev.filter((r) => r.id !== objectId),
+          );
+        }
+        if (toPrev !== undefined) {
+          const next = [...toPrev.filter((r) => r.id !== objectId), updatedRow];
+          next.sort(byNavPos);
+          qc.setQueryData<ObjectRecord[]>(toKey, next);
+        }
+      } else {
+        // Same parent — re-sort the existing list with the new pos.
+        if (toPrev) {
+          const next = toPrev.map((r) => (r.id === objectId ? updatedRow : r));
+          next.sort(byNavPos);
+          qc.setQueryData<ObjectRecord[]>(toKey, next);
+        }
+      }
+
+      return { fromPrev, toPrev, fromKey, toKey };
+    },
+    onError: (_err, _args, ctx) => {
+      if (!ctx) return;
+      if (ctx.fromPrev !== undefined) qc.setQueryData(ctx.fromKey, ctx.fromPrev);
+      if (ctx.toPrev !== undefined) qc.setQueryData(ctx.toKey, ctx.toPrev);
+    },
+    onSettled: (_data, _err, args) => {
+      if (!spaceId) return;
+      void qc.invalidateQueries({
+        queryKey: KEYS.childrenOf(spaceId, args.fromParentId),
+      });
+      if (args.toParentId !== args.fromParentId) {
+        void qc.invalidateQueries({
+          queryKey: KEYS.childrenOf(spaceId, args.toParentId),
+        });
+      }
+    },
+  });
+}
+
+function byNavPos(a: ObjectRecord, b: ObjectRecord): number {
+  const ap = a.nav?.pos ?? '';
+  const bp = b.nav?.pos ?? '';
+  return ap < bp ? -1 : ap > bp ? 1 : 0;
+}
+
 export interface DeleteArgs {
   objectId: string;
   parentId: string;

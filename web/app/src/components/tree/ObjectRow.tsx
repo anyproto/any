@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useAtom } from 'jotai';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronRight, ChevronDown, FileText, Folder, Pencil, Trash2 } from 'lucide-react';
 import {
   useObjectChildren,
@@ -45,13 +46,19 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const renameMutation = useRenameObject(spaceId);
-  const containerRef = useRef<HTMLLIElement>(null);
 
   const isFolder = obj.nav?.type === NAV_FOLDER;
   const active = activeObjectId === obj.id;
   const renaming = renamingId === obj.id;
   const parentId = obj.nav?.parentId ?? NAV_ROOT_PARENT_ID;
   const title = obj.any?.name?.trim() || `Untitled (${obj.id.slice(0, 6)}…)`;
+
+  // DnD: row is both a draggable source and a droppable target.
+  // The drop target id must equal the object id so ObjectTree's
+  // onDragEnd reducer can look it up directly.
+  const drag = useDraggable({ id: obj.id, disabled: renaming });
+  const drop = useDroppable({ id: obj.id });
+  const isDropTarget = drop.isOver && drop.active && drop.active.id !== obj.id;
 
   const startRename = () => setRenamingId(obj.id);
   const stopRename = () => setRenamingId(null);
@@ -85,21 +92,29 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
 
   return (
     <li
-      ref={containerRef}
+      ref={drop.setNodeRef}
       role="treeitem"
       aria-selected={active}
       aria-expanded={isFolder ? expanded : undefined}
       tabIndex={0}
       onKeyDown={onRowKeyDown}
       className="focus-visible:outline-none"
+      style={
+        drag.transform
+          ? { transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`, opacity: drag.isDragging ? 0.4 : 1 }
+          : undefined
+      }
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
+            ref={drag.setNodeRef}
+            {...drag.listeners}
             className={cn(
               'group flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-foreground',
               'hover:bg-foreground/5',
               active && 'bg-foreground/8 font-medium',
+              isDropTarget && (isFolder ? 'bg-accent/15 ring-1 ring-accent/40' : 'ring-1 ring-accent/30'),
               'group-focus-visible:ring-2 group-focus-visible:ring-accent',
             )}
             style={{ paddingLeft: `${0.375 + depth * 1}rem` }}

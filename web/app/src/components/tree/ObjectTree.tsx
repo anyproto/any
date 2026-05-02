@@ -1,23 +1,127 @@
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import {
   useObjectChildren,
+  useMoveObject,
+  type ObjectRecord,
+  NAV_FOLDER,
   NAV_ROOT_PARENT_ID,
 } from '@/lib/api/objects';
 import { ApiError } from '@/lib/api/client';
+import { toast } from '@/components/ui/Toast';
+import { nav as lexid } from '@/lib/lexid';
 import { ObjectRow } from './ObjectRow';
 
 /**
- * The root of the object tree for the active space. Renders the
- * objects whose `nav.parentId === ""`. Each ObjectRow handles its own
- * lazy-loaded children.
+ * The root of the object tree for the active space.
  *
- * State surfaces:
- *   loading  → 3 skeleton rows
- *   error    → tiny inline error card with the API code
- *   empty    → friendly nudge ("No objects yet — create one")
- *   ok       → list of rows
+ * Owns the DndContext and the onDragEnd reducer that turns a drop
+ * into a `useMoveObject` mutation. Drop semantics:
+ *   - Drop on a folder row → moves under that folder, last child.
+ *   - Drop on an item row  → moves to the same parent as that item,
+ *     positioned right after it.
+ *
+ * Self-drop and same-position drops are no-ops.
  */
 export function ObjectTree({ spaceId }: { spaceId: string }) {
   const q = useObjectChildren(spaceId, NAV_ROOT_PARENT_ID);
+  const move = useMoveObject(spaceId);
+  const qc = useQueryClient();
+  // Pointer sensor with a short activation distance so the row's
+  // built-in click (select) still fires on a plain click.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const onDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      const sourceId = String(e.active.id);
+      const targetId = e.over?.id != null ? String(e.over.id) : null;
+      if (!targetId || targetId === sourceId) return;
+
+      // Find both objects via cached queries. The active row is in
+      // exactly one children-of-parent cache (its current parent);
+      // we walk known caches to find it.
+      const source = findObjectInCache(qc, spaceId, sourceId);
+      const target = findObjectInCache(qc, spaceId, targetId);
+      if (!source || !target) return;
+
+      const sourceParentId = source.nav?.parentId ?? NAV_ROOT_PARENT_ID;
+      const isFolderTarget = target.nav?.type === NAV_FOLDER;
+
+      let toParentId: string;
+      let pos: string;
+      try {
+        if (isFolderTarget) {
+          toParentId = target.id;
+          const children = qc.getQueryData<ObjectRecord[]>([
+            'objects',
+            spaceId,
+            'children',
+            toParentId,
+          ]);
+          const maxPos = children?.reduce<string>(
+            (acc, r) => ((r.nav?.pos ?? '') > acc ? (r.nav?.pos ?? '') : acc),
+            '',
+          ) ?? '';
+          pos = maxPos === '' ? lexid.middle() : lexid.next(maxPos);
+        } else {
+          toParentId = target.nav?.parentId ?? NAV_ROOT_PARENT_ID;
+          const siblings = qc.getQueryData<ObjectRecord[]>([
+            'objects',
+            spaceId,
+            'children',
+            toParentId,
+          ]) ?? [];
+          // Find target's index, then the next sibling (if any).
+          const sortedSiblings = [...siblings].sort((a, b) =>
+            (a.nav?.pos ?? '') < (b.nav?.pos ?? '') ? -1 : 1,
+          );
+          const idx = sortedSiblings.findIndex((r) => r.id === target.id);
+          const targetPos = target.nav?.pos ?? '';
+          // Skip the row being moved when picking the next sibling.
+          let nextSiblingPos = '';
+          for (let i = idx + 1; i < sortedSiblings.length; i++) {
+            const cand = sortedSiblings[i]!;
+            if (cand.id === sourceId) continue;
+            nextSiblingPos = cand.nav?.pos ?? '';
+            break;
+          }
+          if (nextSiblingPos === '') {
+            pos = lexid.next(targetPos);
+          } else {
+            pos = lexid.nextBefore(targetPos, nextSiblingPos);
+          }
+        }
+      } catch (err) {
+        const code = err instanceof ApiError ? err.code : 'lexid';
+        toast.error(`${code}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+
+      // Skip if nothing changed.
+      if (toParentId === sourceParentId && pos === source.nav?.pos) return;
+
+      void move
+        .mutateAsync({
+          objectId: sourceId,
+          fromParentId: sourceParentId,
+          toParentId,
+          pos,
+        })
+        .catch((err: unknown) => {
+          const code = err instanceof ApiError ? err.code : 'unknown';
+          const msg = err instanceof Error ? err.message : 'Move failed';
+          toast.error(`${code}: ${msg}`);
+        });
+    },
+    [qc, spaceId, move],
+  );
 
   if (q.isPending) {
     return (
@@ -60,10 +164,34 @@ export function ObjectTree({ spaceId }: { spaceId: string }) {
   }
 
   return (
-    <ul role="tree" aria-label="Objects" className="px-1 py-1">
-      {q.data.map((obj) => (
-        <ObjectRow key={obj.id} spaceId={spaceId} obj={obj} depth={0} />
-      ))}
-    </ul>
+    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <ul role="tree" aria-label="Objects" className="px-1 py-1">
+        {q.data.map((obj) => (
+          <ObjectRow key={obj.id} spaceId={spaceId} obj={obj} depth={0} />
+        ))}
+      </ul>
+    </DndContext>
   );
+}
+
+/**
+ * Walk the children-of-parent caches looking for an object by id.
+ * Returns the cached row or null.
+ *
+ * Cheap: limited to caches we already populated. Doesn't fetch.
+ */
+function findObjectInCache(
+  qc: ReturnType<typeof useQueryClient>,
+  spaceId: string,
+  objectId: string,
+): ObjectRecord | null {
+  const all = qc.getQueriesData<ObjectRecord[]>({
+    queryKey: ['objects', spaceId, 'children'],
+  });
+  for (const [, list] of all) {
+    if (!list) continue;
+    const hit = list.find((r) => r.id === objectId);
+    if (hit) return hit;
+  }
+  return null;
 }
