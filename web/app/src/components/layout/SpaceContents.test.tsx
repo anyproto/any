@@ -1,20 +1,44 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import { Provider, createStore } from 'jotai';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SpaceContents } from './SpaceContents';
 import { activeSpaceIdAtom, activeObjectIdAtom } from '@/atoms/selection';
 
 function renderWith({ activeSpaceId }: { activeSpaceId: string | null }) {
+  // useSpace() inside the header issues GET /v1/spaces/:id; stub it.
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('/v1/spaces/')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: activeSpaceId ?? '',
+            name: 'Anytype Team',
+            status: 'active',
+            ownRole: 'owner',
+            createdAt: '2026-04-01T00:00:00Z',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }
+    return Promise.resolve(new Response('{}', { status: 200 }));
+  });
+
   const store = createStore();
   store.set(activeSpaceIdAtom, activeSpaceId);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
-    <Provider store={store}>
-      <SpaceContents />
-    </Provider>,
+    <QueryClientProvider client={qc}>
+      <Provider store={store}>
+        <SpaceContents />
+      </Provider>
+    </QueryClientProvider>,
   );
-  return { ...utils, store };
+  return { ...utils, store, qc };
 }
 
 describe('<SpaceContents>', () => {
@@ -25,7 +49,7 @@ describe('<SpaceContents>', () => {
 
   it('renders sectioned items for the active space', () => {
     renderWith({ activeSpaceId: 'spc-anytype-team' });
-    expect(screen.getByLabelText(/contents of/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/space contents/i)).toBeInTheDocument();
     expect(screen.getByText('Chats')).toBeInTheDocument();
     expect(screen.getByText('My Favorites')).toBeInTheDocument();
   });

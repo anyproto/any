@@ -3,8 +3,8 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { ChevronDown, ChevronRight, MoreHorizontal, Users } from 'lucide-react';
 import { activeSpaceIdAtom, activeObjectIdAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
+import { useSpace } from '@/lib/api/spaces';
 import {
-  MOCK_SPACES,
   mockSectionsForSpace,
   type MockItem,
   type MockSection,
@@ -36,17 +36,16 @@ export function SpaceContents() {
     );
   }
 
-  const space = MOCK_SPACES.find((s) => s.id === activeSpaceId);
   const sections = mockSectionsForSpace(activeSpaceId);
 
   return (
     <section
-      aria-label={`Contents of ${space?.name ?? 'space'}`}
+      aria-label="Space contents"
       data-pane="2"
       onFocus={() => setFocused(2)}
       className="flex h-full flex-col bg-foreground/[0.02]"
     >
-      <Header name={space?.name ?? activeSpaceId} />
+      <Header spaceId={activeSpaceId} />
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {sections.map((section) => (
           <SectionView key={section.id} section={section} />
@@ -56,7 +55,15 @@ export function SpaceContents() {
   );
 }
 
-function Header({ name }: { name: string }) {
+function Header({ spaceId }: { spaceId: string }) {
+  const spaceQuery = useSpace(spaceId);
+  const name =
+    spaceQuery.data?.name?.trim() ||
+    (spaceQuery.isPending ? 'Loading…' : `Untitled (${spaceId.slice(0, 6)}…)`);
+  return <HeaderInner name={name} />;
+}
+
+function HeaderInner({ name }: { name: string }) {
   return (
     <header className="flex items-center justify-between gap-2 border-b border-foreground/[0.06] px-3 py-3">
       <button

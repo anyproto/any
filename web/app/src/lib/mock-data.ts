@@ -1,16 +1,10 @@
 /**
- * Mock data for the layout shell (PR #2). Deleted in PR #3 once
- * /v1/spaces and /v1/spaces/:s/objects/query are wired.
+ * Mock data for the layout shell.
+ *
+ * The MOCK_SPACES list was removed in PR #3 (rail now uses
+ * /v1/spaces). Sections + objects below are still mock; PR #4 wires
+ * /v1/spaces/:s/objects/query and deletes the rest of this file.
  */
-
-export interface MockSpace {
-  id: string;
-  name: string;
-  /** Single-character or short emoji used as the rail icon. */
-  glyph: string;
-  /** Tailwind class for the icon background — picks from semantic tokens only. */
-  tone: 'accent' | 'success' | 'info' | 'destructive' | 'foreground';
-}
 
 export interface MockSection {
   id: string;
@@ -33,14 +27,6 @@ export interface MockObject {
   body: string[];
   breadcrumb: string[];
 }
-
-export const MOCK_SPACES: readonly MockSpace[] = [
-  { id: 'spc-personal', name: 'Personal', glyph: 'P', tone: 'accent' },
-  { id: 'spc-work', name: 'Work', glyph: 'W', tone: 'success' },
-  { id: 'spc-anytype-team', name: 'Anytype Team', glyph: 'A', tone: 'info' },
-  { id: 'spc-fundraising', name: 'Fundraising 2026', glyph: 'F', tone: 'destructive' },
-  { id: 'spc-bobrik', name: 'bobrik', glyph: 'b', tone: 'foreground' },
-];
 
 const ANYTYPE_TEAM_SECTIONS: MockSection[] = [
   {

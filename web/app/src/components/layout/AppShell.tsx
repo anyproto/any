@@ -4,7 +4,7 @@ import { Panel, PanelGroup, type ImperativePanelHandle } from 'react-resizable-p
 import { paneWidthsAtom, PANE_BOUNDS } from '@/atoms/layout';
 import { focusedPaneAtom, type PaneId } from '@/atoms/focus';
 import { activeSpaceIdAtom } from '@/atoms/selection';
-import { MOCK_SPACES } from '@/lib/mock-data';
+import { useSpaces } from '@/lib/api/spaces';
 import { MinWidthGuard } from './MinWidthGuard';
 import { SpacesRail } from './SpacesRail';
 import { SpaceContents } from './SpaceContents';
@@ -27,15 +27,20 @@ export function AppShell() {
   const [activeSpaceId, setActiveSpaceId] = useAtom(activeSpaceIdAtom);
   const groupRef = useRef<HTMLDivElement>(null);
 
-  // First-load default: pick the first mock space so pane 2 is
-  // populated on first visit. PR #3 replaces this with "first space
-  // from /v1/spaces" once that endpoint is wired.
+  // Auto-pick logic: when /v1/spaces resolves, ensure activeSpaceId
+  // points at one of the returned spaces. Two cases that need the
+  // effect:
+  //   - null persisted → pick the first.
+  //   - persisted id no longer in the list (deleted, on another
+  //     device, etc.) → pick the first remaining or null.
+  const spacesQuery = useSpaces();
   useEffect(() => {
-    if (activeSpaceId == null && MOCK_SPACES.length > 0) {
-      const first = MOCK_SPACES[0];
-      if (first) setActiveSpaceId(first.id);
-    }
-  }, [activeSpaceId, setActiveSpaceId]);
+    if (!spacesQuery.isSuccess) return;
+    const spaces = spacesQuery.data;
+    const exists = activeSpaceId != null && spaces.some((s) => s.id === activeSpaceId);
+    if (exists) return;
+    setActiveSpaceId(spaces[0]?.id ?? null);
+  }, [spacesQuery.isSuccess, spacesQuery.data, activeSpaceId, setActiveSpaceId]);
 
   // Move browser focus into a pane when the global shortcut fires.
   useGlobalPaneFocusShortcuts(groupRef);
