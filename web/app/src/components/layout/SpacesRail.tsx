@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/ContextMenu';
 import { CreateSpaceDialog } from '@/components/spaces/CreateSpaceDialog';
 import { DeleteSpaceDialog } from '@/components/spaces/DeleteSpaceDialog';
+import { EditSpaceDialog } from '@/components/spaces/EditSpaceDialog';
+import { useSpaceMeta } from '@/atoms/space-meta';
 import { SpaceAvatar } from './SpaceAvatar';
 import { AccountAvatar } from './AccountAvatar';
 import { cn } from '@/lib/cn';
@@ -35,6 +37,7 @@ export function SpacesRail() {
   const spacesQuery = useSpaces();
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<SpaceInfo | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<SpaceInfo | null>(null);
   const [filter, setFilter] = useState('');
 
   const filteredSpaces = useMemo(() => {
@@ -100,7 +103,11 @@ export function SpacesRail() {
         {spacesQuery.isSuccess &&
           filteredSpaces.map((space) => (
             <li key={space.id}>
-              <SpaceRow space={space} onDelete={() => setPendingDelete(space)} />
+              <SpaceRow
+                space={space}
+                onEdit={() => setPendingEdit(space)}
+                onDelete={() => setPendingDelete(space)}
+              />
             </li>
           ))}
       </ul>
@@ -128,6 +135,11 @@ export function SpacesRail() {
         space={pendingDelete}
         onClose={() => setPendingDelete(null)}
       />
+      <EditSpaceDialog
+        spaceId={pendingEdit?.id ?? null}
+        serverName={pendingEdit?.name}
+        onClose={() => setPendingEdit(null)}
+      />
     </nav>
   );
 }
@@ -141,17 +153,21 @@ interface RowExtras {
 
 function SpaceRow({
   space,
+  onEdit,
   onDelete,
   extras,
 }: {
   space: SpaceInfo;
+  onEdit: () => void;
   onDelete: () => void;
   extras?: RowExtras;
 }) {
   const [activeId, setActiveId] = useAtom(activeSpaceIdAtom);
+  const { overrideName, overrideIcon } = useSpaceMeta(space.id);
   const active = space.id === activeId;
   const muted = space.status !== 'active';
-  const label = space.name?.trim() || `Untitled (${space.id.slice(0, 6)}…)`;
+  const effectiveName = overrideName ?? space.name;
+  const label = effectiveName?.trim() || `Untitled (${space.id.slice(0, 6)}…)`;
   const pinned = extras?.pinned ?? false;
   const unread = extras?.unread ?? 0;
 
@@ -172,9 +188,10 @@ function SpaceRow({
         >
           <SpaceAvatar
             spaceId={space.id}
-            name={space.name}
+            name={effectiveName}
             size="md"
             muted={muted}
+            iconOverride={overrideIcon}
           />
           <span className="flex-1 truncate text-sm">{label}</span>
           {/* Trailing meta — pin or unread badge */}
@@ -193,6 +210,7 @@ function SpaceRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={onEdit}>Edit space…</ContextMenuItem>
         <ContextMenuItem onSelect={onDelete} className="text-destructive">
           Delete…
         </ContextMenuItem>

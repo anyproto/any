@@ -21,6 +21,8 @@ import { useSpace } from '@/lib/api/spaces';
 import { useCreateObject, queryObjects } from '@/lib/api/objects';
 import { useTypes, type TypeInfo } from '@/lib/api/types';
 import { ObjectTree } from '@/components/tree/ObjectTree';
+import { useSpaceMeta } from '@/atoms/space-meta';
+import { EditSpaceDialog } from '@/components/spaces/EditSpaceDialog';
 import { Button } from '@/components/ui/Button';
 import {
   DropdownMenu,
@@ -95,9 +97,12 @@ function Header({ spaceId }: { spaceId: string }) {
   const createMutation = useCreateObject(spaceId);
   const typesQuery = useTypes(spaceId);
   const [createTypeOpen, setCreateTypeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const { overrideName, overrideIcon } = useSpaceMeta(spaceId);
 
+  const effectiveName = (overrideName ?? spaceQuery.data?.name)?.trim();
   const name =
-    spaceQuery.data?.name?.trim() ||
+    effectiveName ||
     (spaceQuery.isPending ? 'Loading…' : `Untitled (${spaceId.slice(0, 6)}…)`);
   const userTypes = (typesQuery.data ?? []).filter((t) => !t.builtIn);
 
@@ -123,13 +128,20 @@ function Header({ spaceId }: { spaceId: string }) {
       <header className="flex items-center justify-between gap-2 border-b border-foreground/[0.06] px-3 py-3">
         <button
           type="button"
+          aria-label="Edit space"
+          onClick={() => setEditOpen(true)}
           className={cn(
             'inline-flex max-w-[14rem] items-center gap-2 rounded-md px-1.5 py-1',
             'text-sm font-semibold text-foreground hover:bg-foreground/5',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
           )}
         >
-          <SpaceAvatar spaceId={spaceId} name={spaceQuery.data?.name} size="sm" />
+          <SpaceAvatar
+            spaceId={spaceId}
+            name={effectiveName}
+            size="sm"
+            iconOverride={overrideIcon}
+          />
           <span className="truncate">{name}</span>
           <ChevronDown className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
         </button>
@@ -198,6 +210,11 @@ function Header({ spaceId }: { spaceId: string }) {
       </header>
 
       <CreateTypeDialog open={createTypeOpen} onOpenChange={setCreateTypeOpen} />
+      <EditSpaceDialog
+        spaceId={editOpen ? spaceId : null}
+        serverName={spaceQuery.data?.name}
+        onClose={() => setEditOpen(false)}
+      />
     </>
   );
 }
@@ -217,8 +234,9 @@ function PagesSection({
   onToggle: () => void;
 }) {
   const spaceQuery = useSpace(spaceId);
+  const { overrideName } = useSpaceMeta(spaceId);
   const label =
-    spaceQuery.data?.name?.trim() ||
+    (overrideName ?? spaceQuery.data?.name)?.trim() ||
     (spaceQuery.isPending ? 'Loading…' : `Untitled (${spaceId.slice(0, 6)}…)`);
   return (
     <>

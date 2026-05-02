@@ -154,10 +154,16 @@ describe('<SpaceContents>', () => {
   it('Pages section uses the space name as its label', async () => {
     setupFetchMocks({ spaceName: 'My Personal', rootObjects: [] });
     renderWith('spc-test');
-    // The space name now appears in two buttons: the chevron-menu trigger
-    // in the header AND the Pages section header.
-    const buttons = await screen.findAllByRole('button', { name: /^my personal$/i });
-    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    // The header button is labelled "Edit space" (the click handler opens
+    // the rename/icon dialog — PR-018) but its visible text is the
+    // space name; the Pages section header is its own button labelled
+    // by the same name.
+    expect(
+      await screen.findByRole('button', { name: /^my personal$/i }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /edit space/i }),
+    ).toBeInTheDocument();
     // Types section header still present.
     expect(await screen.findByRole('button', { name: /^types/i })).toBeInTheDocument();
   });

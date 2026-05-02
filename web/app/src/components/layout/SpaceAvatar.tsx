@@ -19,6 +19,12 @@ interface SpaceAvatarProps {
   active?: boolean;
   /** Muted state — fades the avatar (used for non-active space statuses). */
   muted?: boolean;
+  /**
+   * User-chosen emoji or short text shown in place of the auto
+   * initial-glyph. The tone (background color) still derives from
+   * spaceId so a renamed space keeps its visual identity.
+   */
+  iconOverride?: string | undefined;
   /** Optional extra classes for fine-tuning at the call site. */
   className?: string;
 }
@@ -40,9 +46,11 @@ export function SpaceAvatar({
   size = 'md',
   active,
   muted,
+  iconOverride,
   className,
 }: SpaceAvatarProps) {
   const t = tone(spaceId);
+  const trimmedIcon = iconOverride?.trim() || undefined;
   return (
     <span
       aria-hidden
@@ -55,7 +63,7 @@ export function SpaceAvatar({
         className,
       )}
     >
-      {glyph(name, spaceId)}
+      {trimmedIcon ?? glyph(name, spaceId)}
     </span>
   );
 }
