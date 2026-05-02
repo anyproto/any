@@ -187,8 +187,18 @@ function ObjectRowImpl({ spaceId, obj, depth }: ObjectRowProps) {
       className="focus-visible:outline-none"
       style={
         drag.transform
-          ? { transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`, opacity: drag.isDragging ? 0.4 : 1 }
-          : undefined
+          ? {
+              transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`,
+              opacity: drag.isDragging ? 0.4 : 1,
+              // Off-screen rows: tell the browser to skip layout + paint
+              // until they scroll into view. Big paint win in long lists.
+              contentVisibility: 'auto',
+              containIntrinsicSize: 'auto 28px',
+            }
+          : {
+              contentVisibility: 'auto',
+              containIntrinsicSize: 'auto 28px',
+            }
       }
     >
       <ContextMenu>
@@ -277,12 +287,17 @@ function ObjectRowImpl({ spaceId, obj, depth }: ObjectRowProps) {
         <ChildrenList spaceId={spaceId} parentId={obj.id} depth={depth + 1} />
       )}
 
-      <DeleteObjectDialog
-        spaceId={spaceId}
-        obj={pendingDelete ? obj : null}
-        parentId={parentId}
-        onClose={() => setPendingDelete(false)}
-      />
+      {/* Lazy-mount: even when closed, mounting Radix Dialog per row
+          across N rows compounds. Only mount when the user actually
+          opened the confirm. */}
+      {pendingDelete && (
+        <DeleteObjectDialog
+          spaceId={spaceId}
+          obj={obj}
+          parentId={parentId}
+          onClose={() => setPendingDelete(false)}
+        />
+      )}
     </li>
   );
 }
