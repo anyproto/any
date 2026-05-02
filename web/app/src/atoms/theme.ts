@@ -14,6 +14,8 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export const themePreferenceAtom = atomWithStorage<ThemePreference>(
   'any.theme',
   'system',
+  undefined,
+  { getOnInit: true },
 );
 
 /**

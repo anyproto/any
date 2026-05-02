@@ -1,17 +1,15 @@
 import { Toaster } from 'sonner';
-import { HealthPage } from './pages/HealthPage';
+import { AppShell } from './components/layout/AppShell';
 
 /**
- * App shell for PR #1.
- *
- * Single route — the Health page (placeholder, replaced by the 3-pane
- * layout in PR #2). Toaster mounted globally so any component can
- * `import { toast } from 'sonner'` and surface a notification.
+ * App shell. Renders the 3-pane layout (PR #2). The legacy single-page
+ * HealthPage was retired; the health card now lives in pane 3's empty
+ * state until PR #3 lands a real Settings surface.
  */
 export function App() {
   return (
     <>
-      <HealthPage />
+      <AppShell />
       <Toaster
         position="bottom-right"
         toastOptions={{
