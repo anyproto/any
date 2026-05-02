@@ -246,15 +246,34 @@ function TypesSection({
 }) {
   const typesQuery = useTypes(spaceId);
   const userTypes = (typesQuery.data ?? []).filter((t) => !t.builtIn);
+  const [createTypeOpen, setCreateTypeOpen] = useState(false);
 
   return (
     <>
       <SectionHeader
         label="Types"
-        count={userTypes.length || undefined}
         expanded={expanded}
         onToggle={onToggle}
+        action={
+          <button
+            type="button"
+            aria-label="New type"
+            title="New type"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCreateTypeOpen(true);
+            }}
+            className={cn(
+              'inline-flex h-5 w-5 items-center justify-center rounded text-foreground/40',
+              'hover:bg-foreground/5 hover:text-foreground/70',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            )}
+          >
+            <Plus className="h-3 w-3" aria-hidden />
+          </button>
+        }
       />
+      <CreateTypeDialog open={createTypeOpen} onOpenChange={setCreateTypeOpen} />
       {expanded && (
         <ul className="mt-1 px-1">
           {userTypes.length === 0 ? (
