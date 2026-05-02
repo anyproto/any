@@ -216,14 +216,10 @@
   margin: 12px 0;
 }
 
-/* ============================================================== */
-/* Hide BlockNote's "Enter text or type '/' for commands"         */
-/* placeholder. Anytype shows nothing in an empty block.          */
-/* ============================================================== */
-
-.bn-editor [data-placeholder]::before {
-  content: none !important;
-}
+/* The empty-block placeholder is suppressed at the editor config
+   level (placeholders: { default: '', emptyDocument: '' } in
+   MarkdownEditor.tsx) — BlockNote injects its placeholder rules at
+   runtime so a static CSS override here can't catch them. */
 
 /* ============================================================== */
 /* Misc app integration                                           */

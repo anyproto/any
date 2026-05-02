@@ -37,7 +37,14 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
   // The `as any` is a strict-mode escape hatch — BlockNote's default
   // schema types collide with TS `exactOptionalPropertyTypes: true`.
   // Runtime is fine; only the type relationship is the issue.
-  const editor = useCreateBlockNote() as any;
+  //
+  // `placeholders` is set to empty strings so BlockNote injects rules
+  // with `content: ""`, suppressing the default
+  // "Enter text or type '/' for commands" hint. We render an Anytype-
+  // style empty editor instead.
+  const editor = useCreateBlockNote({
+    placeholders: { default: '', emptyDocument: '' },
+  } as any) as any;
 
   const [state, dispatch] = useReducer(reduce, initial);
   const stateRef = useRef(state);
