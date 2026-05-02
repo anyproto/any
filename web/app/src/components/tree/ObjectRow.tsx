@@ -111,13 +111,13 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
             ref={drag.setNodeRef}
             {...drag.listeners}
             className={cn(
-              'group flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-foreground',
+              'group flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] text-foreground/85',
               'hover:bg-foreground/5',
-              active && 'bg-foreground/8 font-medium',
+              active && 'bg-foreground/8 text-foreground font-medium',
               isDropTarget && (isFolder ? 'bg-accent/15 ring-1 ring-accent/40' : 'ring-1 ring-accent/30'),
               'group-focus-visible:ring-2 group-focus-visible:ring-accent',
             )}
-            style={{ paddingLeft: `${0.375 + depth * 1}rem` }}
+            style={{ paddingLeft: `${0.5 + depth * 1}rem` }}
           >
             {isFolder ? (
               <button
@@ -141,9 +141,9 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
             )}
 
             {isFolder ? (
-              <Folder className="h-3.5 w-3.5 shrink-0 text-foreground/60" aria-hidden />
+              <Folder className="h-4 w-4 shrink-0 text-foreground/60" aria-hidden />
             ) : (
-              <FileText className="h-3.5 w-3.5 shrink-0 text-foreground/60" aria-hidden />
+              <FileText className="h-4 w-4 shrink-0 text-foreground/60" aria-hidden />
             )}
 
             {renaming ? (

@@ -9,16 +9,16 @@ describe('paneWidthsAtom', () => {
 
   it('starts at the documented defaults', () => {
     const store = createStore();
-    expect(store.get(paneWidthsAtom)).toEqual({ rail: 6.25, contents: 21.9 });
+    expect(store.get(paneWidthsAtom)).toEqual({ rail: 21.9, contents: 25 });
   });
 
   it('writes new values to localStorage', () => {
     const store = createStore();
-    store.set(paneWidthsAtom, { rail: 8, contents: 25 });
+    store.set(paneWidthsAtom, { rail: 18, contents: 30 });
 
-    const raw = localStorage.getItem('any.layout.widths.v1');
+    const raw = localStorage.getItem('any.layout.widths.v2');
     expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toEqual({ rail: 8, contents: 25 });
+    expect(JSON.parse(raw!)).toEqual({ rail: 18, contents: 30 });
   });
 
   it('reads back the same values within a store', () => {

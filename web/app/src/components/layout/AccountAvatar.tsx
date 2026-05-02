@@ -31,7 +31,7 @@ export function AccountAvatar() {
         aria-label="Account"
         disabled
         className={cn(
-          'inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold leading-none',
+          'inline-flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold leading-none',
           TONE_BG[t],
           'opacity-90 disabled:cursor-not-allowed',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background',

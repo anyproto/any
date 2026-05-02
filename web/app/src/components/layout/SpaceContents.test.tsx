@@ -101,7 +101,10 @@ describe('<SpaceContents>', () => {
   it('renders the space name in the header', async () => {
     setupFetchMocks({ spaceName: 'My Personal' });
     renderWith('spc-test');
-    await screen.findByText('My Personal');
+    // The space name now appears in both the header (chevron-menu trigger)
+    // and the Pages section label, so we expect at least two matches.
+    const matches = await screen.findAllByText('My Personal');
+    expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 
   it('renders the object tree empty state for an empty space', async () => {
@@ -148,10 +151,14 @@ describe('<SpaceContents>', () => {
     });
   });
 
-  it('renders both Pages and Types section headers', async () => {
-    setupFetchMocks({ rootObjects: [] });
+  it('Pages section uses the space name as its label', async () => {
+    setupFetchMocks({ spaceName: 'My Personal', rootObjects: [] });
     renderWith('spc-test');
-    expect(await screen.findByRole('button', { name: /^pages$/i })).toBeInTheDocument();
+    // The space name now appears in two buttons: the chevron-menu trigger
+    // in the header AND the Pages section header.
+    const buttons = await screen.findAllByRole('button', { name: /^my personal$/i });
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    // Types section header still present.
     expect(await screen.findByRole('button', { name: /^types/i })).toBeInTheDocument();
   });
 

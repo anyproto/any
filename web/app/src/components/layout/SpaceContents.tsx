@@ -67,12 +67,11 @@ export function SpaceContents() {
       <Header spaceId={activeSpaceId} />
       <div className="flex-1 overflow-y-auto pb-3">
         <div className="mt-2">
-          <SectionHeader
-            label="Pages"
+          <PagesSection
+            spaceId={activeSpaceId}
             expanded={pagesOpen}
             onToggle={() => setPagesOpen((v) => !v)}
           />
-          {pagesOpen && <ObjectTree spaceId={activeSpaceId} />}
         </div>
         <div className="mt-3">
           <TypesSection
@@ -200,6 +199,32 @@ function Header({ spaceId }: { spaceId: string }) {
 }
 
 /**
+ * Pages section — same chevron pattern as TypesSection, but its label
+ * is the space name (acts as the "root" header). Body is the existing
+ * <ObjectTree>.
+ */
+function PagesSection({
+  spaceId,
+  expanded,
+  onToggle,
+}: {
+  spaceId: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const spaceQuery = useSpace(spaceId);
+  const label =
+    spaceQuery.data?.name?.trim() ||
+    (spaceQuery.isPending ? 'Loading…' : `Untitled (${spaceId.slice(0, 6)}…)`);
+  return (
+    <>
+      <SectionHeader label={label} expanded={expanded} onToggle={onToggle} />
+      {expanded && <ObjectTree spaceId={spaceId} />}
+    </>
+  );
+}
+
+/**
  * Real `/v1/types` filtered to user types. Object counts via one
  * cross-object query per visible type — fine at the handful-of-types
  * scale; if a user creates dozens we batch later (flagged in spec).
@@ -251,12 +276,12 @@ function TypeRow({ spaceId, type }: { spaceId: string; type: TypeInfo }) {
         // Title attribute keeps the tooltip helpful.
         title={label}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground',
+          'flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[13px] text-foreground/85',
           'hover:bg-foreground/5',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         )}
       >
-        <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground/60" aria-hidden />
+        <Sparkles className="h-4 w-4 shrink-0 text-foreground/60" aria-hidden />
         <span className="flex-1 truncate text-left">{label}</span>
         {count > 0 && (
           <span className="text-xs tabular-nums text-foreground/40">{count}</span>

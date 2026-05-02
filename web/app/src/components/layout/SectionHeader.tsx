@@ -21,7 +21,8 @@ export function SectionHeader({ label, count, expanded, onToggle }: SectionHeade
       onClick={onToggle}
       aria-expanded={expanded}
       className={cn(
-        'flex w-full items-center gap-1 px-2 py-1 text-xs font-medium uppercase tracking-wide',
+        'flex w-full items-center gap-1 px-2 py-1 text-[11px] font-medium uppercase',
+        'leading-[14px] tracking-[0.05em]',
         'text-foreground/40 hover:text-foreground/60',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded',
       )}
