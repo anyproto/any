@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Search, Sparkles } from 'lucide-react';
 import {
   useObject,
   useSetObjectProperty,
@@ -8,12 +8,21 @@ import {
 import {
   useType,
   useTypeProperties,
+  useTypes,
   uiKind,
   type PropertyDef,
+  type TypeInfo,
   type UIPropertyKind,
 } from '@/lib/api/types';
 import { ApiError } from '@/lib/api/client';
 import { toast } from '@/components/ui/Toast';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/Popover';
+import { Input } from '@/components/ui/Input';
+import { CreateTypeDialog } from '@/components/types/CreateTypeDialog';
 import { TextCell } from '@/components/tables/cells/TextCell';
 import { NumberCell } from '@/components/tables/cells/NumberCell';
 import { BoolCell } from '@/components/tables/cells/BoolCell';
@@ -46,8 +55,6 @@ export function ObjectTypeBar({ spaceId, objectId }: Props) {
     return arr.filter((t) => t && t !== 'nav');
   }, [objQuery.data]);
 
-  if (types.length === 0) return null;
-
   return (
     <div className="mb-4 mt-1">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -62,6 +69,11 @@ export function ObjectTypeBar({ spaceId, objectId }: Props) {
             }
           />
         ))}
+        <AddTypeChip
+          spaceId={spaceId}
+          objectId={objectId}
+          existingTypes={types}
+        />
       </div>
 
       {expanded && objQuery.data && (
@@ -274,4 +286,158 @@ function readPropValue(row: ObjectRecord, typeId: string, propId: string): unkno
     return (ns as Record<string, unknown>)[propId];
   }
   return undefined;
+}
+
+/**
+ * '+' chip at the end of the bar. Opens a popover with a search +
+ * the list of types in the space that aren't already attached to
+ * this object, plus a "Create new list…" entry that opens the
+ * existing CreateTypeDialog. After the dialog closes successfully
+ * the type's id won't be attached automatically — the user picks it
+ * from the now-grown list. Keeps the dialog single-purpose.
+ */
+function AddTypeChip({
+  spaceId,
+  objectId,
+  existingTypes,
+}: {
+  spaceId: string;
+  objectId: string;
+  existingTypes: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const typesQuery = useTypes(spaceId);
+  const setProp = useSetObjectProperty(spaceId);
+
+  // Reset filter every time the popover opens.
+  useEffect(() => {
+    if (open) {
+      setQuery('');
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
+  const candidates = useMemo(() => {
+    const all = (typesQuery.data ?? []).filter((t) => !t.builtIn);
+    const taken = new Set(existingTypes);
+    const q = query.trim().toLowerCase();
+    return all
+      .filter((t) => !taken.has(t.id))
+      .filter((t) => {
+        if (!q) return true;
+        return (t.name ?? '').toLowerCase().includes(q);
+      });
+  }, [typesQuery.data, existingTypes, query]);
+
+  const attach = async (typeId: string) => {
+    const merged = Array.from(new Set([...existingTypes, typeId]));
+    if (merged.length === existingTypes.length) {
+      setOpen(false);
+      return;
+    }
+    try {
+      await setProp.mutateAsync({
+        objectId,
+        typeId: 'any',
+        patch: { types: merged },
+      });
+      setOpen(false);
+    } catch (err) {
+      const code = err instanceof ApiError ? err.code : 'unknown';
+      const msg = err instanceof Error ? err.message : 'Failed to attach list';
+      toast.error(`${code}: ${msg}`);
+    }
+  };
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Add list"
+            title="Add list"
+            className={cn(
+              'inline-flex h-7 w-7 items-center justify-center rounded-full border',
+              'border-foreground/10 bg-transparent text-foreground/55',
+              'hover:bg-foreground/[0.04] hover:text-foreground/80',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" sideOffset={4} className="w-72 p-0">
+          <div className="flex items-center gap-2 border-b border-foreground/10 px-2 py-1.5">
+            <Search className="h-3.5 w-3.5 text-foreground/40" aria-hidden />
+            <Input
+              ref={inputRef}
+              type="text"
+              autoComplete="off"
+              placeholder="Search lists…"
+              className="h-7 border-0 bg-transparent px-0 text-[13px] focus-visible:ring-0 focus-visible:ring-offset-0"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <ul className="max-h-64 overflow-y-auto py-1" role="listbox">
+            {candidates.length === 0 ? (
+              <li className="px-3 py-2 text-[13px] text-foreground/40">
+                {query ? 'No matching lists.' : 'All lists are already attached.'}
+              </li>
+            ) : (
+              candidates.map((t) => <CandidateRow key={t.id} type={t} onPick={attach} />)
+            )}
+          </ul>
+          <div className="border-t border-foreground/10 py-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setCreateOpen(true);
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px]',
+                'text-foreground/80 hover:bg-foreground/[0.04]',
+                'focus-visible:outline-none focus-visible:bg-foreground/[0.04]',
+              )}
+            >
+              <Plus className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
+              Create new list…
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <CreateTypeDialog open={createOpen} onOpenChange={setCreateOpen} />
+    </>
+  );
+}
+
+function CandidateRow({
+  type,
+  onPick,
+}: {
+  type: TypeInfo;
+  onPick: (id: string) => void | Promise<void>;
+}) {
+  const label = type.name?.trim() || `List ${type.id.slice(0, 6)}…`;
+  return (
+    <li role="option" aria-selected={false}>
+      <button
+        type="button"
+        onClick={() => void onPick(type.id)}
+        className={cn(
+          'flex w-full items-center gap-2 truncate px-3 py-1.5 text-left text-[13px]',
+          'text-foreground/85 hover:bg-foreground/[0.04]',
+          'focus-visible:outline-none focus-visible:bg-foreground/[0.04]',
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-foreground/50" aria-hidden />
+        <span className="truncate">{label}</span>
+      </button>
+    </li>
+  );
 }
