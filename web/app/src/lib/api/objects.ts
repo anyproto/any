@@ -101,6 +101,39 @@ export async function deleteObject(spaceId: string, objectId: string): Promise<v
 
 // ---------------- React hooks ---------------------------------------
 
+export interface ObjectsByTypeOptions {
+  /** Sort key, e.g. 'any.name' or '<typeId>.<propId>'. */
+  sortKey?: string;
+  /** Sort direction. 'asc' is the SDK default; 'desc' uses the leading '-'. */
+  sortDir?: 'asc' | 'desc' | null;
+}
+
+/**
+ * Objects stamped with a given type. Cache key includes the sort so
+ * cycling sort doesn't share a cache slot with the previous order.
+ */
+export function useObjectsByType(
+  spaceId: string | null,
+  typeId: string | null,
+  opts: ObjectsByTypeOptions = {},
+) {
+  const sortKey = opts.sortKey ?? 'nav.pos';
+  const sortDir = opts.sortDir ?? 'asc';
+  const sortClause = sortDir === 'desc' ? `-${sortKey}` : sortKey;
+  return useQuery({
+    queryKey: spaceId && typeId
+      ? (['objects', spaceId, 'by-type', typeId, sortClause] as const)
+      : (['objects', '__none__', 'by-type', '__none__', 'asc'] as const),
+    queryFn: ({ signal }) =>
+      queryObjects(
+        spaceId!,
+        { filter: { 'any.types': typeId }, sort: [sortClause] },
+        signal,
+      ),
+    enabled: spaceId != null && typeId != null,
+  });
+}
+
 /**
  * Children of a folder (or the root). One query per (space, parent),
  * so collapsed folders don't fetch and re-expanding is instant from

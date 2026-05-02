@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { ArrowLeft, ArrowRight, ChevronRight, X } from 'lucide-react';
-import { activeObjectIdAtom, activeSpaceIdAtom } from '@/atoms/selection';
+import { activeSpaceIdAtom, activeViewAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
 import { HealthCard } from '@/components/health/HealthCard';
 import { useHealth } from '@/lib/api/meta';
 import { MarkdownEditor } from '@/components/editor/MarkdownEditor';
 import { type SaveState, statusLabel, type StatusLabel } from '@/components/editor/saveMachine';
+import { TableView } from '@/components/tables/TableView';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
 
@@ -20,12 +21,15 @@ import { cn } from '@/lib/cn';
  * Header gains a status indicator driven by the editor's save machine.
  */
 export function ObjectView() {
-  const [activeObjectId, setActiveObjectId] = useAtom(activeObjectIdAtom);
+  const [activeView, setActiveView] = useAtom(activeViewAtom);
   const activeSpaceId = useAtomValue(activeSpaceIdAtom);
   const setFocused = useAtom(focusedPaneAtom)[1];
 
   const [editorState, setEditorState] = useState<SaveState | null>(null);
   const onStateChange = useCallback((s: SaveState) => setEditorState(s), []);
+
+  const showStatus = activeView.kind === 'object' && editorState != null;
+  const objectId = activeView.kind === 'object' ? activeView.objectId : null;
 
   return (
     <section
@@ -35,19 +39,28 @@ export function ObjectView() {
       className="flex h-full flex-col bg-background"
     >
       <Header
-        objectId={activeObjectId}
-        status={editorState ? statusLabel(editorState) : null}
-        onClose={activeObjectId ? () => setActiveObjectId(null) : undefined}
+        objectId={objectId}
+        status={showStatus && editorState ? statusLabel(editorState) : null}
+        onClose={
+          activeView.kind !== 'empty'
+            ? () => setActiveView({ kind: 'empty' })
+            : undefined
+        }
       />
       <div className="flex-1 overflow-y-auto">
-        {activeObjectId && activeSpaceId ? (
+        {activeSpaceId && activeView.kind === 'object' ? (
           <MarkdownEditor
             // key forces remount on object switch so initial fetch + state
             // machine reset happen cleanly.
-            key={`${activeSpaceId}:${activeObjectId}`}
+            key={`${activeSpaceId}:${activeView.objectId}`}
             spaceId={activeSpaceId}
-            objectId={activeObjectId}
+            objectId={activeView.objectId}
             onStateChange={onStateChange}
+          />
+        ) : activeSpaceId && activeView.kind === 'type-table' ? (
+          <TableView
+            key={`${activeSpaceId}:type:${activeView.typeId}`}
+            typeId={activeView.typeId}
           />
         ) : (
           <EmptyState />

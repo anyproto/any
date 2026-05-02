@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAtomValue, useSetAtom } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { useQuery } from '@tanstack/react-query';
 import {
   ChevronDown,
@@ -11,7 +11,11 @@ import {
   Sparkles,
   Users,
 } from 'lucide-react';
-import { activeSpaceIdAtom, activeObjectIdAtom } from '@/atoms/selection';
+import {
+  activeSpaceIdAtom,
+  activeObjectIdAtom,
+  activeTypeIdAtom,
+} from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
 import { useSpace } from '@/lib/api/spaces';
 import { useCreateObject, queryObjects } from '@/lib/api/objects';
@@ -267,17 +271,20 @@ function TypesSection({
 function TypeRow({ spaceId, type }: { spaceId: string; type: TypeInfo }) {
   const label = type.name?.trim() || `Untitled (${type.id.slice(0, 6)}…)`;
   const count = useTypeObjectCount(spaceId, type.id);
+  const [activeTypeId, setActiveTypeId] = useAtom(activeTypeIdAtom);
+  const active = activeTypeId === type.id;
 
   return (
     <li>
       <button
         type="button"
-        // No-op in v1 — clicking a type doesn't navigate anywhere yet.
-        // Title attribute keeps the tooltip helpful.
         title={label}
+        aria-current={active ? 'page' : undefined}
+        onClick={() => setActiveTypeId(type.id)}
         className={cn(
           'flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[13px] text-foreground/85',
           'hover:bg-foreground/5',
+          active && 'bg-foreground/8 text-foreground font-medium',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         )}
       >
