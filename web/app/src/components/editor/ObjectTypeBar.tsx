@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Sparkles } from 'lucide-react';
+import { useSetAtom } from 'jotai';
+import { ArrowRight, Plus, Search, Sparkles } from 'lucide-react';
+import { activeTypeIdAtom } from '@/atoms/selection';
 import {
   useObject,
   useSetObjectProperty,
@@ -99,25 +101,60 @@ function TypeChip({
   onToggle: () => void;
 }) {
   const typeQuery = useType(spaceId, typeId);
+  const setActiveTypeId = useSetAtom(activeTypeIdAtom);
   const label = typeQuery.data?.name?.trim() || `List ${typeId.slice(0, 6)}…`;
 
+  // Two buttons share the rounded chip frame: the main toggle (most
+  // of the surface) and a hover-revealed arrow that navigates to
+  // the list's table view in pane 3.
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={active}
+    <div
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px]',
+        'group inline-flex items-center rounded-full border text-[13px]',
         'transition-colors',
         active
           ? 'border-foreground/15 bg-foreground/[0.06] text-foreground'
           : 'border-foreground/10 bg-transparent text-foreground/70 hover:bg-foreground/[0.04]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
       )}
     >
-      <Sparkles className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
-      <span className="truncate">{label}</span>
-    </button>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={active}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-l-full px-2.5 py-1',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+          // Round the right side too when the arrow is hidden so the
+          // focus ring doesn't sit on a square corner.
+          'group-hover:rounded-r-none focus-visible:rounded-r-none',
+        )}
+      >
+        <Sparkles className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
+        <span className="truncate">{label}</span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Open ${label}`}
+        title={`Open ${label}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveTypeId(typeId);
+        }}
+        className={cn(
+          // Animate width + opacity so the arrow slides in smoothly
+          // on hover/focus rather than just appearing.
+          'flex h-7 items-center overflow-hidden rounded-r-full',
+          'pr-1.5 text-foreground/45 hover:text-foreground/80',
+          'opacity-0 [width:0]',
+          'transition-[width,opacity,padding] duration-150 ease-out',
+          'group-hover:opacity-100 group-hover:[width:1.5rem]',
+          'focus-visible:opacity-100 focus-visible:[width:1.5rem]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        )}
+      >
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+      </button>
+    </div>
   );
 }
 
