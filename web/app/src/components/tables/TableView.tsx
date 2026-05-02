@@ -10,7 +10,14 @@ import {
   ANY_TYPE_ID,
   type ObjectRecord,
 } from '@/lib/api/objects';
-import { useType, useTypeProperties, type PropertyDef, type PropertyKind } from '@/lib/api/types';
+import {
+  useType,
+  useTypeProperties,
+  uiKind,
+  type PropertyDef,
+  type PropertyKind,
+  type UIPropertyKind,
+} from '@/lib/api/types';
 import { Input } from '@/components/ui/Input';
 import { toast } from '@/components/ui/Toast';
 import { ApiError } from '@/lib/api/client';
@@ -18,6 +25,11 @@ import { cn } from '@/lib/cn';
 import { TextCell } from './cells/TextCell';
 import { NumberCell } from './cells/NumberCell';
 import { BoolCell } from './cells/BoolCell';
+import { LongTextCell } from './cells/LongTextCell';
+import { DateCell } from './cells/DateCell';
+import { UrlCell } from './cells/UrlCell';
+import { EmailCell } from './cells/EmailCell';
+import { TagsCell } from './cells/TagsCell';
 import { AddColumnPopover } from './AddColumnPopover';
 
 type SortDir = 'asc' | 'desc' | null;
@@ -274,7 +286,7 @@ function DataRow({
             className="border-b border-foreground/[0.04] p-0 align-middle"
           >
             <PropertyCell
-              kind={p.kind}
+              prop={p}
               value={val}
               onCommit={(v) => onCommitProp(p.id, v)}
             />
@@ -287,39 +299,61 @@ function DataRow({
 }
 
 function PropertyCell({
-  kind,
+  prop,
   value,
   onCommit,
 }: {
-  kind: PropertyKind;
+  prop: PropertyDef;
   value: unknown;
   onCommit: (v: unknown) => void | Promise<void>;
 }) {
-  if (kind === 'string') {
-    return (
-      <TextCell
-        value={typeof value === 'string' ? value : ''}
-        onCommit={(v) => onCommit(v)}
-      />
-    );
+  const k: UIPropertyKind = uiKind(prop);
+  switch (k) {
+    case 'string':
+      return (
+        <TextCell value={typeof value === 'string' ? value : ''} onCommit={(v) => onCommit(v)} />
+      );
+    case 'longtext':
+      return (
+        <LongTextCell value={typeof value === 'string' ? value : ''} onCommit={(v) => onCommit(v)} />
+      );
+    case 'number':
+      return (
+        <NumberCell value={typeof value === 'number' ? value : null} onCommit={(v) => onCommit(v)} />
+      );
+    case 'boolean':
+      return (
+        <BoolCell value={typeof value === 'boolean' ? value : null} onCommit={(v) => onCommit(v)} />
+      );
+    case 'date':
+      return (
+        <DateCell value={typeof value === 'string' ? value : null} onCommit={(v) => onCommit(v)} />
+      );
+    case 'url':
+      return (
+        <UrlCell value={typeof value === 'string' ? value : ''} onCommit={(v) => onCommit(v)} />
+      );
+    case 'email':
+      return (
+        <EmailCell value={typeof value === 'string' ? value : ''} onCommit={(v) => onCommit(v)} />
+      );
+    case 'tags':
+      return (
+        <TagsCell
+          value={Array.isArray(value) ? (value as string[]) : []}
+          onCommit={(v) => onCommit(v)}
+        />
+      );
+    case 'array':
+    case 'object':
+    case 'null':
+    default:
+      // Fallback: read-only JSON for unsupported kinds.
+      return jsonFallback(value);
   }
-  if (kind === 'number') {
-    return (
-      <NumberCell
-        value={typeof value === 'number' ? value : null}
-        onCommit={(v) => onCommit(v)}
-      />
-    );
-  }
-  if (kind === 'boolean') {
-    return (
-      <BoolCell
-        value={typeof value === 'boolean' ? value : null}
-        onCommit={(v) => onCommit(v)}
-      />
-    );
-  }
-  // array / object / null — read-only fallback for v1.
+}
+
+function jsonFallback(value: unknown) {
   return (
     <span className="block px-2 py-1 text-[12px] text-foreground/50">
       <code className="font-mono">{value === undefined ? '—' : JSON.stringify(value)}</code>

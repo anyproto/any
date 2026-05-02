@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/Label';
 import { toast } from '@/components/ui/Toast';
 import {
   useAddPropertyToType,
-  type PropertyKind,
+  toAddPropertyParts,
+  type UIPropertyKind,
 } from '@/lib/api/types';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/cn';
@@ -22,21 +23,29 @@ interface Props {
   typeId: string;
 }
 
-const KIND_OPTIONS: { value: 'string' | 'number' | 'boolean'; label: string }[] = [
+const KIND_OPTIONS: { value: UIPropertyKind; label: string }[] = [
   { value: 'string', label: 'Text' },
+  { value: 'longtext', label: 'Long text' },
   { value: 'number', label: 'Number' },
   { value: 'boolean', label: 'Yes / No' },
+  { value: 'date', label: 'Date' },
+  { value: 'url', label: 'URL' },
+  { value: 'email', label: 'Email' },
+  { value: 'tags', label: 'Tags' },
 ];
 
 /**
  * Inline column-add affordance — header `+` button opens a popover
  * with name + kind, fires `addPropertyToType`. Same one-shot flow as
- * the type wizard's properties step but standalone.
+ * the type wizard's properties step but with a richer kind list.
+ *
+ * UI sub-kinds (Long text / Date / URL / Email / Tags) are sent via
+ * the property's xKey field per docs/specs/PR-013-property-types.md.
  */
 export function AddColumnPopover({ spaceId, typeId }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [kind, setKind] = useState<PropertyKind>('string');
+  const [uiKind, setUiKind] = useState<UIPropertyKind>('string');
   const addProp = useAddPropertyToType(spaceId);
 
   const trimmed = name.trim();
@@ -46,13 +55,14 @@ export function AddColumnPopover({ spaceId, typeId }: Props) {
     e.preventDefault();
     if (!canSubmit) return;
     try {
-      await addProp.mutateAsync({
-        typeId,
-        req: { name: trimmed, kind },
-      });
+      const parts = toAddPropertyParts(uiKind);
+      const req = parts.xKey
+        ? { name: trimmed, kind: parts.kind, xKey: parts.xKey }
+        : { name: trimmed, kind: parts.kind };
+      await addProp.mutateAsync({ typeId, req });
       toast.success(`Added column “${trimmed}”`);
       setName('');
-      setKind('string');
+      setUiKind('string');
       setOpen(false);
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown';
@@ -93,8 +103,8 @@ export function AddColumnPopover({ spaceId, typeId }: Props) {
             <Label htmlFor="add-column-kind">Type</Label>
             <select
               id="add-column-kind"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as PropertyKind)}
+              value={uiKind}
+              onChange={(e) => setUiKind(e.target.value as UIPropertyKind)}
               className={cn(
                 'h-8 rounded-md border border-foreground/15 bg-background px-2 text-sm',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',

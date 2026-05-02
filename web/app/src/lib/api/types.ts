@@ -7,6 +7,69 @@ import { apiFetch } from './client';
 
 export type PropertyKind = 'string' | 'number' | 'boolean' | 'null' | 'array' | 'object';
 
+/**
+ * UI sub-kind layered on top of the SDK kind via property.xKey.
+ * Distinct from `PropertyKind` (the storage kind the SDK validates):
+ *   string + xKey="longtext" → 'longtext'
+ *   string + xKey="date"     → 'date'
+ *   string + xKey="url"      → 'url'
+ *   string + xKey="email"    → 'email'
+ *   array  + xKey="tags"     → 'tags'
+ * Anything else falls back to the SDK kind.
+ */
+export type UIPropertyKind =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'longtext'
+  | 'date'
+  | 'url'
+  | 'email'
+  | 'tags'
+  | 'array'
+  | 'object'
+  | 'null';
+
+export function uiKind(p: Pick<PropertyDef, 'kind' | 'xKey'>): UIPropertyKind {
+  if (p.kind === 'string') {
+    if (p.xKey === 'longtext') return 'longtext';
+    if (p.xKey === 'date') return 'date';
+    if (p.xKey === 'url') return 'url';
+    if (p.xKey === 'email') return 'email';
+    return 'string';
+  }
+  if (p.kind === 'array' && p.xKey === 'tags') return 'tags';
+  return p.kind;
+}
+
+/**
+ * Inverse — translate a UI kind picked in the popover into the
+ * (kind, xKey) tuple sent on AddProperty.
+ */
+export function toAddPropertyParts(
+  ui: UIPropertyKind,
+): { kind: PropertyKind; xKey?: string } {
+  switch (ui) {
+    case 'longtext':
+      return { kind: 'string', xKey: 'longtext' };
+    case 'date':
+      return { kind: 'string', xKey: 'date' };
+    case 'url':
+      return { kind: 'string', xKey: 'url' };
+    case 'email':
+      return { kind: 'string', xKey: 'email' };
+    case 'tags':
+      return { kind: 'array', xKey: 'tags' };
+    case 'string':
+    case 'number':
+    case 'boolean':
+    case 'null':
+    case 'array':
+    case 'object':
+      return { kind: ui as PropertyKind };
+  }
+}
+
 export interface TypeInfo {
   id: string;
   name?: string;

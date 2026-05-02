@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { listTypes, createType, addPropertyToType, getTypeProperties } from './types';
+import {
+  listTypes,
+  createType,
+  addPropertyToType,
+  getTypeProperties,
+  uiKind,
+  toAddPropertyParts,
+  type UIPropertyKind,
+} from './types';
 
 describe('types API', () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -48,6 +56,36 @@ describe('types API', () => {
     expect(url).toBe('/v1/spaces/spc-a/types/t_recipe/properties');
     expect(init?.method).toBe('POST');
     expect(init?.body).toBe(JSON.stringify({ name: 'Servings', kind: 'number' }));
+  });
+
+  it('uiKind maps (kind, xKey) → UI kind', () => {
+    expect(uiKind({ kind: 'string' })).toBe('string');
+    expect(uiKind({ kind: 'string', xKey: 'longtext' })).toBe('longtext');
+    expect(uiKind({ kind: 'string', xKey: 'date' })).toBe('date');
+    expect(uiKind({ kind: 'string', xKey: 'url' })).toBe('url');
+    expect(uiKind({ kind: 'string', xKey: 'email' })).toBe('email');
+    expect(uiKind({ kind: 'array', xKey: 'tags' })).toBe('tags');
+    expect(uiKind({ kind: 'array' })).toBe('array');
+    expect(uiKind({ kind: 'number' })).toBe('number');
+    expect(uiKind({ kind: 'boolean' })).toBe('boolean');
+    // Unknown xKey on string still falls back to string.
+    expect(uiKind({ kind: 'string', xKey: 'someother' })).toBe('string');
+  });
+
+  it('toAddPropertyParts inverts uiKind for the AddProperty body', () => {
+    const cases: [UIPropertyKind, { kind: string; xKey?: string }][] = [
+      ['string', { kind: 'string' }],
+      ['longtext', { kind: 'string', xKey: 'longtext' }],
+      ['number', { kind: 'number' }],
+      ['boolean', { kind: 'boolean' }],
+      ['date', { kind: 'string', xKey: 'date' }],
+      ['url', { kind: 'string', xKey: 'url' }],
+      ['email', { kind: 'string', xKey: 'email' }],
+      ['tags', { kind: 'array', xKey: 'tags' }],
+    ];
+    for (const [ui, expected] of cases) {
+      expect(toAddPropertyParts(ui)).toEqual(expected);
+    }
   });
 
   it('getTypeProperties returns the array', async () => {
