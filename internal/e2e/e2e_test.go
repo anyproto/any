@@ -183,19 +183,19 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("DELETE /v1/spaces/:id soft-deletes", func(t *testing.T) {
+	t.Run("DELETE /v1/spaces/:id hides from list and 404s on get", func(t *testing.T) {
 		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+spaceID, "", http.StatusNoContent)
 
+		// Per PR-016 the SDK soft-delete is hidden at the API: list
+		// drops the row and GET /:id returns space.not_found.
 		var list map[string]any
 		mustJSON(t, http.MethodGet, base+"/v1/spaces", "", http.StatusOK, &list)
 		spaces, _ := list["spaces"].([]any)
-		if len(spaces) != 1 {
-			t.Fatalf("want 1 (deleted) row in list, got %d", len(spaces))
+		if len(spaces) != 0 {
+			t.Fatalf("want empty list after delete, got %d: %+v", len(spaces), spaces)
 		}
-		entry, _ := spaces[0].(map[string]any)
-		if entry["status"] != "deleted" {
-			t.Errorf("status = %v, want deleted", entry["status"])
-		}
+
+		mustStatus(t, http.MethodGet, base+"/v1/spaces/"+spaceID, "", http.StatusNotFound)
 	})
 
 	t.Run("501 routes", func(t *testing.T) {

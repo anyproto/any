@@ -91,8 +91,15 @@ func (d *deps) spaceList(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
+	// Drop soft-deleted spaces. The SDK's Spaces().Delete is a soft
+	// delete (sets LocalStatus = Deleted) and List returns every row
+	// regardless of status. Without this filter, deleted spaces
+	// reappear on the next refetch — see docs/specs/PR-016.
 	out := make([]api.SpaceInfo, 0, len(infos))
 	for _, info := range infos {
+		if info.Status == space.StatusDeleted {
+			continue
+		}
 		out = append(out, spaceInfoToAPI(info))
 	}
 	return c.JSON(http.StatusOK, api.SpaceListResponse{Spaces: out})
@@ -104,7 +111,14 @@ func (d *deps) spaceGet(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceInfoToAPI(sp.Info()))
+	info := sp.Info()
+	// A soft-deleted space should be invisible to API clients — the
+	// CLI / web UI have no way to recover or purge it today, so
+	// returning its metadata only confuses callers. See PR-016.
+	if info.Status == space.StatusDeleted {
+		return writeError(c, http.StatusNotFound, "space.not_found", "space not found", map[string]any{"spaceId": id})
+	}
+	return c.JSON(http.StatusOK, spaceInfoToAPI(info))
 }
 
 func (d *deps) spaceDelete(c echo.Context) error {

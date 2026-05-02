@@ -152,7 +152,9 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 		t.Errorf("list = %+v", list.Spaces)
 	}
 
-	// DELETE /v1/spaces/:id → soft delete; row stays in list with status=deleted.
+	// DELETE /v1/spaces/:id → soft delete in the SDK index. Per PR-016
+	// the server hides soft-deleted spaces from the API: the list no
+	// longer contains it, and GET /:id returns 404 space.not_found.
 	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+created.Id, "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE /v1/spaces/:id status = %d body=%s", rec.Code, rec.Body.String())
@@ -162,8 +164,20 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("unmarshal list3: %v", err)
 	}
-	if len(list.Spaces) != 1 || list.Spaces[0].Status != api.SpaceStatusDeleted {
-		t.Errorf("post-delete list = %+v", list.Spaces)
+	if len(list.Spaces) != 0 {
+		t.Errorf("post-delete list = %+v, want empty (deleted spaces should be hidden)", list.Spaces)
+	}
+
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+created.Id, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /v1/spaces/:id after delete: status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	if env.Error.Code != "space.not_found" {
+		t.Errorf("error code = %q, want space.not_found", env.Error.Code)
 	}
 }
 
