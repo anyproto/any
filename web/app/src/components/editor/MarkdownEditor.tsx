@@ -8,6 +8,7 @@ import { useObjectMarkdown, useSaveObjectMarkdown } from '@/lib/api/markdown';
 import { ApiError } from '@/lib/api/client';
 import { resolvedThemeAtom } from '@/atoms/theme';
 import { reduce, initial, type SaveState } from './saveMachine';
+import { OrphanCleanup } from './OrphanCleanup';
 import './blocknote-theme.css';
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -156,6 +157,14 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
           <p className="mt-1 text-foreground/70">
             <code className="font-mono">{code}</code> — {message}
           </p>
+          <p className="mt-3 text-xs text-foreground/60">
+            If this is an orphan row (the underlying tree was deleted but the
+            list entry survives), removing it from the list is safe — see{' '}
+            <code className="font-mono">docs/03-api.md</code> § Object deletion.
+          </p>
+          <div className="mt-3">
+            <OrphanCleanup spaceId={spaceId} objectId={objectId} />
+          </div>
         </div>
       </div>
     );
