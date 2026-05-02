@@ -13,14 +13,18 @@ if (!root) {
   throw new Error('No #root element in index.html');
 }
 
-// Theme is global state — install the matchMedia + data-theme effect
-// against the default Jotai store so it works before React mounts.
-installThemeEffect(getDefaultStore());
+// One store, shared between the pre-mount theme effect and the React
+// tree. JotaiProvider with no `store` prop creates a *new* store —
+// then `useAtom(themePreferenceAtom)` inside components writes to a
+// different store than the one installThemeEffect is watching, and
+// the DOM never updates. Pass the same default store to both.
+const store = getDefaultStore();
+installThemeEffect(store);
 
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <JotaiProvider>
+      <JotaiProvider store={store}>
         <App />
       </JotaiProvider>
     </QueryClientProvider>
