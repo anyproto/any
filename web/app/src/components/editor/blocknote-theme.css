@@ -1,0 +1,71 @@
+/*
+ * BlockNote theme overrides — map BlockNote's CSS variables onto our
+ * tokens.css so the editor inherits our palette in both light and
+ * dark mode without us bringing in @blocknote/mantine's visual signature.
+ *
+ * Imported by MarkdownEditor.tsx.
+ */
+
+@import '@blocknote/core/style.css';
+@import '@blocknote/mantine/style.css';
+
+.bn-container {
+  /* Surfaces */
+  --bn-colors-editor-text: var(--color-foreground);
+  --bn-colors-editor-background: transparent;
+
+  /* Menus, popovers, formatting toolbar, link toolbar */
+  --bn-colors-menu-text: var(--color-foreground);
+  --bn-colors-menu-background: var(--color-background);
+
+  --bn-colors-tooltip-text: var(--color-background);
+  --bn-colors-tooltip-background: var(--color-foreground);
+
+  --bn-colors-hovered-text: var(--color-foreground);
+  --bn-colors-hovered-background: color-mix(
+    in oklab,
+    var(--color-foreground) 6%,
+    transparent
+  );
+
+  --bn-colors-selected-text: var(--color-background);
+  --bn-colors-selected-background: var(--color-accent);
+
+  --bn-colors-disabled-text: color-mix(
+    in oklab,
+    var(--color-foreground) 30%,
+    transparent
+  );
+  --bn-colors-disabled-background: transparent;
+
+  --bn-colors-shadow: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+
+  --bn-colors-border: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+  --bn-colors-side-menu: color-mix(
+    in oklab,
+    var(--color-foreground) 40%,
+    transparent
+  );
+
+  --bn-color-highlight-default: var(--color-foreground);
+  --bn-color-background-default: transparent;
+
+  --bn-border-radius-large: var(--radius-lg);
+  --bn-border-radius-medium: var(--radius-md);
+  --bn-border-radius-small: var(--radius-sm);
+
+  /* Typography */
+  --bn-font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Scope adjustments to the editor surface */
+.bn-editor {
+  padding: 1.25rem 0;
+}
+
+/* Reuse the same accent focus ring as the rest of the app */
+.bn-container :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

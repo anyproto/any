@@ -1,9 +1,13 @@
-import { useAtom } from 'jotai';
+import { useCallback, useState } from 'react';
+import { useAtom, useAtomValue } from 'jotai';
 import { ArrowLeft, ArrowRight, ChevronRight, X } from 'lucide-react';
-import { activeObjectIdAtom } from '@/atoms/selection';
+import { activeObjectIdAtom, activeSpaceIdAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
 import { HealthCard } from '@/components/health/HealthCard';
 import { useHealth } from '@/lib/api/meta';
+import { MarkdownEditor } from '@/components/editor/MarkdownEditor';
+import { type SaveState, statusLabel, type StatusLabel } from '@/components/editor/saveMachine';
+import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
 
 /**
@@ -12,12 +16,16 @@ import { cn } from '@/lib/cn';
  * Empty state: hint + the existing /v1/health card (kept here until
  * a real Settings page lands).
  *
- * Selected state: shows the id + a placeholder body. The real editor
- * (BlockNote on /v1/spaces/:s/objects/:o/markdown) lands in PR #6.
+ * Selected state: BlockNote editor wired to /markdown via MarkdownEditor.
+ * Header gains a status indicator driven by the editor's save machine.
  */
 export function ObjectView() {
   const [activeObjectId, setActiveObjectId] = useAtom(activeObjectIdAtom);
+  const activeSpaceId = useAtomValue(activeSpaceIdAtom);
   const setFocused = useAtom(focusedPaneAtom)[1];
+
+  const [editorState, setEditorState] = useState<SaveState | null>(null);
+  const onStateChange = useCallback((s: SaveState) => setEditorState(s), []);
 
   return (
     <section
@@ -28,11 +36,19 @@ export function ObjectView() {
     >
       <Header
         objectId={activeObjectId}
+        status={editorState ? statusLabel(editorState) : null}
         onClose={activeObjectId ? () => setActiveObjectId(null) : undefined}
       />
       <div className="flex-1 overflow-y-auto">
-        {activeObjectId ? (
-          <ObjectBody objectId={activeObjectId} />
+        {activeObjectId && activeSpaceId ? (
+          <MarkdownEditor
+            // key forces remount on object switch so initial fetch + state
+            // machine reset happen cleanly.
+            key={`${activeSpaceId}:${activeObjectId}`}
+            spaceId={activeSpaceId}
+            objectId={activeObjectId}
+            onStateChange={onStateChange}
+          />
         ) : (
           <EmptyState />
         )}
@@ -43,9 +59,11 @@ export function ObjectView() {
 
 function Header({
   objectId,
+  status,
   onClose,
 }: {
   objectId: string | null;
+  status: StatusLabel | null;
   onClose?: (() => void) | undefined;
 }) {
   return (
@@ -59,7 +77,8 @@ function Header({
       ) : (
         <div aria-hidden className="flex-1" />
       )}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        {status && <SaveIndicator status={status} />}
         {onClose && (
           <NavButton
             aria-label="Close"
@@ -70,6 +89,25 @@ function Header({
       </div>
     </header>
   );
+}
+
+function SaveIndicator({ status }: { status: StatusLabel }) {
+  switch (status) {
+    case 'loading':
+      return <span className="text-xs text-foreground/40">Loading…</span>;
+    case 'idle':
+      return <span className="text-xs text-foreground/40">Saved</span>;
+    case 'dirty':
+      return <span className="text-xs text-foreground/60">Editing…</span>;
+    case 'saving':
+      return <span className="text-xs text-foreground/60">Saving…</span>;
+    case 'save_error':
+      return (
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-destructive">
+          Save failed
+        </Button>
+      );
+  }
 }
 
 function NavButton({
@@ -118,34 +156,13 @@ function Breadcrumb({ segments }: { segments: string[] }) {
   );
 }
 
-function ObjectBody({ objectId }: { objectId: string }) {
-  return (
-    <article className="mx-auto max-w-2xl px-8 py-10">
-      <h1 className="mb-3 text-3xl font-semibold tracking-tight text-foreground">
-        Object {objectId.slice(0, 8)}…
-      </h1>
-      <p className="text-sm text-foreground/60">
-        Object id: <code className="font-mono">{objectId}</code>
-      </p>
-      <div className="mt-6 space-y-4 text-[15px] leading-7 text-foreground/85">
-        <p>
-          The editor lands in PR #6 — BlockNote wired to{' '}
-          <code className="font-mono">GET/PUT /v1/spaces/:s/objects/:o/markdown</code>.
-          Until then this pane just confirms which object is selected.
-        </p>
-      </div>
-    </article>
-  );
-}
-
 function EmptyState() {
   const health = useHealth();
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6 p-8">
       <p className="text-sm text-foreground/60">
-        Pick an item from the sidebar to view it. Until PR #3+ lands a
-        real Settings page, the server health card is shown here for
-        convenience.
+        Pick an item from the sidebar to view it. Until a real Settings page
+        lands, the server health card is shown here for convenience.
       </p>
       <HealthCard query={health} />
     </div>
