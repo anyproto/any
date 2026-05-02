@@ -126,22 +126,33 @@ export interface CreateObjectArgs {
   parentId?: string;
   /** True for folders (nav.type=2), false/undefined for items (nav.type=1). */
   folder?: boolean;
+  /**
+   * Custom user types to stamp on the new object. Server auto-appends
+   * `nav`; we leave it off the wire. Empty / undefined → just nav.
+   */
+  typeIds?: string[];
 }
 
 /**
  * Create a new object inside a space. Defaults to a root-level item.
  * Pass `{folder: true}` for a folder; pass `{parentId}` to put it
- * inside a folder.
+ * inside a folder; pass `{typeIds: [t]}` for a custom user type.
  */
 export function useCreateObject(spaceId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ parentId = NAV_ROOT_PARENT_ID, folder }: CreateObjectArgs = {}) => {
+    mutationFn: async ({
+      parentId = NAV_ROOT_PARENT_ID,
+      folder,
+      typeIds,
+    }: CreateObjectArgs = {}) => {
       if (!spaceId) throw new Error('useCreateObject: no active space');
       const nav: Record<string, unknown> = {};
       if (parentId) nav['parentId'] = parentId;
       if (folder) nav['type'] = NAV_FOLDER;
-      const body: Record<string, unknown> = Object.keys(nav).length > 0 ? { nav } : {};
+      const body: Record<string, unknown> = {};
+      if (Object.keys(nav).length > 0) body['nav'] = nav;
+      if (typeIds && typeIds.length > 0) body['types'] = typeIds;
       return createObject(spaceId, body);
     },
     onSuccess: (_res, args) => {
