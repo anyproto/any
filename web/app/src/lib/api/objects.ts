@@ -135,6 +135,71 @@ export function useObjectsByType(
 }
 
 /**
+ * Fetch the full record for one object via the /objects/query
+ * endpoint with an id filter. Used by surfaces (editor type bar)
+ * that need both `any.types` and the per-type property values in
+ * one place.
+ */
+export function useObject(spaceId: string | null, objectId: string | null) {
+  return useQuery({
+    queryKey: spaceId && objectId
+      ? (['objects', spaceId, 'one', objectId] as const)
+      : (['objects', '__none__', 'one', '__none__'] as const),
+    queryFn: async ({ signal }) => {
+      const records = await queryObjects(
+        spaceId!,
+        { filter: { id: objectId! }, limit: 1 },
+        signal,
+      );
+      return records[0] ?? null;
+    },
+    enabled: spaceId != null && objectId != null,
+  });
+}
+
+/**
+ * Set a single property on an object and invalidate caches the
+ * type-bar / table view share. No optimistic updates — writes are
+ * fast and a refetch keeps the UI in sync without rollback paths.
+ */
+export function useSetObjectProperty(spaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      objectId,
+      typeId,
+      patch,
+    }: {
+      objectId: string;
+      typeId: string;
+      patch: Record<string, unknown>;
+    }) => {
+      if (!spaceId) throw new Error('useSetObjectProperty: no active space');
+      return setObjectProperty(spaceId, objectId, typeId, patch);
+    },
+    onSuccess: (_data, { objectId }) => {
+      if (!spaceId) return;
+      // The single-record cache + every objects-by-type slice need
+      // refresh so the new value shows up everywhere.
+      void qc.invalidateQueries({
+        queryKey: ['objects', spaceId, 'one', objectId] as const,
+      });
+      void qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey;
+          return (
+            Array.isArray(k) &&
+            k[0] === 'objects' &&
+            k[1] === spaceId &&
+            k[2] === 'by-type'
+          );
+        },
+      });
+    },
+  });
+}
+
+/**
  * Read just the name for one object. Implemented via the same
  * /objects/query endpoint with an id filter — no per-object GET
  * exists yet. Cache key is per (space, object) so the title in the
