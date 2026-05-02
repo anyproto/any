@@ -38,12 +38,24 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
   // schema types collide with TS `exactOptionalPropertyTypes: true`.
   // Runtime is fine; only the type relationship is the issue.
   //
-  // `placeholders` is set to empty strings so BlockNote injects rules
-  // with `content: ""`, suppressing the default
-  // "Enter text or type '/' for commands" hint. We render an Anytype-
-  // style empty editor instead.
+  // Suppress every per-block placeholder BlockNote ships in en.ts
+  // — the runtime Placeholder extension injects one CSS rule per
+  // entry, so anything we leave undefined keeps showing
+  // (e.g. "Heading" inside an empty heading block). Keys mirror
+  // @blocknote/core/src/i18n/locales/en.ts placeholders.
   const editor = useCreateBlockNote({
-    placeholders: { default: '', emptyDocument: '' },
+    placeholders: {
+      default: '',
+      emptyDocument: '',
+      heading: '',
+      toggleListItem: '',
+      bulletListItem: '',
+      numberedListItem: '',
+      checkListItem: '',
+      new_comment: '',
+      edit_comment: '',
+      comment_reply: '',
+    },
   } as any) as any;
 
   const [state, dispatch] = useReducer(reduce, initial);
