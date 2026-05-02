@@ -30,6 +30,7 @@ import { DateCell } from './cells/DateCell';
 import { UrlCell } from './cells/UrlCell';
 import { EmailCell } from './cells/EmailCell';
 import { TagsCell } from './cells/TagsCell';
+import { RelationCell } from './cells/RelationCell';
 import { AddColumnPopover } from './AddColumnPopover';
 
 type SortDir = 'asc' | 'desc' | null;
@@ -288,6 +289,7 @@ function DataRow({
             <PropertyCell
               prop={p}
               value={val}
+              rowId={row.id}
               onCommit={(v) => onCommitProp(p.id, v)}
             />
           </td>
@@ -301,10 +303,12 @@ function DataRow({
 function PropertyCell({
   prop,
   value,
+  rowId,
   onCommit,
 }: {
   prop: PropertyDef;
   value: unknown;
+  rowId: string;
   onCommit: (v: unknown) => void | Promise<void>;
 }) {
   const k: UIPropertyKind = uiKind(prop);
@@ -341,6 +345,14 @@ function PropertyCell({
       return (
         <TagsCell
           value={Array.isArray(value) ? (value as string[]) : []}
+          onCommit={(v) => onCommit(v)}
+        />
+      );
+    case 'relation':
+      return (
+        <RelationCell
+          value={typeof value === 'string' ? value : ''}
+          rowId={rowId}
           onCommit={(v) => onCommit(v)}
         />
       );

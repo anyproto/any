@@ -14,6 +14,7 @@ export type PropertyKind = 'string' | 'number' | 'boolean' | 'null' | 'array' | 
  *   string + xKey="date"     → 'date'
  *   string + xKey="url"      → 'url'
  *   string + xKey="email"    → 'email'
+ *   string + xKey="relation" → 'relation'  (single-target object link)
  *   array  + xKey="tags"     → 'tags'
  * Anything else falls back to the SDK kind.
  */
@@ -26,6 +27,7 @@ export type UIPropertyKind =
   | 'url'
   | 'email'
   | 'tags'
+  | 'relation'
   | 'array'
   | 'object'
   | 'null';
@@ -36,6 +38,7 @@ export function uiKind(p: Pick<PropertyDef, 'kind' | 'xKey'>): UIPropertyKind {
     if (p.xKey === 'date') return 'date';
     if (p.xKey === 'url') return 'url';
     if (p.xKey === 'email') return 'email';
+    if (p.xKey === 'relation') return 'relation';
     return 'string';
   }
   if (p.kind === 'array' && p.xKey === 'tags') return 'tags';
@@ -60,6 +63,8 @@ export function toAddPropertyParts(
       return { kind: 'string', xKey: 'email' };
     case 'tags':
       return { kind: 'array', xKey: 'tags' };
+    case 'relation':
+      return { kind: 'string', xKey: 'relation' };
     case 'string':
     case 'number':
     case 'boolean':

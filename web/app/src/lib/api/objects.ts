@@ -135,6 +135,27 @@ export function useObjectsByType(
 }
 
 /**
+ * All "real" (item) objects in the space — used by the Relation
+ * picker. Filtered to nav.type=1 so folders don't appear in the
+ * picker. Sorted by most-recently-touched (-nav.pos as a stand-in
+ * until we have updatedAt) so what you just made is at the top.
+ */
+export function useObjectsBySpace(spaceId: string | null) {
+  return useQuery({
+    queryKey: spaceId
+      ? (['objects', spaceId, 'all-items'] as const)
+      : (['objects', '__none__', 'all-items'] as const),
+    queryFn: ({ signal }) =>
+      queryObjects(
+        spaceId!,
+        { filter: { 'nav.type': NAV_ITEM }, sort: ['-nav.pos'], limit: 500 },
+        signal,
+      ),
+    enabled: spaceId != null,
+  });
+}
+
+/**
  * Children of a folder (or the root). One query per (space, parent),
  * so collapsed folders don't fetch and re-expanding is instant from
  * cache.

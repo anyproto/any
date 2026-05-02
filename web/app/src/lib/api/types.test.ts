@@ -65,6 +65,7 @@ describe('types API', () => {
     expect(uiKind({ kind: 'string', xKey: 'url' })).toBe('url');
     expect(uiKind({ kind: 'string', xKey: 'email' })).toBe('email');
     expect(uiKind({ kind: 'array', xKey: 'tags' })).toBe('tags');
+    expect(uiKind({ kind: 'string', xKey: 'relation' })).toBe('relation');
     expect(uiKind({ kind: 'array' })).toBe('array');
     expect(uiKind({ kind: 'number' })).toBe('number');
     expect(uiKind({ kind: 'boolean' })).toBe('boolean');
@@ -82,6 +83,7 @@ describe('types API', () => {
       ['url', { kind: 'string', xKey: 'url' }],
       ['email', { kind: 'string', xKey: 'email' }],
       ['tags', { kind: 'array', xKey: 'tags' }],
+      ['relation', { kind: 'string', xKey: 'relation' }],
     ];
     for (const [ui, expected] of cases) {
       expect(toAddPropertyParts(ui)).toEqual(expected);

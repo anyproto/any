@@ -32,6 +32,7 @@ const KIND_OPTIONS: { value: UIPropertyKind; label: string }[] = [
   { value: 'url', label: 'URL' },
   { value: 'email', label: 'Email' },
   { value: 'tags', label: 'Tags' },
+  { value: 'relation', label: 'Relation → object' },
 ];
 
 /**
