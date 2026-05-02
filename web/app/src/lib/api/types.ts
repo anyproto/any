@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { apiFetch } from './client';
 
 /**
@@ -230,6 +236,62 @@ export function useCreateType(spaceId: string | null) {
 export interface UseAddPropertyArgs {
   typeId: string;
   req: AddPropertyRequest;
+}
+
+/**
+ * One row per (type, property) for every user type in the space.
+ * Used by the "From another list" panel in AddColumnPopover (PR-022)
+ * to let the user reuse a property's shape rather than retype it.
+ *
+ * Implementation: we read the type list (cached) then call N
+ * getTypeProperties queries via useQueries — each result is cached
+ * under the same key the table view uses, so flipping between this
+ * popover and a table doesn't double-fetch.
+ */
+export interface PropertyDefWithOwner extends PropertyDef {
+  ownerTypeId: string;
+  ownerTypeName: string;
+}
+
+export function useAllPropertiesInSpace(spaceId: string | null) {
+  const typesQuery = useTypes(spaceId);
+  const userTypes = useMemo(
+    () => (typesQuery.data ?? []).filter((t) => !t.builtIn),
+    [typesQuery.data],
+  );
+
+  const propsResults = useQueries({
+    queries: userTypes.map((t) => ({
+      queryKey:
+        spaceId
+          ? KEYS.properties(spaceId, t.id)
+          : (['types', '__none__', '__none__', 'properties'] as const),
+      queryFn: ({ signal }: { signal?: AbortSignal }) =>
+        getTypeProperties(spaceId!, t.id, signal),
+      enabled: spaceId != null,
+    })),
+  });
+
+  const flat = useMemo<PropertyDefWithOwner[]>(() => {
+    const out: PropertyDefWithOwner[] = [];
+    userTypes.forEach((t, i) => {
+      const props = propsResults[i]?.data ?? [];
+      for (const p of props) {
+        out.push({
+          ...p,
+          ownerTypeId: t.id,
+          ownerTypeName: t.name?.trim() || `List ${t.id.slice(0, 6)}…`,
+        });
+      }
+    });
+    return out;
+  }, [userTypes, propsResults]);
+
+  const isLoading =
+    typesQuery.isPending ||
+    propsResults.some((r) => r.isPending && (r.fetchStatus ?? '') !== 'idle');
+
+  return { properties: flat, isLoading };
 }
 
 export function useAddPropertyToType(spaceId: string | null) {
