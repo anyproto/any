@@ -5,6 +5,10 @@ import path from 'node:path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // The Go server mounts the SPA at /ui (see internal/server/webapp.go).
+  // Use a relative base so built asset URLs work no matter where the
+  // SPA is served from — including the Vite dev server at /.
+  base: './',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
