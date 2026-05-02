@@ -54,7 +54,10 @@ export async function listSpaces(signal?: AbortSignal): Promise<SpaceInfo[]> {
   const opts: { signal?: AbortSignal } = {};
   if (signal) opts.signal = signal;
   const body = await apiFetch<SpaceListResponse>('/spaces', opts);
-  return body.spaces ?? [];
+  // Defense in depth: the server already filters soft-deleted entries
+  // (PR-016) but we filter again here so older / stale servers don't
+  // surface zombies in the rail.
+  return (body.spaces ?? []).filter((s) => s.status !== 'deleted');
 }
 
 export async function getSpace(id: string, signal?: AbortSignal): Promise<SpaceInfo> {
