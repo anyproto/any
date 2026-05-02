@@ -1,9 +1,13 @@
 /*
- * BlockNote theme overrides — map BlockNote's CSS variables onto our
- * tokens.css so the editor inherits our palette in both light and
- * dark mode without us bringing in @blocknote/mantine's visual signature.
+ * BlockNote theme overrides — match the open-source anytype-ts
+ * editor surface 1:1 (see docs/specs/PR-019-editor-design-1to1.md
+ * for the per-token mapping). Imported by MarkdownEditor.tsx.
  *
- * Imported by MarkdownEditor.tsx.
+ * Two layers:
+ *   1) Map BlockNote's CSS variables onto our tokens.css so colors
+ *      track the app's light/dark theme.
+ *   2) Element selectors inside .bn-editor for typography + spacing,
+ *      ported from anytype-ts/src/scss/_vars.scss + block/text.scss.
  */
 
 @import '@blocknote/core/style.css';
@@ -54,15 +58,167 @@
   --bn-border-radius-medium: var(--radius-md);
   --bn-border-radius-small: var(--radius-sm);
 
-  /* Typography */
-  --bn-font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  /* ------------------------------------------------------------ */
+  /* Anytype-derived design tokens. Keep in sync with the spec at
+   * docs/specs/PR-019-editor-design-1to1.md.
+   *
+   * Font stack: Anytype ships Inter; we use the system stack so
+   * the binary stays offline-first. SF Pro on macOS reads as a
+   * close cousin of Inter at these sizes.
+   * ------------------------------------------------------------ */
+  --bn-font-family: 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --any-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+    Consolas, 'Liberation Mono', monospace;
+
+  /* Block-level color recipes — Anytype's --color-shape-* tokens. */
+  --any-shape-highlight-light: color-mix(
+    in oklab,
+    var(--color-foreground) 4%,
+    transparent
+  );
+  --any-shape-secondary: color-mix(
+    in oklab,
+    var(--color-foreground) 8%,
+    transparent
+  );
+  --any-shape-primary: color-mix(
+    in oklab,
+    var(--color-foreground) 12%,
+    transparent
+  );
 }
 
-/* Scope adjustments to the editor surface */
+/* ============================================================== */
+/* Editor surface                                                 */
+/* ============================================================== */
+
 .bn-editor {
-  padding: 1.25rem 0;
+  font-family: var(--bn-font-family);
+  /* Anytype reset — no surface-level vertical padding; the title
+     above the editor handles that gap. */
+  padding: 0;
 }
+
+/* ============================================================== */
+/* Per-block typography (ported from anytype-ts SCSS)             */
+/* ============================================================== */
+
+/* Paragraph — _vars.scss:33 (--font-size-text-medium)
+   16/24, letter-spacing -0.2px, 2 px bottom margin between blocks
+   (block/common.scss:4) */
+.bn-editor p {
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+  margin-bottom: 2px;
+}
+
+/* Headings — block/text.scss:103/110/117 give 22px / 12px / 12px
+   top margins; sizes from _vars.scss:40-47.
+   font-weight 700 across all three. */
+.bn-editor h1 {
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 22px;
+  margin-bottom: 2px;
+}
+.bn-editor h2 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 12px;
+  margin-bottom: 2px;
+}
+.bn-editor h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 12px;
+  margin-bottom: 2px;
+}
+
+/* The first block under the title hugs (no extra top margin).
+   BlockNote wraps each block in .bn-block-outer; first-of-type
+   defeats the heading top margin we added above. */
+.bn-editor > .bn-block-group > .bn-block-outer:first-of-type
+  .bn-block-content > * {
+  margin-top: 0;
+}
+
+/* Lists — block/text.scss:17-22 → 24px indent per nesting level,
+   inherit paragraph typography. */
+.bn-editor ul,
+.bn-editor ol {
+  padding-left: 24px;
+  margin-bottom: 2px;
+}
+.bn-editor li {
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+}
+.bn-editor ul li::marker {
+  /* Match the 6 px filled bullet anytype uses (block/text.scss:22) */
+  color: var(--color-foreground);
+  font-size: 14px;
+}
+
+/* Quote — block/text.scss:128-142
+   Thin (1.5 px) left border 11 px from text, 28 px padding-left,
+   6 + 6 vertical margin. */
+.bn-editor blockquote {
+  margin: 6px 0;
+  padding-left: 28px;
+  border-left: 1.5px solid var(--color-foreground);
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+}
+
+/* Inline code — block/markup.scss:6
+   Plex 14 px on Anytype; we use system mono. */
+.bn-editor code {
+  font-family: var(--any-font-mono);
+  font-size: 14px;
+  padding: 1px 4px;
+  background: var(--any-shape-secondary);
+  border-radius: 4px;
+}
+
+/* Code block — block/text.scss:156-164
+   16 px padding, 8 px radius, light shape background. */
+.bn-editor pre {
+  font-family: var(--any-font-mono);
+  font-size: 14px;
+  line-height: 22px;
+  padding: 16px;
+  background: var(--any-shape-highlight-light);
+  border-radius: 8px;
+  margin: 6px 0;
+}
+.bn-editor pre code {
+  /* Cancel the inline-code chip styling when nested in a code block. */
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Divider — block/div.scss:17 — 1 px shape-primary line. */
+.bn-editor hr {
+  border: 0;
+  border-top: 1px solid var(--any-shape-primary);
+  margin: 12px 0;
+}
+
+/* ============================================================== */
+/* Misc app integration                                           */
+/* ============================================================== */
 
 /* Reuse the same accent focus ring as the rest of the app */
 .bn-container :focus-visible {

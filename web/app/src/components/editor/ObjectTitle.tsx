@@ -95,7 +95,8 @@ export function ObjectTitle({ spaceId, objectId }: Props) {
         }}
         className={cn(
           'block w-full resize-none border-0 bg-transparent p-0',
-          'text-[2rem] font-bold leading-tight tracking-tight text-foreground',
+          // Anytype 1:1 — _vars.scss:34-36 → 36 / 40 / 700.
+          'text-[36px] font-bold leading-[40px] tracking-[-0.2px] text-foreground',
           'placeholder:text-foreground/25',
           'focus-visible:outline-none focus-visible:ring-0',
         )}

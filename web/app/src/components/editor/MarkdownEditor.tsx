@@ -172,7 +172,9 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-8 py-6">
+    // Anytype 1:1 — _vars.scss:55 (--editor-width: 704px). Gutter
+    // kept generous so the page breathes inside pane 3.
+    <div className="mx-auto max-w-[704px] px-8 py-6">
       <ObjectTitle spaceId={spaceId} objectId={objectId} />
       <BlockNoteView editor={editor} theme={theme} onChange={handleChange} />
     </div>
