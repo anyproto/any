@@ -25,7 +25,19 @@ const SAMPLE_SPACES: SpaceInfo[] = [
   },
 ];
 
-function mockListResponse(spaces: SpaceInfo[]): Response {
+function fakeHealth(): Response {
+  return new Response(
+    JSON.stringify({
+      status: 'ok',
+      version: 'test',
+      startedAt: '2026-05-02T00:00:00Z',
+      account: 'A8AhvwZmrRHbRPWswsU2MZgn7JYKCd4z145kmeV2PMTscGMA',
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+function fakeSpaces(spaces: SpaceInfo[]): Response {
   return new Response(JSON.stringify({ spaces }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -41,13 +53,18 @@ function renderRail({
   initialActiveId?: string | null;
   failWith?: { status: number; body: string };
 } = {}) {
-  if (failWith) {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(failWith.body, { status: failWith.status }),
-    );
-  } else {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockListResponse(spaces ?? []));
-  }
+  // Per-call mock so each request gets a fresh Response (Body is single-use).
+  // Routes by URL substring so the AccountAvatar's /v1/health call also works.
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('/v1/health')) {
+      return Promise.resolve(fakeHealth());
+    }
+    if (failWith) {
+      return Promise.resolve(new Response(failWith.body, { status: failWith.status }));
+    }
+    return Promise.resolve(fakeSpaces(spaces ?? []));
+  });
 
   const store = createStore();
   store.set(activeSpaceIdAtom, initialActiveId);

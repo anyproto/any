@@ -16,6 +16,7 @@ function setupFetchMocks(opts: {
   spaceName?: string;
   rootObjects?: { id: string; name: string }[];
   createReturnsId?: string;
+  types?: { id: string; name: string; builtIn?: boolean }[];
 }): FetchCall[] {
   const calls: FetchCall[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -26,6 +27,14 @@ function setupFetchMocks(opts: {
       method,
       body: typeof init?.body === 'string' ? init.body : undefined,
     });
+
+    // GET /v1/spaces/:id/types → list types
+    if (method === 'GET' && /\/v1\/spaces\/[^/]+\/types$/.test(url)) {
+      return new Response(JSON.stringify({ types: opts.types ?? [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     // GET /v1/spaces/:id  → space metadata
     if (method === 'GET' && /\/v1\/spaces\/[^/]+$/.test(url)) {
@@ -41,7 +50,7 @@ function setupFetchMocks(opts: {
       );
     }
 
-    // POST /v1/spaces/:id/objects/query → root objects
+    // POST /v1/spaces/:id/objects/query → root objects (also used for type counts)
     if (method === 'POST' && url.endsWith('/objects/query')) {
       return new Response(
         JSON.stringify({
@@ -137,5 +146,33 @@ describe('<SpaceContents>', () => {
       expect(create).toBeDefined();
       expect(create?.body).toBe(JSON.stringify({ nav: { type: 2 } }));
     });
+  });
+
+  it('renders both Pages and Types section headers', async () => {
+    setupFetchMocks({ rootObjects: [] });
+    renderWith('spc-test');
+    expect(await screen.findByRole('button', { name: /^pages$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^types/i })).toBeInTheDocument();
+  });
+
+  it('Types section is collapsed by default; expanding shows user types only', async () => {
+    setupFetchMocks({
+      rootObjects: [],
+      types: [
+        { id: 't-recipe', name: 'Recipe' },
+        { id: 't-builtin', name: 'Built-in', builtIn: true },
+      ],
+    });
+    renderWith('spc-test');
+    // Collapsed → user type not visible yet.
+    const typesHeader = await screen.findByRole('button', { name: /^types/i });
+    expect(typesHeader).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Recipe')).not.toBeInTheDocument();
+
+    await userEvent.click(typesHeader);
+    expect(typesHeader).toHaveAttribute('aria-expanded', 'true');
+    await screen.findByText('Recipe');
+    // Built-in stays hidden.
+    expect(screen.queryByText('Built-in')).not.toBeInTheDocument();
   });
 });

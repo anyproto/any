@@ -4,7 +4,6 @@ import { Plus, Settings, AlertCircle } from 'lucide-react';
 import { activeSpaceIdAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
 import { useSpaces, type SpaceInfo } from '@/lib/api/spaces';
-import { tone, glyph, type SpaceTone } from '@/lib/space-visual';
 import { ApiError } from '@/lib/api/client';
 import { SimpleTooltip } from '@/components/ui/Tooltip';
 import {
@@ -15,24 +14,19 @@ import {
 } from '@/components/ui/ContextMenu';
 import { CreateSpaceDialog } from '@/components/spaces/CreateSpaceDialog';
 import { DeleteSpaceDialog } from '@/components/spaces/DeleteSpaceDialog';
+import { SpaceAvatar } from './SpaceAvatar';
+import { AccountAvatar } from './AccountAvatar';
 import { cn } from '@/lib/cn';
 
-const TONE_BG: Record<SpaceTone, string> = {
-  accent: 'bg-accent text-background',
-  success: 'bg-success text-background',
-  info: 'bg-info text-background',
-  destructive: 'bg-destructive text-background',
-  foreground: 'bg-foreground/80 text-background',
-};
-
 /**
- * Pane 1 — vertical strip of real spaces from /v1/spaces.
+ * Pane 1 — vertical strip of real spaces.
  *
- * States: loading (skeleton), error (icon + tooltip), empty (just +),
- * populated.
- *
- * Selection: clicking sets activeSpaceIdAtom. Right-click opens a
- * context menu with Delete….
+ * Layout, top → bottom:
+ *   - rounded-square space avatars (md), 6px gap
+ *   - "+" affordance for creating a space (dashed border)
+ *   - flex spacer
+ *   - account avatar (circle) — distinguishes "you" from spaces
+ *   - settings cog
  */
 export function SpacesRail() {
   const setFocused = useSetAtom(focusedPaneAtom);
@@ -45,15 +39,15 @@ export function SpacesRail() {
       aria-label="Spaces"
       data-pane="1"
       onFocus={() => setFocused(1)}
-      className="flex h-full flex-col items-center justify-between bg-foreground/[0.03] py-3"
+      className="flex h-full flex-col items-center bg-foreground/[0.03] py-3"
     >
-      <ul className="flex flex-col items-center gap-2 overflow-y-auto">
+      <ul className="flex flex-col items-center gap-1.5 overflow-y-auto">
         {spacesQuery.isPending && <SkeletonRail />}
         {spacesQuery.isError && <RailError error={spacesQuery.error} />}
         {spacesQuery.isSuccess &&
           spacesQuery.data.map((space) => (
             <li key={space.id}>
-              <SpaceIcon space={space} onDelete={() => setPendingDelete(space)} />
+              <SpaceButton space={space} onDelete={() => setPendingDelete(space)} />
             </li>
           ))}
         <li>
@@ -74,21 +68,26 @@ export function SpacesRail() {
           </SimpleTooltip>
         </li>
       </ul>
-      <SimpleTooltip text="Settings (PR #?)" side="right">
-        <button
-          type="button"
-          aria-label="Settings"
-          disabled
-          className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-md text-foreground/50',
-            'hover:bg-foreground/5 hover:text-foreground',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-            'disabled:cursor-not-allowed disabled:opacity-60',
-          )}
-        >
-          <Settings className="h-4 w-4" aria-hidden />
-        </button>
-      </SimpleTooltip>
+
+      {/* Bottom: account + settings, separated from the spaces list */}
+      <div className="mt-auto flex flex-col items-center gap-2">
+        <AccountAvatar />
+        <SimpleTooltip text="Settings" side="right">
+          <button
+            type="button"
+            aria-label="Settings"
+            disabled
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-md text-foreground/50',
+              'hover:bg-foreground/5 hover:text-foreground',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              'disabled:cursor-not-allowed disabled:opacity-60',
+            )}
+          >
+            <Settings className="h-4 w-4" aria-hidden />
+          </button>
+        </SimpleTooltip>
+      </div>
 
       <CreateSpaceDialog open={createOpen} onOpenChange={setCreateOpen} />
       <DeleteSpaceDialog
@@ -99,11 +98,10 @@ export function SpacesRail() {
   );
 }
 
-function SpaceIcon({ space, onDelete }: { space: SpaceInfo; onDelete: () => void }) {
+function SpaceButton({ space, onDelete }: { space: SpaceInfo; onDelete: () => void }) {
   const [activeId, setActiveId] = useAtom(activeSpaceIdAtom);
   const active = space.id === activeId;
   const muted = space.status !== 'active';
-  const t = tone(space.id);
   const label = space.name?.trim() || `Untitled (${space.id.slice(0, 6)}…)`;
 
   return (
@@ -116,15 +114,17 @@ function SpaceIcon({ space, onDelete }: { space: SpaceInfo; onDelete: () => void
             aria-current={active ? 'page' : undefined}
             onClick={() => setActiveId(space.id)}
             className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold',
-              'transition-all',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-              TONE_BG[t],
-              active && 'ring-2 ring-accent ring-offset-2 ring-offset-background',
-              muted && 'opacity-50',
+              'block focus-visible:outline-none rounded-lg',
+              'focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             )}
           >
-            {glyph(space.name, space.id)}
+            <SpaceAvatar
+              spaceId={space.id}
+              name={space.name}
+              size="md"
+              active={active}
+              muted={muted}
+            />
           </button>
         </SimpleTooltip>
       </ContextMenuTrigger>
@@ -142,10 +142,7 @@ function SkeletonRail() {
     <>
       {[0, 1, 2].map((i) => (
         <li key={i}>
-          <span
-            aria-hidden
-            className="block h-9 w-9 animate-pulse rounded-lg bg-foreground/10"
-          />
+          <span aria-hidden className="block h-9 w-9 animate-pulse rounded-lg bg-foreground/10" />
         </li>
       ))}
     </>
@@ -154,8 +151,7 @@ function SkeletonRail() {
 
 function RailError({ error }: { error: unknown }) {
   const code = error instanceof ApiError ? error.code : 'unknown';
-  const message =
-    error instanceof Error ? error.message : 'Could not load spaces';
+  const message = error instanceof Error ? error.message : 'Could not load spaces';
   return (
     <li>
       <SimpleTooltip text={`${code}: ${message}`} side="right">
