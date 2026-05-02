@@ -111,11 +111,11 @@ function TypeChip({
   return (
     <div
       className={cn(
-        'group inline-flex items-center rounded-full border text-[13px]',
+        'group inline-flex items-center rounded-full text-[13px]',
         'transition-colors',
         active
-          ? 'border-foreground/15 bg-foreground/[0.06] text-foreground'
-          : 'border-foreground/10 bg-transparent text-foreground/70 hover:bg-foreground/[0.04]',
+          ? 'bg-foreground/[0.06] text-foreground'
+          : 'bg-transparent text-foreground/70 hover:bg-foreground/[0.04]',
       )}
     >
       <button

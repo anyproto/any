@@ -217,6 +217,15 @@
 }
 
 /* ============================================================== */
+/* Hide BlockNote's "Enter text or type '/' for commands"         */
+/* placeholder. Anytype shows nothing in an empty block.          */
+/* ============================================================== */
+
+.bn-editor [data-placeholder]::before {
+  content: none !important;
+}
+
+/* ============================================================== */
 /* Misc app integration                                           */
 /* ============================================================== */
 
