@@ -1,11 +1,17 @@
 import { useAtomValue, useSetAtom } from 'jotai';
-import { ChevronDown, MoreHorizontal, Plus, Users } from 'lucide-react';
+import { ChevronDown, FileText, Folder, MoreHorizontal, Plus, Users } from 'lucide-react';
 import { activeSpaceIdAtom, activeObjectIdAtom } from '@/atoms/selection';
 import { focusedPaneAtom } from '@/atoms/focus';
 import { useSpace } from '@/lib/api/spaces';
-import { useCreateObject, NAV_ROOT_PARENT_ID } from '@/lib/api/objects';
+import { useCreateObject } from '@/lib/api/objects';
 import { ObjectTree } from '@/components/tree/ObjectTree';
 import { Button } from '@/components/ui/Button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/DropdownMenu';
 import { toast } from '@/components/ui/Toast';
 import { ApiError } from '@/lib/api/client';
 import { cn } from '@/lib/cn';
@@ -56,11 +62,12 @@ function Header({ spaceId }: { spaceId: string }) {
     spaceQuery.data?.name?.trim() ||
     (spaceQuery.isPending ? 'Loading…' : `Untitled (${spaceId.slice(0, 6)}…)`);
 
-  const onCreate = async () => {
+  const create = async (folder: boolean) => {
     try {
-      const { objectId } = await createMutation.mutateAsync(NAV_ROOT_PARENT_ID);
+      const args = folder ? { folder: true } : {};
+      const { objectId } = await createMutation.mutateAsync(args);
       setActiveObjectId(objectId);
-      toast.success('Created');
+      toast.success(folder ? 'Folder created' : 'Page created');
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown';
       const msg = err instanceof Error ? err.message : 'Failed to create object';
@@ -82,17 +89,29 @@ function Header({ spaceId }: { spaceId: string }) {
         <ChevronDown className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
       </button>
       <div className="flex items-center gap-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void onCreate()}
-          disabled={createMutation.isPending}
-          aria-label="New object"
-          title="New object"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          {createMutation.isPending ? 'Creating…' : 'New'}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={createMutation.isPending}
+              aria-label="New object"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              {createMutation.isPending ? 'Creating…' : 'New'}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => void create(false)}>
+              <FileText className="h-3.5 w-3.5 text-foreground/60" aria-hidden />
+              New page
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void create(true)}>
+              <Folder className="h-3.5 w-3.5 text-foreground/60" aria-hidden />
+              New folder
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           type="button"
           aria-label="Members"

@@ -60,7 +60,7 @@ export function ObjectTree({ spaceId }: { spaceId: string }) {
   }
 
   return (
-    <ul className="px-1 py-1">
+    <ul role="tree" aria-label="Objects" className="px-1 py-1">
       {q.data.map((obj) => (
         <ObjectRow key={obj.id} spaceId={spaceId} obj={obj} depth={0} />
       ))}

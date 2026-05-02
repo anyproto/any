@@ -107,17 +107,35 @@ describe('<SpaceContents>', () => {
     await screen.findByText('Hello');
   });
 
-  it('clicking + New POSTs /objects and selects the new id', async () => {
+  it('+ New menu → New page POSTs /objects and selects the new id', async () => {
     const calls = setupFetchMocks({ rootObjects: [], createReturnsId: 'obj-fresh' });
     const { store } = renderWith('spc-test');
     const newBtn = await screen.findByRole('button', { name: /new object/i });
     await userEvent.click(newBtn);
+    const newPage = await screen.findByRole('menuitem', { name: /new page/i });
+    await userEvent.click(newPage);
     await waitFor(() => {
       const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));
       expect(create).toBeDefined();
+      // Page → no nav body
+      expect(create?.body).toBe('{}');
     });
     await waitFor(() => {
       expect(store.get(activeObjectIdAtom)).toBe('obj-fresh');
+    });
+  });
+
+  it('+ New menu → New folder POSTs {nav:{type:2}}', async () => {
+    const calls = setupFetchMocks({ rootObjects: [], createReturnsId: 'obj-folder' });
+    renderWith('spc-test');
+    const newBtn = await screen.findByRole('button', { name: /new object/i });
+    await userEvent.click(newBtn);
+    const newFolder = await screen.findByRole('menuitem', { name: /new folder/i });
+    await userEvent.click(newFolder);
+    await waitFor(() => {
+      const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));
+      expect(create).toBeDefined();
+      expect(create?.body).toBe(JSON.stringify({ nav: { type: 2 } }));
     });
   });
 });

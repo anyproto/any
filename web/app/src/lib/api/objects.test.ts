@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { queryObjects, createObject } from './objects';
+import { queryObjects, createObject, setObjectProperty, deleteObject } from './objects';
 import { ApiError } from './client';
 
 describe('objects API', () => {
@@ -45,6 +45,28 @@ describe('objects API', () => {
     expect(url).toBe('/v1/spaces/spc-abc/objects');
     expect(init?.method).toBe('POST');
     expect(init?.body).toBe('{}');
+  });
+
+  it('setObjectProperty POSTs {patch} to .../base/:t', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    await setObjectProperty('spc-abc', 'obj-1', 'any', { name: 'New' });
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('/v1/spaces/spc-abc/properties/obj-1/base/any');
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe(JSON.stringify({ patch: { name: 'New' } }));
+  });
+
+  it('deleteObject issues DELETE with no body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+    await deleteObject('spc-abc', 'obj-1');
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('/v1/spaces/spc-abc/objects/obj-1');
+    expect(init?.method).toBe('DELETE');
+    expect(init?.body).toBeUndefined();
   });
 
   it('queryObjects surfaces error envelope as ApiError', async () => {

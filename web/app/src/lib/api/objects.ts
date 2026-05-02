@@ -20,13 +20,15 @@ export interface ObjectRecord {
     parentId?: string;
     pos?: string;
   };
-  // Other type/property data is present but not relied on in PR #4.
+  // Other type/property data is present but not relied on yet.
   [key: string]: unknown;
 }
 
 export const NAV_ITEM = 1;
 export const NAV_FOLDER = 2;
 export const NAV_ROOT_PARENT_ID = '';
+/** typeId for the built-in `any` namespace (name, description, …). */
+export const ANY_TYPE_ID = 'any';
 
 interface QueryBody {
   filter?: Record<string, unknown>;
@@ -73,6 +75,30 @@ export async function createObject(
   );
 }
 
+/**
+ * Set base properties on an object — used for renames (typeId = 'any',
+ * patch = {name: '...'}) and for tree moves (typeId = 'nav',
+ * patch = {parentId, pos}).
+ */
+export async function setObjectProperty(
+  spaceId: string,
+  objectId: string,
+  typeId: string,
+  patch: Record<string, unknown>,
+): Promise<unknown> {
+  return apiFetch<unknown>(
+    `/spaces/${encodeURIComponent(spaceId)}/properties/${encodeURIComponent(objectId)}/base/${encodeURIComponent(typeId)}`,
+    { method: 'POST', json: { patch } },
+  );
+}
+
+export async function deleteObject(spaceId: string, objectId: string): Promise<void> {
+  await apiFetch<void>(
+    `/spaces/${encodeURIComponent(spaceId)}/objects/${encodeURIComponent(objectId)}`,
+    { method: 'DELETE' },
+  );
+}
+
 // ---------------- React hooks ---------------------------------------
 
 /**
@@ -95,21 +121,99 @@ export function useObjectChildren(spaceId: string | null, parentId: string) {
   });
 }
 
+export interface CreateObjectArgs {
+  /** Where in the tree the new object lands. Defaults to root. */
+  parentId?: string;
+  /** True for folders (nav.type=2), false/undefined for items (nav.type=1). */
+  folder?: boolean;
+}
+
 /**
- * Create a new object inside a space. v1 takes a single `parentId`
- * arg (defaults to root). Server stamps the rest of nav.
+ * Create a new object inside a space. Defaults to a root-level item.
+ * Pass `{folder: true}` for a folder; pass `{parentId}` to put it
+ * inside a folder.
  */
 export function useCreateObject(spaceId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (parentId: string = NAV_ROOT_PARENT_ID) => {
+    mutationFn: async ({ parentId = NAV_ROOT_PARENT_ID, folder }: CreateObjectArgs = {}) => {
       if (!spaceId) throw new Error('useCreateObject: no active space');
-      const body: Record<string, unknown> = parentId
-        ? { nav: { parentId } }
-        : {};
+      const nav: Record<string, unknown> = {};
+      if (parentId) nav['parentId'] = parentId;
+      if (folder) nav['type'] = NAV_FOLDER;
+      const body: Record<string, unknown> = Object.keys(nav).length > 0 ? { nav } : {};
       return createObject(spaceId, body);
     },
-    onSuccess: (_res, parentId) => {
+    onSuccess: (_res, args) => {
+      if (!spaceId) return;
+      void qc.invalidateQueries({
+        queryKey: KEYS.childrenOf(spaceId, args?.parentId ?? NAV_ROOT_PARENT_ID),
+      });
+    },
+  });
+}
+
+export interface RenameArgs {
+  objectId: string;
+  parentId: string;
+  name: string;
+}
+
+/**
+ * Rename an object — POST .../properties/:o/base/any with
+ * `{patch: {name}}`. Optimistic: patches the row's `any.name` in the
+ * children-of-parent cache before the network round-trip; rolls back
+ * on error.
+ */
+export function useRenameObject(spaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ objectId, name }: RenameArgs) => {
+      if (!spaceId) throw new Error('useRenameObject: no active space');
+      return setObjectProperty(spaceId, objectId, ANY_TYPE_ID, { name });
+    },
+    onMutate: async ({ objectId, parentId, name }) => {
+      if (!spaceId) return;
+      const key = KEYS.childrenOf(spaceId, parentId);
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<ObjectRecord[]>(key);
+      if (previous) {
+        qc.setQueryData<ObjectRecord[]>(
+          key,
+          previous.map((r) =>
+            r.id === objectId ? { ...r, any: { ...(r.any ?? {}), name } } : r,
+          ),
+        );
+      }
+      return { previous, key };
+    },
+    onError: (_err, _args, ctx) => {
+      if (ctx?.previous && ctx.key) {
+        qc.setQueryData(ctx.key, ctx.previous);
+      }
+    },
+    onSettled: (_data, _err, args) => {
+      if (!spaceId) return;
+      void qc.invalidateQueries({
+        queryKey: KEYS.childrenOf(spaceId, args.parentId),
+      });
+    },
+  });
+}
+
+export interface DeleteArgs {
+  objectId: string;
+  parentId: string;
+}
+
+export function useDeleteObject(spaceId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ objectId }: DeleteArgs) => {
+      if (!spaceId) throw new Error('useDeleteObject: no active space');
+      await deleteObject(spaceId, objectId);
+    },
+    onSuccess: (_res, { parentId }) => {
       if (!spaceId) return;
       void qc.invalidateQueries({
         queryKey: KEYS.childrenOf(spaceId, parentId),
