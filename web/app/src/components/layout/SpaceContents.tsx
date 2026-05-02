@@ -5,11 +5,9 @@ import {
   ChevronDown,
   FileText,
   Folder,
-  MoreHorizontal,
   Plus,
   Settings2,
   Sparkles,
-  Users,
 } from 'lucide-react';
 import {
   activeSpaceIdAtom,
@@ -192,20 +190,6 @@ function Header({ spaceId }: { spaceId: string }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <button
-            type="button"
-            aria-label="Members"
-            className="rounded-md p-1.5 text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
-          >
-            <Users className="h-3.5 w-3.5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            aria-label="Space menu"
-            className="rounded-md p-1.5 text-foreground/60 hover:bg-foreground/5 hover:text-foreground"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
-          </button>
         </div>
       </header>
 
