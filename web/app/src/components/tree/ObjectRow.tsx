@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useAtom } from 'jotai';
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useAtom, useSetAtom } from 'jotai';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronRight, ChevronDown, FileText, Folder, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -11,6 +12,12 @@ import {
 } from '@/lib/api/objects';
 import { activeObjectIdAtom } from '@/atoms/selection';
 import { renamingObjectIdAtom } from '@/atoms/edit';
+import {
+  pendingBulkDeleteAtom,
+  rangeIds,
+  selectedTreeIdsAtom,
+  treeSelectionAnchorAtom,
+} from '@/atoms/tree-selection';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,15 +50,52 @@ interface ObjectRowProps {
 export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
   const [activeObjectId, setActiveObjectId] = useAtom(activeObjectIdAtom);
   const [renamingId, setRenamingId] = useAtom(renamingObjectIdAtom);
+  const [selectedIds, setSelectedIds] = useAtom(selectedTreeIdsAtom);
+  const [anchor, setAnchor] = useAtom(treeSelectionAnchorAtom);
+  const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const renameMutation = useRenameObject(spaceId);
+  const setPendingBulkDelete = useSetAtom(pendingBulkDeleteAtom);
 
   const isFolder = obj.nav?.type === NAV_FOLDER;
   const active = activeObjectId === obj.id;
+  const selected = selectedIds.has(obj.id);
   const renaming = renamingId === obj.id;
   const parentId = obj.nav?.parentId ?? NAV_ROOT_PARENT_ID;
   const title = obj.any?.name?.trim() || `Untitled (${obj.id.slice(0, 6)}…)`;
+
+  /**
+   * Click handler with modifier-aware multi-select. See
+   * docs/specs/PR-024-tree-multi-select.md.
+   */
+  const onTitleClick = (e: MouseEvent<HTMLButtonElement>) => {
+    if (e.shiftKey && anchor && anchor.parentId === parentId) {
+      const siblings = qc.getQueryData<ObjectRecord[]>([
+        'objects',
+        spaceId,
+        'children',
+        parentId,
+      ]) ?? [];
+      const ids = rangeIds(siblings, anchor.id, obj.id);
+      setSelectedIds(new Set(ids));
+      // Don't move the anchor on shift; don't change activeObjectId.
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(selectedIds);
+      if (next.has(obj.id)) next.delete(obj.id);
+      else next.add(obj.id);
+      setSelectedIds(next);
+      setAnchor({ id: obj.id, parentId });
+      // Don't change activeObjectId — multi-select is a separate intent.
+      return;
+    }
+    // Plain click: clear multi-selection, single-select, open.
+    setSelectedIds(new Set([obj.id]));
+    setAnchor({ id: obj.id, parentId });
+    setActiveObjectId(obj.id);
+  };
 
   // DnD: row is both a draggable source and a droppable target.
   // The drop target id must equal the object id so ObjectTree's
@@ -83,7 +127,14 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
       startRename();
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
-      setPendingDelete(true);
+      // If this row is part of a multi-selection of ≥2, route to
+      // the bulk-delete dialog. Otherwise the existing single
+      // delete dialog.
+      if (selectedIds.size > 1 && selectedIds.has(obj.id)) {
+        setPendingBulkDelete(Array.from(selectedIds));
+      } else {
+        setPendingDelete(true);
+      }
     } else if (e.key === 'Enter' && isFolder) {
       e.preventDefault();
       setExpanded((v) => !v);
@@ -113,6 +164,8 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
             className={cn(
               'group flex h-7 items-center gap-1.5 rounded-md px-2 text-[13px] text-foreground/85',
               'hover:bg-foreground/5',
+              // Selected (in multi-selection) but not the open one — softer tint.
+              selected && !active && 'bg-foreground/[0.06] text-foreground',
               active && 'bg-foreground/8 text-foreground font-medium',
               isDropTarget && (isFolder ? 'bg-accent/15 ring-1 ring-accent/40' : 'ring-1 ring-accent/30'),
               'group-focus-visible:ring-2 group-focus-visible:ring-accent',
@@ -155,7 +208,7 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
             ) : (
               <button
                 type="button"
-                onClick={() => setActiveObjectId(obj.id)}
+                onClick={onTitleClick}
                 onDoubleClick={startRename}
                 aria-current={active ? 'page' : undefined}
                 className={cn(

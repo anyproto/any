@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, type KeyboardEvent, type MouseEvent } from 'react';
+import { useAtom, useSetAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -17,6 +18,11 @@ import {
 import { ApiError } from '@/lib/api/client';
 import { toast } from '@/components/ui/Toast';
 import { nav as lexid } from '@/lib/lexid';
+import {
+  clearTreeSelectionAtom,
+  pendingBulkDeleteAtom,
+} from '@/atoms/tree-selection';
+import { BulkDeleteObjectsDialog } from '@/components/objects/BulkDeleteObjectsDialog';
 import { ObjectRow } from './ObjectRow';
 
 /**
@@ -34,9 +40,30 @@ export function ObjectTree({ spaceId }: { spaceId: string }) {
   const q = useObjectChildren(spaceId, NAV_ROOT_PARENT_ID);
   const move = useMoveObject(spaceId);
   const qc = useQueryClient();
+  const clearSelection = useSetAtom(clearTreeSelectionAtom);
+  const [pendingBulk, setPendingBulk] = useAtom(pendingBulkDeleteAtom);
   // Pointer sensor with a short activation distance so the row's
   // built-in click (select) still fires on a plain click.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Esc clears multi-selection.
+  const onTreeKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Escape') {
+        clearSelection();
+      }
+    },
+    [clearSelection],
+  );
+
+  // Click directly on the wrapping container (not a row) clears the
+  // multi-selection — Finder behaviour.
+  const onWrapperClick = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (e.target === e.currentTarget) clearSelection();
+    },
+    [clearSelection],
+  );
 
   const onDragEnd = useCallback(
     (e: DragEndEvent) => {
@@ -165,11 +192,30 @@ export function ObjectTree({ spaceId }: { spaceId: string }) {
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <ul role="tree" aria-label="Objects" className="px-1 py-1">
-        {q.data.map((obj) => (
-          <ObjectRow key={obj.id} spaceId={spaceId} obj={obj} depth={0} />
-        ))}
-      </ul>
+      {/*
+        Wrapper exists purely to capture clicks on the empty area
+        below the last row + Esc keypress within the tree. It is
+        not itself an interactive widget, so a11y role doesn't
+        apply — both gestures are convenience clears that mirror
+        Finder's "click empty space deselects" behaviour.
+       */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+      <div
+        onKeyDown={onTreeKeyDown}
+        onClick={onWrapperClick}
+        className="min-h-full"
+      >
+        <ul role="tree" aria-label="Objects" className="px-1 py-1">
+          {q.data.map((obj) => (
+            <ObjectRow key={obj.id} spaceId={spaceId} obj={obj} depth={0} />
+          ))}
+        </ul>
+      </div>
+      <BulkDeleteObjectsDialog
+        spaceId={spaceId}
+        ids={pendingBulk}
+        onClose={() => setPendingBulk(null)}
+      />
     </DndContext>
   );
 }
