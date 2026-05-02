@@ -124,10 +124,11 @@ function TypeChip({
         aria-pressed={active}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-l-full px-2.5 py-1',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-          // Round the right side too when the arrow is hidden so the
-          // focus ring doesn't sit on a square corner.
-          'group-hover:rounded-r-none focus-visible:rounded-r-none',
+          // No persistent focus ring — the active background is the
+          // visual indicator. Drop the outline entirely so the chip
+          // doesn't carry a purple frame after click.
+          'outline-none',
+          'group-hover:rounded-r-none',
         )}
       >
         <Sparkles className="h-3.5 w-3.5 text-foreground/50" aria-hidden />
