@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { useAtom, useSetAtom } from 'jotai';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useAtomValue, useSetAtom, useStore } from 'jotai';
+import { selectAtom } from 'jotai/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronRight, ChevronDown, FileText, Folder, Pencil, Trash2 } from 'lucide-react';
@@ -47,48 +48,82 @@ interface ObjectRowProps {
  * F2 / context-menu Rename → inline rename input.
  * Backspace/Delete / context-menu Delete → confirm dialog.
  */
-export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
-  const [activeObjectId, setActiveObjectId] = useAtom(activeObjectIdAtom);
-  const [renamingId, setRenamingId] = useAtom(renamingObjectIdAtom);
-  const [selectedIds, setSelectedIds] = useAtom(selectedTreeIdsAtom);
-  const [anchor, setAnchor] = useAtom(treeSelectionAnchorAtom);
+/**
+ * Per-row derived atoms — `selectAtom` ensures a row only re-renders
+ * when *its own* slice of the global state changes, not on every
+ * change to the underlying selection set / active id / renaming id.
+ *
+ * Without these the multi-select Set update triggers all N rows to
+ * re-render on every plain click. With 200 objects that's the source
+ * of the perceived lag.
+ */
+function ObjectRowImpl({ spaceId, obj, depth }: ObjectRowProps) {
+  const setActiveObjectId = useSetAtom(activeObjectIdAtom);
+  const setRenamingId = useSetAtom(renamingObjectIdAtom);
+  const setSelectedIds = useSetAtom(selectedTreeIdsAtom);
+  const setAnchor = useSetAtom(treeSelectionAnchorAtom);
+  const setPendingBulkDelete = useSetAtom(pendingBulkDeleteAtom);
+
+  // Per-row derived booleans. Memo keyed on obj.id so the derived
+  // atom is stable across renders.
+  const activeAtom = useMemo(
+    () => selectAtom(activeObjectIdAtom, (id) => id === obj.id),
+    [obj.id],
+  );
+  const selectedAtom = useMemo(
+    () => selectAtom(selectedTreeIdsAtom, (set) => set.has(obj.id)),
+    [obj.id],
+  );
+  const renamingAtom = useMemo(
+    () => selectAtom(renamingObjectIdAtom, (id) => id === obj.id),
+    [obj.id],
+  );
+  const active = useAtomValue(activeAtom);
+  const selected = useAtomValue(selectedAtom);
+  const renaming = useAtomValue(renamingAtom);
+
+  // Read the anchor + selection lazily inside event handlers so
+  // changes don't subscribe the row to re-renders.
+  const store = useStore();
+
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const renameMutation = useRenameObject(spaceId);
-  const setPendingBulkDelete = useSetAtom(pendingBulkDeleteAtom);
 
   const isFolder = obj.nav?.type === NAV_FOLDER;
-  const active = activeObjectId === obj.id;
-  const selected = selectedIds.has(obj.id);
-  const renaming = renamingId === obj.id;
   const parentId = obj.nav?.parentId ?? NAV_ROOT_PARENT_ID;
   const title = obj.any?.name?.trim() || `Untitled (${obj.id.slice(0, 6)}…)`;
 
   /**
    * Click handler with modifier-aware multi-select. See
-   * docs/specs/PR-024-tree-multi-select.md.
+   * docs/specs/PR-024-tree-multi-select.md. Reads anchor + selection
+   * from the store rather than subscribing — the row doesn't need
+   * to re-render when those change.
    */
   const onTitleClick = (e: MouseEvent<HTMLButtonElement>) => {
-    if (e.shiftKey && anchor && anchor.parentId === parentId) {
-      const siblings = qc.getQueryData<ObjectRecord[]>([
-        'objects',
-        spaceId,
-        'children',
-        parentId,
-      ]) ?? [];
-      const ids = rangeIds(siblings, anchor.id, obj.id);
-      setSelectedIds(new Set(ids));
-      // Don't move the anchor on shift; don't change activeObjectId.
-      return;
+    if (e.shiftKey) {
+      const anchor = store.get(treeSelectionAnchorAtom);
+      if (anchor && anchor.parentId === parentId) {
+        const siblings = qc.getQueryData<ObjectRecord[]>([
+          'objects',
+          spaceId,
+          'children',
+          parentId,
+        ]) ?? [];
+        const ids = rangeIds(siblings, anchor.id, obj.id);
+        setSelectedIds(new Set(ids));
+        return;
+      }
+      // No anchor or cross-parent: fall through to single-select.
     }
     if (e.metaKey || e.ctrlKey) {
-      const next = new Set(selectedIds);
+      const cur = store.get(selectedTreeIdsAtom);
+      const next = new Set(cur);
       if (next.has(obj.id)) next.delete(obj.id);
       else next.add(obj.id);
       setSelectedIds(next);
       setAnchor({ id: obj.id, parentId });
-      // Don't change activeObjectId — multi-select is a separate intent.
       return;
     }
     // Plain click: clear multi-selection, single-select, open.
@@ -127,11 +162,11 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
       startRename();
     } else if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
-      // If this row is part of a multi-selection of ≥2, route to
-      // the bulk-delete dialog. Otherwise the existing single
-      // delete dialog.
-      if (selectedIds.size > 1 && selectedIds.has(obj.id)) {
-        setPendingBulkDelete(Array.from(selectedIds));
+      // Read selection lazily from store — no subscription needed
+      // for a one-shot keypress check.
+      const cur = store.get(selectedTreeIdsAtom);
+      if (cur.size > 1 && cur.has(obj.id)) {
+        setPendingBulkDelete(Array.from(cur));
       } else {
         setPendingDelete(true);
       }
@@ -251,6 +286,17 @@ export function ObjectRow({ spaceId, obj, depth }: ObjectRowProps) {
     </li>
   );
 }
+
+/**
+ * Memoised export — re-renders only when its props change. Combined
+ * with the per-row selectAtom subscriptions above, this keeps a
+ * 200-row tree responsive: a click only re-renders the rows whose
+ * derived state actually flipped.
+ *
+ * `obj` is referentially stable from TanStack Query's cache until
+ * a refetch lands, so this guard is meaningful in practice.
+ */
+export const ObjectRow = memo(ObjectRowImpl);
 
 /**
  * The inline rename input. Auto-focuses + selects on mount; commits
