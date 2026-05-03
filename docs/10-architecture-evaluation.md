@@ -100,6 +100,19 @@ production build still has large chunks to tune.
   bulk-delete dialogs, list rename/delete dialogs, layout header/avatar
   primitives, and the editable property cells. The backfill also caught
   and fixed an invalid nested-button DOM structure in `RelationCell`.
+- **Direct table-module tests landed.** The table refactor is now
+  verified at the new module boundaries: `useTableViewController`,
+  `useTableProperties`, `TableToolbar`, `TableRows`, and
+  `TableSettingsPanel` have focused tests in addition to the broader
+  `TableView` integration tests.
+- **`SpaceContents.tsx` is composition only.** Space sidebar behavior is
+  now split across `useSpaceContentsController`, `SpaceHeader`,
+  `HierarchySection`, and `ListsSection`, so adding hierarchy actions or
+  list-specific behavior no longer grows one sidebar container.
+- **`ObjectRow.tsx` is split by responsibility.** Selection state,
+  keyboard range behavior, rename input rendering, hover actions, and
+  context-menu actions live in `useObjectRowSelection`,
+  `useObjectRowKeyboard`, `ObjectRowRename`, and `ObjectRowActions`.
 
 ### Intentional tradeoffs
 
@@ -117,12 +130,10 @@ production build still has large chunks to tune.
 
 ### ✗ Still open
 
-- **Component tests still lag behind the decomposition.**
-  The high-risk dialogs/cells now have smoke coverage, but the new
-  table module pieces (`useTableViewController`, `useTableProperties`,
-  `TableToolbar`, settings screens, `ListRowsView`, `TableRows`) are
-  still mostly covered indirectly via `TableView.test.tsx`, and a few
-  heavy editor/type surfaces still rely on integration-style coverage.
+- **A few heavy UI surfaces still need focused tests.** The table module
+  split now has direct coverage, but `ListRowsView`, `CreateTypeDialog`,
+  `AddColumnPopover`, `ObjectTypeBar`, and `MarkdownEditor` still rely
+  mostly on broader integration-style coverage.
 - **Large build chunks remain.** BlockNote is already lazy-loaded into
   the editor chunk, but the async editor chunk is still large and the
   main app chunk is just over Vite's default warning threshold.
@@ -136,7 +147,7 @@ production build still has large chunks to tune.
 | 2 | Selection state fragmented across 9 atoms | ✅ consolidated in `atoms/view-state.ts` | resolved | keep new view state in the model |
 | 3 | No public API barrels | ✅ main barrels exist and major imports are lint-enforced | resolved | keep new modules behind barrels |
 | 4 | Cache invalidation is ad-hoc | ✅ per-resource factories (`objectKeys`, `spaceKeys`, `typeKeys`) | resolved | keep cache keys beside each API resource |
-| 5 | Test coverage | ◐ dialogs/cells backfilled; extracted table rows still mostly indirect | MEDIUM | direct `ListRowsView` / `TableRows` tests |
+| 5 | Test coverage | ◐ dialogs/cells and core table modules have direct coverage | LOW | backfill `ListRowsView` and heavy editor/type surfaces |
 | 6 | scattered `as Record<string, unknown>` casts | ✅ removed from table/editor surfaces; centralized in model/client | resolved | — |
 | 7 | No feature-folder boundaries | ◐ optional; current barrels are enforced | LOW | pilot only when a slice grows large |
 | 8 | Specs drift from code | ✗ | MEDIUM | spec-link CI check |
@@ -273,11 +284,12 @@ extract that loop into an object-cache helper beside `objectKeys`.
 ## 5. Test coverage gaps
 
 **Evidence (audit)**: the original pass found 42 of ~64 components
-with no test sibling. The current tree has 22 component-level test
-files and 35 total frontend test files. The highest-risk gap from that
-audit is now covered: dialogs and editable cells have smoke tests.
-Remaining gaps are more focused: direct tests for extracted table row
-modules, plus heavier surfaces like `CreateTypeDialog`,
+with no test sibling. The current tree has direct coverage for the
+high-risk dialog and editable-cell flows, plus focused tests for the
+core table modules introduced by the data-view split:
+`useTableViewController`, `useTableProperties`, `TableToolbar`,
+`TableRows`, and `TableSettingsPanel`. Remaining gaps are narrower:
+`ListRowsView`, plus heavier surfaces like `CreateTypeDialog`,
 `AddColumnPopover`, `ObjectTypeBar`, and `MarkdownEditor`.
 
 **Why it bites agents**: an agent making "innocuous" UI changes
@@ -291,9 +303,9 @@ breaks the dialog chain or a cell editor and ships green.
 2. Keep the cell harness in `src/test/cellHarness.tsx` as the pattern
    for future property editors: render, enter edit mode, commit, assert
    the value handed to `onCommit`.
-3. Next targeted backfill: direct `ListRowsView` and `TableRows`
-   tests, then one smoke each for `CreateTypeDialog`,
-   `AddColumnPopover`, `ObjectTypeBar`, and `MarkdownEditor`.
+3. Next targeted backfill: direct `ListRowsView` tests, then one smoke
+   each for `CreateTypeDialog`, `AddColumnPopover`, `ObjectTypeBar`,
+   and `MarkdownEditor`.
 
 ## 6. Type-unsafe data access
 
