@@ -2,8 +2,7 @@
 
 > Spec for the second frontend PR. Approval gate: doc merges (or
 > reviewer signs off in the PR), then implementation lands on the
-> same branch. Per docs/08-app-architecture.md § Layout & interaction
-> model.
+> same branch.
 
 ## Goal
 
@@ -125,8 +124,7 @@ mock data — see `src/lib/mock-data.ts`.)
 - **Min window width**: 800 px. Below that, the layout collapses to
   a centered notice ("Cowork is desktop-only in v1 — open a wider
   window"). No re-flow.
-- **Keyboard shortcuts** (added to `docs/08-app-architecture.md`'s
-  table):
+- **Keyboard shortcuts**:
   - `⌘1` / `⌘2` / `⌘3` — move browser focus to the first focusable
     element of pane 1 / 2 / 3.
   - Existing focus-ring rules apply.

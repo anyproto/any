@@ -55,9 +55,6 @@ just for the DnD primitives (`DndContext`, `useDraggable`,
 follow-up (small dnd-kit modifier work) or as part of a future
 headless-tree migration if we hit limits.
 
-I'll amend `docs/08-app-architecture.md` with this decision in the
-same commit, mirroring the BlockNote/mantine pivot.
-
 ### Lexid port
 
 The lexid algorithm lives at `github.com/anyproto/lexid`; the server
@@ -113,7 +110,7 @@ On drop we:
 ```
 docs/specs/PR-007-tree-dnd.md
 docs/fixtures/lexid.json                 (Go-generated test fixtures)
-docs/08-app-architecture.md              (dnd-kit pivot note)
+docs/agents/README.md                    (frontend module contract)
 web/app/package.json                     (+ @dnd-kit/core)
 web/app/src/lib/lexid.ts                 + .test.ts
 web/app/src/lib/api/objects.ts           (+ useMoveObject mutation)

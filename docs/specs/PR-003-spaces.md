@@ -1,8 +1,7 @@
 # PR #3 — Spaces (real)
 
 > Spec for the third frontend PR. Replaces the mock spaces in pane 1
-> with `/v1/spaces`, adds create + delete flows. Per
-> docs/08-app-architecture.md roadmap.
+> with `/v1/spaces`, adds create + delete flows.
 
 ## Goal
 

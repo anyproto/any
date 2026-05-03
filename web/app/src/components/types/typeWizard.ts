@@ -3,9 +3,9 @@ import { ApiError } from '@/lib/api/client';
 /**
  * State machine for the Create Type wizard.
  *
- * Per docs/08-app-architecture.md, this is the second hand-rolled
- * machine in the codebase (after the editor save machine). If a third
- * one lands we adopt XState.
+ * This is the second hand-rolled machine in the frontend after the
+ * editor save machine. Per docs/agents/README.md, if a third
+ * independent machine lands, adopt a proper state-machine library.
  */
 
 export type PropertyKindUI = 'string' | 'number' | 'boolean';

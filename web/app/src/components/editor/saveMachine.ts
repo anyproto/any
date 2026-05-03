@@ -3,10 +3,10 @@ import { ApiError } from '@/lib/api/client';
 /**
  * State machine for the markdown editor's save flow.
  *
- * Per docs/08-app-architecture.md, this is the first hand-rolled
- * machine in the codebase: a discriminated union driven by useReducer.
- * If we end up with three or four such machines, we adopt XState and
- * port this over.
+ * This is the first hand-rolled machine in the frontend: a
+ * discriminated union driven by useReducer. Per docs/agents/README.md,
+ * if a third independent machine lands, adopt a proper state-machine
+ * library instead of scaling bespoke reducers.
  */
 export type SaveState =
   | { kind: 'loading' }

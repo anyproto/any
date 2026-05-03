@@ -236,12 +236,17 @@ web/app/src/atoms/selection.test.ts              (new)
 web/app/src/atoms/table.ts                       (local widths + layout)
 web/app/src/lib/api/objects.ts                   (paged type-row helpers)
 web/app/src/components/tables/
-  TableView.tsx                                  (root)
-  TableHeader.tsx                                (column headers + sort)
-  TableRow.tsx                                   (data row)
-  cells/TextCell.tsx
-  cells/NumberCell.tsx
-  cells/BoolCell.tsx
+  TableView.tsx                                  (composition root only)
+  useTableViewController.ts                      (query/filter/sort/paging)
+  useTableProperties.ts                          (visibility/order/widths)
+  useDataViewLayout.ts                           (current local renderer)
+  TableToolbar.tsx                               (view tab + actions)
+  TableColumnHeader.tsx                          (sort/drag/resize header)
+  TableSettingsPanel.tsx                         (settings navigation shell)
+  settings/*.tsx                                 (nested settings screens)
+  TableRows.tsx                                  (table renderer rows)
+  ListRowsView.tsx                               (list renderer rows)
+  tableObjectValues.ts                           (row value helpers)
   AddColumnPopover.tsx                           (inline column add)
   TableView.test.tsx
 web/app/src/components/layout/

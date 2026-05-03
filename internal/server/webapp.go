@@ -13,8 +13,7 @@ import (
 //
 // The directory is gitignored; the .gitkeep at webapp/dist/ keeps the
 // path resolvable when no build has run yet — without it `//go:embed`
-// would fail to compile. CI populates this directory before
-// `go build`. See docs/08-app-architecture.md § "Build / ship pipeline".
+// would fail to compile. CI populates this directory before `go build`.
 //
 //go:embed all:webapp/dist
 var webappFS embed.FS
