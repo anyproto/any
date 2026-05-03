@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Opt GitHub-hosted JavaScript actions into the Node 24 runtime before
+  # GitHub's June 2026 default flip, while keeping the app's own Node
+  # toolchain pinned below.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -43,6 +49,27 @@ jobs:
           go-version: '1.26.2'
           cache: true
 
+      # The any-sync-sdk module lives in a private anyproto repo, so the
+      # default unauthenticated `go mod download` can't reach it. We use
+      # a Personal Access Token (ANYPROTO_GH_TOKEN) with read access to
+      # anyproto/* repos. GOPRIVATE makes Go skip the public proxy for
+      # those paths and rely on direct git, which we point at the token
+      # via insteadOf. If the secret isn't set, the Go gates skip
+      # cleanly with a clear message instead of mysterious git prompts.
+      - name: Configure private Go modules (anyproto/*)
+        id: goauth
+        env:
+          ANYPROTO_GH_TOKEN: ${{ secrets.ANYPROTO_GH_TOKEN }}
+        run: |
+          if [ -z "${ANYPROTO_GH_TOKEN}" ]; then
+            echo "::warning::ANYPROTO_GH_TOKEN secret is not set — skipping Go gates."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config --global url."https://x-access-token:${ANYPROTO_GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          go env -w GOPRIVATE=github.com/anyproto/*
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
       # Frontend gates
       - name: Install web deps
         working-directory: web/app
@@ -78,50 +105,72 @@ jobs:
           touch internal/server/webapp/dist/.gitkeep
 
       - name: Go vet
+        if: steps.goauth.outputs.ok == 'true'
         run: go vet ./...
 
       - name: Go build
+        if: steps.goauth.outputs.ok == 'true'
         run: go build ./cmd/any
 
       - name: Go test
+        if: steps.goauth.outputs.ok == 'true'
         run: go test ./...
 
-      # E2E — runs the binary against a temp data dir
+      # E2E — runs the binary against a temp data dir when a nodeconf is
+      # available in the checkout. Forks/clean clones often do not have the
+      # private staging fixture, so this path must skip cleanly instead of
+      # failing later with curl exit 7.
+      - name: Prepare E2E config
+        id: e2e
+        run: |
+          if [ ! -f docs/dev/stage1.yaml ]; then
+            echo "No docs/dev/stage1.yaml found; skipping Playwright E2E."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "nodeconf=$(pwd)/docs/dev/stage1.yaml" >> "$GITHUB_OUTPUT"
+
       - name: Install Playwright browsers
+        if: steps.e2e.outputs.run == 'true'
         working-directory: web/app
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Boot any server for E2E
+        if: steps.e2e.outputs.run == 'true'
         run: |
           mkdir -p /tmp/any-e2e
-          # Use bundled stage1 nodeconf if present, else skip E2E gracefully.
-          if [ -f docs/dev/stage1.yaml ]; then
-            cat > /tmp/any-e2e/config.yaml <<EOF
+          cat > /tmp/any-e2e/config.yaml <<EOF
           network:
-            nodeconfPath: $(pwd)/docs/dev/stage1.yaml
+            nodeconfPath: ${{ steps.e2e.outputs.nodeconf }}
           EOF
-          fi
           ANY_DATA_DIR=/tmp/any-e2e nohup ./any run > /tmp/any-e2e/server.log 2>&1 &
           # Wait for /v1/health to respond
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:7001/v1/health >/dev/null; then
-              echo "server ready"; break
+              echo "server ready"
+              exit 0
             fi
             sleep 1
           done
+          echo "::error::any server did not become healthy for E2E"
+          cat /tmp/any-e2e/server.log || true
+          exit 1
 
       - name: E2E (Playwright)
+        if: steps.e2e.outputs.run == 'true'
         working-directory: web/app
         run: pnpm test:e2e
 
       - name: Stop any server
-        if: always()
+        if: ${{ always() && steps.e2e.outputs.run == 'true' }}
         run: curl -s -X POST http://127.0.0.1:7001/v1/shutdown || true
 
       - name: Upload Playwright report
-        if: failure()
+        if: ${{ failure() && steps.e2e.outputs.run == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: web/app/playwright-report
           retention-days: 7
+          if-no-files-found: ignore
