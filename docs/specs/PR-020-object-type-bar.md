@@ -33,14 +33,19 @@ expanding underneath.
   mode: Name → Create, skipping Properties and Confirm. The new list is
   attached to the current object automatically and pane 3 returns to
   the object.
+- When an object is opened from a specific list/table/list/gallery view,
+  that source list chip auto-expands so the object keeps the collection
+  context visible with all of that list's properties.
 - No primary-vs-secondary chip styling. Deferred.
 - No "Show More" / collapse-after-N rows. List is always full.
 
 ## Decisions
 
-- **Expanded state stays local.** No persistence — re-open the
-  object and nothing is expanded. Cheap to undo, easy to upgrade
-  later if users want it.
+- **Expanded state stays local, with navigation context.** Plain
+  object navigation opens collapsed. List/table/gallery navigation
+  writes a transient `{kind: 'object', objectId, typeId}` view so
+  this bar can auto-expand that source chip without persisting
+  expansion preferences.
 - **One expanded at a time.** Keeps the page tidy; matches the
   Anytype gesture that shows one card under the chips.
 - **No optimistic updates.** Property writes go through a small
@@ -75,14 +80,17 @@ web/app/src/components/editor/MarkdownEditor.tsx       (mount the bar between ti
 7. "+" chip opens list search; picking a list attaches it to the object.
 8. "Create new list…" creates the list, attaches it to this object,
    closes the dialog, and leaves pane 3 on the object editor.
-9. Existing tests stay green.
+9. Opening an object from table/list/gallery auto-expands that list's
+   chip and shows its properties immediately.
+10. Existing tests stay green.
 
 ## Test plan
 
 - Manual: create a Book object, add Author / Genre / Description,
   confirm chip + panel + commit round-trip.
 - Component: ObjectTypeBar renders one button per type and toggles
-  expansion on click.
+  expansion on click; source list navigation auto-expands the matching
+  chip.
 - Hook: useObject returns the record by id.
 
 ## Out of scope (deferred)

@@ -3,7 +3,6 @@ import { useSetAtom } from 'jotai';
 import {
   ChevronsDownUp,
   ChevronsUpDown,
-  FolderPlus,
   Plus,
 } from 'lucide-react';
 import { sendTreeExpansionSignalAtom, useSpaceMeta } from '@/atoms';
@@ -25,7 +24,7 @@ export function HierarchySection({
 }) {
   const spaceQuery = useSpace(spaceId);
   const { overrideName } = useSpaceMeta(spaceId);
-  const { createPage, createFolder, isPending } = useRootObjectActions(spaceId);
+  const { createFolder, isPending, pagesListId } = useRootObjectActions(spaceId);
   const sendTreeExpansionSignal = useSetAtom(sendTreeExpansionSignalAtom);
   const [foldersExpanded, setFoldersExpanded] = useState(false);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
@@ -52,20 +51,12 @@ export function HierarchySection({
         action={
           <div className="flex items-center gap-0.5 opacity-70 transition-opacity group-hover/section:opacity-100 focus-within:opacity-100">
             <SectionIconButton
-              label="New page"
-              title="New page"
-              disabled={isPending}
-              onClick={() => void createPage()}
-            >
-              <Plus className="h-3 w-3" aria-hidden />
-            </SectionIconButton>
-            <SectionIconButton
               label="New folder"
               title="New folder"
               disabled={isPending}
               onClick={() => setCreateFolderOpen(true)}
             >
-              <FolderPlus className="h-3 w-3" aria-hidden />
+              <Plus className="h-3 w-3" aria-hidden />
             </SectionIconButton>
             <SectionIconButton
               label={foldersExpanded ? 'Collapse all folders' : 'Expand all folders'}
@@ -90,7 +81,7 @@ export function HierarchySection({
           setCreateFolderOpen(false);
         }}
       />
-      {expanded && <ObjectTree spaceId={spaceId} />}
+      {expanded && <ObjectTree spaceId={spaceId} pagesListId={pagesListId} />}
     </>
   );
 }

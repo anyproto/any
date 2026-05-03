@@ -7,6 +7,7 @@ import {
   ArrowDownAZ,
   ArrowUpAZ,
   Filter,
+  GalleryThumbnails,
   List as ListLayoutIcon,
   Plus,
   Search,
@@ -202,6 +203,14 @@ function ViewLayoutSwitch({
         onClick={() => onChange('list')}
       >
         <ListLayoutIcon className="h-3.5 w-3.5" aria-hidden />
+      </ViewLayoutButton>
+      <ViewLayoutButton
+        label="Gallery layout"
+        title="Gallery"
+        active={layout === 'gallery'}
+        onClick={() => onChange('gallery')}
+      >
+        <GalleryThumbnails className="h-3.5 w-3.5" aria-hidden />
       </ViewLayoutButton>
     </div>
   );

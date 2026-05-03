@@ -1,7 +1,7 @@
 import { useSetAtom } from 'jotai';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, Plus } from 'lucide-react';
-import { activeObjectIdAtom } from '@/atoms';
+import { openObjectFromTypeAtom } from '@/atoms';
 import { ApiError } from '@/lib/api/client';
 import {
   ANY_TYPE_ID,
@@ -32,7 +32,7 @@ export function DataRow({
   row: ObjectRecord;
   props: PropertyDef[];
 }) {
-  const setActiveObjectId = useSetAtom(activeObjectIdAtom);
+  const openObjectFromType = useSetAtom(openObjectFromTypeAtom);
   const qc = useQueryClient();
 
   const onCommitName = async (next: string) => {
@@ -60,7 +60,7 @@ export function DataRow({
             aria-label={`Open ${row.any?.name?.trim() || 'row'}`}
             onFocus={() => preloadViewModule('object')}
             onPointerEnter={() => preloadViewModule('object')}
-            onClick={() => setActiveObjectId(row.id)}
+            onClick={() => openObjectFromType({ objectId: row.id, typeId })}
             className={cn(
               'mx-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/35 opacity-0 transition-opacity',
               'hover:bg-foreground/[0.055] hover:text-foreground/80 group-hover:opacity-100 focus-visible:opacity-100',
@@ -85,7 +85,8 @@ export function DataRow({
           </td>
         );
       })}
-      <td className="border-b border-foreground/[0.045]" />
+      <td className="border-b border-foreground/[0.045] bg-background" />
+      <td className="border-b border-foreground/[0.045] bg-background" aria-hidden />
     </tr>
   );
 }
@@ -141,7 +142,7 @@ export function AddRow({
 }) {
   return (
     <tr>
-      <td colSpan={propCount + 2} className="p-0">
+      <td colSpan={propCount + 3} className="p-0">
         <button
           type="button"
           onClick={onCreate}

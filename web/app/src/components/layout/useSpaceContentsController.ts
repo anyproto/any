@@ -49,21 +49,6 @@ export function useRootObjectActions(spaceId: string) {
     }
   }, [createMutation, pagesListId, setActiveObjectId]);
 
-  const createTypedObject = useCallback(
-    async (typeIds: string[], label: string) => {
-      try {
-        const { objectId } = await createMutation.mutateAsync({ typeIds });
-        setActiveObjectId(objectId);
-        toast.success(`Created ${label}`);
-      } catch (err) {
-        const code = err instanceof ApiError ? err.code : 'unknown';
-        const msg = err instanceof Error ? err.message : 'Failed to create object';
-        toast.error(`${code}: ${msg}`);
-      }
-    },
-    [createMutation, setActiveObjectId],
-  );
-
   const createFolder = useCallback(
     async (name: string) => {
       try {
@@ -82,8 +67,8 @@ export function useRootObjectActions(spaceId: string) {
 
   return {
     createPage,
-    createTypedObject,
     createFolder,
+    pagesListId,
     isPending: createMutation.isPending || renameMutation.isPending,
   };
 }

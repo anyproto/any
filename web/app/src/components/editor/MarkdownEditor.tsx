@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import type { Block } from '@blocknote/core';
@@ -40,6 +39,9 @@ interface Props {
 
 function AnytypeAddBlockButton() {
   const Components = useComponentsContext();
+  // BlockNote's extension helpers require schema generics that are not exported
+  // as useful app-level types, so keep the escape hatch at the integration edge.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const suggestionMenu = useExtension(SuggestionMenuExtension);
   const block = useExtensionState(SideMenuExtension, {
@@ -128,7 +130,7 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
       edit_comment: '',
       comment_reply: '',
     },
-  } as any) as any;
+  } as any) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
   const [state, dispatch] = useReducer(reduce, initial);
   const stateRef = useRef(state);
@@ -233,6 +235,8 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
         });
       }
     };
+    // Intentionally keyed only to object identity: refs provide latest dirty state/timer,
+    // while mutation object rebinding would turn hook churn into a false unmount save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaceId, objectId]);
 

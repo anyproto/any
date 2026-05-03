@@ -38,7 +38,13 @@ import { ObjectRow } from './ObjectRow';
  *
  * Self-drop and same-position drops are no-ops.
  */
-export function ObjectTree({ spaceId }: { spaceId: string }) {
+export function ObjectTree({
+  spaceId,
+  pagesListId,
+}: {
+  spaceId: string;
+  pagesListId?: string | null | undefined;
+}) {
   const q = useObjectChildren(spaceId, NAV_ROOT_PARENT_ID);
   const move = useMoveObject(spaceId);
   const qc = useQueryClient();
@@ -236,6 +242,7 @@ export function ObjectTree({ spaceId }: { spaceId: string }) {
               obj={obj}
               parentId={NAV_ROOT_PARENT_ID}
               depth={0}
+              pagesListId={pagesListId}
             />
           ))}
         </ul>

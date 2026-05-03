@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type MouseEvent } from 'react';
+import { memo, useEffect, useState, type CSSProperties, type MouseEvent } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { ChevronDown, ChevronRight, FileText, Folder } from 'lucide-react';
@@ -36,9 +36,16 @@ interface ObjectRowProps {
   obj: ObjectRecord;
   parentId?: string;
   depth: number;
+  pagesListId?: string | null | undefined;
 }
 
-function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: ObjectRowProps) {
+function ObjectRowImpl({
+  spaceId,
+  obj,
+  parentId: renderedParentId,
+  depth,
+  pagesListId,
+}: ObjectRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const createMutation = useCreateObject(spaceId);
@@ -80,6 +87,14 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
   const drag = useDraggable({ id: obj.id, disabled: renaming });
   const drop = useDroppable({ id: obj.id });
   const isDropTarget = drop.isOver && drop.active && drop.active.id !== obj.id;
+  const rowStyle: CSSProperties | undefined = drag.transform
+    ? {
+        transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`,
+        opacity: drag.isDragging ? 0.4 : 1,
+      }
+    : isFolder
+      ? undefined
+      : leafRowStyle;
 
   const commitRename = async (next: string) => {
     const trimmed = next.trim();
@@ -99,13 +114,16 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
     e.stopPropagation();
     if (!isFolder) return;
     try {
-      const { objectId } = await createMutation.mutateAsync({ parentId: obj.id });
+      const { objectId } = await createMutation.mutateAsync({
+        parentId: obj.id,
+        ...(pagesListId ? { typeIds: [pagesListId] } : {}),
+      });
       setExpanded(true);
       setSelectedIds(new Set([objectId]));
       setAnchor({ id: objectId, parentId: obj.id });
       setKeyboardEdge(objectId);
       setActiveObjectId(objectId);
-      toast.success('Created object');
+      toast.success('Created page');
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown';
       const msg = err instanceof Error ? err.message : 'Failed to create object';
@@ -137,19 +155,7 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
       tabIndex={0}
       onKeyDown={onRowKeyDown}
       className="focus-visible:outline-none"
-      style={
-        drag.transform
-          ? {
-              transform: `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)`,
-              opacity: drag.isDragging ? 0.4 : 1,
-              contentVisibility: 'auto',
-              containIntrinsicSize: 'auto 28px',
-            }
-          : {
-              contentVisibility: 'auto',
-              containIntrinsicSize: 'auto 28px',
-            }
-      }
+      style={rowStyle}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -208,7 +214,6 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
                 onClick={onTitleClick}
                 onDoubleClick={startRename}
                 onFocus={() => preloadViewModule('object')}
-                onPointerEnter={() => preloadViewModule('object')}
                 aria-current={active ? 'page' : undefined}
                 className="flex-1 truncate rounded text-left focus-visible:outline-none"
               >
@@ -217,6 +222,7 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
             )}
             <ObjectRowActions
               isFolder={isFolder}
+              expanded={expanded}
               renaming={renaming}
               title={title}
               creating={createMutation.isPending}
@@ -233,7 +239,12 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
       </ContextMenu>
 
       {isFolder && expanded && (
-        <ChildrenList spaceId={spaceId} parentId={obj.id} depth={depth + 1} />
+        <ChildrenList
+          spaceId={spaceId}
+          parentId={obj.id}
+          depth={depth + 1}
+          pagesListId={pagesListId}
+        />
       )}
 
       {pendingDelete && (
@@ -250,14 +261,21 @@ function ObjectRowImpl({ spaceId, obj, parentId: renderedParentId, depth }: Obje
 
 export const ObjectRow = memo(ObjectRowImpl);
 
+const leafRowStyle: CSSProperties = {
+  contentVisibility: 'auto',
+  containIntrinsicSize: 'auto 28px',
+};
+
 export function ChildrenList({
   spaceId,
   parentId,
   depth,
+  pagesListId,
 }: {
   spaceId: string;
   parentId: string;
   depth: number;
+  pagesListId?: string | null | undefined;
 }) {
   const { data, isPending, isError } = useObjectChildren(spaceId, parentId);
 
@@ -291,6 +309,7 @@ export function ChildrenList({
           obj={child}
           parentId={parentId}
           depth={depth}
+          pagesListId={pagesListId}
         />
       ))}
     </ul>

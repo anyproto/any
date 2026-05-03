@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, renderHook, waitFor, type RenderHookOptions } from '@testing-library/react';
 import { Provider, createStore } from 'jotai';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { activeObjectIdAtom, activeSpaceIdAtom } from '@/atoms';
+import { activeObjectIdAtom, activeSpaceIdAtom, activeViewAtom } from '@/atoms';
 import { useTableViewController } from './useTableViewController';
 
 interface FetchCall {
@@ -65,7 +65,7 @@ function renderController() {
       <Provider store={store}>{children}</Provider>
     </QueryClientProvider>
   );
-  const result = renderHook(() => useTableViewController('t_movie', 42), {
+  const result = renderHook(() => useTableViewController('t_movie'), {
     wrapper,
   });
   return { ...result, store };
@@ -118,5 +118,10 @@ describe('useTableViewController', () => {
       JSON.stringify({ nav: { type: 1, parentId: '' }, types: ['t_movie'] }),
     );
     expect(store.get(activeObjectIdAtom)).toBe('obj-new');
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-new',
+      typeId: 't_movie',
+    });
   });
 });

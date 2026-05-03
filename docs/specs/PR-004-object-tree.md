@@ -10,7 +10,7 @@
 - Each row shows an icon (folder vs item) + title.
 - Folder rows expand on click → lazy-fetch their children.
 - Selecting a row writes `activeObjectIdAtom` (pane 3 reacts).
-- A header **+ New** button creates a root item via
+- A header **+ New** button creates a root Page via
   `POST /v1/spaces/:s/objects` (server stamps `nav` defaults).
 - Loading / empty / error states for both root and children.
 
@@ -81,9 +81,10 @@ file for `1`.
   (sets `activeObjectIdAtom`). The expansion chevron is a separate
   hit target on folder rows so opening a folder doesn't jump pane 3.
   Items don't have a chevron.
-- **+ button placement.** The header gets `+ New` (single button,
-  not a dropdown). Clicking it POSTs `/objects` with
-  `{nav:{type:1,parentId:""}}` and selects the new id. Toast on
+- **+ button placement.** The header gets `+ New` as the single
+  root-page fast path. The hierarchy section `+` is reserved for
+  new folders, expanded folder rows get their own child-page `+`,
+  and the Lists section owns new-list/list-entry actions. Toast on
   error.
 - **Polling vs realtime.** Until `/subscribe` lands, the tree
   refetches on window focus (TanStack Query default) and after our

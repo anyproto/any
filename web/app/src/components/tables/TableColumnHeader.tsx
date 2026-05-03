@@ -1,6 +1,13 @@
 import { useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { ChevronDown, ChevronUp, Columns3, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui';
 import type { SortDir } from './tableSorting';
 
 export function TableColumnHeader({
@@ -19,6 +26,8 @@ export function TableColumnHeader({
   align = 'left',
   width,
   onResize,
+  onAutoResize,
+  onAutoResizeAll,
 }: {
   propId?: string;
   label: string;
@@ -35,6 +44,8 @@ export function TableColumnHeader({
   align?: 'left' | 'right';
   width?: number;
   onResize?: (width: number) => void;
+  onAutoResize?: () => void;
+  onAutoResizeAll?: () => void;
 }) {
   const active = activeSortKey === sortKey && activeSortDir != null;
   const draggable = propId != null;
@@ -81,7 +92,7 @@ export function TableColumnHeader({
     window.addEventListener('mouseup', onUp, { once: true });
   };
 
-  return (
+  const header = (
     <th
       onDragEnter={(e) => {
         if (!draggable || !propId) return;
@@ -163,6 +174,11 @@ export function TableColumnHeader({
             e.stopPropagation();
           }}
           onMouseDown={startResize}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onAutoResize?.();
+          }}
           className={cn(
             'absolute right-0 top-0 z-10 h-full w-2 translate-x-1/2 cursor-col-resize',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -174,5 +190,28 @@ export function TableColumnHeader({
         />
       )}
     </th>
+  );
+
+  if (!onAutoResize && !onAutoResizeAll) return header;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{header}</ContextMenuTrigger>
+      <ContextMenuContent alignOffset={-4} className="min-w-[13rem]">
+        {onAutoResize && (
+          <ContextMenuItem onSelect={onAutoResize}>
+            <Columns3 className="h-3.5 w-3.5" aria-hidden />
+            Auto-fit column width
+          </ContextMenuItem>
+        )}
+        {onAutoResize && onAutoResizeAll && <ContextMenuSeparator />}
+        {onAutoResizeAll && (
+          <ContextMenuItem onSelect={onAutoResizeAll}>
+            <Columns3 className="h-3.5 w-3.5" aria-hidden />
+            Auto-fit all columns
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

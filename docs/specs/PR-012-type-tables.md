@@ -24,10 +24,12 @@ Make custom types behave like databases:
 - **Sort** through the database toolbar or by clicking a column header
   — column headers cycle asc → desc → default order.
 - **Show / hide properties** locally through the database toolbar.
-- **Switch layout** locally between `Table` and `List`. Table remains
-  the editable spreadsheet surface; List reuses the same rows,
-  property order, filter, sort, paging, and virtualization, but renders
-  each object as a readable row with property previews.
+- **Switch layout** locally between `Table`, `List`, and `Gallery`.
+  Table remains the editable spreadsheet surface; List reuses the same
+  rows, property order, filter, sort, paging, and virtualization, but
+  renders each object as a readable row with property previews.
+  Gallery reuses the same data/property model and renders a virtualized
+  responsive card grid for visual browsing.
 - **Rename the list title and set an emoji icon** locally from the
   table header. The same `atoms/type-meta.ts` override is used by the
   sidebar row and `+ New` menu.
@@ -43,8 +45,8 @@ Make custom types behave like databases:
 - **Saved views / multiple named views per type** (Notion-style view
   tabs with independent table / board / calendar / list configs).
   v1 has one local `All` view with a persisted layout choice
-  (`Table` or `List`). Toolbar filter/sort/property visibility is local
-  UI state, not persisted view configuration.
+  (`Table`, `List`, or `Gallery`). Toolbar filter/sort/property
+  visibility is local UI state, not persisted view configuration.
 - **Multi-property filters / formulas / relations / rollups.**
 - **Multi-select / bulk delete** in the table.
 - **Server-backed list rename/icon/delete.** Type metadata write and
@@ -53,9 +55,10 @@ Make custom types behave like databases:
 - **Persisted column order.** Users can reorder user-property columns
   locally, but the order resets when the view reloads until we have a
   saved-view or type-metadata storage shape.
-- **Persisted column widths.** Header-edge drag resize is in scope for
-  spreadsheet feel. Widths are persisted locally per type/property
-  until saved views or type metadata can own that configuration.
+- **Persisted column widths.** Header-edge drag resize and header
+  context-menu auto-fit are in scope for spreadsheet feel. Widths are
+  persisted locally per type/property until saved views or type
+  metadata can own that configuration.
 - **Server-backed layout persistence.** The Table/List layout choice is
   persisted locally in `any.tables.viewLayouts.v1` per type. It is not
   a server object and should be migrated when a saved-view API exists.
@@ -97,7 +100,7 @@ Replace `activeObjectIdAtom` with a discriminated union at
 ```ts
 type ActiveView =
   | { kind: 'empty' }
-  | { kind: 'object'; objectId: string }
+  | { kind: 'object'; objectId: string; typeId?: string | null }
   | { kind: 'type-table'; typeId: string };
 
 const activeViewAtom = atom<ActiveView>({ kind: 'empty' });
@@ -106,7 +109,10 @@ const activeViewAtom = atom<ActiveView>({ kind: 'empty' });
 Keep the existing `activeObjectIdAtom` as a derived atom over
 `activeViewAtom` for back-compat — every existing read/write site
 keeps working unchanged. Add a new `activeTypeIdAtom` derived the
-same way for the type-table side.
+same way for the type-table side. The optional `typeId` on object
+views is transient navigation context used when an object is opened
+from table/list/gallery; it lets the editor expand the source list
+chip without changing generic object navigation.
 
 ### Pane 2 — type rows become navigable
 
@@ -146,15 +152,20 @@ small navigation stack:
 - `Sort` opens a menu for default order, `Name`, or any user property,
   plus ascending / descending direction. Column headers keep the quick
   cycle interaction for power users.
-- The compact Table/List segmented control in the toolbar switches the
-  local layout immediately. `Settings` → `Layout` exposes the same
-  choice from the side panel. The choice is stored in
+- The compact Table/List/Gallery segmented control in the toolbar
+  switches the local layout immediately. `Settings` → `Layout` exposes
+  the same choice from the side panel. The choice is stored in
   `atoms/table.ts` under `any.tables.viewLayouts.v1`, keyed by type id.
+- Gallery is implemented as its own renderer (`GalleryRowsView`) with a
+  small `GalleryViewConfig` surface (`minCardWidth`, `cardHeight`,
+  `gap`, `previewPropertyLimit`, `showPropertyLabels`). Future card
+  cover fields, density controls, and per-view card property choices
+  should extend that config rather than forking data loading.
 - `Settings` opens the table settings panel. The panel is the
   home screen for view/list controls: layout, property visibility,
-  filter, sort, collection settings, templates, and future per-list
-  options. Each row opens a full detail screen inside the same panel
-  with back / close controls; it is not an accordion.
+  filter, sort, properties, and future per-list options. Each row
+  opens a full detail screen inside the same panel with back / close
+  controls; it is not an accordion.
 - In the `Property visibility` detail screen, users show / hide user
   property columns and drag user properties by their grip handles to
   reorder them. `Name` is always shown and pinned before user
@@ -165,6 +176,12 @@ small navigation stack:
 - In the table header, user-property columns also expose drag handles
   on hover/focus. Dropping one column onto another applies the same
   local property order immediately.
+- Right-clicking a table column header opens a native app context menu.
+  The first command is `Auto-fit column width`, which measures the
+  loaded row content and header label, resizes the column, and persists
+  the width through the same local column-width store as manual resize.
+  `Auto-fit all columns` applies that same measurement pass to `Name`
+  and every visible property column.
 - In the `Properties` detail screen, users see the type's properties
   as a simple list. Clicking a property opens an `Edit property`
   detail screen for its metadata. `Add` opens an `Add property` detail
@@ -213,7 +230,9 @@ not expose a total count. The table body renders only the visible
 window via `shared/virtual/useVirtualRows.ts`, with spacer rows
 preserving scroll height. The List layout uses the same query and
 virtualizer with a taller row estimate; do not fork data loading for
-layout-specific rendering.
+layout-specific rendering. The Gallery layout uses the same query and
+property state, but owns width-aware grid virtualization so card
+columns can respond to panel width without rendering every object.
 
 Type counts in pane 2 are batched: one query reads object records for
 the space and derives counts from `any.types`, instead of one query
@@ -328,8 +347,10 @@ web/app/src/components/layout/
   `handlers_query.go`. If unsupported, do client-side filter — small
   regression on large tables (everything fetches), revisit.
 - **Cell width strategy.** Default Name/property widths are explicit,
-  user-resizable from header edges, and clamped to a practical
-  spreadsheet range. The trailing add-column slot absorbs remaining
-  empty width so horizontal table rules continue to the viewport edge.
+  user-resizable from header edges, auto-fit for one or all visible
+  columns from the column header context menu, and clamped to a
+  practical spreadsheet range. The trailing add-column slot absorbs
+  remaining empty width so horizontal table rules continue to the
+  viewport edge.
 - **Read-only fallback for array / object kinds.** v1 shows a small
   `<code>` block with the JSON; not editable.

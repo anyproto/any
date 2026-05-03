@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider, createStore } from 'jotai';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { activeObjectIdAtom } from '@/atoms';
+import { activeObjectIdAtom, activeViewAtom } from '@/atoms';
 import { AddRow, DataRow, LoadMoreRow, SpacerRow } from './TableRows';
 
 interface FetchCall {
@@ -65,6 +65,11 @@ describe('TableRows', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /open alien/i }));
     expect(store.get(activeObjectIdAtom)).toBe('obj-1');
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-1',
+      typeId: 't_movie',
+    });
 
     await userEvent.click(screen.getByRole('button', { name: 'Alien' }));
     const nameInput = screen.getByDisplayValue('Alien');

@@ -8,23 +8,25 @@ import { cn } from '@/lib/cn';
 
 export function ObjectRowActions({
   isFolder,
+  expanded,
   renaming,
   title,
   creating,
   onCreateChild,
 }: {
   isFolder: boolean;
+  expanded: boolean;
   renaming: boolean;
   title: string;
   creating: boolean;
   onCreateChild: (e: MouseEvent<HTMLButtonElement>) => void;
 }) {
-  if (!isFolder || renaming) return null;
+  if (!isFolder || !expanded || renaming) return null;
   return (
     <button
       type="button"
-      aria-label={`Create object inside ${title}`}
-      title="Create object inside"
+      aria-label={`New page inside ${title}`}
+      title="New page inside"
       disabled={creating}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onCreateChild}

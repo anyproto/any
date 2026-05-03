@@ -43,6 +43,9 @@ describe('<TableToolbar>', () => {
     await userEvent.click(screen.getByRole('button', { name: /list layout/i }));
     expect(handlers.onLayoutChange).toHaveBeenCalledWith('list');
 
+    await userEvent.click(screen.getByRole('button', { name: /gallery layout/i }));
+    expect(handlers.onLayoutChange).toHaveBeenCalledWith('gallery');
+
     await userEvent.click(screen.getByRole('button', { name: /filter/i }));
     expect(handlers.onFilterOpenChange).toHaveBeenCalledWith(true);
 
