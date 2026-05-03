@@ -87,8 +87,12 @@ Not this repo's work; gate on the SDK:
 - **`PropertiesAPI.{SetAccount, SetDevice, AttachType, DetachType}`.**
   All return errors today; routes are 501 until the rewrite-object
   (account scope) and device-local store (device scope) ship.
-- **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
-  Still "not implemented" on the SDK side; routes 501.
+- **`Types.Delete` / type metadata writes / `Types.RemoveProperty` /
+  `Types.UpdatePropertyMeta`.** Still "not implemented" on the SDK
+  side; routes 501. The frontend currently uses per-device
+  `type-meta` overrides for list display names, emoji icons, and local
+  hiding, but that is only a UI bridge and must be replaced by real SDK
+  methods when available.
 - **`Types.Get` for non-object ids.** The SDK only returns
   `space.ErrNotFound` when the id resolves to an existing object that
   isn't tagged as a type. Ids that aren't objects at all surface as a

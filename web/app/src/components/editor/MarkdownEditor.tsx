@@ -1,0 +1,292 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useAtomValue } from 'jotai';
+import type { Block } from '@blocknote/core';
+import {
+  SideMenuExtension,
+  SuggestionMenu as SuggestionMenuExtension,
+} from '@blocknote/core/extensions';
+import { BlockNoteView } from '@blocknote/mantine';
+import {
+  DragHandleButton,
+  SideMenu,
+  SideMenuController,
+  SuggestionMenuController,
+  useBlockNoteEditor,
+  useComponentsContext,
+  useCreateBlockNote,
+  useExtension,
+  useExtensionState,
+} from '@blocknote/react';
+import { Plus } from 'lucide-react';
+import { useObjectMarkdown, useSaveObjectMarkdown } from '@/lib/api/markdown';
+import { ApiError } from '@/lib/api/client';
+import { resolvedThemeAtom } from '@/atoms';
+import { reduce, initial, type SaveState } from './saveMachine';
+import { OrphanCleanup } from './OrphanCleanup';
+import { ObjectTitle } from './ObjectTitle';
+import { ObjectTypeBar } from './ObjectTypeBar';
+import { AnytypeSlashMenu } from './SlashMenu';
+import './blocknote-theme.css';
+
+const SAVE_DEBOUNCE_MS = 800;
+
+interface Props {
+  spaceId: string;
+  objectId: string;
+  /** Reports save state up to the header so it can render the indicator. */
+  onStateChange?: (state: SaveState) => void;
+}
+
+function AnytypeAddBlockButton() {
+  const Components = useComponentsContext();
+  const editor = useBlockNoteEditor<any, any, any>();
+  const suggestionMenu = useExtension(SuggestionMenuExtension);
+  const block = useExtensionState(SideMenuExtension, {
+    editor,
+    selector: (state) => state?.block,
+  });
+
+  const handleAddBlock = useCallback(() => {
+    if (block === undefined) return;
+
+    const blockContent = block.content;
+    const isBlockEmpty =
+      blockContent !== undefined &&
+      Array.isArray(blockContent) &&
+      blockContent.length === 0;
+
+    if (isBlockEmpty) {
+      editor.setTextCursorPosition(block);
+      suggestionMenu.openSuggestionMenu('/');
+      return;
+    }
+
+    const insertedBlock = editor.insertBlocks(
+      [{ type: 'paragraph' }],
+      block,
+      'after',
+    )[0];
+    if (insertedBlock === undefined) return;
+
+    editor.setTextCursorPosition(insertedBlock);
+    suggestionMenu.openSuggestionMenu('/');
+  }, [block, editor, suggestionMenu]);
+
+  if (Components === undefined || block === undefined) return null;
+
+  return (
+    <Components.SideMenu.Button
+      className="bn-button anytype-side-menu-add"
+      label="Add block"
+      onClick={handleAddBlock}
+      icon={<Plus aria-hidden="true" focusable="false" size={18} />}
+    />
+  );
+}
+
+function AnytypeSideMenu() {
+  return (
+    <SideMenu>
+      <AnytypeAddBlockButton />
+      <DragHandleButton />
+    </SideMenu>
+  );
+}
+
+/**
+ * BlockNote-backed markdown editor for one object.
+ *
+ * Lifecycle:
+ *  - On mount / objectId change: GET .../markdown, parse to blocks,
+ *    seed the editor.
+ *  - On editor change: convert blocks → markdown, push into the save
+ *    machine; debounced flush triggers a PUT.
+ *  - On unmount: best-effort flush of pending content (mutateAsync).
+ */
+export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
+  const theme = useAtomValue(resolvedThemeAtom);
+  // The `as any` is a strict-mode escape hatch — BlockNote's default
+  // schema types collide with TS `exactOptionalPropertyTypes: true`.
+  // Runtime is fine; only the type relationship is the issue.
+  //
+  // Suppress every per-block placeholder BlockNote ships in en.ts
+  // — the runtime Placeholder extension injects one CSS rule per
+  // entry, so anything we leave undefined keeps showing
+  // (e.g. "Heading" inside an empty heading block). Keys mirror
+  // @blocknote/core/src/i18n/locales/en.ts placeholders.
+  const editor = useCreateBlockNote({
+    placeholders: {
+      default: '',
+      emptyDocument: '',
+      heading: '',
+      toggleListItem: '',
+      bulletListItem: '',
+      numberedListItem: '',
+      checkListItem: '',
+      new_comment: '',
+      edit_comment: '',
+      comment_reply: '',
+    },
+  } as any) as any;
+
+  const [state, dispatch] = useReducer(reduce, initial);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Surface state to parent for the header indicator.
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [state, onStateChange]);
+
+  // Initial load via TanStack Query.
+  const loadQuery = useObjectMarkdown(spaceId, objectId);
+  const saveMutation = useSaveObjectMarkdown();
+
+  // Hydrate the editor when content arrives.
+  useEffect(() => {
+    let cancelled = false;
+    if (loadQuery.isError) {
+      const err =
+        loadQuery.error instanceof ApiError
+          ? loadQuery.error
+          : new ApiError(
+              { code: 'unknown', message: String(loadQuery.error) },
+              0,
+            );
+      dispatch({ type: 'load_failed', error: err });
+      return;
+    }
+    if (!loadQuery.isSuccess) return;
+    void (async () => {
+      const blocks = await editor.tryParseMarkdownToBlocks(loadQuery.data);
+      if (cancelled) return;
+      editor.replaceBlocks(editor.document, blocks as Block[]);
+      dispatch({ type: 'load_ok', content: loadQuery.data });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editor, loadQuery.isSuccess, loadQuery.isError, loadQuery.data, loadQuery.error]);
+
+  // Debounced flush. The doSave ref breaks the otherwise-circular
+  // dep between scheduleFlush and doSave (each refers to the other).
+  const flushTimerRef = useRef<number | null>(null);
+  const doSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current != null) {
+      window.clearTimeout(flushTimerRef.current);
+    }
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      void doSaveRef.current();
+    }, SAVE_DEBOUNCE_MS);
+  }, []);
+
+  const doSave = useCallback(async () => {
+    const s = stateRef.current;
+    if (s.kind !== 'dirty' && s.kind !== 'save_error') return;
+    const content = s.nextContent;
+    dispatch({ type: 'flush' });
+    try {
+      await saveMutation.mutateAsync({ spaceId, objectId, content });
+      dispatch({ type: 'save_ok' });
+      // If the user typed during the flight, schedule the next save.
+      if (stateRef.current.kind === 'dirty') {
+        scheduleFlush();
+      }
+    } catch (err) {
+      const apiErr =
+        err instanceof ApiError
+          ? err
+          : new ApiError({ code: 'unknown', message: String(err) }, 0);
+      dispatch({ type: 'save_failed', error: apiErr });
+    }
+  }, [spaceId, objectId, saveMutation, scheduleFlush]);
+  doSaveRef.current = doSave;
+
+  // onChange from BlockNote → state machine + debounce.
+  const handleChange = useCallback(() => {
+    void (async () => {
+      const md = await editor.blocksToMarkdownLossy(editor.document);
+      dispatch({ type: 'edit', content: md, now: Date.now() });
+      scheduleFlush();
+    })();
+  }, [editor, scheduleFlush]);
+
+  // Best-effort flush on unmount (object switch).
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      const s = stateRef.current;
+      if (s.kind === 'dirty' || s.kind === 'save_error') {
+        // Fire-and-forget. The mutation runs in the background; if the
+        // app stays open we still see toast errors via the mutation's
+        // own onError. (PR #6 doesn't surface them — that's a follow-up.)
+        void saveMutation.mutateAsync({
+          spaceId,
+          objectId,
+          content: s.kind === 'dirty' ? s.nextContent : s.nextContent,
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId, objectId]);
+
+  if (loadQuery.isError) {
+    const code = loadQuery.error instanceof ApiError ? loadQuery.error.code : 'unknown';
+    const message =
+      loadQuery.error instanceof Error ? loadQuery.error.message : 'Failed to load';
+    return (
+      <div className="mx-auto max-w-2xl px-8 py-10">
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/[0.06] p-4 text-sm"
+        >
+          <p className="font-medium text-destructive">Couldn&rsquo;t load this object</p>
+          <p className="mt-1 text-foreground/70">
+            <code className="font-mono">{code}</code> — {message}
+          </p>
+          <p className="mt-3 text-xs text-foreground/60">
+            If this is an orphan row (the underlying tree was deleted but the
+            list entry survives), removing it from the list is safe — see{' '}
+            <code className="font-mono">docs/03-api.md</code> § Object deletion.
+          </p>
+          <div className="mt-3">
+            <OrphanCleanup spaceId={spaceId} objectId={objectId} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    // Anytype 1:1 — _vars.scss:55 (--editor-width: 704px). Gutter
+    // kept generous so the page breathes inside pane 3.
+    <div className="mx-auto max-w-[704px] px-8 py-6">
+      <ObjectTitle spaceId={spaceId} objectId={objectId} />
+      <ObjectTypeBar spaceId={spaceId} objectId={objectId} />
+      <BlockNoteView
+        editor={editor}
+        theme={theme}
+        onChange={handleChange}
+        className="anytype-block-editor"
+        formattingToolbar
+        linkToolbar
+        slashMenu={false}
+        sideMenu={false}
+        emojiPicker={false}
+        comments={false}
+      >
+        <SuggestionMenuController
+          triggerCharacter="/"
+          suggestionMenuComponent={AnytypeSlashMenu}
+        />
+        <SideMenuController sideMenu={AnytypeSideMenu} />
+      </BlockNoteView>
+    </div>
+  );
+}
