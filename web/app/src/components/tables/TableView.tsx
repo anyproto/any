@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  TABLE_ADD_COLUMN_WIDTH,
   TABLE_NAME_COLUMN_WIDTH,
   TABLE_PROPERTY_COLUMN_WIDTH,
 } from '@/atoms';
 import { ApiError } from '@/lib/api/client';
+import { cn } from '@/lib/cn';
 import { AddColumnPopover } from './AddColumnPopover';
+import { GalleryRowsView } from './GalleryRowsView';
 import { ListRowsView, LIST_ROW_HEIGHT } from './ListRowsView';
 import { ListTitleEditor } from './ListTitleEditor';
 import { TableColumnHeader } from './TableColumnHeader';
@@ -17,9 +20,14 @@ import {
   SpacerRow,
   TABLE_ROW_HEIGHT,
 } from './TableRows';
+import {
+  autoFitNameColumnWidth,
+  autoFitPropertyColumnWidth,
+} from './tableColumnSizing';
 import { useDataViewLayout } from './useDataViewLayout';
 import { useTableProperties } from './useTableProperties';
 import { useTableViewController } from './useTableViewController';
+import { useVirtualRows } from '@/shared';
 
 interface TableViewProps {
   typeId: string;
@@ -34,16 +42,88 @@ interface TableViewProps {
  */
 export function TableView({ typeId }: TableViewProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsMounted = useDeferredPresence(settingsOpen, 220);
+  const tableHostRef = useRef<HTMLDivElement | null>(null);
+  const [tableHostWidth, setTableHostWidth] = useState(0);
   const { viewLayout, setViewLayout } = useDataViewLayout(typeId);
   const rowHeight = viewLayout === 'list' ? LIST_ROW_HEIGHT : TABLE_ROW_HEIGHT;
-  const table = useTableViewController(typeId, rowHeight);
+  const table = useTableViewController(typeId);
+  const virtual = useVirtualRows({
+    count: table.visibleRows.length,
+    rowHeight,
+    overscan: 10,
+  });
+  const virtualRows = table.visibleRows.slice(virtual.startIndex, virtual.endIndex);
   const props = useTableProperties(table.spaceId, typeId);
+  const {
+    createRow: createRowFromController,
+    debouncedFilter,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    visibleRows,
+  } = table;
+
+  useEffect(() => {
+    if (viewLayout === 'gallery') return;
+    if (debouncedFilter !== '') return;
+    if (!hasNextPage || isFetchingNextPage) return;
+    if (virtual.endIndex >= Math.max(0, visibleRows.length - 20)) {
+      void fetchNextPage();
+    }
+  }, [
+    debouncedFilter,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    visibleRows.length,
+    viewLayout,
+    virtual.endIndex,
+  ]);
+
+  useEffect(() => {
+    const measure = () => {
+      setTableHostWidth(tableHostRef.current?.clientWidth ?? 0);
+    };
+
+    measure();
+    const node = tableHostRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [viewLayout]);
+
+  const createRow = useCallback(
+    () => void createRowFromController(),
+    [createRowFromController],
+  );
+  const loadMore = useCallback(() => void fetchNextPage(), [fetchNextPage]);
+  const autoResizeAllColumns = useCallback(() => {
+    props.resizeColumn(
+      'name',
+      autoFitNameColumnWidth(table.visibleRows),
+      TABLE_NAME_COLUMN_WIDTH,
+    );
+    for (const prop of props.visibleProps) {
+      props.resizeColumn(
+        prop.id,
+        autoFitPropertyColumnWidth({
+          rows: table.visibleRows,
+          typeId,
+          prop,
+        }),
+        TABLE_PROPERTY_COLUMN_WIDTH,
+      );
+    }
+  }, [props, table.visibleRows, typeId]);
 
   const spaceId = table.spaceId;
   if (!spaceId) return null;
 
-  const createRow = () => void table.createRow();
-  const colSpan = props.visibleProps.length + 2;
+  const colSpan = props.visibleProps.length + 3;
+  const fillerColumnWidth = Math.max(0, tableHostWidth - props.tablePixelWidth);
+  const renderedTableWidth = props.tablePixelWidth + fillerColumnWidth;
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -77,17 +157,33 @@ export function TableView({ typeId }: TableViewProps) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <div
-          ref={table.virtual.scrollRef}
-          onScroll={table.virtual.onScroll}
-          className="min-w-0 flex-1 overflow-auto px-8 pb-10"
-        >
-          {viewLayout === 'table' ? (
-            <div className="w-full">
+      <div className="relative flex min-h-0 flex-1">
+        {viewLayout === 'gallery' ? (
+          <GalleryRowsView
+            typeId={typeId}
+            rows={table.visibleRows}
+            props={props.visibleProps}
+            isSuccess={table.objectsQuery.isSuccess}
+            error={table.objectsQuery.isError ? table.objectsQuery.error : null}
+            filter={table.filter}
+            typeName={table.typeName}
+            creating={table.create.isPending}
+            hasNextPage={table.hasNextPage}
+            isFetchingNextPage={table.isFetchingNextPage}
+            onLoadMore={loadMore}
+            onCreate={createRow}
+          />
+        ) : (
+          <div
+            ref={virtual.scrollRef}
+            onScroll={virtual.onScroll}
+            className="min-w-0 flex-1 overflow-auto px-8 pb-10"
+          >
+            {viewLayout === 'table' ? (
+            <div ref={tableHostRef} className="w-full">
               <table
                 className="table-fixed border-separate border-spacing-0"
-                style={{ width: props.tablePixelWidth, minWidth: '100%' }}
+                style={{ width: renderedTableWidth }}
               >
                 <colgroup>
                   <col data-column-id="name" style={{ width: props.nameColumnWidth }} />
@@ -101,7 +197,14 @@ export function TableView({ typeId }: TableViewProps) {
                       }}
                     />
                   ))}
-                  <col data-column-id="add-column" />
+                  <col
+                    data-column-id="add-column"
+                    style={{ width: TABLE_ADD_COLUMN_WIDTH }}
+                  />
+                  <col
+                    data-column-id="table-filler"
+                    style={{ width: fillerColumnWidth }}
+                  />
                 </colgroup>
                 <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur">
                   <tr>
@@ -115,6 +218,14 @@ export function TableView({ typeId }: TableViewProps) {
                       onResize={(width) =>
                         props.resizeColumn('name', width, TABLE_NAME_COLUMN_WIDTH)
                       }
+                      onAutoResize={() =>
+                        props.resizeColumn(
+                          'name',
+                          autoFitNameColumnWidth(table.visibleRows),
+                          TABLE_NAME_COLUMN_WIDTH,
+                        )
+                      }
+                      onAutoResizeAll={autoResizeAllColumns}
                     />
                     {props.visibleProps.map((p) => (
                       <TableColumnHeader
@@ -148,11 +259,27 @@ export function TableView({ typeId }: TableViewProps) {
                         onResize={(width) =>
                           props.resizeColumn(p.id, width, TABLE_PROPERTY_COLUMN_WIDTH)
                         }
+                        onAutoResize={() =>
+                          props.resizeColumn(
+                            p.id,
+                            autoFitPropertyColumnWidth({
+                              rows: table.visibleRows,
+                              typeId,
+                              prop: p,
+                            }),
+                            TABLE_PROPERTY_COLUMN_WIDTH,
+                          )
+                        }
+                        onAutoResizeAll={autoResizeAllColumns}
                       />
                     ))}
                     <th className="border-y border-foreground/[0.075] p-0 text-left">
                       <AddColumnPopover spaceId={spaceId} typeId={typeId} />
                     </th>
+                    <th
+                      aria-hidden
+                      className="border-y border-foreground/[0.075] bg-background p-0"
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -188,11 +315,11 @@ export function TableView({ typeId }: TableViewProps) {
                       </td>
                     </tr>
                   )}
-                  {table.objectsQuery.isSuccess && table.virtual.paddingTop > 0 && (
-                    <SpacerRow height={table.virtual.paddingTop} colSpan={colSpan} />
+                  {table.objectsQuery.isSuccess && virtual.paddingTop > 0 && (
+                    <SpacerRow height={virtual.paddingTop} colSpan={colSpan} />
                   )}
                   {table.objectsQuery.isSuccess &&
-                    table.virtualRows.map((row) => (
+                    virtualRows.map((row) => (
                       <DataRow
                         key={row.id}
                         spaceId={spaceId}
@@ -201,14 +328,14 @@ export function TableView({ typeId }: TableViewProps) {
                         props={props.visibleProps}
                       />
                     ))}
-                  {table.objectsQuery.isSuccess && table.virtual.paddingBottom > 0 && (
-                    <SpacerRow height={table.virtual.paddingBottom} colSpan={colSpan} />
+                  {table.objectsQuery.isSuccess && virtual.paddingBottom > 0 && (
+                    <SpacerRow height={virtual.paddingBottom} colSpan={colSpan} />
                   )}
                   {table.hasNextPage && (
                     <LoadMoreRow
                       colSpan={colSpan}
                       loading={table.isFetchingNextPage}
-                      onLoad={() => void table.fetchNextPage()}
+                      onLoad={loadMore}
                     />
                   )}
                   <AddRow
@@ -223,11 +350,11 @@ export function TableView({ typeId }: TableViewProps) {
           ) : (
             <ListRowsView
               typeId={typeId}
-              rows={table.virtualRows}
+              rows={virtualRows}
               props={props.visibleProps}
               visibleCount={table.visibleRows.length}
-              paddingTop={table.virtual.paddingTop}
-              paddingBottom={table.virtual.paddingBottom}
+              paddingTop={virtual.paddingTop}
+              paddingBottom={virtual.paddingBottom}
               isSuccess={table.objectsQuery.isSuccess}
               error={table.objectsQuery.isError ? table.objectsQuery.error : null}
               filter={table.filter}
@@ -235,34 +362,63 @@ export function TableView({ typeId }: TableViewProps) {
               creating={table.create.isPending}
               hasNextPage={table.hasNextPage}
               isFetchingNextPage={table.isFetchingNextPage}
-              onLoadMore={() => void table.fetchNextPage()}
+              onLoadMore={loadMore}
               onCreate={createRow}
             />
           )}
-        </div>
-
-        {settingsOpen && (
-          <TableSettingsPanel
-            spaceId={spaceId}
-            typeId={typeId}
-            props={props.userProps}
-            hiddenPropIds={props.hiddenPropIds}
-            viewLayout={viewLayout}
-            filter={table.filter}
-            sortKey={table.sortKey}
-            sortDir={table.sortDir}
-            onClose={() => setSettingsOpen(false)}
-            onViewLayoutChange={setViewLayout}
-            onFilterChange={(next) => {
-              table.setFilter(next);
-              table.setFilterOpen(next.trim() !== '');
-            }}
-            onToggleProperty={props.toggleProperty}
-            onMoveProperty={props.moveProperty}
-            onSort={table.setSort}
-          />
+          </div>
         )}
+
+        <div
+          aria-hidden={!settingsOpen}
+          className={cn(
+            'absolute inset-y-0 right-0 z-20 overflow-hidden transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
+            settingsOpen
+              ? 'pointer-events-auto w-[22rem] opacity-100'
+              : 'pointer-events-none w-0 opacity-0',
+          )}
+        >
+          <div className="h-full w-[22rem]">
+            {settingsMounted && (
+              <TableSettingsPanel
+                spaceId={spaceId}
+                typeId={typeId}
+                props={props.userProps}
+                hiddenPropIds={props.hiddenPropIds}
+                viewLayout={viewLayout}
+                filter={table.filter}
+                sortKey={table.sortKey}
+                sortDir={table.sortDir}
+                onClose={() => setSettingsOpen(false)}
+                onViewLayoutChange={setViewLayout}
+                onFilterChange={(next) => {
+                  table.setFilter(next);
+                  table.setFilterOpen(next.trim() !== '');
+                }}
+                onToggleProperty={props.toggleProperty}
+                onMoveProperty={props.moveProperty}
+                onSort={table.setSort}
+              />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
+}
+
+function useDeferredPresence(present: boolean, delayMs: number) {
+  const [rendered, setRendered] = useState(present);
+
+  useEffect(() => {
+    if (present) {
+      setRendered(true);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setRendered(false), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, present]);
+
+  return present || rendered;
 }

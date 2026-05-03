@@ -54,3 +54,90 @@
     --color-destructive: oklch(0.72 0.24 28);
   }
 }
+
+@keyframes any-settings-screen-enter-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes any-settings-screen-exit-forward {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0);
+  }
+}
+
+@keyframes any-settings-screen-enter-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-24px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes any-settings-screen-exit-back {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0);
+  }
+}
+
+.settings-screen-pane {
+  will-change: transform, opacity;
+  contain: layout paint;
+}
+
+.settings-screen-enter-forward,
+.settings-screen-exit-forward,
+.settings-screen-enter-back,
+.settings-screen-exit-back {
+  animation-duration: 180ms;
+  animation-fill-mode: both;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-screen-enter-forward {
+  animation-name: any-settings-screen-enter-forward;
+}
+
+.settings-screen-exit-forward {
+  animation-name: any-settings-screen-exit-forward;
+}
+
+.settings-screen-enter-back {
+  animation-name: any-settings-screen-enter-back;
+}
+
+.settings-screen-exit-back {
+  animation-name: any-settings-screen-exit-back;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-screen-enter-forward,
+  .settings-screen-exit-forward,
+  .settings-screen-enter-back,
+  .settings-screen-exit-back {
+    animation: none;
+  }
+
+  .settings-screen-pane {
+    will-change: auto;
+  }
+}

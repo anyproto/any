@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { ArrowRight, Plus, Search } from 'lucide-react';
-import { activeObjectIdAtom, activeTypeIdAtom } from '@/atoms';
+import { activeObjectIdAtom, activeTypeIdAtom, activeViewAtom } from '@/atoms';
 import {
   isTypeHidden,
   typeDisplayIcon,
@@ -47,8 +47,15 @@ interface Props {
  */
 export function ObjectTypeBar({ spaceId, objectId }: Props) {
   const objQuery = useObject(spaceId, objectId);
+  const activeView = useAtomValue(activeViewAtom);
   const typeMetaOverrides = useAtomValue(typeMetaOverridesAtom);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const appliedSourceKeyRef = useRef<string | null>(null);
+  const sourceTypeId =
+    activeView.kind === 'object' && activeView.objectId === objectId
+      ? activeView.typeId ?? null
+      : null;
+  const sourceKey = `${objectId}:${sourceTypeId ?? ''}`;
 
   const types = useMemo(() => {
     const arr = objQuery.data?.any?.types ?? [];
@@ -62,6 +69,29 @@ export function ObjectTypeBar({ spaceId, objectId }: Props) {
   useEffect(() => {
     if (expanded && !types.includes(expanded)) setExpanded(null);
   }, [expanded, types]);
+
+  useEffect(() => {
+    if (appliedSourceKeyRef.current === sourceKey) return;
+
+    if (!sourceTypeId) {
+      appliedSourceKeyRef.current = sourceKey;
+      setExpanded(null);
+      return;
+    }
+
+    if (types.includes(sourceTypeId)) {
+      appliedSourceKeyRef.current = sourceKey;
+      setExpanded(sourceTypeId);
+      return;
+    }
+
+    // If the object has loaded and no longer has that type, clear
+    // stale source context instead of leaving a previous chip open.
+    if (objQuery.data !== undefined) {
+      appliedSourceKeyRef.current = sourceKey;
+      setExpanded(null);
+    }
+  }, [objQuery.data, sourceKey, sourceTypeId, types]);
 
   return (
     <div className="mb-4 mt-1">

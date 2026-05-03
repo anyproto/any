@@ -133,17 +133,16 @@ describe('<SpaceContents>', () => {
     await screen.findByText('Hello');
   });
 
-  it('+ New menu → New page POSTs /objects and selects the new id', async () => {
+  it('top + New creates a root page without opening a menu', async () => {
     const calls = setupFetchMocks({
       rootObjects: [],
       createReturnsId: 'obj-fresh',
       types: [{ id: 't-pages', name: 'Pages' }],
     });
     const { store } = renderWith('spc-test');
-    const newBtn = await screen.findByRole('button', { name: /new object/i });
+    const newBtn = await screen.findByRole('button', { name: /new page/i });
     await userEvent.click(newBtn);
-    const newPage = await screen.findByRole('menuitem', { name: /new page/i });
-    await userEvent.click(newPage);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     await waitFor(() => {
       const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));
       expect(create).toBeDefined();
@@ -156,12 +155,10 @@ describe('<SpaceContents>', () => {
     });
   });
 
-  it('+ New menu → New folder opens a dialog, creates a folder, and does not select it', async () => {
+  it('hierarchy section + creates a folder and does not select it', async () => {
     const calls = setupFetchMocks({ rootObjects: [], createReturnsId: 'obj-folder' });
     const { store } = renderWith('spc-test');
-    const newBtn = await screen.findByRole('button', { name: /new object/i });
-    await userEvent.click(newBtn);
-    const newFolder = await screen.findByRole('menuitem', { name: /new folder/i });
+    const newFolder = await screen.findByRole('button', { name: /new folder/i });
     await userEvent.click(newFolder);
     const dialog = await screen.findByRole('dialog', { name: /new folder/i });
     fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: 'Projects' } });
@@ -181,28 +178,6 @@ describe('<SpaceContents>', () => {
     });
     expect(dialog).not.toBeInTheDocument();
     expect(store.get(activeObjectIdAtom)).toBeNull();
-  });
-
-  it('space section + creates a root page and selects it', async () => {
-    const calls = setupFetchMocks({
-      rootObjects: [],
-      createReturnsId: 'obj-section-page',
-      types: [{ id: 't-pages', name: 'Pages' }],
-    });
-    const { store } = renderWith('spc-test');
-    const sectionNewPage = await screen.findByRole('button', { name: /new page/i });
-    await userEvent.click(sectionNewPage);
-
-    await waitFor(() => {
-      const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));
-      expect(create).toBeDefined();
-      expect(create?.body).toBe(
-        JSON.stringify({ nav: { type: 1, parentId: '' }, types: ['t-pages'] }),
-      );
-    });
-    await waitFor(() => {
-      expect(store.get(activeObjectIdAtom)).toBe('obj-section-page');
-    });
   });
 
   it('space section folder-plus opens the same folder dialog', async () => {

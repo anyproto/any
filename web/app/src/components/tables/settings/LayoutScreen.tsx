@@ -1,4 +1,4 @@
-import { List as ListLayoutIcon, Table2 } from 'lucide-react';
+import { GalleryThumbnails, List as ListLayoutIcon, Table2 } from 'lucide-react';
 import type { TableViewLayout } from '@/atoms';
 import { LayoutOption } from './settingsPrimitives';
 
@@ -24,6 +24,13 @@ export function LayoutScreen({
         description="Readable rows with property previews."
         active={viewLayout === 'list'}
         onClick={() => onViewLayoutChange('list')}
+      />
+      <LayoutOption
+        icon={GalleryThumbnails}
+        label="Gallery"
+        description="Card grid for visual browsing, using the same data model."
+        active={viewLayout === 'gallery'}
+        onClick={() => onViewLayoutChange('gallery')}
       />
     </div>
   );

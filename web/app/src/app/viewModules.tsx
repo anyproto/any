@@ -16,6 +16,9 @@ const loadTableView = () =>
 const MarkdownEditor = lazy(loadMarkdownEditor);
 const TableView = lazy(loadTableView);
 
+let markdownEditorPreload: Promise<unknown> | null = null;
+let tableViewPreload: Promise<unknown> | null = null;
+
 interface ViewContext {
   spaceId: string;
   onEditorStateChange: (state: SaveState) => void;
@@ -67,9 +70,9 @@ export function renderRegisteredView(view: ActiveView, ctx: ViewContext): ReactN
 
 export function preloadViewModule(kind: ActiveView['kind']) {
   if (kind === 'object') {
-    void loadMarkdownEditor();
+    markdownEditorPreload ??= loadMarkdownEditor();
   } else if (kind === 'type-table') {
-    void loadTableView();
+    tableViewPreload ??= loadTableView();
   }
 }
 

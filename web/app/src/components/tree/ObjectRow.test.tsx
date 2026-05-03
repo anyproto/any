@@ -226,7 +226,8 @@ describe('<ObjectRow>', () => {
     const { store, calls } = setup(folder);
     const row = screen.getByRole('treeitem');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create object inside Folder' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New page inside Folder' }));
 
     await waitFor(() => {
       const create = calls.find((c) => c.method === 'POST' && c.url.endsWith('/objects'));

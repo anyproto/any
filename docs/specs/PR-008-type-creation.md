@@ -11,13 +11,13 @@ Three things ship together:
 2. **Create-Type wizard** — multi-step Dialog flow modelled by a
    state machine (the second hand-rolled machine in the codebase,
    per `docs/agents/README.md`).
-3. **+ New dropdown surfaces user types** — once a user creates a
-   "Recipe" type, the menu shows "New Recipe" alongside "New page" /
-   "New folder".
+3. **Contextual list creation** — once a user creates a "Recipe" type,
+   it appears in the Lists section, where its row-level `+` creates a
+   new entry directly in that list.
 
 After this PR the user can model their own object kinds — recipes,
-contacts, books, whatever — and create instances from the same +
-New menu they've been using.
+contacts, books, whatever — and create instances from the list row
+where that object kind naturally lives.
 
 ## Non-goals
 
@@ -83,16 +83,16 @@ itself, plus how many properties succeeded). The user can:
 - **Retry** — replays the missing addProperty calls.
 - **Cancel** — closes; the type and any added properties survive.
 
-### + New dropdown
+### Creation surfaces
 
-Today: `New page`, `New folder`. After this PR:
+The top `+ New` button is the fast path and always creates a root
+Page. It does not open a menu. Structural and typed creation lives
+where the result belongs:
 
-- `New page`
-- `New folder`
-- *(separator if there are user types)*
-- `New {TypeName}` for each non-builtin type (sorted by name).
-- *(separator)*
-- `Create type…` → opens the wizard.
+- hierarchy section `+` → new folder dialog.
+- Lists section `+` → create list wizard.
+- expanded folder row `+` → new page inside that folder.
+- list row `+` → new `{TypeName}` entry in that list.
 
 `useCreateObject` extended to pass explicit hierarchy `nav` plus
 `types: [typeId]` in the request body. The `nav` block is the object's

@@ -44,18 +44,15 @@ happens server-side per `internal/nav/nav.go`.
 - **Delete UX.** Right-click → `Delete…`. Opens a destructive Dialog
   with the object title + the irreversibility note. No optimistic
   delete (irreversible).
-- **Create.** The header `+ New` remains a DropdownMenu: `New page`
-  and `New folder`. The Pages section header also exposes fast
-  Obsidian-style icon buttons for new root page and new root folder.
-  Page creation is one click: POST `/objects` with explicit root item
-  home `{nav:{type:1,parentId:""}}` and select the new id so pane 3
-  opens. Folder creation opens a small name dialog; submit POSTs
-  `{nav:{type:2,parentId:""}}`, renames via `properties/.../base/any`,
-  refreshes the tree, and does **not** select/open the folder because
-  folders are containers, not block-editable pages. Folder rows reveal
-  a hover `+` action on the right edge; it POSTs
+- **Create.** The header `+ New` is a single fast-path action:
+  create a root Page. No menu, no choice. It POSTs `/objects` with
+  explicit root item home `{nav:{type:1,parentId:""}}` and selects the
+  new id so pane 3 opens. Structural creation lives in the relevant
+  section: the hierarchy section `+` opens the new-folder dialog;
+  Lists `+` creates a new list; list rows expose their own `+` for
+  new entries. Folder rows reveal a `+` only while expanded; it POSTs
   `{nav:{type:1,parentId:<folderId>}}`, expands the folder, selects
-  the new object, and opens it in pane 3.
+  the new page, and opens it in pane 3.
 - **Folder semantics.** A folder is `nav.type === 2`. Visual: folder
   icon + chevron in the row. Children fetched lazily (already PR #4).
 - **Keyboard map.**
@@ -82,17 +79,18 @@ web/app/src/components/tree/ObjectRow.tsx (rename inline, context menu,
                                           handling, edit-mode atom)
 web/app/src/components/tree/ObjectRow.test.tsx
 web/app/src/components/layout/SpaceContents.tsx
-                                          (+ becomes DropdownMenu;
-                                          new folder/page distinct)
+                                          (top + New fast path;
+                                          section creation actions)
 web/app/src/components/objects/DeleteObjectDialog.tsx + .test.tsx
 web/app/src/atoms/edit.ts                 (renamingObjectIdAtom)
 ```
 
 ## Acceptance criteria
 
-1. The `+` button shows a menu with "New page" and "New folder".
-2. New page → POSTs `{nav:{type:1,parentId:""}}`; appears in tree, selected.
-3. New folder → POSTs `{nav:{type:2,parentId:""}}`; appears with chevron + folder icon.
+1. The top `+ New` button directly creates a root page; no menu opens.
+2. Top `+ New` → POSTs `{nav:{type:1,parentId:""}}`; appears in tree, selected.
+3. Hierarchy section `+` opens the folder dialog; submit POSTs
+   `{nav:{type:2,parentId:""}}` and the folder appears with chevron + folder icon.
 4. Right-click on any row → context menu: Rename, Delete….
 5. `F2` while a row is focused enters rename mode (cursor in title input, all-selected).
 6. Enter saves; the row title updates immediately (optimistic) and persists.
@@ -102,8 +100,8 @@ web/app/src/atoms/edit.ts                 (renamingObjectIdAtom)
 10. Confirming sends `DELETE /v1/spaces/:s/objects/:o`; the row vanishes; toast confirms.
 11. Errors revert optimistic updates and surface a toast with the API code.
 12. `Backspace` / `Delete` on a focused row opens the delete dialog.
-13. Hovering/focusing a folder row reveals a right-edge `+`; clicking
-   it creates a child object inside that folder and opens it.
+13. Hovering/focusing an expanded folder row reveals a right-edge `+`;
+   clicking it creates a child page inside that folder and opens it.
 14. Existing tests stay green; CI green.
 
 ## Test plan

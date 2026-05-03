@@ -1,6 +1,6 @@
 import { useSetAtom } from 'jotai';
 import { ArrowUpRight, FileText, Plus } from 'lucide-react';
-import { activeObjectIdAtom } from '@/atoms';
+import { openObjectFromTypeAtom } from '@/atoms';
 import { ApiError } from '@/lib/api/client';
 import type { ObjectRecord } from '@/lib/api/objects';
 import type { PropertyDef } from '@/lib/api/types';
@@ -126,7 +126,7 @@ function ListDataRow({
   row: ObjectRecord;
   props: PropertyDef[];
 }) {
-  const setActiveObjectId = useSetAtom(activeObjectIdAtom);
+  const openObjectFromType = useSetAtom(openObjectFromTypeAtom);
   const name = row.any?.name?.trim() || 'Untitled';
   const previews = props
     .map((prop) => ({
@@ -145,7 +145,7 @@ function ListDataRow({
       aria-label={`Open ${name}`}
       onFocus={() => preloadViewModule('object')}
       onPointerEnter={() => preloadViewModule('object')}
-      onClick={() => setActiveObjectId(row.id)}
+      onClick={() => openObjectFromType({ objectId: row.id, typeId })}
       className={cn(
         'group/list-row flex h-[74px] w-full items-center gap-3 border-b border-foreground/[0.045] px-4 text-left',
         'bg-background transition-colors hover:bg-foreground/[0.025]',

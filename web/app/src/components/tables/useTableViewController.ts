@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
-import { activeObjectIdAtom, activeSpaceIdAtom, useTypeMeta } from '@/atoms';
+import { activeSpaceIdAtom, openObjectFromTypeAtom, useTypeMeta } from '@/atoms';
 import {
   useCreateObject,
   useObjectsByTypeInfinite,
@@ -8,10 +8,9 @@ import {
 import { useType } from '@/lib/api/types';
 import { ApiError } from '@/lib/api/client';
 import { toast } from '@/components/ui';
-import { useVirtualRows } from '@/shared';
 import { TABLE_PAGE_SIZE, type SortDir } from './tableSorting';
 
-export function useTableViewController(typeId: string, rowHeight: number) {
+export function useTableViewController(typeId: string) {
   const spaceId = useAtomValue(activeSpaceIdAtom);
   const typeQuery = useType(spaceId, typeId);
   const [filter, setFilter] = useState('');
@@ -42,28 +41,7 @@ export function useTableViewController(typeId: string, rowHeight: number) {
     return rows.filter((r) => (r.any?.name ?? '').toLowerCase().includes(q));
   }, [debouncedFilter, rows]);
 
-  const virtual = useVirtualRows({
-    count: visibleRows.length,
-    rowHeight,
-    overscan: 10,
-  });
-  const virtualRows = visibleRows.slice(virtual.startIndex, virtual.endIndex);
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = objectsQuery;
-
-  useEffect(() => {
-    if (debouncedFilter !== '') return;
-    if (!hasNextPage || isFetchingNextPage) return;
-    if (virtual.endIndex >= Math.max(0, visibleRows.length - 20)) {
-      void fetchNextPage();
-    }
-  }, [
-    debouncedFilter,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    virtual.endIndex,
-    visibleRows.length,
-  ]);
 
   const rawTypeName =
     typeQuery.data?.name?.trim() || `Untitled (${typeId.slice(0, 6)}...)`;
@@ -74,7 +52,7 @@ export function useTableViewController(typeId: string, rowHeight: number) {
   } = useTypeMeta(spaceId, typeId);
   const typeName = overrideTypeName?.trim() || rawTypeName;
   const create = useCreateObject(spaceId);
-  const setActiveObjectId = useSetAtom(activeObjectIdAtom);
+  const openObjectFromType = useSetAtom(openObjectFromTypeAtom);
 
   const setSort = useCallback((key: string, dir: SortDir) => {
     setSortKey(key);
@@ -85,14 +63,14 @@ export function useTableViewController(typeId: string, rowHeight: number) {
     if (!spaceId) return;
     try {
       const { objectId } = await create.mutateAsync({ typeIds: [typeId] });
-      setActiveObjectId(objectId);
+      openObjectFromType({ objectId, typeId });
       toast.success(`Created ${typeName}`);
     } catch (err) {
       const code = err instanceof ApiError ? err.code : 'unknown';
       const msg = err instanceof Error ? err.message : 'Failed to add row';
       toast.error(`${code}: ${msg}`);
     }
-  }, [create, setActiveObjectId, spaceId, typeId, typeName]);
+  }, [create, openObjectFromType, spaceId, typeId, typeName]);
 
   return {
     spaceId,
@@ -108,8 +86,6 @@ export function useTableViewController(typeId: string, rowHeight: number) {
     objectsQuery,
     rows,
     visibleRows,
-    virtual,
-    virtualRows,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,

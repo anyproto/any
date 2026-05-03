@@ -10,6 +10,7 @@ import {
   focusedPaneAtom,
   goBackAtom,
   goForwardAtom,
+  openObjectFromTypeAtom,
   pendingBulkDeleteAtom,
   renamingObjectIdAtom,
   selectedTreeIdsAtom,
@@ -30,6 +31,22 @@ describe('activeViewAtom', () => {
     expect(store.get(activeViewAtom)).toEqual({
       kind: 'object',
       objectId: 'obj-1',
+    });
+    expect(store.get(activeObjectIdAtom)).toBe('obj-1');
+    expect(store.get(activeTypeIdAtom)).toBeNull();
+  });
+
+  it('can open an object with a source type context', () => {
+    const store = createStore();
+    store.set(openObjectFromTypeAtom, {
+      objectId: 'obj-1',
+      typeId: 't_movie',
+    });
+
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-1',
+      typeId: 't_movie',
     });
     expect(store.get(activeObjectIdAtom)).toBe('obj-1');
     expect(store.get(activeTypeIdAtom)).toBeNull();

@@ -9,7 +9,7 @@ import { appStorage } from '@/shared';
  */
 export type ActiveView =
   | { kind: 'empty' }
-  | { kind: 'object'; objectId: string }
+  | { kind: 'object'; objectId: string; typeId?: string | null }
   | { kind: 'type-table'; typeId: string };
 
 export type PaneId = 1 | 2 | 3;
@@ -154,7 +154,13 @@ function isActiveView(value: unknown): value is ActiveView {
   const maybe = value as Partial<ActiveView>;
   if (maybe.kind === 'empty') return true;
   if (maybe.kind === 'object') {
-    return typeof (maybe as { objectId?: unknown }).objectId === 'string';
+    const objectView = maybe as { objectId?: unknown; typeId?: unknown };
+    return (
+      typeof objectView.objectId === 'string' &&
+      (objectView.typeId === undefined ||
+        objectView.typeId === null ||
+        typeof objectView.typeId === 'string')
+    );
   }
   if (maybe.kind === 'type-table') {
     return typeof (maybe as { typeId?: unknown }).typeId === 'string';
@@ -168,7 +174,10 @@ function normalizeStoredView(value: unknown): ActiveView {
 
 function sameView(a: ActiveView, b: ActiveView): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'object') return a.objectId === (b as typeof a).objectId;
+  if (a.kind === 'object') {
+    const other = b as typeof a;
+    return a.objectId === other.objectId && (a.typeId ?? null) === (other.typeId ?? null);
+  }
   if (a.kind === 'type-table') return a.typeId === (b as typeof a).typeId;
   return true;
 }
@@ -326,6 +335,24 @@ export const activeObjectIdAtom = atom(
   (_get, set, value: string | null) => {
     if (value == null) set(activeViewAtom, { kind: 'empty' });
     else set(activeViewAtom, { kind: 'object', objectId: value });
+  },
+);
+
+/**
+ * Open an object while preserving the type/list surface it came from.
+ * The legacy activeObjectIdAtom intentionally does not set this so
+ * hierarchy, relation, and generic object navigation remain plain.
+ */
+export const openObjectFromTypeAtom = atom(
+  null,
+  (_get, set, args: { objectId: string; typeId: string | null }) => {
+    const typeId = args.typeId?.trim();
+    set(
+      activeViewAtom,
+      typeId
+        ? { kind: 'object', objectId: args.objectId, typeId }
+        : { kind: 'object', objectId: args.objectId },
+    );
   },
 );
 

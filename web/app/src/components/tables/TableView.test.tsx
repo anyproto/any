@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Provider, createStore } from 'jotai';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TableView } from './TableView';
-import { activeObjectIdAtom, activeSpaceIdAtom } from '@/atoms';
+import { activeObjectIdAtom, activeSpaceIdAtom, activeViewAtom } from '@/atoms';
 import { keyOf } from '@/shared';
 
 interface FetchCall {
@@ -104,6 +104,7 @@ describe('<TableView>', () => {
     expect(screen.getByRole('button', { name: 'New row' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /table layout/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /list layout/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /gallery layout/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /filter/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sort/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /view settings/i })).toBeInTheDocument();
@@ -124,8 +125,37 @@ describe('<TableView>', () => {
     expect(screen.getByRole('button', { name: 'Open Primer' })).toBeInTheDocument();
     await userEvent.click(screen.getByText('Queued'));
     expect(store.get(activeObjectIdAtom)).toBe('obj-2');
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-2',
+      typeId: 't_movie',
+    });
     expect(JSON.parse(localStorage.getItem('any.tables.viewLayouts.v1') ?? '{}')).toMatchObject({
       t_movie: 'list',
+    });
+  });
+
+  it('switches to a gallery layout that reuses rows and opens cards', async () => {
+    setupFetch();
+    const { store } = renderTable();
+
+    expect(await screen.findByRole('button', { name: 'Rating' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /gallery layout/i }));
+
+    expect(screen.queryByRole('button', { name: 'Rating' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: /movies gallery/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Alien' })).toBeInTheDocument();
+    expect(screen.getByText('Watched')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open Primer' }));
+    expect(store.get(activeObjectIdAtom)).toBe('obj-2');
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-2',
+      typeId: 't_movie',
+    });
+    expect(JSON.parse(localStorage.getItem('any.tables.viewLayouts.v1') ?? '{}')).toMatchObject({
+      t_movie: 'gallery',
     });
   });
 
@@ -276,6 +306,74 @@ describe('<TableView>', () => {
     });
   });
 
+  it('auto-fits property columns from the header context menu', async () => {
+    setupFetch();
+    const { container } = renderTable();
+
+    expect(await screen.findByRole('button', { name: 'Status' })).toBeInTheDocument();
+    const statusCol = () =>
+      container.querySelector<HTMLElement>('col[data-column-id="p_status"]');
+    expect(statusCol()).toHaveStyle({ width: '220px' });
+
+    const statusHeader = screen.getByRole('button', { name: 'Status' }).closest('th');
+    expect(statusHeader).not.toBeNull();
+    fireEvent.contextMenu(statusHeader!);
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: /auto-fit column width/i }),
+    );
+
+    await waitFor(() => {
+      const nextWidth = Number.parseInt(statusCol()?.style.width ?? '', 10);
+      expect(nextWidth).toBeGreaterThanOrEqual(96);
+      expect(nextWidth).toBeLessThan(220);
+    });
+    const stored = JSON.parse(localStorage.getItem('any.tables.columnWidths.v1') ?? '{}');
+    expect(stored[keyOf('t_movie', 'p_status')]).toBe(
+      Number.parseInt(statusCol()?.style.width ?? '', 10),
+    );
+  });
+
+  it('auto-fits all visible columns from the header context menu', async () => {
+    setupFetch();
+    const { container } = renderTable();
+
+    expect(await screen.findByRole('button', { name: 'Rating' })).toBeInTheDocument();
+    const columnWidth = (columnId: string) =>
+      Number.parseInt(
+        container.querySelector<HTMLElement>(
+          `col[data-column-id="${columnId}"]`,
+        )?.style.width ?? '',
+        10,
+      );
+
+    expect(columnWidth('name')).toBe(360);
+    expect(columnWidth('p_rating')).toBe(220);
+    expect(columnWidth('p_status')).toBe(220);
+    expect(container.querySelector<HTMLElement>('col[data-column-id="add-column"]')).toHaveStyle({
+      width: '56px',
+    });
+    expect(container.querySelector('col[data-column-id="table-filler"]')).not.toBeNull();
+
+    const nameHeader = screen.getByRole('button', { name: 'Name' }).closest('th');
+    expect(nameHeader).not.toBeNull();
+    fireEvent.contextMenu(nameHeader!);
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: /auto-fit all columns/i }),
+    );
+
+    await waitFor(() => {
+      expect(columnWidth('name')).toBeLessThan(360);
+      expect(columnWidth('p_rating')).toBeLessThan(220);
+      expect(columnWidth('p_status')).toBeLessThan(220);
+    });
+
+    expect(JSON.parse(localStorage.getItem('any.tables.columnWidths.v1') ?? '{}')).toMatchObject({
+      [keyOf('t_movie', 'name')]: columnWidth('name'),
+      [keyOf('t_movie', 'p_rating')]: columnWidth('p_rating'),
+      [keyOf('t_movie', 'p_status')]: columnWidth('p_status'),
+    });
+  });
+
   it('creates a property from the nested properties screen', async () => {
     const calls = setupFetch();
     renderTable();
@@ -310,6 +408,11 @@ describe('<TableView>', () => {
       );
     });
     expect(store.get(activeObjectIdAtom)).toBe('obj-new');
+    expect(store.get(activeViewAtom)).toEqual({
+      kind: 'object',
+      objectId: 'obj-new',
+      typeId: 't_movie',
+    });
   });
 });
 

@@ -8,7 +8,7 @@ export const TABLE_COLUMN_MIN_WIDTH = 96;
 export const TABLE_COLUMN_MAX_WIDTH = 720;
 
 export type TableColumnWidths = Record<string, number>;
-export type TableViewLayout = 'table' | 'list';
+export type TableViewLayout = 'table' | 'list' | 'gallery';
 export type TableViewLayouts = Record<string, TableViewLayout>;
 
 export const tableColumnWidthsAtom = atomWithStorage<TableColumnWidths>(
@@ -39,5 +39,5 @@ export function normalizeTableColumnWidth(value: number, fallback: number) {
 }
 
 export function normalizeTableViewLayout(value: unknown): TableViewLayout {
-  return value === 'list' ? 'list' : 'table';
+  return value === 'list' || value === 'gallery' ? value : 'table';
 }

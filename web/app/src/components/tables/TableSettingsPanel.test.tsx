@@ -51,6 +51,8 @@ describe('<TableSettingsPanel>', () => {
     await userEvent.click(screen.getByRole('button', { name: /layout/i }));
     await userEvent.click(await screen.findByRole('button', { name: /^list/i }));
     expect(handlers.onViewLayoutChange).toHaveBeenCalledWith('list');
+    await userEvent.click(await screen.findByRole('button', { name: /^gallery/i }));
+    expect(handlers.onViewLayoutChange).toHaveBeenCalledWith('gallery');
 
     await userEvent.click(screen.getByRole('button', { name: /back to view settings/i }));
     await userEvent.click(screen.getByRole('button', { name: /^filter/i }));

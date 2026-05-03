@@ -1,4 +1,10 @@
-import { useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { TableViewLayout } from '@/atoms';
 import type { PropertyDef } from '@/lib/api/types';
 import { Input } from '@/components/ui';
@@ -22,11 +28,30 @@ type SettingsScreen =
   | 'property-visibility'
   | 'filter'
   | 'sort'
-  | 'default-template'
-  | 'connected-templates'
   | 'properties'
   | 'add-property'
   | 'edit-property';
+
+type ScreenDirection = 'forward' | 'back';
+
+const SCREEN_TRANSITION_MS = 180;
+
+const SCREEN_TITLES: Record<SettingsScreen, string> = {
+  main: 'View settings',
+  layout: 'Layout',
+  'property-visibility': 'Property visibility',
+  filter: 'Filter',
+  sort: 'Sort',
+  properties: 'Properties',
+  'add-property': 'Add property',
+  'edit-property': 'Edit property',
+};
+
+const LAYOUT_LABELS: Record<TableViewLayout, string> = {
+  table: 'Table',
+  list: 'List',
+  gallery: 'Gallery',
+};
 
 export function TableSettingsPanel({
   spaceId,
@@ -61,34 +86,49 @@ export function TableSettingsPanel({
 }) {
   const [screen, setScreen] = useState<SettingsScreen>('main');
   const [selectedPropId, setSelectedPropId] = useState<string | null>(null);
+  const [transition, setTransition] = useState<{
+    from: SettingsScreen;
+    direction: ScreenDirection;
+  } | null>(null);
+  const screenRef = useRef<SettingsScreen>('main');
+  const transitionTimerRef = useRef<number | null>(null);
   const hiddenCount = hiddenPropIds.size;
   const selectedProp = props.find((p) => p.id === selectedPropId) ?? null;
-  const screenTitle: Record<SettingsScreen, string> = {
-    main: 'View settings',
-    layout: 'Layout',
-    'property-visibility': 'Property visibility',
-    filter: 'Filter',
-    sort: 'Sort',
-    'default-template': 'Default template',
-    'connected-templates': 'Connected templates',
-    properties: 'Properties',
-    'add-property': 'Add property',
-    'edit-property': 'Edit property',
-  };
 
-  return (
-    <aside
-      aria-label="View settings"
-      className="w-[22rem] shrink-0 overflow-auto border-l border-foreground/[0.08] bg-background px-5 py-4"
-    >
-      <PanelHeader
-        title={screenTitle[screen]}
-        subtitle={screen === 'main' ? 'Local table controls' : undefined}
-        onBack={screen === 'main' ? undefined : () => setScreen('main')}
-        onClose={onClose}
-      />
+  const navigate = useCallback((next: SettingsScreen, direction: ScreenDirection) => {
+    const from = screenRef.current;
+    if (from === next) return;
 
-      {screen === 'main' && (
+    if (transitionTimerRef.current != null) {
+      window.clearTimeout(transitionTimerRef.current);
+    }
+
+    screenRef.current = next;
+    setTransition({ from, direction });
+    setScreen(next);
+    transitionTimerRef.current = window.setTimeout(() => {
+      setTransition(null);
+      transitionTimerRef.current = null;
+    }, SCREEN_TRANSITION_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current != null) {
+        window.clearTimeout(transitionTimerRef.current);
+      }
+    };
+  }, []);
+
+  const openScreen = useCallback(
+    (next: SettingsScreen) => navigate(next, 'forward'),
+    [navigate],
+  );
+  const goBack = useCallback(() => navigate('main', 'back'), [navigate]);
+
+  const renderScreenBody = (targetScreen: SettingsScreen): ReactNode => {
+    if (targetScreen === 'main') {
+      return (
         <>
           <Input
             aria-label="View name"
@@ -100,23 +140,23 @@ export function TableSettingsPanel({
           <div className="space-y-1">
             <SettingRowButton
               label="Layout"
-              value={viewLayout === 'table' ? 'Table' : 'List'}
-              onClick={() => setScreen('layout')}
+              value={LAYOUT_LABELS[viewLayout]}
+              onClick={() => openScreen('layout')}
             />
             <SettingRowButton
               label="Property visibility"
               value={hiddenCount === 0 ? `${props.length}` : `${hiddenCount} hidden`}
-              onClick={() => setScreen('property-visibility')}
+              onClick={() => openScreen('property-visibility')}
             />
             <SettingRowButton
               label="Filter"
               value={filter.trim() === '' ? 'None' : filter.trim()}
-              onClick={() => setScreen('filter')}
+              onClick={() => openScreen('filter')}
             />
             <SettingRowButton
               label="Sort"
               value={sortSummary(props, typeId, sortKey, sortDir)}
-              onClick={() => setScreen('sort')}
+              onClick={() => openScreen('sort')}
             />
           </div>
 
@@ -127,38 +167,32 @@ export function TableSettingsPanel({
           </p>
           <div className="space-y-1">
             <SettingRowButton
-              label="Default template"
-              value="Page"
-              onClick={() => setScreen('default-template')}
-            />
-            <SettingRowButton
-              label="Connected templates"
-              value="0"
-              onClick={() => setScreen('connected-templates')}
-            />
-            <SettingRowButton
               label="Properties"
               value={`${props.length}`}
-              onClick={() => setScreen('properties')}
+              onClick={() => openScreen('properties')}
             />
           </div>
         </>
-      )}
+      );
+    }
 
-      {screen === 'property-visibility' && (
+    if (targetScreen === 'property-visibility') {
+      return (
         <PropertyVisibilityScreen
           props={props}
           hiddenPropIds={hiddenPropIds}
           onToggleProperty={onToggleProperty}
           onMoveProperty={onMoveProperty}
         />
-      )}
+      );
+    }
 
-      {screen === 'filter' && (
-        <FilterScreen filter={filter} onFilterChange={onFilterChange} />
-      )}
+    if (targetScreen === 'filter') {
+      return <FilterScreen filter={filter} onFilterChange={onFilterChange} />;
+    }
 
-      {screen === 'sort' && (
+    if (targetScreen === 'sort') {
+      return (
         <SortScreen
           props={props}
           typeId={typeId}
@@ -166,57 +200,112 @@ export function TableSettingsPanel({
           sortDir={sortDir}
           onSort={onSort}
         />
-      )}
+      );
+    }
 
-      {screen === 'layout' && (
+    if (targetScreen === 'layout') {
+      return (
         <LayoutScreen
           viewLayout={viewLayout}
           onViewLayoutChange={onViewLayoutChange}
         />
-      )}
+      );
+    }
 
-      {screen === 'properties' && (
+    if (targetScreen === 'properties') {
+      return (
         <PropertiesScreen
           props={props}
-          onAddProperty={() => setScreen('add-property')}
+          onAddProperty={() => openScreen('add-property')}
           onSelectProperty={(propId) => {
             setSelectedPropId(propId);
-            setScreen('edit-property');
+            openScreen('edit-property');
           }}
         />
-      )}
+      );
+    }
 
-      {screen === 'add-property' && (
+    if (targetScreen === 'add-property') {
+      return (
         <AddPropertyScreen
           spaceId={spaceId}
           typeId={typeId}
-          onCreated={() => setScreen('properties')}
+          onCreated={() => navigate('properties', 'back')}
         />
-      )}
+      );
+    }
 
-      {screen === 'edit-property' &&
-        (selectedProp ? (
-          <EditPropertyScreen prop={selectedProp} />
-        ) : (
-          <PlaceholderScreen
-            title="Property not found"
-            body="The property list changed. Go back and select it again."
-          />
-        ))}
-
-      {screen === 'default-template' && (
+    if (targetScreen === 'edit-property') {
+      return selectedProp ? (
+        <EditPropertyScreen prop={selectedProp} />
+      ) : (
         <PlaceholderScreen
-          title="Page"
-          body="Template selection needs a template API. This row is here so the settings structure is ready."
+          title="Property not found"
+          body="The property list changed. Go back and select it again."
         />
-      )}
+      );
+    }
 
-      {screen === 'connected-templates' && (
-        <PlaceholderScreen
-          title="No connected templates"
-          body="Connected templates are not part of the current HTTP surface yet."
-        />
-      )}
+    return null;
+  };
+
+  const renderScreen = (targetScreen: SettingsScreen) => (
+    <>
+      <PanelHeader
+        title={SCREEN_TITLES[targetScreen]}
+        subtitle={targetScreen === 'main' ? 'Local table controls' : undefined}
+        onBack={targetScreen === 'main' ? undefined : goBack}
+        onClose={onClose}
+      />
+      {renderScreenBody(targetScreen)}
+    </>
+  );
+
+  return (
+    <aside
+      aria-label="View settings"
+      className="h-full w-[22rem] shrink-0 overflow-hidden border-l border-foreground/[0.08] bg-background"
+    >
+      <div className="relative h-full overflow-hidden">
+        {transition && (
+          <div
+            key={`${transition.from}-previous`}
+            aria-hidden
+            className={screenPaneClass('previous', transition.direction)}
+          >
+            {renderScreen(transition.from)}
+          </div>
+        )}
+        <div
+          key={`${screen}-current`}
+          className={
+            transition
+              ? screenPaneClass('current', transition.direction)
+              : screenPaneBaseClass
+          }
+        >
+          {renderScreen(screen)}
+        </div>
+      </div>
     </aside>
   );
+}
+
+const screenPaneBaseClass =
+  'settings-screen-pane absolute inset-0 overflow-y-auto px-5 py-4';
+
+function screenPaneClass(role: 'current' | 'previous', direction: ScreenDirection) {
+  if (role === 'current') {
+    return `${screenPaneBaseClass} z-10 ${
+      direction === 'forward'
+        ? 'settings-screen-enter-forward'
+        : 'settings-screen-enter-back'
+    }`;
+  }
+
+  return `${screenPaneBaseClass} pointer-events-none z-0 ${
+    direction === 'forward'
+      ? 'settings-screen-exit-forward'
+      : 'settings-screen-exit-back'
+  }`;
 }
