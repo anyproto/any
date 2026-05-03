@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('web/app/pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache: true
+
+      # Frontend gates
+      - name: Install web deps
+        working-directory: web/app
+        run: pnpm install --frozen-lockfile
+
+      - name: Web lint
+        working-directory: web/app
+        run: pnpm lint
+
+      - name: Web typecheck
+        working-directory: web/app
+        run: pnpm typecheck
+
+      - name: Web unit tests
+        working-directory: web/app
+        run: pnpm test:run
+
+      - name: Web build (SPA)
+        working-directory: web/app
+        run: pnpm build
+
+      - name: Storybook build
+        working-directory: web/app
+        run: pnpm build-storybook --quiet
+        continue-on-error: false
+
+      # Backend gates — depends on the SPA build for embed
+      - name: Sync SPA into embed dir
+        run: |
+          mkdir -p internal/server/webapp/dist
+          rm -rf internal/server/webapp/dist/*
+          cp -r web/app/dist/. internal/server/webapp/dist/
+          touch internal/server/webapp/dist/.gitkeep
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Go build
+        run: go build ./cmd/any
+
+      - name: Go test
+        run: go test ./...
+
+      # E2E — runs the binary against a temp data dir
+      - name: Install Playwright browsers
+        working-directory: web/app
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Boot any server for E2E
+        run: |
+          mkdir -p /tmp/any-e2e
+          # Use bundled stage1 nodeconf if present, else skip E2E gracefully.
+          if [ -f docs/dev/stage1.yaml ]; then
+            cat > /tmp/any-e2e/config.yaml <<EOF
+          network:
+            nodeconfPath: $(pwd)/docs/dev/stage1.yaml
+          EOF
+          fi
+          ANY_DATA_DIR=/tmp/any-e2e nohup ./any run > /tmp/any-e2e/server.log 2>&1 &
+          # Wait for /v1/health to respond
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7001/v1/health >/dev/null; then
+              echo "server ready"; break
+            fi
+            sleep 1
+          done
+
+      - name: E2E (Playwright)
+        working-directory: web/app
+        run: pnpm test:e2e
+
+      - name: Stop any server
+        if: always()
+        run: curl -s -X POST http://127.0.0.1:7001/v1/shutdown || true
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/app/playwright-report
+          retention-days: 7

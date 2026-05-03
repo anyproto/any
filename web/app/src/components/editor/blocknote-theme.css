@@ -1,0 +1,765 @@
+/*
+ * BlockNote theme overrides — match the open-source anytype-ts
+ * editor surface 1:1 (see docs/specs/PR-019-editor-design-1to1.md
+ * for the per-token mapping). Imported by MarkdownEditor.tsx.
+ *
+ * Two layers:
+ *   1) Map BlockNote's CSS variables onto our tokens.css so colors
+ *      track the app's light/dark theme.
+ *   2) Element selectors inside .bn-editor for typography + spacing,
+ *      ported from anytype-ts/src/scss/_vars.scss + block/text.scss.
+ */
+
+@import '@blocknote/core/style.css';
+@import '@blocknote/mantine/style.css';
+
+.bn-container,
+.bn-root.anytype-block-editor {
+  /* Surfaces */
+  --bn-colors-editor-text: var(--color-foreground);
+  --bn-colors-editor-background: transparent;
+
+  /* Menus, popovers, formatting toolbar, link toolbar */
+  --bn-colors-menu-text: var(--color-foreground);
+  --bn-colors-menu-background: var(--color-background);
+
+  --bn-colors-tooltip-text: var(--color-background);
+  --bn-colors-tooltip-background: var(--color-foreground);
+
+  --bn-colors-hovered-text: var(--color-foreground);
+  --bn-colors-hovered-background: color-mix(
+    in oklab,
+    var(--color-foreground) 6%,
+    transparent
+  );
+
+  --bn-colors-selected-text: var(--color-foreground);
+  --bn-colors-selected-background: color-mix(
+    in oklab,
+    var(--color-foreground) 10%,
+    transparent
+  );
+
+  --bn-colors-disabled-text: color-mix(
+    in oklab,
+    var(--color-foreground) 30%,
+    transparent
+  );
+  --bn-colors-disabled-background: transparent;
+
+  --bn-colors-shadow: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+
+  --bn-colors-border: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+  --bn-colors-side-menu: color-mix(
+    in oklab,
+    var(--color-foreground) 40%,
+    transparent
+  );
+
+  --bn-color-highlight-default: var(--color-foreground);
+  --bn-color-background-default: transparent;
+
+  --bn-border-radius-large: var(--radius-lg);
+  --bn-border-radius-medium: var(--radius-md);
+  --bn-border-radius-small: var(--radius-sm);
+
+  /* ------------------------------------------------------------ */
+  /* Anytype-derived design tokens. Keep in sync with the spec at
+   * docs/specs/PR-019-editor-design-1to1.md.
+   *
+   * Font stack: Anytype ships Inter; we use the system stack so
+   * the binary stays offline-first. SF Pro on macOS reads as a
+   * close cousin of Inter at these sizes.
+   * ------------------------------------------------------------ */
+  --bn-font-family: 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --any-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+    Consolas, 'Liberation Mono', monospace;
+
+  /* Block-level color recipes — Anytype's --color-shape-* tokens. */
+  --any-shape-highlight-light: color-mix(
+    in oklab,
+    var(--color-foreground) 4%,
+    transparent
+  );
+  --any-shape-secondary: color-mix(
+    in oklab,
+    var(--color-foreground) 8%,
+    transparent
+  );
+  --any-shape-primary: color-mix(
+    in oklab,
+    var(--color-foreground) 12%,
+    transparent
+  );
+
+  /* Anytype-like block chrome. These are intentionally local to the
+     editor adapter so Mantine never becomes the app design system. */
+  --any-editor-hover: color-mix(
+    in oklab,
+    var(--color-foreground) 6%,
+    transparent
+  );
+  --any-editor-active: color-mix(
+    in oklab,
+    var(--color-foreground) 10%,
+    transparent
+  );
+  --any-editor-muted: color-mix(
+    in oklab,
+    var(--color-foreground) 46%,
+    transparent
+  );
+  --any-editor-subtle: color-mix(
+    in oklab,
+    var(--color-foreground) 28%,
+    transparent
+  );
+  --any-editor-panel: color-mix(
+    in oklab,
+    var(--color-background) 96%,
+    var(--color-foreground) 4%
+  );
+  --any-editor-panel-border: color-mix(
+    in oklab,
+    var(--color-foreground) 11%,
+    transparent
+  );
+  --any-editor-panel-shadow: 0 16px 40px
+      color-mix(in oklab, var(--color-foreground) 10%, transparent),
+    0 2px 8px color-mix(in oklab, var(--color-foreground) 7%, transparent);
+}
+
+/* ============================================================== */
+/* Editor surface                                                 */
+/* ============================================================== */
+
+.bn-editor {
+  font-family: var(--bn-font-family);
+  /* Anytype reset — no surface-level vertical padding; the title
+     above the editor handles that gap. */
+  padding: 0;
+}
+
+/* ============================================================== */
+/* Per-block typography (ported from anytype-ts SCSS)             */
+/* ============================================================== */
+
+/* Paragraph — _vars.scss:33 (--font-size-text-medium)
+   16/24, letter-spacing -0.2px, 2 px bottom margin between blocks
+   (block/common.scss:4) */
+.bn-editor p {
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+  margin-bottom: 2px;
+}
+
+/* Headings — block/text.scss:103/110/117 give 22px / 12px / 12px
+   top margins; sizes from _vars.scss:40-47.
+   font-weight 700 across all three. */
+.bn-editor h1 {
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 22px;
+  margin-bottom: 2px;
+}
+.bn-editor h2 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 12px;
+  margin-bottom: 2px;
+}
+.bn-editor h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin-top: 12px;
+  margin-bottom: 2px;
+}
+
+/* The first block under the title hugs (no extra top margin).
+   BlockNote wraps each block in .bn-block-outer; first-of-type
+   defeats the heading top margin we added above. */
+.bn-editor > .bn-block-group > .bn-block-outer:first-of-type
+  .bn-block-content > * {
+  margin-top: 0;
+}
+
+/* Lists — block/text.scss:17-22 → 24px indent per nesting level,
+   inherit paragraph typography. */
+.bn-editor ul,
+.bn-editor ol {
+  padding-left: 24px;
+  margin-bottom: 2px;
+}
+.bn-editor li {
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+}
+.bn-editor ul li::marker {
+  /* Match the 6 px filled bullet anytype uses (block/text.scss:22) */
+  color: var(--color-foreground);
+  font-size: 14px;
+}
+
+/* Quote — block/text.scss:128-142
+   Thin (1.5 px) left border 11 px from text, 28 px padding-left,
+   6 + 6 vertical margin. */
+.bn-editor blockquote {
+  margin: 6px 0;
+  padding-left: 28px;
+  border-left: 1.5px solid var(--color-foreground);
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.2px;
+}
+
+/* Inline code — block/markup.scss:6
+   Plex 14 px on Anytype; we use system mono. */
+.bn-editor code {
+  font-family: var(--any-font-mono);
+  font-size: 14px;
+  padding: 1px 4px;
+  background: var(--any-shape-secondary);
+  border-radius: 4px;
+}
+
+/* Code block — block/text.scss:156-164
+   16 px padding, 8 px radius, light shape background. */
+.bn-editor pre {
+  font-family: var(--any-font-mono);
+  font-size: 14px;
+  line-height: 22px;
+  padding: 16px;
+  background: var(--any-shape-highlight-light);
+  border-radius: 8px;
+  margin: 6px 0;
+}
+.bn-editor pre code {
+  /* Cancel the inline-code chip styling when nested in a code block. */
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Divider — block/div.scss:17 — 1 px shape-primary line. */
+.bn-editor hr {
+  border: 0;
+  border-top: 1px solid var(--any-shape-primary);
+  margin: 12px 0;
+}
+
+/* The empty-block placeholder is suppressed at the editor config
+   level (placeholders: { default: '', emptyDocument: '' } in
+   MarkdownEditor.tsx) — BlockNote injects its placeholder rules at
+   runtime so a static CSS override here can't catch them. */
+
+/* ============================================================== */
+/* Misc app integration                                           */
+/* ============================================================== */
+
+/* Don't paint our app-wide accent focus ring around the editor
+   surface — the text cursor inside the contenteditable is enough,
+   matching Anytype. BlockNote's own popovers / menus keep their
+   default focus styles. */
+.bn-editor:focus,
+.bn-editor:focus-visible,
+.bn-editor [contenteditable]:focus,
+.bn-editor [contenteditable]:focus-visible {
+  outline: none;
+}
+
+/* ============================================================== */
+/* Anytype-inspired block chrome                                  */
+/* ============================================================== */
+
+.anytype-block-editor.bn-container,
+.bn-root.anytype-block-editor {
+  overflow: visible;
+}
+
+.anytype-block-editor.bn-container {
+  position: relative;
+}
+
+.bn-root.anytype-block-editor {
+  --bn-colors-menu-background: var(--any-editor-panel);
+  --bn-colors-hovered-background: var(--any-editor-hover);
+  --bn-colors-selected-background: var(--any-editor-active);
+  --bn-colors-border: var(--any-editor-panel-border);
+  --bn-colors-shadow: color-mix(
+    in oklab,
+    var(--color-foreground) 12%,
+    transparent
+  );
+}
+
+.anytype-block-editor .bn-block-content {
+  border-radius: 6px;
+  padding: 2px 0;
+}
+
+.anytype-block-editor .bn-block-content.ProseMirror-selectednode > *,
+.anytype-block-editor .ProseMirror-selectednode > .bn-block-content > * {
+  border-radius: 6px;
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 42%, transparent);
+}
+
+.anytype-block-editor
+  .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+  color: var(--any-editor-subtle);
+}
+
+.anytype-block-editor .bn-block-group .bn-block-group {
+  margin-left: 24px;
+}
+
+.anytype-block-editor
+  .bn-block-group
+  .bn-block:not(:has(.bn-toggle-wrapper))
+  .bn-block-group
+  .bn-block-outer:not([data-prev-depth-changed])::before {
+  border-left-color: color-mix(
+    in oklab,
+    var(--color-foreground) 14%,
+    transparent
+  );
+}
+
+/* Side menu: quiet buttons just outside the writing column. */
+.bn-root.anytype-block-editor .bn-side-menu {
+  gap: 1px;
+  padding: 0;
+  transform: translateX(-7px);
+}
+
+.bn-root.anytype-block-editor
+  .bn-side-menu
+  .mantine-UnstyledButton-root:not(.mantine-Menu-item) {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  color: var(--any-editor-muted);
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  min-height: 24px;
+  min-width: 24px;
+  opacity: 0.78;
+  padding: 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
+  width: 24px;
+}
+
+.bn-root.anytype-block-editor
+  .bn-side-menu
+  .mantine-UnstyledButton-root:not(.mantine-Menu-item):hover,
+.bn-root.anytype-block-editor
+  .bn-side-menu
+  .mantine-UnstyledButton-root:not(.mantine-Menu-item):focus-visible {
+  background: var(--any-editor-hover);
+  color: var(--color-foreground);
+  opacity: 1;
+}
+
+.bn-root.anytype-block-editor
+  .bn-side-menu
+  .mantine-UnstyledButton-root:not(.mantine-Menu-item):active {
+  transform: scale(0.96);
+}
+
+.bn-root.anytype-block-editor
+  .bn-side-menu
+  .mantine-UnstyledButton-root:not(.mantine-Menu-item)
+  svg {
+  color: currentColor;
+  height: 17px;
+  width: 17px;
+}
+
+.bn-root.anytype-block-editor .bn-side-menu > [draggable='true'] svg {
+  height: 19px;
+  width: 19px;
+}
+
+/* Shared floating surfaces: slash menu, drag-handle menu, link forms,
+   and formatting toolbar all use the same calm panel language. */
+.bn-root.anytype-block-editor .bn-menu-dropdown,
+.bn-root.anytype-block-editor .mantine-Menu-dropdown,
+.bn-root.anytype-block-editor .bn-form-popover,
+.bn-root.anytype-block-editor .bn-panel {
+  background: var(--any-editor-panel);
+  border: 1px solid var(--any-editor-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--any-editor-panel-shadow);
+  color: var(--color-foreground);
+  padding: 6px;
+}
+
+.bn-root.anytype-block-editor .bn-menu-dropdown,
+.bn-root.anytype-block-editor .mantine-Menu-dropdown {
+  min-width: 178px;
+}
+
+.bn-root.anytype-block-editor .mantine-Menu-divider {
+  border-color: var(--any-editor-panel-border);
+  margin: 5px 2px;
+}
+
+.bn-root.anytype-block-editor .mantine-Menu-label {
+  background: transparent;
+  color: var(--any-editor-subtle);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 5px 7px 3px;
+}
+
+.bn-root.anytype-block-editor .mantine-Menu-item {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-foreground);
+  font-size: 13px;
+  height: 32px;
+  line-height: 18px;
+  padding: 0 8px;
+}
+
+.bn-root.anytype-block-editor .mantine-Menu-item[aria-selected='true'],
+.bn-root.anytype-block-editor .mantine-Menu-item:hover,
+.bn-root.anytype-block-editor .mantine-Menu-item:focus-visible {
+  background: var(--any-editor-hover);
+  color: var(--color-foreground);
+}
+
+.bn-root.anytype-block-editor .mantine-Menu-item-section,
+.bn-root.anytype-block-editor .mantine-Menu-item svg {
+  color: var(--any-editor-muted);
+}
+
+.bn-root.anytype-block-editor .bn-toolbar {
+  background: var(--any-editor-panel);
+  border: 1px solid var(--any-editor-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--any-editor-panel-shadow);
+  gap: 1px;
+  max-width: calc(100vw - 32px);
+  padding: 3px;
+}
+
+.bn-root.anytype-block-editor .bn-toolbar .mantine-Button-root,
+.bn-root.anytype-block-editor .bn-toolbar .mantine-ActionIcon-root {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  color: var(--any-editor-muted);
+  font-size: 13px;
+  height: 28px;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.bn-root.anytype-block-editor .bn-toolbar .mantine-ActionIcon-root {
+  padding: 0;
+  width: 28px;
+}
+
+.bn-root.anytype-block-editor .bn-toolbar .mantine-Button-root:hover,
+.bn-root.anytype-block-editor .bn-toolbar .mantine-ActionIcon-root:hover,
+.bn-root.anytype-block-editor .bn-toolbar .mantine-Button-root:focus-visible,
+.bn-root.anytype-block-editor
+  .bn-toolbar
+  .mantine-ActionIcon-root:focus-visible {
+  background: var(--any-editor-hover);
+  color: var(--color-foreground);
+}
+
+.bn-root.anytype-block-editor .bn-toolbar .mantine-Button-root[data-selected],
+.bn-root.anytype-block-editor
+  .bn-toolbar
+  .mantine-ActionIcon-root[data-selected] {
+  background: var(--any-editor-active);
+  color: var(--color-foreground);
+}
+
+.bn-root.anytype-block-editor .bn-toolbar .mantine-Button-root[data-disabled],
+.bn-root.anytype-block-editor
+  .bn-toolbar
+  .mantine-ActionIcon-root[data-disabled] {
+  background: transparent;
+  color: var(--any-editor-subtle);
+}
+
+.bn-root.anytype-block-editor .bn-toolbar svg {
+  height: 16px;
+  width: 16px;
+}
+
+.bn-root.anytype-block-editor .bn-suggestion-menu,
+.bn-root.anytype-block-editor .anytype-slash-menu {
+  background: var(--any-editor-panel);
+  border: 1px solid var(--any-editor-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--any-editor-panel-shadow);
+  color: var(--color-foreground);
+  contain: layout paint style;
+  max-height: min(420px, 58vh);
+  overscroll-behavior: contain;
+  overflow: hidden;
+  padding: 6px;
+  transform: translateZ(0);
+  width: min(336px, calc(100vw - 40px));
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5px;
+  gap: 4px;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-viewport {
+  min-width: 0;
+}
+
+.bn-root.anytype-block-editor .bn-suggestion-menu-label,
+.bn-root.anytype-block-editor .anytype-slash-menu-label {
+  background: transparent;
+  color: var(--any-editor-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  padding: 6px 8px 4px;
+}
+
+.bn-root.anytype-block-editor .bn-suggestion-menu-item,
+.bn-root.anytype-block-editor .anytype-slash-menu-item {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--color-foreground);
+  contain: layout paint style;
+  cursor: default;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 9px;
+  height: auto;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+  transition: none;
+  width: 100%;
+}
+
+.bn-root.anytype-block-editor .bn-suggestion-menu-item[aria-selected='true'],
+.bn-root.anytype-block-editor .bn-suggestion-menu-item:hover,
+.bn-root.anytype-block-editor
+  .anytype-slash-menu-item[aria-selected='true'],
+.bn-root.anytype-block-editor .anytype-slash-menu-item:hover {
+  background: var(--any-editor-hover);
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-icon {
+  align-items: center;
+  background: var(--any-shape-highlight-light);
+  border-radius: 6px;
+  color: var(--any-editor-muted);
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-icon svg {
+  color: currentColor;
+  height: 16px;
+  width: 16px;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-title {
+  color: var(--color-foreground);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 19px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-subtitle {
+  color: var(--any-editor-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  line-height: 15px;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-badge {
+  background: color-mix(in oklab, var(--color-foreground) 90%, transparent);
+  border-radius: 999px;
+  color: var(--color-background);
+  font-size: 10px;
+  font-weight: 700;
+  justify-self: end;
+  letter-spacing: 0.02em;
+  line-height: 16px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-empty {
+  color: var(--any-editor-muted);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 10px 8px;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-scrollbar {
+  align-self: stretch;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bn-root.anytype-block-editor .anytype-slash-menu-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-foreground) 18%, transparent);
+  border-radius: 999px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.bn-root.anytype-block-editor .bn-suggestion-menu-item-small {
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.bn-root.anytype-block-editor .bn-mt-suggestion-menu-item-section {
+  color: var(--any-editor-muted);
+  transition: none;
+}
+
+.bn-root.anytype-block-editor
+  .bn-mt-suggestion-menu-item-section[data-position='left'] {
+  background: var(--any-shape-highlight-light);
+  border-radius: 6px;
+  flex: 0 0 28px;
+  height: 28px;
+  margin-inline-end: 9px;
+  padding: 0;
+  width: 28px;
+}
+
+.bn-root.anytype-block-editor
+  .bn-suggestion-menu-item-small
+  .bn-mt-suggestion-menu-item-section[data-position='left'] {
+  background: transparent;
+  flex-basis: 18px;
+  height: 18px;
+  margin-inline-end: 7px;
+  width: 18px;
+}
+
+.bn-root.anytype-block-editor .bn-mt-suggestion-menu-item-section svg {
+  color: currentColor;
+  height: 16px;
+  width: 16px;
+}
+
+.bn-root.anytype-block-editor .bn-mt-suggestion-menu-item-body {
+  justify-content: center;
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.bn-root.anytype-block-editor .bn-mt-suggestion-menu-item-title {
+  color: var(--color-foreground);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 19px;
+  transition: none;
+}
+
+.bn-root.anytype-block-editor .bn-mt-suggestion-menu-item-subtitle {
+  color: var(--any-editor-muted);
+  font-size: 11px;
+  letter-spacing: 0;
+  line-height: 15px;
+  margin-top: 1px;
+  transition: none;
+}
+
+.bn-root.anytype-block-editor .bn-tooltip {
+  background: var(--color-foreground);
+  border-radius: 6px;
+  color: var(--color-background);
+  padding: 6px 8px;
+}
+
+.anytype-block-editor
+  .bn-block-content[data-content-type='checkListItem']
+  > div
+  > input {
+  appearance: none;
+  background: transparent;
+  border: 1.5px solid
+    color-mix(in oklab, var(--color-foreground) 24%, transparent);
+  border-radius: 5px;
+  height: 18px;
+  margin-top: 3px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+  width: 18px;
+}
+
+.anytype-block-editor
+  .bn-block-content[data-content-type='checkListItem']
+  > div
+  > input:checked {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 3px var(--color-background);
+}
+
+.anytype-block-editor
+  .bn-block-content[data-content-type='checkListItem'][data-checked='true']
+  > div
+  > div {
+  color: var(--any-editor-muted);
+}

@@ -163,11 +163,16 @@ cleanly in a query string. **No `/subscribe` in v1** — see `04-events.md`.
 | GET    | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.List`        |
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Delete`      |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Delete` (501 placeholder) |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
-| DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
-| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` (501 placeholder) |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` (501 placeholder) |
+
+The routes marked as placeholders are registered for discoverability
+but currently return `501 sdk.not_implemented`. Frontend list
+rename/icon/delete affordances must remain local UI metadata until the
+SDK/server provides real type metadata writes and deletion.
 
 ### Properties (values on objects)
 

@@ -166,6 +166,7 @@ auto-start.
 | `docs/05-config.md` | config file schema, env vars, flags, first-run flow |
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
+| `docs/08-app-architecture.md` | end-user app frontend stack & roadmap (proposal) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.
