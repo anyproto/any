@@ -111,7 +111,7 @@ A small text indicator in the pane 3 header, right side. States:
 
 ```
 docs/specs/PR-006-markdown-editor.md
-docs/08-app-architecture.md            (editor package decision)
+docs/agents/README.md                  (frontend module contract)
 web/app/package.json                   (+ @blocknote/{core,react,mantine})
 web/app/src/lib/api/markdown.ts        + .test.ts
 web/app/src/components/editor/

@@ -105,7 +105,7 @@ window snaps to the selected row.
 
 ```
 docs/specs/PR-025-anytype-editor-chrome.md
-docs/08-app-architecture.md
+docs/agents/README.md
 web/app/src/components/editor/MarkdownEditor.tsx
 web/app/src/components/editor/blocknote-theme.css
 ```

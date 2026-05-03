@@ -21,7 +21,7 @@ build: web
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 
 # Build the SPA, then mirror its dist/ into the directory the Go
-# binary embeds via //go:embed. See docs/08-app-architecture.md.
+# binary embeds via //go:embed.
 web: web-install
 	cd $(WEBAPP) && pnpm build
 	rm -rf $(EMBED)

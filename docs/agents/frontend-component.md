@@ -31,7 +31,7 @@ Dialog, etc.). Not for feature components — see
    (`bg-background`, `text-foreground`, `text-foreground/70`,
    `text-destructive`). Never use hex codes; never introduce a new
    color token without updating `src/styles/tokens.css` and
-   `docs/08-app-architecture.md`.
+   `docs/agents/README.md`.
 
 5. **Focus ring.** Every interactive primitive must have a visible
    `:focus-visible` ring using `--color-accent`. The standard class

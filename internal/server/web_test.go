@@ -9,8 +9,8 @@ import (
 )
 
 // TestServer_LegacyUIIndex sanity-checks the legacy embedded HTML
-// harness, now mounted at /ui-legacy (the new SPA owns /ui — see
-// docs/08-app-architecture.md and webapp.go).
+// harness, now mounted at /ui-legacy. The new SPA owns /ui via
+// webapp.go.
 func TestServer_LegacyUIIndex(t *testing.T) {
 	d := &deps{startedAt: time.Now().UTC(), shutdown: make(chan struct{}, 1)}
 	e := buildEcho(d)

@@ -29,7 +29,8 @@ all come later. The only screen here is a placeholder Health page.
   `noUncheckedIndexedAccess: true`.
 - Package manager: **pnpm**. Lockfile committed.
 - Tailwind v4 (via `@tailwindcss/vite`), tokens.css with the 6-color
-  palette + alpha steps + dark-mode block from `docs/08-app-architecture.md`.
+  palette + alpha steps + dark-mode block from the frontend agent
+  contract in `docs/agents/README.md`.
 - Component-variant stack: `class-variance-authority`, `clsx`,
   `tailwind-merge`. A `cn()` helper at `src/lib/cn.ts`.
 - Linting: ESLint with `@typescript-eslint`, `eslint-plugin-react`,

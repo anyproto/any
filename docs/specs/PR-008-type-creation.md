@@ -10,7 +10,7 @@ Three things ship together:
 1. **Types API client** — list / get / create types and add properties.
 2. **Create-Type wizard** — multi-step Dialog flow modelled by a
    state machine (the second hand-rolled machine in the codebase,
-   per `docs/08-app-architecture.md`).
+   per `docs/agents/README.md`).
 3. **+ New dropdown surfaces user types** — once a user creates a
    "Recipe" type, the menu shows "New Recipe" alongside "New page" /
    "New folder".

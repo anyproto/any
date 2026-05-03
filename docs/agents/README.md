@@ -29,10 +29,38 @@ if you want them auto-loaded).
 - Per-PR specs in `docs/specs/PR-NNN-*.md` are the contract for any
   non-trivial PR. Read the spec before writing code.
 
+## Frontend architecture contract
+
+- Keep the shell small: `main.tsx`, `App.tsx`, app shell, `shared/`,
+  and `components/ui/` should not learn product-specific rules about
+  spaces, objects, types, editors, or tables.
+- Product behavior belongs in feature modules, API resource modules,
+  and registries such as `web/app/src/app/viewModules.tsx`.
+- Server state goes through typed TanStack Query hooks. Components do
+  not call `fetch` directly.
+- Persisted Jotai atoms use `appStorage()` from `@/shared/storage`, so
+  Vitest and constrained browsers get the same storage contract.
+- Structured object reads/writes go through the public resource barrels
+  (`@/lib/api`, `@/lib/api/objects`, `@/components/properties`, etc.).
+  Do not deep-import private resource modules unless a barrel explicitly
+  exposes no suitable API.
+- Every object has one canonical home in the hierarchy via `nav`.
+  Lists/types are optional memberships layered on top; list/table row
+  creation must preserve hierarchy home and add membership separately.
+- Data views are modular: a root view component composes controller
+  hooks, property state hooks, toolbar, row renderers, and settings
+  screens. New layouts should reuse the data controller and property
+  model instead of forking queries or cache behavior. See
+  `docs/specs/PR-012-type-tables.md` for the current table/list view
+  contract.
+- Prefer one or two local reducer state machines for complex flows.
+  If a third independent machine appears, adopt a proper state-machine
+  library instead of growing bespoke reducers.
+
 ## Stop and ask the human if
 
-- The change conflicts with `docs/08-app-architecture.md` or the
-  active per-PR spec.
+- The change conflicts with this frontend contract or the active
+  per-PR spec.
 - A new dependency would be needed (especially component libraries,
   state libraries, or anything overlapping the existing design system).
 - The change touches `internal/server/handlers_*.go` or anything else

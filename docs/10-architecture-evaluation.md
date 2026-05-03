@@ -73,9 +73,15 @@ production build still has large chunks to tune.
   so far**: `ui/`, `atoms/`, `lib/api/`, `lib/api/objects/`,
   `types/`, `editor/`, `tree/`, `layout/`, `spaces/`, `objects/`,
   `tables/`, `health/`, `settings/`, `properties/`, and `shared/`.
-- **TableView decomposed** into `ListRowsView`, `TableRows`, and
-  `tableObjectValues`. Shared property editing moved out of tables
-  into `components/properties/PropertyCell.tsx` plus
+- **TableView decomposed into a data-view module.** `TableView.tsx`
+  is now a composition shell around `useTableViewController`
+  (queries, filter, sort, paging, virtualization, creation),
+  `useTableProperties` (type properties, visibility, order, drag,
+  widths), `TableToolbar`, `TableColumnHeader`, `TableSettingsPanel`,
+  `ListRowsView`, and `TableRows`. Nested settings routes live under
+  `components/tables/settings/`, so adding new list/view settings does
+  not grow the root table component. Shared property editing remains in
+  `components/properties/PropertyCell.tsx` plus
   `components/properties/cells/*`.
 - **View state is consolidated in `atoms/view-state.ts`.** Active
   space, pane-3 view/history, focused pane, tree multi-selection,
@@ -85,8 +91,10 @@ production build still has large chunks to tune.
   tiny compatibility wrappers.
 - **CI workflow exists.** `.github/workflows/ci.yml` runs the frontend
   gates, production SPA build, Storybook build, Go vet/build/test, and
-  the Playwright command. The repo now enforces the discipline instead
-  of relying on local habit.
+  the Playwright command. It opts JavaScript actions into Node 24 and
+  skips Playwright cleanly when the private stage1 nodeconf is absent,
+  so missing E2E fixtures no longer surface as curl exit 7. The repo
+  now enforces the discipline instead of relying on local habit.
 - **High-risk component test backfill landed.** Component tests now
   cover space create/edit/delete dialogs, object create-folder/delete/
   bulk-delete dialogs, list rename/delete dialogs, layout header/avatar
@@ -110,10 +118,11 @@ production build still has large chunks to tune.
 ### ✗ Still open
 
 - **Component tests still lag behind the decomposition.**
-  The high-risk dialogs/cells now have smoke coverage, but
-  `ListRowsView` / `TableRows` are still mostly covered indirectly via
-  `TableView.test.tsx`, and a few heavy editor/type surfaces still rely
-  on integration-style coverage.
+  The high-risk dialogs/cells now have smoke coverage, but the new
+  table module pieces (`useTableViewController`, `useTableProperties`,
+  `TableToolbar`, settings screens, `ListRowsView`, `TableRows`) are
+  still mostly covered indirectly via `TableView.test.tsx`, and a few
+  heavy editor/type surfaces still rely on integration-style coverage.
 - **Large build chunks remain.** BlockNote is already lazy-loaded into
   the editor chunk, but the async editor chunk is still large and the
   main app chunk is just over Vite's default warning threshold.

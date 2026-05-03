@@ -2,4 +2,8 @@ export * from './AddColumnPopover';
 export * from './ListRowsView';
 export * from './TableRows';
 export * from './TableView';
+export * from './tableSorting';
+export * from './useDataViewLayout';
+export * from './useTableProperties';
+export * from './useTableViewController';
 export * from './tableObjectValues';

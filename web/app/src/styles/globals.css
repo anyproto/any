@@ -42,8 +42,7 @@
     margin: 0;
   }
 
-  /* Visible focus ring on keyboard nav, none on mouse — matches the
-     keyboard-first commitment in docs/08-app-architecture.md. */
+  /* Visible focus ring on keyboard nav, none on mouse. */
   :focus {
     outline: none;
   }

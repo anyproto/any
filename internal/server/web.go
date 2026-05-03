@@ -8,10 +8,9 @@ import (
 )
 
 // uiIndexHTML is the legacy single-page harness for poking the API
-// against the same process serving it. As of PR #1 of the new app
-// (docs/08-app-architecture.md), this lives at /ui-legacy; the real
-// SPA takes /ui via webapp.go. Drop /ui-legacy once the SPA covers
-// the same query/object/markdown exercises.
+// against the same process serving it. The real SPA takes /ui via
+// webapp.go. Drop /ui-legacy once the SPA covers the same
+// query/object/markdown exercises.
 //
 //go:embed web/index.html
 var uiIndexHTML []byte
