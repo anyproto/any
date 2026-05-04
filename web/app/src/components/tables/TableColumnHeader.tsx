@@ -112,6 +112,7 @@ export function TableColumnHeader({
           e.dataTransfer.getData('text/plain');
         if (sourceId) onColumnDrop?.(sourceId, propId);
       }}
+      style={width == null ? undefined : { width, minWidth: width, maxWidth: width }}
       className={cn(
         'group relative border-y border-foreground/[0.075] bg-background p-0 transition-colors',
         dropTarget && 'bg-accent/[0.06] ring-2 ring-inset ring-accent',

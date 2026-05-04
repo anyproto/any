@@ -32,9 +32,9 @@ write in it, switch, come back, the content is still there.
 
 ## API surface used
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET`  | `/v1/spaces/:s/objects/:o/markdown` | Read body. Returns `{content: string}`. |
+| Method | Path                                | Purpose                                                                                                            |
+| ------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/v1/spaces/:s/objects/:o/markdown` | Read body. Returns `{content: string}`.                                                                            |
 | `PUT`  | `/v1/spaces/:s/objects/:o/markdown` | Replace body. Body `{content: string}`. Server diffs per-block; returns `{inserted, updated, deleted, unchanged}`. |
 
 Both routes are real, no `501`. Per-block diff means concurrent edits
@@ -55,6 +55,12 @@ UI because no `ComponentsContext` is present.
 Mantine is scoped to the editor module only. The rest of the app keeps
 using the in-repo `components/ui` primitives and design tokens.
 
+PR #26 adds a Lexical path behind `editorEngineAtom` and switches it to
+the default object-page editor after verification. BlockNote remains
+available as the fallback engine in settings. Both engines reuse the
+same markdown endpoints and save machine so they can be compared
+without changing the backend contract.
+
 ### Save state machine
 
 A discriminated union driven by `useReducer` (no XState yet — first
@@ -62,15 +68,21 @@ real machine in this codebase, per the architecture doc):
 
 ```ts
 type SaveState =
-  | { kind: 'loading' }
-  | { kind: 'load_error'; error: ApiError }
-  | { kind: 'idle';   savedContent: string }                                 // matches server
-  | { kind: 'dirty';  savedContent: string; nextContent: string; since: number }
-  | { kind: 'saving'; savedContent: string; inflightContent: string }
-  | { kind: 'save_error'; savedContent: string; nextContent: string; error: ApiError };
+  | { kind: "loading" }
+  | { kind: "load_error"; error: ApiError }
+  | { kind: "idle"; savedContent: string } // matches server
+  | { kind: "dirty"; savedContent: string; nextContent: string; since: number }
+  | { kind: "saving"; savedContent: string; inflightContent: string }
+  | {
+      kind: "save_error";
+      savedContent: string;
+      nextContent: string;
+      error: ApiError;
+    };
 ```
 
 Transitions:
+
 - `loading → idle` on first GET success.
 - `loading → load_error` on GET fail.
 - `idle → dirty` on local change.
@@ -100,12 +112,13 @@ proceeds either way (we don't block navigation).
 ### Save status surface
 
 A small text indicator in the pane 3 header, right side. States:
+
 - `loading` → "Loading…"
-- `idle`    → "Saved" (faint)
-- `dirty`   → "Editing…"
-- `saving`  → "Saving…"
+- `idle` → "Saved" (faint)
+- `dirty` → "Editing…"
+- `saving` → "Saving…"
 - `save_error` → "Save failed — Retry" (button)
-- `load_error` → render an error card *instead of* the editor.
+- `load_error` → render an error card _instead of_ the editor.
 
 ## Files changed / added
 

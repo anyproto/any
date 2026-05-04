@@ -170,7 +170,10 @@ describe('<TableView>', () => {
 
     expect(await screen.findByRole('heading', { name: 'Films' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /add icon to films list/i }));
-    await userEvent.click(await screen.findByRole('button', { name: /use film icon/i }));
+    await screen.findByRole('dialog', { name: /list icon/i });
+    await userEvent.click(
+      await screen.findByRole('button', { name: /use film icon/i }, { timeout: 5000 }),
+    );
 
     expect(JSON.parse(localStorage.getItem('any.type.meta.v1') ?? '{}')).toMatchObject({
       [keyOf('spc-test', 't_movie')]: { name: 'Films', icon: 'lucide:film' },
@@ -349,9 +352,15 @@ describe('<TableView>', () => {
     expect(columnWidth('name')).toBe(360);
     expect(columnWidth('p_rating')).toBe(220);
     expect(columnWidth('p_status')).toBe(220);
+    const tableEl = container.querySelector<HTMLElement>('table');
+    expect(tableEl).toHaveStyle({ width: '856px' });
+    expect(tableEl?.style.minWidth).toBe('');
     expect(container.querySelector<HTMLElement>('col[data-column-id="add-column"]')).toHaveStyle({
       width: '56px',
     });
+    expect(
+      container.querySelector<HTMLElement>('col[data-column-id="table-filler"]'),
+    ).toHaveStyle({ width: '0px' });
     expect(container.querySelector('col[data-column-id="table-filler"]')).not.toBeNull();
 
     const nameHeader = screen.getByRole('button', { name: 'Name' }).closest('th');

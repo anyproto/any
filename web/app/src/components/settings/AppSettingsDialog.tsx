@@ -1,6 +1,12 @@
 import { useAtom } from 'jotai';
-import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
-import { settingsOpenAtom, themePreferenceAtom, type ThemePreference } from '@/atoms';
+import { Code2, FileText, Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
+import {
+  editorEngineAtom,
+  settingsOpenAtom,
+  themePreferenceAtom,
+  type EditorEngine,
+  type ThemePreference,
+} from '@/atoms';
 import {
   Dialog,
   DialogContent,
@@ -36,9 +42,30 @@ const THEME_OPTIONS: readonly {
   },
 ];
 
+const EDITOR_OPTIONS: readonly {
+  value: EditorEngine;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}[] = [
+  {
+    value: 'blocknote',
+    label: 'BlockNote',
+    description: 'Stable fallback editor',
+    icon: FileText,
+  },
+  {
+    value: 'lexical',
+    label: 'Lexical',
+    description: 'Default plugin editor',
+    icon: Code2,
+  },
+];
+
 export function AppSettingsDialog() {
   const [open, setOpen] = useAtom(settingsOpenAtom);
   const [themePreference, setThemePreference] = useAtom(themePreferenceAtom);
+  const [editorEngine, setEditorEngine] = useAtom(editorEngineAtom);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -58,11 +85,7 @@ export function AppSettingsDialog() {
             </p>
           </div>
 
-          <div
-            role="radiogroup"
-            aria-label="Theme"
-            className="grid grid-cols-3 gap-2"
-          >
+          <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2">
             {THEME_OPTIONS.map(({ value, label, description, icon: Icon }) => {
               const active = themePreference === value;
               return (
@@ -83,7 +106,62 @@ export function AppSettingsDialog() {
                   <span
                     className={cn(
                       'inline-flex h-7 w-7 items-center justify-center rounded-md',
-                      active ? 'bg-accent text-background' : 'bg-foreground/8 text-foreground/60',
+                      active
+                        ? 'bg-accent text-background'
+                        : 'bg-foreground/8 text-foreground/60',
+                    )}
+                    aria-hidden
+                  >
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="mt-0.5 block text-xs leading-4 text-foreground/55">
+                      {description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-7">
+          <div className="mb-3">
+            <h2 className="text-sm font-medium text-foreground">Editor</h2>
+            <p className="mt-1 text-xs leading-5 text-foreground/55">
+              Choose the block editor engine for object pages on this device.
+            </p>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Editor engine"
+            className="grid grid-cols-2 gap-2"
+          >
+            {EDITOR_OPTIONS.map(({ value, label, description, icon: Icon }) => {
+              const active = editorEngine === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setEditorEngine(value)}
+                  className={cn(
+                    'group flex min-h-[86px] flex-col items-start justify-between rounded-lg border p-3 text-left',
+                    'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                    active
+                      ? 'border-accent bg-accent/10 text-foreground'
+                      : 'border-foreground/10 bg-foreground/[0.02] text-foreground/75 hover:border-foreground/20 hover:bg-foreground/[0.04] hover:text-foreground',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'inline-flex h-7 w-7 items-center justify-center rounded-md',
+                      active
+                        ? 'bg-accent text-background'
+                        : 'bg-foreground/8 text-foreground/60',
                     )}
                     aria-hidden
                   >

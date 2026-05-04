@@ -4,7 +4,7 @@ import { appStorage, keyOf } from '@/shared';
 export const TABLE_NAME_COLUMN_WIDTH = 360;
 export const TABLE_PROPERTY_COLUMN_WIDTH = 220;
 export const TABLE_ADD_COLUMN_WIDTH = 56;
-export const TABLE_COLUMN_MIN_WIDTH = 96;
+export const TABLE_COLUMN_MIN_WIDTH = 56;
 export const TABLE_COLUMN_MAX_WIDTH = 720;
 
 export type TableColumnWidths = Record<string, number>;
