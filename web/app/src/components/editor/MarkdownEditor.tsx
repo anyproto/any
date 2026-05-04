@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useReducer, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import type { Block } from '@blocknote/core';
 import {
@@ -20,15 +20,23 @@ import {
 import { Plus } from 'lucide-react';
 import { useObjectMarkdown, useSaveObjectMarkdown } from '@/lib/api/markdown';
 import { ApiError } from '@/lib/api/client';
-import { resolvedThemeAtom } from '@/atoms';
+import { editorEngineAtom, resolvedThemeAtom } from '@/atoms';
+import { keyOf } from '@/shared';
 import { reduce, initial, type SaveState } from './saveMachine';
 import { OrphanCleanup } from './OrphanCleanup';
 import { ObjectTitle } from './ObjectTitle';
 import { ObjectTypeBar } from './ObjectTypeBar';
 import { AnytypeSlashMenu } from './SlashMenu';
+import { shouldHydrateMarkdownEditor } from './editorHydration';
 import './blocknote-theme.css';
 
 const SAVE_DEBOUNCE_MS = 800;
+
+const LexicalMarkdownEditor = lazy(() =>
+  import('./LexicalMarkdownEditor').then((module) => ({
+    default: module.LexicalMarkdownEditor,
+  })),
+);
 
 interface Props {
   spaceId: string;
@@ -64,11 +72,7 @@ function AnytypeAddBlockButton() {
       return;
     }
 
-    const insertedBlock = editor.insertBlocks(
-      [{ type: 'paragraph' }],
-      block,
-      'after',
-    )[0];
+    const insertedBlock = editor.insertBlocks([{ type: 'paragraph' }], block, 'after')[0];
     if (insertedBlock === undefined) return;
 
     editor.setTextCursorPosition(insertedBlock);
@@ -106,7 +110,7 @@ function AnytypeSideMenu() {
  *    machine; debounced flush triggers a PUT.
  *  - On unmount: best-effort flush of pending content (mutateAsync).
  */
-export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
+function BlockNoteMarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
   const theme = useAtomValue(resolvedThemeAtom);
   // The `as any` is a strict-mode escape hatch — BlockNote's default
   // schema types collide with TS `exactOptionalPropertyTypes: true`.
@@ -144,6 +148,8 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
   // Initial load via TanStack Query.
   const loadQuery = useObjectMarkdown(spaceId, objectId);
   const saveMutation = useSaveObjectMarkdown();
+  const hydrationIdentity = keyOf('blocknote-hydration', spaceId, objectId);
+  const hydratedIdentityRef = useRef<string | null>(null);
 
   // Hydrate the editor when content arrives.
   useEffect(() => {
@@ -152,24 +158,41 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
       const err =
         loadQuery.error instanceof ApiError
           ? loadQuery.error
-          : new ApiError(
-              { code: 'unknown', message: String(loadQuery.error) },
-              0,
-            );
+          : new ApiError({ code: 'unknown', message: String(loadQuery.error) }, 0);
       dispatch({ type: 'load_failed', error: err });
       return;
     }
     if (!loadQuery.isSuccess) return;
+    if (
+      !shouldHydrateMarkdownEditor({
+        hydratedIdentity: hydratedIdentityRef.current,
+        identityKey: hydrationIdentity,
+        markdown: loadQuery.data,
+      })
+    ) {
+      return;
+    }
     void (async () => {
       const blocks = await editor.tryParseMarkdownToBlocks(loadQuery.data);
       if (cancelled) return;
+      // Only replace blocks when entering a different object. Autosave updates the
+      // markdown cache for the current object, and replacing blocks would reset
+      // the live editor selection.
       editor.replaceBlocks(editor.document, blocks as Block[]);
+      hydratedIdentityRef.current = hydrationIdentity;
       dispatch({ type: 'load_ok', content: loadQuery.data });
     })();
     return () => {
       cancelled = true;
     };
-  }, [editor, loadQuery.isSuccess, loadQuery.isError, loadQuery.data, loadQuery.error]);
+  }, [
+    editor,
+    hydrationIdentity,
+    loadQuery.isSuccess,
+    loadQuery.isError,
+    loadQuery.data,
+    loadQuery.error,
+  ]);
 
   // Debounced flush. The doSave ref breaks the otherwise-circular
   // dep between scheduleFlush and doSave (each refers to the other).
@@ -255,8 +278,8 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
             <code className="font-mono">{code}</code> — {message}
           </p>
           <p className="mt-3 text-xs text-foreground/60">
-            If this is an orphan row (the underlying tree was deleted but the
-            list entry survives), removing it from the list is safe — see{' '}
+            If this is an orphan row (the underlying tree was deleted but the list entry
+            survives), removing it from the list is safe — see{' '}
             <code className="font-mono">docs/03-api.md</code> § Object deletion.
           </p>
           <div className="mt-3">
@@ -293,4 +316,16 @@ export function MarkdownEditor({ spaceId, objectId, onStateChange }: Props) {
       </BlockNoteView>
     </div>
   );
+}
+
+export function MarkdownEditor(props: Props) {
+  const editorEngine = useAtomValue(editorEngineAtom);
+  if (editorEngine === 'lexical') {
+    return (
+      <Suspense fallback={<div aria-busy="true" className="h-full bg-background" />}>
+        <LexicalMarkdownEditor {...props} />
+      </Suspense>
+    );
+  }
+  return <BlockNoteMarkdownEditor {...props} />;
 }

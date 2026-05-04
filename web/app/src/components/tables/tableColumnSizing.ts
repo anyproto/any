@@ -14,6 +14,8 @@ const HEADER_FONT =
   '600 12px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const CELL_FONT =
   '400 16px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const EMPTY_PROPERTY_EXTRA_WIDTH = 34;
+const FILLED_PROPERTY_EXTRA_WIDTH = 58;
 
 let measureContext: CanvasRenderingContext2D | null | undefined;
 
@@ -35,17 +37,27 @@ export function autoFitPropertyColumnWidth({
   typeId: string;
   prop: PropertyDef;
 }) {
+  const headerLabel = prop.name ?? `Untitled (${prop.id.slice(0, 6)}...)`;
+  const values = rows.map((row) => {
+    const formatted = formatListPropertyValue(
+      prop,
+      readTablePropValue(row, typeId, prop.id),
+    );
+    return formatted ?? '';
+  }).filter((value) => value.trim() !== '');
+
+  if (values.length === 0) {
+    return normalizeTableColumnWidth(
+      measureText(headerLabel.toUpperCase(), HEADER_FONT) + EMPTY_PROPERTY_EXTRA_WIDTH,
+      TABLE_PROPERTY_COLUMN_WIDTH,
+    );
+  }
+
   return autoFitWidth({
     fallback: TABLE_PROPERTY_COLUMN_WIDTH,
-    headerLabel: prop.name ?? `Untitled (${prop.id.slice(0, 6)}...)`,
-    values: rows.map((row) => {
-      const formatted = formatListPropertyValue(
-        prop,
-        readTablePropValue(row, typeId, prop.id),
-      );
-      return formatted ?? '';
-    }).filter((value) => value.trim() !== ''),
-    extraWidth: 58,
+    headerLabel,
+    values,
+    extraWidth: FILLED_PROPERTY_EXTRA_WIDTH,
   });
 }
 

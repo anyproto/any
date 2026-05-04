@@ -8,11 +8,11 @@ When using Claude Code or the Claude Agent SDK, copy the relevant
 playbook into your prompt (or symlink the folder to `.claude/skills/`
 if you want them auto-loaded).
 
-| Playbook | When to use |
-|----------|-------------|
+| Playbook                                           | When to use                                            |
+| -------------------------------------------------- | ------------------------------------------------------ |
 | [`frontend-component.md`](./frontend-component.md) | Adding a UI primitive to `web/app/src/components/ui/`. |
-| [`frontend-feature.md`](./frontend-feature.md) | Adding a user-visible feature (page, screen, flow). |
-| [`bug-fix.md`](./bug-fix.md) | Fixing a bug. Reproducer test first, then fix. |
+| [`frontend-feature.md`](./frontend-feature.md)     | Adding a user-visible feature (page, screen, flow).    |
+| [`bug-fix.md`](./bug-fix.md)                       | Fixing a bug. Reproducer test first, then fix.         |
 
 ## Conventions every playbook assumes
 
@@ -53,6 +53,14 @@ if you want them auto-loaded).
   model instead of forking queries or cache behavior. See
   `docs/specs/PR-012-type-tables.md` for the current table/list view
   contract.
+- Object-page editors are selected behind `editorEngineAtom`, not by
+  changing app-shell imports. `MarkdownEditor` is the stable boundary;
+  Lexical is the default plugin-oriented engine and BlockNote remains
+  the fallback engine documented in
+  `docs/specs/PR-026-lexical-editor-spike.md`. Before adding editor
+  plugins, read `docs/specs/PR-027-lexical-plugin-roadmap.md` and keep
+  new Lexical behavior isolated as plugins rather than growing one
+  editor component.
 - Prefer one or two local reducer state machines for complex flows.
   If a third independent machine appears, adopt a proper state-machine
   library instead of growing bespoke reducers.

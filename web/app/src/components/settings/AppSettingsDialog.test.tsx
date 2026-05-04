@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Provider, createStore } from 'jotai';
 import { AppSettingsDialog } from './AppSettingsDialog';
-import { settingsOpenAtom, themePreferenceAtom } from '@/atoms';
+import { editorEngineAtom, settingsOpenAtom, themePreferenceAtom } from '@/atoms';
 
 describe('<AppSettingsDialog>', () => {
   it('lets the user choose system, white, or dark theme', async () => {
@@ -28,5 +28,27 @@ describe('<AppSettingsDialog>', () => {
 
     await userEvent.click(screen.getByRole('radio', { name: /white/i }));
     expect(store.get(themePreferenceAtom)).toBe('light');
+  });
+
+  it('lets the user choose the editor engine', async () => {
+    const store = createStore();
+    store.set(settingsOpenAtom, true);
+
+    render(
+      <Provider store={store}>
+        <AppSettingsDialog />
+      </Provider>,
+    );
+
+    expect(
+      screen.getByRole('radiogroup', { name: /editor engine/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /lexical/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    await userEvent.click(screen.getByRole('radio', { name: /blocknote/i }));
+    expect(store.get(editorEngineAtom)).toBe('blocknote');
   });
 });

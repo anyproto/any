@@ -25,8 +25,20 @@ describe('tableColumnSizing', () => {
       prop,
     });
 
-    expect(width).toBeGreaterThanOrEqual(96);
-    expect(width).toBeLessThan(140);
+    expect(width).toBeGreaterThanOrEqual(56);
+    expect(width).toBeLessThan(110);
+  });
+
+  it('lets very short empty columns shrink below the old wide floor', () => {
+    const prop: PropertyDef = { id: 'p_x', name: 'X', kind: 'string' };
+    const width = autoFitPropertyColumnWidth({
+      rows: [row('obj-1'), row('obj-2')],
+      typeId: 't_movie',
+      prop,
+    });
+
+    expect(width).toBeGreaterThanOrEqual(56);
+    expect(width).toBeLessThan(96);
   });
 
   it('still expands to fit real property content', () => {

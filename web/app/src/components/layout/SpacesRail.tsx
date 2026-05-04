@@ -380,7 +380,7 @@ function prefetchObjectView(
   void qc.prefetchQuery({
     queryKey: markdownKeys.one(spaceId, objectId),
     queryFn: ({ signal }) => getObjectMarkdown(spaceId, objectId, signal),
-    staleTime,
+    staleTime: Infinity,
   });
 }
 

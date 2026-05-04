@@ -99,24 +99,25 @@ export function TableView({ typeId }: TableViewProps) {
     [createRowFromController],
   );
   const loadMore = useCallback(() => void fetchNextPage(), [fetchNextPage]);
+  const autoFitRows = virtualRows.length > 0 ? virtualRows : table.visibleRows;
   const autoResizeAllColumns = useCallback(() => {
     props.resizeColumn(
       'name',
-      autoFitNameColumnWidth(table.visibleRows),
+      autoFitNameColumnWidth(autoFitRows),
       TABLE_NAME_COLUMN_WIDTH,
     );
     for (const prop of props.visibleProps) {
       props.resizeColumn(
         prop.id,
         autoFitPropertyColumnWidth({
-          rows: table.visibleRows,
+          rows: autoFitRows,
           typeId,
           prop,
         }),
         TABLE_PROPERTY_COLUMN_WIDTH,
       );
     }
-  }, [props, table.visibleRows, typeId]);
+  }, [autoFitRows, props, typeId]);
 
   const spaceId = table.spaceId;
   if (!spaceId) return null;
@@ -221,7 +222,7 @@ export function TableView({ typeId }: TableViewProps) {
                       onAutoResize={() =>
                         props.resizeColumn(
                           'name',
-                          autoFitNameColumnWidth(table.visibleRows),
+                          autoFitNameColumnWidth(autoFitRows),
                           TABLE_NAME_COLUMN_WIDTH,
                         )
                       }
@@ -263,7 +264,7 @@ export function TableView({ typeId }: TableViewProps) {
                           props.resizeColumn(
                             p.id,
                             autoFitPropertyColumnWidth({
-                              rows: table.visibleRows,
+                              rows: autoFitRows,
                               typeId,
                               prop: p,
                             }),

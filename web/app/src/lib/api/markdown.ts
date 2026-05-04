@@ -54,10 +54,10 @@ export async function setObjectMarkdown(
  * Read an object's markdown. Per-(space,object) cache key — switching
  * objects fetches fresh; switching back is cached.
  *
- * staleTime is 0 here because the editor manages its own dirty state
- * and we explicitly invalidate on save success. Refetch-on-focus is
- * disabled for the same reason — refetching while the user is typing
- * would clobber unsaved input.
+ * Once loaded, markdown is locally authoritative for this app session.
+ * The editor save mutation writes the cache optimistically; refetching
+ * on every remount can race debounced/unmount saves and replace fresh
+ * structural edits with older server content.
  */
 export function useObjectMarkdown(spaceId: string | null, objectId: string | null) {
   return useQuery({
@@ -67,7 +67,7 @@ export function useObjectMarkdown(spaceId: string | null, objectId: string | nul
         : (['markdown', '__none__'] as const),
     queryFn: ({ signal }) => getObjectMarkdown(spaceId!, objectId!, signal),
     enabled: spaceId != null && objectId != null,
-    staleTime: 0,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
 }
@@ -87,6 +87,11 @@ export function useSaveObjectMarkdown() {
   return useMutation({
     mutationFn: ({ spaceId, objectId, content }: SaveArgs) =>
       setObjectMarkdown(spaceId, objectId, content),
+    onMutate: async ({ spaceId, objectId, content }) => {
+      const queryKey = markdownKeys.one(spaceId, objectId);
+      await qc.cancelQueries({ queryKey });
+      qc.setQueryData(queryKey, content);
+    },
     onSuccess: (_res, { spaceId, objectId, content }) => {
       qc.setQueryData(markdownKeys.one(spaceId, objectId), content);
     },
