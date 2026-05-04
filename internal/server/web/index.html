@@ -437,6 +437,96 @@
     color: var(--muted); border-left-color: var(--border);
   }
   .md-card .body { padding: 0; }
+
+  /* ---------- bottom pane: md + chat side-by-side ----------
+     Layout depends on which built-ins are bound to the object:
+       - md only or chat only → single full-width column
+       - md + chat            → two columns, md left + chat right
+     The grid template ensures both panels share the same row height,
+     so the chat list grows with the editor instead of dictating its
+     own height. */
+  .obj-bottom-pane { margin-top: 16px; }
+  .obj-bottom-pane.md-and-chat {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    align-items: stretch;
+  }
+  .obj-bottom-pane.md-and-chat > .md-card,
+  .obj-bottom-pane.md-and-chat > .chat-card {
+    min-width: 0;   /* let the grid track shrink below content width */
+  }
+
+  /* ---------- chat card ---------- */
+  .chat-card { display: flex; flex-direction: column; min-height: 480px; }
+  .chat-card > .body {
+    flex: 1; padding: 0; display: flex; flex-direction: column; min-height: 0;
+  }
+  .chat-card .chat-messages {
+    flex: 1; overflow-y: auto; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 280px;
+  }
+  .chat-card .chat-empty {
+    color: var(--muted); font-size: 12px; padding: 12px; text-align: center;
+  }
+  .chat-card .chat-loading {
+    color: var(--muted); font: 11px var(--mono); padding: 8px 12px;
+  }
+
+  /* one message row */
+  .chat-msg { display: flex; flex-direction: column; gap: 4px; }
+  .chat-msg .meta {
+    display: flex; align-items: baseline; gap: 6px;
+    font: 11px var(--mono); color: var(--muted);
+  }
+  .chat-msg .meta .author { color: var(--text); font-weight: 500; }
+  .chat-msg.own .meta .author { color: var(--accent); }
+  .chat-msg .meta .edited { color: var(--warn); font-size: 10px; }
+  .chat-msg .meta .actions { margin-left: auto; display: none; gap: 4px; }
+  .chat-msg:hover .meta .actions { display: flex; }
+  .chat-msg .meta .actions button {
+    background: transparent; color: var(--muted); border: 0; padding: 0;
+    width: 20px; height: 20px; line-height: 1; font-size: 12px; cursor: pointer;
+  }
+  .chat-msg .meta .actions button:hover { color: var(--text); }
+  .chat-msg .text {
+    background: var(--panel-2); border: 1px solid var(--border-soft);
+    border-radius: 4px; padding: 6px 10px;
+    font-size: 13px; white-space: pre-wrap; word-break: break-word;
+  }
+  .chat-msg .reactions { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chat-msg .reaction-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 8px; border-radius: 99px; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); cursor: pointer; height: auto;
+  }
+  .chat-msg .reaction-chip:hover { border-color: var(--accent); }
+  .chat-msg .reaction-chip.mine { background: var(--accent-fade); border-color: var(--accent); }
+  .chat-msg .reaction-chip .count { color: var(--muted); font: 11px var(--mono); }
+  .chat-msg .reaction-chip.mine .count { color: var(--text); }
+  .chat-msg .quick-react {
+    display: none; gap: 2px;
+  }
+  .chat-msg:hover .quick-react { display: inline-flex; }
+  .chat-msg .quick-react button {
+    background: transparent; border: 1px dashed var(--border-soft);
+    color: var(--muted); padding: 0 5px; border-radius: 99px;
+    font-size: 12px; height: auto; line-height: 1.5;
+  }
+  .chat-msg .quick-react button:hover { color: var(--text); border-color: var(--border); }
+
+  /* compose */
+  .chat-card .chat-compose {
+    border-top: 1px solid var(--border); padding: 8px;
+    display: flex; gap: 6px; align-items: flex-end;
+  }
+  .chat-card .chat-compose textarea {
+    flex: 1; min-height: 36px; max-height: 160px; resize: none;
+    font: 13px system-ui, -apple-system, sans-serif;
+  }
+  .chat-card .chat-compose .send-hint {
+    color: var(--muted); font: 10px var(--mono);
+  }
 </style>
 </head>
 <body>
@@ -497,6 +587,9 @@
 
   // ---------- constants ----------
   const MD_TYPE_ID = 'md';
+  const CHAT_TYPE_ID = 'chat';
+  const CHAT_DATASET = 'chat_messages';
+  const CHAT_QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀'];
   const NAV_TYPE_ID = 'nav';
   const NAV_TYPE_ITEM = 1;
   const NAV_TYPE_FOLDER = 2;
@@ -754,6 +847,7 @@
     get(p) { return this.call('GET', p); },
     post(p, b) { return this.call('POST', p, b); },
     put(p, b) { return this.call('PUT', p, b); },
+    patch(p, b) { return this.call('PATCH', p, b); },
     del(p) { return this.call('DELETE', p); },
   };
 
@@ -779,7 +873,12 @@
         for (const [id, s] of Object.entries(this.spaces)) {
           const objs = {};
           for (const [oid, o] of Object.entries(s.objects || {})) {
-            const { markdownContent, ...rest } = o;
+            // Strip caches and live-runtime fields — persisted state
+            // is just identity + types + lastRecord. markdownContent /
+            // chatMessages get re-fetched on navigation;
+            // chatComposing / chatLoading are session-local.
+            const { markdownContent, chatMessages, chatLoading,
+                    chatComposing, ...rest } = o;
             objs[oid] = rest;
           }
           snap.spaces[id] = {
@@ -1077,6 +1176,62 @@
     if (obj) obj.markdownContent = content;
     return j;
   }
+  // ---------- chat helpers ----------
+  // Cache shape on App.spaces[s].objects[o]:
+  //   chatMessages   — last fetched page in ascending creation order, or
+  //                    undefined when not yet loaded
+  //   chatLoading    — bool, suppresses parallel re-fetch storms
+  //   chatComposing  — preserved textarea content across re-renders, so a
+  //                    live update doesn't blow away what the user typed
+  //   chatStream     — the EventSource handle so unmount can close it
+  const objectMessagesPath = (sp, oid) =>
+    '/v1/spaces/' + encodeURIComponent(sp) + '/objects/' + encodeURIComponent(oid) + '/messages';
+
+  async function loadChatMessages(spaceId, objectId) {
+    const obj = App.spaces[spaceId]?.objects[objectId];
+    if (!obj) return null;
+    if (obj.chatLoading) return obj.chatMessages || [];
+    obj.chatLoading = true;
+    try {
+      const r = await api.get(objectMessagesPath(spaceId, objectId));
+      if (!r.ok) {
+        toast('err', 'load messages failed', r.body);
+        return obj.chatMessages || [];
+      }
+      obj.chatMessages = (r.json && Array.isArray(r.json.messages)) ? r.json.messages : [];
+      return obj.chatMessages;
+    } finally {
+      obj.chatLoading = false;
+    }
+  }
+  async function sendChatMessage(spaceId, objectId, text, replyTo) {
+    const body = { text };
+    if (replyTo) body.replyToMessageId = replyTo;
+    const r = await api.post(objectMessagesPath(spaceId, objectId), body);
+    if (!r.ok) { toast('err', 'send failed', r.body); return null; }
+    return r.json;
+  }
+  async function editChatMessage(spaceId, objectId, msgId, text) {
+    const r = await api.patch(
+      objectMessagesPath(spaceId, objectId) + '/' + encodeURIComponent(msgId),
+      { text });
+    if (!r.ok) { toast('err', 'edit failed', r.body); return null; }
+    return r.json;
+  }
+  async function deleteChatMessage(spaceId, objectId, msgId) {
+    const r = await api.del(
+      objectMessagesPath(spaceId, objectId) + '/' + encodeURIComponent(msgId));
+    if (!r.ok) { toast('err', 'delete failed', r.body); return false; }
+    return true;
+  }
+  async function toggleChatReaction(spaceId, objectId, msgId, emoji) {
+    const r = await api.post(
+      objectMessagesPath(spaceId, objectId) + '/' + encodeURIComponent(msgId) +
+      '/reactions/' + encodeURIComponent(emoji), null);
+    if (!r.ok) { toast('err', 'reaction failed', r.body); return null; }
+    return r.json;
+  }
+
   // bindTypes attaches additional type ids to an existing object by
   // setting any.types to the merged list. Reloads the record so the
   // editor picks up the new type defs on the next render.
@@ -1246,6 +1401,7 @@
   }
   async function onHashChange() {
     unmountEditor();
+    unmountChat();
     App.route = parseHash();
     render();
     if (!App.route.spaceId) return;
@@ -1275,9 +1431,14 @@
       const o = sp.objects[route.objectId];
       if (o) {
         const types = (o.lastRecord?.any?.types) || o.types || [];
+        const tasks = [];
         if (types.includes(MD_TYPE_ID) && o.markdownContent === undefined) {
-          await loadMarkdown(route.spaceId, route.objectId);
+          tasks.push(loadMarkdown(route.spaceId, route.objectId));
         }
+        if (types.includes(CHAT_TYPE_ID) && o.chatMessages === undefined) {
+          tasks.push(loadChatMessages(route.spaceId, route.objectId));
+        }
+        if (tasks.length) await Promise.all(tasks);
       }
     }
   }
@@ -1328,6 +1489,186 @@
   }
   function editorValue() { return activeEditor ? activeEditor.value() : ''; }
   function editorSetValue(v) { if (activeEditor) activeEditor.value(v); }
+
+  // ---------- chat panel ----------
+  // mountChatForObject opens the SSE subscription scoped to the
+  // object's chat_messages dataset. Each `event: changes` frame fires
+  // a re-fetch of the message list (the SDK event carries only the
+  // routing tuple — see docs/04-events.md), then we replace the
+  // chat-messages innerHTML in place so the user's compose textarea
+  // and editor state survive the update.
+  let activeChat = null;
+  function mountChatForObject(sp, oid) {
+    const o = sp.objects[oid];
+    if (!o) return;
+    const types = (o.lastRecord?.any?.types) || o.types || [];
+    if (!types.includes(CHAT_TYPE_ID)) return;
+
+    const list = document.getElementById('chat-messages-' + cssEsc(oid));
+    if (!list) return;
+    scrollChatToBottom(list);
+
+    // Restore any in-flight compose text the user typed before the
+    // last re-render, so live updates don't eat their draft.
+    const ta = document.getElementById('chat-input-' + cssEsc(oid));
+    if (ta && o.chatComposing) {
+      ta.value = o.chatComposing;
+      autosizeTextarea(ta);
+    }
+    if (ta) {
+      ta.addEventListener('input', () => {
+        o.chatComposing = ta.value;
+        autosizeTextarea(ta);
+      });
+      ta.addEventListener('keydown', (e) => {
+        // Enter sends, Shift+Enter inserts a newline. Mirrors every
+        // other chat client's compose behavior.
+        if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          ta.dispatchEvent(new CustomEvent('chat-submit', { bubbles: true }));
+        }
+      });
+    }
+
+    const path = '/v1/spaces/' + encodeURIComponent(sp.info.id) +
+      '/objects/' + encodeURIComponent(oid) +
+      '/subscribe?dataset=' + encodeURIComponent(CHAT_DATASET);
+    let firstReady = true;
+    const es = new EventSource(path);
+    es.addEventListener('ready', () => {
+      // First `ready` lands during the initial mount; the page-data
+      // fetch already populated o.chatMessages, so don't double-load.
+      // Subsequent `ready` frames mean EventSource auto-reconnected
+      // after a transport drop — re-fetch in case events landed
+      // during the gap.
+      if (firstReady) { firstReady = false; return; }
+      refreshChatMessages(sp.info.id, oid).catch(() => {});
+    });
+    es.addEventListener('changes', () => {
+      // Re-fetch and re-render the message list. We don't trust the
+      // SSE frame's payload to carry message bodies — it's a routing
+      // tuple by design.
+      refreshChatMessages(sp.info.id, oid).catch(() => {});
+    });
+    es.addEventListener('closed', () => { es.close(); });
+    activeChat = { es, spaceId: sp.info.id, objectId: oid };
+  }
+  function unmountChat() {
+    if (activeChat) {
+      try { activeChat.es.close(); } catch (e) {}
+      activeChat = null;
+    }
+  }
+
+  async function refreshChatMessages(spaceId, objectId) {
+    const sp = App.spaces[spaceId];
+    const o = sp?.objects[objectId];
+    if (!o) return;
+    await loadChatMessages(spaceId, objectId);
+    const list = document.getElementById('chat-messages-' + cssEsc(objectId));
+    if (!list) return;
+    list.innerHTML = renderChatMessagesList(o);
+    scrollChatToBottom(list);
+  }
+
+  function scrollChatToBottom(list) {
+    // Defer to the next frame so any newly-appended children have
+    // contributed their height to scrollHeight.
+    requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+
+  function autosizeTextarea(ta) {
+    ta.style.height = 'auto';
+    const h = Math.min(ta.scrollHeight, 160);
+    ta.style.height = h + 'px';
+  }
+
+  function renderChatSection(o) {
+    return '<section class="card chat-card">' +
+      '<header><h3>chat</h3>' +
+        '<div class="row" style="gap:6px">' +
+          '<button class="ghost" data-act="chat-reload" data-id="' + escapeHTML(o.id) + '">reload</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        '<div class="chat-messages" id="chat-messages-' + escapeHTML(o.id) + '">' +
+          renderChatMessagesList(o) +
+        '</div>' +
+        '<div class="chat-compose">' +
+          '<textarea id="chat-input-' + escapeHTML(o.id) + '" ' +
+            'placeholder="message (markdown · Enter to send · Shift+Enter newline)" ' +
+            'data-input="chat-text" data-id="' + escapeHTML(o.id) + '"></textarea>' +
+          '<button data-act="chat-send" data-id="' + escapeHTML(o.id) + '">send</button>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderChatMessagesList(o) {
+    const messages = Array.isArray(o.chatMessages) ? o.chatMessages : null;
+    if (messages === null) {
+      return '<div class="chat-loading">loading…</div>';
+    }
+    if (messages.length === 0) {
+      return '<div class="chat-empty">no messages yet — type below to start.</div>';
+    }
+    return messages.map(m => renderChatMessage(o, m)).join('');
+  }
+
+  function renderChatMessage(o, m) {
+    const own = m.creator && App.accountId && m.creator === App.accountId;
+    const author = own ? 'you' : shortId(m.creator || '');
+    const ts = m.createdAt ? new Date(m.createdAt * 1000) : null;
+    const tsLabel = ts ? ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const edited = m.modifiedAt && m.modifiedAt > m.createdAt;
+
+    const reactions = m.reactions || {};
+    const reactionEntries = Object.entries(reactions);
+    const reactionsHTML = reactionEntries.length === 0 ? '' :
+      '<div class="reactions">' +
+        reactionEntries.map(([emoji, ids]) => {
+          const mine = Array.isArray(ids) && ids.includes(App.accountId);
+          return '<button class="reaction-chip' + (mine ? ' mine' : '') + '" ' +
+            'data-act="chat-react" data-id="' + escapeHTML(o.id) +
+            '" data-msg="' + escapeHTML(m.id) +
+            '" data-emoji="' + escapeHTML(emoji) + '" ' +
+            'title="' + escapeHTML((ids || []).join(', ')) + '">' +
+            escapeHTML(emoji) +
+            '<span class="count">' + (ids || []).length + '</span>' +
+          '</button>';
+        }).join('') +
+      '</div>';
+
+    const quickReactionsHTML =
+      '<span class="quick-react">' +
+        CHAT_QUICK_REACTIONS.map(emoji =>
+          '<button data-act="chat-react" data-id="' + escapeHTML(o.id) +
+            '" data-msg="' + escapeHTML(m.id) +
+            '" data-emoji="' + escapeHTML(emoji) + '" title="react">' +
+            escapeHTML(emoji) +
+          '</button>'
+        ).join('') +
+      '</span>';
+
+    const ownActions = own ?
+      '<button data-act="chat-edit" data-id="' + escapeHTML(o.id) +
+        '" data-msg="' + escapeHTML(m.id) + '" title="edit">✎</button>' +
+      '<button data-act="chat-delete" data-id="' + escapeHTML(o.id) +
+        '" data-msg="' + escapeHTML(m.id) + '" title="delete">🗑</button>' : '';
+
+    return '<div class="chat-msg' + (own ? ' own' : '') + '">' +
+      '<div class="meta">' +
+        '<span class="author">' + escapeHTML(author) + '</span>' +
+        '<span class="ts" title="' + escapeHTML(ts ? ts.toISOString() : '') + '">' +
+          escapeHTML(tsLabel) +
+        '</span>' +
+        (edited ? '<span class="edited">edited</span>' : '') +
+        '<span class="actions">' + quickReactionsHTML + ownActions + '</span>' +
+      '</div>' +
+      '<div class="text">' + escapeHTML(m.text || '') + '</div>' +
+      reactionsHTML +
+    '</div>';
+  }
 
   // ---------- render: dispatcher ----------
   function render() {
@@ -1459,6 +1800,7 @@
     if (r.name === 'object-edit') {
       main.innerHTML = renderObjectEditPage(sp, r.objectId);
       mountEditorForObject(sp, r.objectId);
+      mountChatForObject(sp, r.objectId);
       return;
     }
     let body, activeTab;
@@ -1778,8 +2120,11 @@
         '</div>' +
       '</details>';
 
+    const hasMd = boundIds.has(MD_TYPE_ID);
+    const hasChat = boundIds.has(CHAT_TYPE_ID);
+
     let mdSection = '';
-    if (boundIds.has(MD_TYPE_ID)) {
+    if (hasMd) {
       if (o.markdownContent === undefined) {
         mdSection =
           '<section class="card md-card"><header><h3>markdown</h3></header><div class="body" style="padding:12px">' +
@@ -1799,6 +2144,17 @@
             '</div>' +
           '</section>';
       }
+    }
+
+    const chatSection = hasChat ? renderChatSection(o) : '';
+
+    let bottomPane = '';
+    if (hasMd && hasChat) {
+      bottomPane = '<div class="obj-bottom-pane md-and-chat">' + mdSection + chatSection + '</div>';
+    } else if (hasMd) {
+      bottomPane = '<div class="obj-bottom-pane md-only">' + mdSection + '</div>';
+    } else if (hasChat) {
+      bottomPane = '<div class="obj-bottom-pane chat-only">' + chatSection + '</div>';
     }
 
     const typeBadges = (o.types || []).map(tid => {
@@ -1826,7 +2182,7 @@
         bindForm +
       '</div>' +
     '</section>' +
-    mdSection +
+    bottomPane +
     '<details class="raw"><summary>raw record (anyenc)</summary>' +
       '<pre>' + escapeHTML(prettyJSON(o.lastRecord)) + '</pre>' +
     '</details>';
@@ -1834,6 +2190,7 @@
 
   function renderObjectTypeSection(o, t, rec) {
     if (t.id === MD_TYPE_ID) return ''; // md has no editable props in v1
+    if (t.id === CHAT_TYPE_ID) return ''; // chat is rendered as its own panel
     if (t.id === NAV_TYPE_ID) return ''; // nav is managed by the left tree
     const tnode = rec[t.id] || {};
     const seen = new Set();
@@ -2140,6 +2497,17 @@
   }
 
   // ---------- click handlers ----------
+  // chat-submit fires when the textarea sees a bare Enter — re-route
+  // it through the same click pipeline that handles the send button
+  // so the action logic stays in one place.
+  document.addEventListener('chat-submit', (e) => {
+    const ta = e.target;
+    if (!ta || !ta.dataset || ta.dataset.input !== 'chat-text') return;
+    const id = ta.dataset.id;
+    const btn = document.querySelector('[data-act="chat-send"][data-id="' + cssEsc(id) + '"]');
+    if (btn) btn.click();
+  });
+
   document.addEventListener('click', async (e) => {
     const t = e.target;
     const ne = t.closest && t.closest('.netlog-entry');
@@ -2272,6 +2640,13 @@
               await loadMarkdown(spaceId, id);
             }
           }
+          if (tids.includes(CHAT_TYPE_ID)) {
+            const sp = App.spaces[spaceId];
+            const o2 = sp && sp.objects[id];
+            if (o2 && o2.chatMessages === undefined) {
+              await loadChatMessages(spaceId, id);
+            }
+          }
           // bindTypes may rewrite any.types — that doesn't change
           // tree position, but if the user binds nav explicitly we
           // want to surface fresh rows just in case.
@@ -2296,6 +2671,63 @@
           if (o3 && typeof o3.markdownContent === 'string') {
             editorSetValue(o3.markdownContent);
             toast('ok', 'reloaded');
+          }
+          break;
+        }
+        case 'chat-reload': {
+          await refreshChatMessages(spaceId, id);
+          toast('ok', 'reloaded');
+          break;
+        }
+        case 'chat-send': {
+          const ta = document.getElementById('chat-input-' + cssEsc(id));
+          const text = (ta?.value || '').trim();
+          if (!text) return;
+          const sp = App.spaces[spaceId];
+          const o4 = sp && sp.objects[id];
+          if (ta) ta.value = '';
+          if (o4) o4.chatComposing = '';
+          if (ta) autosizeTextarea(ta);
+          const sent = await sendChatMessage(spaceId, id, text, '');
+          if (!sent) {
+            // Restore the draft so the user doesn't lose what they
+            // typed when the server rejected the write.
+            if (ta) { ta.value = text; autosizeTextarea(ta); }
+            if (o4) o4.chatComposing = text;
+            return;
+          }
+          await refreshChatMessages(spaceId, id);
+          break;
+        }
+        case 'chat-edit': {
+          const msgId = t.dataset.msg;
+          const sp = App.spaces[spaceId];
+          const o5 = sp && sp.objects[id];
+          const cur = (o5?.chatMessages || []).find(m => m.id === msgId);
+          if (!cur) return;
+          const next = prompt('edit message', cur.text || '');
+          if (next === null) return;
+          const trimmed = next.trim();
+          if (!trimmed) { toast('err', 'empty edit ignored'); return; }
+          if (trimmed === cur.text) return;
+          const ok = await editChatMessage(spaceId, id, msgId, trimmed);
+          if (ok) await refreshChatMessages(spaceId, id);
+          break;
+        }
+        case 'chat-delete': {
+          const msgId = t.dataset.msg;
+          if (!confirm('delete this message?')) return;
+          if (await deleteChatMessage(spaceId, id, msgId)) {
+            await refreshChatMessages(spaceId, id);
+          }
+          break;
+        }
+        case 'chat-react': {
+          const msgId = t.dataset.msg;
+          const emoji = t.dataset.emoji;
+          if (!emoji) return;
+          if (await toggleChatReaction(spaceId, id, msgId, emoji)) {
+            await refreshChatMessages(spaceId, id);
           }
           break;
         }
