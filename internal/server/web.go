@@ -18,7 +18,9 @@ var uiIndexHTML []byte
 // Outside /v1/ on purpose — this is a debug surface, not part of the
 // API contract.
 func registerUIRoutes(e *echo.Echo) {
-	e.GET("/ui", func(c echo.Context) error {
+	h := func(c echo.Context) error {
 		return c.HTMLBlob(http.StatusOK, uiIndexHTML)
-	})
+	}
+	e.GET("/ui", h)
+	e.GET("/ui/", h)
 }
