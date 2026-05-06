@@ -208,16 +208,7 @@ func TestE2E_MultipeerInviteAccept(t *testing.T) {
 // order (the SDK's DataVersion gate parks ahead-of-schema changes until
 // the type definitions catch up). Asserts the joiner eventually reads
 // the property value owner wrote.
-//
-// SKIPPED today: empirically the joiner only sees builtin types
-// ([Any Markdown Chat Nav]) and zero user objects after 4 minutes of
-// staging headsync. Owner-created types/objects do not propagate
-// cross-peer in the current any-sync-sdk2 build. Re-enable after the
-// SDK ships shared-object enumeration / sync for joiners — we keep
-// the test code in tree as the executable spec of the intended
-// behaviour.
 func TestE2E_MultipeerCRDTConvergence(t *testing.T) {
-	t.Skip("user-created types/objects don't sync to joiners in the current SDK; see test comment")
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
 	}
