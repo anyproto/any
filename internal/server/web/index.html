@@ -93,7 +93,9 @@
   }
   aside .brand { padding: 16px; border-bottom: 1px solid var(--border); }
   aside .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
-  aside .brand .acct { margin-top: 4px; font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+  aside .brand .acct-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; }
+  aside .brand .acct-row .acct { flex: 1; font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+  aside .brand .acct-row .icon { padding: 0 6px; line-height: 18px; font-size: 12px; }
   aside .brand .health { margin-top: 6px; font: 11px var(--mono); color: var(--muted); }
   aside .brand .health.ok { color: var(--ok); }
   aside .brand .health.err { color: var(--err); }
@@ -534,8 +536,20 @@
 <aside class="sidebar">
   <div class="brand">
     <h1>any</h1>
-    <div class="acct" id="acct-id">—</div>
+    <div class="acct-row">
+      <div class="acct" id="acct-id">—</div>
+      <button class="ghost icon" id="btn-acct-edit" title="edit profile (PUT /v1/account/metadata)">✎</button>
+    </div>
     <div class="health" id="health">checking…</div>
+    <div class="form-toggle collapsed" id="form-acct-meta" style="margin-top:10px">
+      <div class="field"><label>name</label><input type="text" id="acct-name"></div>
+      <div class="field"><label>description</label><input type="text" id="acct-desc"></div>
+      <div class="field"><label>icon CID</label><input type="text" id="acct-icon" placeholder="bafy…"></div>
+      <div class="form-actions">
+        <button id="btn-acct-save">save</button>
+        <button class="ghost" id="btn-acct-cancel">cancel</button>
+      </div>
+    </div>
   </div>
 
   <div class="tree-head">
@@ -559,6 +573,7 @@
   <div class="space-picker">
     <select id="space-select" title="active space"></select>
     <button class="ghost icon" id="btn-new-space-toggle" title="new space">+</button>
+    <button class="ghost icon" id="btn-join-space-toggle" title="join via invite token">↧</button>
   </div>
   <div class="form-toggle collapsed" id="form-new-space">
     <div class="field"><label>name</label><input type="text" id="new-space-name" value="Demo"></div>
@@ -566,6 +581,14 @@
     <div class="form-actions">
       <button id="btn-new-space-create">create</button>
       <button class="ghost" id="btn-new-space-cancel">cancel</button>
+    </div>
+  </div>
+  <div class="form-toggle collapsed" id="form-join-space">
+    <div class="field"><label>invite token</label><textarea id="join-token" rows="3" placeholder="paste base58 token from `any invite create`"></textarea></div>
+    <div class="field"><label>your display name (optional)</label><input type="text" id="join-name"></div>
+    <div class="form-actions">
+      <button id="btn-join-space-go">join</button>
+      <button class="ghost" id="btn-join-space-cancel">cancel</button>
     </div>
   </div>
 
@@ -987,6 +1010,18 @@
     App.accountId = r.json.id;
     document.getElementById('acct-id').textContent = App.accountId;
   }
+
+  // updateAccountMetadata wraps PUT /v1/account/metadata. The SDK
+  // rejects empty bodies; the caller must include at least one of
+  // name / description / iconCid.
+  async function updateAccountMetadata(meta) {
+    const r = await api.put('/v1/account/metadata', meta);
+    if (!r.ok) {
+      const code = r.json?.error?.code || r.status;
+      throw new Error('PUT /v1/account/metadata (' + code + '): ' +
+        (r.json?.error?.message || r.body));
+    }
+  }
   function ensureSpace(id, info) {
     if (!App.spaces[id]) {
       App.spaces[id] = {
@@ -1367,6 +1402,91 @@
     navigate(spaceUrl(spaceId, 'objects', o.id));
   }
 
+  // ---------- members + invites ----------
+  // Members panel data is cached on App.spaces[id].sharing — populated
+  // by refreshMembers which fans out the three concurrent reads.
+  // Cache shape: { members: [...], requests: [...], invites: [...] }.
+  const SHARE_PERMS = ['none', 'reader', 'guest', 'writer', 'admin'];
+  async function refreshMembers(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return;
+    sp.sharing = sp.sharing || {};
+    sp.sharing.loading = true;
+    render();
+    try {
+      const [m, req, inv] = await Promise.all([
+        api.get('/v1/spaces/' + encodeURIComponent(spaceId) + '/members'),
+        api.get('/v1/spaces/' + encodeURIComponent(spaceId) + '/members/requests'),
+        api.get('/v1/spaces/' + encodeURIComponent(spaceId) + '/invites'),
+      ]);
+      sp.sharing = {
+        members:  (m.ok && m.json && m.json.members) || [],
+        requests: (req.ok && req.json && req.json.requests) || [],
+        invites:  (inv.ok && inv.json && inv.json.invites) || [],
+      };
+      if (!m.ok)   toast('err', 'members list failed', m.body);
+      if (!req.ok) toast('err', 'requests list failed', req.body);
+      if (!inv.ok) toast('err', 'invites list failed', inv.body);
+    } catch (e) {
+      toast('err', 'sharing refresh failed', e.message || String(e));
+    } finally {
+      if (sp.sharing) sp.sharing.loading = false;
+      render();
+    }
+  }
+  async function createInvite(spaceId) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/invites', null);
+    if (!r.ok) { toast('err', 'invite create failed', r.body); return null; }
+    toast('ok', 'invite created');
+    return r.json;
+  }
+  async function revokeInvite(spaceId, recordId) {
+    const r = await api.del('/v1/spaces/' + encodeURIComponent(spaceId) +
+      '/invites/' + encodeURIComponent(recordId));
+    if (!r.ok) { toast('err', 'revoke failed', r.body); return false; }
+    toast('ok', 'invite revoked'); return true;
+  }
+  async function revokeAllInvites(spaceId) {
+    const r = await api.del('/v1/spaces/' + encodeURIComponent(spaceId) + '/invites');
+    if (!r.ok) { toast('err', 'revoke-all failed', r.body); return false; }
+    toast('ok', 'all invites revoked'); return true;
+  }
+  async function aclAccept(spaceId, requestRecordId, permission) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/acl/accept',
+      { requestRecordId, permission });
+    if (!r.ok) { toast('err', 'accept failed', r.body); return false; }
+    toast('ok', 'accepted'); return true;
+  }
+  async function aclDecline(spaceId, identity) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/acl/decline',
+      { identity });
+    if (!r.ok) { toast('err', 'decline failed', r.body); return false; }
+    toast('ok', 'declined'); return true;
+  }
+  async function aclChangePermission(spaceId, identity, permission) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/acl/permissions',
+      { changes: [{ identity, permission }] });
+    if (!r.ok) { toast('err', 'change permission failed', r.body); return false; }
+    toast('ok', 'permission updated'); return true;
+  }
+  async function aclRemove(spaceId, identity) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/acl/remove',
+      { identities: [identity] });
+    if (!r.ok) { toast('err', 'remove failed', r.body); return false; }
+    toast('ok', 'member removed'); return true;
+  }
+  async function aclStopSharing(spaceId) {
+    const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/acl/stop-sharing', null);
+    if (!r.ok) { toast('err', 'stop-sharing failed', r.body); return false; }
+    toast('ok', 'sharing stopped'); return true;
+  }
+  async function joinSpace(token, name) {
+    const r = await api.post('/v1/spaces/join',
+      { inviteToken: token, metadata: name ? { name } : undefined });
+    if (!r.ok) { toast('err', 'join failed', r.body); return null; }
+    toast('ok', 'joined; pending owner approval'); return r.json;
+  }
+
   // ---------- router ----------
   // Hash routes parsed by parseHash:
   //   #/spaces/:id                   → space-objects
@@ -1374,9 +1494,10 @@
   //   #/spaces/:id/objects/:oid      → object-edit
   //   #/spaces/:id/types             → space-types
   //   #/spaces/:id/query             → space-query
+  //   #/spaces/:id/members           → space-members
   function parseHash() {
     const h = location.hash || '';
-    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
+    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query|members)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
     if (!m) return { name: 'home' };
     const spaceId = decodeURIComponent(m[1]);
     const section = m[2] || 'objects';
@@ -1387,6 +1508,7 @@
     }
     if (section === 'types') return { name: 'space-types', spaceId };
     if (section === 'query') return { name: 'space-query', spaceId };
+    if (section === 'members') return { name: 'space-members', spaceId };
     return { name: 'space-objects', spaceId, typeFilter: qs.get('type') || '' };
   }
   function spaceUrl(id, section, param) {
@@ -1426,6 +1548,10 @@
         loadTreeChildren(route.spaceId, id)
       ),
     ]);
+    if (route.name === 'space-members') {
+      await refreshMembers(route.spaceId).catch(() => {});
+      return;
+    }
     if (route.name === 'object-edit') {
       await loadObject(route.spaceId, route.objectId);
       const o = sp.objects[route.objectId];
@@ -1809,6 +1935,8 @@
         body = renderTypesPage(sp); activeTab = 'types'; break;
       case 'space-query':
         body = renderQueryPage(sp); activeTab = 'query'; break;
+      case 'space-members':
+        body = renderMembersPage(sp); activeTab = 'members'; break;
       case 'space-objects':
       default:
         body = renderObjectsPage(sp, r.typeFilter || ''); activeTab = 'objects';
@@ -1844,6 +1972,7 @@
       tab('objects', 'Objects') +
       tab('types', 'Types') +
       tab('query', 'Query') +
+      tab('members', 'Members') +
     '</div>';
   }
 
@@ -2079,6 +2208,169 @@
           '<button class="ghost" data-act="query-clear">clear results</button>' +
         '</div>' +
         recordsHTML +
+      '</div>' +
+    '</section>';
+  }
+
+  // ---------- page: members ----------
+  // Single page showing: own role + invite share, pending join requests
+  // (with accept/decline), active members (with permission dropdown +
+  // remove), and a stop-sharing big-red-button. The data source is
+  // App.spaces[id].sharing, refreshed on entry by ensurePageData.
+  function renderMembersPage(sp) {
+    const data = sp.sharing;
+    if (!data || data.loading) {
+      return '<section class="card"><header><h3>members</h3>' +
+        '<button class="ghost" data-act="sharing-refresh">refresh</button>' +
+        '</header><div class="body"><p style="color:var(--muted);font-size:13px;margin:4px 0">loading…</p></div></section>';
+    }
+    const ownRole = (sp.info && sp.info.ownRole) || '';
+    const isOwner = ownRole === 'owner';
+    const isAdmin = ownRole === 'admin' || isOwner;
+
+    return renderInvitesCard(sp, data, isAdmin) +
+      renderJoinRequestsCard(sp, data, isAdmin) +
+      renderMembersCard(sp, data, isAdmin) +
+      (isOwner ? renderDangerZoneCard() : '');
+  }
+
+  function renderInvitesCard(sp, data, isAdmin) {
+    const invites = data.invites || [];
+    const inviteRows = invites.length === 0
+      ? '<p style="color:var(--muted);font-size:12px;margin:4px 0">no active invites.</p>'
+      : invites.map(inv =>
+          '<div class="obj-row" style="cursor:default">' +
+            '<span class="name" style="font:12px var(--mono)">' + escapeHTML(inv.recordId) + '</span>' +
+            '<span class="row-meta">' +
+              '<span class="pill">' + escapeHTML(inv.permission || 'none') + '</span>' +
+              (isAdmin
+                ? ' <button class="ghost" data-act="invite-revoke" data-id="' + escapeHTML(inv.recordId) + '">revoke</button>'
+                : '') +
+            '</span>' +
+          '</div>'
+        ).join('');
+    const tokenBox = data.lastInviteToken
+      ? '<div class="form-toggle" style="margin-top:8px">' +
+          '<div class="field"><label>share this token (one-time display)</label>' +
+            '<textarea readonly rows="3">' + escapeHTML(data.lastInviteToken) + '</textarea>' +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<button class="ghost" data-act="invite-copy">copy to clipboard</button>' +
+            '<button class="ghost" data-act="invite-token-clear">close</button>' +
+          '</div>' +
+        '</div>'
+      : '';
+    return '<section class="card">' +
+      '<header><h3>invites</h3>' +
+        '<div class="row" style="gap:6px">' +
+          '<button class="ghost" data-act="sharing-refresh">refresh</button>' +
+          (isAdmin ? '<button data-act="invite-create">+ new invite</button>' : '') +
+          (isAdmin && invites.length > 0 ? '<button class="danger" data-act="invite-revoke-all">revoke all</button>' : '') +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        inviteRows +
+        tokenBox +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderJoinRequestsCard(sp, data, isAdmin) {
+    const reqs = data.requests || [];
+    if (!isAdmin && reqs.length === 0) return '';
+    const rows = reqs.length === 0
+      ? '<p style="color:var(--muted);font-size:12px;margin:4px 0">no pending requests.</p>'
+      : reqs.map(r => {
+          const display = r.name ? r.name : '(no name)';
+          const permPicker = isAdmin
+            ? '<select data-input="accept-perm:' + escapeHTML(r.recordId) + '">' +
+                SHARE_PERMS.map(p =>
+                  '<option value="' + escapeHTML(p) + '"' +
+                    (p === 'writer' ? ' selected' : '') + '>' + escapeHTML(p) + '</option>'
+                ).join('') +
+              '</select>'
+            : '';
+          const actions = isAdmin
+            ? '<button data-act="acl-accept" data-id="' + escapeHTML(r.recordId) + '">accept</button>' +
+              ' <button class="ghost" data-act="acl-decline" data-id="' + escapeHTML(r.identity) + '">decline</button>'
+            : '';
+          return '<div class="obj-row" style="cursor:default">' +
+            '<div>' +
+              '<div class="name">' + escapeHTML(display) + '</div>' +
+              '<div class="row-meta" style="margin-top:2px">' + escapeHTML(r.identity) + '</div>' +
+            '</div>' +
+            '<span class="row-meta">' + permPicker + ' ' + actions + '</span>' +
+          '</div>';
+        }).join('');
+    return '<section class="card">' +
+      '<header><h3>join requests</h3>' +
+        '<span class="pill">' + reqs.length + '</span>' +
+      '</header>' +
+      '<div class="body">' + rows + '</div>' +
+    '</section>';
+  }
+
+  function renderMembersCard(sp, data, isAdmin) {
+    const members = (data.members || []).slice().sort((a, b) => {
+      // Owners first, then by name/identity.
+      if ((a.permission === 'owner') !== (b.permission === 'owner')) {
+        return a.permission === 'owner' ? -1 : 1;
+      }
+      const an = (a.name || a.identity || '').toLowerCase();
+      const bn = (b.name || b.identity || '').toLowerCase();
+      return an.localeCompare(bn);
+    });
+    const rows = members.length === 0
+      ? '<p style="color:var(--muted);font-size:12px;margin:4px 0">no members.</p>'
+      : members.map(m => {
+          const display = m.name ? m.name : shortId(m.identity);
+          const isMe = m.identity === App.accountId;
+          const isMemberOwner = m.permission === 'owner';
+          // The dropdown is hidden for the owner row (cannot demote)
+          // and for non-active rows. Read-only viewers also see no
+          // dropdown.
+          const canEdit = isAdmin && !isMemberOwner && m.status === 'active';
+          const permPicker = canEdit
+            ? '<select data-input="member-perm:' + escapeHTML(m.identity) + '">' +
+                SHARE_PERMS.map(p =>
+                  '<option value="' + escapeHTML(p) + '"' +
+                    (p === m.permission ? ' selected' : '') + '>' + escapeHTML(p) + '</option>'
+                ).join('') +
+              '</select>'
+            : '<span class="pill">' + escapeHTML(m.permission || 'none') + '</span>';
+          const removeBtn = canEdit
+            ? ' <button class="danger" data-act="acl-remove" data-id="' + escapeHTML(m.identity) + '">remove</button>'
+            : '';
+          const applyBtn = canEdit
+            ? ' <button class="ghost" data-act="acl-grant" data-id="' + escapeHTML(m.identity) + '">apply</button>'
+            : '';
+          return '<div class="obj-row" style="cursor:default">' +
+            '<div>' +
+              '<div class="name">' + escapeHTML(display) +
+                (isMe ? ' <span class="pill">you</span>' : '') +
+                ' <span class="pill">' + escapeHTML(m.status || 'unknown') + '</span>' +
+              '</div>' +
+              '<div class="row-meta" style="margin-top:2px">' + escapeHTML(m.identity) + '</div>' +
+            '</div>' +
+            '<span class="row-meta">' + permPicker + applyBtn + removeBtn + '</span>' +
+          '</div>';
+        }).join('');
+    return '<section class="card">' +
+      '<header><h3>members</h3>' +
+        '<span class="pill">' + members.length + '</span>' +
+      '</header>' +
+      '<div class="body">' + rows + '</div>' +
+    '</section>';
+  }
+
+  function renderDangerZoneCard() {
+    return '<section class="card" style="border-color:var(--err)">' +
+      '<header><h3 style="color:var(--err)">danger zone</h3></header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          'stop-sharing drops every non-owner member, revokes every invite, and rotates the read key.' +
+        '</p>' +
+        '<button class="danger" data-act="acl-stop-sharing">stop sharing</button>' +
       '</div>' +
     '</section>';
   }
@@ -2731,6 +3023,72 @@
           }
           break;
         }
+        case 'sharing-refresh':
+          await refreshMembers(spaceId);
+          break;
+        case 'invite-create': {
+          const out = await createInvite(spaceId);
+          if (out) {
+            const sp = App.spaces[spaceId];
+            sp.sharing = sp.sharing || {};
+            sp.sharing.lastInviteToken = out.inviteToken;
+            await refreshMembers(spaceId);
+          }
+          break;
+        }
+        case 'invite-token-clear': {
+          const sp = App.spaces[spaceId];
+          if (sp && sp.sharing) sp.sharing.lastInviteToken = null;
+          render();
+          break;
+        }
+        case 'invite-copy': {
+          const sp = App.spaces[spaceId];
+          const tok = sp && sp.sharing && sp.sharing.lastInviteToken;
+          if (!tok) { toast('err', 'no token to copy'); break; }
+          try {
+            await navigator.clipboard.writeText(tok);
+            toast('ok', 'copied');
+          } catch (e) {
+            toast('err', 'copy failed', e.message || String(e));
+          }
+          break;
+        }
+        case 'invite-revoke': {
+          if (!confirm('revoke this invite?')) break;
+          if (await revokeInvite(spaceId, id)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'invite-revoke-all': {
+          if (!confirm('revoke every invite?')) break;
+          if (await revokeAllInvites(spaceId)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'acl-accept': {
+          const perm = val('[data-input="accept-perm:' + cssEsc(id) + '"]') || 'writer';
+          if (await aclAccept(spaceId, id, perm)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'acl-decline': {
+          if (await aclDecline(spaceId, id)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'acl-grant': {
+          const perm = val('[data-input="member-perm:' + cssEsc(id) + '"]');
+          if (!perm) { toast('err', 'pick a permission first'); break; }
+          if (await aclChangePermission(spaceId, id, perm)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'acl-remove': {
+          if (!confirm('remove ' + id + '? This rotates the read key.')) break;
+          if (await aclRemove(spaceId, id)) await refreshMembers(spaceId);
+          break;
+        }
+        case 'acl-stop-sharing': {
+          if (!confirm('stop sharing? this drops every non-owner and rotates the read key.')) break;
+          if (await aclStopSharing(spaceId)) await refreshMembers(spaceId);
+          break;
+        }
         case 'delete-space': {
           if (!confirm('delete space ' + (App.activeSpace().info.name || '') + '? (soft delete)')) return;
           if (await deleteSpace(spaceId)) { App.persist(); render(); }
@@ -2840,6 +3198,30 @@
     e.stopPropagation(); document.getElementById('netlog').classList.toggle('collapsed');
   });
 
+  // ---------- left-sidebar account profile editor ----------
+  document.getElementById('btn-acct-edit').addEventListener('click', () => toggle('#form-acct-meta'));
+  document.getElementById('btn-acct-cancel').addEventListener('click', () => toggle('#form-acct-meta'));
+  document.getElementById('btn-acct-save').addEventListener('click', async () => {
+    const name = document.getElementById('acct-name').value.trim();
+    const description = document.getElementById('acct-desc').value.trim();
+    const iconCid = document.getElementById('acct-icon').value.trim();
+    const meta = {};
+    if (name) meta.name = name;
+    if (description) meta.description = description;
+    if (iconCid) meta.iconCid = iconCid;
+    if (Object.keys(meta).length === 0) {
+      toast('err', 'at least one of name / description / icon CID required');
+      return;
+    }
+    try {
+      await updateAccountMetadata(meta);
+      toast('ok', 'profile updated');
+      toggle('#form-acct-meta');
+    } catch (e) {
+      toast('err', 'profile update failed', e.message);
+    }
+  });
+
   // ---------- right-sidebar space picker ----------
   document.getElementById('btn-new-space-toggle').addEventListener('click', () => toggle('#form-new-space'));
   document.getElementById('btn-new-space-cancel').addEventListener('click', () => toggle('#form-new-space'));
@@ -2852,6 +3234,22 @@
       toggle('#form-new-space');
       App.persist();
       navigate(spaceUrl(created.id, 'objects'));
+    }
+  });
+  document.getElementById('btn-join-space-toggle').addEventListener('click', () => toggle('#form-join-space'));
+  document.getElementById('btn-join-space-cancel').addEventListener('click', () => toggle('#form-join-space'));
+  document.getElementById('btn-join-space-go').addEventListener('click', async () => {
+    const token = document.getElementById('join-token').value.trim();
+    const name  = document.getElementById('join-name').value.trim();
+    if (!token) { toast('err', 'invite token required'); return; }
+    const joined = await joinSpace(token, name);
+    if (joined) {
+      ensureSpace(joined.id, joined);
+      toggle('#form-join-space');
+      App.persist();
+      // Pending join requests sit at status=joining until owner accepts;
+      // either way drop into the new space's view.
+      navigate(spaceUrl(joined.id, 'objects'));
     }
   });
   document.getElementById('space-select').addEventListener('change', (e) => {

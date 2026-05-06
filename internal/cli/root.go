@@ -49,6 +49,11 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newStopCmd(),
 		newSubscribeCmd(),
 		newChatCmd(),
+		newAccountCmd(),
+		newMembersCmd(),
+		newInviteCmd(),
+		newJoinCmd(),
+		newACLCmd(),
 		newVersionCmd(),
 	)
 	return root

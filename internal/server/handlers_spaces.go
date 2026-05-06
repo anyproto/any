@@ -18,8 +18,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 
+	g.POST("/spaces/join", d.spaceJoin)
 	// Space lifecycle the SDK exposes but doesn't implement yet.
-	g.POST("/spaces/join", notImplemented("Spaces.Join"))
 	g.POST("/spaces/derive", notImplemented("Spaces.Derive"))
 	g.POST("/spaces/one-to-one", notImplemented("Spaces.OneToOne"))
 
@@ -63,16 +63,30 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", notImplemented("Properties.AttachType"))
 	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", notImplemented("Properties.DetachType"))
 
-	// Members + ACL — Space.Members()/ACL() return nil today.
-	g.GET("/spaces/:spaceId/members", notImplemented("Members.List"))
-	g.GET("/spaces/:spaceId/members/:identity", notImplemented("Members.Get"))
-	g.POST("/spaces/:spaceId/acl/invite", notImplemented("ACL.Invite"))
-	g.POST("/spaces/:spaceId/acl/accept", notImplemented("ACL.Accept"))
-	g.POST("/spaces/:spaceId/acl/decline", notImplemented("ACL.Decline"))
-	g.POST("/spaces/:spaceId/acl/remove", notImplemented("ACL.Remove"))
-	g.POST("/spaces/:spaceId/acl/permissions", notImplemented("ACL.Permissions"))
-	g.POST("/spaces/:spaceId/acl/ownership", notImplemented("ACL.Ownership"))
-	g.POST("/spaces/:spaceId/acl/self-remove", notImplemented("ACL.SelfRemove"))
+	// Members. Static segments before the :identity wildcard so /me and
+	// /requests don't get swallowed by the param matcher.
+	g.GET("/spaces/:spaceId/members", d.memberList)
+	g.GET("/spaces/:spaceId/members/me", d.memberMe)
+	g.GET("/spaces/:spaceId/members/requests", d.memberJoinRequests)
+	g.GET("/spaces/:spaceId/members/:identity", d.memberGet)
+
+	// Invites — owner/admin side mints + revokes; joiners use the
+	// /v1/spaces/join endpoint with the share-friendly token.
+	g.POST("/spaces/:spaceId/invites", d.inviteCreate)
+	g.GET("/spaces/:spaceId/invites", d.inviteList)
+	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
+	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
+
+	// ACL — owner/admin operations on the membership state.
+	g.POST("/spaces/:spaceId/acl/accept", d.aclAccept)
+	g.POST("/spaces/:spaceId/acl/decline", d.aclDecline)
+	g.POST("/spaces/:spaceId/acl/permissions", d.aclChangePermissions)
+	g.POST("/spaces/:spaceId/acl/remove", d.aclRemove)
+	g.POST("/spaces/:spaceId/acl/add", d.aclAdd)
+	g.POST("/spaces/:spaceId/acl/ownership", d.aclOwnership)
+	g.POST("/spaces/:spaceId/acl/self-remove", d.aclSelfRemove)
+	g.POST("/spaces/:spaceId/acl/cancel-join", d.aclCancelJoin)
+	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing)
 
 	// Sync status — Space.SyncStatus() returns nil today.
 	g.GET("/spaces/:spaceId/sync-status", notImplemented("SyncStatus.Space"))
