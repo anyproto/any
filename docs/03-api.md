@@ -29,7 +29,22 @@
 | Method | Path                         | Purpose                                |
 |--------|------------------------------|----------------------------------------|
 | GET    | `/v1/account`                | own id + metadata                      |
-| PUT    | `/v1/account/metadata`       | update own AccountMetadata             |
+| PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata`               |
+
+```json
+// PUT /v1/account/metadata
+{ "name":"Alice",
+  "description":"writer, reader, occasional debugger",
+  "iconCid":"bafy..." }
+// → 204
+```
+
+The SDK persists the bytes to the local tech-space and pushes them to
+identityRepo, so the new profile becomes visible in every space the
+caller is a member of without further per-space writes (read it back
+via `GET /v1/spaces/:id/members/me`). At least one of `name` /
+`description` / `iconCid` must be set; an all-empty body returns
+`400 request.missing_field`.
 
 ### Spaces
 
@@ -332,23 +347,142 @@ toggling at the same time can't corrupt each other. Response:
 { "reactions": { "👍": ["<id>"], "🎉": ["<id>"] } }
 ```
 
-### Members & ACL (routes present, handlers return 501 until SDK lands them)
+### Members
 
 | Method | Path                                                 | Purpose                            |
 |--------|------------------------------------------------------|------------------------------------|
-| GET    | `/v1/spaces/:spaceId/members`                        | members collection                 |
-| GET    | `/v1/spaces/:spaceId/members/:identity`              | one member                         |
-| POST   | `/v1/spaces/:spaceId/acl/invite`                     | create / replace invite            |
-| POST   | `/v1/spaces/:spaceId/acl/accept`                     | accept join request                |
-| POST   | `/v1/spaces/:spaceId/acl/decline`                    | decline join request               |
-| POST   | `/v1/spaces/:spaceId/acl/remove`                     | remove accounts                    |
-| POST   | `/v1/spaces/:spaceId/acl/permissions`                | change permissions                 |
-| POST   | `/v1/spaces/:spaceId/acl/ownership`                  | ownership transfer                 |
-| POST   | `/v1/spaces/:spaceId/acl/self-remove`                | self-remove                        |
+| GET    | `/v1/spaces/:spaceId/members`                        | `MembersAPI.List`                  |
+| GET    | `/v1/spaces/:spaceId/members/me`                     | `MembersAPI.Me`                    |
+| GET    | `/v1/spaces/:spaceId/members/requests`               | `MembersAPI.JoinRequests`          |
+| GET    | `/v1/spaces/:spaceId/members/:identity`              | `MembersAPI.Get`                   |
 
-Registering these now keeps the CLI buildable and discoverable; the
-handlers short-circuit with `501 Not Implemented` + error code
-`sdk.not_implemented` while the SDK placeholders are empty.
+Static path segments (`/me`, `/requests`) are registered before the
+`:identity` wildcard so they don't get swallowed. The `Member` wire
+shape mirrors `space.Member` 1:1; both `permission` and `status` are
+strings (see "Permission / status strings" below). `requestRecordId`
+is non-empty only on a pending-request entry — pass it to
+`POST /v1/spaces/:id/acl/accept`.
+
+```json
+// GET /v1/spaces/:id/members
+{
+  "members": [
+    { "identity":"A6ux…",
+      "permission":"owner",
+      "status":"active",
+      "name":"Alice",
+      "iconCid":"…" }
+  ]
+}
+```
+
+### Invites
+
+| Method | Path                                                 | Purpose                            |
+|--------|------------------------------------------------------|------------------------------------|
+| POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — replaces any prior invite |
+| GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
+| DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
+| DELETE | `/v1/spaces/:spaceId/invites/:recordId`              | `ACL.RevokeInvite`                 |
+| POST   | `/v1/spaces/join`                                    | `Service.Join` — body carries the share token |
+
+Mint:
+
+```json
+// POST /v1/spaces/:id/invites
+// → 201
+{ "spaceId":"bafyrei…", "inviteToken":"5ZHbdx…" }
+```
+
+`inviteToken` is a base58-packed `(spaceId, invitePrivKey)` produced
+by `space.EncodeInvite`. Owners share this string out-of-band; joiners
+pass it back verbatim:
+
+```json
+// POST /v1/spaces/join
+{ "inviteToken":"5ZHbdx…",
+  "metadata":{ "name":"Bob","iconCid":"…" } }
+// → 202 {SpaceInfo}      (RequestToJoin: status="joining" until owner accepts)
+// → 201 {SpaceInfo}      (AnyoneCanJoin: deferred — never returned in v1)
+```
+
+In the v1 RequestToJoin flow `Service.Join` returns 202: the SDK has
+posted the join request, written a `joining` index entry, and the
+joiner now polls `GET /v1/spaces/:id/members/me` for the status flip
+to `active` after the owner accepts.
+
+Listing returns one entry per active invite record — pass `recordId`
+to the DELETE path to revoke a single invite, or DELETE the parent
+collection to revoke all in one batch.
+
+### ACL operations
+
+| Method | Path                                                 | Purpose                                    |
+|--------|------------------------------------------------------|--------------------------------------------|
+| POST   | `/v1/spaces/:spaceId/acl/accept`                     | `ACL.AcceptRequest` — grants permission    |
+| POST   | `/v1/spaces/:spaceId/acl/decline`                    | `ACL.DeclineRequest`                       |
+| POST   | `/v1/spaces/:spaceId/acl/permissions`                | `ACL.ChangePermissions` — batched          |
+| POST   | `/v1/spaces/:spaceId/acl/remove`                     | `ACL.RemoveAccounts` — rotates read key    |
+| POST   | `/v1/spaces/:spaceId/acl/add`                        | `ACL.AddAccounts` — server-side flow       |
+| POST   | `/v1/spaces/:spaceId/acl/ownership`                  | `ACL.OwnershipChange`                      |
+| POST   | `/v1/spaces/:spaceId/acl/self-remove`                | `ACL.RequestSelfRemove`                    |
+| POST   | `/v1/spaces/:spaceId/acl/cancel-join`                | `ACL.CancelJoinRequest`                    |
+| POST   | `/v1/spaces/:spaceId/acl/stop-sharing`               | `ACL.StopSharing` — drops everyone, rotates|
+
+Bodies (every successful op returns `204 No Content`):
+
+```json
+// POST /v1/spaces/:id/acl/accept
+{ "requestRecordId":"bafy…", "permission":"writer" }
+
+// POST /v1/spaces/:id/acl/decline
+{ "identity":"A6ux…" }
+
+// POST /v1/spaces/:id/acl/permissions
+{ "changes":[
+  { "identity":"A6ux…", "permission":"reader" },
+  { "identity":"BcdE…", "permission":"admin"  }
+] }
+
+// POST /v1/spaces/:id/acl/remove
+{ "identities":[ "A6ux…", "BcdE…" ] }
+
+// POST /v1/spaces/:id/acl/add
+{ "accounts":[
+  { "identity":"A6ux…", "permission":"writer",
+    "metadata":{"name":"Alice"} }
+] }
+
+// POST /v1/spaces/:id/acl/ownership
+{ "newOwner":"A6ux…", "oldOwnerPerm":"admin" }
+```
+
+`self-remove`, `cancel-join`, and `stop-sharing` take no body.
+
+#### Permission / status strings
+
+| Wire string | `space.Permission` |
+|-------------|--------------------|
+| `none`      | `PermissionNone`   |
+| `reader`    | `PermissionReader` |
+| `guest`     | `PermissionGuest`  |
+| `writer`    | `PermissionWriter` |
+| `admin`     | `PermissionAdmin`  |
+| `owner`     | `PermissionOwner`  |
+
+| Wire string | `space.MemberStatus`     |
+|-------------|--------------------------|
+| `unknown`   | `MemberStatusUnknown`    |
+| `joining`   | `MemberStatusJoining`    |
+| `active`    | `MemberStatusActive`     |
+| `removed`   | `MemberStatusRemoved`    |
+| `declined`  | `MemberStatusDeclined`   |
+| `removing`  | `MemberStatusRemoving`   |
+| `canceled`  | `MemberStatusCanceled`   |
+
+Unknown values on the wire return `400 request.schema`. Member-event
+SSE is **not** wired in v1 — clients refresh by re-`GET`-ing the
+collection after a write.
 
 ### Sync status (routes present, handlers return 501 until SDK lands it)
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Two implementation slices landed:
+Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
@@ -29,7 +29,29 @@ Two implementation slices landed:
    down. CLI: `any subscribe SPACE OBJ --dataset NAME` /
    `any subscribe SPACE --properties` — one JSON line per frame on stdout.
    Wire format and contract in `docs/03-api.md` § Subscribe and `docs/04-events.md`.
-5. **Chat built-in type** — `internal/chat` registers a `handler.Type`
+5. **Members + invites + ACL over HTTP** — `Space.Members()` and
+   `Space.ACL()` are now wired through. New handlers in
+   `internal/server/handlers_members.go`, `handlers_invites.go`,
+   `handlers_acl.go` expose:
+   - `GET /v1/spaces/:id/members[/me|/requests|/:identity]`
+   - `POST/GET/DELETE /v1/spaces/:id/invites[/:recordId]`
+   - `POST /v1/spaces/join` (Service.Join — body carries the share token)
+   - `POST /v1/spaces/:id/acl/{accept,decline,permissions,remove,add,
+     ownership,self-remove,cancel-join,stop-sharing}`
+   Permission/status enums map onto wire strings via
+   `parsePermission` / `memberStatusString` /
+   `spacePermissionString` (handlers_acl_common.go,
+   handlers_spaces.go). Mint returns the share-friendly token
+   (`space.EncodeInvite`); the joiner pastes the same string back to
+   `/v1/spaces/join`. Static path segments (`/me`, `/requests`) are
+   registered before the `:identity` wildcard so they don't get
+   swallowed. CLI: `any members ...` / `any invite ...` / `any join` /
+   `any acl ...`. Web UI: new "Members" tab with invite-mint /
+   members-list / join-requests / per-member permission picker /
+   stop-sharing; sidebar gets a "join via invite" form. Body
+   validation runs before resolveSpace so 400s don't pay for a space
+   lookup.
+6. **Chat built-in type** — `internal/chat` registers a `handler.Type`
    for per-object `chat_messages` records. Endpoints under
    `/v1/spaces/:id/objects/:objectId/messages` cover send/list/edit/delete;
    `…/messages/:msgId/reactions/:emoji` is a toggle. Reactions are

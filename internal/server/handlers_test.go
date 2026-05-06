@@ -194,6 +194,51 @@ func TestServer_SpaceCreate_BadJSON(t *testing.T) {
 	}
 }
 
+// TestServer_AccountUpdateMetadata exercises PUT /v1/account/metadata.
+// Hits identityRepo on the staging network on the happy path; the
+// validation cases avoid the SDK entirely.
+func TestServer_AccountUpdateMetadata(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	t.Run("happy path", func(t *testing.T) {
+		body := `{"name":"Alice","description":"writer, reader, occasional debugger","iconCid":"bafyfake"}`
+		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", body)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204; body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("bad json", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", "{not json")
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if env.Error.Code != "request.bad_json" {
+			t.Errorf("code = %q, want request.bad_json", env.Error.Code)
+		}
+	})
+
+	t.Run("all fields empty", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPut, "/v1/account/metadata", `{}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if env.Error.Code != "request.missing_field" {
+			t.Errorf("code = %q, want request.missing_field", env.Error.Code)
+		}
+	})
+}
+
 func TestServer_NotImplementedRoutes(t *testing.T) {
 	// This test runs without booting the SDK — the 501 handlers don't
 	// touch deps.sdk. Skipping the staging precondition lets this run on
@@ -202,16 +247,12 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 	e := buildEcho(d)
 
 	cases := []struct{ method, path string }{
-		{http.MethodPut, "/v1/account/metadata"},
-		{http.MethodPost, "/v1/spaces/join"},
 		{http.MethodPost, "/v1/spaces/derive"},
 		{http.MethodPost, "/v1/spaces/one-to-one"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1/properties/p1"},
 		{http.MethodPatch, "/v1/spaces/spc/types/t1/properties/p1"},
 		{http.MethodPost, "/v1/spaces/spc/properties/o1/account/t1"},
-		{http.MethodGet, "/v1/spaces/spc/members"},
-		{http.MethodPost, "/v1/spaces/spc/acl/invite"},
 		{http.MethodGet, "/v1/spaces/spc/sync-status"},
 	}
 	for _, tc := range cases {

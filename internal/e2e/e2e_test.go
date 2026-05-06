@@ -83,6 +83,19 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("PUT /v1/account/metadata", func(t *testing.T) {
+		body := `{"name":"E2E","description":"smoke","iconCid":"bafyfake"}`
+		mustStatus(t, http.MethodPut, base+"/v1/account/metadata", body, http.StatusNoContent)
+
+		// All fields empty → 400 request.missing_field.
+		var env map[string]any
+		mustJSON(t, http.MethodPut, base+"/v1/account/metadata", `{}`, http.StatusBadRequest, &env)
+		errObj, _ := env["error"].(map[string]any)
+		if errObj["code"] != "request.missing_field" {
+			t.Errorf("empty body code = %v, want request.missing_field", errObj["code"])
+		}
+	})
+
 	t.Run("GET /v1/spaces empty", func(t *testing.T) {
 		var list map[string]any
 		mustJSON(t, http.MethodGet, base+"/v1/spaces", "", http.StatusOK, &list)
@@ -200,16 +213,12 @@ func TestE2E_FullFlow(t *testing.T) {
 
 	t.Run("501 routes", func(t *testing.T) {
 		cases := []struct{ method, path string }{
-			{http.MethodPut, "/v1/account/metadata"},
-			{http.MethodPost, "/v1/spaces/join"},
 			{http.MethodPost, "/v1/spaces/derive"},
 			{http.MethodPost, "/v1/spaces/one-to-one"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPost, "/v1/spaces/" + spaceID + "/properties/o1/account/t1"},
-			{http.MethodGet, "/v1/spaces/" + spaceID + "/members"},
-			{http.MethodPost, "/v1/spaces/" + spaceID + "/acl/invite"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status"},
 		}
 		for _, tc := range cases {
