@@ -38,6 +38,8 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		return nil, fmt.Errorf("unknown storage topology %q", cfg.Storage.Topology)
 	}
 
+	cfg.Log.ApplyGlobal()
+
 	sdkCfg := sdkconfig.Config{
 		Storage: sdkconfig.Storage{
 			DataDir:  filepath.Join(dataDir, "sdk"),
@@ -45,7 +47,6 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		},
 		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
-		Log:     cfg.Log,
 		// Hardcoded types this server adds on top of the SDK's
 		// built-ins. Each entry registers its handler(s) with every
 		// per-object Controller, so writes targeting the type's

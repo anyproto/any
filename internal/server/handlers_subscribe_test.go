@@ -81,9 +81,6 @@ func TestServer_SubscribeObject_Lifecycle(t *testing.T) {
 	if batch[0].SpaceId != spaceId || batch[0].ObjectId != objectId || batch[0].Dataset != "objects" {
 		t.Errorf("event tuple = %+v, want (%s,%s,objects)", batch[0], spaceId, objectId)
 	}
-	if batch[0].AddSeq == 0 {
-		t.Errorf("AddSeq should be non-zero, got %d", batch[0].AddSeq)
-	}
 
 	streamCancel()
 	select {

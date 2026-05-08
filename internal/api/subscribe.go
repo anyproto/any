@@ -1,14 +1,56 @@
 package api
 
-// SubscribeEvent is the data payload of an SSE `event: change` frame.
-// Mirrors space.Event 1:1 — routing tuple plus AddSeq, no per-record
-// delta. Consumers re-Query for current state when they need a richer
-// view.
+import "encoding/json"
+
+// SubscribeEvent is the data payload of an SSE `event: changes` frame.
+// Mirrors space.Event 1:1.
+//
+//   - VersionId is the per-change DAG order. Clients running the
+//     subscribe-then-query-then-apply pattern compare this against
+//     `_ver.<field>` on the queried record (or `_ver.id` for the
+//     record-level marker) to decide whether the snapshot already
+//     covers the event.
+//
+//   - Records carries the post-apply effect of the change projected
+//     to a flat list of $set / $unset ops per record. The SDK has
+//     already merged with full CRDT semantics; what ships is the
+//     resulting field-level patch, so a thin client without a CRDT
+//     engine can apply Records directly to a JSON-shaped local copy.
+//     A record with Deleted=true means "drop this id from your local
+//     state"; Ops is empty in that case.
 type SubscribeEvent struct {
-	SpaceId  string `json:"spaceId"`
-	ObjectId string `json:"objectId"`
-	Dataset  string `json:"dataset"`
-	AddSeq   uint64 `json:"addSeq"`
+	SpaceId   string                 `json:"spaceId"`
+	ObjectId  string                 `json:"objectId"`
+	Dataset   string                 `json:"dataset"`
+	VersionId string                 `json:"versionId"`
+	Records   []SubscribeEventRecord `json:"records,omitempty"`
+}
+
+// SubscribeEventRecord is one record's worth of projected change inside
+// a SubscribeEvent. Id is the record id within Dataset (for shared
+// per-space datasets like "objects" this equals SubscribeEvent.ObjectId).
+// Variant is empty for the canonical record; non-empty for sibling
+// variants (account / device property records). Deleted=true means the
+// change tombstoned the record — drop it locally; Ops is empty.
+type SubscribeEventRecord struct {
+	Id      string             `json:"id"`
+	Variant string             `json:"variant,omitempty"`
+	Deleted bool               `json:"deleted,omitempty"`
+	Ops     []SubscribeEventOp `json:"ops,omitempty"`
+}
+
+// SubscribeEventOp is one $set or $unset op inside an EventRecord. The
+// SDK only ever emits $set / $unset to subscribers — $inc / $addToSet
+// / $pull / $incGated are projected to the post-apply value before
+// delivery, so a thin client can apply Ops naively. Path is the
+// dotted-segment field path (empty Path on $set activates the
+// multi-field form: Payload is an object whose keys are dot-separated
+// paths). Payload is the JSON-shaped post-apply value for $set,
+// omitted for $unset.
+type SubscribeEventOp struct {
+	Type    string          `json:"type"`
+	Path    []string        `json:"path"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // SubscribeReady is the data payload of the initial `event: ready`

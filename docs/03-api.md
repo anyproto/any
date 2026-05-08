@@ -195,9 +195,11 @@ event: ready
 data: {}
 
 event: changes
-id: 47
-data: [{"spaceId":"...","objectId":"...","dataset":"objects","addSeq":42},
-       {"spaceId":"...","objectId":"...","dataset":"objects","addSeq":47}]
+data: [{"spaceId":"...","objectId":"...","dataset":"objects",
+        "versionId":"!!%>",
+        "records":[{"id":"...",
+                    "ops":[{"type":"$set","path":["typeId","propId"],
+                            "payload":"hello"}]}]}]
 
 event: lagged
 data: {"total": 3}
@@ -210,11 +212,18 @@ data: {"reason": "server_shutdown"}
 
 - `ready` is sent once after the SDK Subscribe call returns. Wait for
   it before treating the stream as live.
-- `changes` carries a JSON array of zero-or-more events. Wait
-  coalesces every event accumulated during the previous write into a
-  single frame, so a slow client / network produces fewer, larger
-  frames rather than head-of-line stalls. `id:` is the max `addSeq`
-  in the batch (preserves Last-Event-ID semantics for future resume).
+- `changes` carries a JSON array of zero-or-more events. Each event is
+  the routing tuple plus `versionId` (the per-change DAG order) and
+  `records` (the post-apply effect projected to a flat list of
+  `$set` / `$unset` ops per record — the SDK has already merged with
+  full CRDT semantics, so a thin client without a CRDT engine applies
+  `records[].ops` naively to a JSON-shaped local copy). A record with
+  `"deleted": true` means drop that id from local state; `ops` is empty.
+  Wait coalesces every event accumulated during the previous write
+  into a single frame, so a slow client / network produces fewer,
+  larger frames rather than head-of-line stalls. There is no SSE
+  `id:` — clients dedup by comparing `versionId` against the per-
+  field `_ver` stamps in their snapshot.
 - `lagged` is emitted before a `changes` frame whenever the SDK has
   dropped events for this subscriber (slow consumer hit the per-
   subscriber mailbox cap). `total` is the cumulative drop count.

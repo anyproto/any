@@ -10,8 +10,9 @@ contract clients must respect.
 
 We considered WebSocket, NDJSON, and SSE. SSE won on the v1 axis:
 
-- One-way is enough — `Event{SpaceId, ObjectId, Dataset, AddSeq}` flows
-  server → client; the client never pushes back into the subscription.
+- One-way is enough — `Event{SpaceId, ObjectId, Dataset, VersionId, Records}`
+  flows server → client; the client never pushes back into the
+  subscription.
 - Plain HTTP/1.1 — works through any HTTP middleware, debuggable with
   `curl -N`, no upgrade handshake or framing to write.
 - Auto-reconnect comes built-in to browser EventSource, which lines up
@@ -42,8 +43,17 @@ to the SSE endpoints, not a replacement.
    `closed{server_shutdown}` and `closed{sdk_closed}` as transient.
    A bare EOF without a `closed` frame is a transport problem (also
    reconnect, but log it).
-5. **No per-field deltas.** `Event` is a routing tuple plus AddSeq.
-   Re-Query for the current state of any record you care about.
+5. **Events carry a projected delta.** Each `Event` is `(spaceId,
+   objectId, dataset, versionId, records[])`. `versionId` is the
+   per-change DAG order — clients dedup buffered events against the
+   `_ver` stamps in their queried snapshot. `records[]` is the
+   post-apply effect of the change projected to a flat list of
+   `$set` / `$unset` ops per record (the SDK has already merged
+   with full CRDT semantics, so callers without a CRDT engine apply
+   `records[].ops` directly to a JSON-shaped local copy). A record
+   with `deleted: true` means drop the id; ops is empty. The SDK's
+   internal `AddSeq` (local-receive counter) is deliberately not on
+   the wire — versionId is the cross-peer primitive.
 
 ## Lifecycle / shutdown
 
@@ -77,10 +87,11 @@ whether to reconnect or just re-Query the dataset.
 
 ## Open / future
 
-- **Resume from `Last-Event-ID`.** The handler already emits `id:` as
-  the max AddSeq in each batch. Plumbing that into a resume API
-  requires SDK support (replay from a sequence id), which doesn't
-  exist yet.
+- **Resume from a versionId cursor.** When the SDK supports replay
+  from a per-record `versionId`, we can plumb that through as the
+  resume primitive — likely as a `?since=<versionId>` query on the
+  subscribe URL, with the server replaying changes whose versionId
+  sorts after `since` before transitioning to live events.
 - **Filtered subscriptions.** Today only `(objectId, dataset)` and the
   per-space firehose. If a UI needs a typed-property filter, layer it
   on top via `mb.WaitCond.WithFilter` server-side rather than rolling

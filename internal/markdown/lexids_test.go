@@ -118,6 +118,43 @@ func TestAllocate_DenseInsertions(t *testing.T) {
 	assert.Equal(t, "AAAB", got[len(got)-1])
 }
 
+// TestAllocate_FullReplaceDoesNotCollide locks the cross-peer write
+// bug where a Set that completely replaces the document (every old
+// block deleted, every new block inserted, no Keep/Update anchors)
+// previously generated lexids from lexidGen.Middle() — exactly the
+// same range owners use for the original blocks. With Set's apply
+// order being modify-then-delete and tombstones being sticky, that
+// collision turned the new blocks into tombstones on every peer; the
+// per-peer query returned [] even though the SDK reported successful
+// inserts. Allocator must seed past the highest unreused old lexid
+// so new ids and to-be-deleted ids stay on disjoint ranges.
+func TestAllocate_FullReplaceDoesNotCollide(t *testing.T) {
+	oldLex := []string{"PPPP", "PPQY"}
+	res := Diff(
+		[]string{"OWNER LINE 1", "OWNER LINE 2"},
+		[]string{"BOB EDIT 1", "BOB EDIT 2"},
+	)
+	// Sanity: with default similarity threshold this is delete-all +
+	// insert-all (the bug's trigger condition).
+	require.Equal(t, []int{0, 1}, res.Deletes)
+	require.Len(t, res.NewSeq, 2)
+	for i, op := range res.NewSeq {
+		require.Equal(t, OpInsert, op.Kind, "expected NewSeq[%d] to be Insert", i)
+	}
+
+	got, err := AllocateLexids(oldLex, res, "")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assertStrictlyMonotonic(t, got)
+	for _, newId := range got {
+		for _, oldId := range oldLex {
+			require.NotEqual(t, oldId, newId,
+				"new lexid %q collides with about-to-be-deleted oldLexid %q (would tombstone the just-inserted record)",
+				newId, oldId)
+		}
+	}
+}
+
 func assertStrictlyMonotonic(t *testing.T, ids []string) {
 	t.Helper()
 	for i := 1; i < len(ids); i++ {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/cheggaaa/mb/v3"
@@ -120,17 +119,22 @@ func (d *deps) streamSSE(c echo.Context, sub space.Subscription) error {
 	mailbox := sub.Mailbox()
 	var lastDropped uint64
 
-	for {
-		// One blocking Wait per iteration. mb.Wait returns every event
-		// queued at the moment a wake-up condition is satisfied, so
-		// bursts naturally coalesce into a single SSE frame.
-		batchCh := waitBatch(mailbox, waitCtx)
+	// One in-flight waiter at a time. The keepalive branch must NOT
+	// respawn — that would orphan the previous goroutine on
+	// mailbox.Wait(waitCtx), which only unblocks on event arrival or
+	// ctx cancel. With keepaliveInterval=25s an idle SSE stream
+	// would otherwise leak one goroutine per tick.
+	batchCh := waitBatch(mailbox, waitCtx)
 
+	for {
 		select {
 		case res := <-batchCh:
 			if res.err != nil {
 				return d.streamSSEFinish(w, res.err)
 			}
+			// Spawn the next waiter immediately so we don't miss
+			// events that land while we're writing this batch.
+			batchCh = waitBatch(mailbox, waitCtx)
 			if len(res.events) == 0 {
 				continue
 			}
@@ -197,29 +201,58 @@ func waitBatch(mailbox *mb.MB[space.Event], ctx context.Context) <-chan batchRes
 }
 
 // writeBatch emits the events as a single `event: changes` SSE frame
-// with the JSON body `[{event}, {event}, ...]`. The frame's id is the
-// max AddSeq in the batch — preserves Last-Event-ID semantics for
-// future resume support (SDK has no replay today; the id is still
-// useful as a per-stream high-water mark for tooling).
+// with the JSON body `[{event}, {event}, ...]`. No SSE `id:` line —
+// dedup uses the per-event VersionId in the payload compared against
+// the per-record `_ver` stamps in queried records, not a transport-
+// layer cursor.
 func writeBatch(w http.ResponseWriter, events []space.Event) error {
 	payload := make([]api.SubscribeEvent, len(events))
-	var maxSeq uint64
 	for i, ev := range events {
-		payload[i] = api.SubscribeEvent{
-			SpaceId:  ev.SpaceId,
-			ObjectId: ev.ObjectId,
-			Dataset:  ev.Dataset,
-			AddSeq:   ev.AddSeq,
-		}
-		if ev.AddSeq > maxSeq {
-			maxSeq = ev.AddSeq
-		}
+		payload[i] = subscribeEventToAPI(ev)
 	}
-	id := ""
-	if maxSeq > 0 {
-		id = strconv.FormatUint(maxSeq, 10)
+	return writeSSEEvent(w, "changes", "", payload)
+}
+
+// subscribeEventToAPI projects an SDK Event onto its wire shape.
+// Op.Payload is a *anyenc.Value — MarshalTo on that produces anyenc's
+// binary encoding (NOT JSON), so we route through FastJson(arena) to
+// get a *fastjson.Value whose MarshalTo emits real JSON. Records with
+// Deleted=true ship Ops empty; the consumer drops the record from its
+// local state.
+func subscribeEventToAPI(ev space.Event) api.SubscribeEvent {
+	out := api.SubscribeEvent{
+		SpaceId:   ev.SpaceId,
+		ObjectId:  ev.ObjectId,
+		Dataset:   ev.Dataset,
+		VersionId: string(ev.VersionId),
 	}
-	return writeSSEEvent(w, "changes", id, payload)
+	if len(ev.Records) == 0 {
+		return out
+	}
+	fa := getFastjsonArena()
+	defer putFastjsonArena(fa)
+	out.Records = make([]api.SubscribeEventRecord, len(ev.Records))
+	for i, rec := range ev.Records {
+		dst := api.SubscribeEventRecord{
+			Id:      rec.Id,
+			Variant: rec.Variant,
+			Deleted: rec.Deleted,
+		}
+		if !rec.Deleted && len(rec.Ops) > 0 {
+			dst.Ops = make([]api.SubscribeEventOp, len(rec.Ops))
+			for j, op := range rec.Ops {
+				dst.Ops[j] = api.SubscribeEventOp{
+					Type: string(op.Type),
+					Path: op.Path,
+				}
+				if op.Payload != nil {
+					dst.Ops[j].Payload = op.Payload.FastJson(fa).MarshalTo(nil)
+				}
+			}
+		}
+		out.Records[i] = dst
+	}
+	return out
 }
 
 // writeSSEEvent emits one SSE frame: an event line, an optional id
