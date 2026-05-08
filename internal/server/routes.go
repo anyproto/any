@@ -1,6 +1,9 @@
 package server
 
 import (
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
@@ -24,6 +27,8 @@ func buildEcho(d *deps) *echo.Echo {
 	registerSpaceRoutes(v1, d)
 
 	registerUIRoutes(e)
+
+	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
 
 	return e
 }

@@ -15,10 +15,24 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.PUT("/account/metadata", d.accountUpdateMetadata)
 }
 
+// accountGet handles GET /v1/account. Returns the account id plus the
+// locally-stored profile — read from the tech-space, so deterministic
+// across reboots and not subject to identityRepo connectivity. Empty
+// when no profile has ever been written on this device.
 func (d *deps) accountGet(c echo.Context) error {
-	return c.JSON(http.StatusOK, api.AccountResponse{
-		Id: d.sdk.Account().Id(),
-	})
+	resp := api.AccountResponse{Id: d.sdk.Account().Id()}
+	meta, present, err := d.sdk.Account().Metadata(c.Request().Context())
+	if err != nil {
+		return sdkOpError(c, err, nil)
+	}
+	if present && (meta.Name != "" || meta.Description != "" || meta.IconCID != "") {
+		resp.Metadata = &api.AccountMetadata{
+			Name:        meta.Name,
+			Description: meta.Description,
+			IconCID:     meta.IconCID,
+		}
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 // accountUpdateMetadata handles PUT /v1/account/metadata. Body is the

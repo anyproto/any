@@ -5,8 +5,22 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 )
+
+// ensureMembersWatcher starts the per-space members watcher if it
+// hasn't been already. The watcher is what fetches identityRepo
+// profiles (name / description / iconCid); without it, applyProfile
+// is a no-op and Members.Me/List/Get return raw ACL records with no
+// profile overlay. The SDK only starts the watcher lazily on
+// Subscribe / Query calls, so any HTTP route that wants profile data
+// has to nudge it explicitly. ensureWatcher is idempotent — second
+// and later calls return the running watcher in O(1).
+func ensureMembersWatcher(sp space.Space) {
+	_ = sp.Members().Query()
+}
 
 // memberList handles GET /v1/spaces/:spaceId/members.
 func (d *deps) memberList(c echo.Context) error {
@@ -14,6 +28,7 @@ func (d *deps) memberList(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	ensureMembersWatcher(sp)
 	members, err := sp.Members().List(c.Request().Context())
 	if err != nil {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -32,6 +47,7 @@ func (d *deps) memberMe(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	ensureMembersWatcher(sp)
 	me, err := sp.Members().Me(c.Request().Context())
 	if err != nil {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -73,6 +89,7 @@ func (d *deps) memberGet(c echo.Context) error {
 	if identity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identity required", nil)
 	}
+	ensureMembersWatcher(sp)
 	m, err := sp.Members().Get(c.Request().Context(), identity)
 	if err != nil {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id(), "identity": identity})

@@ -35,7 +35,8 @@ takes <objectId> + --dataset and opens an explicit (object, dataset) stream.
 Each SSE frame is emitted as a single JSON line on stdout:
 
   {"event": "ready",   "data": {}}
-  {"event": "changes", "data": [{"spaceId":"...","addSeq":42,...}]}
+  {"event": "changes", "data": [{"spaceId":"...","objectId":"...","dataset":"...",
+                                  "versionId":"!!%>","records":[{...}]},...]}
   {"event": "lagged",  "data": {"total": 3}}
   {"event": "closed",  "data": {"reason": "server_shutdown"}}
 `,

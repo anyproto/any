@@ -337,18 +337,24 @@ func (s *runningServer) stop(t *testing.T) {
 		return
 	default:
 	}
+	stopStart := time.Now()
 	if runtime.GOOS == "windows" {
 		_ = s.cmd.Process.Kill()
 	} else {
 		_ = s.cmd.Process.Signal(syscall.SIGTERM)
 	}
+	killed := false
 	select {
 	case <-s.done:
 	case <-time.After(15 * time.Second):
 		_ = s.cmd.Process.Kill()
 		<-s.done
+		killed = true
 	}
-	if t.Failed() {
+	if os.Getenv("ANY_E2E_DUMP") != "" {
+		t.Logf("stop took %s (killed=%v)", time.Since(stopStart), killed)
+	}
+	if t.Failed() || os.Getenv("ANY_E2E_DUMP") != "" {
 		t.Logf("server output:\n%s", s.out.String())
 	}
 }
