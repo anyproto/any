@@ -84,6 +84,11 @@ whether to reconnect or just re-Query the dataset.
   chat object and re-`list` when notified. The chat type is a plain
   `handler.Type` — no chat-specific subscribe endpoint, the generic
   primitive is enough.
+- **Blocks** — clients open `subscribe?dataset=body_blocks` against
+  an object and apply the projected `$set` / `$unset` ops directly
+  to a local block tree. The same events fire whether the change
+  came from a PATCH /blocks call or a bulk PUT /markdown rewrite —
+  markdown PUT becomes "bulk block ops" under the hood.
 
 ## Open / future
 

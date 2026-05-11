@@ -11,9 +11,9 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
+	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/markdown"
 )
 
 // OpenSDK boots the SDK against the wallet provider and the project
@@ -52,7 +52,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		// per-object Controller, so writes targeting the type's
 		// dataset(s) flow through the type's validation logic.
 		Types: []handler.Type{
-			markdown.NewType(),
+			editor.NewType(),
 			chat.NewType(),
 		},
 	}

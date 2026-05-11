@@ -183,11 +183,28 @@ Not this repo's work; gate on the SDK:
   instances. The existing `/v1/spaces/:id/query` keeps its body shape
   but its useful scope narrowed — it's now mainly for reading a type
   object's `properties` (definitions) dataset, since values moved.
-- **Markdown round-trip** — `GET /v1/spaces/:id/objects/:objectId/markdown`
-  and `PUT .../markdown` wired against `internal/markdown` (block-tree
-  diff against the existing record set, applied as a single `Modify`
-  batch). PUT response surfaces per-block `{inserted, updated, deleted,
-  unchanged}` counts so the editor can show what landed.
+- **Editor: atomic blocks + markdown bridge** — `internal/editor`
+  registers a `handler.Type` for the `body_blocks` dataset, one
+  record per block. Endpoints under
+  `/v1/spaces/:s/objects/:o/editor/blocks` cover
+  list / create / patch / delete; PATCH takes
+  `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
+  per-path `$set` / `$unset`. Per-block fields: `type`, open-ended
+  `style`, INLINE-markdown `text`, `nav.parentId`, `nav.pos` (lexid).
+  Block ids auto-derive from the change CID (same shape chat uses).
+  List returns DFS document order. Liveness reuses the generic
+  subscribe primitive with `dataset=body_blocks`. The markdown
+  surface moved into the same namespace — `GET/PUT /editor/markdown`
+  — and stayed (LLM tools and import/export flows depend on it); it
+  now operates over the same `body_blocks` dataset internally — GET
+  renders blocks → markdown; PUT parses markdown → diffs the block
+  tree → per-record create/update/delete. Same `{inserted, updated,
+  deleted, unchanged}` response shape; the ids in those slices are
+  block ids now, not lexids. Old `md_blocks` dataset is gone —
+  anything still pointing at it must move to `body_blocks`. Chat
+  routes moved alongside: `/v1/spaces/:id/objects/:objectId/chat/messages`
+  (same wire shape, namespaced path). CLI: `any editor blocks
+  list/create/patch/delete`.
 - **Two-step object delete** — `DELETE /v1/spaces/:id/objects/:objectId`
   now tombstones the row in the per-space `objects` collection
   *before* tearing down the any-sync tree (`handlers_objects.go`).
@@ -196,9 +213,10 @@ Not this repo's work; gate on the SDK:
   ghost row indefinitely.
 - **Chat built-in type** — `internal/chat` registers a `handler.Type`
   whose per-object `chat_messages` dataset stores one record per
-  message. Aggregating endpoints under `/v1/spaces/:id/objects/:objectId/messages`
-  cover send / list / edit / delete; reactions toggle via
-  `…/messages/:msgId/reactions/:emoji`. Storage shape:
+  message. Aggregating endpoints under
+  `/v1/spaces/:id/objects/:objectId/chat/messages` cover
+  send / list / edit / delete; reactions toggle via
+  `…/chat/messages/:msgId/reactions/:emoji`. Storage shape:
   `{id, creator, createdAt, modifiedAt, replyToMessageId, text, reactions}`,
   reactions identity-keyed (`reactions.<accountId> = [<emoji>, ...]`)
   so authorization on write is a single path-segment compare against

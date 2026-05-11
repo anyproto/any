@@ -252,7 +252,7 @@ func TestE2E_MultipeerSubscribeChatMessages(t *testing.T) {
 	// exactly what the joiner's stream subscribes to.
 	var sent api.ChatMessage
 	mustJSON(t, http.MethodPost,
-		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+obj.ObjectId+"/messages",
+		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+obj.ObjectId+"/chat/messages",
 		`{"text":"live!"}`, http.StatusCreated, &sent)
 	if sent.Id == "" {
 		t.Fatalf("owner-side send returned no id: %+v", sent)

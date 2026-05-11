@@ -29,7 +29,7 @@ import (
 // doRequest-tolerant pollUntil.
 func chatMessages(t *testing.T, base string) api.ChatListResponse {
 	t.Helper()
-	resp, raw := doRequest(t, http.MethodGet, base+"/messages", "")
+	resp, raw := doRequest(t, http.MethodGet, base+"/chat/messages", "")
 	if resp.StatusCode != http.StatusOK {
 		return api.ChatListResponse{}
 	}
@@ -108,7 +108,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// libp2p PeerId encoding of the same key — equivalent identities
 	// but different strings, do not cross-compare.
 	var m1 api.ChatMessage
-	mustJSON(t, http.MethodPost, ownerBase+"/messages",
+	mustJSON(t, http.MethodPost, ownerBase+"/chat/messages",
 		`{"text":"hello from owner"}`, http.StatusCreated, &m1)
 	ownerId := m1.Creator
 	if m1.Id == "" || ownerId == "" {
@@ -135,13 +135,13 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// wait for handler-level rejection on the owner side.
 	editBody := `{"text":"hostile takeover"}`
 	var editEnv api.ErrorEnvelope
-	mustJSON(t, http.MethodPatch, joinerBase+"/messages/"+m1.Id,
+	mustJSON(t, http.MethodPatch, joinerBase+"/chat/messages/"+m1.Id,
 		editBody, http.StatusForbidden, &editEnv)
 	if editEnv.Error.Code != api.ErrChatNotAuthor {
 		t.Errorf("joiner edit: code = %q, want %q", editEnv.Error.Code, api.ErrChatNotAuthor)
 	}
 	var delEnv api.ErrorEnvelope
-	mustJSON(t, http.MethodDelete, joinerBase+"/messages/"+m1.Id,
+	mustJSON(t, http.MethodDelete, joinerBase+"/chat/messages/"+m1.Id,
 		"", http.StatusForbidden, &delEnv)
 	if delEnv.Error.Code != api.ErrChatNotAuthor {
 		t.Errorf("joiner delete: code = %q, want %q", delEnv.Error.Code, api.ErrChatNotAuthor)
@@ -155,7 +155,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 		ReplyToMessageId: m1.Id,
 	})
 	var m2 api.ChatMessage
-	mustJSON(t, http.MethodPost, joinerBase+"/messages",
+	mustJSON(t, http.MethodPost, joinerBase+"/chat/messages",
 		string(body), http.StatusCreated, &m2)
 	joinerId := m2.Creator
 	if m2.Id == "" || joinerId == "" {
@@ -184,10 +184,10 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	emojiHeart := url.PathEscape("❤️")
 	emojiThumb := url.PathEscape("👍")
 	mustStatus(t, http.MethodPost,
-		ownerBase+"/messages/"+m2.Id+"/reactions/"+emojiHeart,
+		ownerBase+"/chat/messages/"+m2.Id+"/reactions/"+emojiHeart,
 		"", http.StatusOK)
 	mustStatus(t, http.MethodPost,
-		joinerBase+"/messages/"+m1.Id+"/reactions/"+emojiThumb,
+		joinerBase+"/chat/messages/"+m1.Id+"/reactions/"+emojiThumb,
 		"", http.StatusOK)
 
 	// Owner sees joiner's 👍 on M1.
@@ -252,7 +252,7 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	var msg api.ChatMessage
-	mustJSON(t, http.MethodPost, ownerBase+"/messages",
+	mustJSON(t, http.MethodPost, ownerBase+"/chat/messages",
 		`{"text":"original"}`, http.StatusCreated, &msg)
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
@@ -271,7 +271,7 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	// post-edit record; the wire convergence to the joiner is what
 	// we're really exercising here.
 	var edited api.ChatMessage
-	mustJSON(t, http.MethodPatch, ownerBase+"/messages/"+msg.Id,
+	mustJSON(t, http.MethodPatch, ownerBase+"/chat/messages/"+msg.Id,
 		`{"text":"edited"}`, http.StatusOK, &edited)
 	if edited.Text != "edited" {
 		t.Fatalf("owner-side edit didn't apply: %+v", edited)

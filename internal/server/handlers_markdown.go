@@ -10,7 +10,8 @@ import (
 	"github.com/anyproto/any/internal/markdown"
 )
 
-// Markdown read/write endpoints.
+// Markdown read/write endpoints — a lossless import/export layer
+// over the body_blocks dataset (internal/editor).
 //
 //	GET  /v1/spaces/:spaceId/objects/:objectId/markdown
 //	PUT  /v1/spaces/:spaceId/objects/:objectId/markdown
@@ -18,10 +19,15 @@ import (
 // These are convenience routes — each one bundles several SDK calls
 // (Query, Modify, Delete) under a single HTTP request — and explicitly
 // step outside the "endpoints map 1:1 onto SDK methods" rule from
-// CLAUDE.md. The aggregation is necessary because markdown.Set diffs
-// the supplied content against the stored blocks before issuing the
-// per-record write batch; doing that round-trip on the client would
-// require exposing the splitter / diff machinery over the wire.
+// CLAUDE.md. They survive alongside the atomic /blocks endpoints
+// because LLM tools, "Export as .md" / "Import .md" UI flows, and
+// programmatic API users that want whole-document round-trips depend
+// on the markdown wire shape. Internally, GET reads top-level blocks
+// and renders each to its canonical markdown bytes; PUT parses the
+// supplied content, diffs against the stored blocks, and emits the
+// same per-record create / update / delete ops the /blocks endpoints
+// would — so the same `body_blocks` SSE events fire regardless of
+// which path produced the change.
 
 // markdownGet returns the joined markdown content for an object.
 //

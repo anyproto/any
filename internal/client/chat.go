@@ -14,7 +14,7 @@ import (
 // Body shape mirrors api.ChatSendRequest.
 func (c *Client) ChatSend(ctx context.Context, spaceId, objectId string, req api.ChatSendRequest) (*api.ChatMessage, error) {
 	var out api.ChatMessage
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/messages",
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages",
 		url.PathEscape(spaceId), url.PathEscape(objectId))
 	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func (c *Client) ChatSend(ctx context.Context, spaceId, objectId string, req api
 // (cursor style). limit ≤ 0 means "use server default".
 func (c *Client) ChatList(ctx context.Context, spaceId, objectId, before, after string, limit int) (*api.ChatListResponse, error) {
 	var out api.ChatListResponse
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/messages",
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages",
 		url.PathEscape(spaceId), url.PathEscape(objectId))
 	q := url.Values{}
 	if before != "" {
@@ -51,7 +51,7 @@ func (c *Client) ChatList(ctx context.Context, spaceId, objectId, before, after 
 // returns 403 if the caller is not the original author.
 func (c *Client) ChatEdit(ctx context.Context, spaceId, objectId, msgId string, req api.ChatEditRequest) (*api.ChatMessage, error) {
 	var out api.ChatMessage
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/messages/%s",
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages/%s",
 		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(msgId))
 	if err := c.do(ctx, http.MethodPatch, path, req, &out); err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (c *Client) ChatEdit(ctx context.Context, spaceId, objectId, msgId string, 
 
 // ChatDelete tombstones a message. 403 if not the original author.
 func (c *Client) ChatDelete(ctx context.Context, spaceId, objectId, msgId string) error {
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/messages/%s",
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages/%s",
 		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(msgId))
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
@@ -71,7 +71,7 @@ func (c *Client) ChatDelete(ctx context.Context, spaceId, objectId, msgId string
 // to emoji-keyed for the wire).
 func (c *Client) ChatReact(ctx context.Context, spaceId, objectId, msgId, emoji string) (*api.ChatReactionsResponse, error) {
 	var out api.ChatReactionsResponse
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/messages/%s/reactions/%s",
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages/%s/reactions/%s",
 		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(msgId), url.PathEscape(emoji))
 	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
 		return nil, err
