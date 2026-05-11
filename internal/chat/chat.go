@@ -56,7 +56,7 @@ const Dataset = "chat_messages"
 
 // Field keys on a message record. Literal strings — no
 // content-addressable propIds — to keep the registration
-// hand-readable, matching nav and markdown.
+// hand-readable, matching nav and blocks.
 const (
 	FieldCreator          = "creator"
 	FieldCreatedAt        = "createdAt"
@@ -82,7 +82,7 @@ const (
 // the SDK accepts writes on the chat_messages dataset.
 //
 //	cfg := config.Config{
-//	    Types: []handler.Type{ markdown.NewType(), chat.NewType() },
+//	    Types: []handler.Type{ blocks.NewType(), chat.NewType() },
 //	    ...
 //	}
 func NewType() handler.Type {

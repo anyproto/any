@@ -61,7 +61,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 
 	// Edit second message.
 	body := `{"text":"second-edited"}`
-	rec := doJSON(t, e, http.MethodPatch, base+"/messages/"+second.Id, body)
+	rec := doJSON(t, e, http.MethodPatch, base+"/chat/messages/"+second.Id, body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
@@ -77,7 +77,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 
 	// React with 👍 (add).
-	rxRec := doJSON(t, e, http.MethodPost, base+"/messages/"+second.Id+"/reactions/"+url.PathEscape("👍"), "")
+	rxRec := doJSON(t, e, http.MethodPost, base+"/chat/messages/"+second.Id+"/reactions/"+url.PathEscape("👍"), "")
 	if rxRec.Code != http.StatusOK {
 		t.Fatalf("POST react add: %d %s", rxRec.Code, rxRec.Body.String())
 	}
@@ -90,7 +90,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 
 	// React again toggles off.
-	rxRec = doJSON(t, e, http.MethodPost, base+"/messages/"+second.Id+"/reactions/"+url.PathEscape("👍"), "")
+	rxRec = doJSON(t, e, http.MethodPost, base+"/chat/messages/"+second.Id+"/reactions/"+url.PathEscape("👍"), "")
 	if rxRec.Code != http.StatusOK {
 		t.Fatalf("POST react toggle off: %d %s", rxRec.Code, rxRec.Body.String())
 	}
@@ -102,7 +102,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 
 	// Delete first message.
-	delRec := doJSON(t, e, http.MethodDelete, base+"/messages/"+first.Id, "")
+	delRec := doJSON(t, e, http.MethodDelete, base+"/chat/messages/"+first.Id, "")
 	if delRec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE: %d %s", delRec.Code, delRec.Body.String())
 	}
@@ -175,7 +175,7 @@ func TestServer_Chat_Validation(t *testing.T) {
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 
 	// Empty text → 400 chat.text_required
-	rec := doJSON(t, e, http.MethodPost, base+"/messages", `{"text":""}`)
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":""}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty text: %d %s", rec.Code, rec.Body.String())
 	}
@@ -186,15 +186,15 @@ func TestServer_Chat_Validation(t *testing.T) {
 	}
 
 	// Edit / delete / react against a missing id → 404 chat.not_found.
-	rec = doJSON(t, e, http.MethodPatch, base+"/messages/missing", `{"text":"x"}`)
+	rec = doJSON(t, e, http.MethodPatch, base+"/chat/messages/missing", `{"text":"x"}`)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("missing edit: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodDelete, base+"/messages/missing", "")
+	rec = doJSON(t, e, http.MethodDelete, base+"/chat/messages/missing", "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("missing delete: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/messages/missing/reactions/"+url.PathEscape("👍"), "")
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages/missing/reactions/"+url.PathEscape("👍"), "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("missing react: %d %s", rec.Code, rec.Body.String())
 	}
@@ -243,7 +243,7 @@ func chatSend(t *testing.T, e http.Handler, base, text, replyTo string) api.Chat
 		body += fmt.Sprintf(`,"replyToMessageId":%q`, replyTo)
 	}
 	body += `}`
-	rec := doJSON(t, e, http.MethodPost, base+"/messages", body)
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("send %q: %d %s", text, rec.Code, rec.Body.String())
 	}
@@ -266,7 +266,7 @@ func chatList(t *testing.T, e http.Handler, base, before, after string, limit in
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
 	}
-	path := base + "/messages"
+	path := base + "/chat/messages"
 	if encoded := q.Encode(); encoded != "" {
 		path += "?" + encoded
 	}

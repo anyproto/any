@@ -63,7 +63,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"content": ownerInitial})
 	var setResp map[string]any
 	mustJSON(t, http.MethodPut,
-		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/markdown",
+		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/markdown",
 		string(body), http.StatusOK, &setResp)
 	if ins, _ := setResp["inserted"].([]any); len(ins) != 2 {
 		t.Fatalf("owner initial set: inserted=%v want 2 entries", ins)
@@ -74,7 +74,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 
 	// 3. Joiner reads the owner's markdown — sanity that owner→joiner
 	// per-tree sync still works at all on this fixture.
-	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/markdown"
+	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
 	if !pollUntil(2*time.Minute, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
@@ -127,7 +127,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	// 6. Owner converges to the joiner's content. The recently-fixed
 	// broadcast-ctx bug aside, the only path back to owner is the
 	// per-tree HeadUpdate broadcast triggered by AddContent.
-	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/markdown"
+	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
 	if !pollUntil(2*time.Minute, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
@@ -186,26 +186,26 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"content": "alpha\n\nbeta"})
 	var ownerSet map[string]any
 	mustJSON(t, http.MethodPut,
-		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/markdown",
+		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/markdown",
 		string(body), http.StatusOK, &ownerSet)
 	insertedAny, _ := ownerSet["inserted"].([]any)
 	if len(insertedAny) != 2 {
 		t.Fatalf("owner initial markdown set: inserted=%v want 2 entries", insertedAny)
 	}
-	ownerLexids := make([]string, 0, 2)
+	ownerBlockIds := make([]string, 0, 2)
 	for _, v := range insertedAny {
 		if s, ok := v.(string); ok {
-			ownerLexids = append(ownerLexids, s)
+			ownerBlockIds = append(ownerBlockIds, s)
 		}
 	}
-	t.Logf("owner inserted lexids: %v", ownerLexids)
+	t.Logf("owner inserted block ids: %v", ownerBlockIds)
 
 	// Joiner joins, becomes active, and waits for the owner's blocks
 	// to land before issuing his Delete. This avoids racing the
 	// initial cold-pull with the delete itself.
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
-	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/markdown"
+	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
 	if !pollUntil(2*time.Minute, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
@@ -221,13 +221,13 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 		t.Fatalf("joiner never saw owner's initial markdown")
 	}
 
-	// Joiner: bare Delete on the first owner-allocated lexid. No
+	// Joiner: bare Delete on the first owner-allocated block id. No
 	// Modify before it. The path under test is the broadcast of a
 	// delete-only change.
 	delBody, _ := json.Marshal(map[string]any{
 		"objectId":  objectID,
-		"dataset":   "md_blocks",
-		"recordIds": []string{ownerLexids[0]},
+		"dataset":   "body_blocks",
+		"recordIds": []string{ownerBlockIds[0]},
 	})
 	var delResp map[string]any
 	mustJSON(t, http.MethodPost, joiner.base+"/v1/spaces/"+sp.Id+"/delete-records",
@@ -251,9 +251,9 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	}
 
 	// The actual assertion: owner must see the tombstone.
-	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/markdown"
-	ownerMdBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
-	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"md_blocks"}`, objectID)
+	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
+	ownerBodyBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
+	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"body_blocks"}`, objectID)
 	if !pollUntil(2*time.Minute, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
@@ -271,11 +271,11 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 		_ = json.Unmarshal(raw, &got)
 		mdContent, _ := got["content"].(string)
 
-		// Also probe the raw md_blocks dataset to see whether the
+		// Also probe the raw body_blocks dataset to see whether the
 		// delete tombstoned the record on the owner (raw query
 		// returns tombstones; markdown.List filters them).
-		_, rawBlocks := doRequest(t, http.MethodPost, ownerMdBlocksQueryURL, queryBody)
-		t.Fatalf("owner never saw the tombstone\n  /markdown content=%q (status=%d)\n  /query md_blocks raw=%s",
+		_, rawBlocks := doRequest(t, http.MethodPost, ownerBodyBlocksQueryURL, queryBody)
+		t.Fatalf("owner never saw the tombstone\n  /markdown content=%q (status=%d)\n  /query body_blocks raw=%s",
 			mdContent, resp.StatusCode, string(rawBlocks))
 	}
 }

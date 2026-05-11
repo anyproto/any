@@ -62,12 +62,12 @@ func TestE2E_ChatBinary(t *testing.T) {
 
 	// Send three messages.
 	var first, second, third api.ChatMessage
-	mustJSON(t, http.MethodPost, chatBase+"/messages",
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"first"}`, http.StatusCreated, &first)
-	mustJSON(t, http.MethodPost, chatBase+"/messages",
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
 		fmt.Sprintf(`{"text":"second","replyToMessageId":%q}`, first.Id),
 		http.StatusCreated, &second)
-	mustJSON(t, http.MethodPost, chatBase+"/messages",
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"third"}`, http.StatusCreated, &third)
 	creator := first.Creator
 	if creator == "" {
@@ -90,7 +90,7 @@ func TestE2E_ChatBinary(t *testing.T) {
 
 	// List returns three in send order.
 	var list api.ChatListResponse
-	mustJSON(t, http.MethodGet, chatBase+"/messages", "", http.StatusOK, &list)
+	mustJSON(t, http.MethodGet, chatBase+"/chat/messages", "", http.StatusOK, &list)
 	if len(list.Messages) != 3 {
 		t.Fatalf("list = %d, want 3", len(list.Messages))
 	}
@@ -101,7 +101,7 @@ func TestE2E_ChatBinary(t *testing.T) {
 
 	// Edit second.
 	var edited api.ChatMessage
-	mustJSON(t, http.MethodPatch, chatBase+"/messages/"+second.Id,
+	mustJSON(t, http.MethodPatch, chatBase+"/chat/messages/"+second.Id,
 		`{"text":"second-edited"}`, http.StatusOK, &edited)
 	if edited.Text != "second-edited" {
 		t.Errorf("edited.Text = %q", edited.Text)
@@ -116,22 +116,22 @@ func TestE2E_ChatBinary(t *testing.T) {
 	// param without mojibake.
 	emoji := url.PathEscape("👍")
 	var rxResp api.ChatReactionsResponse
-	mustJSON(t, http.MethodPost, chatBase+"/messages/"+second.Id+"/reactions/"+emoji,
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages/"+second.Id+"/reactions/"+emoji,
 		"", http.StatusOK, &rxResp)
 	if len(rxResp.Reactions["👍"]) != 1 || rxResp.Reactions["👍"][0] != creator {
 		t.Errorf("after add: reactions = %+v, want {👍:[%s]}", rxResp.Reactions, creator)
 	}
-	mustJSON(t, http.MethodPost, chatBase+"/messages/"+second.Id+"/reactions/"+emoji,
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages/"+second.Id+"/reactions/"+emoji,
 		"", http.StatusOK, &rxResp)
 	if got := rxResp.Reactions["👍"]; len(got) != 0 {
 		t.Errorf("after toggle off: reactions[👍] = %v, want empty", got)
 	}
 
 	// Delete first.
-	mustStatus(t, http.MethodDelete, chatBase+"/messages/"+first.Id, "", http.StatusNoContent)
+	mustStatus(t, http.MethodDelete, chatBase+"/chat/messages/"+first.Id, "", http.StatusNoContent)
 
 	// List after delete: two messages, no `first`.
-	mustJSON(t, http.MethodGet, chatBase+"/messages", "", http.StatusOK, &list)
+	mustJSON(t, http.MethodGet, chatBase+"/chat/messages", "", http.StatusOK, &list)
 	if len(list.Messages) != 2 {
 		t.Fatalf("list after delete = %d, want 2", len(list.Messages))
 	}
@@ -143,24 +143,24 @@ func TestE2E_ChatBinary(t *testing.T) {
 
 	// Validation envelope: empty text → 400 chat.text_required.
 	var env api.ErrorEnvelope
-	mustJSON(t, http.MethodPost, chatBase+"/messages", `{"text":""}`,
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages", `{"text":""}`,
 		http.StatusBadRequest, &env)
 	if env.Error.Code != api.ErrChatTextRequired {
 		t.Errorf("empty text: code = %q, want %q", env.Error.Code, api.ErrChatTextRequired)
 	}
 
 	// 404 envelope: unknown msgId on PATCH/DELETE/REACT.
-	mustJSON(t, http.MethodPatch, chatBase+"/messages/missing",
+	mustJSON(t, http.MethodPatch, chatBase+"/chat/messages/missing",
 		`{"text":"x"}`, http.StatusNotFound, &env)
 	if env.Error.Code != api.ErrChatNotFound {
 		t.Errorf("missing edit: code = %q, want %q", env.Error.Code, api.ErrChatNotFound)
 	}
-	mustJSON(t, http.MethodDelete, chatBase+"/messages/missing", "",
+	mustJSON(t, http.MethodDelete, chatBase+"/chat/messages/missing", "",
 		http.StatusNotFound, &env)
 	if env.Error.Code != api.ErrChatNotFound {
 		t.Errorf("missing delete: code = %q", env.Error.Code)
 	}
-	mustJSON(t, http.MethodPost, chatBase+"/messages/missing/reactions/"+emoji, "",
+	mustJSON(t, http.MethodPost, chatBase+"/chat/messages/missing/reactions/"+emoji, "",
 		http.StatusNotFound, &env)
 	if env.Error.Code != api.ErrChatNotFound {
 		t.Errorf("missing react: code = %q", env.Error.Code)

@@ -64,7 +64,7 @@ const (
 // string keeps queries simple: `{"nav.parentId": ""}` lists the root.
 const RootParentId = ""
 
-// lexidGen mirrors the parameters used by markdown.lexids and by the
+// lexidGen mirrors the parameters used by blocks.lexids and by the
 // SDK's any-sync tree allocator (CharsAllNoEscape, blockSize=4,
 // stepSize=100). Same shape anytype-heart's storestate uses for its
 // per-doc block ordering — keeps allocator alphabets consistent.
