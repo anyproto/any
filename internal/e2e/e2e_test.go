@@ -185,6 +185,39 @@ func TestE2E_FullFlow(t *testing.T) {
 		if got["id"] != spaceID {
 			t.Errorf("id mismatch: got %v want %v", got["id"], spaceID)
 		}
+		// spaceIndexObjectId is the deterministic derived id of the
+		// in-space spaceIndex object; single-space responses always
+		// carry it.
+		if id, _ := got["spaceIndexObjectId"].(string); id == "" {
+			t.Errorf("spaceIndexObjectId missing: %+v", got)
+		}
+	})
+
+	t.Run("PATCH /v1/spaces/:id renames", func(t *testing.T) {
+		// Empty body → 400 request.missing_field.
+		mustStatus(t, http.MethodPatch, base+"/v1/spaces/"+spaceID, `{}`, http.StatusBadRequest)
+
+		// Patch name only — description/iconCid stay.
+		mustStatus(t, http.MethodPatch, base+"/v1/spaces/"+spaceID,
+			`{"name":"E2E-renamed"}`, http.StatusNoContent)
+
+		// The mirror back into the tech-space row runs async — poll
+		// for up to 5s rather than asserting on the immediate read.
+		var got map[string]any
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID, "", http.StatusOK, &got)
+			if got["name"] == "E2E-renamed" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("name never converged to E2E-renamed; last=%+v", got)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if got["description"] != "e2e-smoke" {
+			t.Errorf("description clobbered: %+v", got)
+		}
 	})
 
 	t.Run("GET /v1/spaces lists newly-created", func(t *testing.T) {

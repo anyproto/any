@@ -53,10 +53,48 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
 | GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
+| PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+
+`SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
+of the in-space `spaceIndex` derived object that owns this space's
+metadata. Stable across peers and across SDK reboots — clients
+attach a subscribe stream to it on the `objects` dataset to live-
+update name / description / icon. Single-space responses
+(`POST /v1/spaces`, `GET /v1/spaces/:id`, `PATCH /v1/spaces/:id`)
+always populate the field. `GET /v1/spaces` fills it on a best-effort
+basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
+entries) omit it.
+
+#### Update space metadata
+
+`PATCH /v1/spaces/:spaceId`
+
+```json
+{ "name":        "Project Phoenix",
+  "description": "shared notes + chat",
+  "iconCid":     "bafy..." }
+// → 204
+```
+
+All three fields are optional but at least one must be present —
+an all-empty body returns `400 request.missing_field`. Field semantics
+mirror the SDK's pointer-to-string contract: a key absent from the JSON
+body leaves the field unchanged; a key present with an empty string
+clears the field. `spaceType` is intentionally not patchable; it's
+pinned by the initial Create.
+
+The write lands on the in-space `spaceIndex` object's `properties`
+dataset and CRDT-replicates to every member. Each peer's indexer hook
+mirrors the converged state into its own local tech-space row.
+Because the mirror runs asynchronously (subscription delivery, not
+in-line with the local write), an immediate follow-up `GET
+/v1/spaces/:id` may briefly return the pre-patch values. Callers that
+need the converged state poll, or attach a subscribe stream to
+`spaceIndexObjectId`'s `objects` dataset.
 
 ### Objects
 
@@ -66,18 +104,149 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/:spaceId/objects/derive`                      | `Objects.Derive`         |
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.All` |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`         |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Get`           |
-| PUT    | `/v1/spaces/:spaceId/objects/:objectId/markdown`          | `markdown.Set`           |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/subscribe`         | `Space.Subscribe` (SSE)  |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
+| PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | list every block (DFS order) |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | create one block         |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | $set / $unset one block  |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | tombstone one block      |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/subscribe`                    | `Space.Subscribe` (SSE)  |
 
-The two `markdown` routes are aggregating endpoints (each one bundles
-several SDK calls) and are a deliberate exception to the "endpoints
-map 1:1 onto SDK methods" rule. They exist because the diff between
-the supplied content and the stored blocks runs server-side; pushing
-that round-trip to the client would mean exposing the splitter / diff
-machinery over the wire. `GET` returns `{"content": "..."}`; `PUT`
-takes `{"content": "..."}` and replies with `{"inserted":[…lexids…],
-"updated":[…], "deleted":[…], "unchanged": N}`.
+Object bodies are stored as a tree of atomic blocks on a per-object
+`body_blocks` dataset (one record per block) and exposed through the
+`…/editor/**` route namespace. The atomic surface is the four
+`…/editor/blocks` endpoints; the two `…/editor/markdown` routes are
+a lossless import/export layer over the same dataset for LLM tools,
+"Export as .md" / "Import .md" flows, and programmatic API users that
+don't want to walk the block tree. Liveness reuses the generic
+subscribe primitive with `dataset=body_blocks`.
+
+The `editor/markdown` routes are aggregating endpoints (each one
+bundles several SDK calls) and are a deliberate exception to the
+"endpoints map 1:1 onto SDK methods" rule. `GET` reads every
+top-level block, renders each to its canonical markdown bytes, and
+joins with `\n\n`. `PUT` parses the incoming markdown, diffs against
+the current block tree by (type + position + text), and emits
+per-block create / update / delete ops through the same write path a
+PATCH /editor/blocks call would, so the same `body_blocks` SSE events
+fire under the hood. `PUT` replies with `{"inserted": [...],
+"updated": [...], "deleted": [...], "unchanged": N}` where the slices
+contain block ids.
+
+#### Blocks
+
+One record per block, stored on a per-object `body_blocks` dataset.
+Nest via `nav.parentId`; order siblings via `nav.pos` (lexid). Wire
+shape:
+
+```json
+{
+  "id":    "<auto-derived from changeId>",
+  "_ver":  { "id": "<VersionId of last change>", ... },
+  "type":  "paragraph" | "heading" | "list_item" |
+           "check_list_item" | "code" | "quote" |
+           "divider" | "html" | "table" | "image",
+  "style": { "level": 1..6,         /* heading */
+             "ordered": true|false, /* list_item */
+             "checked": true|false, /* check_list_item */
+             "lang":    "go" },     /* code */
+  "text":  "**bold** inline markdown",
+  "nav":   { "parentId": "<blockId>" | "",
+             "pos":      "<lexid>" }
+}
+```
+
+`text` is INLINE markdown only — bold, italic, inline code, links,
+strikethrough. Block-level syntax (heading hashes, list bullets,
+fences, quote `>` prefixes) lives in `type` + `style` instead so
+clients render blocks structurally without re-parsing.
+
+##### List blocks
+
+`GET /v1/spaces/:spaceId/objects/:objectId/editor/blocks`
+
+```json
+{ "records": [
+  { "id": "...", "_ver": {"id":"..."}, "type": "heading",
+    "style": {"level": 1}, "text": "Title",
+    "nav": {"parentId": "", "pos": "MMMM"} },
+  ...
+] }
+```
+
+Records are returned in depth-first document order — top-level
+blocks first (sorted by `nav.pos`), each block followed inline by
+its children. Empty array when the object has no body blocks yet.
+
+##### Create
+
+`POST /v1/spaces/:spaceId/objects/:objectId/editor/blocks`
+
+```json
+{ "type":  "paragraph",
+  "style": {"level": 2},
+  "text":  "hello",
+  "nav":   {"parentId": "<blockId>", "pos": "<lexid>"} }
+```
+
+`type` is required (≤ 64 bytes, non-empty). `style` is an open-ended
+object — the handler accepts any sub-keys. `text` is inline markdown.
+`nav.parentId` defaults to `""` (top-level); `nav.pos` defaults to
+the next lexid past the parent's current max (queried server-side at
+create time). Returns 201 with the full block record (server-allocated
+`id` and `_ver` included).
+
+##### Patch
+
+`PATCH /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`
+
+```json
+{ "set":   { "text": "...", "style.level": 2 },
+  "unset": ["style.checked"] }
+```
+
+Each key in `set` is a dotted field path applied as one `$set` op.
+Each entry in `unset` is a dotted path applied as one `$unset`. Both
+fields are optional; an empty patch is a no-op that still returns
+the record's current `_ver.id`. All ops land in a single any-sync
+change (one VersionId).
+
+Required fields cannot be `$unset`-ed (`type`, `nav.parentId`,
+`nav.pos`) — the handler rejects those ops while still applying the
+rest of the batch. Per-op rejections do not fail the whole change.
+
+Note on path syntax: dotted-string keys (`"style.level": 2`) are
+parsed as one anyenc field path, NOT as nested objects. Use
+`"style.level"` to touch a single sub-field; use `"style": {"level":2}`
+only when you want to replace the entire `style` object whole-cloth.
+
+Response:
+
+```json
+{ "versionId": "<lexid>" }
+```
+
+##### Delete
+
+`DELETE /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`
+→ 204. Tombstones the record (sticky — re-creating the same id is
+rejected). Children of the deleted block are NOT cascaded; the client
+either deletes the descendants explicitly or rewrites the document
+via `PUT /editor/markdown`, which diffs the whole body.
+
+##### Subscribe
+
+Liveness reuses the existing subscribe endpoint with
+`dataset=body_blocks`:
+
+```
+GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=body_blocks
+```
+
+`changes` frames carry projected `$set` / `$unset` ops per record;
+`deleted:true` records mean the block was tombstoned. The same
+events fire whether the change originated from a PATCH
+/editor/blocks call or from a PUT /editor/markdown bulk rewrite.
 
 #### `nav` auto-stamping on `Objects.Create`
 
@@ -269,11 +438,11 @@ is just disconnecting (or the server `closed` frame).
 
 | Method | Path                                                                     | Purpose                  |
 |--------|--------------------------------------------------------------------------|--------------------------|
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/messages`                         | send a message           |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/messages`                         | list messages            |
-| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId`                  | edit own message text    |
-| DELETE | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId`                  | delete own message       |
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/messages/:msgId/reactions/:emoji` | toggle own reaction      |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages`                         | send a message           |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/chat/messages`                         | list messages            |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | edit own message text    |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | delete own message       |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 
 Liveness is the existing subscribe endpoint with `dataset=chat_messages`:
 
@@ -311,7 +480,7 @@ handler: only the change's signer can write into
 
 #### Send
 
-`POST /v1/spaces/:spaceId/objects/:objectId/messages`
+`POST /v1/spaces/:spaceId/objects/:objectId/chat/messages`
 
 ```json
 { "text": "hello", "replyToMessageId": "abc" }
@@ -324,7 +493,7 @@ stamped fields included).
 
 #### List
 
-`GET /v1/spaces/:spaceId/objects/:objectId/messages?before=&after=&limit=`
+`GET /v1/spaces/:spaceId/objects/:objectId/chat/messages?before=&after=&limit=`
 
 Returns messages in ascending creation order (oldest first). Cursors
 `before` / `after` are message ids; the server resolves them to the
@@ -338,15 +507,15 @@ on edit is impossible). `limit` defaults to 50, max 200.
 
 #### Edit / delete (own only)
 
-`PATCH .../messages/:msgId` body `{ "text": "..." }` replaces the
-text and bumps `modifiedAt`. `DELETE .../messages/:msgId` tombstones
+`PATCH .../chat/messages/:msgId` body `{ "text": "..." }` replaces the
+text and bumps `modifiedAt`. `DELETE .../chat/messages/:msgId` tombstones
 the record. Both return `403 chat.not_author` for non-authors and
 `404 chat.not_found` for unknown ids. The handler enforces the same
 rules for peer-originated changes.
 
 #### React (toggle)
 
-`POST .../messages/:msgId/reactions/:emoji` (no body) toggles the
+`POST .../chat/messages/:msgId/reactions/:emoji` (no body) toggles the
 caller's reaction: adds the emoji to `reactions.<callerId>` if
 absent, removes it if present. The CRDT op is `$addToSet` /
 `$pull` against the caller's identity-keyed slot, so two clients

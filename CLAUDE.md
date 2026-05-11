@@ -53,8 +53,9 @@ Implementation slices landed:
    lookup.
 6. **Chat built-in type** — `internal/chat` registers a `handler.Type`
    for per-object `chat_messages` records. Endpoints under
-   `/v1/spaces/:id/objects/:objectId/messages` cover send/list/edit/delete;
-   `…/messages/:msgId/reactions/:emoji` is a toggle. Reactions are
+   `/v1/spaces/:id/objects/:objectId/chat/messages` cover
+   send/list/edit/delete; `…/chat/messages/:msgId/reactions/:emoji` is
+   a toggle. Reactions are
    identity-keyed in storage (`reactions.<accountId> = [emoji, ...]`)
    so the handler authorization is `op.Path[1] == ctx.Change.Creator`;
    the API server transposes to emoji-keyed on read. Server-stamped
@@ -65,6 +66,47 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness reuses the generic subscribe primitive with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
+7. **Atomic blocks + markdown bridge** — `internal/editor` registers
+   a `handler.Type` for the `body_blocks` dataset, one record per
+   block. Per-block fields: `type` (paragraph / heading / list_item /
+   …), `style` (open-ended), `text` (INLINE markdown only — no block-
+   level syntax), `nav.parentId`, `nav.pos` (lexid). Endpoints under
+   `/v1/spaces/:s/objects/:o/editor/blocks` cover list / create /
+   patch / delete; PATCH takes
+   `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
+   per-path `$set` / `$unset`. List returns DFS document order. Block
+   ids are auto-derived from the change CID (same shape chat uses).
+   Liveness reuses the generic subscribe primitive with
+   `dataset=body_blocks`. The existing markdown routes moved into the
+   same namespace — `GET/PUT /editor/markdown` — and stayed (LLM
+   tools and import / export flows depend on them); they now run
+   over the same `body_blocks` dataset: GET renders blocks →
+   markdown; PUT parses markdown → diffs against the current block
+   tree → emits per-record create / update / delete ops, returning
+   the same `{inserted, updated, deleted, unchanged}` shape. Old
+   `md_blocks` dataset is gone. CLI: `any editor blocks
+   list/create/patch/delete`.
+8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
+   space's `name` / `description` / `icon` in a derived in-space
+   `spaceIndex` object (one per space, deterministic id) rather than
+   in the per-account tech-space row. The write CRDT-replicates to
+   every member; each peer's indexer hook mirrors the converged state
+   back into its own local tech-space row, so `Service.List` rows
+   update lockstep with peer renames. Wrapping surface:
+   - `PATCH /v1/spaces/:spaceId` → `Space.SetMetadata` with pointer-
+     to-string body `{name?, description?, iconCid?}` (absent =
+     leave-as-is, empty-string = clear). Returns 204; the mirror is
+     async so an immediate re-GET may briefly return stale values.
+     At least one field required (`400 request.missing_field` if all
+     absent).
+   - `SpaceInfo.spaceIndexObjectId` — the deterministic derived id,
+     populated on every single-space response and best-effort on
+     `GET /v1/spaces` rows. Clients attach an SSE subscribe stream
+     to that id's `objects` dataset for live updates.
+   - CLI: `any space get <id>` / `any space update <id> --name=… …`
+     (cobra `Changed` distinguishes "flag absent" from "flag set
+     to empty"). `spaceType` is intentionally not patchable —
+     pinned by the initial Create.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

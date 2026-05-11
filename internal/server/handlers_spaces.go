@@ -16,6 +16,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces", d.spaceCreate)
 	g.GET("/spaces", d.spaceList)
 	g.GET("/spaces/:spaceId", d.spaceGet)
+	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 
 	g.POST("/spaces/join", d.spaceJoin)
@@ -28,18 +29,27 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/derive", d.objectDerive)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
-	g.GET("/spaces/:spaceId/objects/:objectId/markdown", d.markdownGet)
-	g.PUT("/spaces/:spaceId/objects/:objectId/markdown", d.markdownSet)
 	g.GET("/spaces/:spaceId/objects/:objectId/subscribe", d.subscribeObject)
+
+	// Editor (built-in type — see internal/editor). Atomic blocks +
+	// markdown bridge, both backed by the per-object body_blocks
+	// dataset. Liveness reuses the generic /subscribe endpoint with
+	// dataset=body_blocks.
+	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
+	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
+	g.GET("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksList)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete)
 
 	// Chat (built-in type — see internal/chat). Liveness reuses the
 	// existing /subscribe?dataset=chat_messages — no chat-specific
 	// subscribe endpoint.
-	g.POST("/spaces/:spaceId/objects/:objectId/messages", d.chatSend)
-	g.GET("/spaces/:spaceId/objects/:objectId/messages", d.chatList)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/messages/:msgId", d.chatEdit)
-	g.DELETE("/spaces/:spaceId/objects/:objectId/messages/:msgId", d.chatDelete)
-	g.POST("/spaces/:spaceId/objects/:objectId/messages/:msgId/reactions/:emoji", d.chatReact)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)
+	g.GET("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatList)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
@@ -108,17 +118,27 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
-	return c.JSON(http.StatusCreated, spaceInfoToAPI(sp.Info()))
+	return c.JSON(http.StatusCreated, spaceToAPI(sp))
 }
 
 func (d *deps) spaceList(c echo.Context) error {
-	infos, err := d.sdk.Spaces().List(c.Request().Context())
+	ctx := c.Request().Context()
+	infos, err := d.sdk.Spaces().List(ctx)
 	if err != nil {
 		return spaceError(c, err, "")
 	}
 	out := make([]api.SpaceInfo, 0, len(infos))
 	for _, info := range infos {
-		out = append(out, spaceInfoToAPI(info))
+		row := spaceInfoToAPI(info)
+		// Eagerly-resident spaces (post-boot) give us the
+		// deterministic spaceIndex object id without touching disk.
+		// On a row the SDK can't resolve to a handle (rare —
+		// e.g. tombstoned), skip the lookup and emit the row
+		// without the field.
+		if sp, err := d.sdk.Spaces().Get(ctx, info.Id); err == nil {
+			row.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+		}
+		out = append(out, row)
 	}
 	return c.JSON(http.StatusOK, api.SpaceListResponse{Spaces: out})
 }
@@ -129,7 +149,35 @@ func (d *deps) spaceGet(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceInfoToAPI(sp.Info()))
+	return c.JSON(http.StatusOK, spaceToAPI(sp))
+}
+
+// spaceUpdate handles PATCH /v1/spaces/:spaceId. Pointer-to-string
+// fields let callers patch one piece of metadata without clobbering
+// the others. Returns 204 — the spaceIndex apply is local-write-now,
+// mirror-into-tech-space-async, so the post-write Info() may briefly
+// show stale values. Callers that want the converged state re-GET.
+func (d *deps) spaceUpdate(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	var req api.SpaceUpdateRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	if req.Name == nil && req.Description == nil && req.IconCID == nil {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"at least one of name, description, iconCid is required", nil)
+	}
+	if err := sp.SetMetadata(c.Request().Context(), space.SetMetadataRequest{
+		Name:        req.Name,
+		Description: req.Description,
+		IconCID:     req.IconCID,
+	}); err != nil {
+		return spaceError(c, err, sp.Id())
+	}
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (d *deps) spaceDelete(c echo.Context) error {
@@ -171,6 +219,15 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		OwnRole:     spacePermissionString(info.OwnRole),
 		CreatedAt:   info.CreatedAt,
 	}
+}
+
+// spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates
+// SpaceIndexObjectId from the resident space handle so single-space
+// responses always carry it.
+func spaceToAPI(sp space.Space) api.SpaceInfo {
+	out := spaceInfoToAPI(sp.Info())
+	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+	return out
 }
 
 func spaceStatusString(s space.Status) string {
