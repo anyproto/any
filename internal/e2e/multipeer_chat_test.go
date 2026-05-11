@@ -19,11 +19,25 @@ import (
 // chatMessages fetches the chat_messages list off `base` (the peer's
 // /v1/spaces/:id/objects/:objId prefix). Thin wrapper so the polling
 // loops below stay readable.
+//
+// Tolerates non-200 responses by returning an empty list — convergence
+// pollUntils call this in tight loops right after a joiner activates,
+// before any-sync has fetched the chat tree. /messages then returns
+// 500 with `tree does not exist`, which is the right thing for the
+// API to say (the local tree genuinely isn't there yet) but should
+// not bail the polling loop. Same pattern as the markdown test's
+// doRequest-tolerant pollUntil.
 func chatMessages(t *testing.T, base string) api.ChatListResponse {
 	t.Helper()
-	var resp api.ChatListResponse
-	mustJSON(t, http.MethodGet, base+"/messages", "", http.StatusOK, &resp)
-	return resp
+	resp, raw := doRequest(t, http.MethodGet, base+"/messages", "")
+	if resp.StatusCode != http.StatusOK {
+		return api.ChatListResponse{}
+	}
+	var out api.ChatListResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("chatMessages: parse %s: %v\nbody=%s", base, err, string(raw))
+	}
+	return out
 }
 
 // findMessage returns the first message in list with the given text,
