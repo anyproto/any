@@ -1062,6 +1062,22 @@
     toast('ok', 'space deleted (soft)');
     return true;
   }
+  // updateSpaceMetadata patches name / description / iconCid on the
+  // in-space spaceIndex object. Pointer-to-string semantics — `body`
+  // mirrors the wire shape: include only fields the caller wants to
+  // touch; an empty string clears the field. The server's mirror to
+  // the local tech-space row runs async, so we re-GET the row to
+  // refresh the cached App.spaces entry before re-rendering.
+  async function updateSpaceMetadata(spaceId, body) {
+    const r = await api.patch('/v1/spaces/' + encodeURIComponent(spaceId), body);
+    if (!r.ok) { toast('err', 'update space failed', r.body); return false; }
+    toast('ok', 'space updated');
+    // Brief settle window for the async mirror, then refetch.
+    await new Promise(r => setTimeout(r, 150));
+    const get = await api.get('/v1/spaces/' + encodeURIComponent(spaceId));
+    if (get.ok && get.json) ensureSpace(spaceId, get.json);
+    return true;
+  }
   async function createType(spaceId, { name, description }) {
     const r = await api.post('/v1/spaces/' + spaceId + '/types', { name, description });
     if (!r.ok) { toast('err', 'create type failed', r.body); return null; }
@@ -1495,9 +1511,10 @@
   //   #/spaces/:id/types             → space-types
   //   #/spaces/:id/query             → space-query
   //   #/spaces/:id/members           → space-members
+  //   #/spaces/:id/settings          → space-settings
   function parseHash() {
     const h = location.hash || '';
-    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query|members)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
+    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query|members|settings)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
     if (!m) return { name: 'home' };
     const spaceId = decodeURIComponent(m[1]);
     const section = m[2] || 'objects';
@@ -1509,6 +1526,7 @@
     if (section === 'types') return { name: 'space-types', spaceId };
     if (section === 'query') return { name: 'space-query', spaceId };
     if (section === 'members') return { name: 'space-members', spaceId };
+    if (section === 'settings') return { name: 'space-settings', spaceId };
     return { name: 'space-objects', spaceId, typeFilter: qs.get('type') || '' };
   }
   function spaceUrl(id, section, param) {
@@ -1937,6 +1955,8 @@
         body = renderQueryPage(sp); activeTab = 'query'; break;
       case 'space-members':
         body = renderMembersPage(sp); activeTab = 'members'; break;
+      case 'space-settings':
+        body = renderSettingsPage(sp); activeTab = 'settings'; break;
       case 'space-objects':
       default:
         body = renderObjectsPage(sp, r.typeFilter || ''); activeTab = 'objects';
@@ -1973,6 +1993,7 @@
       tab('types', 'Types') +
       tab('query', 'Query') +
       tab('members', 'Members') +
+      tab('settings', 'Settings') +
     '</div>';
   }
 
@@ -2360,6 +2381,50 @@
         '<span class="pill">' + members.length + '</span>' +
       '</header>' +
       '<div class="body">' + rows + '</div>' +
+    '</section>';
+  }
+
+  // renderSettingsPage shows the live name / description / icon
+  // fields backed by the in-space spaceIndex object. Non-owners /
+  // non-writers see read-only values (the SDK accepts the write but
+  // the peers reject it — easier to gate up-front).
+  function renderSettingsPage(sp) {
+    const info = sp.info || {};
+    const ownRole = info.ownRole || '';
+    const canEdit = ownRole === 'owner' || ownRole === 'admin' || ownRole === 'writer';
+    const idxObj = info.spaceIndexObjectId || '';
+    const idxRow = idxObj
+      ? '<div class="field"><label>spaceIndex object id</label>' +
+          '<input type="text" readonly value="' + escapeHTML(idxObj) + '" style="font:12px var(--mono)"></div>'
+      : '';
+    const fields = canEdit
+      ? '<div class="field"><label>name</label>' +
+          '<input type="text" id="settings-name" value="' + escapeHTML(info.name || '') + '"></div>' +
+        '<div class="field"><label>description</label>' +
+          '<input type="text" id="settings-description" value="' + escapeHTML(info.description || '') + '"></div>' +
+        '<div class="field"><label>icon CID</label>' +
+          '<input type="text" id="settings-icon-cid" value="' + escapeHTML(info.iconCid || '') + '" style="font:12px var(--mono)"></div>' +
+        '<div class="form-actions">' +
+          '<button data-act="space-save-metadata">save</button>' +
+          '<button class="ghost" data-act="space-reset-metadata">reset</button>' +
+        '</div>'
+      : '<div class="field"><label>name</label><input type="text" readonly value="' + escapeHTML(info.name || '') + '"></div>' +
+        '<div class="field"><label>description</label><input type="text" readonly value="' + escapeHTML(info.description || '') + '"></div>' +
+        '<div class="field"><label>icon CID</label><input type="text" readonly value="' + escapeHTML(info.iconCid || '') + '" style="font:12px var(--mono)"></div>' +
+        '<p style="color:var(--muted);font-size:12px;margin:8px 0 0">read-only: your role is <code>' +
+          escapeHTML(ownRole || 'none') + '</code>.</p>';
+    return '<section class="card">' +
+      '<header><h3>metadata</h3>' +
+        '<span class="pill">' + (canEdit ? 'editable' : 'read-only') + '</span>' +
+      '</header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          'name / description / icon are CRDT-replicated to every member via the in-space <code>spaceIndex</code> object. ' +
+          'spaceType is pinned by create and not editable.' +
+        '</p>' +
+        fields +
+        idxRow +
+      '</div>' +
     '</section>';
   }
 
@@ -3092,6 +3157,31 @@
         case 'delete-space': {
           if (!confirm('delete space ' + (App.activeSpace().info.name || '') + '? (soft delete)')) return;
           if (await deleteSpace(spaceId)) { App.persist(); render(); }
+          break;
+        }
+        case 'space-save-metadata': {
+          const sp = App.activeSpace();
+          if (!sp) return;
+          const info = sp.info || {};
+          // Diff against the cached info so we only PATCH fields the
+          // user actually changed — matches the wire's pointer-to-
+          // string contract (absent = leave-as-is).
+          const body = {};
+          const newName = val('#settings-name');
+          const newDesc = val('#settings-description');
+          const newIcon = val('#settings-icon-cid');
+          if (newName !== (info.name || '')) body.name = newName;
+          if (newDesc !== (info.description || '')) body.description = newDesc;
+          if (newIcon !== (info.iconCid || '')) body.iconCid = newIcon;
+          if (Object.keys(body).length === 0) {
+            toast('ok', 'nothing changed');
+            break;
+          }
+          if (await updateSpaceMetadata(spaceId, body)) { App.persist(); render(); }
+          break;
+        }
+        case 'space-reset-metadata': {
+          render();
           break;
         }
         case 'query-scope-space': App.queryScope = 'space'; render(); break;
