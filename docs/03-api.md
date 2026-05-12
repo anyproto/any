@@ -9,8 +9,9 @@
 - **IDs in the path**: `{spaceId}`, `{objectId}`, `{typeId}`, `{propId}`
   are URL-safe strings (base58). Path segments are URL-encoded.
 - **Success**: `200 OK` for reads, `201 Created` for creates,
-  `204 No Content` for side-effect-only endpoints (AttachType,
-  DetachType, SetDevice).
+  `204 No Content` for side-effect-only endpoints (e.g.
+  `PUT /v1/account/metadata`, `PATCH /v1/spaces/:spaceId`,
+  `DELETE /v1/spaces/:spaceId/objects/:objectId`).
 - **Errors**: see `06-errors.md`. Always JSON, always the same shape.
 - **Binding**: use `echo.Context.Bind` for request bodies. Share the
   request/response types between server and CLI via `internal/api/`.

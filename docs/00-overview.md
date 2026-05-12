@@ -63,9 +63,9 @@ and both are deferred.
   - Types and properties (full SDK surface that ships)
   - Subscribe (per-(object, dataset) and per-space firehose) over Server-Sent Events
   - Chat (built-in type — send/list/edit/delete/react on per-object message streams)
-  - ACL, members — placeholders today on the SDK; routes mirror the
-    eventual SDK shape, return 501 until the SDK lands them.
-  - Sync status — same: routes present, 501 until the SDK lands.
+  - Members, invites, ACL (mint/accept/decline/permissions/remove/
+    ownership/self-remove/cancel-join/stop-sharing) — shipped.
+  - Sync status — routes present, 501 until the SDK lands it.
 - CLI subcommands for every endpoint, grouped by SDK section.
 - Minimal YAML config (data dir, listen addr, network config).
 
