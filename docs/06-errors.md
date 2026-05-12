@@ -27,7 +27,7 @@ Every error response — regardless of status code — has the same body:
 | 404    | Target not found (space, object, type, record)                 |
 | 409    | Conflict (duplicate, precondition failed)                      |
 | 500    | Internal error — unexpected SDK or server failure               |
-| 501    | Not implemented — routes for SDK placeholder APIs (ACL, members, sync-status) return this in v1 |
+| 501    | Not implemented — routes for SDK placeholder APIs (sync-status, some Properties/Types subroutes) return this in v1 |
 | 503    | Server not ready (shutdown, reindex in progress)               |
 
 No 401/403 in v1 — there is no auth layer.
@@ -63,7 +63,7 @@ property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field
 
-sdk.not_implemented              # 501 — SDK placeholder (ACL, members, sync)
+sdk.not_implemented              # 501 — SDK placeholder (sync-status, some Properties/Types subroutes)
 sdk.not_found                    # 404 — SDK reports the target is gone (deleted, never existed as a type, etc.)
 
 server.unavailable               # 503 — request cancelled / server shutting down

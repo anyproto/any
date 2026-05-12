@@ -14,7 +14,8 @@
 
 ## Command surface
 
-> **v1 status:** only the **Meta** commands below are wired in
+> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Members,
+> Invites, Join, ACL, and `any space {get,update}` are wired in
 > `internal/cli/`. Everything else in this doc is the planned 1:1
 > mirror of the HTTP surface — already callable via `curl`, but no CLI
 > subcommand yet. Sections that are not yet implemented are marked
@@ -36,24 +37,33 @@ mnemonic to stderr and exits. If you skip it and go straight to
 prints the mnemonic once; `any init` just gives you a moment to copy
 it before the server binds anything.
 
-### Account (planned)
+### Account
 
 ```
-any account show
-any account update-metadata --name "..." [--description "..."] [--icon CID]
+any account                                         # GET /v1/account
+any account set-metadata --name "..." [--description "..."] [--icon CID]
 ```
 
-### Spaces (planned)
+### Spaces
+
+```
+any space get    <spaceId>                          # shipped
+any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
+```
+
+Planned (HTTP surface ships; no CLI subcommand yet):
 
 ```
 any space create --name "..."
 any space list
-any space get <spaceId>
 any space delete <spaceId>
 any space join <invite>
 any space derive [--seed <hex>]
 any space one-to-one <otherIdentity>
 ```
+
+`any space update` uses cobra's `Changed` semantics: a flag left unset
+leaves the field as-is, a flag set to an empty string clears it.
 
 ### Objects (planned)
 
@@ -135,18 +145,30 @@ any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```
 
-### Members & ACL (planned — server returns 501 until SDK lands them)
+### Members, invites & ACL
 
 ```
-any members list <spaceId>
-any members show <spaceId> <identity>
-any acl invite         <spaceId> [--permissions writer]
-any acl accept         <spaceId> <identity>
-any acl decline        <spaceId> <identity>
-any acl remove         <spaceId> <identity>
-any acl change-perm    <spaceId> <identity> <permission>
-any acl transfer-owner <spaceId> <identity>
-any acl self-remove    <spaceId>
+any members list     <spaceId>
+any members me       <spaceId>
+any members get      <spaceId> <identity>
+any members requests <spaceId>
+
+any invite create     <spaceId> [--permissions writer|reader]
+any invite list       <spaceId>
+any invite revoke     <spaceId> <recordId>
+any invite revoke-all <spaceId>
+
+any join <invite>
+
+any acl accept       <spaceId>
+any acl decline      <spaceId>
+any acl grant        <spaceId> <identity> <permission>
+any acl remove       <spaceId> <identity>...
+any acl add          <spaceId> <identity> <permission>
+any acl ownership    <spaceId>
+any acl self-remove  <spaceId>
+any acl cancel-join  <spaceId>
+any acl stop-sharing <spaceId>
 ```
 
 ### Sync status (planned — server returns 501 until SDK lands it)

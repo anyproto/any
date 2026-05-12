@@ -82,10 +82,8 @@ becomes useful. Needs:
 
 Not this repo's work; gate on the SDK:
 
-- **ACL public API.** Placeholder today. Handlers return 501 until it
+- **SyncStatusAPI.** Placeholder today. Handlers return 501 until it
   lands.
-- **MembersAPI.** Same.
-- **SyncStatusAPI.** Same.
 - **`PropertiesAPI.{SetAccount, SetDevice, AttachType, DetachType}`.**
   All return errors today; routes are 501 until the rewrite-object
   (account scope) and device-local store (device scope) ship.
