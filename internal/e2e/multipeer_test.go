@@ -327,6 +327,93 @@ func TestE2E_MultipeerCRDTConvergence(t *testing.T) {
 	}
 }
 
+// TestE2E_MultipeerSpaceMetadataSync verifies the per-space spaceIndex
+// path: owner PATCHes name/description/icon after the joiner is active,
+// joiner eventually reads the new values from GET /v1/spaces/:id. The
+// CRDT-replicated spaceIndex object is written on owner; both peers'
+// indexer hooks mirror the converged state back into their own
+// tech-space rows, so the joiner's plain `GET /v1/spaces/:id` is what
+// the assertion polls.
+func TestE2E_MultipeerSpaceMetadataSync(t *testing.T) {
+	if _, err := os.Stat(stagingFixture); err != nil {
+		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
+	}
+	if testing.Short() {
+		t.Skip("multipeer test takes ~60s; rerun without -short")
+	}
+
+	bin := buildBinary(t)
+	owner := startPeer(t, bin, "owner")
+	defer owner.stop(t)
+	joiner := startPeer(t, bin, "joiner")
+	defer joiner.stop(t)
+
+	var sp api.SpaceInfo
+	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
+		`{"name":"orig-name","description":"orig-desc"}`,
+		http.StatusCreated, &sp)
+
+	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
+
+	// Sanity: pre-patch, joiner sees the original name. The initial
+	// metadata is set during Create and rides the same spaceIndex
+	// path, so it may take a beat to mirror on the joiner side after
+	// the join completes.
+	if !pollUntil(60*time.Second, func() bool {
+		var got api.SpaceInfo
+		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id,
+			"", http.StatusOK, &got)
+		return got.Name == "orig-name"
+	}) {
+		var got api.SpaceInfo
+		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id,
+			"", http.StatusOK, &got)
+		t.Fatalf("joiner never saw original name; last=%+v", got)
+	}
+
+	// Owner renames + bumps description + sets an icon.
+	patch, _ := json.Marshal(api.SpaceUpdateRequest{
+		Name:        ptr("renamed-by-owner"),
+		Description: ptr("new-desc"),
+		IconCID:     ptr("bafyiconcidplaceholder"),
+	})
+	mustStatus(t, http.MethodPatch, owner.base+"/v1/spaces/"+sp.Id,
+		string(patch), http.StatusNoContent)
+
+	// Joiner polls the same endpoint the CLI / UI would read.
+	var last api.SpaceInfo
+	if !pollUntil(90*time.Second, func() bool {
+		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id,
+			"", http.StatusOK, &last)
+		return last.Name == "renamed-by-owner" &&
+			last.Description == "new-desc" &&
+			last.IconCID == "bafyiconcidplaceholder"
+	}) {
+		t.Fatalf("joiner never converged on patched metadata; last=%+v", last)
+	}
+
+	// And the row should show up in joiner's GET /v1/spaces list too,
+	// not just the by-id lookup.
+	var list api.SpaceListResponse
+	mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces", "",
+		http.StatusOK, &list)
+	var found bool
+	for _, row := range list.Spaces {
+		if row.Id == sp.Id {
+			found = true
+			if row.Name != "renamed-by-owner" {
+				t.Errorf("list row name = %q, want renamed-by-owner; row=%+v", row.Name, row)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("joiner list missing space %s: %+v", sp.Id, list.Spaces)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
+
 // TestE2E_MultipeerDecline covers the owner-rejects-join path:
 // owner mints → joiner joins → owner declines → owner /members/requests
 // drains and the joiner does not appear as an active member.
