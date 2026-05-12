@@ -54,7 +54,6 @@ Narrowly in v1:
 - CLI subcommands that call those endpoints.
 
 Deferred (see [`docs/07-roadmap.md`](docs/07-roadmap.md)):
-- Subscriptions (will likely be WebSocket).
 - Remote access / TCP auth.
 - Install scripts, service files.
 - Files, multi-account, GUI.
@@ -77,7 +76,7 @@ Read `../any-sync-sdk/docs/00-common-context.md` first for the full stack.
 - [`docs/01-cli.md`](docs/01-cli.md) — CLI command surface
 - [`docs/02-server.md`](docs/02-server.md) — server lifecycle
 - [`docs/03-api.md`](docs/03-api.md) — HTTP endpoint catalog
-- [`docs/04-events.md`](docs/04-events.md) — subscriptions (deferred)
+- [`docs/04-events.md`](docs/04-events.md) — subscriptions (SSE)
 - [`docs/05-config.md`](docs/05-config.md) — config file and flags
 - [`docs/06-errors.md`](docs/06-errors.md) — error response shape
 - [`docs/07-roadmap.md`](docs/07-roadmap.md) — what's next, open questions

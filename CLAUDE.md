@@ -233,8 +233,6 @@ auto-start.
 
 ## What's deferred (don't implement in v1)
 
-- **Subscriptions** — no `/subscribe` endpoint. Likely WebSocket when it lands
-  (`docs/04-events.md`). Callers poll via query in the meantime.
 - Remote access, TCP auth, TLS.
 - Install scripts / service files.
 - File upload/download (SDK defers files to v1.1).
@@ -250,7 +248,7 @@ auto-start.
 | `docs/01-cli.md` | full CLI command surface, flags, input formats |
 | `docs/02-server.md` | server lifecycle, startup, shutdown, data dir |
 | `docs/03-api.md` | HTTP endpoint catalog, body shapes, middleware |
-| `docs/04-events.md` | subscriptions (deferred) — tradeoffs recorded |
+| `docs/04-events.md` | subscriptions (SSE) — contract, lifecycle, tradeoffs |
 | `docs/05-config.md` | config file schema, env vars, flags, first-run flow |
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
