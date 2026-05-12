@@ -21,8 +21,7 @@ spaces.GET("/:spaceId", ...)
 ```
 
 The `/v1` prefix is **not** optional in v1 — every route ships under
-it from day one so the next iteration (2.0, WebSocket subs, whatever)
-doesn't have to break paths.
+it from day one so the next iteration doesn't have to break paths.
 
 ## Command
 
