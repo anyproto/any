@@ -1205,7 +1205,7 @@
     return r.json;
   }
   async function loadMarkdown(spaceId, objectId) {
-    const r = await api.get('/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/markdown');
+    const r = await api.get('/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/markdown');
     if (!r.ok) { toast('err', 'load markdown failed', r.body); return null; }
     const obj = App.spaces[spaceId]?.objects[objectId];
     if (obj) obj.markdownContent = (r.json && typeof r.json.content === 'string') ? r.json.content : '';
@@ -1213,7 +1213,7 @@
   }
   async function saveMarkdown(spaceId, objectId, content) {
     const r = await api.put(
-      '/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/markdown',
+      '/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/markdown',
       { content });
     if (!r.ok) { toast('err', 'save markdown failed', r.body); return null; }
     const j = r.json || {};
@@ -1236,7 +1236,7 @@
   //                    live update doesn't blow away what the user typed
   //   chatStream     — the EventSource handle so unmount can close it
   const objectMessagesPath = (sp, oid) =>
-    '/v1/spaces/' + encodeURIComponent(sp) + '/objects/' + encodeURIComponent(oid) + '/messages';
+    '/v1/spaces/' + encodeURIComponent(sp) + '/objects/' + encodeURIComponent(oid) + '/chat/messages';
 
   async function loadChatMessages(spaceId, objectId) {
     const obj = App.spaces[spaceId]?.objects[objectId];
