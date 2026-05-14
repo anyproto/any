@@ -41,7 +41,9 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
    - If absent: generate, write, print the mnemonic to stderr with a
      "back this up" warning.
 4. Open the SDK (`anysyncsdk.Open(ctx, cfg, provider)`).
-5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`).
+5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`) synchronously
+   via `net.Listen`. Listen errors (port in use, EACCES, non-loopback)
+   surface to the caller of `server.Run` before serving begins.
 6. Serve.
 
 ## Listen address
@@ -52,6 +54,21 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
   v1. If you pass `--addr 0.0.0.0:7001` it errors out clearly with
   "remote access is not supported in v1". (Keeps the security model
   honest.)
+- Pass `127.0.0.1:0` to let the OS pick a free port; embedders read the
+  actually-bound address back via the `RunOptions.Ready` hook (see
+  below). The startup logs always print the resolved address.
+
+## Embedding (RunWith)
+
+`server.Run(ctx, cfg)` is the CLI entry point and blocks. Embedders that
+need to know the bound address synchronously — e.g. the gomobile wrapper
+in `mobile/` — call `server.RunWith(ctx, cfg, RunOptions{Ready: fn})`.
+`Ready` fires once on the calling goroutine after the listener has
+bound, before Echo starts serving; `fn` receives the resolved
+`host:port`. Wallet / SDK / listen failures still return from `RunWith`
+as ordinary errors, so callers can `select` on a ready channel vs the
+`Run` error channel to surface a real startup error instead of a
+swallowed nil.
 
 ## Shutdown
 
