@@ -182,7 +182,7 @@ Not this repo's work; gate on the SDK:
   but its useful scope narrowed — it's now mainly for reading a type
   object's `properties` (definitions) dataset, since values moved.
 - **Editor: atomic blocks + markdown bridge** — `internal/editor`
-  registers a `handler.Type` for the `body_blocks` dataset, one
+  registers a `handler.Type` for the `editor_blocks` dataset, one
   record per block. Endpoints under
   `/v1/spaces/:s/objects/:o/editor/blocks` cover
   list / create / patch / delete; PATCH takes
@@ -191,15 +191,15 @@ Not this repo's work; gate on the SDK:
   `style`, INLINE-markdown `text`, `nav.parentId`, `nav.pos` (lexid).
   Block ids auto-derive from the change CID (same shape chat uses).
   List returns DFS document order. Liveness reuses the generic
-  subscribe primitive with `dataset=body_blocks`. The markdown
+  subscribe primitive with `dataset=editor_blocks`. The markdown
   surface moved into the same namespace — `GET/PUT /editor/markdown`
   — and stayed (LLM tools and import/export flows depend on it); it
-  now operates over the same `body_blocks` dataset internally — GET
+  now operates over the same `editor_blocks` dataset internally — GET
   renders blocks → markdown; PUT parses markdown → diffs the block
   tree → per-record create/update/delete. Same `{inserted, updated,
   deleted, unchanged}` response shape; the ids in those slices are
   block ids now, not lexids. Old `md_blocks` dataset is gone —
-  anything still pointing at it must move to `body_blocks`. Chat
+  anything still pointing at it must move to `editor_blocks`. Chat
   routes moved alongside: `/v1/spaces/:id/objects/:objectId/chat/messages`
   (same wire shape, namespaced path). CLI: `any editor blocks
   list/create/patch/delete`.

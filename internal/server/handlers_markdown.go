@@ -11,7 +11,7 @@ import (
 )
 
 // Markdown read/write endpoints — a lossless import/export layer
-// over the body_blocks dataset (internal/editor).
+// over the editor_blocks dataset (internal/editor).
 //
 //	GET  /v1/spaces/:spaceId/objects/:objectId/markdown
 //	PUT  /v1/spaces/:spaceId/objects/:objectId/markdown
@@ -26,7 +26,7 @@ import (
 // and renders each to its canonical markdown bytes; PUT parses the
 // supplied content, diffs against the stored blocks, and emits the
 // same per-record create / update / delete ops the /blocks endpoints
-// would — so the same `body_blocks` SSE events fire regardless of
+// would — so the same `editor_blocks` SSE events fire regardless of
 // which path produced the change.
 
 // markdownGet returns the joined markdown content for an object.

@@ -67,7 +67,7 @@ Implementation slices landed:
    plays). Liveness reuses the generic subscribe primitive with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
-   a `handler.Type` for the `body_blocks` dataset, one record per
+   a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
    level syntax), `nav.parentId`, `nav.pos` (lexid). Endpoints under
@@ -77,10 +77,10 @@ Implementation slices landed:
    per-path `$set` / `$unset`. List returns DFS document order. Block
    ids are auto-derived from the change CID (same shape chat uses).
    Liveness reuses the generic subscribe primitive with
-   `dataset=body_blocks`. The existing markdown routes moved into the
+   `dataset=editor_blocks`. The existing markdown routes moved into the
    same namespace — `GET/PUT /editor/markdown` — and stayed (LLM
    tools and import / export flows depend on them); they now run
-   over the same `body_blocks` dataset: GET renders blocks →
+   over the same `editor_blocks` dataset: GET renders blocks →
    markdown; PUT parses markdown → diffs against the current block
    tree → emits per-record create / update / delete ops, returning
    the same `{inserted, updated, deleted, unchanged}` shape. Old

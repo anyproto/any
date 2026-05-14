@@ -1,5 +1,5 @@
 // Package markdown is the lossless markdown import/export surface
-// over the body_blocks dataset (internal/editor). It exists for LLM
+// over the editor_blocks dataset (internal/editor). It exists for LLM
 // tools, "Export as .md" / "Import .md" UI flows, and programmatic
 // API users that don't want to walk the block tree manually.
 //
@@ -9,11 +9,11 @@
 //     joiner. Pure string→[]string transforms, no SDK access.
 //   - ParseBlock / RenderBlock: the typed view — convert a raw
 //     markdown block into the {type, style, text} shape stored on the
-//     body_blocks dataset, and the inverse rendering. Inline-only
+//     editor_blocks dataset, and the inverse rendering. Inline-only
 //     `text` (no block-level syntax inside).
 //   - Set / Get / List: helpers that read existing top-level blocks
 //     via the blocks package, diff against the supplied markdown, and
-//     emit per-record create/update/delete ops on the body_blocks
+//     emit per-record create/update/delete ops on the editor_blocks
 //     dataset. PUT /v1/.../markdown is one HTTP wrapper around Set;
 //     other clients can call it directly.
 //

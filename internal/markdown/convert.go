@@ -7,7 +7,7 @@ import (
 )
 
 // ParsedBlock is the typed view of one raw markdown block produced by
-// Split. It mirrors the on-the-wire shape of a body_blocks record
+// Split. It mirrors the on-the-wire shape of a editor_blocks record
 // (minus the SDK-managed id and _ver) so the markdown.Set path can
 // diff and emit ops directly.
 type ParsedBlock struct {
