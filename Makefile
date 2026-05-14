@@ -27,4 +27,6 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf $(OUT)
+	rm -rf $(OUT) dist
+
+include makefiles/android.mk
