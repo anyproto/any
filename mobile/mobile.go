@@ -24,31 +24,51 @@ var (
 
 // Start boots the any server. dataDir maps to Context.getFilesDir() on Android.
 // listenAddr is typically "127.0.0.1:7001"; pass "127.0.0.1:0" to let the OS
-// pick a free port (read it back with Address()).
+// pick a free port (read it back with Address()). nodeconfYAML is the
+// staging.yml contents — required, because the AAR has no filesystem
+// fallback for any-sync's nodeconf.
 //
-// Returns once the server has started accepting connections (or failed to).
+// Returns once the server has bound the listener (success) or failed during
+// wallet / SDK / listener setup (error). The error string is suitable for
+// surfacing to the host app — it carries the underlying Go error message.
 // Subsequent calls while a server is running return an error.
-func Start(dataDir, listenAddr string) error {
+func Start(dataDir, listenAddr, nodeconfYAML string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if cancel != nil {
 		return errors.New("any: server already running")
 	}
+	if nodeconfYAML == "" {
+		return errors.New("any: nodeconfYAML is required")
+	}
 
 	cfg := config.Defaults()
 	cfg.DataDir = dataDir
 	cfg.Listen.Addr = listenAddr
+	cfg.Network.Nodeconf = nodeconfYAML
 
 	ctx, c := context.WithCancel(context.Background())
 	ch := make(chan error, 1)
+	ready := make(chan string, 1)
 	go func() {
-		ch <- server.Run(ctx, cfg)
+		ch <- server.RunWith(ctx, cfg, server.RunOptions{
+			Ready: func(boundAddr string) { ready <- boundAddr },
+		})
 	}()
 
-	cancel = c
-	done = ch
-	addr = listenAddr
-	return nil
+	select {
+	case boundAddr := <-ready:
+		cancel = c
+		done = ch
+		addr = boundAddr
+		return nil
+	case err := <-ch:
+		c()
+		if err == nil {
+			err = errors.New("any: server exited without binding")
+		}
+		return err
+	}
 }
 
 // Stop signals graceful shutdown and waits for the server goroutine to exit.
@@ -67,8 +87,9 @@ func Stop() error {
 	return <-ch
 }
 
-// Address returns the listen address Start was called with. Empty when the
-// server is not running.
+// Address returns the actually-bound listen address (host:port). Differs
+// from the listenAddr passed to Start when ":0" was used and the OS picked
+// a port. Empty when the server is not running.
 func Address() string {
 	mu.Lock()
 	defer mu.Unlock()
