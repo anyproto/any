@@ -4,7 +4,7 @@
 // socket, and walks both the atomic /editor/blocks endpoints and their
 // /editor/markdown counterpart through to convergence.
 //
-// The two paths share the body_blocks dataset, so the headline contract
+// The two paths share the editor_blocks dataset, so the headline contract
 // is "a block API write and a markdown PUT produce equivalent end state
 // when given equivalent inputs"; both this file and the in-process
 // counterpart pin that down.
@@ -444,7 +444,7 @@ func TestE2E_EditorBlocksMarkdownConvergence(t *testing.T) {
 	}
 }
 
-// TestE2E_EditorBlocksSSE opens an SSE stream against dataset=body_blocks
+// TestE2E_EditorBlocksSSE opens an SSE stream against dataset=editor_blocks
 // and asserts a create + a markdown-PUT-driven update + a delete each
 // surface as a `changes` frame against the running binary. Confirms
 // both the atomic /editor/blocks endpoints and /editor/markdown share
@@ -494,7 +494,7 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 
 	// 1. POST /editor/blocks fires a `changes` frame with deleted=false.
 	created := createBlock(t, objBase, `{"type":"paragraph","text":"sse-1"}`)
-	createEvt := awaitBodyBlocksEvent(t, frames, created.Id)
+	createEvt := awaitEditorBlocksEvent(t, frames, created.Id)
 	if createEvt.VersionId == "" {
 		t.Errorf("create event missing versionId")
 	}
@@ -509,17 +509,17 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 	// plus a second block to force an insert event.
 	putMarkdown(t, objBase+"/editor/markdown", "sse-1\n\nsse-2-new")
 
-	// We expect at least one more event referencing a body_blocks
+	// We expect at least one more event referencing a editor_blocks
 	// record — either an insert for the new line, or an update on the
 	// existing block depending on diff alignment. Wait for any one.
-	if !awaitAnyBodyBlocksEvent(t, frames, 10*time.Second) {
-		t.Fatalf("no body_blocks event after markdown PUT")
+	if !awaitAnyEditorBlocksEvent(t, frames, 10*time.Second) {
+		t.Fatalf("no editor_blocks event after markdown PUT")
 	}
 
 	// 3. DELETE /editor/blocks fires a deleted=true event.
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+created.Id, "",
 		http.StatusNoContent)
-	deleteEvt := awaitBodyBlocksEvent(t, frames, created.Id)
+	deleteEvt := awaitEditorBlocksEvent(t, frames, created.Id)
 	if len(deleteEvt.Records) == 0 || !deleteEvt.Records[0].Deleted {
 		t.Errorf("delete event = %+v, want deleted=true on %s", deleteEvt, created.Id)
 	}
@@ -601,10 +601,10 @@ func toInt(v any) int {
 	return 0
 }
 
-// awaitBodyBlocksEvent pulls SSE frames until it finds a `changes` frame
-// whose batch contains an event for (body_blocks, recordId). Other
+// awaitEditorBlocksEvent pulls SSE frames until it finds a `changes` frame
+// whose batch contains an event for (editor_blocks, recordId). Other
 // frames are discarded. Times out after 10s.
-func awaitBodyBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordId string) api.SubscribeEvent {
+func awaitEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordId string) api.SubscribeEvent {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	for {
@@ -628,18 +628,18 @@ func awaitBodyBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordId 
 				}
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for body_blocks event on %s", recordId)
+			t.Fatalf("timed out waiting for editor_blocks event on %s", recordId)
 			return api.SubscribeEvent{}
 		}
 	}
 }
 
-// awaitAnyBodyBlocksEvent waits for *any* changes frame on the
-// body_blocks dataset (records list ignored). Used when the test driver
+// awaitAnyEditorBlocksEvent waits for *any* changes frame on the
+// editor_blocks dataset (records list ignored). Used when the test driver
 // can't predict which specific record id will fire — markdown PUT might
 // emit either an Update on the existing record or an Insert on a new
 // one depending on how the diff aligns.
-func awaitAnyBodyBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, d time.Duration) bool {
+func awaitAnyEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, d time.Duration) bool {
 	t.Helper()
 	deadline := time.After(d)
 	for {

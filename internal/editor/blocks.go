@@ -1,4 +1,4 @@
-// Package blocks defines the built-in `body_blocks` dataset and its
+// Package blocks defines the built-in `editor_blocks` dataset and its
 // per-record CRDT handler. Each record is one block of an object's
 // body — paragraph, heading, list item, code, etc. — atomic at the
 // field level so concurrent edits to two different blocks (or to two
@@ -51,18 +51,18 @@ import (
 // TypeId is the type identifier callers register block-bearing objects
 // under. Reserved — content-addressable user-derived type ids never
 // produce this string. Most objects don't explicitly carry the type
-// (blocks live on any object's body_blocks dataset); registering the
+// (blocks live on any object's editor_blocks dataset); registering the
 // handler is what matters.
-const TypeId = "body"
+const TypeId = "editor"
 
 // Display metadata used when surfacing the built-in via Types.List.
 const (
-	Name        = "Body"
-	Description = "Atomic block tree for an object's body"
+	Name        = "Editor"
+	Description = "Markdown + atomic block tree for an object's body"
 )
 
 // Dataset is the per-object dataset that holds the block records.
-const Dataset = "body_blocks"
+const Dataset = "editor_blocks"
 
 // Field keys on a block record. Literal strings — no
 // content-addressable propIds — to keep registration hand-readable,
@@ -97,7 +97,7 @@ const RootParentId = ""
 // dataVersion is the on-the-wire stamp pinned to writes on this
 // dataset. Bump only when validation logic changes in a way that must
 // reject older writers.
-const dataVersion = "body_blocks-v1"
+const dataVersion = "editor_blocks-v1"
 
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
@@ -126,7 +126,7 @@ const (
 )
 
 // NewType returns the handler.Type to add to config.Config.Types so
-// the SDK accepts writes on the body_blocks dataset.
+// the SDK accepts writes on the editor_blocks dataset.
 //
 //	cfg := config.Config{
 //	    Types: []handler.Type{ blocks.NewType(), chat.NewType() },
@@ -144,7 +144,7 @@ func NewType() handler.Type {
 	}
 }
 
-// blocksHandler is the CRDT handler owning the body_blocks dataset.
+// blocksHandler is the CRDT handler owning the editor_blocks dataset.
 // Implementation lives in handler.go; the type is declared here so
 // blocks.go is self-contained for the registration story.
 type blocksHandler struct {

@@ -226,7 +226,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	// delete-only change.
 	delBody, _ := json.Marshal(map[string]any{
 		"objectId":  objectID,
-		"dataset":   "body_blocks",
+		"dataset":   "editor_blocks",
 		"recordIds": []string{ownerBlockIds[0]},
 	})
 	var delResp map[string]any
@@ -252,8 +252,8 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 
 	// The actual assertion: owner must see the tombstone.
 	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
-	ownerBodyBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
-	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"body_blocks"}`, objectID)
+	ownerEditorBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
+	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"editor_blocks"}`, objectID)
 	if !pollUntil(2*time.Minute, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
@@ -271,11 +271,11 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 		_ = json.Unmarshal(raw, &got)
 		mdContent, _ := got["content"].(string)
 
-		// Also probe the raw body_blocks dataset to see whether the
+		// Also probe the raw editor_blocks dataset to see whether the
 		// delete tombstoned the record on the owner (raw query
 		// returns tombstones; markdown.List filters them).
-		_, rawBlocks := doRequest(t, http.MethodPost, ownerBodyBlocksQueryURL, queryBody)
-		t.Fatalf("owner never saw the tombstone\n  /markdown content=%q (status=%d)\n  /query body_blocks raw=%s",
+		_, rawBlocks := doRequest(t, http.MethodPost, ownerEditorBlocksQueryURL, queryBody)
+		t.Fatalf("owner never saw the tombstone\n  /markdown content=%q (status=%d)\n  /query editor_blocks raw=%s",
 			mdContent, resp.StatusCode, string(rawBlocks))
 	}
 }

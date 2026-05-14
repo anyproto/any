@@ -11,7 +11,7 @@ import (
 )
 
 // Block endpoints — one record per block on the per-object
-// body_blocks dataset.
+// editor_blocks dataset.
 //
 //	GET    /v1/spaces/:spaceId/objects/:objectId/editor/blocks
 //	POST   /v1/spaces/:spaceId/objects/:objectId/editor/blocks
@@ -20,7 +20,7 @@ import (
 //
 // Liveness reuses the generic subscribe primitive:
 //
-//	GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=body_blocks
+//	GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
 
 // blocksList handles GET .../blocks. Flat list in depth-first
 // document order — top-level blocks first (sorted by nav.pos), each

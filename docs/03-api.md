@@ -114,13 +114,13 @@ need the converged state poll, or attach a subscribe stream to
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/subscribe`                    | `Space.Subscribe` (SSE)  |
 
 Object bodies are stored as a tree of atomic blocks on a per-object
-`body_blocks` dataset (one record per block) and exposed through the
+`editor_blocks` dataset (one record per block) and exposed through the
 `…/editor/**` route namespace. The atomic surface is the four
 `…/editor/blocks` endpoints; the two `…/editor/markdown` routes are
 a lossless import/export layer over the same dataset for LLM tools,
 "Export as .md" / "Import .md" flows, and programmatic API users that
 don't want to walk the block tree. Liveness reuses the generic
-subscribe primitive with `dataset=body_blocks`.
+subscribe primitive with `dataset=editor_blocks`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
@@ -129,14 +129,14 @@ top-level block, renders each to its canonical markdown bytes, and
 joins with `\n\n`. `PUT` parses the incoming markdown, diffs against
 the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path a
-PATCH /editor/blocks call would, so the same `body_blocks` SSE events
+PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
 fire under the hood. `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N}` where the slices
 contain block ids.
 
 #### Blocks
 
-One record per block, stored on a per-object `body_blocks` dataset.
+One record per block, stored on a per-object `editor_blocks` dataset.
 Nest via `nav.parentId`; order siblings via `nav.pos` (lexid). Wire
 shape:
 
@@ -238,10 +238,10 @@ via `PUT /editor/markdown`, which diffs the whole body.
 ##### Subscribe
 
 Liveness reuses the existing subscribe endpoint with
-`dataset=body_blocks`:
+`dataset=editor_blocks`:
 
 ```
-GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=body_blocks
+GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
 ```
 
 `changes` frames carry projected `$set` / `$unset` ops per record;

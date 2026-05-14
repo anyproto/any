@@ -17,7 +17,7 @@ import (
 // helpers.
 //
 // For tailing live block changes use the existing
-// `any subscribe SPACE OBJ --dataset body_blocks` — the editor
+// `any subscribe SPACE OBJ --dataset editor_blocks` — the editor
 // endpoints intentionally don't expose a dedicated subscribe.
 func newEditorCmd() *cobra.Command {
 	cmd := &cobra.Command{

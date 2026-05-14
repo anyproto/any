@@ -9,7 +9,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// BlocksList fetches every block on the object's body_blocks dataset
+// BlocksList fetches every block on the object's editor_blocks dataset
 // in DFS document order. Empty Records when the object has no body
 // blocks yet.
 func (c *Client) BlocksList(ctx context.Context, spaceId, objectId string) (*api.BlockListResponse, error) {

@@ -32,9 +32,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/objects/:objectId/subscribe", d.subscribeObject)
 
 	// Editor (built-in type — see internal/editor). Atomic blocks +
-	// markdown bridge, both backed by the per-object body_blocks
+	// markdown bridge, both backed by the per-object editor_blocks
 	// dataset. Liveness reuses the generic /subscribe endpoint with
-	// dataset=body_blocks.
+	// dataset=editor_blocks.
 	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
 	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
 	g.GET("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksList)

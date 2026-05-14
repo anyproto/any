@@ -13,7 +13,7 @@ import (
 )
 
 // ErrNotFound signals that a referenced blockId does not exist on the
-// object's body_blocks dataset. Distinct from space.ErrNotFound so
+// object's editor_blocks dataset. Distinct from space.ErrNotFound so
 // callers can map cleanly to 404 blocks.not_found.
 var ErrNotFound = errors.New("blocks: block not found")
 
@@ -54,7 +54,7 @@ type PatchInput struct {
 	Unset []string
 }
 
-// List returns every block on the object's body_blocks dataset in
+// List returns every block on the object's editor_blocks dataset in
 // document order — depth-first, siblings sorted by nav.pos ascending.
 // IncludeMeta is on so callers receive `_ver` alongside payload
 // fields (needed for the wire response and for client-side dedup).
