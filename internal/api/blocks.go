@@ -2,7 +2,7 @@ package api
 
 import "encoding/json"
 
-// Block is the wire shape of one record in the body_blocks dataset.
+// Block is the wire shape of one record in the editor_blocks dataset.
 // Mirrors blocks.Block 1:1; the duplicate definition keeps
 // internal/api self-contained for clients that import it without
 // pulling internal/editor.

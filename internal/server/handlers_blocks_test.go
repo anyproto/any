@@ -153,9 +153,9 @@ func TestServer_Blocks_NestedTree(t *testing.T) {
 	}
 }
 
-// TestServer_Blocks_SSE_BodyBlocks subscribes to dataset=body_blocks
+// TestServer_Blocks_SSE_EditorBlocks subscribes to dataset=editor_blocks
 // and observes a create + a patch + a delete event in that order.
-func TestServer_Blocks_SSE_BodyBlocks(t *testing.T) {
+func TestServer_Blocks_SSE_EditorBlocks(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)

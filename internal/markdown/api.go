@@ -10,7 +10,7 @@ import (
 )
 
 // Block is one rendered markdown block as returned by List. Mirrors
-// the old shape but reads through the body_blocks dataset, so the id
+// the old shape but reads through the editor_blocks dataset, so the id
 // is now the block record's stable id (auto-derived from change CID
 // on first create) rather than a position-bearing lexid.
 type Block struct {
@@ -35,13 +35,13 @@ type SetResult struct {
 }
 
 // Set replaces the markdown content of objectId with content,
-// operating over the body_blocks dataset.
+// operating over the editor_blocks dataset.
 //
 // Pipeline:
 //
 //  1. Split content into raw markdown blocks, then ParseBlock each
 //     into a typed ParsedBlock {type, style, text}.
-//  2. List existing top-level body_blocks records in pos order.
+//  2. List existing top-level editor_blocks records in pos order.
 //  3. Diff old-vs-new by their canonical-rendered string. Matched
 //     pairs become Update (only fields that changed land as $set);
 //     leftover new entries become Insert; leftover old ones become
@@ -221,7 +221,7 @@ type existingBlock struct {
 	Pos   string
 }
 
-// listTopLevel returns the object's top-level body_blocks
+// listTopLevel returns the object's top-level editor_blocks
 // (nav.parentId == "") sorted by nav.pos ascending. The markdown path
 // stays flat: nested blocks (children of list items, for example)
 // live under their parents but the markdown round-trip only walks the
