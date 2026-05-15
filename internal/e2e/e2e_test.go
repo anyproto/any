@@ -252,7 +252,7 @@ func TestE2E_FullFlow(t *testing.T) {
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPost, "/v1/spaces/" + spaceID + "/properties/o1/account/t1"},
-			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status"},
+			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
 		for _, tc := range cases {
 			var env map[string]any

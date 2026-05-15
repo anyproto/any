@@ -82,8 +82,11 @@ becomes useful. Needs:
 
 Not this repo's work; gate on the SDK:
 
-- **SyncStatusAPI.** Placeholder today. Handlers return 501 until it
-  lands.
+- **`SyncStatusAPI.Peers` (or equivalent).** No production-grade
+  per-space peer list on the SDK today — `/v1/spaces/:id/sync-status/peers`
+  stays 501 until the SDK adds it. The diagnostic equivalent is
+  surfaced via `Space.Debug().Space()` / `/v1/spaces/:id/debug`, but
+  that surface is explicitly not stable.
 - **`PropertiesAPI.{SetAccount, SetDevice, AttachType, DetachType}`.**
   All return errors today; routes are 501 until the rewrite-object
   (account scope) and device-local store (device scope) ship.

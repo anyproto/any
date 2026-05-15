@@ -370,6 +370,40 @@
     padding: 1px 6px; border-radius: 99px; border: 1px solid var(--border);
   }
 
+  /* Debug / sync-status tab. Peer table is dense; kv table is the
+     per-object snapshot layout. debug-results lays the two object
+     panes side by side on wide screens, stacks on narrow. */
+  table.debug-peers {
+    width: 100%; border-collapse: collapse; font: 12px var(--mono);
+  }
+  table.debug-peers th, table.debug-peers td {
+    text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-soft);
+  }
+  table.debug-peers th {
+    color: var(--muted); font: 11px system-ui; font-weight: 600;
+  }
+  table.kv {
+    width: 100%; border-collapse: collapse;
+  }
+  table.kv td:first-child {
+    color: var(--muted); font: 12px system-ui; width: 32%; padding: 3px 8px 3px 0;
+    vertical-align: top;
+  }
+  table.kv td:last-child {
+    padding: 3px 0; font-size: 12px; vertical-align: top;
+  }
+  .debug-results {
+    display: grid; gap: 14px; grid-template-columns: 1fr 1fr;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft);
+  }
+  @media (max-width: 900px) {
+    .debug-results { grid-template-columns: 1fr; }
+  }
+  .debug-pane h4 {
+    margin: 0 0 6px; font: 12px system-ui; font-weight: 600;
+    color: var(--muted); display: flex; align-items: center; gap: 6px;
+  }
+
   /* Type tabs in the objects card. Horizontal scroll-snap when there
      are too many to fit; subtle bottom border stitches them to the
      list below. */
@@ -941,6 +975,7 @@
               expanded: new Set(s.expanded || []),
               loading: new Set(),
             },
+            sync: defaultSyncState(),
           };
         }
       } catch (e) {}
@@ -1022,6 +1057,23 @@
         (r.json?.error?.message || r.body));
     }
   }
+  // defaultSyncState is the zero value for the Debug-tab cache. Lives
+  // here so ensureSpace, rehydrate, and any future migration path
+  // share the same shape — older snapshots that pre-date this field
+  // are backfilled lazily on every ensureSpace call.
+  function defaultSyncState() {
+    return {
+      space: null,           // SpaceSyncStatusResponse
+      debug: null,           // SpaceDebugResponse (peer counters)
+      object: null,          // last per-object sync-status lookup
+      debugObject: null,     // last per-object debug lookup
+      lastObjectId: '',      // sticky input value across renders
+      loading: false,
+      live: false,           // account-wide /sync-status/subscribe toggle
+      laggedTotal: 0,        // surfaced count of dropped status events
+    };
+  }
+
   function ensureSpace(id, info) {
     if (!App.spaces[id]) {
       App.spaces[id] = {
@@ -1029,9 +1081,15 @@
         types: {},
         objects: {},
         tree: { children: {}, expanded: new Set(), loading: new Set() },
+        sync: defaultSyncState(),
       };
-    } else if (info) {
-      App.spaces[id].info = info;
+    } else {
+      if (info) App.spaces[id].info = info;
+      // Backfill `sync` for spaces rehydrated from older localStorage
+      // snapshots (or any future field that hasn't been seeded). Tab
+      // renderers expect this to exist before the user lands on
+      // them, so a missing field is what was breaking the Debug tab.
+      if (!App.spaces[id].sync) App.spaces[id].sync = defaultSyncState();
     }
     return App.spaces[id];
   }
@@ -1423,6 +1481,84 @@
   // by refreshMembers which fans out the three concurrent reads.
   // Cache shape: { members: [...], requests: [...], invites: [...] }.
   const SHARE_PERMS = ['none', 'reader', 'guest', 'writer', 'admin'];
+  // ---------- sync-status + debug loaders ----------
+  async function refreshSyncStatusSpace(spaceId) {
+    const sp = App.spaces[spaceId]; if (!sp) return;
+    const r = await api.get('/v1/spaces/' + encodeURIComponent(spaceId) + '/sync-status');
+    if (!r.ok) { toast('err', 'sync-status (space) failed', r.body); return; }
+    sp.sync.space = r.json;
+  }
+  async function refreshSyncStatusObject(spaceId, objectId) {
+    const sp = App.spaces[spaceId]; if (!sp) return;
+    const r = await api.get('/v1/spaces/' + encodeURIComponent(spaceId) +
+      '/sync-status/objects/' + encodeURIComponent(objectId));
+    if (!r.ok) { toast('err', 'sync-status (object) failed', r.body); return; }
+    sp.sync.object = r.json;
+  }
+  async function refreshDebugSpace(spaceId) {
+    const sp = App.spaces[spaceId]; if (!sp) return;
+    const r = await api.get('/v1/spaces/' + encodeURIComponent(spaceId) + '/debug');
+    if (!r.ok) { toast('err', 'debug (space) failed', r.body); return; }
+    sp.sync.debug = r.json;
+  }
+  async function refreshDebugObject(spaceId, objectId) {
+    const sp = App.spaces[spaceId]; if (!sp) return;
+    const r = await api.get('/v1/spaces/' + encodeURIComponent(spaceId) +
+      '/debug/objects/' + encodeURIComponent(objectId));
+    if (!r.ok) { toast('err', 'debug (object) failed', r.body); return; }
+    sp.sync.debugObject = r.json;
+  }
+
+  // syncStatusStream is the active EventSource handle on the
+  // account-wide /v1/sync-status/subscribe stream. We use the
+  // account-wide variant (not per-space) because there is no
+  // per-space subscribe endpoint — the SDK call is account-scoped.
+  // We filter on event.spaceId === current to update only the open
+  // space's cached rollup.
+  let syncStatusStream = null;
+  function mountSyncStatusLive(spaceId) {
+    unmountSyncStatusLive();
+    const sp = App.spaces[spaceId]; if (!sp) return;
+    sp.sync.live = true;
+    const es = new EventSource('/v1/sync-status/subscribe');
+    es.addEventListener('status', (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        // Account-wide stream: filter to the active space only.
+        if (!data || data.spaceId !== spaceId) return;
+        const cur = App.spaces[spaceId];
+        if (!cur) return;
+        cur.sync.space = data;
+        // Only re-render if we're still on the debug page for this
+        // space — keeps event flips invisible from other tabs.
+        if (App.route.name === 'space-debug' && App.route.spaceId === spaceId) {
+          renderDebugPanels();
+        }
+      } catch (e) { /* malformed frame — drop */ }
+    });
+    es.addEventListener('lagged', (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        const cur = App.spaces[spaceId];
+        if (cur) cur.sync.laggedTotal = (data && data.total) || cur.sync.laggedTotal;
+      } catch (e) {}
+    });
+    es.addEventListener('closed', () => { unmountSyncStatusLive(); });
+    es.addEventListener('error', () => {
+      // EventSource auto-reconnects; nothing to do. A stuck stream
+      // shows up as a stale rollup, easy to spot in the UI.
+    });
+    syncStatusStream = { es, spaceId };
+  }
+  function unmountSyncStatusLive() {
+    if (syncStatusStream) {
+      try { syncStatusStream.es.close(); } catch (e) {}
+      const sp = App.spaces[syncStatusStream.spaceId];
+      if (sp) sp.sync.live = false;
+      syncStatusStream = null;
+    }
+  }
+
   async function refreshMembers(spaceId) {
     const sp = App.spaces[spaceId];
     if (!sp) return;
@@ -1512,9 +1648,10 @@
   //   #/spaces/:id/query             → space-query
   //   #/spaces/:id/members           → space-members
   //   #/spaces/:id/settings          → space-settings
+  //   #/spaces/:id/debug             → space-debug (sync-status + debug)
   function parseHash() {
     const h = location.hash || '';
-    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query|members|settings)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
+    const m = h.match(/^#\/spaces\/([^\/?#]+)(?:\/(types|objects|query|members|settings|debug)(?:\/([^?#]+))?)?(?:\?(.*))?$/);
     if (!m) return { name: 'home' };
     const spaceId = decodeURIComponent(m[1]);
     const section = m[2] || 'objects';
@@ -1527,6 +1664,7 @@
     if (section === 'query') return { name: 'space-query', spaceId };
     if (section === 'members') return { name: 'space-members', spaceId };
     if (section === 'settings') return { name: 'space-settings', spaceId };
+    if (section === 'debug') return { name: 'space-debug', spaceId };
     return { name: 'space-objects', spaceId, typeFilter: qs.get('type') || '' };
   }
   function spaceUrl(id, section, param) {
@@ -1542,6 +1680,15 @@
   async function onHashChange() {
     unmountEditor();
     unmountChat();
+    // Tear down the sync-status live stream whenever the route
+    // changes away from a debug page (or to a different space's
+    // debug page). The user can re-arm it with the live toggle.
+    if (syncStatusStream) {
+      const next = parseHash();
+      if (next.name !== 'space-debug' || next.spaceId !== syncStatusStream.spaceId) {
+        unmountSyncStatusLive();
+      }
+    }
     App.route = parseHash();
     render();
     if (!App.route.spaceId) return;
@@ -1568,6 +1715,13 @@
     ]);
     if (route.name === 'space-members') {
       await refreshMembers(route.spaceId).catch(() => {});
+      return;
+    }
+    if (route.name === 'space-debug') {
+      await Promise.all([
+        refreshSyncStatusSpace(route.spaceId).catch(() => {}),
+        refreshDebugSpace(route.spaceId).catch(() => {}),
+      ]);
       return;
     }
     if (route.name === 'object-edit') {
@@ -1957,6 +2111,8 @@
         body = renderMembersPage(sp); activeTab = 'members'; break;
       case 'space-settings':
         body = renderSettingsPage(sp); activeTab = 'settings'; break;
+      case 'space-debug':
+        body = renderDebugPage(sp); activeTab = 'debug'; break;
       case 'space-objects':
       default:
         body = renderObjectsPage(sp, r.typeFilter || ''); activeTab = 'objects';
@@ -1994,6 +2150,7 @@
       tab('query', 'Query') +
       tab('members', 'Members') +
       tab('settings', 'Settings') +
+      tab('debug', 'Debug') +
     '</div>';
   }
 
@@ -2426,6 +2583,206 @@
         idxRow +
       '</div>' +
     '</section>';
+  }
+
+  // ---------- page: debug (sync-status + diagnostic snapshots) ----------
+  // Two surfaces side-by-side: production /sync-status (stable, cheap)
+  // and /debug (diagnostic, not stable). Both are space-level on top;
+  // a single lookup field below covers per-object reads on either.
+  function renderDebugPage(sp) {
+    const obj = sp.sync.lastObjectId || '';
+    return renderSyncStatusSpaceCard(sp) +
+      renderSpaceDebugCard(sp) +
+      renderDebugObjectLookupCard(sp, obj);
+  }
+
+  function syncStatePill(state) {
+    const s = state || 'unknown';
+    const colorMap = {
+      synced:  ['#1f6f43', '#a4e9bf'],
+      syncing: ['#7a5a00', '#ffe39a'],
+      error:   ['#7a1f1f', '#ffb3b3'],
+      offline: ['#444',    '#dcdcdc'],
+      unknown: ['#555',    '#e8e8e8'],
+    };
+    const [bg, fg] = colorMap[s] || colorMap.unknown;
+    return '<span class="pill" style="background:' + fg + ';color:' + bg + ';border-color:' + bg + '">' +
+      escapeHTML(s) + '</span>';
+  }
+
+  function renderSyncStatusSpaceCard(sp) {
+    const live = sp.sync.live;
+    const liveBtn = '<button class="ghost" data-act="debug-toggle-live" id="debug-live-btn">' +
+      (live ? '● live' : '○ live') + '</button>';
+    return '<section class="card" id="debug-sync-card">' +
+      '<header><h3>sync status <span class="pill">production</span></h3>' +
+        '<div class="row" style="gap:6px">' +
+          liveBtn +
+          '<button class="ghost" data-act="debug-reload-sync">reload</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body" id="debug-sync-body">' + renderSyncStatusSpaceBody(sp) + '</div>' +
+    '</section>';
+  }
+
+  // renderSyncStatusSpaceBody renders only the inner body — used by
+  // both the initial render and the SSE update path so we can swap
+  // innerHTML without clobbering surrounding inputs.
+  function renderSyncStatusSpaceBody(sp) {
+    const s = sp.sync.space;
+    const lagged = sp.sync.laggedTotal || 0;
+    if (!s) return '<p style="color:var(--muted);font-size:13px;margin:4px 0">not loaded — press reload.</p>';
+    const last = s.lastSyncedAt && !s.lastSyncedAt.startsWith('0001')
+      ? escapeHTML(s.lastSyncedAt) : '<span style="color:var(--muted)">never</span>';
+    return '<div class="row" style="gap:14px;flex-wrap:wrap;align-items:center">' +
+        '<div>state: ' + syncStatePill(s.state) + '</div>' +
+        '<div>objects: <strong>' + s.synced + '</strong>/' + s.total + ' synced</div>' +
+        '<div>peers: <strong>' + s.networkPeers + '</strong></div>' +
+        '<div>last synced: <span style="font:12px var(--mono)">' + last + '</span></div>' +
+      '</div>' +
+      (lagged > 0
+        ? '<p style="color:var(--err);font-size:12px;margin:8px 0 0">' +
+            'live stream dropped ' + lagged + ' event(s) — re-reload for current state.</p>'
+        : '');
+  }
+
+  function renderSpaceDebugCard(sp) {
+    const body = (() => {
+      const d = sp.sync.debug;
+      if (!d) return '<p style="color:var(--muted);font-size:13px;margin:4px 0">not loaded — press reload.</p>';
+      const peers = d.peers || [];
+      if (peers.length === 0) {
+        return '<p style="color:var(--muted);font-size:12px;margin:4px 0">' +
+          'no diff round has completed yet — peers reset on every server restart.</p>';
+      }
+      const rows = peers.map(p => {
+        const err = p.lastErr
+          ? '<span style="color:var(--err)">' + escapeHTML(p.lastErr) + '</span>'
+          : '<span style="color:var(--muted)">ok</span>';
+        return '<tr>' +
+          '<td style="font:12px var(--mono)" title="' + escapeHTML(p.peerId) + '">' + escapeHTML(shortId(p.peerId)) + '</td>' +
+          '<td>' + p.new + '</td>' +
+          '<td>' + p.changed + '</td>' +
+          '<td style="font:12px var(--mono)">' + escapeHTML((p.lastSyncAt || '').slice(0, 19)) + '</td>' +
+          '<td>' + err + '</td>' +
+        '</tr>';
+      }).join('');
+      return '<table class="debug-peers">' +
+        '<thead><tr><th>peer</th><th>new</th><th>changed</th><th>last sync</th><th>err</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>';
+    })();
+    return '<section class="card">' +
+      '<header><h3>peer counters <span class="pill">debug</span></h3>' +
+        '<div class="row" style="gap:6px">' +
+          '<button class="ghost" data-act="debug-reload-debug">reload</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          'in-memory headsync counters since boot — resets on server restart. ' +
+          'New/Changed are post-deletionState (what TreeSyncer pulls or pushes).' +
+        '</p>' +
+        body +
+      '</div>' +
+    '</section>';
+  }
+
+  function renderDebugObjectLookupCard(sp, objectId) {
+    const objs = Object.values(sp.objects || {})
+      .map(o => o.id).filter(Boolean).sort();
+    const datalistId = 'debug-objects-' + cssEsc(sp.info.id);
+    const datalist = '<datalist id="' + datalistId + '">' +
+      objs.map(id => '<option value="' + escapeHTML(id) + '"></option>').join('') +
+    '</datalist>';
+
+    const syncBody = (() => {
+      const s = sp.sync.object;
+      if (!s) return '';
+      const last = s.lastSyncAt && !s.lastSyncAt.startsWith('0001')
+        ? escapeHTML(s.lastSyncAt) : '<span style="color:var(--muted)">never</span>';
+      return '<div class="debug-pane">' +
+        '<h4>sync status <span class="pill">production</span></h4>' +
+        '<div class="row" style="gap:14px;flex-wrap:wrap">' +
+          '<div>state: ' + syncStatePill(s.state) + '</div>' +
+          '<div>last: <span style="font:12px var(--mono)">' + last + '</span></div>' +
+        '</div>' +
+        '<div style="font:11px var(--mono);color:var(--muted);margin-top:4px">' +
+          'objectId: ' + escapeHTML(s.objectId) +
+        '</div>' +
+      '</div>';
+    })();
+
+    const debugBody = (() => {
+      const d = sp.sync.debugObject;
+      if (!d) return '';
+      const heads = (d.heads || []).map(h =>
+        '<span class="pill" style="font:11px var(--mono)" title="' + escapeHTML(h) + '">' +
+          escapeHTML(shortId(h)) + '</span>'
+      ).join(' ');
+      const pending = (d.pending || []).map(h =>
+        '<span class="pill" style="font:11px var(--mono);color:var(--err)" title="' + escapeHTML(h) + '">' +
+          escapeHTML(shortId(h)) + '</span>'
+      ).join(' ');
+      const last = d.lastSyncAt && !d.lastSyncAt.startsWith('0001')
+        ? escapeHTML(d.lastSyncAt) : '<span style="color:var(--muted)">never</span>';
+      return '<div class="debug-pane">' +
+        '<h4>debug snapshot <span class="pill">debug</span></h4>' +
+        '<table class="kv">' +
+          '<tr><td>objectId</td><td style="font:11px var(--mono)">' + escapeHTML(d.objectId) + '</td></tr>' +
+          '<tr><td>sync state</td><td>' + syncStatePill(d.syncState) + '</td></tr>' +
+          '<tr><td>last sync</td><td>' + last + '</td></tr>' +
+          '<tr><td>heads (' + d.headsCount + ')</td><td>' + (heads || '<span style="color:var(--muted)">—</span>') + '</td></tr>' +
+          '<tr><td>pending</td><td>' + (pending || '<span style="color:var(--muted)">—</span>') + '</td></tr>' +
+          '<tr><td>branches</td><td>' + d.branchCount + '</td></tr>' +
+          '<tr><td>tree len</td><td>' + d.treeLen + '</td></tr>' +
+          '<tr><td>snapshots</td><td>' + d.snapshots + '</td></tr>' +
+          '<tr><td>latest versionId</td><td style="font:11px var(--mono)">' + escapeHTML(d.latestVersionId || '—') + '</td></tr>' +
+          '<tr><td>maxAddSeq</td><td>' + d.maxAddSeq + '</td></tr>' +
+        '</table>' +
+      '</div>';
+    })();
+
+    const results = (syncBody || debugBody)
+      ? '<div class="debug-results">' + syncBody + debugBody + '</div>'
+      : '';
+
+    return '<section class="card">' +
+      '<header><h3>per-object lookup</h3></header>' +
+      '<div class="body">' +
+        '<p style="color:var(--muted);font-size:12px;margin:0 0 8px">' +
+          'reads <code>/sync-status/objects/:id</code> and <code>/debug/objects/:id</code>. ' +
+          'unknown ids return <code>state: unknown</code>; debug walks the object tree (not for hot polling).' +
+        '</p>' +
+        '<div class="form-toggle" style="margin:0">' +
+          '<div class="field">' +
+            '<label>object id</label>' +
+            '<input type="text" id="debug-object-input" list="' + datalistId + '" ' +
+              'value="' + escapeHTML(objectId) + '" placeholder="paste an object id or pick from the list">' +
+            datalist +
+          '</div>' +
+          '<div class="form-actions">' +
+            '<button data-act="debug-fetch-object">fetch both</button>' +
+            '<button class="ghost" data-act="debug-fetch-object-sync">sync only</button>' +
+            '<button class="ghost" data-act="debug-fetch-object-debug">debug only</button>' +
+          '</div>' +
+        '</div>' +
+        results +
+      '</div>' +
+    '</section>';
+  }
+
+  // renderDebugPanels does a targeted DOM swap on the debug page so
+  // SSE-driven updates don't blow away the user's typing in the
+  // per-object lookup input. Only touches the sync-status body.
+  function renderDebugPanels() {
+    const sp = App.activeSpace();
+    if (!sp) return;
+    const body = document.getElementById('debug-sync-body');
+    if (!body) { render(); return; }
+    body.innerHTML = renderSyncStatusSpaceBody(sp);
+    const liveBtn = document.getElementById('debug-live-btn');
+    if (liveBtn) liveBtn.textContent = sp.sync.live ? '● live' : '○ live';
   }
 
   function renderDangerZoneCard() {
@@ -3181,6 +3538,46 @@
           break;
         }
         case 'space-reset-metadata': {
+          render();
+          break;
+        }
+        case 'debug-reload-sync': {
+          if (!spaceId) break;
+          await refreshSyncStatusSpace(spaceId);
+          renderDebugPanels();
+          break;
+        }
+        case 'debug-reload-debug': {
+          if (!spaceId) break;
+          await refreshDebugSpace(spaceId);
+          render();
+          break;
+        }
+        case 'debug-toggle-live': {
+          if (!spaceId) break;
+          const sp = App.spaces[spaceId];
+          if (!sp) break;
+          if (sp.sync.live) unmountSyncStatusLive();
+          else mountSyncStatusLive(spaceId);
+          renderDebugPanels();
+          break;
+        }
+        case 'debug-fetch-object':
+        case 'debug-fetch-object-sync':
+        case 'debug-fetch-object-debug': {
+          if (!spaceId) break;
+          const sp = App.spaces[spaceId];
+          if (!sp) break;
+          const oid = val('#debug-object-input').trim();
+          if (!oid) { toast('err', 'object id required'); break; }
+          sp.sync.lastObjectId = oid;
+          // Reset prior results so we don't show stale neighbour data.
+          if (act === 'debug-fetch-object' || act === 'debug-fetch-object-sync') sp.sync.object = null;
+          if (act === 'debug-fetch-object' || act === 'debug-fetch-object-debug') sp.sync.debugObject = null;
+          const tasks = [];
+          if (act !== 'debug-fetch-object-debug') tasks.push(refreshSyncStatusObject(spaceId, oid));
+          if (act !== 'debug-fetch-object-sync')  tasks.push(refreshDebugObject(spaceId, oid));
+          await Promise.all(tasks);
           render();
           break;
         }
