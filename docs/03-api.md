@@ -208,9 +208,10 @@ create time). Returns 201 with the full block record (server-allocated
 
 Each key in `set` is a dotted field path applied as one `$set` op.
 Each entry in `unset` is a dotted path applied as one `$unset`. Both
-fields are optional; an empty patch is a no-op that still returns
-the record's current `_ver.id`. All ops land in a single any-sync
-change (one VersionId).
+fields are optional; an empty patch is a no-op that returns the
+record's existing `_ver.id` (the creation marker — stable identifier
+for the record, not a per-edit version). All ops land in a single
+any-sync change (one VersionId).
 
 Required fields cannot be `$unset`-ed (`type`, `nav.parentId`,
 `nav.pos`) — the handler rejects those ops while still applying the
