@@ -6,10 +6,13 @@ import "encoding/json"
 // Mirrors space.Event 1:1.
 //
 //   - VersionId is the per-change DAG order. Clients running the
-//     subscribe-then-query-then-apply pattern compare this against
-//     `_ver.<field>` on the queried record (or `_ver.id` for the
-//     record-level marker) to decide whether the snapshot already
-//     covers the event.
+//     subscribe-then-query-then-apply pattern dedup per op path:
+//     compare this against `_ver.<op.path>` on the queried record
+//     (walking the `_ver` tree segment by segment, falling back to
+//     the closest `*` default key) to decide whether the snapshot
+//     already covers each op. `_ver.id` is the creation marker —
+//     set once and only lowered on delete — so it cannot be used as
+//     a record-level high-water mark.
 //
 //   - Records carries the post-apply effect of the change projected
 //     to a flat list of $set / $unset ops per record. The SDK has
