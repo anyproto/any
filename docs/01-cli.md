@@ -15,11 +15,11 @@
 ## Command surface
 
 > **v1 status:** Meta, Account, Chat, Editor, Subscribe, Members,
-> Invites, Join, ACL, and `any space {get,update}` are wired in
-> `internal/cli/`. Everything else in this doc is the planned 1:1
-> mirror of the HTTP surface — already callable via `curl`, but no CLI
-> subcommand yet. Sections that are not yet implemented are marked
-> **(planned)** in their headers.
+> Invites, Join, ACL, Debug, Sync-status, and `any space {get,update}`
+> are wired in `internal/cli/`. Everything else in this doc is the
+> planned 1:1 mirror of the HTTP surface — already callable via
+> `curl`, but no CLI subcommand yet. Sections that are not yet
+> implemented are marked **(planned)** in their headers.
 
 ### Meta
 
@@ -171,13 +171,40 @@ any acl cancel-join  <spaceId>
 any acl stop-sharing <spaceId>
 ```
 
-### Sync status (planned — server returns 501 until SDK lands it)
+### Sync status
 
 ```
-any sync-status space  <spaceId>
-any sync-status object <spaceId> <objectId>
-any sync-status peers  <spaceId>
+any sync-status space     <spaceId>                  # rolled-up state
+any sync-status object    <spaceId> <objectId>       # per-object state
+any sync-status subscribe                            # account-wide SSE stream
+any sync-status subscribe <spaceId> <objectId>       # per-object SSE stream
 ```
+
+`any sync-status peers` is **not** wired — `/sync-status/peers`
+returns 501 until the SDK lands a stable per-space peer list. Use
+`any debug space <spaceId>` for the diagnostic equivalent today.
+
+`subscribe` emits one JSON object per SSE frame on stdout — the same
+wrapper as `any subscribe`:
+
+```
+{"event": "ready",   "data": {}}
+{"event": "status",  "data": {"spaceId":"…","state":"syncing", … }}
+{"event": "lagged",  "data": {"total": 3}}
+{"event": "closed",  "data": {"reason": "server_shutdown"}}
+```
+
+### Debug (diagnostic)
+
+```
+any debug space  <spaceId>                  # per-peer headsync counters (in-memory)
+any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; walks the tree)
+```
+
+Diagnostic surface; **not stable** — fields may move as the SDK's
+`DebugAPI` evolves. Production callers should prefer `any sync-status`
+once that ships. `any debug object` locks the object tree and walks
+every change, so don't poll it in a tight loop.
 
 ## Global flags
 

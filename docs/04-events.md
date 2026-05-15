@@ -239,6 +239,48 @@ subscriptions in v1; both will migrate to the recipe. **Don't copy
 these as examples** — they predate the recipe and are scheduled to
 be replaced.
 
+## Sync-status streams (a separate SSE primitive)
+
+`/v1/sync-status/subscribe` and `/v1/spaces/:id/sync-status/objects/:objectId/subscribe`
+are SSE endpoints, but they are **not** the dataset-backed subscribe
+primitive documented above. State-flip events are sparse, per-call
+single payloads coming off the SDK's `Service.SubscribeStatus` /
+`SyncStatusAPI.SubscribeObject` callbacks — no mailbox, no CRDT
+records.
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: status
+data: { …SpaceSyncStatus or ObjectSyncStatus body… }
+
+event: lagged
+data: { "total": <count> }              # only if the forwarder dropped events
+
+event: closed
+data: { "reason": "server_shutdown" }   # client-disconnect writes nothing
+```
+
+`event: status` body shapes match the GET responses on
+`/v1/spaces/:id/sync-status` and `/v1/spaces/:id/sync-status/objects/:id`
+respectively — `state` is one of `unknown` / `offline` / `syncing` /
+`synced` / `error`. The `closed` reason set is shared with
+`/subscribe`, so a client can use one switch for both stream
+families.
+
+The per-stream forwarder uses a small buffered channel (16 deep);
+overflow drops the event and bumps a counter, surfaced as `lagged`
+before the next successful frame. State transitions are sparse
+enough that overflow is rare in practice.
+
+Mounting: the account-wide stream lives on `/v1/sync-status/subscribe`
+(no `:spaceId`) because the SDK call is account-scoped — one cb sees
+every known space's transitions on one stream. Per-object streams
+stay under the space group for symmetry with the GET endpoints.
+
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay

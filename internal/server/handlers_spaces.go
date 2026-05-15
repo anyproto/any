@@ -98,10 +98,21 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/acl/cancel-join", d.aclCancelJoin)
 	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing)
 
-	// Sync status — Space.SyncStatus() returns nil today.
-	g.GET("/spaces/:spaceId/sync-status", notImplemented("SyncStatus.Space"))
-	g.GET("/spaces/:spaceId/sync-status/objects/:objectId", notImplemented("SyncStatus.Object"))
+	// Sync status — per-space rollup + per-object state. The peers
+	// row stays 501 until the SDK exposes a stable per-space peer
+	// list on SyncStatusAPI (DebugAPI.Space surfaces the diagnostic
+	// equivalent today, see /debug below).
+	g.GET("/spaces/:spaceId/sync-status", d.syncStatusSpaceGet)
+	g.GET("/spaces/:spaceId/sync-status/objects/:objectId", d.syncStatusObjectGet)
+	g.GET("/spaces/:spaceId/sync-status/objects/:objectId/subscribe", d.syncStatusObjectSubscribe)
 	g.GET("/spaces/:spaceId/sync-status/peers", notImplemented("SyncStatus.Peers"))
+
+	// Debug — diagnostic surface; not a stable interface. Production UI
+	// should use /sync-status (above) once the SDK lands the
+	// production-grade methods. See internal/api/debug.go and
+	// any-sync-sdk2/space/debug.go for the field-level docs.
+	g.GET("/spaces/:spaceId/debug", d.debugSpace)
+	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
 
 func (d *deps) spaceCreate(c echo.Context) error {

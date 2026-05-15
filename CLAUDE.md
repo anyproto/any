@@ -107,6 +107,30 @@ Implementation slices landed:
      (cobra `Changed` distinguishes "flag absent" from "flag set
      to empty"). `spaceType` is intentionally not patchable —
      pinned by the initial Create.
+9. **Debug surface** — the SDK's new `Space.Debug()` is wrapped at
+   `GET /v1/spaces/:spaceId/debug` (per-peer headsync counters, in-
+   memory) and `GET /v1/spaces/:spaceId/debug/objects/:objectId`
+   (per-object tree + sync snapshot). Diagnostic only, **not stable**
+   — production callers should use `/sync-status` once the SDK lands
+   it. The per-object read locks the tree and walks every change, so
+   it isn't a hot path. CLI: `any debug space/object`. Field-level
+   docs in `internal/api/debug.go` and the SDK's
+   `space/debug.go` / `internal/spaceimpl/debug.go`.
+10. **Sync status + SSE state stream** — production sync state from
+    the SDK's `Space.SyncStatus()` / `Service.{Status,SubscribeStatus}`.
+    GETs: `/v1/spaces/:id/sync-status` (rollup),
+    `/v1/spaces/:id/sync-status/objects/:objectId` (per-object;
+    unknown ids return `state:"unknown"` rather than 404). SSE: two
+    separate streams from the dataset-backed subscribe primitive —
+    `/v1/sync-status/subscribe` (account-wide; sits outside the space
+    group because `Service.SubscribeStatus` is account-scoped) and
+    `/v1/spaces/:id/sync-status/objects/:objectId/subscribe`
+    (per-object). Frame set: `ready` → `status` per transition →
+    `lagged` on forwarder overflow → `closed` on shutdown. Reason
+    strings shared with `/subscribe` so clients can switch on one
+    reason set. `/sync-status/peers` stays 501 — SDK doesn't expose
+    a stable peer list there yet; `/debug` is the diagnostic
+    equivalent. CLI: `any sync-status space/object/subscribe`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

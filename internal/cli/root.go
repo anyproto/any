@@ -56,6 +56,8 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newInviteCmd(),
 		newJoinCmd(),
 		newACLCmd(),
+		newDebugCmd(),
+		newSyncStatusCmd(),
 		newVersionCmd(),
 	)
 	return root
