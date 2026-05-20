@@ -26,6 +26,11 @@ func buildEcho(d *deps) *echo.Echo {
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)
 
+	// Account-wide sync-status subscribe sits outside the space group:
+	// the SDK's Service.SubscribeStatus delivers every known space's
+	// rollup transitions on one stream, so it has no :spaceId scope.
+	v1.GET("/sync-status/subscribe", d.syncStatusSubscribe)
+
 	registerUIRoutes(e)
 
 	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))

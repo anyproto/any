@@ -67,19 +67,37 @@ other way. The recipe closes both.
 ### Why this works
 
 Each event carries `versionId` — the per-change DAG order (a lexid)
-that the SDK stamps the change with. The same versionId lands in
-`_ver.id` on every record the change touched (or in `_ver.<field>` for
-field-level versions, depending on the dataset). So:
+that the SDK stamps the change with. On apply, the SDK stamps each
+touched **field path** on the record with that versionId, inside the
+record's `_ver` map:
 
-- An event with `versionId = V` reports the state of the change at V.
-- A snapshot row with `_ver.id = V'` reflects every change up to and
-  including V'.
-- An event is **already covered** by the snapshot iff `event.versionId ≤
-  record._ver.id` (lexid string compare).
+- A `$set` / `$unset` at path P writes `_ver.<P> = versionId`.
+- A delete (tombstone) writes the change's versionId to `_ver.*` (the
+  default key — applies to every path not explicitly enumerated).
+- `_ver.id` is the **creation marker** — set once when the record is
+  created, only ever *lowered* if a tombstone arrives with a strictly
+  smaller versionId. It does **not** move on edits and cannot be used
+  to dedup them.
+
+A snapshot row's `_ver.<P>` is therefore the last versionId the
+snapshot absorbed at path P. So:
+
+- An event op at path P is **already covered** by the snapshot iff
+  `event.versionId ≤ snapshot._ver.<P>` (lexid string compare).
+- A `deleted: true` event is **already covered** iff the id is absent
+  from the snapshot (tombstones aren't typically returned by Query),
+  or — if you explicitly include tombstones — `event.versionId ≤
+  snapshot._ver.*`.
 
 Subscribing first ensures no change between query-time and live-mode
-goes missing. Deduping by versionId ensures we don't double-apply a
-change that the snapshot already absorbed.
+goes missing. Per-op-path deduping by versionId ensures we don't
+double-apply a change that the snapshot already absorbed.
+
+Resolving `_ver.<P>` walks the `_ver` tree segment by segment, falling
+back to the closest `*` (default) key when a segment is missing. The
+SDK uses the same algorithm internally — see
+`internal/crdt/versions.go::GetRecordVersion` in any-sync-sdk — and
+clients can mirror it in a few lines of map walking.
 
 ### Steps
 
@@ -92,17 +110,21 @@ change that the snapshot already absorbed.
    as `lagged`).
 3. **Snapshot.** Query for cold state: `GET …/editor/blocks` for a
    block tree, `POST …/objects/query` for the per-space firehose,
-   `POST …/query` for a per-object dataset, etc. Record each row's
-   `_ver.id` (or `_ver.<field>` if you key per-field) — that's your
-   high-water mark for dedup.
+   `POST …/query` for a per-object dataset, etc. Each row's `_ver`
+   map is the per-field high-water — keep it alongside the payload
+   fields for dedup.
 4. **Replay the buffer.** For each event collected while the query was
    in flight, for each record in `event.records`:
-   - If the record id is in the snapshot and
-     `event.versionId ≤ snapshot[id]._ver.id`, drop the op — the
-     snapshot already covers it.
-   - Otherwise apply `record.ops` to the snapshot (or set
-     `deleted:true` ⇒ remove). Update the local `_ver.id` to
-     `event.versionId`.
+   - If `deleted: true`: drop the op if the id is absent from the
+     snapshot (already gone); otherwise remove the id from local
+     state. If you explicitly track tombstones, compare against
+     `snapshot[id]._ver.*` and drop when `event.versionId ≤` it.
+   - Otherwise, for each op in `record.ops`: resolve
+     `snapshot[id]._ver.<op.path>` (walk segments, fall back to the
+     closest `*` default key). If
+     `event.versionId ≤ snapshot[id]._ver.<op.path>`, drop the op —
+     the snapshot already covers it. Otherwise apply the op and
+     write `_ver.<op.path> = event.versionId` in local state.
 5. **Go live.** Apply each subsequent `changes` frame's ops directly to
    local state — same loop as step 4, just running against the live
    feed instead of the buffer.
@@ -137,7 +159,7 @@ non-Go clients don't reimplement CRDT.
 
 ```
 events = []        // buffered until snapshot lands
-state  = {}        // id -> {record fields, _ver: {id, ...}}
+state  = {}        // id -> {record fields, _ver: {id, "<field>": <versionId>, ...}}
 
 stream = open_sse(subscribe_url)
 for frame in stream:
@@ -150,7 +172,7 @@ async for frame in stream:
 
 snapshot = query(...)             // GET /editor/blocks, POST /query, ...
 for row in snapshot.records:
-    state[row.id] = row            // _ver.id already on the row
+    state[row.id] = row            // _ver map already on the row
 
 for evt in events:                 // flush buffer
     apply(evt, state, dedup=True)
@@ -165,10 +187,11 @@ for frame in stream:
 ```
 
 `apply` is one function in both phases; the only difference is whether
-to dedup against the snapshot's `_ver` markers. After the buffer is
-drained, the per-record `_ver.id` tracked in `state` keeps the dedup
-honest if a duplicate ever does show up (it shouldn't post-`ready`,
-but the comparison is cheap).
+to dedup against the snapshot's `_ver` map. Dedup is per op path:
+resolve `state[id]._ver.<op.path>` and drop the op when
+`event.versionId ≤` it. Applied ops write the event's versionId back
+into `state[id]._ver.<op.path>`, so the same comparison keeps working
+in live mode against late-arriving duplicates.
 
 ### Gotchas
 
@@ -182,14 +205,18 @@ but the comparison is cheap).
   ordering (`==`, `<`, `>`), not numeric.
 - **Multi-record events.** The per-space firehose (`dataset=objects`)
   and properties subscription emit events whose `records[]` covers
-  several ids per change — dedup per record.
-- **Field-level dedup is optional.** Most clients can key on
-  `_ver.id`. If your dataset surfaces `_ver.<field>` and you want
-  finer-grained replay, compare per field — same lexid rule.
-- **The snapshot's `_ver.id` may move while you read.** Snapshots
-  aren't transactional across rows. The buffer-replay step handles
-  this: any change that landed mid-query shows up on the stream and
-  gets deduped against whichever row already saw it.
+  several ids per change — dedup per record, then per op-path within
+  each record.
+- **Dedup is per op path, not per record.** `_ver.id` is the creation
+  marker — set once at create, only lowered on delete — so comparing
+  `event.versionId ≤ _ver.id` would treat every edit as new even when
+  the snapshot already absorbed it. Resolve `_ver.<op.path>` for each
+  op instead (the walk falls back to the closest `*` default key when
+  a segment is missing).
+- **Snapshots aren't transactional across rows.** Different rows may
+  reflect changes that landed at different times. The buffer-replay
+  step handles this: any change that landed mid-query shows up on the
+  stream and gets deduped against whichever row already saw it.
 
 ## Lifecycle / shutdown
 
@@ -238,6 +265,48 @@ snapshot in the tree was the immediate trigger for shipping
 subscriptions in v1; both will migrate to the recipe. **Don't copy
 these as examples** — they predate the recipe and are scheduled to
 be replaced.
+
+## Sync-status streams (a separate SSE primitive)
+
+`/v1/sync-status/subscribe` and `/v1/spaces/:id/sync-status/objects/:objectId/subscribe`
+are SSE endpoints, but they are **not** the dataset-backed subscribe
+primitive documented above. State-flip events are sparse, per-call
+single payloads coming off the SDK's `Service.SubscribeStatus` /
+`SyncStatusAPI.SubscribeObject` callbacks — no mailbox, no CRDT
+records.
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: status
+data: { …SpaceSyncStatus or ObjectSyncStatus body… }
+
+event: lagged
+data: { "total": <count> }              # only if the forwarder dropped events
+
+event: closed
+data: { "reason": "server_shutdown" }   # client-disconnect writes nothing
+```
+
+`event: status` body shapes match the GET responses on
+`/v1/spaces/:id/sync-status` and `/v1/spaces/:id/sync-status/objects/:id`
+respectively — `state` is one of `unknown` / `offline` / `syncing` /
+`synced` / `error`. The `closed` reason set is shared with
+`/subscribe`, so a client can use one switch for both stream
+families.
+
+The per-stream forwarder uses a small buffered channel (16 deep);
+overflow drops the event and bumps a counter, surfaced as `lagged`
+before the next successful frame. State transitions are sparse
+enough that overflow is rare in practice.
+
+Mounting: the account-wide stream lives on `/v1/sync-status/subscribe`
+(no `:spaceId`) because the SDK call is account-scoped — one cb sees
+every known space's transitions on one stream. Per-object streams
+stay under the space group for symmetry with the GET endpoints.
 
 ## Open / future
 

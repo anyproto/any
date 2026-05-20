@@ -58,10 +58,14 @@ type BlockPatchRequest struct {
 	Unset []string                   `json:"unset,omitempty"`
 }
 
-// BlockPatchResponse is the body of PATCH .../blocks/:blockId. Just
-// the post-apply VersionId — clients dedup live events against it.
-// Returned even for a no-op patch (then VersionId is the unchanged
-// record's existing _ver.id).
+// BlockPatchResponse is the body of PATCH .../blocks/:blockId. On a
+// real patch, VersionId is the new change's versionId — clients
+// running the subscribe-then-query-then-apply recipe can stamp
+// `_ver.<op.path> = versionId` on the affected paths locally to
+// pre-seed dedup against the matching live event.
+// On a no-op patch, VersionId is the record's existing `_ver.id`
+// (the creation marker — stable record identifier, not a per-edit
+// version; cannot be used as a dedup high-water mark).
 type BlockPatchResponse struct {
 	VersionId string `json:"versionId"`
 }

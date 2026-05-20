@@ -208,9 +208,10 @@ create time). Returns 201 with the full block record (server-allocated
 
 Each key in `set` is a dotted field path applied as one `$set` op.
 Each entry in `unset` is a dotted path applied as one `$unset`. Both
-fields are optional; an empty patch is a no-op that still returns
-the record's current `_ver.id`. All ops land in a single any-sync
-change (one VersionId).
+fields are optional; an empty patch is a no-op that returns the
+record's existing `_ver.id` (the creation marker — stable identifier
+for the record, not a per-edit version). All ops land in a single
+any-sync change (one VersionId).
 
 Required fields cannot be `$unset`-ed (`type`, `nav.parentId`,
 `nav.pos`) — the handler rejects those ops while still applying the
@@ -663,13 +664,104 @@ Unknown values on the wire return `400 request.schema`. Member-event
 SSE is **not** wired in v1 — clients refresh by re-`GET`-ing the
 collection after a write.
 
-### Sync status (routes present, handlers return 501 until SDK lands it)
+### Sync status
 
-| Method | Path                                                 | Purpose                            |
-|--------|------------------------------------------------------|------------------------------------|
-| GET    | `/v1/spaces/:spaceId/sync-status`                    | space-level aggregate              |
-| GET    | `/v1/spaces/:spaceId/sync-status/objects/:objectId`  | per-object                         |
-| GET    | `/v1/spaces/:spaceId/sync-status/peers`              | peers                              |
+| Method | Path                                                              | Purpose                                    |
+|--------|-------------------------------------------------------------------|--------------------------------------------|
+| GET    | `/v1/spaces/:spaceId/sync-status`                                 | `Space.SyncStatus().Space()`               |
+| GET    | `/v1/spaces/:spaceId/sync-status/objects/:objectId`               | `Space.SyncStatus().Object`                |
+| GET    | `/v1/spaces/:spaceId/sync-status/objects/:objectId/subscribe`     | per-object SSE (state-flip stream)         |
+| GET    | `/v1/sync-status/subscribe`                                       | account-wide SSE — every space's rollup    |
+| GET    | `/v1/spaces/:spaceId/sync-status/peers`                           | **501** until the SDK lands per-space peer list (use `/debug` for diagnostic equivalent) |
+
+The two GETs are cheap; safe to call on a render tick. `state` is one
+of `unknown` / `offline` / `syncing` / `synced` / `error`. Unknown
+object ids return `{state: "unknown"}` rather than 404 — the SDK is
+forgiving here, callers that need existence checks should use the
+object catalog.
+
+```json
+// GET /v1/spaces/:spaceId/sync-status
+{ "spaceId":      "spc_…",
+  "state":        "syncing",
+  "synced":       1,
+  "total":        3,
+  "networkPeers": 0,
+  "lastSyncedAt": "0001-01-01T00:00:00Z" }
+
+// GET /v1/spaces/:spaceId/sync-status/objects/:objectId
+{ "objectId":   "obj_…",
+  "state":      "synced",
+  "lastSyncAt": "2026-05-15T12:00:00Z" }
+```
+
+The two `/subscribe` endpoints are SSE streams. Wire shape and
+lifecycle are documented in `04-events.md` § Sync-status streams —
+short version: `event: ready`, then one `event: status` per state
+transition (carrying the GET body), terminating with `event: closed`
+on server shutdown. Account-wide subscribe lives outside the space
+group because the SDK call is account-scoped — one stream covers
+every known space.
+
+### Debug (diagnostic)
+
+| Method | Path                                                 | Purpose                                |
+|--------|------------------------------------------------------|----------------------------------------|
+| GET    | `/v1/spaces/:spaceId/debug`                          | `Space.Debug().Space()`                |
+| GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
+
+**Diagnostic only — not a stable interface.** The SDK's `DebugAPI` is
+explicitly tagged as "fields and methods may grow or move"; this
+mirror inherits the same churn. Production UI should use
+`/sync-status` instead (501 until the SDK lands it).
+
+`GET /v1/spaces/:spaceId/debug` returns the per-space outbound
+headsync counters since boot (in-memory; resets on every server
+restart). `peers` is `[]` until at least one diff round has run
+against a responsible node.
+
+```json
+{
+  "spaceId": "spc_…",
+  "peers": [
+    { "peerId":     "12D3Koo…",
+      "lastSyncAt": "2026-05-15T12:00:00Z",
+      "new":        2,
+      "changed":    5,
+      "lastErr":    "" }
+  ]
+}
+```
+
+`GET /v1/spaces/:spaceId/debug/objects/:objectId` returns a joint-
+consistent snapshot of one object's tree + sync state. The read
+locks the object tree and walks every change — on a million-change
+tree this can block local writes for a noticeable pause. **Not for
+high-frequency polling.** First touch of a never-loaded object also
+triggers a cold-restore.
+
+```json
+{
+  "objectId":        "obj_…",
+  "syncState":       "syncing",
+  "pending":         ["head_a"],
+  "lastSyncAt":      "2026-05-15T12:00:00Z",
+  "heads":           ["head_a"],
+  "headsCount":      1,
+  "branchCount":     0,
+  "treeLen":         3,
+  "snapshots":       1,
+  "latestVersionId": "01HX…",
+  "maxAddSeq":       17
+}
+```
+
+`syncState` is one of `unknown` / `offline` / `syncing` / `synced` /
+`error`. `latestVersionId` is empty for root-only / transient cold-
+restore states and is local to this peer — `VersionIds` are not
+comparable across peers. `maxAddSeq` is the controller's
+delivery-order watermark, surfaced as a sanity check against tree
+length — it is not a cross-peer primitive.
 
 ## Body shapes (examples)
 
