@@ -390,8 +390,12 @@ data: {"reason": "server_shutdown"}
   full CRDT semantics, so a thin client without a CRDT engine applies
   `records[].ops` naively to a JSON-shaped local copy). A record with
   `"deleted": true` means drop that id from local state; `ops` is empty.
-  Wait coalesces every event accumulated during the previous write
-  into a single frame, so a slow client / network produces fewer,
+  An op's `path` is always a JSON array of dotted segments — never
+  `null`. An empty array `[]` means the record root: on `$set`, the
+  payload is then an object whose top-level keys are themselves
+  dot-separated paths to assign at (the wire shape every record-create
+  ships as). Wait coalesces every event accumulated during the previous
+  write into a single frame, so a slow client / network produces fewer,
   larger frames rather than head-of-line stalls. There is no SSE
   `id:` — clients dedup by comparing `versionId` against the per-
   field `_ver` stamps in their snapshot.
