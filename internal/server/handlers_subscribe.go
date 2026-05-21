@@ -241,9 +241,16 @@ func subscribeEventToAPI(ev space.Event) api.SubscribeEvent {
 		if !rec.Deleted && len(rec.Ops) > 0 {
 			dst.Ops = make([]api.SubscribeEventOp, len(rec.Ops))
 			for j, op := range rec.Ops {
+				// SDK returns a nil slice for root-level ops; normalize
+				// to []string{} so `path` is always a JSON array on
+				// the wire (never `null`).
+				path := op.Path
+				if path == nil {
+					path = []string{}
+				}
 				dst.Ops[j] = api.SubscribeEventOp{
 					Type: string(op.Type),
-					Path: op.Path,
+					Path: path,
 				}
 				if op.Payload != nil {
 					dst.Ops[j].Payload = op.Payload.FastJson(fa).MarshalTo(nil)

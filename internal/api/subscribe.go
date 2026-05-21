@@ -45,10 +45,13 @@ type SubscribeEventRecord struct {
 // SubscribeEventOp is one $set or $unset op inside an EventRecord. The
 // SDK only ever emits $set / $unset to subscribers — $inc / $addToSet
 // / $pull / $incGated are projected to the post-apply value before
-// delivery, so a thin client can apply Ops naively. Path is the
-// dotted-segment field path (empty Path on $set activates the
-// multi-field form: Payload is an object whose keys are dot-separated
-// paths). Payload is the JSON-shaped post-apply value for $set,
+// delivery, so a thin client can apply Ops naively.
+//
+// Path is the dotted-segment field path, always a JSON array on the
+// wire (never `null` — an empty array `[]` means the record root). On
+// $set, an empty Path activates the multi-field form: Payload is an
+// object whose keys are dot-separated paths, each value is what to
+// assign there. Payload is the JSON-shaped post-apply value for $set,
 // omitted for $unset.
 type SubscribeEventOp struct {
 	Type    string          `json:"type"`
