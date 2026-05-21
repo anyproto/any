@@ -155,6 +155,17 @@ subscribers — the SDK collapses them to the equivalent `$set` of the
 merged result before delivery. The wire is intentionally narrow so
 non-Go clients don't reimplement CRDT.
 
+Auto-stamped fields ship as ordinary `$set` ops alongside the
+caller's payload — handler-derived stamps (chat: `creator` /
+`createdAt` / `modifiedAt`; properties: `author` / `createdAt` /
+`spaceId`) and the SDK's own `_ver.id` creation marker all arrive in
+the same `record.ops` slice on the create event. A viewer
+reconstructing a fresh record applies them the same way as user
+fields; there is no second-class wire form for auto fields. Per-path
+`_ver.<P>` stamps for the user fields themselves are still NOT on
+the wire — clients write `_ver.<op.path> = event.versionId` locally
+when they apply each op, per the recipe above.
+
 ### Pseudo-code
 
 ```
