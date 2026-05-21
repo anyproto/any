@@ -13,7 +13,7 @@
 //	  "modifiedAt":       <unix-seconds>,                    // bumped on edit
 //	  "replyToMessageId": "<msgId>",                         // optional
 //	  "text":             "<markdown>",                      // ≤ MaxTextBytes
-//	  "reactions":        { "<accountId>": ["<emoji>", ...] }
+//	  "reactions":        { "<emoji>": { "<accountId>": <changeTimestamp> } }
 //	}
 //
 // Chronological order is `_ver.id` — the SDK's creation-version
@@ -23,11 +23,23 @@
 // `_ver.id` and pagination cursors translate to message-id → _ver.id
 // lookups at the API layer.
 //
-// Reactions are stored identity-keyed (each user owns their key) so
-// authorization is a single path-segment compare against
-// ctx.Change.Creator. The API layer transposes to emoji-keyed
-// {emoji: [accountId, ...]} on read because that's what clients
-// expect.
+// Reactions are stored emoji-keyed at the first segment, identity-
+// keyed at the second: `reactions.<emoji>.<accountId> = <ts>`. The
+// timestamp is the triggering change's clock, server-derived (the
+// client's payload value is overwritten via sink.Derive). Two
+// invariants follow:
+//
+//   - Authorization on react ops is a single path-segment compare:
+//     path[2] (the accountId leaf) must equal ctx.Change.Creator.
+//     Anyone can toggle their own slot; nobody can toggle someone
+//     else's.
+//   - The emoji and accountId are both first-class storage keys, so a
+//     single CRDT $set/$unset on the leaf path adds or removes one
+//     identity's reaction with one emoji — no array shuffling.
+//
+// On the wire the handler keeps the storage shape unchanged; the API
+// layer rolls it up to `{emoji: [accountId, ...]}` (sorted by
+// timestamp ascending) because that's what clients render.
 //
 // Server-stamped fields land via sink.Derive in BeforeCreate /
 // BeforeModify; they are intentionally invisible to client payloads.

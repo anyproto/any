@@ -265,7 +265,10 @@ All consumers run the recipe above; the dataset names below are the
   came from a PATCH /editor/blocks call or a bulk PUT /editor/markdown
   rewrite — markdown PUT becomes "bulk block ops" under the hood.
 - **`chat_messages`** — per-object chat stream. One record per
-  message; reactions are nested fields.
+  message; reactions live at
+  `reactions.<emoji>.<accountId> = <changeTimestamp>` (server-
+  derived), so toggle events arrive as `$set` (add) or `$unset`
+  (remove) on the leaf path.
 - **`objects`** — per-space firehose. Each event's `records[]` can
   cover several object ids per change; dedup per record.
 - **Properties** — `GET /v1/spaces/:id/properties/subscribe` (the

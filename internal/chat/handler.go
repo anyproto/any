@@ -50,9 +50,11 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 
 // BeforeModify gates per-op edits. Path allow-list:
 //
-//   - text                 — $set, by author only, bumps modifiedAt
-//   - reactions.<creator>  — $addToSet / $pull, only on the caller's
-//                            own identity-keyed slot
+//   - text                                — $set, by author only,
+//                                            bumps modifiedAt
+//   - reactions.<emoji>.<creator>         — $set (add) or $unset
+//                                            (remove), only on the
+//                                            caller's own slot
 //
 // Anything else (including direct writes to creator, createdAt,
 // modifiedAt, replyToMessageId, _ver.*, _deletedAt) drops the op.
@@ -63,7 +65,7 @@ func (messagesHandler) BeforeModify(ctx *handler.ChangeCtx, _ *handler.RecordCha
 	case isTextEdit(op):
 		return validateTextEdit(ctx, op, sink)
 	case isReactionToggle(op):
-		return validateReactionToggle(ctx, op)
+		return validateReactionToggle(ctx, op, sink)
 	default:
 		return rejectOp("field_not_modifiable: " + pathString(op.Path))
 	}
@@ -200,32 +202,47 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 }
 
 func isReactionToggle(op *handler.Op) bool {
-	if op.Type != handler.OpAddToSet && op.Type != handler.OpPull {
+	if op.Type != handler.OpSet && op.Type != handler.OpUnset {
 		return false
 	}
-	return len(op.Path) == 2 && op.Path[0] == FieldReactions && op.Path[1] != ""
+	return len(op.Path) == 3 &&
+		op.Path[0] == FieldReactions &&
+		op.Path[1] != "" &&
+		op.Path[2] != ""
 }
 
-// validateReactionToggle is the entire authorization check for
-// reactions: the second path segment IS the user identity, and it
-// must equal the change's signer. No payload-against-creator compare
-// needed — the path itself is the gate.
-func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op) error {
+// validateReactionToggle gates a leaf write on
+// `reactions.<emoji>.<accountId>`. The third path segment IS the user
+// identity, so authorization is one string compare — anyone can
+// toggle their own slot; nobody can toggle someone else's.
+//
+// For $set the handler additionally derives the leaf value back to
+// ctx.Change.Timestamp, so the client's payload never leaks through
+// (the user op writes whatever they sent; the derived op runs after
+// the user op against the same path and wins). For $unset there's
+// nothing to derive — the leaf is gone.
+func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink) error {
 	if ctx == nil || ctx.Change == nil {
 		return rejectOp("missing change context")
 	}
-	if op.Path[1] != ctx.Change.Creator {
-		return rejectOp("not_own_reaction_key")
-	}
-	if op.Payload == nil || op.Payload.Type() != anyenc.TypeString {
-		return rejectOp("reaction emoji must be a string")
-	}
-	emoji := op.Payload.GetStringBytes()
-	if len(emoji) == 0 {
-		return rejectOp("emoji required")
-	}
+	emoji := op.Path[1]
 	if len(emoji) > MaxEmojiBytes {
 		return rejectOp(fmt.Sprintf("emoji too long (%d > %d bytes)", len(emoji), MaxEmojiBytes))
+	}
+	if op.Path[2] != ctx.Change.Creator {
+		return rejectOp("not_own_reaction_key")
+	}
+	if op.Type == handler.OpSet {
+		ts := ctx.Change.Timestamp
+		if ts <= 0 {
+			return rejectOp("missing change timestamp")
+		}
+		a := &anyenc.Arena{}
+		sink.Derive(handler.Op{
+			Type:    handler.OpSet,
+			Path:    op.Path,
+			Payload: a.NewNumberInt(int(ts)),
+		})
 	}
 	return nil
 }
