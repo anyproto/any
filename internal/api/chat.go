@@ -2,10 +2,11 @@ package api
 
 // ChatMessage is the wire shape of one chat message. Mirrors the
 // `chat_messages` dataset record 1:1 except for `reactions`, which is
-// transposed from the storage layout (identity → emojis) into the
-// emoji → identities shape clients expect. The transpose lives at the
-// API layer; storage stays identity-keyed so authorization is a
-// single string compare on the path (see internal/chat).
+// rolled up from the storage layout (emoji → {accountId: timestamp})
+// to the emoji → [accountId, ...] shape clients render — sorted by
+// timestamp ascending. The roll-up lives at the API layer; storage
+// keeps the per-identity leaf so authorization is a single
+// path-segment compare (see internal/chat).
 type ChatMessage struct {
 	Id               string              `json:"id"`
 	Creator          string              `json:"creator"`

@@ -253,11 +253,11 @@ func TestBeforeModify_Reaction_OwnSlot(t *testing.T) {
 	arena := &anyenc.Arena{}
 	before := existingMessage(arena, alice, 1700000000, "msg")
 	op := &handler.Op{
-		Type:    handler.OpAddToSet,
-		Path:    []string{FieldReactions, bob},
-		Payload: arena.NewString("👍"),
+		Type:    handler.OpSet,
+		Path:    []string{FieldReactions, "👍", bob},
+		Payload: arena.NewNumberInt(0),
 	}
-	// bob is reacting; path[1] == change.Creator. Allowed.
+	// bob is reacting; path[2] == change.Creator. Allowed.
 	ctx := &handler.ChangeCtx{
 		Change: makeChange(bob, 1700000050),
 		Before: before,
@@ -267,13 +267,32 @@ func TestBeforeModify_Reaction_OwnSlot(t *testing.T) {
 	}
 }
 
+func TestBeforeModify_Reaction_Unset(t *testing.T) {
+	// $unset on the caller's own leaf is the toggle-off path; no
+	// payload required.
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	op := &handler.Op{
+		Type: handler.OpUnset,
+		Path: []string{FieldReactions, "👍", bob},
+	}
+	ctx := &handler.ChangeCtx{
+		Change: makeChange(bob, 1700000050),
+		Before: before,
+	}
+	if err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{}); err != nil {
+		t.Fatalf("react unset own slot: %v", err)
+	}
+	_ = arena
+}
+
 func TestBeforeModify_Reaction_ForeignSlot(t *testing.T) {
 	arena := &anyenc.Arena{}
 	before := existingMessage(arena, alice, 1700000000, "msg")
 	op := &handler.Op{
-		Type:    handler.OpAddToSet,
-		Path:    []string{FieldReactions, alice}, // bob trying to add for alice
-		Payload: arena.NewString("👍"),
+		Type:    handler.OpSet,
+		Path:    []string{FieldReactions, "👍", alice}, // bob trying to add for alice
+		Payload: arena.NewNumberInt(0),
 	}
 	ctx := &handler.ChangeCtx{
 		Change: makeChange(bob, 1700000050),
@@ -285,15 +304,16 @@ func TestBeforeModify_Reaction_ForeignSlot(t *testing.T) {
 	}
 }
 
-func TestBeforeModify_Reaction_SetRejected(t *testing.T) {
-	// $set on reactions.<own> would replace the array — reject; only
-	// $addToSet / $pull permitted.
+func TestBeforeModify_Reaction_AddToSetRejected(t *testing.T) {
+	// Only $set / $unset on the emoji.identity leaf are reactions;
+	// $addToSet on the old identity-rooted path is no longer a
+	// reaction shape and falls through to field_not_modifiable.
 	arena := &anyenc.Arena{}
 	before := existingMessage(arena, alice, 1700000000, "msg")
 	op := &handler.Op{
-		Type:    handler.OpSet,
+		Type:    handler.OpAddToSet,
 		Path:    []string{FieldReactions, bob},
-		Payload: arena.NewArray(),
+		Payload: arena.NewString("👍"),
 	}
 	ctx := &handler.ChangeCtx{
 		Change: makeChange(bob, 1700000050),
@@ -301,7 +321,7 @@ func TestBeforeModify_Reaction_SetRejected(t *testing.T) {
 	}
 	err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
 	if err == nil || !strings.Contains(err.Error(), "field_not_modifiable") {
-		t.Fatalf("expected field_not_modifiable on $set reactions.x, got %v", err)
+		t.Fatalf("expected field_not_modifiable on legacy $addToSet, got %v", err)
 	}
 }
 
@@ -309,9 +329,9 @@ func TestBeforeModify_Reaction_EmojiTooLong(t *testing.T) {
 	arena := &anyenc.Arena{}
 	before := existingMessage(arena, alice, 1700000000, "msg")
 	op := &handler.Op{
-		Type:    handler.OpAddToSet,
-		Path:    []string{FieldReactions, bob},
-		Payload: arena.NewString(strings.Repeat("x", MaxEmojiBytes+1)),
+		Type:    handler.OpSet,
+		Path:    []string{FieldReactions, strings.Repeat("x", MaxEmojiBytes+1), bob},
+		Payload: arena.NewNumberInt(0),
 	}
 	ctx := &handler.ChangeCtx{
 		Change: makeChange(bob, 1700000050),

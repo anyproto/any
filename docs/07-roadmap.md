@@ -219,10 +219,13 @@ Not this repo's work; gate on the SDK:
   send / list / edit / delete; reactions toggle via
   `…/chat/messages/:msgId/reactions/:emoji`. Storage shape:
   `{id, creator, createdAt, modifiedAt, replyToMessageId, text, reactions}`,
-  reactions identity-keyed (`reactions.<accountId> = [<emoji>, ...]`)
-  so authorization on write is a single path-segment compare against
-  `ctx.Change.Creator`; the API server transposes to emoji-keyed on
-  read because clients expect that shape. Server-stamped fields
+  reactions stored as
+  `reactions.<emoji>.<accountId> = <changeTimestamp>` — emoji first,
+  identity at the leaf — so authorization on write is a single
+  path-segment compare against `ctx.Change.Creator` and the leaf
+  timestamp is server-derived via `sink.Derive`. The API server
+  rolls up to `{emoji: [accountId, ...]}` sorted by timestamp for the
+  wire. Server-stamped fields
   (`creator`, `createdAt`, `modifiedAt`) come from `sink.Derive`,
   invisible to client payloads — handler rejects creates carrying
   any field other than `text` / `replyToMessageId`. Edit / delete

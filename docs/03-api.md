@@ -478,11 +478,15 @@ are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
 
-`reactions` are emoji-keyed on the wire but stored identity-keyed —
-the API server transposes on read. Authorization on writes is a
-single path-segment compare against `ctx.Change.Creator` in the
+`reactions` is rolled up on the wire from
+`reactions.<emoji>.<accountId> = <changeTimestamp>` storage to the
+emoji → `[accountId, ...]` shape clients render, sorted by timestamp
+ascending so they display in arrival order. Authorization on writes
+is a single path-segment compare against `ctx.Change.Creator` in the
 handler: only the change's signer can write into
-`reactions.<that-identity>`. See `internal/chat/handler.go`.
+`reactions.<emoji>.<their-identity>`. The leaf timestamp is server-
+derived (`sink.Derive` overrides whatever the client sent). See
+`internal/chat/handler.go`.
 
 #### Send
 
@@ -522,10 +526,11 @@ rules for peer-originated changes.
 #### React (toggle)
 
 `POST .../chat/messages/:msgId/reactions/:emoji` (no body) toggles the
-caller's reaction: adds the emoji to `reactions.<callerId>` if
-absent, removes it if present. The CRDT op is `$addToSet` /
-`$pull` against the caller's identity-keyed slot, so two clients
-toggling at the same time can't corrupt each other. Response:
+caller's reaction. The CRDT op is `$set` (add) or `$unset` (remove)
+on the leaf `reactions.<emoji>.<callerId>`; the value on add is the
+triggering change's timestamp, server-derived. Because the leaf is
+unique per (emoji, identity), two clients toggling at the same time
+can't corrupt each other. Response:
 
 ```json
 { "reactions": { "👍": ["<id>"], "🎉": ["<id>"] } }
