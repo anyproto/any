@@ -51,9 +51,12 @@ to the SSE endpoints, not a replacement.
    `$set` / `$unset` ops per record (the SDK has already merged
    with full CRDT semantics, so callers without a CRDT engine apply
    `records[].ops` directly to a JSON-shaped local copy). A record
-   with `deleted: true` means drop the id; ops is empty. The SDK's
-   internal `AddSeq` (local-receive counter) is deliberately not on
-   the wire — versionId is the cross-peer primitive.
+   with `created: true` is a new record — `ops` carries its full
+   initial field set. A record with `deleted: true` means drop the
+   id; `ops` is empty. The two flags are mutually exclusive; neither
+   means a plain field update. The SDK's internal `AddSeq` (local-
+   receive counter) is deliberately not on the wire — versionId is
+   the cross-peer primitive.
 
 ## Client recipe: subscribe → collect → query → apply
 
@@ -148,11 +151,13 @@ An empty array `[]` means the record root. So:
 - `$set` with `path: []` and an object payload — multi-field set at the
   record root: each top-level key in `payload` is itself a
   dot-separated path, each value is what to assign there. (This is the
-  shape new-record creates ship as: one op carrying every initial
-  field plus the SDK's `_ver.id` stamp.)
+  shape new-record creates ship as — one op carrying every initial
+  field; the record also has `created: true`.)
 - `$unset` with `path: ["a","b"]` — delete the key at `a.b`. `path: []`
   on `$unset` does not occur on the wire — record-level removal arrives
   as `deleted: true` with `ops` empty.
+- Record with `created: true` — a new record; apply `ops` (its full
+  initial field set), then insert the id into local state.
 - Record with `deleted: true` — drop the id from local state; `ops`
   is empty.
 
@@ -164,13 +169,17 @@ non-Go clients don't reimplement CRDT.
 Auto-stamped fields ship as ordinary `$set` ops alongside the
 caller's payload — handler-derived stamps (chat: `creator` /
 `createdAt` / `modifiedAt`; properties: `author` / `createdAt` /
-`spaceId`) and the SDK's own `_ver.id` creation marker all arrive in
-the same `record.ops` slice on the create event. A viewer
+`spaceId`) arrive in the same `record.ops` slice. A viewer
 reconstructing a fresh record applies them the same way as user
-fields; there is no second-class wire form for auto fields. Per-path
-`_ver.<P>` stamps for the user fields themselves are still NOT on
-the wire — clients write `_ver.<op.path> = event.versionId` locally
-when they apply each op, per the recipe above.
+fields; there is no second-class wire form for auto fields.
+
+The `_ver` map is **never** on the wire. The SDK's `_ver.id` creation
+marker is surfaced as the `created: true` flag, not as a `$set` op —
+on a create its value would always equal `event.versionId`, so the op
+carried no information. Per-path `_ver.<P>` stamps aren't shipped
+either: a client derives the whole `_ver` map locally — a `created`
+record is all-at `event.versionId`, and each applied op writes
+`_ver.<op.path> = event.versionId`, per the recipe above.
 
 ### Pseudo-code
 

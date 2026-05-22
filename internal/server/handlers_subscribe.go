@@ -218,7 +218,9 @@ func writeBatch(w http.ResponseWriter, events []space.Event) error {
 // binary encoding (NOT JSON), so we route through FastJson(arena) to
 // get a *fastjson.Value whose MarshalTo emits real JSON. Records with
 // Deleted=true ship Ops empty; the consumer drops the record from its
-// local state.
+// local state. Created=true records carry their full initial field set
+// in Ops. The `_ver.id` creation marker is NOT on the wire — the SDK
+// surfaces it as the Created flag instead of a redundant $set op.
 func subscribeEventToAPI(ev space.Event) api.SubscribeEvent {
 	out := api.SubscribeEvent{
 		SpaceId:   ev.SpaceId,
@@ -236,6 +238,7 @@ func subscribeEventToAPI(ev space.Event) api.SubscribeEvent {
 		dst := api.SubscribeEventRecord{
 			Id:      rec.Id,
 			Variant: rec.Variant,
+			Created: rec.Created,
 			Deleted: rec.Deleted,
 		}
 		if !rec.Deleted && len(rec.Ops) > 0 {

@@ -283,16 +283,31 @@ func TestE2E_MultipeerSubscribeChatMessages(t *testing.T) {
 
 	// Auto-stamped fields must reach the joiner via the live event.
 	// SDK ApplyResult.DerivedOps surfaces `creator` / `createdAt` /
-	// `modifiedAt` (chat.stampCreate) and the modifier's own
-	// `_ver.id` creation marker alongside the caller's $set{text}.
+	// `modifiedAt` (chat.stampCreate) alongside the caller's $set{text}.
 	// Pre-fix, only `text` reached subscribers — a remote-driven
 	// chat client would render messages with no author.
+	//
+	// The `_ver.id` creation marker is NOT a wire op — it carries no
+	// information beyond event.versionId, so the SDK surfaces it as
+	// the record-level `created` flag instead.
 	pathsByRecord := collectEventSetPaths(matched)
 	got := pathsByRecord[sent.Id]
-	for _, want := range []string{"creator", "createdAt", "modifiedAt", "_ver.id", "text"} {
+	for _, want := range []string{"creator", "createdAt", "modifiedAt", "text"} {
 		if _, ok := got[want]; !ok {
 			t.Errorf("chat create event missing %q in $set ops; got paths=%v", want, got)
 		}
+	}
+	if _, leaked := got["_ver.id"]; leaked {
+		t.Errorf("chat create event leaked _ver.id as a $set op; must be surfaced as the created flag only")
+	}
+	createdFlag := false
+	for _, r := range matched.Records {
+		if r.Id == sent.Id {
+			createdFlag = r.Created
+		}
+	}
+	if !createdFlag {
+		t.Errorf("chat create event missing created:true for record %s", sent.Id)
 	}
 
 	cancel()
