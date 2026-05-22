@@ -68,6 +68,27 @@ func TestBeforeCreate_StampsServerFields(t *testing.T) {
 	// Smoke that no error escapes.
 }
 
+func TestBeforeCreate_AcceptsFromAgent(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString("hello"))
+	payload.Set(FieldFromAgent, arena.NewString("agent-alice"))
+
+	rec := &handler.RecordChange{
+		Id:     "",
+		Upsert: true,
+		Ops: []handler.Op{{
+			Type:    handler.OpSet,
+			Path:    nil,
+			Payload: payload,
+		}},
+	}
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
+		t.Fatalf("BeforeCreate with fromAgent: %v", err)
+	}
+}
+
 func TestBeforeCreate_Rejects(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -129,6 +150,36 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 				return setRoot(a, p)
 			},
 			wantIn: "field_not_allowed: createdAt",
+		},
+		{
+			name: "fromAgent empty string",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				p.Set(FieldFromAgent, a.NewString(""))
+				return setRoot(a, p)
+			},
+			wantIn: "fromAgent must be non-empty",
+		},
+		{
+			name: "fromAgent not a string",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				p.Set(FieldFromAgent, a.NewNumberInt(1))
+				return setRoot(a, p)
+			},
+			wantIn: "fromAgent must be a string",
+		},
+		{
+			name: "fromAgent too long",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				p.Set(FieldFromAgent, a.NewString(strings.Repeat("x", MaxFromAgentBytes+1)))
+				return setRoot(a, p)
+			},
+			wantIn: "fromAgent too long",
 		},
 		{
 			name: "non-set op",
@@ -362,6 +413,7 @@ func TestBeforeModify_DisallowedPath(t *testing.T) {
 		{FieldCreatedAt},
 		{FieldModifiedAt},
 		{FieldReplyToMessageId},
+		{FieldFromAgent},
 		{"_ver", "id"},
 		{"_deletedAt"},
 		{"unknown"},

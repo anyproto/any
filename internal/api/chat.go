@@ -13,6 +13,7 @@ type ChatMessage struct {
 	CreatedAt        int64               `json:"createdAt"`
 	ModifiedAt       int64               `json:"modifiedAt,omitempty"`
 	ReplyToMessageId string              `json:"replyToMessageId,omitempty"`
+	FromAgent        string              `json:"fromAgent,omitempty"`
 	Text             string              `json:"text"`
 	Reactions        map[string][]string `json:"reactions,omitempty"`
 }
@@ -20,9 +21,15 @@ type ChatMessage struct {
 // ChatSendRequest is the body of POST /v1/spaces/:spaceId/objects/:objectId/messages.
 // `text` is a markdown-formatted string; rendering is the client's
 // problem. Server stamps creator, createdAt, modifiedAt, chatOrder.
+//
+// `fromAgent` is an optional opaque identity string the client sets
+// to mark the message as written by an agent acting on behalf of the
+// signer (vs typed by the signer directly). The server does not
+// validate it against any identity / signature — it's a UI hint.
 type ChatSendRequest struct {
 	Text             string `json:"text"`
 	ReplyToMessageId string `json:"replyToMessageId,omitempty"`
+	FromAgent        string `json:"fromAgent,omitempty"`
 }
 
 // ChatEditRequest is the body of PATCH .../messages/:msgId. Only
@@ -53,6 +60,7 @@ const (
 	ErrChatTextRequired      = "chat.text_required"
 	ErrChatTextTooLong       = "chat.text_too_long"
 	ErrChatReplyIdInvalid    = "chat.reply_id_invalid"
+	ErrChatFromAgentInvalid  = "chat.from_agent_invalid"
 	ErrChatEmojiInvalid      = "chat.emoji_invalid"
 	ErrChatUnknownField      = "chat.unknown_field"
 	ErrChatNotAuthor         = "chat.not_author"

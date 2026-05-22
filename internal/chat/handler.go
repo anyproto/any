@@ -24,10 +24,12 @@ import (
 // entire RecordChange, not just one op.
 //
 // Allowed payload keys: text (required, non-empty, ≤ MaxTextBytes),
-// replyToMessageId (optional, non-empty, ≤ MaxReplyIdBytes). Any
-// other key — including server-stamped ones (creator, createdAt,
-// modifiedAt, _co) — rejects, defending against attempts to spoof
-// authorship by stuffing fields into the create payload.
+// replyToMessageId (optional, non-empty, ≤ MaxReplyIdBytes),
+// fromAgent (optional, non-empty, ≤ MaxFromAgentBytes — opaque UI
+// tag, not verified). Any other key — including server-stamped ones
+// (creator, createdAt, modifiedAt, _co) — rejects, defending against
+// attempts to spoof authorship by stuffing fields into the create
+// payload.
 func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChange, sink *handler.Sink) error {
 	if len(rec.Ops) != 1 {
 		return rejectCreate("expected exactly one multi-field $set op")
@@ -125,6 +127,20 @@ func validateCreatePayload(payload *anyenc.Value) error {
 			}
 			if len(id) > MaxReplyIdBytes {
 				visitErr = rejectCreate(fmt.Sprintf("replyToMessageId too long (%d > %d bytes)", len(id), MaxReplyIdBytes))
+				return
+			}
+		case FieldFromAgent:
+			if v.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("fromAgent must be a string")
+				return
+			}
+			fa := v.GetStringBytes()
+			if len(fa) == 0 {
+				visitErr = rejectCreate("fromAgent must be non-empty when present")
+				return
+			}
+			if len(fa) > MaxFromAgentBytes {
+				visitErr = rejectCreate(fmt.Sprintf("fromAgent too long (%d > %d bytes)", len(fa), MaxFromAgentBytes))
 				return
 			}
 		default:
