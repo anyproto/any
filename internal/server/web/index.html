@@ -554,14 +554,30 @@
   /* compose */
   .chat-card .chat-compose {
     border-top: 1px solid var(--border); padding: 8px;
-    display: flex; gap: 6px; align-items: flex-end;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end;
   }
+  .chat-card .chat-compose .compose-text { flex: 1 1 100%; display: flex; gap: 6px; align-items: flex-end; }
   .chat-card .chat-compose textarea {
     flex: 1; min-height: 36px; max-height: 160px; resize: none;
     font: 13px system-ui, -apple-system, sans-serif;
   }
+  .chat-card .chat-compose .compose-agent {
+    flex: 1 1 100%; display: flex; gap: 6px; align-items: center;
+    font: 11px var(--mono); color: var(--muted);
+  }
+  .chat-card .chat-compose .compose-agent input {
+    flex: 1; padding: 4px 6px; font: 11px var(--mono);
+    border: 1px solid var(--border); border-radius: 4px; background: var(--bg);
+  }
   .chat-card .chat-compose .send-hint {
     color: var(--muted); font: 10px var(--mono);
+  }
+
+  /* from-agent indicator */
+  .chat-msg.from-agent { background: rgba(120, 90, 200, 0.06); }
+  .chat-msg .agent-tag {
+    font: 10px var(--mono); color: #8a6dbf;
+    padding: 1px 5px; border: 1px solid rgba(138, 109, 191, 0.4); border-radius: 3px;
   }
 </style>
 </head>
@@ -933,9 +949,9 @@
             // Strip caches and live-runtime fields — persisted state
             // is just identity + types + lastRecord. markdownContent /
             // chatMessages get re-fetched on navigation;
-            // chatComposing / chatLoading are session-local.
+            // chatComposing / chatFromAgent / chatLoading are session-local.
             const { markdownContent, chatMessages, chatLoading,
-                    chatComposing, ...rest } = o;
+                    chatComposing, chatFromAgent, ...rest } = o;
             objs[oid] = rest;
           }
           snap.spaces[id] = {
@@ -1313,9 +1329,10 @@
       obj.chatLoading = false;
     }
   }
-  async function sendChatMessage(spaceId, objectId, text, replyTo) {
+  async function sendChatMessage(spaceId, objectId, text, replyTo, fromAgent) {
     const body = { text };
     if (replyTo) body.replyToMessageId = replyTo;
+    if (fromAgent) body.fromAgent = fromAgent;
     const r = await api.post(objectMessagesPath(spaceId, objectId), body);
     if (!r.ok) { toast('err', 'send failed', r.body); return null; }
     return r.json;
@@ -1827,6 +1844,13 @@
         }
       });
     }
+    const agentEl = document.getElementById('chat-agent-' + cssEsc(oid));
+    if (agentEl) {
+      if (o.chatFromAgent) agentEl.value = o.chatFromAgent;
+      agentEl.addEventListener('input', () => {
+        o.chatFromAgent = agentEl.value;
+      });
+    }
 
     const path = '/v1/spaces/' + encodeURIComponent(sp.info.id) +
       '/objects/' + encodeURIComponent(oid) +
@@ -1893,10 +1917,19 @@
           renderChatMessagesList(o) +
         '</div>' +
         '<div class="chat-compose">' +
-          '<textarea id="chat-input-' + escapeHTML(o.id) + '" ' +
-            'placeholder="message (markdown · Enter to send · Shift+Enter newline)" ' +
-            'data-input="chat-text" data-id="' + escapeHTML(o.id) + '"></textarea>' +
-          '<button data-act="chat-send" data-id="' + escapeHTML(o.id) + '">send</button>' +
+          '<div class="compose-text">' +
+            '<textarea id="chat-input-' + escapeHTML(o.id) + '" ' +
+              'placeholder="message (markdown · Enter to send · Shift+Enter newline)" ' +
+              'data-input="chat-text" data-id="' + escapeHTML(o.id) + '"></textarea>' +
+            '<button data-act="chat-send" data-id="' + escapeHTML(o.id) + '">send</button>' +
+          '</div>' +
+          '<div class="compose-agent">' +
+            '<label for="chat-agent-' + escapeHTML(o.id) + '">fromAgent</label>' +
+            '<input id="chat-agent-' + escapeHTML(o.id) + '" type="text" ' +
+              'placeholder="empty = send as human; set to mark as agent-authored" ' +
+              'data-input="chat-agent" data-id="' + escapeHTML(o.id) + '" ' +
+              'value="' + escapeHTML(o.chatFromAgent || '') + '">' +
+          '</div>' +
         '</div>' +
       '</div>' +
     '</section>';
@@ -3399,12 +3432,17 @@
           const ta = document.getElementById('chat-input-' + cssEsc(id));
           const text = (ta?.value || '').trim();
           if (!text) return;
+          const agentEl = document.getElementById('chat-agent-' + cssEsc(id));
+          const fromAgent = (agentEl?.value || '').trim();
           const sp = App.spaces[spaceId];
           const o4 = sp && sp.objects[id];
           if (ta) ta.value = '';
-          if (o4) o4.chatComposing = '';
+          if (o4) {
+            o4.chatComposing = '';
+            o4.chatFromAgent = fromAgent;
+          }
           if (ta) autosizeTextarea(ta);
-          const sent = await sendChatMessage(spaceId, id, text, '');
+          const sent = await sendChatMessage(spaceId, id, text, '', fromAgent);
           if (!sent) {
             // Restore the draft so the user doesn't lose what they
             // typed when the server rejected the write.
