@@ -139,14 +139,20 @@ clients can mirror it in a few lines of map walking.
 
 `record.ops` is a flat list of `$set` / `$unset` ops the SDK projected
 *after* CRDT merge. A thin client without a CRDT engine applies them
-naively to a JSON-shaped local copy:
+naively to a JSON-shaped local copy.
 
-- `$set` with `path` = dotted-segment field path, `payload` = the
-  post-apply JSON value at that path — assign it.
-- `$set` with empty `path` and an object payload — the payload is a
-  multi-field set: each key is itself a dot-separated path,
-  each value is what to assign there.
-- `$unset` — delete the key at `path`.
+`path` is **always a JSON array** of dotted segments — never `null`.
+An empty array `[]` means the record root. So:
+
+- `$set` with `path: ["a","b"]`, `payload: V` — assign `V` to `a.b`.
+- `$set` with `path: []` and an object payload — multi-field set at the
+  record root: each top-level key in `payload` is itself a
+  dot-separated path, each value is what to assign there. (This is the
+  shape new-record creates ship as: one op carrying every initial
+  field plus the SDK's `_ver.id` stamp.)
+- `$unset` with `path: ["a","b"]` — delete the key at `a.b`. `path: []`
+  on `$unset` does not occur on the wire — record-level removal arrives
+  as `deleted: true` with `ops` empty.
 - Record with `deleted: true` — drop the id from local state; `ops`
   is empty.
 
@@ -154,6 +160,17 @@ naively to a JSON-shaped local copy:
 subscribers — the SDK collapses them to the equivalent `$set` of the
 merged result before delivery. The wire is intentionally narrow so
 non-Go clients don't reimplement CRDT.
+
+Auto-stamped fields ship as ordinary `$set` ops alongside the
+caller's payload — handler-derived stamps (chat: `creator` /
+`createdAt` / `modifiedAt`; properties: `author` / `createdAt` /
+`spaceId`) and the SDK's own `_ver.id` creation marker all arrive in
+the same `record.ops` slice on the create event. A viewer
+reconstructing a fresh record applies them the same way as user
+fields; there is no second-class wire form for auto fields. Per-path
+`_ver.<P>` stamps for the user fields themselves are still NOT on
+the wire — clients write `_ver.<op.path> = event.versionId` locally
+when they apply each op, per the recipe above.
 
 ### Pseudo-code
 
@@ -248,7 +265,10 @@ All consumers run the recipe above; the dataset names below are the
   came from a PATCH /editor/blocks call or a bulk PUT /editor/markdown
   rewrite — markdown PUT becomes "bulk block ops" under the hood.
 - **`chat_messages`** — per-object chat stream. One record per
-  message; reactions are nested fields.
+  message; reactions live at
+  `reactions.<emoji>.<accountId> = <changeTimestamp>` (server-
+  derived), so toggle events arrive as `$set` (add) or `$unset`
+  (remove) on the leaf path.
 - **`objects`** — per-space firehose. Each event's `records[]` can
   cover several object ids per change; dedup per record.
 - **Properties** — `GET /v1/spaces/:id/properties/subscribe` (the

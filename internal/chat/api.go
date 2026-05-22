@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -123,34 +125,34 @@ func Delete(ctx context.Context, sp space.Space, objectId, msgId, callerId strin
 }
 
 // ToggleReaction adds or removes the caller's emoji from the message
-// — read current state, decide which op to issue. Storage is
-// identity-keyed (`reactions.<callerId>` is a list of emojis the
-// caller picked), so the handler's authorization is a single
-// path-segment compare; clients toggle their own slot only.
+// — read current state, decide $set vs $unset. Storage is
+// `reactions.<emoji>.<accountId> = <changeTimestamp>` (emoji first,
+// identity at the leaf), so the handler's authorization is a single
+// path-segment compare on the leaf; the value is server-derived from
+// the change timestamp, so the placeholder we pass here is overwritten
+// before it lands.
 func ToggleReaction(ctx context.Context, sp space.Space, objectId, msgId, callerId, emoji string) (api.ChatMessage, error) {
 	existing, err := getRaw(ctx, sp, objectId, msgId)
 	if err != nil {
 		return api.ChatMessage{}, err
 	}
-	hasReaction := identityHasEmoji(existing, callerId, emoji)
+	path := FieldReactions + "." + emoji + "." + callerId
 
-	var opType space.OpType
-	if hasReaction {
-		opType = space.OpPull
+	var op space.Op
+	if identityHasEmoji(existing, callerId, emoji) {
+		op = space.Op{Type: space.OpUnset, Path: path}
 	} else {
-		opType = space.OpAddToSet
+		// Value is a server-derived placeholder; the handler's
+		// BeforeModify re-derives the leaf to ctx.Change.Timestamp.
+		op = space.Op{Type: space.OpSet, Path: path, Value: 0}
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
 		Dataset:  Dataset,
 		Records: []space.RecordModify{{
-			Id: msgId,
-			Ops: []space.Op{{
-				Type:  opType,
-				Path:  FieldReactions + "." + callerId,
-				Value: emoji,
-			}},
+			Id:  msgId,
+			Ops: []space.Op{op},
 		}},
 	})
 	if err != nil {
@@ -192,34 +194,32 @@ func List(ctx context.Context, sp space.Space, objectId string, opts ListOpts) (
 		limit = maxListLimit
 	}
 
-	filter := map[string]any{}
+	// Build the _ver.id boundary filter with explicit query primitives
+	// — map literals run through json.Marshal + anyenc reparse, which
+	// is both slower and fragile (a stray non-marshalable value would
+	// surface as a parse panic on the terminal call).
+	var bounds query.And
 	if opts.Before != "" {
 		ver, err := readVerId(ctx, sp, objectId, opts.Before)
 		if err != nil {
 			return nil, err
 		}
-		filter["_ver.id"] = map[string]any{"$lt": ver}
+		bounds = append(bounds, verIdComp(query.CompOpLt, ver))
 	}
 	if opts.After != "" {
 		ver, err := readVerId(ctx, sp, objectId, opts.After)
 		if err != nil {
 			return nil, err
 		}
-		// If both are set the inner map gets both keys — mongo
-		// semantics: $gt AND $lt.
-		if existing, ok := filter["_ver.id"].(map[string]any); ok {
-			existing["$gt"] = ver
-		} else {
-			filter["_ver.id"] = map[string]any{"$gt": ver}
-		}
+		bounds = append(bounds, verIdComp(query.CompOpGt, ver))
 	}
 
 	q := sp.Query(objectId, Dataset).
 		Sort("_ver.id").
 		Limit(limit).
 		Projection(space.ProjectionOpts{IncludeMeta: true})
-	if len(filter) > 0 {
-		q = q.Filter(filter)
+	if len(bounds) > 0 {
+		q = q.Filter(bounds)
 	}
 
 	docs, err := q.All(ctx)
@@ -249,7 +249,10 @@ func Get(ctx context.Context, sp space.Space, objectId, msgId string) (api.ChatM
 // round-trip.
 func getRaw(ctx context.Context, sp space.Space, objectId, msgId string) (*anyenc.Value, error) {
 	doc, err := sp.Query(objectId, Dataset).
-		Filter(map[string]any{"id": msgId}).
+		Filter(query.Key{
+			Path:   []string{"id"},
+			Filter: query.NewComp(query.CompOpEq, msgId),
+		}).
 		Projection(space.ProjectionOpts{IncludeMeta: true}).
 		One(ctx)
 	if err != nil {
@@ -276,24 +279,22 @@ func readVerId(ctx context.Context, sp space.Space, objectId, msgId string) (str
 	return string(ver.GetStringBytes()), nil
 }
 
+// verIdComp builds a Key filter against `_ver.id` for a single
+// comparison. Hoisted so List's Before / After branches read as one
+// line each.
+func verIdComp(op query.CompOp, ver string) query.Filter {
+	return query.Key{
+		Path:   []string{"_ver", "id"},
+		Filter: query.NewComp(op, ver),
+	}
+}
+
 // identityHasEmoji reports whether `callerId` already has an entry
 // for `emoji` in the message's reactions map. Drives the
 // add-vs-remove decision in ToggleReaction.
 func identityHasEmoji(rec *anyenc.Value, callerId, emoji string) bool {
-	reactions := rec.Get(FieldReactions)
-	if reactions == nil || reactions.Type() != anyenc.TypeObject {
-		return false
-	}
-	mine := reactions.Get(callerId)
-	if mine == nil || mine.Type() != anyenc.TypeArray {
-		return false
-	}
-	for _, e := range mine.GetArray() {
-		if e.Type() == anyenc.TypeString && string(e.GetStringBytes()) == emoji {
-			return true
-		}
-	}
-	return false
+	leaf := rec.Get(FieldReactions, emoji, callerId)
+	return leaf != nil && leaf.Type() == anyenc.TypeNumber
 }
 
 // recordToMessage converts a stored anyenc record into the wire
@@ -314,35 +315,61 @@ func recordToMessage(rec *anyenc.Value) api.ChatMessage {
 		ModifiedAt:       int64(rec.GetInt(FieldModifiedAt)),
 		ReplyToMessageId: getString(rec, FieldReplyToMessageId),
 		Text:             getString(rec, FieldText),
-		Reactions:        transposeReactions(rec.Get(FieldReactions)),
+		Reactions:        renderReactions(rec.Get(FieldReactions)),
 	}
 }
 
-// transposeReactions flips storage shape (identity → [emoji]) into
-// wire shape (emoji → [identity]). Nil-safe; returns nil when the
-// record has no reactions to keep the JSON output clean
-// (omitempty-friendly).
-func transposeReactions(reactions *anyenc.Value) map[string][]string {
+// renderReactions rolls the storage shape
+// (emoji → {accountId: ts}) up to the wire shape (emoji → [accountId,
+// ...] sorted by ts ascending so clients display reactions in the
+// order they landed). Nil-safe; returns nil when the record has no
+// reactions to keep the JSON output clean (omitempty-friendly).
+func renderReactions(reactions *anyenc.Value) map[string][]string {
 	if reactions == nil || reactions.Type() != anyenc.TypeObject {
 		return nil
 	}
-	out := map[string][]string{}
 	obj, _ := reactions.Object()
 	if obj == nil {
 		return nil
 	}
-	obj.Visit(func(rawIdentity []byte, v *anyenc.Value) {
-		if v.Type() != anyenc.TypeArray {
+	out := map[string][]string{}
+	obj.Visit(func(rawEmoji []byte, perEmoji *anyenc.Value) {
+		if perEmoji == nil || perEmoji.Type() != anyenc.TypeObject {
 			return
 		}
-		identity := string(rawIdentity)
-		for _, em := range v.GetArray() {
-			if em.Type() != anyenc.TypeString {
-				continue
-			}
-			emoji := string(em.GetStringBytes())
-			out[emoji] = append(out[emoji], identity)
+		emoji := string(rawEmoji)
+		inner, _ := perEmoji.Object()
+		if inner == nil {
+			return
 		}
+		type entry struct {
+			id string
+			ts int64
+		}
+		var entries []entry
+		inner.Visit(func(rawIdentity []byte, v *anyenc.Value) {
+			if v == nil || v.Type() != anyenc.TypeNumber {
+				return
+			}
+			entries = append(entries, entry{
+				id: string(rawIdentity),
+				ts: int64(v.GetInt()),
+			})
+		})
+		if len(entries) == 0 {
+			return
+		}
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].ts != entries[j].ts {
+				return entries[i].ts < entries[j].ts
+			}
+			return entries[i].id < entries[j].id
+		})
+		ids := make([]string, len(entries))
+		for i, e := range entries {
+			ids[i] = e.id
+		}
+		out[emoji] = ids
 	})
 	if len(out) == 0 {
 		return nil

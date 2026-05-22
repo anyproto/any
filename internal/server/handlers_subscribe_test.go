@@ -82,6 +82,29 @@ func TestServer_SubscribeObject_Lifecycle(t *testing.T) {
 		t.Errorf("event tuple = %+v, want (%s,%s,objects)", batch[0], spaceId, objectId)
 	}
 
+	// Root-level $set must render as `"path": []` on the wire, not
+	// `"path": null` — clients dedup on op.path and an array is the
+	// only documented wire shape.
+	var rawEvents []struct {
+		Records []struct {
+			Ops []struct {
+				Path json.RawMessage `json:"path"`
+			} `json:"ops"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(got.Data, &rawEvents); err != nil {
+		t.Fatalf("decode raw: %v", err)
+	}
+	for _, ev := range rawEvents {
+		for _, rec := range ev.Records {
+			for _, op := range rec.Ops {
+				if string(op.Path) == "null" {
+					t.Errorf("op path emitted as JSON null; want [] (got=%s)", op.Path)
+				}
+			}
+		}
+	}
+
 	streamCancel()
 	select {
 	case err := <-streamErr:

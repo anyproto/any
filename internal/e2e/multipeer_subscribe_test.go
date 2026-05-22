@@ -258,8 +258,9 @@ func TestE2E_MultipeerSubscribeChatMessages(t *testing.T) {
 		t.Fatalf("owner-side send returned no id: %+v", sent)
 	}
 
+	var matched api.SubscribeEvent
 	if !pollUntil(3*time.Minute, func() bool {
-		_, ok := firstChangesContaining(rec, func(ev api.SubscribeEvent) bool {
+		ev, ok := firstChangesContaining(rec, func(ev api.SubscribeEvent) bool {
 			if ev.Dataset != "chat_messages" || ev.ObjectId != obj.ObjectId {
 				return false
 			}
@@ -270,11 +271,28 @@ func TestE2E_MultipeerSubscribeChatMessages(t *testing.T) {
 			}
 			return false
 		})
+		if ok {
+			matched = ev
+		}
 		return ok
 	}) {
 		dump := summarizeFrames(rec)
 		t.Fatalf("joiner SSE never observed remote chat message %s; frames seen:\n%s",
 			sent.Id, dump)
+	}
+
+	// Auto-stamped fields must reach the joiner via the live event.
+	// SDK ApplyResult.DerivedOps surfaces `creator` / `createdAt` /
+	// `modifiedAt` (chat.stampCreate) and the modifier's own
+	// `_ver.id` creation marker alongside the caller's $set{text}.
+	// Pre-fix, only `text` reached subscribers — a remote-driven
+	// chat client would render messages with no author.
+	pathsByRecord := collectEventSetPaths(matched)
+	got := pathsByRecord[sent.Id]
+	for _, want := range []string{"creator", "createdAt", "modifiedAt", "_ver.id", "text"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("chat create event missing %q in $set ops; got paths=%v", want, got)
+		}
 	}
 
 	cancel()
@@ -283,6 +301,38 @@ func TestE2E_MultipeerSubscribeChatMessages(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Errorf("SSE goroutine did not exit within 5s of cancel")
 	}
+}
+
+// collectEventSetPaths flattens every $set in ev into a per-record
+// set of dotted paths. Handles both wire shapes: single-field
+// (Path=[…], Payload=value) and multi-field (Path=[], Payload=object
+// keyed by dotted paths). Used to assert auto-stamped fields land in
+// the live event without rebuilding a CRDT view in the test.
+func collectEventSetPaths(ev api.SubscribeEvent) map[string]map[string]struct{} {
+	out := make(map[string]map[string]struct{})
+	for _, rec := range ev.Records {
+		paths := make(map[string]struct{})
+		for _, op := range rec.Ops {
+			if op.Type != "$set" {
+				continue
+			}
+			if len(op.Path) > 0 {
+				paths[strings.Join(op.Path, ".")] = struct{}{}
+				continue
+			}
+			// Multi-field $set: payload is an object whose keys are
+			// dotted paths.
+			var obj map[string]json.RawMessage
+			if err := json.Unmarshal(op.Payload, &obj); err != nil {
+				continue
+			}
+			for k := range obj {
+				paths[k] = struct{}{}
+			}
+		}
+		out[rec.Id] = paths
+	}
+	return out
 }
 
 // summarizeFrames renders a recorder's accumulated frames as one line
