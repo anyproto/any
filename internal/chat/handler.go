@@ -216,12 +216,16 @@ func isReactionToggle(op *handler.Op) bool {
 // identity, so authorization is one string compare — anyone can
 // toggle their own slot; nobody can toggle someone else's.
 //
-// For $set the handler additionally derives the leaf value back to
-// ctx.Change.Timestamp, so the client's payload never leaks through
-// (the user op writes whatever they sent; the derived op runs after
-// the user op against the same path and wins). For $unset there's
-// nothing to derive — the leaf is gone.
-func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink) error {
+// For $set the handler overwrites the op's payload in place with
+// ctx.Change.Timestamp, so the client's placeholder value never
+// lands. It deliberately does NOT emit a separate derived op: a
+// derived op targets the same leaf path with the same VersionId, and
+// the CRDT version gate drops the second writer at an equal version
+// (the user op stamps _ver for the path first, so the derived op's
+// `_ver >= version` check short-circuits). Rewriting the user op's
+// payload keeps a single writer. For $unset there's nothing to
+// stamp — the leaf is gone.
+func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op, _ *handler.Sink) error {
 	if ctx == nil || ctx.Change == nil {
 		return rejectOp("missing change context")
 	}
@@ -238,11 +242,7 @@ func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op, sink *handle
 			return rejectOp("missing change timestamp")
 		}
 		a := &anyenc.Arena{}
-		sink.Derive(handler.Op{
-			Type:    handler.OpSet,
-			Path:    op.Path,
-			Payload: a.NewNumberInt(int(ts)),
-		})
+		op.Payload = a.NewNumberInt(int(ts))
 	}
 	return nil
 }
