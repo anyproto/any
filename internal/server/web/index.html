@@ -1919,6 +1919,7 @@
     const ts = m.createdAt ? new Date(m.createdAt * 1000) : null;
     const tsLabel = ts ? ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     const edited = m.modifiedAt && m.modifiedAt > m.createdAt;
+    const fromAgent = (m.fromAgent || '').trim();
 
     const reactions = m.reactions || {};
     const reactionEntries = Object.entries(reactions);
@@ -1954,9 +1955,10 @@
       '<button data-act="chat-delete" data-id="' + escapeHTML(o.id) +
         '" data-msg="' + escapeHTML(m.id) + '" title="delete">🗑</button>' : '';
 
-    return '<div class="chat-msg' + (own ? ' own' : '') + '">' +
+    return '<div class="chat-msg' + (own ? ' own' : '') + (fromAgent ? ' from-agent' : '') + '">' +
       '<div class="meta">' +
         '<span class="author">' + escapeHTML(author) + '</span>' +
+        (fromAgent ? '<span class="agent-tag" title="' + escapeHTML('via agent: ' + fromAgent) + '">🤖 ' + escapeHTML(fromAgent) + '</span>' : '') +
         '<span class="ts" title="' + escapeHTML(ts ? ts.toISOString() : '') + '">' +
           escapeHTML(tsLabel) +
         '</span>' +
