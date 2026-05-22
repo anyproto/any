@@ -142,8 +142,8 @@ func ToggleReaction(ctx context.Context, sp space.Space, objectId, msgId, caller
 	if identityHasEmoji(existing, callerId, emoji) {
 		op = space.Op{Type: space.OpUnset, Path: path}
 	} else {
-		// Value is a server-derived placeholder; the handler's
-		// BeforeModify re-derives the leaf to ctx.Change.Timestamp.
+		// Value is a placeholder; chat's BeforeModify overwrites the
+		// op payload with ctx.Change.Timestamp before it lands.
 		op = space.Op{Type: space.OpSet, Path: path, Value: 0}
 	}
 
