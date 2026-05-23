@@ -560,10 +560,11 @@ can't corrupt each other. Response:
 | GET    | `/v1/spaces/:spaceId/members`                        | `MembersAPI.List`                  |
 | GET    | `/v1/spaces/:spaceId/members/me`                     | `MembersAPI.Me`                    |
 | GET    | `/v1/spaces/:spaceId/members/requests`               | `MembersAPI.JoinRequests`          |
+| GET    | `/v1/spaces/:spaceId/members/subscribe`              | `MembersAPI.Subscribe` (SSE)       |
 | GET    | `/v1/spaces/:spaceId/members/:identity`              | `MembersAPI.Get`                   |
 
-Static path segments (`/me`, `/requests`) are registered before the
-`:identity` wildcard so they don't get swallowed. The `Member` wire
+Static path segments (`/me`, `/requests`, `/subscribe`) are registered
+before the `:identity` wildcard so they don't get swallowed. The `Member` wire
 shape mirrors `space.Member` 1:1; both `permission` and `status` are
 strings (see "Permission / status strings" below). `requestRecordId`
 is non-empty only on a pending-request entry — pass it to
