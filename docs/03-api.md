@@ -246,8 +246,9 @@ GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
 ```
 
 `changes` frames carry projected `$set` / `$unset` ops per record;
-`deleted:true` records mean the block was tombstoned. The same
-events fire whether the change originated from a PATCH
+`created:true` records are newly inserted blocks (`ops` carries the
+full block), `deleted:true` records mean the block was tombstoned.
+The same events fire whether the change originated from a PATCH
 /editor/blocks call or from a PUT /editor/markdown bulk rewrite.
 
 #### `nav` auto-stamping on `Objects.Create`
@@ -368,7 +369,7 @@ data: {}
 event: changes
 data: [{"spaceId":"...","objectId":"...","dataset":"objects",
         "versionId":"!!%>",
-        "records":[{"id":"...",
+        "records":[{"id":"...","created":true,
                     "ops":[{"type":"$set","path":["typeId","propId"],
                             "payload":"hello"}]}]}]
 
@@ -389,7 +390,10 @@ data: {"reason": "server_shutdown"}
   `$set` / `$unset` ops per record — the SDK has already merged with
   full CRDT semantics, so a thin client without a CRDT engine applies
   `records[].ops` naively to a JSON-shaped local copy). A record with
-  `"deleted": true` means drop that id from local state; `ops` is empty.
+  `"created": true` is a new record — `ops` carries its full initial
+  field set; insert the id. A record with `"deleted": true` means drop
+  that id from local state; `ops` is empty. The two flags are mutually
+  exclusive; neither means a plain field update.
   An op's `path` is always a JSON array of dotted segments — never
   `null`. An empty array `[]` means the record root: on `$set`, the
   payload is then an object whose top-level keys are themselves
@@ -398,7 +402,10 @@ data: {"reason": "server_shutdown"}
   write into a single frame, so a slow client / network produces fewer,
   larger frames rather than head-of-line stalls. There is no SSE
   `id:` — clients dedup by comparing `versionId` against the per-
-  field `_ver` stamps in their snapshot.
+  field `_ver` stamps in their snapshot. The `_ver` map itself is never
+  on the wire: the `_ver.id` creation marker is surfaced as `created`,
+  and per-field `_ver.<path>` stamps are derived client-side
+  (`_ver.<op.path> = versionId` on apply).
 - `lagged` is emitted before a `changes` frame whenever the SDK has
   dropped events for this subscriber (slow consumer hit the per-
   subscriber mailbox cap). `total` is the cumulative drop count.

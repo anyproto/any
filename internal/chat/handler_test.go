@@ -265,6 +265,15 @@ func TestBeforeModify_Reaction_OwnSlot(t *testing.T) {
 	if err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{}); err != nil {
 		t.Fatalf("react own slot: %v", err)
 	}
+	// The client's placeholder 0 must be overwritten in place with the
+	// change timestamp — a same-path derived op would be dropped by the
+	// CRDT version gate, so the user op itself has to carry the value.
+	if op.Payload == nil || op.Payload.Type() != anyenc.TypeNumber {
+		t.Fatalf("react own slot: payload not rewritten, got %v", op.Payload)
+	}
+	if got := op.Payload.GetInt(); got != 1700000050 {
+		t.Fatalf("react own slot: payload = %d, want change timestamp 1700000050", got)
+	}
 }
 
 func TestBeforeModify_Reaction_Unset(t *testing.T) {

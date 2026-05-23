@@ -33,11 +33,20 @@ type SubscribeEvent struct {
 // a SubscribeEvent. Id is the record id within Dataset (for shared
 // per-space datasets like "objects" this equals SubscribeEvent.ObjectId).
 // Variant is empty for the canonical record; non-empty for sibling
-// variants (account / device property records). Deleted=true means the
-// change tombstoned the record — drop it locally; Ops is empty.
+// variants (account / device property records).
+//
+// Created=true means this change first materialised the record — Ops
+// carries its full initial field set. Deleted=true means the change
+// tombstoned the record — drop it locally; Ops is empty. The two are
+// mutually exclusive; neither set means a plain field update.
+//
+// The record's `_ver` map is never on the wire — a consumer derives it
+// from SubscribeEvent.VersionId: a created record is all-at versionId,
+// and each applied op stamps `_ver.<op.path> = versionId` locally.
 type SubscribeEventRecord struct {
 	Id      string             `json:"id"`
 	Variant string             `json:"variant,omitempty"`
+	Created bool               `json:"created,omitempty"`
 	Deleted bool               `json:"deleted,omitempty"`
 	Ops     []SubscribeEventOp `json:"ops,omitempty"`
 }

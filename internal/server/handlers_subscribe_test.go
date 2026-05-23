@@ -176,6 +176,29 @@ func TestServer_SubscribeProperties_Firehose(t *testing.T) {
 		}
 	}
 
+	// A fresh object materialises a new `objects` row — the event
+	// record carries created:true (the SDK's _ver.id creation marker,
+	// surfaced as a flag, never as a wire op).
+	sawCreated := false
+	for _, ev := range batch {
+		for _, r := range ev.Records {
+			if r.Created {
+				sawCreated = true
+			}
+			if r.Created && r.Deleted {
+				t.Errorf("record %s has both created and deleted set", r.Id)
+			}
+			for _, op := range r.Ops {
+				if len(op.Path) > 0 && strings.HasPrefix(op.Path[0], "_") {
+					t.Errorf("record %s ships protocol op path %v; _-prefixed paths must not be on the wire", r.Id, op.Path)
+				}
+			}
+		}
+	}
+	if !sawCreated {
+		t.Errorf("object-create firehose event missing created:true record")
+	}
+
 	streamCancel()
 	<-streamErr
 }
