@@ -75,6 +75,23 @@ type SpaceJoinRequest struct {
 	Metadata    AccountMetadata `json:"metadata,omitempty"`
 }
 
+// Member event kinds — wire values for MemberEvent.Kind.
+const (
+	MemberEventKindAdded   = "added"
+	MemberEventKindChanged = "changed"
+	MemberEventKindRemoved = "removed"
+)
+
+// MemberEventPayload is the data payload of an `event: member` frame
+// on the members subscribe SSE stream. Kind discriminates the change;
+// Member carries the post-event state; Previous carries pre-event
+// state (nil for Added).
+type MemberEventPayload struct {
+	Kind     string  `json:"kind"`
+	Member   Member  `json:"member"`
+	Previous *Member `json:"previous"`
+}
+
 // ACL endpoints -----------------------------------------------------
 
 // ACLAcceptRequest is the body of POST /v1/spaces/:spaceId/acl/accept.
