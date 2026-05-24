@@ -55,6 +55,9 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 	for _, prop := range []map[string]string{
 		{"xKey": "name", "name": "name", "kind": "string"},
 		{"xKey": "version", "name": "version", "kind": "string"},
+		{"xKey": "source", "name": "source", "kind": "string"},
+		{"xKey": "tool_description", "name": "tool_description", "kind": "string"},
+		{"xKey": "tool_schema", "name": "tool_schema", "kind": "string"},
 	} {
 		if err := addProperty(baseURL, spaceID, typeID, prop); err != nil {
 			return "", fmt.Errorf("add property %s: %w", prop["xKey"], err)
@@ -150,20 +153,18 @@ func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[str
 }
 
 func upsertProgram(baseURL, spaceID, programTypeID, name, version, source string) error {
-	markdown := wrapSourceAsMarkdown(source)
-
 	objectID, err := findProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
 		return fmt.Errorf("query %s@%s: %w", name, version, err)
 	}
 
 	if objectID != "" {
-		if err := setObjectMarkdown(baseURL, spaceID, objectID, markdown); err != nil {
+		if err := modifyDataset(baseURL, spaceID, objectID, "program_source", "main", map[string]any{"code": source}); err != nil {
 			return fmt.Errorf("update %s@%s: %w", name, version, err)
 		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		id, err := createProgramObject(baseURL, spaceID, programTypeID, name, version, markdown)
+		id, err := createProgramObject(baseURL, spaceID, programTypeID, name, version, source)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
@@ -181,11 +182,7 @@ func parseProgramFilename(baseName string) (name, version string) {
 	return baseName, "v1"
 }
 
-func wrapSourceAsMarkdown(source string) string {
-	return "```js\n// __main_source\n" + source + "\n```\n"
-}
-
-func createProgramObject(baseURL, spaceID, programTypeID, name, version, markdown string) (string, error) {
+func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{programTypeID},
 		"initialProperties": map[string]any{
@@ -218,30 +215,39 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, markdow
 		return "", err
 	}
 
-	if err := setObjectMarkdown(baseURL, spaceID, obj.ObjectId, markdown); err != nil {
-		return "", fmt.Errorf("set markdown: %w", err)
+	if err := modifyDataset(baseURL, spaceID, obj.ObjectId, "program_source", "main", map[string]any{"code": source}); err != nil {
+		return "", fmt.Errorf("set source: %w", err)
 	}
 	return obj.ObjectId, nil
 }
 
-func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
-	body, _ := json.Marshal(map[string]string{"content": markdown})
-	req, err := http.NewRequest(http.MethodPut,
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/"+url.PathEscape(objectID)+"/editor/markdown",
+// modifyDataset upserts a single record in a dataset on an object.
+func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value map[string]any) error {
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectID,
+		"dataset":  dataset,
+		"records": []map[string]any{{
+			"id":     recordID,
+			"upsert": true,
+			"ops": []map[string]any{{
+				"type":  "$set",
+				"path":  "",
+				"value": value,
+			}},
+		}},
+	})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/modify",
+		"application/json",
 		bytes.NewReader(body),
 	)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		msg, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("set markdown: %d %s", resp.StatusCode, msg)
+		return fmt.Errorf("modify %s: %d %s", dataset, resp.StatusCode, msg)
 	}
 	return nil
 }

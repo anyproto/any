@@ -115,14 +115,12 @@ func newAnySDKLookup(baseURL, programTypeID string) func(spaceID, progName, prog
 			return "", false, nil
 		}
 
-		markdown, err := getObjectMarkdown(baseURL, spaceID, objectID)
+		code, err := queryProgramSource(baseURL, spaceID, objectID)
 		if err != nil {
-			return "", false, fmt.Errorf("fetching markdown for %s: %w", objectID, err)
+			return "", false, fmt.Errorf("reading source for %s: %w", objectID, err)
 		}
-
-		code := anyruntime.ExtractMainSource(markdown)
 		if code == "" {
-			return "", false, fmt.Errorf("no __main_source code block in object %s (space %s)", objectID, spaceID)
+			return "", false, fmt.Errorf("empty program_source in object %s (space %s)", objectID, spaceID)
 		}
 		return code, true, nil
 	}
@@ -169,24 +167,39 @@ func findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion st
 	return rec.Id, nil
 }
 
-// getObjectMarkdown fetches the markdown content of an object.
-func getObjectMarkdown(baseURL, spaceID, objectID string) (string, error) {
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/markdown",
-		url.PathEscape(spaceID), url.PathEscape(objectID))
-	resp, err := http.Get(baseURL + path)
+// queryProgramSource reads the "code" field from the program_source dataset.
+func queryProgramSource(baseURL, spaceID, objectID string) (string, error) {
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectID,
+		"dataset":  "program_source",
+	})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/query",
+		"application/json",
+		strings.NewReader(string(body)),
+	)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get markdown: %d %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("query program_source: %d %s", resp.StatusCode, msg)
 	}
 	var out struct {
-		Content string `json:"content"`
+		Records []json.RawMessage `json:"records"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
-	return out.Content, nil
+	if len(out.Records) == 0 {
+		return "", nil
+	}
+	var rec struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(out.Records[0], &rec); err != nil {
+		return "", err
+	}
+	return rec.Code, nil
 }
