@@ -17,11 +17,12 @@ import (
 )
 
 var (
-	base        string
-	programsDir string
-	spaceName   string
-	chatName    string
-	agentName   string
+	base          string
+	programsDir   string
+	spaceName     string
+	chatName      string
+	agentName     string
+	programTypeID string
 )
 
 func main() {
@@ -45,13 +46,14 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "chat %q → %s\n", chatName, objectID)
 
-	if err := ensureProgramType(base, spaceID); err != nil {
+	programTypeID, err = ensureProgramType(base, spaceID)
+	if err != nil {
 		log.Fatalf("ensure program type: %v", err)
 	}
 	skip := map[string]bool{
 		"anytypeHelper": true,
 	}
-	if err := syncPrograms(base, spaceID, programsDir, skip); err != nil {
+	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip); err != nil {
 		log.Fatalf("sync programs: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
@@ -266,6 +268,7 @@ func runAgent(spaceID, objectID, text string) error {
 		APIBaseURL:     base,
 		SpaceID:        spaceID,
 		PrivateSpaceID: spaceID,
+		ProgramTypeID:  programTypeID,
 	})
 
 	rt.SetEffectResolver("chatReply", func(tr *agentrt.TraceRecord, args ...any) any {

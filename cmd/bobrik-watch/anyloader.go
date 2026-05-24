@@ -15,11 +15,12 @@ type anySDKLoaderConfig struct {
 	BaseURL        string
 	SpaceID        string
 	PrivateSpaceID string
+	ProgramTypeID  string
 	OnResolve      func(anyruntime.ResolveInfo)
 }
 
 func newAnySDKLoader(cfg anySDKLoaderConfig) anyruntime.ModuleLoader {
-	lookup := newAnySDKLookup(cfg.BaseURL)
+	lookup := newAnySDKLookup(cfg.BaseURL, cfg.ProgramTypeID)
 
 	return func(importString string) (string, error) {
 		spaceID, progName, progVersion, qualified, err := parseModuleName(cfg, importString)
@@ -103,10 +104,10 @@ func emitResolve(cfg anySDKLoaderConfig, info anyruntime.ResolveInfo) {
 }
 
 // newAnySDKLookup builds the leaf lookup that queries the any API for program objects.
-// Programs are objects with any_program.name and any_program.version properties.
-func newAnySDKLookup(baseURL string) func(spaceID, progName, progVersion string) (string, bool, error) {
+// Programs are objects of the given type with name and version properties.
+func newAnySDKLookup(baseURL, programTypeID string) func(spaceID, progName, progVersion string) (string, bool, error) {
 	return func(spaceID, progName, progVersion string) (string, bool, error) {
-		objectID, err := findProgramObject(baseURL, spaceID, progName, progVersion)
+		objectID, err := findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion)
 		if err != nil {
 			return "", false, err
 		}
@@ -127,12 +128,12 @@ func newAnySDKLookup(baseURL string) func(spaceID, progName, progVersion string)
 	}
 }
 
-// findProgramObject queries for an any_program object by name and version.
-func findProgramObject(baseURL, spaceID, progName, progVersion string) (string, error) {
+// findProgramObject queries for a program object by its typed properties.
+func findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion string) (string, error) {
 	filter := map[string]any{
 		"filter": map[string]any{
-			"any_program.name":    progName,
-			"any_program.version": progVersion,
+			programTypeID + ".name":    progName,
+			programTypeID + ".version": progVersion,
 		},
 	}
 	body, _ := json.Marshal(filter)

@@ -16,21 +16,18 @@ import (
 //go:embed anyHelper.js
 var anyHelperJS string
 
-const anyProgramType = "any_program"
-
-// ensureProgramType creates the any_program type with name and version
-// properties if it doesn't already exist.
-func ensureProgramType(baseURL, spaceID string) error {
-	typeID, err := findType(baseURL, spaceID, anyProgramType)
+// ensureProgramType creates the Program type with name and version
+// properties if it doesn't already exist. Returns the type ID.
+func ensureProgramType(baseURL, spaceID string) (string, error) {
+	typeID, err := findType(baseURL, spaceID, "Program")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if typeID != "" {
-		return nil
+		return typeID, nil
 	}
 
-	body, _ := json.Marshal(map[string]any{
-		"key":  anyProgramType,
+	body, _ := json.Marshal(map[string]string{
 		"name": "Program",
 	})
 	resp, err := http.Post(
@@ -39,34 +36,34 @@ func ensureProgramType(baseURL, spaceID string) error {
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return fmt.Errorf("create type: %w", err)
+		return "", fmt.Errorf("create type: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		msg, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("create type: %d %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("create type: %d %s", resp.StatusCode, msg)
 	}
 	var created struct {
-		Id string `json:"id"`
+		TypeId string `json:"typeId"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return fmt.Errorf("decode created type: %w", err)
+		return "", fmt.Errorf("decode created type: %w", err)
 	}
-	typeID = created.Id
-	fmt.Fprintf(os.Stderr, "created type %q → %s\n", anyProgramType, typeID)
+	typeID = created.TypeId
+	fmt.Fprintf(os.Stderr, "created type \"Program\" → %s\n", typeID)
 
 	for _, prop := range []map[string]string{
-		{"key": "name", "name": "name", "format": "text"},
-		{"key": "version", "name": "version", "format": "text"},
+		{"xKey": "name", "name": "name", "kind": "string"},
+		{"xKey": "version", "name": "version", "kind": "string"},
 	} {
 		if err := addProperty(baseURL, spaceID, typeID, prop); err != nil {
-			return fmt.Errorf("add property %s: %w", prop["key"], err)
+			return "", fmt.Errorf("add property %s: %w", prop["xKey"], err)
 		}
 	}
-	return nil
+	return typeID, nil
 }
 
-func findType(baseURL, spaceID, typeKey string) (string, error) {
+func findType(baseURL, spaceID, typeName string) (string, error) {
 	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/types")
 	if err != nil {
 		return "", err
@@ -74,15 +71,15 @@ func findType(baseURL, spaceID, typeKey string) (string, error) {
 	defer resp.Body.Close()
 	var out struct {
 		Types []struct {
-			Id  string `json:"id"`
-			Key string `json:"key"`
+			Id   string `json:"id"`
+			Name string `json:"name"`
 		} `json:"types"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
 	for _, t := range out.Types {
-		if t.Key == typeKey {
+		if t.Name == typeName {
 			return t.Id, nil
 		}
 	}
@@ -117,9 +114,9 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 // skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
 //
 // The embedded anyHelper.js is always synced as anyHelper@v1.
-func syncPrograms(baseURL, spaceID, dir string, skipNames map[string]bool) error {
+func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool) error {
 	// Sync the embedded anyHelper.js first
-	if err := upsertProgram(baseURL, spaceID, "anyHelper", "v1", anyHelperJS); err != nil {
+	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", anyHelperJS); err != nil {
 		return fmt.Errorf("sync anyHelper: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 (embedded)\n")
@@ -145,17 +142,17 @@ func syncPrograms(baseURL, spaceID, dir string, skipNames map[string]bool) error
 			return fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 
-		if err := upsertProgram(baseURL, spaceID, name, version, string(source)); err != nil {
+		if err := upsertProgram(baseURL, spaceID, programTypeID, name, version, string(source)); err != nil {
 			return fmt.Errorf("sync %s@%s: %w", name, version, err)
 		}
 	}
 	return nil
 }
 
-func upsertProgram(baseURL, spaceID, name, version, source string) error {
+func upsertProgram(baseURL, spaceID, programTypeID, name, version, source string) error {
 	markdown := wrapSourceAsMarkdown(source)
 
-	objectID, err := findProgramObject(baseURL, spaceID, name, version)
+	objectID, err := findProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
 		return fmt.Errorf("query %s@%s: %w", name, version, err)
 	}
@@ -166,7 +163,7 @@ func upsertProgram(baseURL, spaceID, name, version, source string) error {
 		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		id, err := createProgramObject(baseURL, spaceID, name, version, markdown)
+		id, err := createProgramObject(baseURL, spaceID, programTypeID, name, version, markdown)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
@@ -188,14 +185,14 @@ func wrapSourceAsMarkdown(source string) string {
 	return "```js\n// __main_source\n" + source + "\n```\n"
 }
 
-func createProgramObject(baseURL, spaceID, name, version, markdown string) (string, error) {
+func createProgramObject(baseURL, spaceID, programTypeID, name, version, markdown string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
-		"types": []string{anyProgramType},
+		"types": []string{programTypeID},
 		"initialProperties": map[string]any{
 			"any": map[string]any{
 				"name": name + "@" + version,
 			},
-			anyProgramType: map[string]any{
+			programTypeID: map[string]any{
 				"name":    name,
 				"version": version,
 			},
