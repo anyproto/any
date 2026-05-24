@@ -332,7 +332,7 @@ export function createClient(params) {
     // Get markdown
     var mdRes = api("GET", path + "/objects/" + objId + "/editor/markdown");
     if (mdRes.ok && mdRes.data) {
-      obj.markdown = mdRes.data.markdown || "";
+      obj.markdown = mdRes.data.content || "";
       obj.body = obj.markdown;
     }
 
@@ -530,7 +530,7 @@ export function createClient(params) {
 
     // Set markdown if provided
     if (body) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objectId + "/editor/markdown", { markdown: body });
+      var mdRes = api("PUT", spacePath + "/objects/" + objectId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
         return { ok: true, id: objectId, object: { id: objectId, name: name }, error: "Object created but markdown set failed: " + _extractError(mdRes) };
       }
@@ -546,7 +546,7 @@ export function createClient(params) {
 
     // Update markdown if provided
     if (body !== undefined) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objId + "/editor/markdown", { markdown: body });
+      var mdRes = api("PUT", spacePath + "/objects/" + objId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
         return { ok: false, id: objId, error: _extractError(mdRes) };
       }
@@ -840,7 +840,7 @@ export function createClient(params) {
     });
     if (!result.ok) return { ok: false, error: result.error };
 
-    var mdRes = api("PUT", spacePath + "/objects/" + result.id + "/editor/markdown", { markdown: markdown });
+    var mdRes = api("PUT", spacePath + "/objects/" + result.id + "/editor/markdown", { content: markdown });
     if (!mdRes.ok) return { ok: false, error: "Created object but failed to set markdown" };
 
     return { ok: true, object: { id: result.id }, name: progName, version: version };
