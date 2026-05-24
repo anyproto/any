@@ -12,7 +12,6 @@ type AnySDKRuntimeConfig struct {
 	APIBaseURL     string
 	SpaceID        string
 	PrivateSpaceID string
-	ClaudeKey      string
 }
 
 func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
@@ -39,7 +38,6 @@ func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
 		"ANY_API_URL":          cfg.APIBaseURL,
 		"ANY_SPACE_ID":         cfg.SpaceID,
 		"ANY_PRIVATE_SPACE_ID": privateSpaceID,
-		"CLAUDE_API_KEY":       cfg.ClaudeKey,
 		// Anytype compat — assistantjs reads these in init_agent.js
 		"ANYTYPE_API_URL":          cfg.APIBaseURL,
 		"ANYTYPE_API_KEY":          "",
