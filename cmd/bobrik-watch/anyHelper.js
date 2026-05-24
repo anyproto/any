@@ -222,13 +222,13 @@ export const VALID_COLORS = [
   "purple", "blue", "ice", "teal", "lime"
 ];
 
-// ==================== AUTH (no-op for any API — localhost, no auth) ====================
+// ==================== AUTH (no-op — localhost, no auth) ====================
 
-export function requestChallenge(params) {
+export function requestChallenge() {
   return { ok: true, challenge_id: "no-auth" };
 }
 
-export function solveChallenge(params) {
+export function solveChallenge() {
   return { ok: true, api_key: "" };
 }
 
@@ -259,7 +259,6 @@ export function createClient(params) {
     return spacePath;
   }
 
-  // Raw HTTP helper — no auth headers needed for the any API
   const api = (method, path, body) => {
     const opts = {
       method: method,
@@ -285,41 +284,60 @@ export function createClient(params) {
     return "Unknown error (HTTP " + apiResult.status + ")";
   };
 
-  // ==================== QUERIES ====================
+  // ==================== TYPE RESOLUTION ====================
+  // The any API uses type IDs (bafyrei... hashes for user-created types,
+  // literal strings like "program" for registered types). JS code passes
+  // type keys like "at_memory" or "any_agent_skill". This function resolves
+  // a key to the actual type ID by fetching GET /types every time.
+  // No caching — types list is small and this avoids stale cache bugs.
 
-  // Resolve a type key/name to its actual ID. Built-in types (program, chat,
-  // editor, etc.) use their literal ID. User-created types use bafyrei... IDs
-  // looked up by name.
-  var _typeIdCache = {};
   function _resolveTypeId(typeKey, scope) {
-    if (_typeIdCache[typeKey]) return _typeIdCache[typeKey];
-    var types = getTypes();
+    var path = _pathForScope(scope || "user");
+    var res = api("GET", path + "/types");
+    if (!res.ok) return typeKey;
+    var types = (res.data && res.data.types) || [];
+
+    // 1. Exact match on id (built-in: "program", "chat", etc.)
     for (var i = 0; i < types.length; i++) {
-      var t = types[i];
-      // Match by id (built-in), name, or the key passed by caller
-      if (t.id === typeKey) { _typeIdCache[typeKey] = t.id; return t.id; }
+      if (types[i].id === typeKey) return types[i].id;
     }
-    // Try matching by name (e.g. "any_agent_skill" → "Agent Skill")
-    // Convention: snake_case key → Title Case name with "any_" prefix stripped
-    var nameFromKey = typeKey.replace(/^any_/, "").replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    // 2. Exact match on name
     for (var j = 0; j < types.length; j++) {
-      if (types[j].name === nameFromKey) {
-        _typeIdCache[typeKey] = types[j].id;
-        return types[j].id;
+      if (types[j].name === typeKey) return types[j].id;
+    }
+    // 3. Derived name variants from snake_case key
+    var prefixes = ["any_", "anytype_", "at_", ""];
+    for (var pi = 0; pi < prefixes.length; pi++) {
+      if (typeKey.indexOf(prefixes[pi]) !== 0) continue;
+      var stripped = typeKey.substring(prefixes[pi].length)
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      for (var k = 0; k < types.length; k++) {
+        if (types[k].name === stripped) return types[k].id;
       }
     }
-    return typeKey; // fallback: use as-is
+    // 4. "Agent" prefix variant: "at_memory" → "Agent Memory"
+    for (var qi = 0; qi < prefixes.length; qi++) {
+      if (typeKey.indexOf(prefixes[qi]) !== 0) continue;
+      var agentName = "Agent " + typeKey.substring(prefixes[qi].length)
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      for (var m = 0; m < types.length; m++) {
+        if (types[m].name === agentName) return types[m].id;
+      }
+    }
+    return typeKey;
   }
 
-  // Query objects, optionally filtering by type and/or properties
+  // ==================== QUERIES ====================
+
   function getObjects(typeKey, options) {
     if (!options) options = {};
     var scope = options.space || "user";
     var path = _pathForScope(scope);
     var filter = {};
     if (typeKey) {
-      var resolvedType = _resolveTypeId(typeKey, scope);
-      filter["any.types"] = resolvedType;
+      filter["any.types"] = _resolveTypeId(typeKey, scope);
     }
     var res = api("POST", path + "/objects/query", { filter: filter });
     if (!res.ok) return [];
@@ -332,39 +350,23 @@ export function createClient(params) {
     return objects;
   }
 
-  // Get a single object by ID — fetches properties + markdown
   function getObject(objId, opts) {
     if (!opts) opts = {};
     var scope = opts.space || "user";
     var path = _pathForScope(scope);
 
-    // Get properties
     var propRes = api("GET", path + "/properties/" + objId);
     var obj = { id: objId };
     if (propRes.ok && propRes.data && propRes.data.record) {
-      var rec = propRes.data.record;
-      if (typeof rec === "object") {
-        for (var k in rec) {
-          if (Object.prototype.hasOwnProperty.call(rec, k) && k !== "id") {
-            obj[k] = rec[k];
-          }
-        }
-      }
+      obj = normalizeRecord(propRes.data.record);
     }
 
-    // Get markdown
     var mdRes = api("GET", path + "/objects/" + objId + "/editor/markdown");
     if (mdRes.ok && mdRes.data) {
       obj.markdown = mdRes.data.content || "";
       obj.body = obj.markdown;
     }
 
-    // Name from properties
-    if (obj.any && obj.any.name) {
-      obj.name = obj.any.name;
-    }
-
-    // Line-range slicing
     if (opts.from || opts.to) {
       var lines = (obj.markdown || "").split("\n");
       var total = lines.length;
@@ -379,15 +381,10 @@ export function createClient(params) {
   }
 
   // TODO: no select/multi_select property format in the any API yet
-  function getObjectsByTag(typeKey, propKey, tagKey) {
-    return [];
-  }
+  function getObjectsByTag() { return []; }
 
-  // Search — best-effort via objects/query.
-  // TODO: no FTS indexer in the any API yet; returns empty for now.
-  function search() {
-    return [];
-  }
+  // TODO: no FTS indexer in the any API yet
+  function search() { return []; }
 
   function getTypes(opts) {
     var res = api("GET", spacePath + "/types");
@@ -396,14 +393,11 @@ export function createClient(params) {
   }
 
   function getProperties() {
-    // The any API doesn't have a single "list all properties" endpoint.
-    // We approximate by listing types and collecting their properties.
     var types = getTypes();
     var props = [];
     var seen = {};
     for (var i = 0; i < types.length; i++) {
-      var t = types[i];
-      var propRes = api("GET", spacePath + "/types/" + t.id + "/properties");
+      var propRes = api("GET", spacePath + "/types/" + types[i].id + "/properties");
       if (propRes.ok && propRes.data && propRes.data.properties) {
         var tProps = propRes.data.properties;
         for (var j = 0; j < tProps.length; j++) {
@@ -422,16 +416,17 @@ export function createClient(params) {
   function getProperty(propKey) {
     var all = getProperties();
     for (var i = 0; i < all.length; i++) {
-      if (all[i].key === propKey || all[i].name === propKey) return all[i];
+      if (all[i].xKey === propKey || all[i].id === propKey || all[i].name === propKey) return all[i];
     }
     return null;
   }
 
   function describeType(typeKey) {
+    var resolvedId = _resolveTypeId(typeKey);
     var types = getTypes();
     var typeObj = null;
     for (var i = 0; i < types.length; i++) {
-      if (types[i].key === typeKey || types[i].id === typeKey) { typeObj = types[i]; break; }
+      if (types[i].id === resolvedId) { typeObj = types[i]; break; }
     }
     if (!typeObj) return { error: "Type not found: " + typeKey };
     var propRes = api("GET", spacePath + "/types/" + typeObj.id + "/properties");
@@ -439,16 +434,11 @@ export function createClient(params) {
     var sample = null;
     var objects = getObjects(typeKey);
     if (objects.length > 0) sample = objects[0];
-    return {
-      type: typeObj,
-      properties: properties,
-      object_count: objects.length,
-      sample: sample
-    };
+    return { type: typeObj, properties: properties, object_count: objects.length, sample: sample };
   }
 
-  // Collections are nav folders (nav.type=2). Children are objects with nav.parentId = folderId.
-  function getCollectionObjects(collectionId, viewId) {
+  // Collections are nav folders (nav.type=2). Children have nav.parentId = folderId.
+  function getCollectionObjects(collectionId) {
     var res = api("POST", spacePath + "/objects/query", {
       filter: { "nav.parentId": collectionId },
       sort: ["nav.pos"]
@@ -482,42 +472,32 @@ export function createClient(params) {
     var tools = [];
     for (var i = 0; i < programs.length; i++) {
       var p = programs[i];
-      // Read program_description dataset for tool description
       var description = null;
       try {
         var path = _pathForScope(p.space || "user");
-        var dRes = api("POST", path + "/query", {
-          objectId: p.id,
-          dataset: "program_description"
-        });
+        var dRes = api("POST", path + "/query", { objectId: p.id, dataset: "program_description" });
         if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
           description = dRes.data.records[0].text || null;
         }
       } catch (e) {}
       if (description) {
         tools.push({
-          id: p.id,
-          name: p.name,
-          description: description,
-          programName: p.name,
-          programVersion: p.version,
+          id: p.id, name: p.name, description: description,
+          programName: p.name, programVersion: p.version,
           space: p.space || "user"
         });
       }
     }
-    // anyHelper is always a tool — it's the core API library
+    // anyHelper is always a tool
     var hasHelper = false;
     for (var j = 0; j < tools.length; j++) {
       if (tools[j].programName === "anyHelper") { hasHelper = true; break; }
     }
     if (!hasHelper) {
       tools.push({
-        id: "builtin:anyHelper",
-        name: "anyHelper",
+        id: "builtin:anyHelper", name: "anyHelper",
         description: "Core API library for creating, reading, updating, and deleting objects, types, and programs.",
-        programName: "anyHelper",
-        programVersion: "v1",
-        space: "user"
+        programName: "anyHelper", programVersion: "v1", space: "user"
       });
     }
     return tools;
@@ -552,19 +532,25 @@ export function createClient(params) {
     if (name) {
       initProps.any = { name: name };
     }
-    // Copy extra data fields as properties on the type namespace
     if (data.properties) {
       var propObj = {};
       if (Array.isArray(data.properties)) {
         for (var i = 0; i < data.properties.length; i++) {
           var p = data.properties[i];
-          propObj[p.key] = p.text || p.number || p.checkbox || p.value || "";
+          if (p.objects !== undefined) {
+            propObj[p.key] = p.objects;
+          } else {
+            propObj[p.key] = p.text !== undefined ? p.text
+              : p.number !== undefined ? p.number
+              : p.checkbox !== undefined ? p.checkbox
+              : p.value !== undefined ? p.value : "";
+          }
         }
       } else {
         propObj = data.properties;
       }
       if (typeKey) {
-        initProps[typeKey] = propObj;
+        initProps[_resolveTypeId(typeKey)] = propObj;
       }
     }
     if (Object.keys(initProps).length > 0) {
@@ -577,7 +563,6 @@ export function createClient(params) {
     }
     var objectId = res.data.objectId;
 
-    // Set markdown if provided
     if (body) {
       var mdRes = api("PUT", spacePath + "/objects/" + objectId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
@@ -593,7 +578,6 @@ export function createClient(params) {
     if (!data) data = {};
     var body = data.body || data.markdown;
 
-    // Update markdown if provided
     if (body !== undefined) {
       var mdRes = api("PUT", spacePath + "/objects/" + objId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
@@ -601,12 +585,41 @@ export function createClient(params) {
       }
     }
 
-    // Update name via space metadata if provided
     if (data.name !== undefined) {
-      // Set the any.name property
       api("POST", spacePath + "/properties/" + objId + "/base/any", {
         patch: { name: data.name }
       });
+    }
+
+    if (data.properties) {
+      // Find the object's primary type to set properties under the right namespace
+      var existing = getObject(objId);
+      var typeId = null;
+      if (existing && existing.any && existing.any.types) {
+        for (var t = 0; t < existing.any.types.length; t++) {
+          var tid = existing.any.types[t];
+          if (tid !== "nav" && tid !== "any" && tid !== "editor") { typeId = tid; break; }
+        }
+      }
+      if (typeId) {
+        var patch = {};
+        if (Array.isArray(data.properties)) {
+          for (var i = 0; i < data.properties.length; i++) {
+            var p = data.properties[i];
+            if (p.objects !== undefined) {
+              patch[p.key] = p.objects;
+            } else {
+              patch[p.key] = p.text !== undefined ? p.text
+                : p.number !== undefined ? p.number
+                : p.checkbox !== undefined ? p.checkbox
+                : p.value !== undefined ? p.value : "";
+            }
+          }
+        } else {
+          patch = data.properties;
+        }
+        api("POST", spacePath + "/properties/" + objId + "/base/" + typeId, { patch: patch });
+      }
     }
 
     return { ok: true, id: objId, object: { id: objId } };
@@ -639,39 +652,23 @@ export function createClient(params) {
     var upd = updateObject(objId, { markdown: r.result });
     if (!upd.ok) return { ok: false, id: objId, error: "updateObject failed: " + upd.error };
     return {
-      ok: true,
-      replacements: r.replacements,
-      lengthBefore: oldMarkdown.length,
-      lengthAfter: r.result.length,
-      id: objId,
-      object: upd.object
+      ok: true, replacements: r.replacements,
+      lengthBefore: oldMarkdown.length, lengthAfter: r.result.length,
+      id: objId, object: upd.object
     };
   }
 
   // ==================== TAGS ====================
   // TODO: any API has no select/multi_select property format yet
 
-  function setTags(objId, propKey, tagKeys) {
-    return { ok: false, error: "tag operations not available" };
-  }
-
-  function addTag(firstArg, tagName, tagKey, color) {
-    return { ok: false, error: "tag operations not available" };
-  }
-
-  function listTags(propIdOrKey) {
-    return [];
-  }
-
-  function createTag(propId, name, color, key) {
-    return { ok: false, error: "tag operations not available" };
-  }
+  function setTags()  { return { ok: false, error: "tag operations not available" }; }
+  function addTag()   { return { ok: false, error: "tag operations not available" }; }
+  function listTags() { return []; }
+  function createTag() { return { ok: false, error: "tag operations not available" }; }
 
   // ==================== COLLECTIONS (nav folders) ====================
-  // A "collection" is a folder object (nav.type=2). Adding to a collection
-  // moves the object's nav.parentId to point at the folder.
 
-  function createCollection(name, emoji) {
+  function createCollection(name) {
     var res = api("POST", spacePath + "/objects", {
       nav: { type: 2, parentId: "", pos: "" },
       initialProperties: { any: { name: name } }
@@ -701,49 +698,21 @@ export function createClient(params) {
 
   // ==================== PROGRAMS ====================
 
-  // Find program property keys in this space.
-  // Returns { nameKey, versionKey } or nulls.
-  function _findProgramPropKeys() {
-    var props = getProperties();
-    var nameKey = null, versionKey = null;
-    for (var i = 0; i < props.length; i++) {
-      var p = props[i];
-      // Support both any_program.name style and __anytype_program_name style
-      if (p.key === "name" || p.key === "__anytype_program_name" || p.name === "name") {
-        // Check if this is from the any_program type
-        nameKey = p.key;
-      }
-      if (p.key === "version" || p.key === "__anytype_program_version" || p.name === "version") {
-        versionKey = p.key;
-      }
-    }
-    return { nameKey: nameKey, versionKey: versionKey };
-  }
-
   function _scanPrograms(scope) {
     var path = _pathForScope(scope);
-    // The registered handler type is "program"
-    var res = api("POST", path + "/objects/query", { filter: { "any.types": "program" } });
+    var programTypeId = _resolveTypeId("program", scope);
+    var res = api("POST", path + "/objects/query", { filter: { "any.types": programTypeId } });
     if (!res.ok) return [];
     var records = (res.data && res.data.records) || [];
     var programs = [];
     for (var i = 0; i < records.length; i++) {
       var rec = normalizeRecord(records[i]);
-      // Program properties live under the type ID namespace.
-      // The registered type is "program", so properties are at rec.program.name etc.
-      var progName = (rec.program && rec.program.name) || "";
+      var progName = (rec.program && rec.program.name) || rec.name || "";
       var progVersion = (rec.program && rec.program.version) || "";
       if (!progName) continue;
-
-      // Description comes from program_description dataset (future);
-      // for now skip the per-program fetch to avoid N+1
       programs.push({
-        id: rec.id,
-        name: progName,
-        version: progVersion,
-        title: rec.name || progName,
-        description: null,
-        space: scope
+        id: rec.id, name: progName, version: progVersion,
+        title: rec.name || progName, description: null, space: scope
       });
     }
     return programs;
@@ -753,17 +722,13 @@ export function createClient(params) {
     var user = _scanPrograms("user");
     if (systemSpaceId) {
       var sys = _scanPrograms("system");
-      // Merge: user wins on name@version conflict
       var seen = {};
       for (var i = 0; i < user.length; i++) {
         seen[user[i].name + "@" + user[i].version] = true;
       }
       for (var j = 0; j < sys.length; j++) {
         var key = sys[j].name + "@" + sys[j].version;
-        if (!seen[key]) {
-          user.push(sys[j]);
-          seen[key] = true;
-        }
+        if (!seen[key]) { user.push(sys[j]); seen[key] = true; }
       }
     }
     return user;
@@ -783,30 +748,21 @@ export function createClient(params) {
     var match = null;
     for (var i = 0; i < programs.length; i++) {
       if (programs[i].name === name && programs[i].version === version) {
-        match = programs[i];
-        break;
+        match = programs[i]; break;
       }
     }
     if (!match) return null;
 
-    // Read source from program_source dataset
     var path = _pathForScope(match.space || "user");
-    var qRes = api("POST", path + "/query", {
-      objectId: match.id,
-      dataset: "program_source"
-    });
+    var qRes = api("POST", path + "/query", { objectId: match.id, dataset: "program_source" });
     var source = "";
     if (qRes.ok && qRes.data && qRes.data.records && qRes.data.records.length > 0) {
       source = qRes.data.records[0].code || "";
     }
 
     return {
-      id: match.id,
-      name: name,
-      version: version,
-      title: match.title,
-      source: source,
-      space: match.space
+      id: match.id, name: name, version: version,
+      title: match.title, source: source, space: match.space
     };
   }
 
@@ -821,12 +777,10 @@ export function createClient(params) {
     }
 
     var prog = getProgram(name, version);
-    var nameWithVersion = name + "@" + version;
     if (!prog || !prog.source) {
-      return { ok: false, error: "Program '" + nameWithVersion + "' not found. Use client.listPrograms() to see available programs.", traceStringLength: 0 };
+      return { ok: false, error: "Program '" + name + "@" + version + "' not found.", traceStringLength: 0 };
     }
 
-    // Build child args with client credentials
     var childArgs = {};
     if (args && typeof args === "object") {
       for (var k in args) {
@@ -840,9 +794,7 @@ export function createClient(params) {
 
     var result = js.eval(prog.source, childArgs);
     var out = {
-      ok: !result.error,
-      result: result.result,
-      error: result.error || null,
+      ok: !result.error, result: result.result, error: result.error || null,
       program: { name: name, version: version, id: prog.id },
       traceStringLength: JSON.stringify(result.traces || {}).length
     };
@@ -859,27 +811,16 @@ export function createClient(params) {
     if (!progName) return { ok: false, error: "name is required" };
     if (!source) return { ok: false, error: "source is required" };
 
-    // Check for existing program
     var existing = getProgram(progName, version);
     if (existing) {
-      // Update source via modify
       api("POST", spacePath + "/modify", {
-        objectId: existing.id,
-        dataset: "program_source",
+        objectId: existing.id, dataset: "program_source",
         records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
       });
       return { ok: true, object: { id: existing.id }, name: progName, version: version };
     }
 
-    // Create new program object
-    // Find the "program" type ID
-    var types = getTypes();
-    var programTypeId = null;
-    for (var ti = 0; ti < types.length; ti++) {
-      if (types[ti].id === "program") { programTypeId = "program"; break; }
-    }
-    if (!programTypeId) return { ok: false, error: "program type not registered" };
-
+    var programTypeId = _resolveTypeId("program");
     var createRes = api("POST", spacePath + "/objects", {
       types: [programTypeId],
       initialProperties: {
@@ -890,10 +831,8 @@ export function createClient(params) {
     if (!createRes.ok) return { ok: false, error: _extractError(createRes) };
     var newId = createRes.data.objectId;
 
-    // Write source
     api("POST", spacePath + "/modify", {
-      objectId: newId,
-      dataset: "program_source",
+      objectId: newId, dataset: "program_source",
       records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
     });
 
@@ -905,12 +844,9 @@ export function createClient(params) {
     if (!opts.name) return { ok: false, error: "name is required" };
     if (!opts.source) return { ok: false, error: "source is required" };
     if (!opts.schema) return { ok: false, error: "schema is required" };
-
     return saveProgram({
-      name: opts.name,
-      version: opts.version || "v1",
-      title: opts.title || opts.name,
-      source: opts.source,
+      name: opts.name, version: opts.version || "v1",
+      title: opts.title || opts.name, source: opts.source,
       appendMarkdown: opts.schema
     });
   }
@@ -924,41 +860,30 @@ export function createClient(params) {
     var name = opts.name || opts.key;
     var key = opts.key;
 
-    // Check if type already exists
-    var types = getTypes();
-    var existing = null;
-    for (var i = 0; i < types.length; i++) {
-      if (types[i].name === name || types[i].id === key) { existing = types[i]; break; }
+    // Check if already exists
+    var existingId = _resolveTypeId(key);
+    if (existingId !== key) {
+      // resolved to a real id — type exists
+      return { ok: true, type: { id: existingId, key: key, name: name }, created: false };
     }
 
-    var typeId;
-    if (existing) {
-      typeId = existing.id;
-    } else {
-      var body = { name: name };
-      var res = api("POST", spacePath + "/types", body);
-      if (!res.ok) return { ok: false, error: _extractError(res) };
-      typeId = res.data.typeId;
-    }
+    var body = { name: name };
+    var res = api("POST", spacePath + "/types", body);
+    if (!res.ok) return { ok: false, error: _extractError(res) };
+    var typeId = res.data.typeId;
 
     if (opts.properties && Array.isArray(opts.properties)) {
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
         var formatToKind = { text: "string", number: "number", checkbox: "boolean" };
-        var propBody = {
-          xKey: prop.key,
-          name: prop.name || prop.key,
+        api("POST", spacePath + "/types/" + typeId + "/properties", {
+          xKey: prop.key, name: prop.name || prop.key,
           kind: formatToKind[prop.format] || prop.kind || "string"
-        };
-        api("POST", spacePath + "/types/" + typeId + "/properties", propBody);
+        });
       }
     }
 
-    return {
-      ok: true,
-      type: { id: typeId, key: key, name: name },
-      created: !existing
-    };
+    return { ok: true, type: { id: typeId, key: key, name: name }, created: true };
   }
 
   // ==================== INTERNAL HELPERS ====================
@@ -974,14 +899,10 @@ export function createClient(params) {
         obj[k] = rec[k];
       }
     }
-    // Extract name from any.name if present
     if (obj.any && obj.any.name) {
       obj.name = obj.any.name;
     }
-    // Flatten type-namespaced properties to top level.
-    // Type IDs are bafyrei... hashes or registered IDs like "program".
-    // Any key that holds an object and isn't a known built-in namespace
-    // gets its children promoted.
+    // Flatten type-namespaced properties to top level
     var builtins = { id:1, _ver:1, any:1, nav:1, author:1, spaceId:1, createdAt:1, name:1 };
     for (var tk in obj) {
       if (builtins[tk]) continue;
@@ -996,9 +917,7 @@ export function createClient(params) {
     return obj;
   }
 
-  function __prepareTraces(traces) {
-    return traces;
-  }
+  function __prepareTraces(traces) { return traces; }
 
   // ==================== WRAP TRACE ====================
 
@@ -1012,7 +931,6 @@ export function createClient(params) {
     config: { baseUrl: baseUrl, spaceId: spaceId, spacePath: spacePath },
     __prepareTraces: __prepareTraces,
 
-    // Queries
     getObjects: w("getObjects", getObjects),
     getObject: w("getObject", getObject),
     getObjectsByTag: w("getObjectsByTag", getObjectsByTag),
@@ -1025,14 +943,10 @@ export function createClient(params) {
     getSpaceMember: w("getSpaceMember", getSpaceMember),
     listSpaceMembers: w("listSpaceMembers", listSpaceMembers),
 
-    // Tool discovery
     getTools: w("getTools", getTools),
-
-    // Trace inspection
     fetchTraceSchema: fetchTraceSchema,
     fetchTrace: fetchTrace,
 
-    // Mutations
     createObject: w("createObject", createObject),
     updateObject: w("updateObject", updateObject),
     deleteObject: w("deleteObject", deleteObject),
