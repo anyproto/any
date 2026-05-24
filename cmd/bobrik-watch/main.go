@@ -18,7 +18,6 @@ import (
 
 var (
 	base        string
-	claudeKey   string
 	programsDir string
 	spaceName   string
 	chatName    string
@@ -27,8 +26,7 @@ var (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
-	flag.StringVar(&claudeKey, "claude-key", os.Getenv("CLAUDE_API_KEY"), "Claude API key")
-	flag.StringVar(&programsDir, "programs-dir", "", "directory with .js program files to sync")
+	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
 	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
 	flag.StringVar(&chatName, "chat", "bobrik", "chat object name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
@@ -47,18 +45,16 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "chat %q → %s\n", chatName, objectID)
 
-	if programsDir != "" {
-		if err := ensureProgramType(base, spaceID); err != nil {
-			log.Fatalf("ensure program type: %v", err)
-		}
-		skip := map[string]bool{
-			"anytypeHelper": true,
-		}
-		if err := syncPrograms(base, spaceID, programsDir, skip); err != nil {
-			log.Fatalf("sync programs: %v", err)
-		}
-		fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
+	if err := ensureProgramType(base, spaceID); err != nil {
+		log.Fatalf("ensure program type: %v", err)
 	}
+	skip := map[string]bool{
+		"anytypeHelper": true,
+	}
+	if err := syncPrograms(base, spaceID, programsDir, skip); err != nil {
+		log.Fatalf("sync programs: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
 	if err := subscribe(spaceID, objectID); err != nil {
@@ -270,7 +266,6 @@ func runAgent(spaceID, objectID, text string) error {
 		APIBaseURL:     base,
 		SpaceID:        spaceID,
 		PrivateSpaceID: spaceID,
-		ClaudeKey:      claudeKey,
 	})
 
 	rt.SetEffectResolver("chatReply", func(tr *agentrt.TraceRecord, args ...any) any {
@@ -286,27 +281,7 @@ func runAgent(spaceID, objectID, text string) error {
 		return nil
 	})
 
-	if programsDir == "" {
-		return runEchoProgram(rt, text)
-	}
 	return runWrapperProgram(rt, spaceID, objectID, text)
-}
-
-func runEchoProgram(rt agentrt.Runtime, text string) error {
-	const echoProgram = `
-export function main(args) {
-  chatReply("you said: " + args.text);
-  return "ok";
-}
-`
-	result, err := rt.EvalToString("bobrik-echo", echoProgram, map[string]any{"text": text})
-	if err != nil {
-		return fmt.Errorf("eval: %w", err)
-	}
-	if result.Error != "" {
-		return fmt.Errorf("js error: %s", result.Error)
-	}
-	return nil
 }
 
 func runWrapperProgram(rt agentrt.Runtime, spaceID, objectID, text string) error {

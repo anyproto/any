@@ -116,7 +116,6 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 //
 // skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
 //
-// All synced files get anytypeHelper imports rewritten to anyHelper.
 // The embedded anyHelper.js is always synced as anyHelper@v1.
 func syncPrograms(baseURL, spaceID, dir string, skipNames map[string]bool) error {
 	// Sync the embedded anyHelper.js first
@@ -146,22 +145,11 @@ func syncPrograms(baseURL, spaceID, dir string, skipNames map[string]bool) error
 			return fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 
-		// Rewrite anytypeHelper imports → anyHelper
-		rewritten := rewriteImports(string(source))
-
-		if err := upsertProgram(baseURL, spaceID, name, version, rewritten); err != nil {
+		if err := upsertProgram(baseURL, spaceID, name, version, string(source)); err != nil {
 			return fmt.Errorf("sync %s@%s: %w", name, version, err)
 		}
 	}
 	return nil
-}
-
-// rewriteImports replaces anytypeHelper references with anyHelper in
-// import statements.
-func rewriteImports(source string) string {
-	source = strings.ReplaceAll(source, `"anytypeHelper@`, `"anyHelper@`)
-	source = strings.ReplaceAll(source, `"private:anytypeHelper@`, `"private:anyHelper@`)
-	return source
 }
 
 func upsertProgram(baseURL, spaceID, name, version, source string) error {
