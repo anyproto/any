@@ -287,6 +287,30 @@ export function createClient(params) {
 
   // ==================== QUERIES ====================
 
+  // Resolve a type key/name to its actual ID. Built-in types (program, chat,
+  // editor, etc.) use their literal ID. User-created types use bafyrei... IDs
+  // looked up by name.
+  var _typeIdCache = {};
+  function _resolveTypeId(typeKey, scope) {
+    if (_typeIdCache[typeKey]) return _typeIdCache[typeKey];
+    var types = getTypes();
+    for (var i = 0; i < types.length; i++) {
+      var t = types[i];
+      // Match by id (built-in), name, or the key passed by caller
+      if (t.id === typeKey) { _typeIdCache[typeKey] = t.id; return t.id; }
+    }
+    // Try matching by name (e.g. "any_agent_skill" → "Agent Skill")
+    // Convention: snake_case key → Title Case name with "any_" prefix stripped
+    var nameFromKey = typeKey.replace(/^any_/, "").replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    for (var j = 0; j < types.length; j++) {
+      if (types[j].name === nameFromKey) {
+        _typeIdCache[typeKey] = types[j].id;
+        return types[j].id;
+      }
+    }
+    return typeKey; // fallback: use as-is
+  }
+
   // Query objects, optionally filtering by type and/or properties
   function getObjects(typeKey, options) {
     if (!options) options = {};
@@ -294,9 +318,8 @@ export function createClient(params) {
     var path = _pathForScope(scope);
     var filter = {};
     if (typeKey) {
-      // Filter by type membership — objects have the type in their any.types array
-      // The any API filter supports direct field matching
-      filter["any.types"] = typeKey;
+      var resolvedType = _resolveTypeId(typeKey, scope);
+      filter["any.types"] = resolvedType;
     }
     var res = api("POST", path + "/objects/query", { filter: filter });
     if (!res.ok) return [];
@@ -523,7 +546,7 @@ export function createClient(params) {
 
     var createBody = {};
     if (typeKey) {
-      createBody.types = [typeKey];
+      createBody.types = [_resolveTypeId(typeKey)];
     }
     var initProps = {};
     if (name) {
@@ -954,6 +977,21 @@ export function createClient(params) {
     // Extract name from any.name if present
     if (obj.any && obj.any.name) {
       obj.name = obj.any.name;
+    }
+    // Flatten type-namespaced properties to top level.
+    // Type IDs are bafyrei... hashes or registered IDs like "program".
+    // Any key that holds an object and isn't a known built-in namespace
+    // gets its children promoted.
+    var builtins = { id:1, _ver:1, any:1, nav:1, author:1, spaceId:1, createdAt:1, name:1 };
+    for (var tk in obj) {
+      if (builtins[tk]) continue;
+      if (obj[tk] && typeof obj[tk] === "object" && !Array.isArray(obj[tk])) {
+        for (var pk in obj[tk]) {
+          if (Object.prototype.hasOwnProperty.call(obj[tk], pk) && !obj[pk]) {
+            obj[pk] = obj[tk][pk];
+          }
+        }
+      }
     }
     return obj;
   }
