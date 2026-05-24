@@ -183,10 +183,10 @@ func getObjectMarkdown(baseURL, spaceID, objectID string) (string, error) {
 		return "", fmt.Errorf("get markdown: %d %s", resp.StatusCode, msg)
 	}
 	var out struct {
-		Markdown string `json:"markdown"`
+		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
-	return out.Markdown, nil
+	return out.Content, nil
 }

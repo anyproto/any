@@ -225,7 +225,7 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, markdow
 }
 
 func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
-	body, _ := json.Marshal(map[string]string{"markdown": markdown})
+	body, _ := json.Marshal(map[string]string{"content": markdown})
 	req, err := http.NewRequest(http.MethodPut,
 		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/"+url.PathEscape(objectID)+"/editor/markdown",
 		bytes.NewReader(body),
