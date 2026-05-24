@@ -50,6 +50,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("ensure program type: %v", err)
 	}
+	skillTypeID, err := ensureSkillType(base, spaceID)
+	if err != nil {
+		log.Fatalf("ensure skill type: %v", err)
+	}
+	_ = skillTypeID
+
 	skip := map[string]bool{
 		"anytypeHelper": true,
 	}
@@ -57,6 +63,11 @@ func main() {
 		log.Fatalf("sync programs: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
+
+	if err := syncSkills(base, spaceID, skillTypeID); err != nil {
+		log.Fatalf("sync skills: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "skills synced\n")
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
 	if err := subscribe(spaceID, objectID); err != nil {
@@ -259,6 +270,7 @@ func handleChanges(spaceID, objectID string, data []byte) {
 }
 
 func runAgent(spaceID, objectID, text string) error {
+	fmt.Fprintf(os.Stderr, "starting agent runtime…\n")
 	rt, err := agentrt.NewSobekRuntime()
 	if err != nil {
 		return fmt.Errorf("create runtime: %w", err)
@@ -277,6 +289,7 @@ func runAgent(spaceID, objectID, text string) error {
 		}
 		msg := fmt.Sprintf("%v", args[0])
 		tr.SetInput(msg)
+		fmt.Fprintf(os.Stderr, "chatReply: %s\n", msg)
 		if err := chatSend(spaceID, objectID, msg); err != nil {
 			fmt.Fprintf(os.Stderr, "chatReply error: %v\n", err)
 			return map[string]any{"error": err.Error()}
@@ -301,12 +314,18 @@ export function main() {
   });
 }`, string(quotedText), string(quotedSpaceID), string(quotedChatID), string(quotedBaseURL))
 
+	fmt.Fprintf(os.Stderr, "evaluating wrapper…\n")
 	result, err := rt.EvalToString("__wrapper__", wrapper, nil)
 	if err != nil {
 		return fmt.Errorf("eval wrapper: %w", err)
 	}
 	if result.Error != "" {
 		return fmt.Errorf("js error: %s", result.Error)
+	}
+	fmt.Fprintf(os.Stderr, "agent result: %v\n", result.Result)
+	if result.Trace != nil {
+		traceJSON, _ := json.MarshalIndent(result.Trace, "", "  ")
+		fmt.Fprintf(os.Stderr, "agent trace: %s\n", string(traceJSON))
 	}
 	return nil
 }

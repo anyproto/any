@@ -3011,7 +3011,7 @@ export function createAMemory(client, opts) {
 
 // ── Agent-facing tool surface ────────────────────────────────────────────────
 //
-// Kernel-global entry points. When this module is tagged anytype_tool, the
+// Kernel-global entry points. When this module is tagged any_tool, the
 // toolcall_core facade binds these exports on the `amemory` global so agents
 // can call them from run_cell without any wiring. Narrow by design — heavier
 // instance-only functions (reflect, decay, evolution, verifyMemory, rethink,

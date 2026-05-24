@@ -469,7 +469,7 @@ var PHASE_GUIDANCE = "" +
 "```\n" +
 "// Get most recent reading-list notes, optionally limited\n" +
 "var get_recent_notes = function(limit) {\n" +
-"  return client.getObjects(\"anytype_note\").slice(0, limit || 10);\n" +
+"  return client.getObjects(\"any_note\").slice(0, limit || 10);\n" +
 "};\n" +
 "get_recent_notes(3);  // test with sample\n" +
 "```\n\n" +

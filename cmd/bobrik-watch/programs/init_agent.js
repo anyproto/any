@@ -22,34 +22,34 @@ import { main as assistantMain } from "private:assistant@v5";
 
 function bootstrapTypes(client) {
   client.createType({
-    key: "anytype_program",
+    key: "any_program",
     name: "Program",
     plural_name: "Programs",
     icon: { name: "code-slash", color: "teal" },
     properties: [
-      { key: "__anytype_program_name", format: "text" },
-      { key: "__anytype_program_version", format: "text" }
+      { key: "__any_program_name", format: "text" },
+      { key: "__any_program_version", format: "text" }
     ]
   });
-  client.createType({ key: "anytype_agent_debug", name: "Agent Debug Log", plural_name: "Agent Debug Logs", icon: { name: "bug", color: "orange" } });
+  client.createType({ key: "any_agent_debug", name: "Agent Debug Log", plural_name: "Agent Debug Logs", icon: { name: "bug", color: "orange" } });
   client.createType({
-    key: "anytype_agent_skill",
+    key: "any_agent_skill",
     name: "Agent Skill",
     plural_name: "Agent Skills",
     icon: { name: "flash", color: "purple" },
     properties: [
-      { key: "__anytype_agent_skill_name", format: "text" }
+      { key: "__any_agent_skill_name", format: "text" }
     ]
   });
 }
 
 // Cheap presence check: was bootstrapTypes ever run in this space?
-// __anytype_agent_skill_name is the last property created by bootstrap, so its
+// __any_agent_skill_name is the last property created by bootstrap, so its
 // presence implies the full set of types is in place.
 function _typesReady(client) {
   var props = client.getProperties();
   for (var i = 0; i < props.length; i++) {
-    if (props[i].name === "__anytype_agent_skill_name") return true;
+    if (props[i].name === "__any_agent_skill_name") return true;
   }
   return false;
 }
