@@ -355,16 +355,14 @@ export function createClient(params) {
     return obj;
   }
 
+  // TODO: no select/multi_select property format in the any API yet
   function getObjectsByTag(typeKey, propKey, tagKey) {
-    // Not supported yet in any API — return empty
     return [];
   }
 
-  // Search — best-effort via objects/query. No FTS in the any API yet.
+  // Search — best-effort via objects/query.
+  // TODO: no FTS indexer in the any API yet; returns empty for now.
   function search() {
-    // NOT IMPLEMENTED: any API has no full-text search indexer yet.
-    // Return empty results so callers don't crash.
-    console.log("[anyHelper] search() not implemented — any API has no FTS indexer");
     return [];
   }
 
@@ -425,9 +423,19 @@ export function createClient(params) {
     };
   }
 
+  // Collections are nav folders (nav.type=2). Children are objects with nav.parentId = folderId.
   function getCollectionObjects(collectionId, viewId) {
-    console.log("[anyHelper] getCollectionObjects() not implemented");
-    return [];
+    var res = api("POST", spacePath + "/objects/query", {
+      filter: { "nav.parentId": collectionId },
+      sort: ["nav.pos"]
+    });
+    if (!res.ok) return [];
+    var records = (res.data && res.data.records) || [];
+    var objects = [];
+    for (var i = 0; i < records.length; i++) {
+      objects.push(normalizeRecord(records[i]));
+    }
+    return objects;
   }
 
   function getSpaceMember(identityOrId) {
@@ -591,43 +599,55 @@ export function createClient(params) {
     };
   }
 
-  // ==================== TAGS (stubs — any API has no select/multi_select yet) ====================
+  // ==================== TAGS ====================
+  // TODO: any API has no select/multi_select property format yet
 
   function setTags(objId, propKey, tagKeys) {
-    console.log("[anyHelper] setTags() not implemented — no tag support in any API yet");
-    return { ok: false, error: "not implemented" };
+    return { ok: false, error: "tag operations not available" };
   }
 
   function addTag(firstArg, tagName, tagKey, color) {
-    console.log("[anyHelper] addTag() not implemented — no tag support in any API yet");
-    return { ok: false, error: "not implemented" };
+    return { ok: false, error: "tag operations not available" };
   }
 
   function listTags(propIdOrKey) {
-    console.log("[anyHelper] listTags() not implemented — no tag support in any API yet");
     return [];
   }
 
   function createTag(propId, name, color, key) {
-    console.log("[anyHelper] createTag() not implemented");
-    return { ok: false, error: "not implemented" };
+    return { ok: false, error: "tag operations not available" };
   }
 
-  // ==================== COLLECTIONS (stubs) ====================
+  // ==================== COLLECTIONS (nav folders) ====================
+  // A "collection" is a folder object (nav.type=2). Adding to a collection
+  // moves the object's nav.parentId to point at the folder.
 
   function createCollection(name, emoji) {
-    console.log("[anyHelper] createCollection() not implemented");
-    return { ok: false, error: "not implemented" };
+    var res = api("POST", spacePath + "/objects", {
+      nav: { type: 2, parentId: "", pos: "" },
+      initialProperties: { any: { name: name } }
+    });
+    if (!res.ok) return { ok: false, error: _extractError(res) };
+    var id = res.data.objectId;
+    return { ok: true, id: id, collection: { id: id, name: name }, object: { id: id, name: name } };
   }
 
   function addToCollection(collectionId, objectIds) {
-    console.log("[anyHelper] addToCollection() not implemented");
-    return { ok: false, error: "not implemented" };
+    var ids = Array.isArray(objectIds) ? objectIds : [objectIds];
+    for (var i = 0; i < ids.length; i++) {
+      var res = api("POST", spacePath + "/properties/" + ids[i] + "/base/nav", {
+        patch: { parentId: collectionId }
+      });
+      if (!res.ok) return { ok: false, collectionId: collectionId, objectIds: ids, error: _extractError(res) };
+    }
+    return { ok: true, collectionId: collectionId, objectIds: ids };
   }
 
   function removeFromCollection(collectionId, objectId) {
-    console.log("[anyHelper] removeFromCollection() not implemented");
-    return { ok: false, error: "not implemented" };
+    var res = api("POST", spacePath + "/properties/" + objectId + "/base/nav", {
+      patch: { parentId: "" }
+    });
+    return { ok: res.ok, collectionId: collectionId, objectId: objectId, error: res.ok ? null : _extractError(res) };
   }
 
   // ==================== PROGRAMS ====================
