@@ -99,5 +99,3 @@ cmd/bobrik-watch/
   full-text search indexer yet.
 - **Tags** — `addTag`, `listTags`, etc. return errors. No select/multi_select
   property format in the `any` API yet.
-- **Object property normalization** — no markdown unescaping or property
-  format coercion (the `any` API doesn't have the same escaping issues).
