@@ -83,15 +83,16 @@ func ensureSpace(name string) (string, error) {
 	defer resp.Body.Close()
 	var out struct {
 		Spaces []struct {
-			Id   string `json:"id"`
-			Name string `json:"name"`
+			Id     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
 		} `json:"spaces"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode spaces: %w", err)
 	}
 	for _, s := range out.Spaces {
-		if s.Name == name {
+		if s.Name == name && s.Status != "deleted" {
 			return s.Id, nil
 		}
 	}
