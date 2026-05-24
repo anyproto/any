@@ -328,5 +328,5 @@ export function getMethodDescription(programName, methodName, opts) {
 }
 
 export function main() {
-  return "anytypePrograms loaded — methods: createProgram, updateProgram, runProgram, listPrograms, getProgram, editProgram, upsertDescription, upsertMethodDescription, getProgramDescription, getMethodDescription";
+  return "anyPrograms loaded — methods: createProgram, updateProgram, runProgram, listPrograms, getProgram, editProgram, upsertDescription, upsertMethodDescription, getProgramDescription, getMethodDescription";
 }
