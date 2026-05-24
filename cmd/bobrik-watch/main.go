@@ -16,23 +16,22 @@ import (
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
 )
 
-var base string
-
-const (
-	spaceName = "bobrik"
-	chatName  = "bobrik"
-	agentName = "bobrik"
+var (
+	base        string
+	claudeKey   string
+	programsDir string
+	spaceName   string
+	chatName    string
+	agentName   string
 )
-
-const echoProgram = `
-export function main(args) {
-  chatReply("you said: " + args.text);
-  return "ok";
-}
-`
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
+	flag.StringVar(&claudeKey, "claude-key", os.Getenv("CLAUDE_API_KEY"), "Claude API key")
+	flag.StringVar(&programsDir, "programs-dir", "", "directory with .js program files to sync")
+	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
+	flag.StringVar(&chatName, "chat", "bobrik", "chat object name (created if missing)")
+	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
 	flag.Parse()
 	base = "http://" + *addr
 
@@ -48,13 +47,25 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "chat %q → %s\n", chatName, objectID)
 
+	if programsDir != "" {
+		if err := ensureProgramType(base, spaceID); err != nil {
+			log.Fatalf("ensure program type: %v", err)
+		}
+		skip := map[string]bool{
+			"anytypeHelper": true,
+		}
+		if err := syncPrograms(base, spaceID, programsDir, skip); err != nil {
+			log.Fatalf("sync programs: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
+	}
+
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
 	if err := subscribe(spaceID, objectID); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// ensureSpace finds a space by name, creating it if it doesn't exist.
 func ensureSpace(name string) (string, error) {
 	resp, err := http.Get(base + "/v1/spaces")
 	if err != nil {
@@ -99,7 +110,6 @@ func createSpace(name string) (string, error) {
 	return sp.Id, nil
 }
 
-// ensureChat finds a chat object by name, creating it if it doesn't exist.
 func ensureChat(spaceID, name string) (string, error) {
 	id, err := findObject(spaceID, name)
 	if err == nil {
@@ -243,18 +253,25 @@ func handleChanges(spaceID, objectID string, data []byte) {
 			creator := fields["creator"]
 			fmt.Printf("new human message [%s] from %s: %s\n", rec.Id, creator, text)
 
-			if err := runEchoAgent(spaceID, objectID, text); err != nil {
+			if err := runAgent(spaceID, objectID, text); err != nil {
 				fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
 			}
 		}
 	}
 }
 
-func runEchoAgent(spaceID, objectID, text string) error {
+func runAgent(spaceID, objectID, text string) error {
 	rt, err := agentrt.NewSobekRuntime()
 	if err != nil {
 		return fmt.Errorf("create runtime: %w", err)
 	}
+
+	SetupAnySDKDirtyRuntime(rt, AnySDKRuntimeConfig{
+		APIBaseURL:     base,
+		SpaceID:        spaceID,
+		PrivateSpaceID: spaceID,
+		ClaudeKey:      claudeKey,
+	})
 
 	rt.SetEffectResolver("chatReply", func(tr *agentrt.TraceRecord, args ...any) any {
 		if len(args) == 0 {
@@ -262,7 +279,6 @@ func runEchoAgent(spaceID, objectID, text string) error {
 		}
 		msg := fmt.Sprintf("%v", args[0])
 		tr.SetInput(msg)
-
 		if err := chatSend(spaceID, objectID, msg); err != nil {
 			fmt.Fprintf(os.Stderr, "chatReply error: %v\n", err)
 			return map[string]any{"error": err.Error()}
@@ -270,11 +286,46 @@ func runEchoAgent(spaceID, objectID, text string) error {
 		return nil
 	})
 
-	result, err := rt.EvalToString("bobrik-echo", echoProgram, map[string]any{
-		"text": text,
-	})
+	if programsDir == "" {
+		return runEchoProgram(rt, text)
+	}
+	return runWrapperProgram(rt, spaceID, objectID, text)
+}
+
+func runEchoProgram(rt agentrt.Runtime, text string) error {
+	const echoProgram = `
+export function main(args) {
+  chatReply("you said: " + args.text);
+  return "ok";
+}
+`
+	result, err := rt.EvalToString("bobrik-echo", echoProgram, map[string]any{"text": text})
 	if err != nil {
 		return fmt.Errorf("eval: %w", err)
+	}
+	if result.Error != "" {
+		return fmt.Errorf("js error: %s", result.Error)
+	}
+	return nil
+}
+
+func runWrapperProgram(rt agentrt.Runtime, spaceID, objectID, text string) error {
+	quotedText, _ := json.Marshal(text)
+	quotedSpaceID, _ := json.Marshal(spaceID)
+	quotedChatID, _ := json.Marshal(objectID)
+	quotedBaseURL, _ := json.Marshal(base)
+
+	wrapper := fmt.Sprintf(`import { main as entryMain } from "private:init_agent@v1";
+export function main() {
+  return entryMain({
+    text: %s, spaceId: %s, chatId: %s,
+    apiBaseUrl: %s, verbose: false
+  });
+}`, string(quotedText), string(quotedSpaceID), string(quotedChatID), string(quotedBaseURL))
+
+	result, err := rt.EvalToString("__wrapper__", wrapper, nil)
+	if err != nil {
+		return fmt.Errorf("eval wrapper: %w", err)
 	}
 	if result.Error != "" {
 		return fmt.Errorf("js error: %s", result.Error)
