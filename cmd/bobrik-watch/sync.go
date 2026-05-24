@@ -284,9 +284,157 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 	return nil
 }
 
-// syncPrograms reads .js files from dir and upserts them as any_program
-// objects in the given space. Each file becomes one program object with
-// its source wrapped in a markdown code fence with // __main_source.
+// toolDescriptions maps program names to their tool descriptions.
+// Programs with descriptions show up in getTools() and get injected
+// as kernel globals in the agent boot prelude.
+var toolDescriptions = map[string]string{
+	"anyHelper": `Core API library for creating, reading, updating, and deleting objects, types, and programs.
+
+## Tool Schema
+
+### getObjects(typeKey, options?)
+List objects of a type.
+- typeKey: type key or name
+- options.space: "user" (default) or "system"
+
+### getObject(objId, opts?)
+Fetch one object by ID. Returns properties + markdown body.
+- objId: object ID
+- opts.space: "user" or "system"
+- opts.from, opts.to: line range for markdown slicing
+
+### createObject(typeKey, data)
+Create a new object.
+- typeKey: type key or name
+- data.name: display name
+- data.body: markdown content
+- data.properties: array of {key, text/number/checkbox} or object
+
+### updateObject(objId, data)
+Update an existing object.
+- objId: object ID
+- data.name, data.body/data.markdown, data.properties
+
+### deleteObject(objId)
+Delete an object.
+- objId: object ID
+
+### editObject(objId, opts)
+Surgical string replacement on markdown body.
+- objId: object ID
+- opts.oldString, opts.newString, opts.replaceAll
+
+### appendToObject(objId, text)
+Append text to markdown body.
+- objId: object ID
+- text: text to append
+
+### getTypes(opts?)
+List all types in the space.
+
+### createType(opts)
+Create a type with properties.
+- opts.key: type key
+- opts.name: display name
+- opts.properties: [{key, format}]
+
+### describeType(typeKey)
+Inspect a type: metadata, properties, sample object, object count.
+- typeKey: type key or name
+
+### getProperties()
+List all properties across all types.
+
+### search(queries...)
+Search objects by text (limited — no FTS indexer yet).
+
+### getSpaceMember(identityOrId)
+Get a space member by identity or ID.
+
+### listSpaceMembers()
+List all space members.
+
+### getCollectionObjects(collectionId)
+List objects in a folder/collection.
+- collectionId: folder object ID
+
+### createCollection(name)
+Create a folder.
+- name: folder name
+
+### addToCollection(collectionId, objectIds)
+Move objects into a folder.
+- collectionId: folder ID
+- objectIds: single ID or array
+
+### removeFromCollection(collectionId, objectId)
+Move object back to root.`,
+
+	"anyPrograms": `Program management — create, update, list, and inspect JS programs stored in the space.
+
+## Tool Schema
+
+### listPrograms()
+List all programs in the space. Returns [{id, name, version, title}].
+
+### getProgram(name, version?)
+Get a program's source code. Returns {id, name, version, source}.
+- name: program name
+- version: version string (default "v1")
+
+### createProgram(opts)
+Create a new program.
+- opts.name: program name (required)
+- opts.source: JS source code (required)
+- opts.version: version (default "v1")
+
+### updateProgram(opts)
+Update an existing program's source.
+- opts.name: program name (required)
+- opts.source: new source code (required)
+- opts.version: version (default "v1")
+
+### runProgram(name, args, version?)
+Execute a program.
+- name: program name
+- args: arguments object
+- version: version string (default "v1")
+
+### editProgram(programName, opts)
+Surgical string replacement on program source.
+- programName: program name
+- opts.oldString, opts.newString, opts.replaceAll`,
+
+	"amemory": `Agent episodic memory — search, store, and manage persistent memories across conversations.
+
+## Tool Schema
+
+### createAMemory(client, opts)
+Initialize the memory system. Returns a memory manager object with search/store methods.
+- client: anyHelper client instance
+- opts: configuration options`,
+
+	"webSearch": `Web search — query the web for information.
+
+## Tool Schema
+
+### search(query, opts?)
+Search the web. Returns [{title, url, text}].
+- query: search query string
+- opts: search options`,
+
+	"toolBuilder": `Build new JS tools — generates, tests, and saves programs with tool schemas.
+
+## Tool Schema
+
+### main(args)
+Create a new tool from a description.
+- args.name: tool name
+- args.description: what the tool should do`,
+}
+
+// syncPrograms reads .js files from dir and upserts them as program
+// objects in the given space.
 //
 // Filename convention: "name@version.js" → name="name", version="version".
 // Files without @version default to "v1".
@@ -341,11 +489,16 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source string
 		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		id, err := createProgramObject(baseURL, spaceID, programTypeID, name, version, source)
+		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
-		fmt.Fprintf(os.Stderr, "synced %s@%s (created %s)\n", name, version, id)
+		fmt.Fprintf(os.Stderr, "synced %s@%s (created %s)\n", name, version, objectID)
+	}
+
+	// Write tool description if this is a known tool
+	if desc, ok := toolDescriptions[name]; ok {
+		_ = modifyDataset(baseURL, spaceID, objectID, "program_description", "main", map[string]any{"text": desc})
 	}
 	return nil
 }

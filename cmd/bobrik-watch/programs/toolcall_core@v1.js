@@ -66,7 +66,7 @@ var RUN_CELL_TOOL = {
     "**`run_cell` is the ONLY tool you have.** Every operation — searching the web, " +
     "querying or mutating Anytype, anything else — happens by writing JS code that " +
     "references pre-bound kernel globals. Names like `anyHelper`, `webSearch`, " +
-    "`anytypePrograms` are JavaScript objects bound INSIDE the kernel; they are NOT " +
+    "`anyPrograms` are JavaScript objects bound INSIDE the kernel; they are NOT " +
     "separate Anthropic tools. Calling them as tool_use blocks (e.g. `tool_use{name: \"webSearch\"}`) " +
     "will fail. Always wrap in run_cell: `run_cell({code: \"webSearch.search('...')\"})`. " +
     "The kernel state (variables, functions, imports) survives across all run_cell calls within " +
