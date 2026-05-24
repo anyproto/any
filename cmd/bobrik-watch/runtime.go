@@ -12,6 +12,7 @@ type AnySDKRuntimeConfig struct {
 	APIBaseURL     string
 	SpaceID        string
 	PrivateSpaceID string
+	ProgramTypeID  string
 }
 
 func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
@@ -51,6 +52,7 @@ func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
 			BaseURL:        cfg.APIBaseURL,
 			SpaceID:        cfg.SpaceID,
 			PrivateSpaceID: privateSpaceID,
+			ProgramTypeID:  cfg.ProgramTypeID,
 			OnResolve: func(info anyruntime.ResolveInfo) {
 				rt.RecordTraceEntry("module.resolve", info.ImportString, map[string]any{
 					"importString":    info.ImportString,
