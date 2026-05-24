@@ -673,34 +673,27 @@ export function createClient(params) {
 
   function _scanPrograms(scope) {
     var path = _pathForScope(scope);
-    var filter = {};
-    // Query for any_program type objects
-    filter["any.types"] = "any_program";
-    var res = api("POST", path + "/objects/query", { filter: filter });
+    // The registered handler type is "program"
+    var res = api("POST", path + "/objects/query", { filter: { "any.types": "program" } });
     if (!res.ok) return [];
     var records = (res.data && res.data.records) || [];
     var programs = [];
     for (var i = 0; i < records.length; i++) {
       var rec = normalizeRecord(records[i]);
-      var progName = (rec.any_program && rec.any_program.name) || rec.__anytype_program_name || "";
-      var progVersion = (rec.any_program && rec.any_program.version) || rec.__anytype_program_version || "";
+      // Program properties live under the type ID namespace.
+      // The registered type is "program", so properties are at rec.program.name etc.
+      var progName = (rec.program && rec.program.name) || "";
+      var progVersion = (rec.program && rec.program.version) || "";
       if (!progName) continue;
 
-      // Try to get description from markdown
-      var description = null;
-      try {
-        var obj = getObject(rec.id, { space: scope });
-        if (obj && obj.markdown) {
-          description = extractMarkdownSection(obj.markdown, "Tool Description");
-        }
-      } catch (e) {}
-
+      // Description comes from program_description dataset (future);
+      // for now skip the per-program fetch to avoid N+1
       programs.push({
         id: rec.id,
         name: progName,
         version: progVersion,
         title: rec.name || progName,
-        description: description,
+        description: null,
         space: scope
       });
     }
@@ -747,17 +740,23 @@ export function createClient(params) {
     }
     if (!match) return null;
 
-    var obj = getObject(match.id, { space: match.space });
-    if (!obj) return null;
+    // Read source from program_source dataset
+    var path = _pathForScope(match.space || "user");
+    var qRes = api("POST", path + "/query", {
+      objectId: match.id,
+      dataset: "program_source"
+    });
+    var source = "";
+    if (qRes.ok && qRes.data && qRes.data.records && qRes.data.records.length > 0) {
+      source = qRes.data.records[0].code || "";
+    }
 
-    var source = extractMainSource(obj.markdown);
     return {
       id: match.id,
       name: name,
       version: version,
       title: match.title,
       source: source,
-      markdown: obj.markdown,
       space: match.space
     };
   }
@@ -811,39 +810,45 @@ export function createClient(params) {
     if (!progName) return { ok: false, error: "name is required" };
     if (!source) return { ok: false, error: "source is required" };
 
-    // Strip leading // __main_source if present
-    if (source.indexOf("// __main_source\n") === 0) {
-      source = source.substring("// __main_source\n".length);
-    }
-
-    var markdown = "";
-    if (opts.appendMarkdown) {
-      markdown = opts.appendMarkdown + "\n\n";
-    }
-    markdown += "## Source\n\n```js\n// __main_source\n" + source + "\n```\n";
-
     // Check for existing program
     var existing = getProgram(progName, version);
     if (existing) {
-      var result = updateObject(existing.id, { markdown: markdown });
-      if (!result.ok) return { ok: false, error: result.error };
+      // Update source via modify
+      api("POST", spacePath + "/modify", {
+        objectId: existing.id,
+        dataset: "program_source",
+        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
+      });
       return { ok: true, object: { id: existing.id }, name: progName, version: version };
     }
 
-    // Create new
-    var result = createObject("any_program", {
-      name: title,
-      properties: {
-        name: progName,
-        version: version
+    // Create new program object
+    // Find the "program" type ID
+    var types = getTypes();
+    var programTypeId = null;
+    for (var ti = 0; ti < types.length; ti++) {
+      if (types[ti].id === "program") { programTypeId = "program"; break; }
+    }
+    if (!programTypeId) return { ok: false, error: "program type not registered" };
+
+    var createRes = api("POST", spacePath + "/objects", {
+      types: [programTypeId],
+      initialProperties: {
+        any: { name: title || (progName + "@" + version) },
+        program: { name: progName, version: version }
       }
     });
-    if (!result.ok) return { ok: false, error: result.error };
+    if (!createRes.ok) return { ok: false, error: _extractError(createRes) };
+    var newId = createRes.data.objectId;
 
-    var mdRes = api("PUT", spacePath + "/objects/" + result.id + "/editor/markdown", { content: markdown });
-    if (!mdRes.ok) return { ok: false, error: "Created object but failed to set markdown" };
+    // Write source
+    api("POST", spacePath + "/modify", {
+      objectId: newId,
+      dataset: "program_source",
+      records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
+    });
 
-    return { ok: true, object: { id: result.id }, name: progName, version: version };
+    return { ok: true, object: { id: newId }, name: progName, version: version };
   }
 
   function saveTool(opts) {
@@ -874,30 +879,29 @@ export function createClient(params) {
     var types = getTypes();
     var existing = null;
     for (var i = 0; i < types.length; i++) {
-      if (types[i].key === key) { existing = types[i]; break; }
+      if (types[i].name === name || types[i].id === key) { existing = types[i]; break; }
     }
 
     var typeId;
     if (existing) {
       typeId = existing.id;
     } else {
-      var body = { key: key, name: name };
+      var body = { name: name };
       var res = api("POST", spacePath + "/types", body);
       if (!res.ok) return { ok: false, error: _extractError(res) };
-      typeId = res.data.id;
+      typeId = res.data.typeId;
     }
 
-    // Add properties if specified
     if (opts.properties && Array.isArray(opts.properties)) {
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
+        var formatToKind = { text: "string", number: "number", checkbox: "boolean" };
         var propBody = {
-          key: prop.key,
+          xKey: prop.key,
           name: prop.name || prop.key,
-          format: prop.format || "text"
+          kind: formatToKind[prop.format] || prop.kind || "string"
         };
-        var propRes = api("POST", spacePath + "/types/" + typeId + "/properties", propBody);
-        // Ignore errors for existing properties
+        api("POST", spacePath + "/types/" + typeId + "/properties", propBody);
       }
     }
 
