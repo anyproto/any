@@ -385,8 +385,9 @@ export function createClient(params) {
         var tProps = propRes.data.properties;
         for (var j = 0; j < tProps.length; j++) {
           var p = tProps[j];
-          if (!seen[p.key]) {
-            seen[p.key] = true;
+          var dedupKey = p.xKey || p.id || p.name;
+          if (!seen[dedupKey]) {
+            seen[dedupKey] = true;
             props.push(p);
           }
         }
@@ -454,22 +455,47 @@ export function createClient(params) {
   // ==================== TOOL DISCOVERY ====================
 
   function getTools() {
-    // Tools are programs tagged with some marker. For now, list all programs
-    // and check for "## Tool Description" in their markdown.
     var programs = listPrograms();
     var tools = [];
     for (var i = 0; i < programs.length; i++) {
       var p = programs[i];
-      if (p.description) {
+      // Read program_description dataset for tool description
+      var description = null;
+      try {
+        var path = _pathForScope(p.space || "user");
+        var dRes = api("POST", path + "/query", {
+          objectId: p.id,
+          dataset: "program_description"
+        });
+        if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
+          description = dRes.data.records[0].text || null;
+        }
+      } catch (e) {}
+      if (description) {
         tools.push({
           id: p.id,
           name: p.name,
-          description: p.description,
+          description: description,
           programName: p.name,
           programVersion: p.version,
           space: p.space || "user"
         });
       }
+    }
+    // anyHelper is always a tool — it's the core API library
+    var hasHelper = false;
+    for (var j = 0; j < tools.length; j++) {
+      if (tools[j].programName === "anyHelper") { hasHelper = true; break; }
+    }
+    if (!hasHelper) {
+      tools.push({
+        id: "builtin:anyHelper",
+        name: "anyHelper",
+        description: "Core API library for creating, reading, updating, and deleting objects, types, and programs.",
+        programName: "anyHelper",
+        programVersion: "v1",
+        space: "user"
+      });
     }
     return tools;
   }
