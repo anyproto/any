@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +15,9 @@ import (
 
 //go:embed anyHelper.js
 var anyHelperJS string
+
+//go:embed skills/*
+var skillsFS embed.FS
 
 // ensureProgramType creates the Program type with name and version
 // properties if it doesn't already exist. Returns the type ID.
@@ -64,6 +67,180 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 		}
 	}
 	return typeID, nil
+}
+
+// ensureSkillType creates the Agent Skill type with __any_agent_skill_name
+// property if it doesn't already exist. Returns the type ID.
+func ensureSkillType(baseURL, spaceID string) (string, error) {
+	typeID, err := findType(baseURL, spaceID, "Agent Skill")
+	if err != nil {
+		return "", err
+	}
+	if typeID != "" {
+		return typeID, nil
+	}
+
+	body, _ := json.Marshal(map[string]string{"name": "Agent Skill"})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create skill type: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create skill type: %d %s", resp.StatusCode, msg)
+	}
+	var created struct {
+		TypeId string `json:"typeId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		return "", fmt.Errorf("decode created type: %w", err)
+	}
+	typeID = created.TypeId
+	fmt.Fprintf(os.Stderr, "created type \"Agent Skill\" → %s\n", typeID)
+
+	if err := addProperty(baseURL, spaceID, typeID, map[string]string{
+		"xKey": "__any_agent_skill_name", "name": "__any_agent_skill_name", "kind": "string",
+	}); err != nil {
+		return "", fmt.Errorf("add skill name property: %w", err)
+	}
+	return typeID, nil
+}
+
+// syncSkills reads embedded skill .md files and upserts them as Agent Skill
+// objects. Each skill is identified by __any_agent_skill_name (e.g. "_soul").
+// Content is stored via PUT /editor/markdown.
+func syncSkills(baseURL, spaceID, skillTypeID string) error {
+	entries, err := skillsFS.ReadDir("skills")
+	if err != nil {
+		return fmt.Errorf("read embedded skills: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		skillName := strings.TrimSuffix(e.Name(), ".md")
+		content, err := skillsFS.ReadFile("skills/" + e.Name())
+		if err != nil {
+			return fmt.Errorf("read skill %s: %w", e.Name(), err)
+		}
+
+		objectID, err := findSkillObject(baseURL, spaceID, skillTypeID, skillName)
+		if err != nil {
+			return fmt.Errorf("query skill %s: %w", skillName, err)
+		}
+
+		if objectID != "" {
+			if err := setObjectMarkdown(baseURL, spaceID, objectID, string(content)); err != nil {
+				return fmt.Errorf("update skill %s: %w", skillName, err)
+			}
+			fmt.Fprintf(os.Stderr, "synced skill %s (updated %s)\n", skillName, objectID)
+		} else {
+			id, err := createSkillObject(baseURL, spaceID, skillTypeID, skillName, string(content))
+			if err != nil {
+				return fmt.Errorf("create skill %s: %w", skillName, err)
+			}
+			fmt.Fprintf(os.Stderr, "synced skill %s (created %s)\n", skillName, id)
+		}
+	}
+	return nil
+}
+
+func findSkillObject(baseURL, spaceID, skillTypeID, skillName string) (string, error) {
+	filter := map[string]any{
+		"filter": map[string]any{
+			skillTypeID + ".__any_agent_skill_name": skillName,
+		},
+	}
+	body, _ := json.Marshal(filter)
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Records []json.RawMessage `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Records) == 0 {
+		return "", nil
+	}
+	var rec struct {
+		Id string `json:"id"`
+	}
+	if err := json.Unmarshal(out.Records[0], &rec); err != nil {
+		return "", err
+	}
+	return rec.Id, nil
+}
+
+func createSkillObject(baseURL, spaceID, skillTypeID, skillName, markdown string) (string, error) {
+	body, _ := json.Marshal(map[string]any{
+		"types": []string{skillTypeID},
+		"initialProperties": map[string]any{
+			"any": map[string]any{
+				"name": "Skill: " + skillName,
+			},
+			skillTypeID: map[string]any{
+				"__any_agent_skill_name": skillName,
+			},
+		},
+	})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create skill: %d %s", resp.StatusCode, msg)
+	}
+	var obj struct {
+		ObjectId string `json:"objectId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
+		return "", err
+	}
+	if err := setObjectMarkdown(baseURL, spaceID, obj.ObjectId, markdown); err != nil {
+		return "", fmt.Errorf("set markdown: %w", err)
+	}
+	return obj.ObjectId, nil
+}
+
+func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
+	body, _ := json.Marshal(map[string]string{"content": markdown})
+	req, err := http.NewRequest(http.MethodPut,
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/"+url.PathEscape(objectID)+"/editor/markdown",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set markdown: %d %s", resp.StatusCode, msg)
+	}
+	return nil
 }
 
 func findType(baseURL, spaceID, typeName string) (string, error) {

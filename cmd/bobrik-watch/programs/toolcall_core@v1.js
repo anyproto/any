@@ -194,7 +194,7 @@ function _buildToolDocs(bootClient, tools) {
     };
   }
   if (!toolDocs["anyHelper"]) {
-    throw new Error("anyHelper not found in getTools() — every kernel boot requires it. Ensure the anyHelper tool is saved to the space and tagged anytype_tool.");
+    throw new Error("anyHelper not found in getTools() — every kernel boot requires it. Ensure the anyHelper tool is saved to the space and tagged any_tool.");
   }
   return toolDocs;
 }
@@ -458,21 +458,21 @@ function loadOrCreateMemoryAnchor(client) {
       plural_name: "Agent Memories",
       icon: { name: "library", color: "blue" },
       properties: [
-        { key: "__anytype_agent_memory", format: "text" },
-        { key: "__anytype_chat_history", format: "objects" },
-        { key: "__anytype_chat_id", format: "text" }
+        { key: "__any_agent_memory", format: "text" },
+        { key: "__any_chat_history", format: "objects" },
+        { key: "__any_chat_id", format: "text" }
       ]
     });
   } catch (e) {}
 
-  // resolveRefs:false so fullObj.__anytype_chat_history stays as raw object
+  // resolveRefs:false so fullObj.__any_chat_history stays as raw object
   // IDs — the anchor-following lookup in loadOrCreateChatHistory depends on
   // IDs, not LLM-facing resolved names.
   var rawOpts = { resolveRefs: false };
   var objects = client.getObjects("at_memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    if (obj.__anytype_agent_memory === "_main") {
+    if (obj.__any_agent_memory === "_main") {
       return { id: obj.id, fullObj: client.getObject(obj.id, rawOpts) };
     }
   }
@@ -480,7 +480,7 @@ function loadOrCreateMemoryAnchor(client) {
   var result = client.createObject("at_memory", {
     name: "Agent Memory",
     body: "",
-    properties: [{ key: "__anytype_agent_memory", text: "_main" }]
+    properties: [{ key: "__any_agent_memory", text: "_main" }]
   });
   if (!result || !result.ok) return null;
   return { id: result.object.id, fullObj: client.getObject(result.object.id, rawOpts) };
@@ -577,7 +577,7 @@ function shouldRespond(client, opts) {
 }
 
 // Find or create the rolling chat-history object for a given chatId, linked
-// from the memory anchor's __anytype_chat_history property (a multi-value
+// from the memory anchor's __any_chat_history property (a multi-value
 // `objects` field). Returns { id, markdown } or null on hard failure.
 //
 //   chatId    — the Anytype chat object id; null for legacy/unscoped mode
@@ -585,11 +585,11 @@ function shouldRespond(client, opts) {
 //   spaceType — used to enable one-time 1-1 adoption (see below)
 //
 // Lookup walks every linked history and matches by the top-level
-// __anytype_chat_id property. If none match and:
+// __any_chat_id property. If none match and:
 //   (a) chatId is set AND
-//   (b) there's exactly one linked history with NO __anytype_chat_id AND
+//   (b) there's exactly one linked history with NO __any_chat_id AND
 //   (c) spaceType === 4 (OneToOne)
-// we *adopt* that legacy object in place by patching its __anytype_chat_id.
+// we *adopt* that legacy object in place by patching its __any_chat_id.
 // This preserves 1-1 history continuity for users who had the agent deployed
 // before chat scoping existed.
 //
@@ -598,7 +598,7 @@ function shouldRespond(client, opts) {
 function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (!anchor || !anchor.fullObj) return null;
 
-  var val = getProp(anchor.fullObj, "__anytype_chat_history");
+  var val = getProp(anchor.fullObj, "__any_chat_history");
   var ids = [];
   if (Array.isArray(val)) {
     for (var vi = 0; vi < val.length; vi++) {
@@ -608,12 +608,12 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
     ids.push(val);
   }
 
-  // Hydrate each linked history so we can match by __anytype_chat_id.
+  // Hydrate each linked history so we can match by __any_chat_id.
   var hydrated = [];
   for (var i = 0; i < ids.length; i++) {
     var obj;
     try { obj = client.getObject(ids[i], { resolveRefs: false }); } catch (e) { obj = null; }
-    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: obj.__anytype_chat_id || null });
+    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: obj.__any_chat_id || null });
   }
 
   // Match by chatId (when set).
@@ -633,7 +633,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
       if (unkeyed.length === 1) {
         try {
           client.updateObject(unkeyed[0].id, {
-            properties: [{ key: "__anytype_chat_id", text: chatId }]
+            properties: [{ key: "__any_chat_id", text: chatId }]
           });
         } catch (e) {}
         return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
@@ -651,7 +651,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   else if (chatId) historyName += " — " + chatId;
 
   var createProps = [];
-  if (chatId) createProps.push({ key: "__anytype_chat_id", text: chatId });
+  if (chatId) createProps.push({ key: "__any_chat_id", text: chatId });
 
   var result = client.createObject("at_memory", {
     name: historyName,
@@ -667,7 +667,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   existing.push(newId);
   try {
     client.updateObject(anchor.id, {
-      properties: [{ key: "__anytype_chat_history", objects: existing }]
+      properties: [{ key: "__any_chat_history", objects: existing }]
     });
   } catch (e) {}
   return { id: newId, markdown: "" };
@@ -1294,8 +1294,8 @@ function renderWindowMessages(turns) {
   return msgs;
 }
 
-// Load an agent-skill object by its `__anytype_agent_skill_name`. Matches by
-// the top-level __anytype_agent_skill_name field. Returns "" when no such
+// Load an agent-skill object by its `__any_agent_skill_name`. Matches by
+// the top-level __any_agent_skill_name field. Returns "" when no such
 // skill exists so the caller can concatenate freely.
 //
 // Cross-space: tries the user space first, then falls back to the system
@@ -1309,14 +1309,14 @@ function _loadSkillMarkdown(client, skillName) {
     var scope = scopes[s];
     var objects;
     try {
-      objects = client.getObjects("anytype_agent_skill", { space: scope });
+      objects = client.getObjects("any_agent_skill", { space: scope });
     } catch (e) {
       continue;
     }
     if (!objects || objects.length === 0) continue;
     for (var i = 0; i < objects.length; i++) {
       var o = objects[i];
-      if (!o || o.__anytype_agent_skill_name !== skillName) continue;
+      if (!o || o.__any_agent_skill_name !== skillName) continue;
       try {
         var full = client.getObject(o.id, { space: scope });
         if (full && full.markdown) return full.markdown;
@@ -1369,7 +1369,7 @@ function _loadSpaceContextSection(skillMd, mainObj, children) {
 function _loadUserSkillsSection(client) {
   var objects;
   try {
-    objects = client.getObjects("anytype_agent_skill");
+    objects = client.getObjects("any_agent_skill");
   } catch (e) {
     return "";
   }
@@ -1380,7 +1380,7 @@ function _loadUserSkillsSection(client) {
     if (!o) continue;
     var tags = Array.isArray(o.tag) ? o.tag : [];
     if (tags.indexOf("assistant_program") >= 0) continue;
-    var title = o.name || o.__anytype_agent_skill_name || "(untitled skill)";
+    var title = o.name || o.__any_agent_skill_name || "(untitled skill)";
     var desc = (o.description || "").trim();
     var line = "- [" + title + "](anytype://object?objectId=" + o.id + ")";
     if (desc) line += " — " + desc;
@@ -1418,7 +1418,7 @@ function renderChunksMessage(chunks) {
 }
 
 // ============================================================================
-// Debug collector — captures every LLM call onto ONE anytype_agent_debug page
+// Debug collector — captures every LLM call onto ONE any_agent_debug page
 // ============================================================================
 // One page per invocation, named after the user prompt. Turns append in real
 // time via anyHelper.appendToObject — open the page in Anytype Desktop and
@@ -1480,7 +1480,7 @@ function dcInit(client, _spaceId, userText, bootMeta) {
     }
   }
   try {
-    var r = client.createObject("anytype_agent_debug", { name: name, body: initialBody });
+    var r = client.createObject("any_agent_debug", { name: name, body: initialBody });
     if (r && r.ok && r.object) _dc.pageId = r.object.id;
   } catch (e) {}
 }

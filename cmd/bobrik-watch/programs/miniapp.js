@@ -21,7 +21,7 @@ function _miniappName(obj) {
 }
 
 function _findByName(name) {
-  var all = _c().getObjects("anytype_mini_app");
+  var all = _c().getObjects("any_mini_app");
   for (var i = 0; i < all.length; i++) {
     if (_miniappName(all[i]) === name) return all[i];
   }
@@ -175,7 +175,7 @@ export function createMiniApp(opts) {
   var body = _buildBody({ readme: opts.readme, source: guard.html, state: st.text });
   var title = opts.title || name;
 
-  var res = _c().createObject("anytype_mini_app", {
+  var res = _c().createObject("any_mini_app", {
     name: title,
     body: body,
     mini_app_embed: true,
@@ -365,7 +365,7 @@ export function getMiniAppSource(name, opts) {
 }
 
 export function listMiniApps() {
-  var all = _c().getObjects("anytype_mini_app");
+  var all = _c().getObjects("any_mini_app");
   var out = [];
   for (var i = 0; i < all.length; i++) {
     var n = _miniappName(all[i]);
