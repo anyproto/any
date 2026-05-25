@@ -85,6 +85,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// /v1/spaces/join endpoint with the share-friendly token.
 	g.POST("/spaces/:spaceId/invites", d.inviteCreate)
 	g.GET("/spaces/:spaceId/invites", d.inviteList)
+	g.GET("/spaces/:spaceId/invites/:recordId", d.inviteGet)
 	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
 	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
 
