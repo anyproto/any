@@ -423,14 +423,6 @@ Search the web. Returns [{title, url, text}].
 - query: search query string
 - opts: search options`,
 
-	"toolBuilder": `Build new JS tools — generates, tests, and saves programs with tool schemas.
-
-## Tool Schema
-
-### main(args)
-Create a new tool from a description.
-- args.name: tool name
-- args.description: what the tool should do`,
 }
 
 // syncPrograms reads .js files from dir and upserts them as program
