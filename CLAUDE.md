@@ -140,6 +140,18 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
+11. **bobrik-watch** — JS-powered chat agent (`cmd/bobrik-watch/`). Embeds
+    the `anytype-agent-runtime` (Sobek JS engine) and runs the full
+    assistantjs stack (init_agent → toolcall_core → LLM) against the
+    `any` HTTP API. See [`BOBRIK.md`](BOBRIK.md) for details.
+    - Programs stored in `program_source` dataset (not markdown)
+    - Skills stored via `editor/markdown` (`content` field)
+    - Tool descriptions in `cmd/bobrik-watch/tool-descriptions/*.md`
+    - `anyHelper.js` replaces `anytypeHelper.js`, same method surface
+    - All `__anytype_` prefixes renamed to `__any_`
+    - Registered handler type `program` in `internal/program/program.go`
+      (datasets: `program_source`, `program_description`, `program_methods`)
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -147,6 +159,7 @@ implementation diverges from a doc, update the doc in the same change.
 
 ```
 go build ./cmd/any                                # binary at ./any
+make build                                        # builds both any and bobrik-watch
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
@@ -155,10 +168,15 @@ ANY_DATA_DIR=/tmp/any-e2e ./any init              # first-run wallet + mnemonic
 ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ./any status                                      # GET /v1/health
 ./any stop                                        # POST /v1/shutdown
+
+# bobrik-watch (in another terminal, while any server is running)
+./bin/bobrik-watch                                # default: space=bobrik, chat=bobrik
+./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ```
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Sibling repos wired via `replace`:
-`any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`.
+`any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`,
+`anytype-agent-runtime` → `../../anytype/anytype-agent-runtime`.
 
 ## What this project is
 
