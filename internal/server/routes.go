@@ -22,6 +22,7 @@ func buildEcho(d *deps) *echo.Echo {
 	v1 := e.Group("/v1")
 	v1.GET("/health", d.health)
 	v1.POST("/shutdown", d.shutdownHandler)
+	v1.GET("/openapi.json", serveOpenAPI)
 
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)

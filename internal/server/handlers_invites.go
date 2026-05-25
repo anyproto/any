@@ -24,6 +24,11 @@ func (d *deps) inviteCreate(c echo.Context) error {
 	}
 	inv, err := sp.ACL().CreateInvite(c.Request().Context())
 	if err != nil {
+		if strings.Contains(err.Error(), "duplicate invites") {
+			return writeError(c, http.StatusConflict, "invite.duplicate",
+				"an invite already exists for this space",
+				map[string]any{"spaceId": sp.Id()})
+		}
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
 	token, err := space.EncodeInvite(inv)
@@ -34,6 +39,37 @@ func (d *deps) inviteCreate(c echo.Context) error {
 		SpaceId:     inv.SpaceId,
 		InviteToken: token,
 	})
+}
+
+// inviteGet handles GET /v1/spaces/:spaceId/invites/:recordId. Returns
+// the invite info for a single invite by record id.
+//
+// Note: the invite token (private key) is only available at creation
+// time. This endpoint returns recordId + permission but not the token,
+// because the SDK's Members().Invites() does not expose the InviteKey.
+func (d *deps) inviteGet(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	recordId := c.Param("recordId")
+	if recordId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "recordId required", nil)
+	}
+	invs, err := sp.Members().Invites(c.Request().Context())
+	if err != nil {
+		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	}
+	for _, inv := range invs {
+		if inv.RecordId == recordId {
+			return c.JSON(http.StatusOK, api.InviteInfo{
+				RecordId:   inv.RecordId,
+				Permission: spacePermissionString(inv.Permission),
+			})
+		}
+	}
+	return writeError(c, http.StatusNotFound, "invite.not_found",
+		"invite not found", map[string]any{"recordId": recordId})
 }
 
 // inviteList handles GET /v1/spaces/:spaceId/invites. Reads the
