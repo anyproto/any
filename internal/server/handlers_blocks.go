@@ -22,11 +22,17 @@ import (
 //
 //	GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
 
-// blocksList handles GET .../blocks. Flat list in depth-first
-// document order — top-level blocks first (sorted by nav.pos), each
-// block followed inline by its children. Empty `records` array when
-// the object has no body blocks yet (the dataset is empty until the
-// first create).
+// blocksList handles GET .../editor/blocks.
+//
+//	@Summary	List blocks in document order
+//	@Tags		editor
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Success	200			{object}	api.BlockListResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [get]
 func (d *deps) blocksList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -49,18 +55,19 @@ func (d *deps) blocksList(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.BlockListResponse{Records: records})
 }
 
-// blocksCreate handles POST .../blocks. Body shape:
+// blocksCreate handles POST .../editor/blocks.
 //
-//	{
-//	  "type":  "paragraph",
-//	  "style": { "level": 2 },
-//	  "text":  "**hello**",
-//	  "nav":   { "parentId": "<blockId>", "pos": "<lexid>" }
-//	}
-//
-// `type` is required. `nav.parentId` defaults to "" (top-level).
-// `nav.pos` defaults to the next lexid past the parent's current max
-// — queried server-side at create time.
+//	@Summary	Create a block
+//	@Tags		editor
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string					true	"Space ID"
+//	@Param		objectId	path		string					true	"Object ID"
+//	@Param		body		body		api.BlockCreateRequest	true	"Block params (type required)"
+//	@Success	201			{object}	api.Block
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [post]
 func (d *deps) blocksCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -96,15 +103,21 @@ func (d *deps) blocksCreate(c echo.Context) error {
 	return c.JSON(http.StatusCreated, blockToAPI(b))
 }
 
-// blocksPatch handles PATCH .../blocks/:blockId. Body shape:
+// blocksPatch handles PATCH .../editor/blocks/:blockId.
 //
-//	{ "set":   { "text": "...", "style.level": 2 },
-//	  "unset": ["style.checked"] }
-//
-// Both `set` and `unset` are optional; an empty patch is a no-op
-// that returns the current record's _ver.id. Each path in `set` is
-// one $set op against that path; each path in `unset` is one $unset.
-// All ops land in a single any-sync change (one VersionId).
+//	@Summary	Patch a block (atomic set/unset)
+//	@Tags		editor
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string					true	"Space ID"
+//	@Param		objectId	path		string					true	"Object ID"
+//	@Param		blockId		path		string					true	"Block ID"
+//	@Param		body		body		api.BlockPatchRequest	true	"Set/unset ops"
+//	@Success	200			{object}	api.BlockPatchResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [patch]
 func (d *deps) blocksPatch(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -144,11 +157,18 @@ func (d *deps) blocksPatch(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.BlockPatchResponse{VersionId: string(res.VersionId)})
 }
 
-// blocksDelete handles DELETE .../blocks/:blockId. Tombstones the
-// record — sticky, so reusing the same id later won't recreate it.
-// Children of the deleted block are NOT cascaded; clients clean up
-// descendants themselves (or use the markdown PUT path, which
-// rewrites the whole body at once).
+// blocksDelete handles DELETE .../editor/blocks/:blockId.
+//
+//	@Summary	Delete a block
+//	@Tags		editor
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Object ID"
+//	@Param		blockId		path	string	true	"Block ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [delete]
 func (d *deps) blocksDelete(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

@@ -25,6 +25,14 @@ func ensureMembersWatcher(sp space.Space) {
 }
 
 // memberList handles GET /v1/spaces/:spaceId/members.
+//
+//	@Summary	List space members
+//	@Tags		members
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.MembersListResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/members [get]
 func (d *deps) memberList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -42,8 +50,15 @@ func (d *deps) memberList(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.MembersListResponse{Members: out})
 }
 
-// memberMe handles GET /v1/spaces/:spaceId/members/me. Convenience over
-// List for surfacing the caller's own role.
+// memberMe handles GET /v1/spaces/:spaceId/members/me.
+//
+//	@Summary	Get own membership
+//	@Tags		members
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.Member
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/members/me [get]
 func (d *deps) memberMe(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -58,7 +73,14 @@ func (d *deps) memberMe(c echo.Context) error {
 }
 
 // memberJoinRequests handles GET /v1/spaces/:spaceId/members/requests.
-// Pending join requests only (a strict subset of List output).
+//
+//	@Summary	List pending join requests
+//	@Tags		members
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.JoinRequestsResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/members/requests [get]
 func (d *deps) memberJoinRequests(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -82,6 +104,16 @@ func (d *deps) memberJoinRequests(c echo.Context) error {
 }
 
 // memberGet handles GET /v1/spaces/:spaceId/members/:identity.
+//
+//	@Summary	Get a member by identity
+//	@Tags		members
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		identity	path		string	true	"Member identity"
+//	@Success	200			{object}	api.Member
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/members/{identity} [get]
 func (d *deps) memberGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -100,9 +132,14 @@ func (d *deps) memberGet(c echo.Context) error {
 }
 
 // subscribeMembers handles GET /v1/spaces/:spaceId/members/subscribe.
-// SSE stream of membership changes: new members, permission/status
-// flips, and removals. Follows the sync-status callback → channel →
-// streamStatusSSE pattern.
+//
+//	@Summary	Subscribe to membership changes (SSE)
+//	@Tags		members
+//	@Produce	text/event-stream
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	200
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/members/subscribe [get]
 func (d *deps) subscribeMembers(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
