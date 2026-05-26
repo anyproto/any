@@ -36,9 +36,10 @@ func newChatCmd() *cobra.Command {
 
 func newChatSendCmd() *cobra.Command {
 	var (
-		text    string
-		file    string
-		replyTo string
+		text      string
+		file      string
+		replyTo   string
+		fromAgent string
 	)
 	cmd := &cobra.Command{
 		Use:   "send <spaceId> <objectId>",
@@ -53,6 +54,7 @@ func newChatSendCmd() *cobra.Command {
 			out, err := cl.ChatSend(cmd.Context(), args[0], args[1], api.ChatSendRequest{
 				Text:             body,
 				ReplyToMessageId: replyTo,
+				FromAgent:        fromAgent,
 			})
 			if err != nil {
 				return err
@@ -63,6 +65,7 @@ func newChatSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&text, "text", "", "message text (markdown). Mutually exclusive with --file")
 	cmd.Flags().StringVar(&file, "file", "", "read message text from FILE (use - for stdin)")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "id of a message this reply targets")
+	cmd.Flags().StringVar(&fromAgent, "from-agent", "", "opaque tag marking this message as written by an agent")
 	return cmd
 }
 

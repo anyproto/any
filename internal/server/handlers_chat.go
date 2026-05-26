@@ -39,10 +39,16 @@ func (d *deps) chatSend(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrChatReplyIdInvalid,
 			"replyToMessageId too long", nil)
 	}
+	if req.FromAgent != "" && len(req.FromAgent) > chat.MaxFromAgentBytes {
+		return writeError(c, http.StatusBadRequest, api.ErrChatFromAgentInvalid,
+			"fromAgent too long",
+			map[string]any{"max_bytes": chat.MaxFromAgentBytes, "got_bytes": len(req.FromAgent)})
+	}
 
 	msg, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
 		ReplyToMessageId: req.ReplyToMessageId,
+		FromAgent:        req.FromAgent,
 	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)

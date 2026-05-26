@@ -33,7 +33,7 @@ Implementation slices landed:
    `Space.ACL()` are now wired through. New handlers in
    `internal/server/handlers_members.go`, `handlers_invites.go`,
    `handlers_acl.go` expose:
-   - `GET /v1/spaces/:id/members[/me|/requests|/:identity]`
+   - `GET /v1/spaces/:id/members[/me|/requests|/subscribe|/:identity]`
    - `POST/GET/DELETE /v1/spaces/:id/invites[/:recordId]`
    - `POST /v1/spaces/join` (Service.Join — body carries the share token)
    - `POST /v1/spaces/:id/acl/{accept,decline,permissions,remove,add,
@@ -43,9 +43,12 @@ Implementation slices landed:
    `spacePermissionString` (handlers_acl_common.go,
    handlers_spaces.go). Mint returns the share-friendly token
    (`space.EncodeInvite`); the joiner pastes the same string back to
-   `/v1/spaces/join`. Static path segments (`/me`, `/requests`) are
-   registered before the `:identity` wildcard so they don't get
-   swallowed. CLI: `any members ...` / `any invite ...` / `any join` /
+   `/v1/spaces/join`. Static path segments (`/me`, `/requests`,
+   `/subscribe`) are registered before the `:identity` wildcard so
+   they don't get swallowed. `/subscribe` streams membership
+   changes (added/changed/removed) over SSE using the SDK's
+   `Members().Subscribe` callback — same pattern as sync-status.
+   CLI: `any members ...` / `any invite ...` / `any join` /
    `any acl ...`. Web UI: new "Members" tab with invite-mint /
    members-list / join-requests / per-member permission picker /
    stop-sharing; sidebar gets a "join via invite" form. Body
@@ -66,6 +69,11 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness reuses the generic subscribe primitive with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
+   Optional opaque `fromAgent` tag on create marks the message as
+   agent-authored (UI hint only, not signature-verified); immutable
+   post-create. Lets an agent subscribed to `chat_messages` filter to
+   human-typed messages (fromAgent empty) when deciding what to
+   respond to. `any chat send --from-agent <id>`.
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
@@ -132,6 +140,18 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
+11. **bobrik-watch** — JS-powered chat agent (`cmd/bobrik-watch/`). Embeds
+    the `anytype-agent-runtime` (Sobek JS engine) and runs the full
+    assistantjs stack (init_agent → toolcall_core → LLM) against the
+    `any` HTTP API. See [`BOBRIK.md`](BOBRIK.md) for details.
+    - Programs stored in `program_source` dataset (not markdown)
+    - Skills stored via `editor/markdown` (`content` field)
+    - Tool descriptions in `cmd/bobrik-watch/tool-descriptions/*.md`
+    - `anyHelper.js` replaces `anytypeHelper.js`, same method surface
+    - All `__anytype_` prefixes renamed to `__any_`
+    - Registered handler type `program` in `internal/program/program.go`
+      (datasets: `program_source`, `program_description`, `program_methods`)
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -139,6 +159,7 @@ implementation diverges from a doc, update the doc in the same change.
 
 ```
 go build ./cmd/any                                # binary at ./any
+make build                                        # builds both any and bobrik-watch
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
@@ -147,10 +168,15 @@ ANY_DATA_DIR=/tmp/any-e2e ./any init              # first-run wallet + mnemonic
 ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ./any status                                      # GET /v1/health
 ./any stop                                        # POST /v1/shutdown
+
+# bobrik-watch (in another terminal, while any server is running)
+./bin/bobrik-watch                                # default: space=bobrik, chat=bobrik
+./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ```
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Sibling repos wired via `replace`:
-`any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`.
+`any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`,
+`anytype-agent-runtime` → `../../anytype/anytype-agent-runtime`.
 
 ## What this project is
 

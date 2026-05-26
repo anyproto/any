@@ -16,6 +16,7 @@ LDFLAGS := -s -w \
 build:
 	@mkdir -p $(OUT)
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
+	go build -v -o $(OUT)/bobrik-watch $(PKG)/cmd/bobrik-watch
 
 test:
 	go test ./...

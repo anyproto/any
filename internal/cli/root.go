@@ -38,7 +38,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		SilenceErrors: true,
 	}
 
-	root.PersistentFlags().StringVar(&flags.Addr, "addr", "127.0.0.1:7001", "server address (bind addr for `run`, connect addr otherwise)")
+	root.PersistentFlags().StringVar(&flags.Addr, "addr", "", "server address (bind addr for `run`, connect addr otherwise)")
 	root.PersistentFlags().DurationVar(&flags.Timeout, "timeout", 30*time.Second, "request timeout for CLI calls")
 	root.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "log HTTP request/response to stderr")
 

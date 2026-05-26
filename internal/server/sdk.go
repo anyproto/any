@@ -11,9 +11,10 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
-	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/program"
 )
 
 // OpenSDK boots the SDK against the wallet provider and the project
@@ -54,6 +55,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Types: []handler.Type{
 			editor.NewType(),
 			chat.NewType(),
+			program.NewType(),
 		},
 	}
 	if cfg.Sync.DialTimeout != "" {

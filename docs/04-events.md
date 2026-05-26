@@ -337,6 +337,53 @@ Mounting: the account-wide stream lives on `/v1/sync-status/subscribe`
 every known space's transitions on one stream. Per-object streams
 stay under the space group for symmetry with the GET endpoints.
 
+## Members stream (callback-based SSE)
+
+`GET /v1/spaces/:id/members/subscribe` streams membership changes —
+new members, permission/status flips, and removals — over SSE. The
+source is the SDK's `Members().Subscribe` callback (polling the ACL
+head at ~250 ms, with an immediate kick on local ACL record writes).
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: member
+data: { "kind": "added"|"changed"|"removed",
+        "member": { …Member… },
+        "previous": { …Member… } | null }
+
+event: lagged
+data: { "total": <count> }
+
+event: closed
+data: { "reason": "server_shutdown" }
+```
+
+`kind` values:
+
+- **`added`** — identity appeared in the snapshot. Fires for new
+  confirmed members and new pending join requests.
+- **`changed`** — same identity, different state. Covers permission
+  upgrades/demotions, status flips (joining → active on accept), and
+  profile metadata updates. `previous` carries the pre-event state.
+- **`removed`** — identity dropped from the snapshot. Fires for
+  declined/canceled join requests and (rare) full-member removal where
+  no tombstone remains. Usually a removal surfaces as a `changed`
+  event with `status: "removed"`.
+
+`member` always carries the full post-event `Member` shape (same as
+`GET /v1/spaces/:id/members/:identity`), so the client can apply it
+directly without a follow-up fetch. `previous` is null on `added`.
+
+The forwarder uses the same small buffered channel (16 deep) and
+overflow-to-`lagged` pattern as sync-status. The `closed` reason set
+is shared across all SSE families.
+
+CLI: `any members subscribe <spaceId>`.
+
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay

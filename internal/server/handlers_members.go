@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v4"
 
@@ -95,4 +97,65 @@ func (d *deps) memberGet(c echo.Context) error {
 		return aclOpError(c, err, map[string]any{"spaceId": sp.Id(), "identity": identity})
 	}
 	return c.JSON(http.StatusOK, memberToAPI(m))
+}
+
+// subscribeMembers handles GET /v1/spaces/:spaceId/members/subscribe.
+// SSE stream of membership changes: new members, permission/status
+// flips, and removals. Follows the sync-status callback → channel →
+// streamStatusSSE pattern.
+func (d *deps) subscribeMembers(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	ensureMembersWatcher(sp)
+
+	events := make(chan space.MemberEvent, statusForwardBuffer)
+	var dropped atomic.Uint64
+	cancelSub := sp.Members().Subscribe(func(evt space.MemberEvent) {
+		select {
+		case events <- evt:
+		default:
+			dropped.Add(1)
+		}
+	})
+	defer cancelSub()
+
+	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
+		for {
+			select {
+			case evt := <-events:
+				if err := emit("member", memberEventToAPI(evt)); err != nil {
+					return err
+				}
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	})
+}
+
+func memberEventKindString(k space.MemberEventKind) string {
+	switch k {
+	case space.MemberEventAdded:
+		return api.MemberEventKindAdded
+	case space.MemberEventChanged:
+		return api.MemberEventKindChanged
+	case space.MemberEventRemoved:
+		return api.MemberEventKindRemoved
+	default:
+		return "unknown"
+	}
+}
+
+func memberEventToAPI(evt space.MemberEvent) api.MemberEventPayload {
+	out := api.MemberEventPayload{
+		Kind:   memberEventKindString(evt.Kind),
+		Member: memberToAPI(evt.Member),
+	}
+	if evt.Previous != nil {
+		prev := memberToAPI(*evt.Previous)
+		out.Previous = &prev
+	}
+	return out
 }

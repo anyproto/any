@@ -25,10 +25,13 @@ var ErrNotFound = errors.New("chat: message not found")
 var ErrNotAuthor = errors.New("chat: not the message author")
 
 // SendOpts is the input to Send. Text is required and validated by
-// the handler; ReplyToMessageId is an opaque soft reference.
+// the handler; ReplyToMessageId is an opaque soft reference;
+// FromAgent is an optional opaque tag marking the message as
+// agent-authored (UI hint, not verified — see chat.go package doc).
 type SendOpts struct {
 	Text             string
 	ReplyToMessageId string
+	FromAgent        string
 }
 
 // Send writes one new message and returns the freshly-created record.
@@ -44,6 +47,9 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 	}
 	if opts.ReplyToMessageId != "" {
 		payload[FieldReplyToMessageId] = opts.ReplyToMessageId
+	}
+	if opts.FromAgent != "" {
+		payload[FieldFromAgent] = opts.FromAgent
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
@@ -314,6 +320,7 @@ func recordToMessage(rec *anyenc.Value) api.ChatMessage {
 		CreatedAt:        int64(rec.GetInt(FieldCreatedAt)),
 		ModifiedAt:       int64(rec.GetInt(FieldModifiedAt)),
 		ReplyToMessageId: getString(rec, FieldReplyToMessageId),
+		FromAgent:        getString(rec, FieldFromAgent),
 		Text:             getString(rec, FieldText),
 		Reactions:        renderReactions(rec.Get(FieldReactions)),
 	}

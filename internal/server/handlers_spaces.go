@@ -73,17 +73,19 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", notImplemented("Properties.AttachType"))
 	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", notImplemented("Properties.DetachType"))
 
-	// Members. Static segments before the :identity wildcard so /me and
-	// /requests don't get swallowed by the param matcher.
+	// Members. Static segments before the :identity wildcard so /me,
+	// /requests, and /subscribe don't get swallowed by the param matcher.
 	g.GET("/spaces/:spaceId/members", d.memberList)
 	g.GET("/spaces/:spaceId/members/me", d.memberMe)
 	g.GET("/spaces/:spaceId/members/requests", d.memberJoinRequests)
+	g.GET("/spaces/:spaceId/members/subscribe", d.subscribeMembers)
 	g.GET("/spaces/:spaceId/members/:identity", d.memberGet)
 
 	// Invites — owner/admin side mints + revokes; joiners use the
 	// /v1/spaces/join endpoint with the share-friendly token.
 	g.POST("/spaces/:spaceId/invites", d.inviteCreate)
 	g.GET("/spaces/:spaceId/invites", d.inviteList)
+	g.GET("/spaces/:spaceId/invites/:recordId", d.inviteGet)
 	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
 	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
 
