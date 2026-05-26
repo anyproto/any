@@ -22,7 +22,7 @@ Write top-level JavaScript statements. Examples:
 
 ```
 // Cell 1 — define a helper and probe data
-var probe_types = function() { return anytypeHelper.getTypes(); };
+var probe_types = function() { return anyHelper.getTypes(); };
 var types = probe_types();
 var result = { count: types.length, first_3: types.slice(0, 3).map(function(t) { return t.key; }) };
 result
@@ -42,7 +42,7 @@ result
 - Use `var` for top-level bindings you want to keep across cells.
 - `let` and `const` work but are scoped per cell — use them for loop counters.
 - The cell's LAST expression is captured as the result and shown back to you in the next turn.
-- Skip the final expression when it would just re-project data the Effects block already shows in full — e.g. after `var shows = anytypeHelper.getObjects("tv_show")`, don't end on `shows.map(s => s.name)`; the full `shows` is already in Effects. Use Last value for computed aggregates, filtered counts, or wrapper results whose internals show up in Effects as noise (e.g. `webSearch.search` — its Effects shows low-level fetch plumbing, so the Last value of the return is what you want).
+- Skip the final expression when it would just re-project data the Effects block already shows in full — e.g. after `var shows = anyHelper.getObjects("tv_show")`, don't end on `shows.map(s => s.name)`; the full `shows` is already in Effects. Use Last value for computed aggregates, filtered counts, or wrapper results whose internals show up in Effects as noise (e.g. `webSearch.search` — its Effects shows low-level fetch plumbing, so the Last value of the return is what you want).
 - DO NOT call `JSON.stringify` or `console.log` on full API response bodies — they're already in the result. Bind them to a variable, then inspect via `inferSchema(varname)`.
 
 ## Always use the `var result = ...; result` pattern
@@ -69,7 +69,7 @@ For SMALL batches (5-12 items, mostly compact data), define a helper and call it
 ```
 // Cell 1 — define helper, test on one item
 var make_movie = function(name, director, year, rating) {
-  return anytypeHelper.createObject("movie", { name: name, title: name, director: director, year: year, rating: rating });
+  return anyHelper.createObject("movie", { name: name, title: name, director: director, year: year, rating: rating });
 };
 var test = make_movie("Test", "Test Dir", 2000, 5);
 var result = { ok: test.ok, sample: inferSchema(test) };
@@ -96,7 +96,7 @@ For large batches OR items with long content (multi-line bodies, multi-paragraph
 ```
 // Cell 1 — define helper + init accumulator
 var make_note = function(name, body) {
-  return anytypeHelper.createObject("note", { name: name, body: body });
+  return anyHelper.createObject("note", { name: name, body: body });
 };
 var notes_data = [];
 var result = { helper_ready: typeof make_note === "function", accumulator_size: notes_data.length };
@@ -159,6 +159,6 @@ Example after creating a Mini App named `"Counter"`:
 **Avoid tables in chat replies.** Markdown tables don't render cleanly in chat. If you have tabular data the user genuinely needs to see, create a Page object whose body contains the table and reply with a link to that page instead. Pattern:
 
 ```
-var page = anytypeHelper.createObject("page", { name: "Q3 Tasks", body: "| Task | Owner |\n|---|---|\n| ... |" });
+var page = anyHelper.createObject("Pages", { name: "Q3 Tasks", body: "| Task | Owner |\n|---|---|\n| ... |" });
 // then end_turn with: "Here are the Q3 tasks: [Q3 Tasks](anytype://object?objectId=" + page.id + ")"
 ```

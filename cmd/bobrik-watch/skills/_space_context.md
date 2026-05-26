@@ -15,8 +15,8 @@ Main is **NOT a database.** Per-object state changes often and belongs in the ob
 
 ### What does NOT belong
 
-- Per-object IDs, ratings, statuses, progress — use `anytypeHelper.search()` / `getObjects(typeKey)`
-- Full property lists — use `getProperties()` / `describeType(typeKey)`
+- Per-object IDs, ratings, statuses, progress — use `anyHelper.getObjects("TypeName")`
+- Full property lists — use `anyHelper.describeType("TypeName")`
 - Ephemeral state, drafts, in-progress notes — those ride chat-history compression
 
 ### Entry style: rules, not inventory
@@ -43,7 +43,7 @@ After editing, don't re-output Main — the next turn's prompt reflects the chan
 Each child is a focused subsection of the broader context — a workflow, a security model, a billing flow. If the current topic matches a title, fetch first:
 
 ```
-var ctx = anytypeHelper.getObject(childId);
+var ctx = anyHelper.getObject(childId);
 ```
 
 Edit children with the same primitives as Main.
