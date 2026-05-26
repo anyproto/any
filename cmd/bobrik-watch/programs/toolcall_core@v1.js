@@ -447,29 +447,8 @@ function _fetchCategoriesSection() {
 // history object. We reuse v4's scheme so any existing anchor on the space
 // keeps working. Returns { id, fullObj } or null.
 function loadOrCreateMemoryAnchor(client) {
-  // Ensure the non-amemory schema properties exist on at_memory. createType
-  // is idempotent in the helper, and amemory@v2 has already created the type
-  // with its own __amemory_* properties by the time this runs — this call
-  // just tops up the two keys we need.
-  try {
-    client.createType({
-      key: "at_memory",
-      name: "Agent Memory",
-      plural_name: "Agent Memories",
-      icon: { name: "library", color: "blue" },
-      properties: [
-        { key: "__any_agent_memory", format: "text" },
-        { key: "__any_chat_history", format: "objects" },
-        { key: "__any_chat_id", format: "text" }
-      ]
-    });
-  } catch (e) {}
-
-  // resolveRefs:false so fullObj.__any_chat_history stays as raw object
-  // IDs — the anchor-following lookup in loadOrCreateChatHistory depends on
-  // IDs, not LLM-facing resolved names.
   var rawOpts = { resolveRefs: false };
-  var objects = client.getObjects("at_memory", rawOpts);
+  var objects = client.getObjects("Agent Memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
     if (obj.__any_agent_memory === "_main") {
@@ -477,7 +456,7 @@ function loadOrCreateMemoryAnchor(client) {
     }
   }
 
-  var result = client.createObject("at_memory", {
+  var result = client.createObject("Agent Memory", {
     name: "Agent Memory",
     body: "",
     properties: [{ key: "__any_agent_memory", text: "_main" }]
@@ -653,7 +632,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   var createProps = [];
   if (chatId) createProps.push({ key: "__any_chat_id", text: chatId });
 
-  var result = client.createObject("at_memory", {
+  var result = client.createObject("Agent Memory", {
     name: historyName,
     body: "",
     properties: createProps
@@ -689,7 +668,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
 
 function loadSpaceContextMain(client) {
   var objects;
-  try { objects = client.getObjects("space_context"); } catch (e) { return null; }
+  try { objects = client.getObjects("Space Context"); } catch (e) { return null; }
   if (!objects || objects.length === 0) return null;
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
@@ -706,7 +685,7 @@ function loadSpaceContextMain(client) {
 // agent pulls content on demand.
 function getChildSpaceContexts(client) {
   var objects;
-  try { objects = client.getObjects("space_context"); } catch (e) { return []; }
+  try { objects = client.getObjects("Space Context"); } catch (e) { return []; }
   if (!objects || objects.length === 0) return [];
   var out = [];
   for (var i = 0; i < objects.length; i++) {
@@ -1192,7 +1171,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
   var createdChildren = 0;
   for (var ki = 0; ki < childSections.length; ki++) {
     var cs = childSections[ki];
-    var r = client.createObject("space_context", { name: cs.title, body: cs.content });
+    var r = client.createObject("Space Context", { name: cs.title, body: cs.content });
     if (r && r.ok) {
       titleToNewId[cs.title] = r.object.id;
       createdChildren++;
@@ -1202,7 +1181,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
   }
 
   var finalMainMd = _rewriteChildLinks(mainSection.content, titleToNewId);
-  var mainRes = client.createObject("space_context", { name: "Main", body: finalMainMd });
+  var mainRes = client.createObject("Space Context", { name: "Main", body: finalMainMd });
   if (!mainRes || !mainRes.ok) {
     if (breadcrumb) breadcrumb("[space-context] failed to create new Main: " + (mainRes && mainRes.error));
     return { skipped: false, ok: false, reason: "main-create-failed" };
@@ -1309,7 +1288,7 @@ function _loadSkillMarkdown(client, skillName) {
     var scope = scopes[s];
     var objects;
     try {
-      objects = client.getObjects("any_agent_skill", { space: scope });
+      objects = client.getObjects("Agent Skill", { space: scope });
     } catch (e) {
       continue;
     }
@@ -1369,7 +1348,7 @@ function _loadSpaceContextSection(skillMd, mainObj, children) {
 function _loadUserSkillsSection(client) {
   var objects;
   try {
-    objects = client.getObjects("any_agent_skill");
+    objects = client.getObjects("Agent Skill");
   } catch (e) {
     return "";
   }
@@ -1480,7 +1459,7 @@ function dcInit(client, _spaceId, userText, bootMeta) {
     }
   }
   try {
-    var r = client.createObject("any_agent_debug", { name: name, body: initialBody });
+    var r = client.createObject("Agent Debug Log", { name: name, body: initialBody });
     if (r && r.ok && r.object) _dc.pageId = r.object.id;
   } catch (e) {}
 }

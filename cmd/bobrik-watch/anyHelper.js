@@ -285,48 +285,37 @@ export function createClient(params) {
   };
 
   // ==================== TYPE RESOLUTION ====================
-  // The any API uses type IDs (bafyrei... hashes for user-created types,
-  // literal strings like "program" for registered types). JS code passes
-  // type keys like "at_memory" or "any_agent_skill". This function resolves
-  // a key to the actual type ID by fetching GET /types every time.
-  // No caching — types list is small and this avoids stale cache bugs.
 
-  function _resolveTypeId(typeKey, scope) {
+  function _fetchTypes(scope) {
     var path = _pathForScope(scope || "user");
     var res = api("GET", path + "/types");
-    if (!res.ok) return typeKey;
-    var types = (res.data && res.data.types) || [];
+    if (!res.ok) return [];
+    return (res.data && res.data.types) || [];
+  }
 
-    // 1. Exact match on id (built-in: "program", "chat", etc.)
+  function _resolveTypeId(typeId, scope) {
+    var types = _fetchTypes(scope);
     for (var i = 0; i < types.length; i++) {
-      if (types[i].id === typeKey) return types[i].id;
+      if (types[i].id === typeId) return typeId;
     }
-    // 2. Exact match on name
-    for (var j = 0; j < types.length; j++) {
-      if (types[j].name === typeKey) return types[j].id;
+    return null;
+  }
+
+  function _resolveTypeByName(name, scope) {
+    var types = _fetchTypes(scope);
+    for (var i = 0; i < types.length; i++) {
+      if (types[i].name === name) return types[i].id;
     }
-    // 3. Derived name variants from snake_case key
-    var prefixes = ["any_", "anytype_", "at_", ""];
-    for (var pi = 0; pi < prefixes.length; pi++) {
-      if (typeKey.indexOf(prefixes[pi]) !== 0) continue;
-      var stripped = typeKey.substring(prefixes[pi].length)
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-      for (var k = 0; k < types.length; k++) {
-        if (types[k].name === stripped) return types[k].id;
-      }
+    return null;
+  }
+
+  function _typeNotFoundError(typeKey, scope) {
+    var types = _fetchTypes(scope);
+    var available = [];
+    for (var i = 0; i < types.length; i++) {
+      available.push("\"" + types[i].id + "\" (" + types[i].name + ")");
     }
-    // 4. "Agent" prefix variant: "at_memory" → "Agent Memory"
-    for (var qi = 0; qi < prefixes.length; qi++) {
-      if (typeKey.indexOf(prefixes[qi]) !== 0) continue;
-      var agentName = "Agent " + typeKey.substring(prefixes[qi].length)
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-      for (var m = 0; m < types.length; m++) {
-        if (types[m].name === agentName) return types[m].id;
-      }
-    }
-    return typeKey;
+    return "type \"" + typeKey + "\" doesn't exist. Available types: " + available.join(", ");
   }
 
   // ==================== QUERIES ====================
@@ -337,7 +326,9 @@ export function createClient(params) {
     var path = _pathForScope(scope);
     var filter = {};
     if (typeKey) {
-      filter["any.types"] = _resolveTypeId(typeKey, scope);
+      var resolved = _resolveTypeByName(typeKey, scope) || _resolveTypeId(typeKey, scope);
+      if (!resolved) return [];
+      filter["any.types"] = resolved;
     }
     var res = api("POST", path + "/objects/query", { filter: filter });
     if (!res.ok) return [];
@@ -422,13 +413,14 @@ export function createClient(params) {
   }
 
   function describeType(typeKey) {
-    var resolvedId = _resolveTypeId(typeKey);
+    var resolvedId = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
+    if (!resolvedId) return { error: _typeNotFoundError(typeKey) };
     var types = getTypes();
     var typeObj = null;
     for (var i = 0; i < types.length; i++) {
       if (types[i].id === resolvedId) { typeObj = types[i]; break; }
     }
-    if (!typeObj) return { error: "Type not found: " + typeKey };
+    if (!typeObj) return { error: _typeNotFoundError(typeKey) };
     var propRes = api("GET", spacePath + "/types/" + typeObj.id + "/properties");
     var properties = (propRes.ok && propRes.data && propRes.data.properties) || [];
     var sample = null;
@@ -525,8 +517,11 @@ export function createClient(params) {
     var body = data.body || data.markdown || "";
 
     var createBody = {};
+    var resolvedType = null;
     if (typeKey) {
-      createBody.types = [_resolveTypeId(typeKey)];
+      resolvedType = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
+      if (!resolvedType) return { ok: false, error: _typeNotFoundError(typeKey) };
+      createBody.types = [resolvedType];
     }
     var initProps = {};
     if (name) {
@@ -549,8 +544,8 @@ export function createClient(params) {
       } else {
         propObj = data.properties;
       }
-      if (typeKey) {
-        initProps[_resolveTypeId(typeKey)] = propObj;
+      if (resolvedType) {
+        initProps[resolvedType] = propObj;
       }
     }
     if (Object.keys(initProps).length > 0) {
@@ -701,6 +696,7 @@ export function createClient(params) {
   function _scanPrograms(scope) {
     var path = _pathForScope(scope);
     var programTypeId = _resolveTypeId("program", scope);
+    if (!programTypeId) return [];
     var res = api("POST", path + "/objects/query", { filter: { "any.types": programTypeId } });
     if (!res.ok) return [];
     var records = (res.data && res.data.records) || [];
@@ -821,6 +817,7 @@ export function createClient(params) {
     }
 
     var programTypeId = _resolveTypeId("program");
+    if (!programTypeId) return { ok: false, error: _typeNotFoundError("program") };
     var createRes = api("POST", spacePath + "/objects", {
       types: [programTypeId],
       initialProperties: {
@@ -855,16 +852,13 @@ export function createClient(params) {
 
   function createType(opts) {
     if (!opts) return { ok: false, error: "opts required" };
-    if (!opts.key) return { ok: false, error: "key is required" };
+    if (!opts.name) return { ok: false, error: "name is required" };
 
-    var name = opts.name || opts.key;
-    var key = opts.key;
+    var name = opts.name;
 
-    // Check if already exists
-    var existingId = _resolveTypeId(key);
-    if (existingId !== key) {
-      // resolved to a real id — type exists
-      return { ok: true, type: { id: existingId, key: key, name: name }, created: false };
+    var existingId = _resolveTypeByName(name);
+    if (existingId) {
+      return { ok: true, type: { id: existingId, name: name }, created: false };
     }
 
     var body = { name: name };
@@ -883,7 +877,7 @@ export function createClient(params) {
       }
     }
 
-    return { ok: true, type: { id: typeId, key: key, name: name }, created: true };
+    return { ok: true, type: { id: typeId, name: name }, created: true };
   }
 
   // ==================== INTERNAL HELPERS ====================
@@ -963,7 +957,9 @@ export function createClient(params) {
     runProgram: w("runProgram", runProgram),
     saveProgram: w("saveProgram", saveProgram),
     saveTool: w("saveTool", saveTool),
-    createType: w("createType", createType)
+    createType: w("createType", createType),
+    resolveTypeByName: _resolveTypeByName,
+    resolveTypeId: _resolveTypeId
   };
 }
 
