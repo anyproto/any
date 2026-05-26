@@ -10,23 +10,18 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
-// spaceModify handles POST /v1/spaces/:spaceId/modify. The body is
-// parsed once with a pooled fastjson.Parser; ops[i].value is passed to
-// space.Op.Value as *fastjson.Value so the SDK converts it to anyenc
-// in one walk via Arena.NewFromFastJson.
+// spaceModify handles POST /v1/spaces/:spaceId/modify.
 //
-// Body shape:
-//
-//	{
-//	  "objectId": "obj_abc",
-//	  "dataset":  "notes",
-//	  "records": [
-//	    { "id": "", "upsert": true, "ops": [
-//	      { "type": "$set", "path": "", "value": { "title": "x" } }
-//	    ]}
-//	  ],
-//	  "traceIds": ["demo"]
-//	}
+//	@Summary	Modify records in a dataset
+//	@Tags		data
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		body	body		api.SpaceModifyRequest	true	"Modify batch"
+//	@Success	200		{object}	api.ModifyResult
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/modify [post]
 func (d *deps) spaceModify(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -58,9 +53,17 @@ func (d *deps) spaceModify(c echo.Context) error {
 }
 
 // spaceDeleteRecords handles POST /v1/spaces/:spaceId/delete-records.
-// Body shape:
 //
-//	{ "objectId": "...", "dataset": "...", "recordIds": ["..."], "traceIds": ["..."] }
+//	@Summary	Delete records from a dataset
+//	@Tags		data
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string						true	"Space ID"
+//	@Param		body	body		api.DeleteRecordsRequest	true	"Delete params"
+//	@Success	200		{object}	api.ModifyResult
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/delete-records [post]
 func (d *deps) spaceDeleteRecords(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

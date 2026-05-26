@@ -43,6 +43,11 @@ type deps struct {
 	streamsWG      *sync.WaitGroup
 }
 
+// @Summary	Health check
+// @Tags		system
+// @Produce	json
+// @Success	200	{object}	api.HealthResponse
+// @Router		/health [get]
 func (d *deps) health(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.HealthResponse{
 		Status:    "ok",
@@ -52,6 +57,10 @@ func (d *deps) health(c echo.Context) error {
 	})
 }
 
+// @Summary	Graceful shutdown
+// @Tags		system
+// @Success	204
+// @Router		/shutdown [post]
 func (d *deps) shutdownHandler(c echo.Context) error {
 	select {
 	case d.shutdown <- struct{}{}:
