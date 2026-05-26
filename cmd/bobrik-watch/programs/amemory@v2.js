@@ -825,7 +825,7 @@ function loadAllMemoriesForDecay(client, typeKey) {
 
 export function createAMemory(client, opts) {
   opts = opts || {};
-  var typeKey = opts.typeKey || "at_memory";
+  var typeKey = client.resolveTypeByName("Agent Memory") || "at_memory";
   var topK = opts.topK || 3;
   var minSimilarity = opts.minSimilarity !== undefined ? opts.minSimilarity : 0.3;
   var enableEvolution = opts.enableEvolution !== undefined ? opts.enableEvolution : true;
@@ -834,7 +834,7 @@ export function createAMemory(client, opts) {
 
   // Ensure the memory type and all required properties exist (bootstrap on empty space)
   try {
-    client.createType({ key: typeKey, name: "Agent Memory", plural_name: "Agent Memories", icon: { name: "library", color: "blue" }, properties: [
+    client.createType({ name: "Agent Memory", properties: [
       { key: "__amemory_context", format: "text" },
       { key: "__amemory_keywords", format: "text" },
       { key: "__amemory_vector", format: "text" },
