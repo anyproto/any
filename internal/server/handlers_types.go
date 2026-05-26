@@ -13,6 +13,17 @@ import (
 )
 
 // typeCreate handles POST /v1/spaces/:spaceId/types.
+//
+//	@Summary	Create a type
+//	@Tags		types
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		body	body		api.TypesCreateRequest	true	"Type params"
+//	@Success	201		{object}	api.TypesCreateResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types [post]
 func (d *deps) typeCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -36,6 +47,18 @@ func (d *deps) typeCreate(c echo.Context) error {
 }
 
 // typeAddProperty handles POST /v1/spaces/:spaceId/types/:typeId/properties.
+//
+//	@Summary	Add a property to a type
+//	@Tags		types
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		typeId	path		string					true	"Type ID"
+//	@Param		body	body		api.AddPropertyRequest	true	"Property draft"
+//	@Success	201		{object}	api.AddPropertyResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/properties [post]
 func (d *deps) typeAddProperty(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -70,9 +93,15 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
 }
 
-// typeList handles GET /v1/spaces/:spaceId/types. The virtual `nav`
-// built-in is injected — the SDK doesn't know about it, but every
-// space has it conceptually since objectCreate auto-stamps nav rows.
+// typeList handles GET /v1/spaces/:spaceId/types.
+//
+//	@Summary	List types in a space
+//	@Tags		types
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.TypesListResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types [get]
 func (d *deps) typeList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -90,8 +119,17 @@ func (d *deps) typeList(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
 }
 
-// typeGet handles GET /v1/spaces/:spaceId/types/:typeId. Maps
-// space.ErrNotFound to 404 sdk.not_found.
+// typeGet handles GET /v1/spaces/:spaceId/types/:typeId.
+//
+//	@Summary	Get a type
+//	@Tags		types
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Param		typeId	path		string	true	"Type ID"
+//	@Success	200		{object}	api.TypeInfo
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId} [get]
 func (d *deps) typeGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -117,8 +155,16 @@ func (d *deps) typeGet(c echo.Context) error {
 }
 
 // typeProperties handles GET /v1/spaces/:spaceId/types/:typeId/properties.
-// For typeId == "any", the SDK returns the hardcoded built-in props;
-// for user types, the live `defs` dataset.
+//
+//	@Summary	List properties of a type
+//	@Tags		types
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Param		typeId	path		string	true	"Type ID"
+//	@Success	200		{object}	api.PropertiesListResponse
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/properties [get]
 func (d *deps) typeProperties(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

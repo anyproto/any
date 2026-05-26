@@ -22,7 +22,14 @@ import (
 const statusForwardBuffer = 16
 
 // syncStatusSpaceGet handles GET /v1/spaces/:spaceId/sync-status.
-// One-shot snapshot of the per-space rolled-up state. Cheap.
+//
+//	@Summary	Get space sync status
+//	@Tags		sync
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.SpaceSyncStatusResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/sync-status [get]
 func (d *deps) syncStatusSpaceGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -32,9 +39,16 @@ func (d *deps) syncStatusSpaceGet(c echo.Context) error {
 }
 
 // syncStatusObjectGet handles GET /v1/spaces/:spaceId/sync-status/objects/:objectId.
-// Unknown objectIds return State = "unknown" — the SDK is forgiving
-// here so we propagate the same shape rather than 404ing. Callers
-// that care about existence should use the object catalog.
+//
+//	@Summary	Get object sync status
+//	@Tags		sync
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Success	200			{object}	api.ObjectSyncStatusResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/sync-status/objects/{objectId} [get]
 func (d *deps) syncStatusObjectGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -48,9 +62,12 @@ func (d *deps) syncStatusObjectGet(c echo.Context) error {
 }
 
 // syncStatusSubscribe handles GET /v1/sync-status/subscribe.
-// Account-wide SSE stream: one cb sees every known space's rollup
-// transitions. Mounted outside the space group because there's no
-// :spaceId scope on the SDK call.
+//
+//	@Summary	Subscribe to account-wide sync status (SSE)
+//	@Tags		sync
+//	@Produce	text/event-stream
+//	@Success	200
+//	@Router		/sync-status/subscribe [get]
 func (d *deps) syncStatusSubscribe(c echo.Context) error {
 	events := make(chan space.SpaceSyncStatus, statusForwardBuffer)
 	var dropped atomic.Uint64
@@ -77,10 +94,17 @@ func (d *deps) syncStatusSubscribe(c echo.Context) error {
 	})
 }
 
-// syncStatusObjectSubscribe handles
-// GET /v1/spaces/:spaceId/sync-status/objects/:objectId/subscribe.
-// Per-object SSE stream — emits one frame per state transition for
-// the given object.
+// syncStatusObjectSubscribe handles GET /v1/spaces/:spaceId/sync-status/objects/:objectId/subscribe.
+//
+//	@Summary	Subscribe to object sync status (SSE)
+//	@Tags		sync
+//	@Produce	text/event-stream
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Object ID"
+//	@Success	200
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/sync-status/objects/{objectId}/subscribe [get]
 func (d *deps) syncStatusObjectSubscribe(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

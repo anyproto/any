@@ -15,10 +15,14 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.PUT("/account/metadata", d.accountUpdateMetadata)
 }
 
-// accountGet handles GET /v1/account. Returns the account id plus the
-// locally-stored profile — read from the tech-space, so deterministic
-// across reboots and not subject to identityRepo connectivity. Empty
-// when no profile has ever been written on this device.
+// accountGet handles GET /v1/account.
+//
+//	@Summary	Get account info
+//	@Tags		account
+//	@Produce	json
+//	@Success	200	{object}	api.AccountResponse
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/account [get]
 func (d *deps) accountGet(c echo.Context) error {
 	resp := api.AccountResponse{Id: d.sdk.Account().Id()}
 	meta, present, err := d.sdk.Account().Metadata(c.Request().Context())
@@ -35,14 +39,16 @@ func (d *deps) accountGet(c echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-// accountUpdateMetadata handles PUT /v1/account/metadata. Body is the
-// new AccountMetadata; the SDK persists it to the tech-space and pushes
-// to identityRepo so the profile becomes visible in every space the
-// caller is a member of (Members.Me() / Members.List()).
+// accountUpdateMetadata handles PUT /v1/account/metadata.
 //
-// At least one of name / description / iconCid must be set — the SDK
-// rejects fully-empty metadata, and we surface that as a 400 rather
-// than a 500.
+//	@Summary	Update account metadata
+//	@Tags		account
+//	@Accept		json
+//	@Param		body	body	api.AccountMetadata	true	"At least one field required"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/account/metadata [put]
 func (d *deps) accountUpdateMetadata(c echo.Context) error {
 	var req api.AccountMetadata
 	if err := c.Bind(&req); err != nil {

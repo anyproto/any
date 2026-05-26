@@ -10,11 +10,17 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// aclAccept handles POST /v1/spaces/:spaceId/acl/accept. Approves a
-// pending join request and grants `permission`.
+// aclAccept handles POST /v1/spaces/:spaceId/acl/accept.
 //
-// Body validation runs before resolveSpace so a malformed payload
-// returns 400 without paying for a space lookup.
+//	@Summary	Accept a join request
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string				true	"Space ID"
+//	@Param		body	body	api.ACLAcceptRequest	true	"Request record + permission"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
 	var req api.ACLAcceptRequest
 	if err := c.Bind(&req); err != nil {
@@ -38,8 +44,17 @@ func (d *deps) aclAccept(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// aclDecline handles POST /v1/spaces/:spaceId/acl/decline. Identity is
-// the joiner's account id (not the record id).
+// aclDecline handles POST /v1/spaces/:spaceId/acl/decline.
+//
+//	@Summary	Decline a join request
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string					true	"Space ID"
+//	@Param		body	body	api.ACLDeclineRequest	true	"Identity to decline"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/decline [post]
 func (d *deps) aclDecline(c echo.Context) error {
 	var req api.ACLDeclineRequest
 	if err := c.Bind(&req); err != nil {
@@ -59,8 +74,16 @@ func (d *deps) aclDecline(c echo.Context) error {
 }
 
 // aclChangePermissions handles POST /v1/spaces/:spaceId/acl/permissions.
-// Batched: the SDK rejects on first invalid identity, no partial
-// commit beyond what any-sync's ACL semantics allow.
+//
+//	@Summary	Change member permissions (batch)
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string								true	"Space ID"
+//	@Param		body	body	api.ACLChangePermissionsRequest	true	"Permission changes"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/permissions [post]
 func (d *deps) aclChangePermissions(c echo.Context) error {
 	var req api.ACLChangePermissionsRequest
 	if err := c.Bind(&req); err != nil {
@@ -92,9 +115,17 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// aclRemove handles POST /v1/spaces/:spaceId/acl/remove. Rotates the
-// read key as part of the SDK call so removed members can't decrypt
-// new content.
+// aclRemove handles POST /v1/spaces/:spaceId/acl/remove.
+//
+//	@Summary	Remove members (rotates read key)
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string				true	"Space ID"
+//	@Param		body	body	api.ACLRemoveRequest	true	"Identities to remove"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/remove [post]
 func (d *deps) aclRemove(c echo.Context) error {
 	var req api.ACLRemoveRequest
 	if err := c.Bind(&req); err != nil {
@@ -113,9 +144,17 @@ func (d *deps) aclRemove(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// aclAdd handles POST /v1/spaces/:spaceId/acl/add. Server-side flow
-// where the owner already holds joiner identities — bypasses the
-// invite/request round-trip.
+// aclAdd handles POST /v1/spaces/:spaceId/acl/add.
+//
+//	@Summary	Add members directly (bypasses invite flow)
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string			true	"Space ID"
+//	@Param		body	body	api.ACLAddRequest	true	"Accounts to add"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
 	var req api.ACLAddRequest
 	if err := c.Bind(&req); err != nil {
@@ -156,6 +195,16 @@ func (d *deps) aclAdd(c echo.Context) error {
 }
 
 // aclOwnership handles POST /v1/spaces/:spaceId/acl/ownership.
+//
+//	@Summary	Transfer ownership
+//	@Tags		acl
+//	@Accept		json
+//	@Param		spaceId	path	string					true	"Space ID"
+//	@Param		body	body	api.ACLOwnershipRequest	true	"New owner + old owner permission"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/ownership [post]
 func (d *deps) aclOwnership(c echo.Context) error {
 	var req api.ACLOwnershipRequest
 	if err := c.Bind(&req); err != nil {
@@ -180,6 +229,13 @@ func (d *deps) aclOwnership(c echo.Context) error {
 }
 
 // aclSelfRemove handles POST /v1/spaces/:spaceId/acl/self-remove.
+//
+//	@Summary	Remove yourself from a space
+//	@Tags		acl
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/self-remove [post]
 func (d *deps) aclSelfRemove(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -192,7 +248,13 @@ func (d *deps) aclSelfRemove(c echo.Context) error {
 }
 
 // aclCancelJoin handles POST /v1/spaces/:spaceId/acl/cancel-join.
-// Withdraws the caller's pending join request.
+//
+//	@Summary	Cancel your pending join request
+//	@Tags		acl
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/cancel-join [post]
 func (d *deps) aclCancelJoin(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -205,7 +267,13 @@ func (d *deps) aclCancelJoin(c echo.Context) error {
 }
 
 // aclStopSharing handles POST /v1/spaces/:spaceId/acl/stop-sharing.
-// Drops every non-owner member, revokes every invite, rotates read key.
+//
+//	@Summary	Stop sharing (removes all non-owners)
+//	@Tags		acl
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/acl/stop-sharing [post]
 func (d *deps) aclStopSharing(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
