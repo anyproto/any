@@ -57,15 +57,21 @@ func main() {
 	}
 	_ = skillTypeID
 
+	sysFolderID, err := ensureSystemFolder(base, spaceID)
+	if err != nil {
+		log.Fatalf("ensure system folder: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "system folder → %s\n", sysFolderID)
+
 	skip := map[string]bool{
 		"anyHelper": true,
 	}
-	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip); err != nil {
+	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip, sysFolderID); err != nil {
 		log.Fatalf("sync programs: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
 
-	if err := syncSkills(base, spaceID, skillTypeID); err != nil {
+	if err := syncSkills(base, spaceID, skillTypeID, sysFolderID); err != nil {
 		log.Fatalf("sync skills: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
