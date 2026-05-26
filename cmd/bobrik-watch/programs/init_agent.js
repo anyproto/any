@@ -36,12 +36,12 @@ function bootstrapTypes(client) {
       { key: "__any_chat_id", format: "text" }
     ]
   });
-  client.createType({ name: "Page" });
+  client.createType({ name: "Pages" });
   client.createType({ name: "Space Context" });
 }
 
 function _typesReady(client) {
-  var needed = ["Agent Debug Log", "Agent Skill", "Agent Memory", "Page", "Space Context"];
+  var needed = ["Agent Debug Log", "Agent Skill", "Agent Memory", "Pages", "Space Context"];
   var types = client.getTypes ? client.getTypes() : [];
   var names = {};
   for (var i = 0; i < types.length; i++) names[types[i].name] = true;
