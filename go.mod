@@ -7,6 +7,7 @@ require (
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.3
 	github.com/anyproto/any-sync v0.12.4
 	github.com/anyproto/any-sync-sdk v0.0.0-20260501141448-8988d5b159a2
+	github.com/anyproto/anytype-agent-runtime v0.1.1
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
 	github.com/labstack/echo/v4 v4.13.4
@@ -36,15 +37,19 @@ require (
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/flopp/go-findfont v0.1.0 // indirect
 	github.com/fogleman/gg v1.3.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-graphviz v0.2.10 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/grafana/sobek v0.0.0-20260218085801-5b6154c7b012 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/huandu/skiplist v1.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -109,3 +114,5 @@ require (
 )
 
 replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk2
+
+replace github.com/anyproto/anytype-agent-runtime => ../../anytype/anytype-agent-runtime

@@ -475,6 +475,7 @@ arrives (the SSE event is just the routing tuple — see `04-events.md`).
   "createdAt":        1714597200,
   "modifiedAt":       1714597200,
   "replyToMessageId": "<msgId>",
+  "fromAgent":        "<opaque identity>",
   "text":             "**hi** _there_",
   "reactions":        { "👍": ["<id1>", "<id2>"] }
 }
@@ -484,6 +485,14 @@ arrives (the SSE event is just the routing tuple — see `04-events.md`).
 are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
+
+`fromAgent` is an optional, opaque, create-only tag the sender sets to
+mark the message as written by an agent acting on the signer's behalf
+(vs typed by the signer directly). It is NOT cryptographically
+verified — `creator` is still the change signer; `fromAgent` is a UI
+hint. Typical use: an agent subscribed to `chat_messages` ignores its
+own messages (`fromAgent` non-empty) and only responds to human ones
+(`fromAgent` empty). Omitted from responses when unset.
 
 `reactions` is rolled up on the wire from
 `reactions.<emoji>.<accountId> = <changeTimestamp>` storage to the
@@ -500,13 +509,14 @@ derived (`sink.Derive` overrides whatever the client sent). See
 `POST /v1/spaces/:spaceId/objects/:objectId/chat/messages`
 
 ```json
-{ "text": "hello", "replyToMessageId": "abc" }
+{ "text": "hello", "replyToMessageId": "abc", "fromAgent": "agent-alice" }
 ```
 
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. Returns 201 with the full message record (server-
-stamped fields included).
+target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
+present; immutable post-create. Returns 201 with the full message
+record (server-stamped fields included).
 
 #### List
 
@@ -550,10 +560,11 @@ can't corrupt each other. Response:
 | GET    | `/v1/spaces/:spaceId/members`                        | `MembersAPI.List`                  |
 | GET    | `/v1/spaces/:spaceId/members/me`                     | `MembersAPI.Me`                    |
 | GET    | `/v1/spaces/:spaceId/members/requests`               | `MembersAPI.JoinRequests`          |
+| GET    | `/v1/spaces/:spaceId/members/subscribe`              | `MembersAPI.Subscribe` (SSE)       |
 | GET    | `/v1/spaces/:spaceId/members/:identity`              | `MembersAPI.Get`                   |
 
-Static path segments (`/me`, `/requests`) are registered before the
-`:identity` wildcard so they don't get swallowed. The `Member` wire
+Static path segments (`/me`, `/requests`, `/subscribe`) are registered
+before the `:identity` wildcard so they don't get swallowed. The `Member` wire
 shape mirrors `space.Member` 1:1; both `permission` and `status` are
 strings (see "Permission / status strings" below). `requestRecordId`
 is non-empty only on a pending-request entry — pass it to

@@ -1,7 +1,8 @@
 # any
 
 All-in-one binary that wraps [`any-sync-sdk`](../any-sync-sdk) with a JSON
-HTTP API plus a CLI client.
+HTTP API plus a CLI client. See also [**bobrik-watch**](BOBRIK.md) — a
+JS-powered chat agent that runs on top of this server.
 
 ## What this is
 

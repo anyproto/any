@@ -12,9 +12,17 @@
 //	  "createdAt":        <unix-seconds>,                    // server-stamped
 //	  "modifiedAt":       <unix-seconds>,                    // bumped on edit
 //	  "replyToMessageId": "<msgId>",                         // optional
+//	  "fromAgent":        "<opaque identity>",               // optional, create-only
 //	  "text":             "<markdown>",                      // ≤ MaxTextBytes
 //	  "reactions":        { "<emoji>": { "<accountId>": <changeTimestamp> } }
 //	}
+//
+// `fromAgent` is an opaque tag the client supplies on create to mark
+// the message as authored by an agent acting on the signer's behalf
+// (vs the signer typing it directly). It is NOT cryptographically
+// verified — `creator` is still the change signer; `fromAgent` is a
+// UI hint, useful e.g. as a "human said this, please respond" trigger
+// for an agent subscribed to fromAgent-empty messages.
 //
 // Chronological order is `_ver.id` — the SDK's creation-version
 // marker, set once when the record is created (newRecord) and never
@@ -69,6 +77,13 @@ const Dataset = "chat_messages"
 // Field keys on a message record. Literal strings — no
 // content-addressable propIds — to keep the registration
 // hand-readable, matching nav and blocks.
+//
+// FieldFromAgent is an optional, opaque, create-only tag clients use to
+// mark a message as "written by an agent acting on behalf of the
+// signer" rather than the signer typing it themselves. The handler
+// does NOT verify the identity (signature still comes from the signer
+// wallet); it's a UI-only hint, useful e.g. to subscribe to messages
+// where fromAgent is empty and have an agent respond.
 const (
 	FieldCreator          = "creator"
 	FieldCreatedAt        = "createdAt"
@@ -76,6 +91,7 @@ const (
 	FieldReplyToMessageId = "replyToMessageId"
 	FieldText             = "text"
 	FieldReactions        = "reactions"
+	FieldFromAgent        = "fromAgent"
 )
 
 // dataVersion is the on-the-wire stamp pinned to writes on this
@@ -85,9 +101,10 @@ const dataVersion = "chat_messages-v1"
 
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
-	MaxTextBytes    = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
-	MaxReplyIdBytes = 256
-	MaxEmojiBytes   = 64
+	MaxTextBytes      = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
+	MaxReplyIdBytes   = 256
+	MaxEmojiBytes     = 64
+	MaxFromAgentBytes = 256
 )
 
 // NewType returns the handler.Type to add to config.Config.Types so
