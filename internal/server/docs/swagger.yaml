@@ -1,0 +1,2514 @@
+basePath: /v1
+definitions:
+  api.ACLAcceptRequest:
+    properties:
+      permission:
+        type: string
+      requestRecordId:
+        type: string
+    type: object
+  api.ACLAddAccount:
+    properties:
+      identity:
+        type: string
+      metadata:
+        $ref: '#/definitions/api.AccountMetadata'
+      permission:
+        type: string
+    type: object
+  api.ACLAddRequest:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/api.ACLAddAccount'
+        type: array
+    type: object
+  api.ACLChangePermissionsRequest:
+    properties:
+      changes:
+        items:
+          $ref: '#/definitions/api.ACLPermissionChange'
+        type: array
+    type: object
+  api.ACLDeclineRequest:
+    properties:
+      identity:
+        type: string
+    type: object
+  api.ACLOwnershipRequest:
+    properties:
+      newOwner:
+        type: string
+      oldOwnerPerm:
+        type: string
+    type: object
+  api.ACLPermissionChange:
+    properties:
+      identity:
+        type: string
+      permission:
+        type: string
+    type: object
+  api.ACLRemoveRequest:
+    properties:
+      identities:
+        items:
+          type: string
+        type: array
+    type: object
+  api.APIError:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties: {}
+        type: object
+      message:
+        type: string
+    type: object
+  api.AccountMetadata:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      name:
+        type: string
+    type: object
+  api.AccountResponse:
+    properties:
+      id:
+        type: string
+      metadata:
+        $ref: '#/definitions/api.AccountMetadata'
+    type: object
+  api.AddPropertyRequest:
+    properties:
+      description:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      xKey:
+        type: string
+    type: object
+  api.AddPropertyResponse:
+    properties:
+      propId:
+        type: string
+    type: object
+  api.Block:
+    properties:
+      _ver:
+        additionalProperties: {}
+        type: object
+      id:
+        type: string
+      nav:
+        $ref: '#/definitions/api.BlockNav'
+      style:
+        additionalProperties: {}
+        type: object
+      text:
+        type: string
+      type:
+        type: string
+    type: object
+  api.BlockCreateRequest:
+    properties:
+      nav:
+        $ref: '#/definitions/api.BlockNav'
+      style:
+        additionalProperties: {}
+        type: object
+      text:
+        type: string
+      type:
+        type: string
+    type: object
+  api.BlockListResponse:
+    properties:
+      records:
+        items:
+          $ref: '#/definitions/api.Block'
+        type: array
+    type: object
+  api.BlockNav:
+    properties:
+      parentId:
+        type: string
+      pos:
+        type: string
+    type: object
+  api.BlockPatchRequest:
+    properties:
+      set:
+        additionalProperties:
+          items:
+            type: integer
+          type: array
+        type: object
+      unset:
+        items:
+          type: string
+        type: array
+    type: object
+  api.BlockPatchResponse:
+    properties:
+      versionId:
+        type: string
+    type: object
+  api.ChatEditRequest:
+    properties:
+      text:
+        type: string
+    type: object
+  api.ChatListResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/api.ChatMessage'
+        type: array
+    type: object
+  api.ChatMessage:
+    properties:
+      createdAt:
+        type: integer
+      creator:
+        type: string
+      fromAgent:
+        type: string
+      id:
+        type: string
+      modifiedAt:
+        type: integer
+      reactions:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+      replyToMessageId:
+        type: string
+      text:
+        type: string
+    type: object
+  api.ChatReactionsResponse:
+    properties:
+      reactions:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        type: object
+    type: object
+  api.ChatSendRequest:
+    properties:
+      fromAgent:
+        type: string
+      replyToMessageId:
+        type: string
+      text:
+        type: string
+    type: object
+  api.DeleteRecordsRequest:
+    properties:
+      dataset:
+        type: string
+      objectId:
+        type: string
+      recordIds:
+        items:
+          type: string
+        type: array
+      traceIds:
+        items:
+          type: string
+        type: array
+    type: object
+  api.ErrorEnvelope:
+    properties:
+      error:
+        $ref: '#/definitions/api.APIError'
+    type: object
+  api.HealthResponse:
+    properties:
+      account:
+        type: string
+      startedAt:
+        type: string
+      status:
+        type: string
+      version:
+        type: string
+    type: object
+  api.InviteCreateResponse:
+    properties:
+      inviteToken:
+        type: string
+      spaceId:
+        type: string
+    type: object
+  api.InviteInfo:
+    properties:
+      permission:
+        type: string
+      recordId:
+        type: string
+    type: object
+  api.InvitesListResponse:
+    properties:
+      invites:
+        items:
+          $ref: '#/definitions/api.InviteInfo'
+        type: array
+    type: object
+  api.JoinRequest:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      identity:
+        type: string
+      name:
+        type: string
+      recordId:
+        type: string
+    type: object
+  api.JoinRequestsResponse:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/api.JoinRequest'
+        type: array
+    type: object
+  api.MarkdownContent:
+    properties:
+      content:
+        type: string
+    type: object
+  api.MarkdownSetResponse:
+    properties:
+      deleted:
+        items:
+          type: string
+        type: array
+      inserted:
+        items:
+          type: string
+        type: array
+      unchanged:
+        type: integer
+      updated:
+        items:
+          type: string
+        type: array
+    type: object
+  api.Member:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      identity:
+        type: string
+      name:
+        type: string
+      permission:
+        type: string
+      requestRecordId:
+        type: string
+      status:
+        type: string
+    type: object
+  api.MembersListResponse:
+    properties:
+      members:
+        items:
+          $ref: '#/definitions/api.Member'
+        type: array
+    type: object
+  api.ModifyResult:
+    properties:
+      changeId:
+        type: string
+      recordIds:
+        items:
+          type: string
+        type: array
+      rejections:
+        items:
+          $ref: '#/definitions/api.OpRejection'
+        type: array
+      versionId:
+        type: string
+    type: object
+  api.ObjectCreateNav:
+    properties:
+      parentId:
+        type: string
+      pos:
+        type: string
+      type:
+        enum:
+        - 1
+        - 2
+        type: integer
+    type: object
+  api.ObjectCreateRequest:
+    properties:
+      initialProperties:
+        additionalProperties:
+          additionalProperties: {}
+          type: object
+        type: object
+      nav:
+        $ref: '#/definitions/api.ObjectCreateNav'
+      types:
+        items:
+          type: string
+        type: array
+    type: object
+  api.ObjectDebugResponse:
+    properties:
+      branchCount:
+        type: integer
+      heads:
+        description: |-
+          Heads / HeadsCount: current tree heads. HeadsCount > 1 means the
+          object is diverged across concurrent writers right now.
+          BranchCount counts every DAG branch that ever existed —
+          merged-in lineages (one per extra parent on a merge) plus
+          still-open ones (HeadsCount - 1). TreeLen is total change count.
+          Snapshots is the number of changes carrying IsSnapshot; costs a
+          full IterateRoot walk.
+        items:
+          type: string
+        type: array
+      headsCount:
+        type: integer
+      lastSyncAt:
+        type: string
+      latestVersionId:
+        description: |-
+          LatestVersionId is the lexid-max OrderId across Heads. Empty
+          when the tree has no heads (root-only / transient cold-restore).
+          Local to this peer — VersionIds don't match across peers.
+        type: string
+      maxAddSeq:
+        description: |-
+          MaxAddSeq is the controller's delivery-order watermark — the
+          highest AddSeq the apply path has seen. Exposed here as a
+          sanity check that the controller is keeping up with the tree;
+          not a cross-peer primitive.
+        type: integer
+      objectId:
+        type: string
+      pending:
+        items:
+          type: string
+        type: array
+      snapshots:
+        type: integer
+      syncState:
+        description: |-
+          SyncState is one of: unknown, offline, syncing, synced, error.
+          Pending is the set of heads the per-space syncstatus tracker is
+          waiting for a responsible-node HeadsApply on; empty means
+          converged with the last sender we trust.
+        type: string
+      treeLen:
+        type: integer
+    type: object
+  api.ObjectDeriveRequest:
+    properties:
+      seed:
+        items:
+          type: integer
+        type: array
+      types:
+        items:
+          type: string
+        type: array
+    type: object
+  api.ObjectSyncStatusResponse:
+    properties:
+      lastSyncAt:
+        type: string
+      objectId:
+        type: string
+      state:
+        type: string
+    type: object
+  api.ObjectsCreateResponse:
+    properties:
+      objectId:
+        type: string
+    type: object
+  api.ObjectsDeriveResponse:
+    properties:
+      objectId:
+        type: string
+    type: object
+  api.Op:
+    properties:
+      path:
+        type: string
+      type:
+        enum:
+        - $set
+        - $unset
+        - $inc
+        - $addToSet
+        - $pull
+        type: string
+      value: {}
+    type: object
+  api.OpRejection:
+    properties:
+      opIndex:
+        type: integer
+      reason:
+        type: string
+      recordId:
+        type: string
+      recordIndex:
+        type: integer
+    type: object
+  api.PeerSyncStats:
+    properties:
+      changed:
+        type: integer
+      lastErr:
+        type: string
+      lastSyncAt:
+        type: string
+      new:
+        type: integer
+      peerId:
+        type: string
+    type: object
+  api.PropertiesGetResponse:
+    properties:
+      record:
+        items:
+          type: integer
+        type: array
+    type: object
+  api.PropertiesListResponse:
+    properties:
+      properties:
+        items:
+          $ref: '#/definitions/api.PropertyDef'
+        type: array
+    type: object
+  api.PropertiesSetBaseRequest:
+    properties:
+      patch:
+        additionalProperties: {}
+        type: object
+    type: object
+  api.PropertyDef:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      items:
+        $ref: '#/definitions/api.PropertyDef'
+      kind:
+        type: string
+      name:
+        type: string
+      properties:
+        items:
+          $ref: '#/definitions/api.PropertyDef'
+        type: array
+      required:
+        items:
+          type: string
+        type: array
+      xKey:
+        type: string
+      xKind:
+        type: string
+    type: object
+  api.QueryResponse:
+    properties:
+      records:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+    type: object
+  api.RecordModify:
+    properties:
+      id:
+        type: string
+      ops:
+        items:
+          $ref: '#/definitions/api.Op'
+        type: array
+      upsert:
+        type: boolean
+    type: object
+  api.SpaceCreateRequest:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      name:
+        type: string
+      spaceType:
+        type: string
+    type: object
+  api.SpaceDebugResponse:
+    properties:
+      peers:
+        items:
+          $ref: '#/definitions/api.PeerSyncStats'
+        type: array
+      spaceId:
+        type: string
+    type: object
+  api.SpaceInfo:
+    properties:
+      createdAt:
+        type: string
+      description:
+        type: string
+      iconCid:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      ownRole:
+        type: string
+      spaceIndexObjectId:
+        type: string
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  api.SpaceJoinRequest:
+    properties:
+      inviteToken:
+        type: string
+      metadata:
+        $ref: '#/definitions/api.AccountMetadata'
+    type: object
+  api.SpaceListResponse:
+    properties:
+      spaces:
+        items:
+          $ref: '#/definitions/api.SpaceInfo'
+        type: array
+    type: object
+  api.SpaceModifyRequest:
+    properties:
+      dataset:
+        type: string
+      objectId:
+        type: string
+      records:
+        items:
+          $ref: '#/definitions/api.RecordModify'
+        type: array
+      traceIds:
+        items:
+          type: string
+        type: array
+    type: object
+  api.SpaceQueryObjectsRequest:
+    properties:
+      filter:
+        additionalProperties: {}
+        type: object
+      limit:
+        type: integer
+      offset:
+        type: integer
+      sort:
+        items:
+          type: string
+        type: array
+    type: object
+  api.SpaceQueryRequest:
+    properties:
+      dataset:
+        type: string
+      filter:
+        additionalProperties: {}
+        type: object
+      limit:
+        type: integer
+      objectId:
+        type: string
+      offset:
+        type: integer
+      sort:
+        items:
+          type: string
+        type: array
+    type: object
+  api.SpaceSyncStatusResponse:
+    properties:
+      lastSyncedAt:
+        type: string
+      networkPeers:
+        type: integer
+      spaceId:
+        type: string
+      state:
+        type: string
+      synced:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.SpaceUpdateRequest:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TypeInfo:
+    properties:
+      builtIn:
+        type: boolean
+      description:
+        type: string
+      iconCid:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TypesCreateRequest:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      name:
+        type: string
+    type: object
+  api.TypesCreateResponse:
+    properties:
+      typeId:
+        type: string
+    type: object
+  api.TypesListResponse:
+    properties:
+      types:
+        items:
+          $ref: '#/definitions/api.TypeInfo'
+        type: array
+    type: object
+host: 127.0.0.1:7001
+info:
+  contact: {}
+  description: Local HTTP/JSON API wrapping any-sync-sdk. Localhost-only, no auth
+    in v1.
+  title: Any API
+  version: "1.0"
+paths:
+  /account:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AccountResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get account info
+      tags:
+      - account
+  /account/metadata:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: At least one field required
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AccountMetadata'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Update account metadata
+      tags:
+      - account
+  /health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HealthResponse'
+      summary: Health check
+      tags:
+      - system
+  /shutdown:
+    post:
+      responses:
+        "204":
+          description: No Content
+      summary: Graceful shutdown
+      tags:
+      - system
+  /spaces:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SpaceListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List spaces
+      tags:
+      - spaces
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create a space
+      tags:
+      - spaces
+  /spaces/{spaceId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete a space
+      tags:
+      - spaces
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get a space
+      tags:
+      - spaces
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: At least one field required
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceUpdateRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Update space metadata
+      tags:
+      - spaces
+  /spaces/{spaceId}/acl/accept:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Request record + permission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLAcceptRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Accept a join request
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/add:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Accounts to add
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLAddRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Add members directly (bypasses invite flow)
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/cancel-join:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Cancel your pending join request
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/decline:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Identity to decline
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLDeclineRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Decline a join request
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/ownership:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: New owner + old owner permission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLOwnershipRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Transfer ownership
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/permissions:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Permission changes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLChangePermissionsRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Change member permissions (batch)
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/remove:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Identities to remove
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ACLRemoveRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Remove members (rotates read key)
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/self-remove:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Remove yourself from a space
+      tags:
+      - acl
+  /spaces/{spaceId}/acl/stop-sharing:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Stop sharing (removes all non-owners)
+      tags:
+      - acl
+  /spaces/{spaceId}/debug:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SpaceDebugResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Debug space sync info (diagnostic, unstable)
+      tags:
+      - debug
+  /spaces/{spaceId}/debug/objects/{objectId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ObjectDebugResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Debug object tree info (diagnostic, unstable)
+      tags:
+      - debug
+  /spaces/{spaceId}/delete-records:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Delete params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.DeleteRecordsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete records from a dataset
+      tags:
+      - data
+  /spaces/{spaceId}/invites:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Revoke all invites
+      tags:
+      - invites
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InvitesListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List invites for a space
+      tags:
+      - invites
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.InviteCreateResponse'
+        "409":
+          description: Duplicate invite
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create an invite
+      tags:
+      - invites
+  /spaces/{spaceId}/invites/{recordId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Invite record ID
+        in: path
+        name: recordId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Revoke a single invite
+      tags:
+      - invites
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Invite record ID
+        in: path
+        name: recordId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.InviteInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get an invite by record ID
+      tags:
+      - invites
+  /spaces/{spaceId}/members:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MembersListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List space members
+      tags:
+      - members
+  /spaces/{spaceId}/members/{identity}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Member identity
+        in: path
+        name: identity
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Member'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get a member by identity
+      tags:
+      - members
+  /spaces/{spaceId}/members/me:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Member'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get own membership
+      tags:
+      - members
+  /spaces/{spaceId}/members/requests:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.JoinRequestsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List pending join requests
+      tags:
+      - members
+  /spaces/{spaceId}/members/subscribe:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to membership changes (SSE)
+      tags:
+      - members
+  /spaces/{spaceId}/modify:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Modify batch
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceModifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Modify records in a dataset
+      tags:
+      - data
+  /spaces/{spaceId}/objects:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ObjectCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ObjectsCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create an object
+      tags:
+      - objects
+  /spaces/{spaceId}/objects/{objectId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete an object
+      tags:
+      - objects
+  /spaces/{spaceId}/objects/{objectId}/chat/messages:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: 'Cursor: message ID'
+        in: query
+        name: before
+        type: string
+      - description: 'Cursor: message ID'
+        in: query
+        name: after
+        type: string
+      - description: Max messages (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChatListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List chat messages
+      tags:
+      - chat
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message body
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ChatSendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ChatMessage'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Send a chat message
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID
+        in: path
+        name: msgId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete a chat message (author only)
+      tags:
+      - chat
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID
+        in: path
+        name: msgId
+        required: true
+        type: string
+      - description: New text
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ChatEditRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChatMessage'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Edit a chat message (author only)
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji}:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID
+        in: path
+        name: msgId
+        required: true
+        type: string
+      - description: Emoji (≤64 bytes)
+        in: path
+        name: emoji
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ChatReactionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Toggle a reaction on a message
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/editor/blocks:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BlockListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List blocks in document order
+      tags:
+      - editor
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Block params (type required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.BlockCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.Block'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create a block
+      tags:
+      - editor
+  /spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Block ID
+        in: path
+        name: blockId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete a block
+      tags:
+      - editor
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Block ID
+        in: path
+        name: blockId
+        required: true
+        type: string
+      - description: Set/unset ops
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.BlockPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BlockPatchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Patch a block (atomic set/unset)
+      tags:
+      - editor
+  /spaces/{spaceId}/objects/{objectId}/editor/markdown:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MarkdownContent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get markdown content
+      tags:
+      - editor
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Markdown content
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.MarkdownContent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MarkdownSetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Set markdown content (diff-based)
+      tags:
+      - editor
+  /spaces/{spaceId}/objects/{objectId}/subscribe:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Dataset name
+        in: query
+        name: dataset
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to object changes (SSE)
+      tags:
+      - subscribe
+  /spaces/{spaceId}/objects/derive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Derive params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.ObjectDeriveRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ObjectsDeriveResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Derive a deterministic object
+      tags:
+      - objects
+  /spaces/{spaceId}/objects/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Query params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceQueryObjectsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Query objects in a space
+      tags:
+      - objects
+  /spaces/{spaceId}/properties/{objectId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Include account/device variants
+        in: query
+        name: includeVariants
+        type: boolean
+      - description: Include property metadata
+        in: query
+        name: includeMeta
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PropertiesGetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get properties of an object
+      tags:
+      - properties
+  /spaces/{spaceId}/properties/{objectId}/base/{typeId}:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      - description: Patch map
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.PropertiesSetBaseRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Set base properties on an object
+      tags:
+      - properties
+  /spaces/{spaceId}/properties/subscribe:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to property changes (SSE)
+      tags:
+      - subscribe
+  /spaces/{spaceId}/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Query params (objectId+dataset required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceQueryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Query a per-object dataset
+      tags:
+      - data
+  /spaces/{spaceId}/sync-status:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SpaceSyncStatusResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get space sync status
+      tags:
+      - sync
+  /spaces/{spaceId}/sync-status/objects/{objectId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ObjectSyncStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get object sync status
+      tags:
+      - sync
+  /spaces/{spaceId}/sync-status/objects/{objectId}/subscribe:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to object sync status (SSE)
+      tags:
+      - sync
+  /spaces/{spaceId}/types:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TypesListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List types in a space
+      tags:
+      - types
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.TypesCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.TypesCreateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create a type
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.TypeInfo'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get a type
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/properties:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PropertiesListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List properties of a type
+      tags:
+      - types
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      - description: Property draft
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AddPropertyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.AddPropertyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Add a property to a type
+      tags:
+      - types
+  /spaces/join:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Invite token + optional metadata
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceJoinRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Joined immediately
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "202":
+          description: Join pending owner approval
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Join a space via invite token
+      tags:
+      - spaces
+  /sync-status/subscribe:
+    get:
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+      summary: Subscribe to account-wide sync status (SSE)
+      tags:
+      - sync
+swagger: "2.0"

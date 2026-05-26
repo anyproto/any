@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/markdown"
 )
 
@@ -31,8 +32,15 @@ import (
 
 // markdownGet returns the joined markdown content for an object.
 //
-//	GET /v1/spaces/:spaceId/objects/:objectId/markdown
-//	→ 200 { "content": "..." }
+//	@Summary	Get markdown content
+//	@Tags		editor
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Success	200			{object}	api.MarkdownContent
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [get]
 func (d *deps) markdownGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -50,20 +58,22 @@ func (d *deps) markdownGet(c echo.Context) error {
 		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
 			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
-	return c.JSON(http.StatusOK, map[string]any{"content": content})
+	return c.JSON(http.StatusOK, api.MarkdownContent{Content: content})
 }
 
-// markdownSet replaces the markdown content of an object, computing
-// the per-block diff server-side and emitting one upsert batch + one
-// delete batch.
+// markdownSet replaces the markdown content of an object.
 //
-//	PUT /v1/spaces/:spaceId/objects/:objectId/markdown
-//	body: { "content": "..." }
-//	→ 200 { "inserted": [...], "updated": [...], "deleted": [...], "unchanged": N }
-//
-// "inserted"/"updated"/"deleted" are the lexids touched by this call;
-// "unchanged" counts blocks left in place. Useful for clients that
-// want to surface diff stats without rerunning the comparison.
+//	@Summary	Set markdown content (diff-based)
+//	@Tags		editor
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string					true	"Space ID"
+//	@Param		objectId	path		string					true	"Object ID"
+//	@Param		body		body		api.MarkdownContent		true	"Markdown content"
+//	@Success	200			{object}	api.MarkdownSetResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [put]
 func (d *deps) markdownSet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -101,10 +111,10 @@ func (d *deps) markdownSet(c echo.Context) error {
 	if deleted == nil {
 		deleted = []string{}
 	}
-	return c.JSON(http.StatusOK, map[string]any{
-		"inserted":  inserted,
-		"updated":   updated,
-		"deleted":   deleted,
-		"unchanged": res.Unchanged,
+	return c.JSON(http.StatusOK, api.MarkdownSetResponse{
+		Inserted:  inserted,
+		Updated:   updated,
+		Deleted:   deleted,
+		Unchanged: res.Unchanged,
 	})
 }

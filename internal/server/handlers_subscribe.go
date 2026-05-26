@@ -23,9 +23,17 @@ import (
 const keepaliveInterval = 25 * time.Second
 
 // subscribeObject handles GET /v1/spaces/:spaceId/objects/:objectId/subscribe.
-// Streams CRDT apply events for the given (objectId, dataset) over
-// Server-Sent Events. The dataset is required as a query param —
-// matches Space.Subscribe(ctx, objectId, dataset).
+//
+//	@Summary	Subscribe to object changes (SSE)
+//	@Tags		subscribe
+//	@Produce	text/event-stream
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Object ID"
+//	@Param		dataset		query	string	true	"Dataset name"
+//	@Success	200
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/subscribe [get]
 func (d *deps) subscribeObject(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -55,8 +63,14 @@ func (d *deps) subscribeObject(c echo.Context) error {
 }
 
 // subscribeProperties handles GET /v1/spaces/:spaceId/properties/subscribe.
-// Firehose for the per-space `objects` dataset (every object's
-// property-value changes), powered by Space.SubscribeProperties.
+//
+//	@Summary	Subscribe to property changes (SSE)
+//	@Tags		subscribe
+//	@Produce	text/event-stream
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	200
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/subscribe [get]
 func (d *deps) subscribeProperties(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

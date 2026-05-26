@@ -11,9 +11,12 @@ LDFLAGS := -s -w \
 	-X $(PKG)/internal/version.Commit=$(COMMIT) \
 	-X $(PKG)/internal/version.BuildDate=$(DATE)
 
-.PHONY: build test vet tidy clean
+.PHONY: build test vet tidy clean swagger
 
-build:
+swagger:
+	swag init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
+
+build: swagger
 	@mkdir -p $(OUT)
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 	go build -v -o $(OUT)/bobrik-watch $(PKG)/cmd/bobrik-watch

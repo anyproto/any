@@ -12,12 +12,18 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// spaceQueryObjects handles POST /v1/spaces/:spaceId/objects/query —
-// cross-object query against the per-space `objects` collection. Body
-// shape mirrors spaceQuery without objectId/dataset (those are
-// implicit). Records are rendered via FastJson(arena).MarshalTo.
+// spaceQueryObjects handles POST /v1/spaces/:spaceId/objects/query.
 //
-// `projection` parsed but ignored — SDK Projection is a no-op in MVP.
+//	@Summary	Query objects in a space
+//	@Tags		objects
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string							true	"Space ID"
+//	@Param		body	body		api.SpaceQueryObjectsRequest	true	"Query params"
+//	@Success	200		{object}	api.QueryResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/query [post]
 func (d *deps) spaceQueryObjects(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -82,17 +88,18 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.QueryResponse{Records: records})
 }
 
-// spaceQuery handles POST /v1/spaces/:spaceId/query. The body is parsed
-// once with a pooled fastjson.Parser; the `filter` subtree is passed to
-// query.Filter as *fastjson.Value so the SDK / any-store layer can
-// convert to anyenc in a single walk.
+// spaceQuery handles POST /v1/spaces/:spaceId/query.
 //
-// Scope: per-object datasets (e.g. a type object's `properties`
-// definitions dataset). For cross-object queries against property
-// values, use POST /v1/spaces/:spaceId/objects/query (spaceQueryObjects).
-//
-// `projection` is parsed but ignored — the SDK's Projection is a no-op
-// in MVP. See docs/07-roadmap.md.
+//	@Summary	Query a per-object dataset
+//	@Tags		data
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string				true	"Space ID"
+//	@Param		body	body		api.SpaceQueryRequest	true	"Query params (objectId+dataset required)"
+//	@Success	200		{object}	api.QueryResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/query [post]
 func (d *deps) spaceQuery(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

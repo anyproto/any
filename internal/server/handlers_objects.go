@@ -16,31 +16,18 @@ import (
 	"github.com/anyproto/any/internal/nav"
 )
 
-// objectCreate handles POST /v1/spaces/:spaceId/objects. Parses the
-// body with a pooled fastjson.Parser and passes property values
-// through as *fastjson.Value — anyenc converts them in one walk via
-// Arena.NewFromFastJson, no Go-native intermediate.
+// objectCreate handles POST /v1/spaces/:spaceId/objects.
 //
-// Every new object also gets a default `nav` row stamped on it: nav
-// is auto-appended to types, and nav.{type, parentId, pos} land in
-// initialProperties unless the caller supplied them. The folder/item
-// flag defaults to item; parent defaults to root (""); pos is a
-// jittered fresh lexid so concurrent root-creates don't collide. See
-// internal/nav.
-//
-// Body shape:
-//
-//	{
-//	  "types": ["typeId", ...],
-//	  "initialProperties": {
-//	    "<typeId>": { "<propId>": <value>, ... }
-//	  },
-//	  "nav": {                  // optional; per-field overrides
-//	    "type":     1|2,
-//	    "parentId": "<obj_id>",
-//	    "pos":      "<lexid>"
-//	  }
-//	}
+//	@Summary	Create an object
+//	@Tags		objects
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		body	body		api.ObjectCreateRequest	true	"Object params"
+//	@Success	201		{object}	api.ObjectsCreateResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects [post]
 func (d *deps) objectCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -221,16 +208,16 @@ func lookupMaxNavPos(ctx context.Context, sp space.Space, parentId string) (stri
 }
 
 // objectDelete handles DELETE /v1/spaces/:spaceId/objects/:objectId.
-// SDK errors (including "already deleted" on a second call) map to
-// 404 sdk.not_found per docs/06-errors.md.
 //
-// Two-step delete: first tombstone the row in the per-space
-// `objects` collection (so queries stop returning it — the SDK's
-// query iterator skips rows with _deletedAt), then drop the
-// any-sync tree. Order matters: once the tree is gone the per-
-// object Modify path can't write the tombstone, so the row would
-// linger in queries forever. See docs/03-api.md § "Object
-// deletion".
+//	@Summary	Delete an object
+//	@Tags		objects
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Object ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId} [delete]
 func (d *deps) objectDelete(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -269,11 +256,18 @@ func (d *deps) objectDelete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// objectDerive handles POST /v1/spaces/:spaceId/objects/derive. Body:
+// objectDerive handles POST /v1/spaces/:spaceId/objects/derive.
 //
-//	{ "seed": "<base64>", "types": [...] }
-//
-// `seed` is decoded by encoding/json as a []byte (base64-standard).
+//	@Summary	Derive a deterministic object
+//	@Tags		objects
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		body	body		api.ObjectDeriveRequest	true	"Derive params"
+//	@Success	201		{object}	api.ObjectsDeriveResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/derive [post]
 func (d *deps) objectDerive(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

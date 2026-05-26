@@ -11,9 +11,19 @@ import (
 	"github.com/anyproto/any/internal/chat"
 )
 
-// chatSend handles POST /v1/spaces/:spaceId/objects/:objectId/messages.
-// Server stamps creator (= account.Id), createdAt, modifiedAt; clients
-// supply only text and (optionally) replyToMessageId.
+// chatSend handles POST /v1/spaces/:spaceId/objects/:objectId/chat/messages.
+//
+//	@Summary	Send a chat message
+//	@Tags		chat
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string				true	"Space ID"
+//	@Param		objectId	path		string				true	"Chat object ID"
+//	@Param		body		body		api.ChatSendRequest	true	"Message body"
+//	@Success	201			{object}	api.ChatMessage
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages [post]
 func (d *deps) chatSend(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -56,9 +66,20 @@ func (d *deps) chatSend(c echo.Context) error {
 	return c.JSON(http.StatusCreated, msg)
 }
 
-// chatList handles GET /v1/spaces/:spaceId/objects/:objectId/messages.
-// Pagination cursors `before` / `after` are message ids; the server
-// resolves them to `_ver.id` boundaries.
+// chatList handles GET /v1/spaces/:spaceId/objects/:objectId/chat/messages.
+//
+//	@Summary	List chat messages
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Chat object ID"
+//	@Param		before		query		string	false	"Cursor: message ID"
+//	@Param		after		query		string	false	"Cursor: message ID"
+//	@Param		limit		query		int		false	"Max messages (default 50, max 200)"
+//	@Success	200			{object}	api.ChatListResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages [get]
 func (d *deps) chatList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -92,9 +113,22 @@ func (d *deps) chatList(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.ChatListResponse{Messages: msgs})
 }
 
-// chatEdit handles PATCH .../messages/:msgId. Only the original
-// author can edit; the API-layer pre-check returns 403 cleanly. The
-// handler enforces the same rule for peer-originated changes.
+// chatEdit handles PATCH .../chat/messages/:msgId.
+//
+//	@Summary	Edit a chat message (author only)
+//	@Tags		chat
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string				true	"Space ID"
+//	@Param		objectId	path		string				true	"Chat object ID"
+//	@Param		msgId		path		string				true	"Message ID"
+//	@Param		body		body		api.ChatEditRequest	true	"New text"
+//	@Success	200			{object}	api.ChatMessage
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	403			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId} [patch]
 func (d *deps) chatEdit(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -125,8 +159,18 @@ func (d *deps) chatEdit(c echo.Context) error {
 	return c.JSON(http.StatusOK, msg)
 }
 
-// chatDelete handles DELETE .../messages/:msgId. Author-only,
-// enforced both here (clean 403) and in the handler (peer changes).
+// chatDelete handles DELETE .../chat/messages/:msgId.
+//
+//	@Summary	Delete a chat message (author only)
+//	@Tags		chat
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Chat object ID"
+//	@Param		msgId		path	string	true	"Message ID"
+//	@Success	204
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId} [delete]
 func (d *deps) chatDelete(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -144,9 +188,20 @@ func (d *deps) chatDelete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// chatReact handles POST .../messages/:msgId/reactions/:emoji. The
-// emoji is read from the path; toggle semantics are implemented in
-// chat.ToggleReaction (read-decide-write).
+// chatReact handles POST .../chat/messages/:msgId/reactions/:emoji.
+//
+//	@Summary	Toggle a reaction on a message
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Chat object ID"
+//	@Param		msgId		path		string	true	"Message ID"
+//	@Param		emoji		path		string	true	"Emoji (≤64 bytes)"
+//	@Success	200			{object}	api.ChatReactionsResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji} [post]
 func (d *deps) chatReact(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {

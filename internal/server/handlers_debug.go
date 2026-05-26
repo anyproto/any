@@ -10,6 +10,13 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
+// @Summary	Debug space sync info (diagnostic, unstable)
+// @Tags		debug
+// @Produce	json
+// @Param		spaceId	path		string	true	"Space ID"
+// @Success	200		{object}	api.SpaceDebugResponse
+// @Failure	500		{object}	api.ErrorEnvelope
+// @Router		/spaces/{spaceId}/debug [get]
 func (d *deps) debugSpace(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -19,6 +26,15 @@ func (d *deps) debugSpace(c echo.Context) error {
 	return c.JSON(http.StatusOK, spaceDebugToAPI(snap))
 }
 
+// @Summary	Debug object tree info (diagnostic, unstable)
+// @Tags		debug
+// @Produce	json
+// @Param		spaceId		path		string	true	"Space ID"
+// @Param		objectId	path		string	true	"Object ID"
+// @Success	200			{object}	api.ObjectDebugResponse
+// @Failure	400			{object}	api.ErrorEnvelope
+// @Failure	500			{object}	api.ErrorEnvelope
+// @Router		/spaces/{spaceId}/debug/objects/{objectId} [get]
 func (d *deps) debugObject(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
