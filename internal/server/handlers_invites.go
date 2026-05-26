@@ -11,12 +11,16 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// inviteCreate handles POST /v1/spaces/:spaceId/invites. Mints a fresh
-// RequestToJoin invite (replacing any prior invite, per SDK semantics)
-// and returns the share-friendly base58 token in the response body.
+// inviteCreate handles POST /v1/spaces/:spaceId/invites.
 //
-// Token encoding lives entirely server-side — joiners just paste the
-// returned `inviteToken` into POST /v1/spaces/join.
+//	@Summary	Create an invite
+//	@Tags		invites
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	201		{object}	api.InviteCreateResponse
+//	@Failure	409		{object}	api.ErrorEnvelope	"Duplicate invite"
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invites [post]
 func (d *deps) inviteCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -41,12 +45,18 @@ func (d *deps) inviteCreate(c echo.Context) error {
 	})
 }
 
-// inviteGet handles GET /v1/spaces/:spaceId/invites/:recordId. Returns
-// the invite info for a single invite by record id.
+// inviteGet handles GET /v1/spaces/:spaceId/invites/:recordId.
 //
-// Note: the invite token (private key) is only available at creation
-// time. This endpoint returns recordId + permission but not the token,
-// because the SDK's Members().Invites() does not expose the InviteKey.
+//	@Summary	Get an invite by record ID
+//	@Tags		invites
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		recordId	path		string	true	"Invite record ID"
+//	@Success	200			{object}	api.InviteInfo
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invites/{recordId} [get]
 func (d *deps) inviteGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -72,9 +82,15 @@ func (d *deps) inviteGet(c echo.Context) error {
 		"invite not found", map[string]any{"recordId": recordId})
 }
 
-// inviteList handles GET /v1/spaces/:spaceId/invites. Reads the
-// current ACL state via Members.Invites() — RecordId is what the
-// DELETE path expects.
+// inviteList handles GET /v1/spaces/:spaceId/invites.
+//
+//	@Summary	List invites for a space
+//	@Tags		invites
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.InvitesListResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invites [get]
 func (d *deps) inviteList(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -95,6 +111,15 @@ func (d *deps) inviteList(c echo.Context) error {
 }
 
 // inviteRevoke handles DELETE /v1/spaces/:spaceId/invites/:recordId.
+//
+//	@Summary	Revoke a single invite
+//	@Tags		invites
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		recordId	path	string	true	"Invite record ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invites/{recordId} [delete]
 func (d *deps) inviteRevoke(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -110,8 +135,14 @@ func (d *deps) inviteRevoke(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// inviteRevokeAll handles DELETE /v1/spaces/:spaceId/invites. Tears
-// down every active invite in one batch.
+// inviteRevokeAll handles DELETE /v1/spaces/:spaceId/invites.
+//
+//	@Summary	Revoke all invites
+//	@Tags		invites
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invites [delete]
 func (d *deps) inviteRevokeAll(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -123,15 +154,18 @@ func (d *deps) inviteRevokeAll(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// spaceJoin handles POST /v1/spaces/join. The body carries the
-// share-friendly invite token; the server passes it through to
-// Service.Join (the SDK parses it internally).
+// spaceJoin handles POST /v1/spaces/join.
 //
-// The SDK signals "request posted, awaiting owner approval" by
-// returning (nil, spaceimpl.ErrJoinPending) — that's a success in
-// the RequestToJoin flow. We surface it as 202 Accepted with the
-// joining-state SpaceInfo recovered from Service.List, so callers
-// can poll members/me until status flips to active.
+//	@Summary	Join a space via invite token
+//	@Tags		spaces
+//	@Accept		json
+//	@Produce	json
+//	@Param		body	body		api.SpaceJoinRequest	true	"Invite token + optional metadata"
+//	@Success	201		{object}	api.SpaceInfo			"Joined immediately"
+//	@Success	202		{object}	api.SpaceInfo			"Join pending owner approval"
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/join [post]
 func (d *deps) spaceJoin(c echo.Context) error {
 	var req api.SpaceJoinRequest
 	if err := c.Bind(&req); err != nil {

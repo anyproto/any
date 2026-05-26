@@ -117,6 +117,15 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
 
+// @Summary	Create a space
+// @Tags		spaces
+// @Accept		json
+// @Produce	json
+// @Param		body	body		api.SpaceCreateRequest	true	"Space params"
+// @Success	201		{object}	api.SpaceInfo
+// @Failure	400		{object}	api.ErrorEnvelope
+// @Failure	500		{object}	api.ErrorEnvelope
+// @Router		/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
 	var req api.SpaceCreateRequest
 	if err := c.Bind(&req); err != nil {
@@ -134,6 +143,12 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	return c.JSON(http.StatusCreated, spaceToAPI(sp))
 }
 
+// @Summary	List spaces
+// @Tags		spaces
+// @Produce	json
+// @Success	200	{object}	api.SpaceListResponse
+// @Failure	500	{object}	api.ErrorEnvelope
+// @Router		/spaces [get]
 func (d *deps) spaceList(c echo.Context) error {
 	ctx := c.Request().Context()
 	infos, err := d.sdk.Spaces().List(ctx)
@@ -156,6 +171,13 @@ func (d *deps) spaceList(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.SpaceListResponse{Spaces: out})
 }
 
+// @Summary	Get a space
+// @Tags		spaces
+// @Produce	json
+// @Param		spaceId	path		string	true	"Space ID"
+// @Success	200		{object}	api.SpaceInfo
+// @Failure	500		{object}	api.ErrorEnvelope
+// @Router		/spaces/{spaceId} [get]
 func (d *deps) spaceGet(c echo.Context) error {
 	id := c.Param("spaceId")
 	sp, err := d.sdk.Spaces().Get(c.Request().Context(), id)
@@ -165,11 +187,17 @@ func (d *deps) spaceGet(c echo.Context) error {
 	return c.JSON(http.StatusOK, spaceToAPI(sp))
 }
 
-// spaceUpdate handles PATCH /v1/spaces/:spaceId. Pointer-to-string
-// fields let callers patch one piece of metadata without clobbering
-// the others. Returns 204 — the spaceIndex apply is local-write-now,
-// mirror-into-tech-space-async, so the post-write Info() may briefly
-// show stale values. Callers that want the converged state re-GET.
+// spaceUpdate handles PATCH /v1/spaces/:spaceId.
+//
+//	@Summary	Update space metadata
+//	@Tags		spaces
+//	@Accept		json
+//	@Param		spaceId	path	string					true	"Space ID"
+//	@Param		body	body	api.SpaceUpdateRequest	true	"At least one field required"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId} [patch]
 func (d *deps) spaceUpdate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -193,6 +221,12 @@ func (d *deps) spaceUpdate(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// @Summary	Delete a space
+// @Tags		spaces
+// @Param		spaceId	path	string	true	"Space ID"
+// @Success	204
+// @Failure	500	{object}	api.ErrorEnvelope
+// @Router		/spaces/{spaceId} [delete]
 func (d *deps) spaceDelete(c echo.Context) error {
 	id := c.Param("spaceId")
 	if err := d.sdk.Spaces().Delete(c.Request().Context(), id); err != nil {

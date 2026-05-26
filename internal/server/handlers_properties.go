@@ -13,11 +13,18 @@ import (
 )
 
 // propertiesGet handles GET /v1/spaces/:spaceId/properties/:objectId.
-// Query params: includeVariants, includeMeta (truthy = "1" / "true").
 //
-// The SDK returns *anyenc.Value; we render it through FastJson(arena)
-// → MarshalTo, then wrap as json.RawMessage so json.Marshal of the
-// outer envelope does not double-encode.
+//	@Summary	Get properties of an object
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId			path		string	true	"Space ID"
+//	@Param		objectId		path		string	true	"Object ID"
+//	@Param		includeVariants	query		bool	false	"Include account/device variants"
+//	@Param		includeMeta		query		bool	false	"Include property metadata"
+//	@Success	200				{object}	api.PropertiesGetResponse
+//	@Failure	400				{object}	api.ErrorEnvelope
+//	@Failure	500				{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId} [get]
 func (d *deps) propertiesGet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -50,12 +57,19 @@ func (d *deps) propertiesGet(c echo.Context) error {
 }
 
 // propertiesSetBase handles POST /v1/spaces/:spaceId/properties/:objectId/base/:typeId.
-// Body shape:
 //
-//	{ "patch": { "<propId>": <value>, ... } }
-//
-// Patch values are passed through to PropertiesAPI.SetBase as
-// *fastjson.Value so the SDK arenas the conversion in one walk.
+//	@Summary	Set base properties on an object
+//	@Tags		properties
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string							true	"Space ID"
+//	@Param		objectId	path		string							true	"Object ID"
+//	@Param		typeId		path		string							true	"Type ID"
+//	@Param		body		body		api.PropertiesSetBaseRequest	true	"Patch map"
+//	@Success	200			{object}	api.ModifyResult
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/base/{typeId} [post]
 func (d *deps) propertiesSetBase(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
