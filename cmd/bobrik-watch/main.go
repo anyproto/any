@@ -58,7 +58,7 @@ func main() {
 	_ = skillTypeID
 
 	skip := map[string]bool{
-		"anytypeHelper": true,
+		"anyHelper": true,
 	}
 	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip); err != nil {
 		log.Fatalf("sync programs: %v", err)
