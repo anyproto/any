@@ -298,14 +298,14 @@ export function research(question, opts) {
   if (subPageResults.length > 0) {
     overviewMd += "\n\n---\n\n## Follow-up Topics\n\n";
     for (var lpi = 0; lpi < subPageResults.length; lpi++) {
-      overviewMd += "- [" + subPageResults[lpi].name + "](anytype://object?objectId=" + subPageResults[lpi].id + ")\n";
+      overviewMd += "- [" + subPageResults[lpi].name + "](any://" + (client.config.spaceId || "_") + "/" + subPageResults[lpi].id + ")\n";
     }
   }
 
   if (bookmarkResults.length > 0) {
     overviewMd += "\n## Sources\n\n";
     for (var lbi = 0; lbi < bookmarkResults.length; lbi++) {
-      overviewMd += "- [" + bookmarkResults[lbi].name + "](anytype://object?objectId=" + bookmarkResults[lbi].id + ")\n";
+      overviewMd += "- [" + bookmarkResults[lbi].name + "](any://" + (client.config.spaceId || "_") + "/" + bookmarkResults[lbi].id + ")\n";
     }
   }
 
