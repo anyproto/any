@@ -528,6 +528,16 @@ underlying `_ver.id` boundary (the SDK's stable creation-version
 marker — set once on creation, never updated by edits, so reordering
 on edit is impossible). `limit` defaults to 50, max 200.
 
+Which N is returned depends on `after`:
+
+- `after` unset (initial load, page-up via `before`): the **latest**
+  N matching are returned, ascending. This is what a chat UI wants —
+  without it, a chat with more than `limit` messages would never show
+  the recent tail.
+- `after` set (forward / catch-up after a disconnect): the **oldest**
+  N matching are returned, ascending — keep paging with the last id
+  as the next `after` until the page is short.
+
 ```json
 { "messages": [ /* ChatMessage, ... */ ] }
 ```

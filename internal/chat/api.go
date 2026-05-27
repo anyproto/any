@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -189,6 +190,15 @@ const (
 // ids: the server reads the boundary message's `_ver.id` and uses it
 // as a `$lt` (Before) or `$gt` (After) filter.
 //
+// Which N is returned depends on whether After is set:
+//   - After set: take the *oldest* N matching (forward / catch-up
+//     pagination from the cursor) — sort ascending, limit, return.
+//   - After unset: take the *latest* N matching (initial load or
+//     backward pagination via Before) — sort descending under the
+//     hood, limit, then reverse to ascending output. This is the
+//     common chat-UI case: without it, a chat with more than `limit`
+//     messages would never show the recent tail.
+//
 // IncludeMeta=true is required because we both sort and filter on
 // `_ver.id`, which is hidden by default.
 func List(ctx context.Context, sp space.Space, objectId string, opts ListOpts) ([]api.ChatMessage, error) {
@@ -220,8 +230,12 @@ func List(ctx context.Context, sp space.Space, objectId string, opts ListOpts) (
 		bounds = append(bounds, verIdComp(query.CompOpGt, ver))
 	}
 
+	sortField := "-_ver.id"
+	if opts.After != "" {
+		sortField = "_ver.id"
+	}
 	q := sp.Query(objectId, Dataset).
-		Sort("_ver.id").
+		Sort(sortField).
 		Limit(limit).
 		Projection(space.ProjectionOpts{IncludeMeta: true})
 	if len(bounds) > 0 {
@@ -231,6 +245,9 @@ func List(ctx context.Context, sp space.Space, objectId string, opts ListOpts) (
 	docs, err := q.All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("chat: list: query: %w", err)
+	}
+	if opts.After == "" {
+		slices.Reverse(docs)
 	}
 	out := make([]api.ChatMessage, 0, len(docs))
 	for _, d := range docs {

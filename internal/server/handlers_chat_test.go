@@ -135,17 +135,19 @@ func TestServer_Chat_Pagination(t *testing.T) {
 		ids = append(ids, msg.Id)
 	}
 
-	// Limit = 2 returns the first two.
+	// Limit = 2 with no cursor returns the latest two (ids[3..4]) in
+	// ascending order — chat UIs want the recent tail, not the head.
 	page := chatList(t, e, base, "", "", 2)
 	if len(page.Messages) != 2 {
 		t.Fatalf("limit=2: got %d, want 2", len(page.Messages))
 	}
-	if page.Messages[0].Id != ids[0] || page.Messages[1].Id != ids[1] {
+	if page.Messages[0].Id != ids[3] || page.Messages[1].Id != ids[4] {
 		t.Errorf("limit=2 order = [%s,%s], want [%s,%s]",
-			page.Messages[0].Id, page.Messages[1].Id, ids[0], ids[1])
+			page.Messages[0].Id, page.Messages[1].Id, ids[3], ids[4])
 	}
 
-	// after=ids[1] returns ids[2..4].
+	// after=ids[1] returns ids[2..4] (forward / catch-up: oldest N
+	// matching, ascending).
 	page = chatList(t, e, base, "", ids[1], 0)
 	if len(page.Messages) != 3 {
 		t.Fatalf("after ids[1]: got %d, want 3", len(page.Messages))
@@ -154,13 +156,25 @@ func TestServer_Chat_Pagination(t *testing.T) {
 		t.Errorf("after ids[1] first = %s, want %s", page.Messages[0].Id, ids[2])
 	}
 
-	// before=ids[2] returns ids[0..1].
+	// before=ids[2] returns ids[0..1] (backward: latest N older than
+	// the cursor, ascending output).
 	page = chatList(t, e, base, ids[2], "", 0)
 	if len(page.Messages) != 2 {
 		t.Fatalf("before ids[2]: got %d, want 2", len(page.Messages))
 	}
 	if page.Messages[1].Id != ids[1] {
 		t.Errorf("before ids[2] last = %s, want %s", page.Messages[1].Id, ids[1])
+	}
+
+	// limit=2 with before=ids[4] returns the latest 2 older than ids[4]
+	// — ids[2..3]. This is the page-up case for an over-full chat.
+	page = chatList(t, e, base, ids[4], "", 2)
+	if len(page.Messages) != 2 {
+		t.Fatalf("before ids[4] limit=2: got %d, want 2", len(page.Messages))
+	}
+	if page.Messages[0].Id != ids[2] || page.Messages[1].Id != ids[3] {
+		t.Errorf("before ids[4] limit=2 = [%s,%s], want [%s,%s]",
+			page.Messages[0].Id, page.Messages[1].Id, ids[2], ids[3])
 	}
 }
 
