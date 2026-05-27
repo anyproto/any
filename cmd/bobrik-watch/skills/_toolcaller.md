@@ -144,21 +144,21 @@ Keep final responses to ≤300 words unless it is really required to say more.
 
 ## Final reply formatting
 
-**Link to objects you create or modify.** When your reply references an Anytype object the user might want to open (a mini app you just created, a page, a note, a task — anything with an id), include a markdown link to it in the form:
+**Link to objects you create or modify.** When your reply references an object the user might want to open (a mini app you just created, a page, a note, a task — anything with an id), include a markdown link to it in the form:
 
 ```
-[Object Name](anytype://object?objectId=<id>)
+[Object Name](any://spaceId/objectId)
 ```
 
 Use the object's display name (its `name` field, or the title you set) as the link text. The chat renders these as clickable links AND surfaces the linked objects as attachments at the bottom of the message — so the user can open them in one click. Only include the link, do NOT also paste the bare id elsewhere in the reply.
 
 Example after creating a Mini App named `"Counter"`:
 
-> Done — [Counter](anytype://object?objectId=bafyreig...) is live.
+> Done — [Counter](any://bafyspac.../bafyreig...) is live.
 
 **Avoid tables in chat replies.** Markdown tables don't render cleanly in chat. If you have tabular data the user genuinely needs to see, create a Page object whose body contains the table and reply with a link to that page instead. Pattern:
 
 ```
 var page = anyHelper.createObject("Pages", { name: "Q3 Tasks", body: "| Task | Owner |\n|---|---|\n| ... |" });
-// then end_turn with: "Here are the Q3 tasks: [Q3 Tasks](anytype://object?objectId=" + page.id + ")"
+// then end_turn with: "Here are the Q3 tasks: [Q3 Tasks](any://SPACE_ID/" + page.id + ")"
 ```
