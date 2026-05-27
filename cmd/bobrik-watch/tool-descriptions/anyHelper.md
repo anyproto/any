@@ -4,7 +4,7 @@ Core API library for creating, reading, updating, and deleting objects, types, a
 
 ### getObjects(typeKey, options?)
 List objects of a type.
-- typeKey: type key or name
+- typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
 - options.space: "user" (default) or "system"
 
 ### getObject(objId, opts?)
@@ -15,7 +15,7 @@ Fetch one object by ID. Returns properties + markdown body.
 
 ### createObject(typeKey, data)
 Create a new object.
-- typeKey: type key or name
+- typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
 - data.name: display name
 - data.body: markdown content
 - data.properties: array of {key, text/number/checkbox} or object
@@ -43,14 +43,13 @@ Append text to markdown body.
 List all types in the space.
 
 ### createType(opts)
-Create a type with properties.
-- opts.key: type key
-- opts.name: display name
+Create a type with properties. Idempotent — skips if a type with the same name exists.
+- opts.name: type name (required)
 - opts.properties: [{key, format}]
 
 ### describeType(typeKey)
 Inspect a type: metadata, properties, sample object, object count.
-- typeKey: type key or name
+- typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
 
 ### getProperties()
 List all properties across all types.

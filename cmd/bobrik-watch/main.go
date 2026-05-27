@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
 )
@@ -56,23 +57,27 @@ func main() {
 	}
 	_ = skillTypeID
 
-	skip := map[string]bool{
-		"anytypeHelper": true,
+	sysFolderID, err := ensureSystemFolder(base, spaceID)
+	if err != nil {
+		log.Fatalf("ensure system folder: %v", err)
 	}
-	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip); err != nil {
+	fmt.Fprintf(os.Stderr, "system folder → %s\n", sysFolderID)
+
+	skip := map[string]bool{
+		"anyHelper": true,
+	}
+	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip, sysFolderID); err != nil {
 		log.Fatalf("sync programs: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
 
-	if err := syncSkills(base, spaceID, skillTypeID); err != nil {
+	if err := syncSkills(base, spaceID, skillTypeID, sysFolderID); err != nil {
 		log.Fatalf("sync skills: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
-	if err := subscribe(spaceID, objectID); err != nil {
-		log.Fatal(err)
-	}
+	subscribeLoop(spaceID, objectID)
 }
 
 func ensureSpace(name string) (string, error) {
@@ -189,6 +194,18 @@ func createChat(spaceID, name string) (string, error) {
 	return obj.ObjectId, nil
 }
 
+func subscribeLoop(spaceID, objectID string) {
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		err := subscribe(spaceID, objectID)
+		fmt.Fprintf(os.Stderr, "subscribe disconnected: %v — reconnecting in %s\n", err, backoff)
+		time.Sleep(backoff)
+		backoff = min(backoff*2, maxBackoff)
+	}
+}
+
 func subscribe(spaceID, objectID string) error {
 	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/subscribe?dataset=chat_messages",
 		url.PathEscape(spaceID), url.PathEscape(objectID))
@@ -210,29 +227,34 @@ func subscribe(spaceID, objectID string) error {
 		return fmt.Errorf("subscribe returned %d", resp.StatusCode)
 	}
 
-	scanner := bufio.NewScanner(resp.Body)
+	br := bufio.NewReader(resp.Body)
 	var eventType string
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		raw, err := br.ReadBytes('\n')
+		if len(raw) > 0 {
+			line := strings.TrimRight(string(raw), "\r\n")
 
-		if line == "" {
-			eventType = ""
-			continue
+			if line == "" {
+				eventType = ""
+			} else if strings.HasPrefix(line, ":") {
+				// comment / heartbeat
+			} else if strings.HasPrefix(line, "event: ") {
+				eventType = strings.TrimPrefix(line, "event: ")
+			} else if eventType == "changes" && strings.HasPrefix(line, "data: ") {
+				data := strings.TrimPrefix(line, "data: ")
+				handleChanges(spaceID, objectID, []byte(data))
+			} else if eventType == "closed" {
+				fmt.Fprintf(os.Stderr, "SSE closed frame: %s\n", line)
+			}
 		}
-		if strings.HasPrefix(line, ":") {
-			continue
-		}
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
-			continue
-		}
-		if eventType == "changes" && strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
-			handleChanges(spaceID, objectID, []byte(data))
+		if err != nil {
+			if err == io.EOF {
+				return fmt.Errorf("stream EOF (no closed frame)")
+			}
+			return err
 		}
 	}
-	return scanner.Err()
 }
 
 func handleChanges(spaceID, objectID string, data []byte) {
@@ -248,6 +270,7 @@ func handleChanges(spaceID, objectID string, data []byte) {
 		} `json:"records"`
 	}
 	if err := json.Unmarshal(data, &events); err != nil {
+		fmt.Fprintf(os.Stderr, "handleChanges: unmarshal error: %v (data: %.200s)\n", err, data)
 		return
 	}
 	for _, ev := range events {

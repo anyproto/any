@@ -21,37 +21,34 @@ import { main as assistantMain } from "private:assistant@v5";
 // deploy-assistant.sh's --migrate / --deploy-all-spaces modes.
 
 function bootstrapTypes(client) {
+  client.createType({ name: "Agent Debug Log" });
   client.createType({
-    key: "any_program",
-    name: "Program",
-    plural_name: "Programs",
-    icon: { name: "code-slash", color: "teal" },
-    properties: [
-      { key: "__any_program_name", format: "text" },
-      { key: "__any_program_version", format: "text" }
-    ]
-  });
-  client.createType({ key: "any_agent_debug", name: "Agent Debug Log", plural_name: "Agent Debug Logs", icon: { name: "bug", color: "orange" } });
-  client.createType({
-    key: "any_agent_skill",
     name: "Agent Skill",
-    plural_name: "Agent Skills",
-    icon: { name: "flash", color: "purple" },
     properties: [
       { key: "__any_agent_skill_name", format: "text" }
     ]
   });
+  client.createType({
+    name: "Agent Memory",
+    properties: [
+      { key: "__any_agent_memory", format: "text" },
+      { key: "__any_chat_history", format: "objects" },
+      { key: "__any_chat_id", format: "text" }
+    ]
+  });
+  client.createType({ name: "Pages" });
+  client.createType({ name: "Space Context" });
 }
 
-// Cheap presence check: was bootstrapTypes ever run in this space?
-// __any_agent_skill_name is the last property created by bootstrap, so its
-// presence implies the full set of types is in place.
 function _typesReady(client) {
-  var props = client.getProperties();
-  for (var i = 0; i < props.length; i++) {
-    if (props[i].name === "__any_agent_skill_name") return true;
+  var needed = ["Agent Debug Log", "Agent Skill", "Agent Memory", "Pages", "Space Context"];
+  var types = client.getTypes ? client.getTypes() : [];
+  var names = {};
+  for (var i = 0; i < types.length; i++) names[types[i].name] = true;
+  for (var j = 0; j < needed.length; j++) {
+    if (!names[needed[j]]) return false;
   }
-  return false;
+  return true;
 }
 
 export function main(args) {

@@ -117,7 +117,7 @@ func ensureSkillType(baseURL, spaceID string) (string, error) {
 // syncSkills reads embedded skill .md files and upserts them as Agent Skill
 // objects. Each skill is identified by __any_agent_skill_name (e.g. "_soul").
 // Content is stored via PUT /editor/markdown.
-func syncSkills(baseURL, spaceID, skillTypeID string) error {
+func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 	entries, err := skillsFS.ReadDir("skills")
 	if err != nil {
 		return fmt.Errorf("read embedded skills: %w", err)
@@ -143,11 +143,15 @@ func syncSkills(baseURL, spaceID, skillTypeID string) error {
 			}
 			fmt.Fprintf(os.Stderr, "synced skill %s (updated %s)\n", skillName, objectID)
 		} else {
-			id, err := createSkillObject(baseURL, spaceID, skillTypeID, skillName, string(content))
+			objectID, err = createSkillObject(baseURL, spaceID, skillTypeID, skillName, string(content))
 			if err != nil {
 				return fmt.Errorf("create skill %s: %w", skillName, err)
 			}
-			fmt.Fprintf(os.Stderr, "synced skill %s (created %s)\n", skillName, id)
+			fmt.Fprintf(os.Stderr, "synced skill %s (created %s)\n", skillName, objectID)
+		}
+
+		if folderID != "" {
+			_ = setNavParent(baseURL, spaceID, objectID, folderID)
 		}
 	}
 	return nil
@@ -307,9 +311,9 @@ func toolDescription(name string) string {
 // skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
 //
 // The embedded anyHelper.js is always synced as anyHelper@v1.
-func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool) error {
+func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool, folderID string) error {
 	// Sync the embedded anyHelper.js first
-	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", anyHelperJS); err != nil {
+	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", anyHelperJS, folderID); err != nil {
 		return fmt.Errorf("sync anyHelper: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 (embedded)\n")
@@ -335,14 +339,14 @@ func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[str
 			return fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 
-		if err := upsertProgram(baseURL, spaceID, programTypeID, name, version, string(source)); err != nil {
+		if err := upsertProgram(baseURL, spaceID, programTypeID, name, version, string(source), folderID); err != nil {
 			return fmt.Errorf("sync %s@%s: %w", name, version, err)
 		}
 	}
 	return nil
 }
 
-func upsertProgram(baseURL, spaceID, programTypeID, name, version, source string) error {
+func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folderID string) error {
 	objectID, err := findProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
 		return fmt.Errorf("query %s@%s: %w", name, version, err)
@@ -359,6 +363,10 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source string
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (created %s)\n", name, version, objectID)
+	}
+
+	if folderID != "" {
+		_ = setNavParent(baseURL, spaceID, objectID, folderID)
 	}
 
 	if desc := toolDescription(name); desc != "" {
@@ -442,6 +450,87 @@ func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value m
 	if resp.StatusCode >= 400 {
 		msg, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("modify %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	return nil
+}
+
+const systemFolderName = "System Bobrik Files"
+
+func ensureSystemFolder(baseURL, spaceID string) (string, error) {
+	filter := map[string]any{
+		"filter": map[string]any{
+			"any.name": systemFolderName,
+			"nav.type": 2,
+		},
+	}
+	body, _ := json.Marshal(filter)
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Records) > 0 {
+		return out.Records[0].Id, nil
+	}
+
+	createBody, _ := json.Marshal(map[string]any{
+		"nav":               map[string]any{"type": 2},
+		"initialProperties": map[string]any{"any": map[string]any{"name": systemFolderName}},
+	})
+	resp2, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects",
+		"application/json",
+		bytes.NewReader(createBody),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp2.Body)
+		return "", fmt.Errorf("create system folder: %d %s", resp2.StatusCode, msg)
+	}
+	var obj struct {
+		ObjectId string `json:"objectId"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&obj); err != nil {
+		return "", err
+	}
+	return obj.ObjectId, nil
+}
+
+func setNavParent(baseURL, spaceID, objectID, parentID string) error {
+	body, _ := json.Marshal(map[string]any{
+		"patch": map[string]any{"parentId": parentID},
+	})
+	req, err := http.NewRequest(http.MethodPost,
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/base/nav",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set nav parent: %d %s", resp.StatusCode, msg)
 	}
 	return nil
 }

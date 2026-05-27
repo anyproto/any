@@ -283,7 +283,7 @@ export function research(question, opts) {
         subMd += "- [" + (fur.sources[ssi].title || fur.sources[ssi].domain) + "](" + fur.sources[ssi].url + ")\n";
       }
     }
-    var sp = client.createObject("page", {
+    var sp = client.createObject("Pages", {
       name: fur.question,
       body: subMd
     });
@@ -316,7 +316,7 @@ export function research(question, opts) {
     + "Phase 3: " + (phase3Ms / 1000).toFixed(1) + "s | "
     + "Total: " + (totalMs / 1000).toFixed(1) + "s*";
 
-  var overviewPage = client.createObject("page", {
+  var overviewPage = client.createObject("Pages", {
     name: collectionName,
     body: overviewMd
   });
@@ -395,7 +395,7 @@ function createSinglePageResult(question, initial, model, elapsedMs) {
     spaceId: env.ANYTYPE_SPACE_ID
   });
 
-  var page = client.createObject("page", {
+  var page = client.createObject("Pages", {
     name: "Research: " + question.substring(0, 80),
     body: md
   });
