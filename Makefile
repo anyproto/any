@@ -11,10 +11,18 @@ LDFLAGS := -s -w \
 	-X $(PKG)/internal/version.Commit=$(COMMIT) \
 	-X $(PKG)/internal/version.BuildDate=$(DATE)
 
-.PHONY: build test vet tidy clean swagger
+SWAG := deps/swag
+
+export PATH := $(CURDIR)/deps:$(PATH)
+
+.PHONY: build test vet tidy clean swagger deps
+
+deps:
+	@mkdir -p deps
+	go build -o deps/ github.com/swaggo/swag/cmd/swag
 
 swagger:
-	swag init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
+	$(SWAG) init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
 
 build: swagger
 	@mkdir -p $(OUT)

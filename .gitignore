@@ -2,6 +2,7 @@
 /any
 /any.mac
 /bin/
+/deps/
 
 # Go test/coverage artifacts
 *.test

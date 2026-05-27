@@ -6,7 +6,6 @@ require (
 	github.com/anyproto/any-store v0.4.6
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.3
 	github.com/anyproto/any-sync v0.12.4
-	github.com/anyproto/any-sync-sdk v0.0.0-20260501141448-8988d5b159a2
 	github.com/anyproto/anytype-agent-runtime v0.1.1
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
@@ -26,6 +25,7 @@ require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
+	github.com/anyproto/any-sync-sdk v0.0.1 // indirect
 	github.com/anyproto/go-bip39 v1.0.0 // indirect
 	github.com/anyproto/go-chash v0.1.0 // indirect
 	github.com/anyproto/go-slip10 v1.0.1 // indirect
@@ -125,7 +125,3 @@ require (
 	modernc.org/sqlite v1.37.1 // indirect
 	storj.io/drpc v0.0.34 // indirect
 )
-
-replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk2
-
-replace github.com/anyproto/anytype-agent-runtime => ../../anytype/anytype-agent-runtime
