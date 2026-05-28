@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -50,7 +50,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 
 	// List returns all three in send order.
-	listed := chatList(t, e, base, "", "", 0)
+	listed := chatList(t, e, base)
 	if len(listed.Messages) != 3 {
 		t.Fatalf("list: got %d messages, want 3", len(listed.Messages))
 	}
@@ -108,7 +108,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 
 	// List after delete: two messages remain.
-	listed = chatList(t, e, base, "", "", 0)
+	listed = chatList(t, e, base)
 	if len(listed.Messages) != 2 {
 		t.Errorf("list after delete: got %d, want 2", len(listed.Messages))
 	}
@@ -119,50 +119,10 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestServer_Chat_Pagination exercises before / after / limit. Send
-// five messages then page through them.
-func TestServer_Chat_Pagination(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-
-	spaceId, objectId := setupChatFixture(t, e)
-	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
-
-	ids := []string{}
-	for i := 0; i < 5; i++ {
-		msg := chatSend(t, e, base, fmt.Sprintf("m%d", i), "")
-		ids = append(ids, msg.Id)
-	}
-
-	// Limit = 2 returns the first two.
-	page := chatList(t, e, base, "", "", 2)
-	if len(page.Messages) != 2 {
-		t.Fatalf("limit=2: got %d, want 2", len(page.Messages))
-	}
-	if page.Messages[0].Id != ids[0] || page.Messages[1].Id != ids[1] {
-		t.Errorf("limit=2 order = [%s,%s], want [%s,%s]",
-			page.Messages[0].Id, page.Messages[1].Id, ids[0], ids[1])
-	}
-
-	// after=ids[1] returns ids[2..4].
-	page = chatList(t, e, base, "", ids[1], 0)
-	if len(page.Messages) != 3 {
-		t.Fatalf("after ids[1]: got %d, want 3", len(page.Messages))
-	}
-	if page.Messages[0].Id != ids[2] {
-		t.Errorf("after ids[1] first = %s, want %s", page.Messages[0].Id, ids[2])
-	}
-
-	// before=ids[2] returns ids[0..1].
-	page = chatList(t, e, base, ids[2], "", 0)
-	if len(page.Messages) != 2 {
-		t.Fatalf("before ids[2]: got %d, want 2", len(page.Messages))
-	}
-	if page.Messages[1].Id != ids[1] {
-		t.Errorf("before ids[2] last = %s, want %s", page.Messages[1].Id, ids[1])
-	}
-}
+// Pagination via before/after/limit moved off the API surface — the
+// HTTP GET endpoint that exposed it is gone. Clients now paginate by
+// chaining /query calls with filters on `_ver.id` (the chronological
+// marker). See docs/03-api.md § Chat for the recipe.
 
 // TestServer_Chat_Validation exercises the API-layer 400/403/404
 // envelope.
@@ -198,7 +158,6 @@ func TestServer_Chat_Validation(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("missing react: %d %s", rec.Code, rec.Body.String())
 	}
-	_ = strconv.Itoa // silence unused import in case the test grows
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -254,29 +213,75 @@ func chatSend(t *testing.T, e http.Handler, base, text, replyTo string) api.Chat
 	return msg
 }
 
-func chatList(t *testing.T, e http.Handler, base, before, after string, limit int) api.ChatListResponse {
+// chatListResp mirrors the old api.ChatListResponse shape, materialised
+// via POST /v1/spaces/:id/query with dataset=chat_messages — the
+// canonical read path after the GET endpoint was removed.
+type chatListResp struct {
+	Messages []api.ChatMessage
+}
+
+func chatList(t *testing.T, e http.Handler, base string) chatListResp {
 	t.Helper()
-	q := url.Values{}
-	if before != "" {
-		q.Set("before", before)
+	parts := strings.SplitN(strings.TrimPrefix(base, "/v1/spaces/"), "/objects/", 2)
+	if len(parts) != 2 {
+		t.Fatalf("chatList: cannot parse spaceId/objectId from %q", base)
 	}
-	if after != "" {
-		q.Set("after", after)
-	}
-	if limit > 0 {
-		q.Set("limit", strconv.Itoa(limit))
-	}
-	path := base + "/chat/messages"
-	if encoded := q.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	rec := doJSON(t, e, http.MethodGet, path, "")
+	spaceId, objectId := parts[0], parts[1]
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  "chat_messages",
+		"sort":     []string{"_ver.id"},
+	})
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", string(body))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("query chat: %d %s", rec.Code, rec.Body.String())
 	}
-	var resp api.ChatListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode list: %v", err)
+	var qr struct {
+		Records []json.RawMessage `json:"records"`
 	}
-	return resp
+	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
+		t.Fatalf("decode query: %v", err)
+	}
+	out := chatListResp{Messages: make([]api.ChatMessage, 0, len(qr.Records))}
+	for _, raw := range qr.Records {
+		out.Messages = append(out.Messages, decodeChatMessage(t, raw))
+	}
+	return out
+}
+
+// decodeChatMessage rehydrates one record from the query wire shape
+// into api.ChatMessage. Two wrinkles vs. the bespoke /chat/messages
+// response shape:
+//
+//   - anyenc → fastjson renders numeric fields as JSON numbers in
+//     exponential form for large ints (`1.78e+09`), which Go's
+//     encoding/json can't unmarshal into int64. We hop through float64.
+//   - Reactions are stored as `reactions.<emoji>.<accountId> =
+//     <timestamp>` (server-derived) — the emoji→accountId-list
+//     transpose only happens in the bespoke handler. Tests that need
+//     the transposed shape go through POST /reactions/:emoji's
+//     response; we leave Reactions nil on queried records.
+func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
+	t.Helper()
+	var f struct {
+		Id               string  `json:"id"`
+		Creator          string  `json:"creator"`
+		CreatedAt        float64 `json:"createdAt"`
+		ModifiedAt       float64 `json:"modifiedAt"`
+		ReplyToMessageId string  `json:"replyToMessageId"`
+		FromAgent        string  `json:"fromAgent"`
+		Text             string  `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("decode message: %v\nraw=%s", err, raw)
+	}
+	return api.ChatMessage{
+		Id:               f.Id,
+		Creator:          f.Creator,
+		CreatedAt:        int64(f.CreatedAt),
+		ModifiedAt:       int64(f.ModifiedAt),
+		ReplyToMessageId: f.ReplyToMessageId,
+		FromAgent:        f.FromAgent,
+		Text:             f.Text,
+	}
 }

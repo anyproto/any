@@ -19,16 +19,26 @@ Implementation slices landed:
    `POST /v1/spaces/:id/objects/query` filtered by `nav.parentId`); the
    space picker moved to the top of the right netlog sidebar as a
    `<select>` + popup form.
-4. **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
-   and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply events
-   as Server-Sent Events. Frames: `ready` → `changes` (JSON array, free
-   batching from `mb.MB.Wait`) → `lagged` (when `Subscription.Dropped`
-   grows) → `closed{reason}` on graceful shutdown. `server.Run` cancels a
-   per-process `shutdownCtx` and waits on `streamsWG` (10s deadline) so
-   in-flight streams emit their terminal frame before the listener tears
-   down. CLI: `any subscribe SPACE OBJ --dataset NAME` /
-   `any subscribe SPACE --properties` — one JSON line per frame on stdout.
-   Wire format and contract in `docs/03-api.md` § Subscribe and `docs/04-events.md`.
+4. **Windowed query/subscribe over SSE** — reads always go through
+   `POST /v1/spaces/:id/[objects/]query` (snapshot) or the matching
+   `.../query/subscribe` (initial snapshot + live windowed deltas).
+   Both wrap the SDK's `Query.Snapshot` / `Query.Subscribe` 1:1. Body
+   shape: filter / sort / limit / offset / includeTotal /
+   mailboxCapacity / driftBudgetPercent. SSE frames: `ready` →
+   `snapshot{records,total}` → `changes[{versionId,added,updated,removed}]`
+   → `closed{reason}` where reason is one of `server_shutdown`,
+   `sdk_closed`, `overflow`, `drifted`. No `lagged` — windowed
+   subs close on overflow/drift; recovery is "reconnect to get a
+   fresh snapshot." `server.Run` cancels a per-process `shutdownCtx`
+   and waits on `streamsWG` (10s deadline) so in-flight streams emit
+   their terminal frame before the listener tears down. CLI:
+   `any query-subscribe SPACE [OBJ] --dataset NAME [--filter …]
+   [--sort …] [--limit N] [--total]` — one JSON line per frame on
+   stdout. Wire format and contract in `docs/03-api.md` § Subscribe
+   and `docs/04-events.md`. The old raw-stream endpoints
+   (`/objects/:id/subscribe`, `/properties/subscribe`) and the SDK's
+   `Space.Subscribe` / `Space.SubscribeProperties` are gone — the
+   windowed primitive subsumes them.
 5. **Members + invites + ACL over HTTP** — `Space.Members()` and
    `Space.ACL()` are now wired through. New handlers in
    `internal/server/handlers_members.go`, `handlers_invites.go`,
@@ -55,10 +65,12 @@ Implementation slices landed:
    validation runs before resolveSpace so 400s don't pay for a space
    lookup.
 6. **Chat built-in type** — `internal/chat` registers a `handler.Type`
-   for per-object `chat_messages` records. Endpoints under
-   `/v1/spaces/:id/objects/:objectId/chat/messages` cover
-   send/list/edit/delete; `…/chat/messages/:msgId/reactions/:emoji` is
-   a toggle. Reactions are
+   for per-object `chat_messages` records. Bespoke endpoints under
+   `/v1/spaces/:id/objects/:objectId/chat/messages` cover writes only —
+   send / edit / delete and the `…/:msgId/reactions/:emoji` toggle.
+   Reads go through `POST /v1/spaces/:id/query` with
+   `dataset=chat_messages` (sort `_ver.id`); live updates through
+   `POST /v1/spaces/:id/query/subscribe`. Reactions are
    identity-keyed in storage (`reactions.<accountId> = [emoji, ...]`)
    so the handler authorization is `op.Path[1] == ctx.Change.Creator`;
    the API server transposes to emoji-keyed on read. Server-stamped
@@ -67,7 +79,7 @@ Implementation slices landed:
    delete enforce author-only via `ctx.Before.creator == ctx.Change.Creator`.
    Chronological order is the SDK's `_ver.id` creation marker (set
    once on creation, never bumped by edits — same role heart's `_o.id`
-   plays). Liveness reuses the generic subscribe primitive with
+   plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
    Optional opaque `fromAgent` tag on create marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
@@ -78,22 +90,21 @@ Implementation slices landed:
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
-   level syntax), `nav.parentId`, `nav.pos` (lexid). Endpoints under
-   `/v1/spaces/:s/objects/:o/editor/blocks` cover list / create /
-   patch / delete; PATCH takes
+   level syntax), `nav.parentId`, `nav.pos` (lexid). Bespoke endpoints
+   under `/v1/spaces/:s/objects/:o/editor/blocks` cover writes only —
+   create / patch / delete. PATCH takes
    `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
-   per-path `$set` / `$unset`. List returns DFS document order. Block
-   ids are auto-derived from the change CID (same shape chat uses).
-   Liveness reuses the generic subscribe primitive with
-   `dataset=editor_blocks`. The existing markdown routes moved into the
-   same namespace — `GET/PUT /editor/markdown` — and stayed (LLM
-   tools and import / export flows depend on them); they now run
-   over the same `editor_blocks` dataset: GET renders blocks →
-   markdown; PUT parses markdown → diffs against the current block
-   tree → emits per-record create / update / delete ops, returning
-   the same `{inserted, updated, deleted, unchanged}` shape. Old
-   `md_blocks` dataset is gone. CLI: `any editor blocks
-   list/create/patch/delete`.
+   per-path `$set` / `$unset`. Block ids are auto-derived from the
+   change CID (same shape chat uses). Reads go through `POST
+   /v1/spaces/:id/query` with `dataset=editor_blocks` (sort
+   `nav.pos`); liveness through `POST /v1/spaces/:id/query/subscribe`.
+   The markdown bridge — `GET/PUT /editor/markdown` — stays as the
+   one render/import transform exception (LLM tooling and Export/
+   Import .md flows depend on it). GET renders blocks → markdown;
+   PUT parses markdown → diffs against the current block tree →
+   emits per-record create / update / delete ops, returning
+   `{inserted, updated, deleted, unchanged}`. CLI: `any editor
+   blocks create/patch/delete`.
 8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
    space's `name` / `description` / `icon` in a derived in-space
    `spaceIndex` object (one per space, deterministic id) rather than
@@ -255,6 +266,12 @@ These cut across files and are easy to violate accidentally:
   backend — one log stream for the whole process. Don't introduce a second logger.
 - **POST `/v1/spaces/:spaceId/query`** uses POST (not GET) because the filter/sort
   body doesn't fit a query string. Don't "fix" this to GET.
+- **Dataset reads go through `/query` and `/query/subscribe`.** Built-in types
+  (chat, editor) keep bespoke handlers for *writes* only (POST/PATCH/DELETE and
+  reactions). Reads always go through the per-object query primitive with the
+  matching `dataset` value (`chat_messages`, `editor_blocks`, ...). One read
+  path per dataset, one wire shape per snapshot. Sole exception: `GET
+  /editor/markdown` is a render transform, not a dataset read.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
 

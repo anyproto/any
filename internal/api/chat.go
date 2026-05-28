@@ -40,14 +40,6 @@ type ChatEditRequest struct {
 	Text string `json:"text"`
 }
 
-// ChatListResponse is the body of GET .../messages. Messages are
-// returned in ascending chatOrder (oldest first). Pagination cursors
-// are message ids — the server resolves them to the underlying
-// chatOrder boundary.
-type ChatListResponse struct {
-	Messages []ChatMessage `json:"messages"`
-}
-
 // ChatReactionsResponse is the body of POST
 // .../messages/:msgId/reactions/:emoji. Carries the post-toggle
 // reactions map for the message, transposed for the wire.

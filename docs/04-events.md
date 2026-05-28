@@ -1,248 +1,177 @@
 # Events / Subscriptions
 
-**Shipped in v1 over Server-Sent Events.** Two endpoints, mirroring the
-SDK's `Space.Subscribe(objectId, dataset)` and `Space.SubscribeProperties()`
-1:1. The full wire format is documented in `03-api.md` § "Subscribe
-(Server-Sent Events)"; this file records the design rationale and the
-contract clients must respect.
+**Shipped in v1 over Server-Sent Events.** Live reads in v1 go through
+the **windowed query/subscribe** primitive: one POST opens a stream
+that delivers an initial materialised snapshot plus per-change windowed
+deltas (`added`/`updated`/`removed`). The full wire format is
+documented in `03-api.md` § "Subscribe (Server-Sent Events)"; this
+file records the design rationale and the contract clients must
+respect.
+
+The two windowed endpoints (cross-object and per-object) wrap the
+SDK's `Query.Snapshot` and `Query.Subscribe` 1:1 — same chained
+builder, same `QueryOpts`, same `SubscriptionEvent` shape on the wire.
+The raw per-apply `Space.Subscribe` / `Space.SubscribeProperties`
+endpoints were retired alongside the SDK; their use cases collapse
+into "windowed query with no filter".
 
 ## Why SSE (not WebSocket)
 
 We considered WebSocket, NDJSON, and SSE. SSE won on the v1 axis:
 
-- One-way is enough — `Event{SpaceId, ObjectId, Dataset, VersionId, Records}`
-  flows server → client; the client never pushes back into the
-  subscription.
+- One-way is enough — the server pushes; the client never sends
+  control frames into the open subscription.
 - Plain HTTP/1.1 — works through any HTTP middleware, debuggable with
   `curl -N`, no upgrade handshake or framing to write.
-- Auto-reconnect comes built-in to browser EventSource, which lines up
-  with the SDK's "re-Query on (re)connect for cold state" contract.
 - WebSocket's main wins are bidirectional control frames (we don't
   need them in v1) and multiplexing many subscriptions on one
   connection (SSE-per-target is fine while we have a handful of
   consumers).
 
-If multiplexing or client-side control frames become load-bearing
-later, `/v2/subscribe` over WebSocket is still on the table — additive
-to the SSE endpoints, not a replacement.
+**One caveat**: the windowed subscribe is POST (the filter body
+doesn't fit a query string), so the browser's `EventSource` doesn't
+apply — clients use `fetch` with a streaming `ReadableStream` and
+parse SSE frames in user-space. The CLI (`any query-subscribe`) and
+Go client (`client.StreamQuerySubscribe`) do this for you.
+
+If multiplexing or client control becomes load-bearing later,
+`/v2/subscribe` over WebSocket is still on the table — additive to
+the SSE endpoints, not a replacement.
 
 ## Contract that clients must respect
 
-1. **Events deliver from registration onward.** There is no replay.
-   On (re)connect, query for cold state separately if you need it.
-2. **`lagged` means re-Query.** When the SDK drops events for a slow
-   consumer (per-subscriber mailbox cap = 64 events, drop-on-overflow
-   policy), the server emits `event: lagged` before the next
-   `changes` frame. The dropped events are gone. Treat `lagged` as a
-   prompt to re-Query the affected dataset; in-stream events are no
-   longer a full picture.
+1. **The bundled snapshot is the only point-in-time read.** Events
+   deliver from registration onward. There is no replay across
+   reconnects — opening a new POST gives you a fresh snapshot frame.
+2. **`closed` is terminal.** Reconnect after `closed`. Reasons:
+   - `server_shutdown` — server is exiting (signal or `POST /v1/shutdown`).
+   - `sdk_closed` — SDK released the underlying subscription (space
+     or SDK closed).
+   - `overflow` — per-sub mailbox filled before the consumer could
+     drain it. The SDK closes the sub rather than dropping events.
+   - `drifted` — more than `driftBudgetPercent` of the held window
+     left without replacements; the SDK refuses to re-query on the
+     hot path. Resubscribe — the new snapshot reflects current state.
+
+   All four mean "open a fresh POST." `overflow` and `drifted` are
+   semantically split so clients can log/backoff intelligently;
+   recovery is identical.
 3. **Wait for `ready` before treating the stream as live.** Errors
    that happen before the SDK Subscribe call returns surface as a
-   regular JSON error envelope, not SSE.
-4. **`closed` is terminal.** Reconnect after `closed`; treat
-   `closed{server_shutdown}` and `closed{sdk_closed}` as transient.
-   A bare EOF without a `closed` frame is a transport problem (also
-   reconnect, but log it).
-5. **Events carry a projected delta.** Each `Event` is `(spaceId,
-   objectId, dataset, versionId, records[])`. `versionId` is the
-   per-change DAG order — clients dedup buffered events against the
-   `_ver` stamps in their queried snapshot. `records[]` is the
-   post-apply effect of the change projected to a flat list of
-   `$set` / `$unset` ops per record (the SDK has already merged
-   with full CRDT semantics, so callers without a CRDT engine apply
-   `records[].ops` directly to a JSON-shaped local copy). A record
-   with `created: true` is a new record — `ops` carries its full
-   initial field set. A record with `deleted: true` means drop the
-   id; `ops` is empty. The two flags are mutually exclusive; neither
-   means a plain field update. The SDK's internal `AddSeq` (local-
-   receive counter) is deliberately not on the wire — versionId is
-   the cross-peer primitive.
+   regular JSON error envelope on the open response, not SSE.
+4. **`snapshot` arrives once, right after `ready`.** Don't apply
+   `changes` frames until the snapshot is integrated — the windowed
+   engine guarantees the snapshot and the first event sit at adjacent
+   versionIds with nothing missed between them.
+5. **Events carry a windowed delta.** Each `changes` array element is
+   `{versionId, added, updated, removed}`. `added` and `updated`
+   carry the full post-apply `doc` plus the per-field `$set`/`$unset`
+   ops the change ran; `removed` is just a list of ids. There is no
+   `_ver` map on the wire — clients derive it from `versionId` if
+   they care about fence-and-replay across reconnects.
+6. **`removed` doesn't say *why*.** Three engine-internal causes
+   funnel into the same signal: tombstoned, filter-rejected (an
+   update pushed the record out of the active filter), or displaced
+   (a higher-priority arrival pushed it past `limit`). From a
+   consumer view, drop the id from local state in all three cases.
+   If you need disambiguation, follow up with `POST …/query` on the
+   id — deleted ⇒ no row; filter-rejected ⇒ row that doesn't match;
+   displaced ⇒ row that does.
 
-## Client recipe: subscribe → collect → query → apply
+## Wire shape recap
 
-This is the **only correct order** to build a live view on top of a
-`(spaceId, objectId, dataset)` triple — or the per-space firehose, or the
-properties subscription. Subscribing after the snapshot leaves a gap
-between the read and the first event; querying after `ready` and
-discarding events that arrive in between has the same gap going the
-other way. The recipe closes both.
+```
+event: ready
+data: {}
 
-### Why this works
+event: snapshot
+data: {"records":[…], "total":17}
 
-Each event carries `versionId` — the per-change DAG order (a lexid)
-that the SDK stamps the change with. On apply, the SDK stamps each
-touched **field path** on the record with that versionId, inside the
-record's `_ver` map:
+event: changes
+data: [{"versionId":"…",
+        "added":[{"id":"…","doc":{…},"ops":[…]}],
+        "updated":[{"id":"…","doc":{…},"ops":[…]}],
+        "removed":["id1","id2"]}]
 
-- A `$set` / `$unset` at path P writes `_ver.<P> = versionId`.
-- A delete (tombstone) writes the change's versionId to `_ver.*` (the
-  default key — applies to every path not explicitly enumerated).
-- `_ver.id` is the **creation marker** — set once when the record is
-  created, only ever *lowered* if a tombstone arrives with a strictly
-  smaller versionId. It does **not** move on edits and cannot be used
-  to dedup them.
+: keepalive
 
-A snapshot row's `_ver.<P>` is therefore the last versionId the
-snapshot absorbed at path P. So:
+event: closed
+data: {"reason":"overflow"}
+```
 
-- An event op at path P is **already covered** by the snapshot iff
-  `event.versionId ≤ snapshot._ver.<P>` (lexid string compare).
-- A `deleted: true` event is **already covered** iff the id is absent
-  from the snapshot (tombstones aren't typically returned by Query),
-  or — if you explicitly include tombstones — `event.versionId ≤
-  snapshot._ver.*`.
+Wait for `ready`. Integrate `snapshot.records` (and stash `total` if
+you asked for it). Apply each subsequent `changes` batch to the local
+window: add new records, update mutated ones, drop ids in `removed`.
+On `closed`, reconnect with a fresh POST.
 
-Subscribing first ensures no change between query-time and live-mode
-goes missing. Per-op-path deduping by versionId ensures we don't
-double-apply a change that the snapshot already absorbed.
+> **Projection is not implemented yet.** The body's `projection`
+> field is parsed but ignored — every record ships its full anyenc
+> form including `_ver` (and `_traces` / `_deletedAt` when present).
+> Strip those fields client-side if you want a leaner local model.
+> Tracked in `docs/07-roadmap.md`.
 
-Resolving `_ver.<P>` walks the `_ver` tree segment by segment, falling
-back to the closest `*` (default) key when a segment is missing. The
-SDK uses the same algorithm internally — see
-`internal/crdt/versions.go::GetRecordVersion` in any-sync-sdk — and
-clients can mirror it in a few lines of map walking.
+### Why no buffer-then-replay step?
 
-### Steps
+The previous (now-retired) raw-stream primitive required the client to
+subscribe first, buffer events, fetch a snapshot, and dedup the buffer
+against per-field `_ver` stamps in the snapshot. That work is now done
+inside the SDK — the engine holds the limited window under its own
+lock and emits the snapshot atomically with the registration. A
+windowed consumer's apply loop is `add/update/remove` with no dedup,
+no buffering, no `_ver` walk.
 
-1. **Subscribe.** Open `GET …/subscribe?dataset=…`. Start an in-memory
-   buffer of `changes` events.
-2. **Wait for `ready`.** Before this, errors arrive as a JSON envelope
-   on the open response — handle that path. After this, the SDK has
-   registered the subscription; every committed change from here on
-   will be delivered (or counted in `Subscription.Dropped` and surfaced
-   as `lagged`).
-3. **Snapshot.** Query for cold state: `GET …/editor/blocks` for a
-   block tree, `POST …/objects/query` for the per-space firehose,
-   `POST …/query` for a per-object dataset, etc. Each row's `_ver`
-   map is the per-field high-water — keep it alongside the payload
-   fields for dedup.
-4. **Replay the buffer.** For each event collected while the query was
-   in flight, for each record in `event.records`:
-   - If `deleted: true`: drop the op if the id is absent from the
-     snapshot (already gone); otherwise remove the id from local
-     state. If you explicitly track tombstones, compare against
-     `snapshot[id]._ver.*` and drop when `event.versionId ≤` it.
-   - Otherwise, for each op in `record.ops`: resolve
-     `snapshot[id]._ver.<op.path>` (walk segments, fall back to the
-     closest `*` default key). If
-     `event.versionId ≤ snapshot[id]._ver.<op.path>`, drop the op —
-     the snapshot already covers it. Otherwise apply the op and
-     write `_ver.<op.path> = event.versionId` in local state.
-5. **Go live.** Apply each subsequent `changes` frame's ops directly to
-   local state — same loop as step 4, just running against the live
-   feed instead of the buffer.
-6. **On `lagged`.** Treat the buffered/streamed events as no longer a
-   full picture. Discard the local state for the affected dataset (or
-   mark it stale) and restart at step 3.
-7. **On `closed`.** Terminal. Reconnect and restart at step 1. The
-   reason field (`server_shutdown`, `sdk_closed`) is for logging /
-   backoff hints; both are transient.
+### Applying `added` / `updated` ops
 
-### Applying ops
-
-`record.ops` is a flat list of `$set` / `$unset` ops the SDK projected
-*after* CRDT merge. A thin client without a CRDT engine applies them
-naively to a JSON-shaped local copy.
-
-`path` is **always a JSON array** of dotted segments — never `null`.
-An empty array `[]` means the record root. So:
+Each `added` or `updated` record carries `doc` (the full post-apply
+JSON) plus `ops` (the per-field `$set` / `$unset` ops from the
+triggering change). Most consumers just take `doc` and overwrite their
+local entry. Consumers that want atomic field merges into a richer
+local model (e.g. CRDT-on-top-of-CRDT, or "show what changed since
+last frame") apply the ops:
 
 - `$set` with `path: ["a","b"]`, `payload: V` — assign `V` to `a.b`.
-- `$set` with `path: []` and an object payload — multi-field set at the
-  record root: each top-level key in `payload` is itself a
-  dot-separated path, each value is what to assign there. (This is the
-  shape new-record creates ship as — one op carrying every initial
-  field; the record also has `created: true`.)
-- `$unset` with `path: ["a","b"]` — delete the key at `a.b`. `path: []`
-  on `$unset` does not occur on the wire — record-level removal arrives
-  as `deleted: true` with `ops` empty.
-- Record with `created: true` — a new record; apply `ops` (its full
-  initial field set), then insert the id into local state.
-- Record with `deleted: true` — drop the id from local state; `ops`
-  is empty.
+- `$set` with `path: []` and an object payload — multi-field set at
+  the record root (the wire shape new-record creates ship as).
+- `$unset` with `path: ["a","b"]` — delete the key at `a.b`. `$unset`
+  with `path: []` does not occur; record-level removal arrives as
+  membership in `removed`.
 
 `$inc` / `$addToSet` / `$pull` / `$incGated` are **not** emitted to
 subscribers — the SDK collapses them to the equivalent `$set` of the
 merged result before delivery. The wire is intentionally narrow so
 non-Go clients don't reimplement CRDT.
 
-Auto-stamped fields ship as ordinary `$set` ops alongside the
-caller's payload — handler-derived stamps (chat: `creator` /
-`createdAt` / `modifiedAt`; properties: `author` / `createdAt` /
-`spaceId`) arrive in the same `record.ops` slice. A viewer
-reconstructing a fresh record applies them the same way as user
-fields; there is no second-class wire form for auto fields.
+## Datasets and how clients should consume them
 
-The `_ver` map is **never** on the wire. The SDK's `_ver.id` creation
-marker is surfaced as the `created: true` flag, not as a `$set` op —
-on a create its value would always equal `event.versionId`, so the op
-carried no information. Per-path `_ver.<P>` stamps aren't shipped
-either: a client derives the whole `_ver` map locally — a `created`
-record is all-at `event.versionId`, and each applied op writes
-`_ver.<op.path> = event.versionId`, per the recipe above.
+All consumers run the same flow above; the dataset names below are the
+`dataset` values to pass on the per-object endpoint
+(`POST /v1/spaces/:id/query/subscribe`). For cross-object live views
+use `POST /v1/spaces/:id/objects/query/subscribe` (no `dataset` —
+implicitly the per-space `objects` collection).
 
-### Pseudo-code
+- **`editor_blocks`** — per-object block tree. Events ship the full
+  post-apply block in `doc`; clients update their tree directly. Same
+  events fire whether the change came from a `PATCH /editor/blocks`
+  call or a bulk `PUT /editor/markdown` rewrite.
+- **`chat_messages`** — per-object chat stream. One message per
+  `added`. Reactions live at `reactions.<emoji>.<accountId>` so a
+  reaction toggle arrives as a `$set`/`$unset` op inside an `updated`
+  event with the parent message id.
+- **`objects`** (per-space firehose) — one row per object in the
+  space, holding computed property values. Object creation lands as
+  `added`, property writes as `updated`, deletes as `removed`. Object
+  deletion writes a CRDT tombstone on the row before tearing down the
+  tree, so the firehose's `removed` signal is the canonical
+  cross-space delete observability.
 
-```
-events = []        // buffered until snapshot lands
-state  = {}        // id -> {record fields, _ver: {id, "<field>": <versionId>, ...}}
+### Known non-conforming consumers
 
-stream = open_sse(subscribe_url)
-for frame in stream:
-    if frame.event == "ready":  break
-    if frame.event == "closed": fail("closed before ready")
-// arm: buffer everything from now until snapshot returns
-async for frame in stream:
-    if frame.event == "changes": events.append(frame.data)
-    elif frame.event == "lagged": mark_lagged()
-
-snapshot = query(...)             // GET /editor/blocks, POST /query, ...
-for row in snapshot.records:
-    state[row.id] = row            // _ver map already on the row
-
-for evt in events:                 // flush buffer
-    apply(evt, state, dedup=True)
-events = []
-
-// live mode
-for frame in stream:
-    match frame.event:
-        case "changes":  apply(frame.data, state, dedup=False)
-        case "lagged":   discard(state); goto snapshot
-        case "closed":   reconnect(); goto stream
-```
-
-`apply` is one function in both phases; the only difference is whether
-to dedup against the snapshot's `_ver` map. Dedup is per op path:
-resolve `state[id]._ver.<op.path>` and drop the op when
-`event.versionId ≤` it. Applied ops write the event's versionId back
-into `state[id]._ver.<op.path>`, so the same comparison keeps working
-in live mode against late-arriving duplicates.
-
-### Gotchas
-
-- **Don't query first.** Any change committed between your snapshot
-  read and the SDK Subscribe call is gone — there's no replay.
-- **Don't apply during the snapshot.** Buffer until the snapshot
-  lands. Applying live events to a partial local state during the
-  query risks ordering paradoxes (a `$unset` for a field the snapshot
-  hasn't loaded yet, etc.).
-- **`versionId` is a lexid string, not a number.** Compare with byte
-  ordering (`==`, `<`, `>`), not numeric.
-- **Multi-record events.** The per-space firehose (`dataset=objects`)
-  and properties subscription emit events whose `records[]` covers
-  several ids per change — dedup per record, then per op-path within
-  each record.
-- **Dedup is per op path, not per record.** `_ver.id` is the creation
-  marker — set once at create, only lowered on delete — so comparing
-  `event.versionId ≤ _ver.id` would treat every edit as new even when
-  the snapshot already absorbed it. Resolve `_ver.<op.path>` for each
-  op instead (the walk falls back to the closest `*` default key when
-  a segment is missing).
-- **Snapshots aren't transactional across rows.** Different rows may
-  reflect changes that landed at different times. The buffer-replay
-  step handles this: any change that landed mid-query shows up on the
-  stream and gets deduped against whichever row already saw it.
+The embedded debug UI (`internal/server/web/index.html`) used the
+old EventSource-driven raw stream for chat liveness. It's currently
+disabled — chat lists render as a static snapshot — pending a
+fetch-streaming POST migration. The tree refetch-on-event stopgap is
+also being rewritten as a windowed subscribe. **Don't copy the
+current state of the web UI as an example.**
 
 ## Lifecycle / shutdown
 
@@ -254,55 +183,23 @@ that counter to drain before calling `e.Shutdown`. A handler wedged on
 a slow client write past the deadline gets cut off with the rest of
 the listener.
 
-## Capacity / overflow
+## Capacity
 
-Per-subscriber mailbox capacity is the SDK default (64). The
-dispatcher uses `mb.TryAdd` — non-blocking, drops on overflow,
-increments `Subscription.Dropped`. The HTTP handler reads the dropped
-counter on every batch and emits `event: lagged{total: <count>}` when
-it grows. v1 does not close the stream on lag — the consumer decides
-whether to reconnect or just re-Query the dataset.
-
-## Datasets and how clients should consume them
-
-All consumers run the recipe above; the dataset names below are the
-`?dataset=` values to pass on the subscribe URL.
-
-- **`editor_blocks`** — per-object block tree. Events project
-  per-record `$set` / `$unset` ops over the block fields; apply them
-  to a local block tree. The same events fire whether the change
-  came from a PATCH /editor/blocks call or a bulk PUT /editor/markdown
-  rewrite — markdown PUT becomes "bulk block ops" under the hood.
-- **`chat_messages`** — per-object chat stream. One record per
-  message; reactions live at
-  `reactions.<emoji>.<accountId> = <changeTimestamp>` (server-
-  derived), so toggle events arrive as `$set` (add) or `$unset`
-  (remove) on the leaf path.
-- **`objects`** — per-space firehose. Each event's `records[]` can
-  cover several object ids per change; dedup per record.
-- **Properties** — `GET /v1/spaces/:id/properties/subscribe` (the
-  dedicated endpoint, no `?dataset=`). Covers property-value writes
-  across every object in the space.
-
-### Known non-conforming consumers
-
-The embedded debug UI (`internal/server/web/index.html`) runs a
-refetch-on-event stopgap for the tree (subscribes to `objects`,
-re-queries the affected folder per event) and chat (subscribes to
-`chat_messages`, re-`list`s on every notification). Stale-after-
-snapshot in the tree was the immediate trigger for shipping
-subscriptions in v1; both will migrate to the recipe. **Don't copy
-these as examples** — they predate the recipe and are scheduled to
-be replaced.
+Per-subscriber mailbox capacity defaults to 256 (`mailboxCapacity` in
+the request body; minimum 16). Drift budget defaults to 30% of the
+window (`driftBudgetPercent`). Both close the subscription on exceed
+with the matching `closed` reason — no in-band `lagged` signal in
+v1, by design.
 
 ## Sync-status streams (a separate SSE primitive)
 
-`/v1/sync-status/subscribe` and `/v1/spaces/:id/sync-status/objects/:objectId/subscribe`
-are SSE endpoints, but they are **not** the dataset-backed subscribe
+`/v1/sync-status/subscribe` and
+`/v1/spaces/:id/sync-status/objects/:objectId/subscribe` are SSE
+endpoints but they are **not** the dataset-backed query/subscribe
 primitive documented above. State-flip events are sparse, per-call
 single payloads coming off the SDK's `Service.SubscribeStatus` /
-`SyncStatusAPI.SubscribeObject` callbacks — no mailbox, no CRDT
-records.
+`SyncStatusAPI.SubscribeObject` callbacks — no mailbox window, no
+CRDT records.
 
 Frame set:
 
@@ -317,14 +214,14 @@ event: lagged
 data: { "total": <count> }              # only if the forwarder dropped events
 
 event: closed
-data: { "reason": "server_shutdown" }   # client-disconnect writes nothing
+data: { "reason": "server_shutdown" }
 ```
 
 `event: status` body shapes match the GET responses on
 `/v1/spaces/:id/sync-status` and `/v1/spaces/:id/sync-status/objects/:id`
 respectively — `state` is one of `unknown` / `offline` / `syncing` /
-`synced` / `error`. The `closed` reason set is shared with
-`/subscribe`, so a client can use one switch for both stream
+`synced` / `error`. The `closed` reason set is shared with the
+query/subscribe streams, so a client can use one switch for both
 families.
 
 The per-stream forwarder uses a small buffered channel (16 deep);
@@ -364,37 +261,28 @@ data: { "reason": "server_shutdown" }
 
 `kind` values:
 
-- **`added`** — identity appeared in the snapshot. Fires for new
-  confirmed members and new pending join requests.
-- **`changed`** — same identity, different state. Covers permission
-  upgrades/demotions, status flips (joining → active on accept), and
-  profile metadata updates. `previous` carries the pre-event state.
-- **`removed`** — identity dropped from the snapshot. Fires for
-  declined/canceled join requests and (rare) full-member removal where
-  no tombstone remains. Usually a removal surfaces as a `changed`
-  event with `status: "removed"`.
+- **`added`** — identity appeared in the snapshot.
+- **`changed`** — same identity, different state.
+- **`removed`** — identity dropped from the snapshot.
 
 `member` always carries the full post-event `Member` shape (same as
-`GET /v1/spaces/:id/members/:identity`), so the client can apply it
-directly without a follow-up fetch. `previous` is null on `added`.
-
-The forwarder uses the same small buffered channel (16 deep) and
-overflow-to-`lagged` pattern as sync-status. The `closed` reason set
-is shared across all SSE families.
+`GET /v1/spaces/:id/members/:identity`). `previous` is null on
+`added`. The forwarder uses the same small buffered channel (16 deep)
+and overflow-to-`lagged` pattern as sync-status.
 
 CLI: `any members subscribe <spaceId>`.
 
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay
-  from a per-record `versionId`, we can plumb that through as the
-  resume primitive — likely as a `?since=<versionId>` query on the
-  subscribe URL, with the server replaying changes whose versionId
-  sorts after `since` before transitioning to live events.
-- **Filtered subscriptions.** Today only `(objectId, dataset)` and the
-  per-space firehose. If a UI needs a typed-property filter, layer it
-  on top via `mb.WaitCond.WithFilter` server-side rather than rolling
-  yet another endpoint shape.
+  from a per-record `versionId`, we can plumb that through as
+  `?since=<versionId>` on the subscribe URL, with the server replaying
+  changes whose versionId sorts after `since` before transitioning to
+  live events.
+- **Server-driven lagged signal on query/subscribe.** The windowed
+  stream closes on overflow rather than emitting a `lagged` frame; a
+  future variant could grow a soft signal for clients that want to
+  ride out short bursts without resubscribing.
 - **WebSocket multiplex.** If a consumer wants many subscriptions per
   connection, `/v2/subscribe` over WS becomes the right answer.
   Additive — SSE endpoints stay.

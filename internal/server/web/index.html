@@ -1312,18 +1312,22 @@
   const objectMessagesPath = (sp, oid) =>
     '/v1/spaces/' + encodeURIComponent(sp) + '/objects/' + encodeURIComponent(oid) + '/chat/messages';
 
+  // Reads run through POST /query with dataset=chat_messages — the
+  // bespoke GET endpoint is gone (writes still hit /chat/messages).
   async function loadChatMessages(spaceId, objectId) {
     const obj = App.spaces[spaceId]?.objects[objectId];
     if (!obj) return null;
     if (obj.chatLoading) return obj.chatMessages || [];
     obj.chatLoading = true;
     try {
-      const r = await api.get(objectMessagesPath(spaceId, objectId));
+      const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/query', {
+        objectId, dataset: 'chat_messages', sort: ['_ver.id'],
+      });
       if (!r.ok) {
         toast('err', 'load messages failed', r.body);
         return obj.chatMessages || [];
       }
-      obj.chatMessages = (r.json && Array.isArray(r.json.messages)) ? r.json.messages : [];
+      obj.chatMessages = (r.json && Array.isArray(r.json.records)) ? r.json.records : [];
       return obj.chatMessages;
     } finally {
       obj.chatLoading = false;
@@ -1853,32 +1857,14 @@
       });
     }
 
-    const path = '/v1/spaces/' + encodeURIComponent(sp.info.id) +
-      '/objects/' + encodeURIComponent(oid) +
-      '/subscribe?dataset=' + encodeURIComponent(CHAT_DATASET);
-    let firstReady = true;
-    const es = new EventSource(path);
-    es.addEventListener('ready', () => {
-      // First `ready` lands during the initial mount; the page-data
-      // fetch already populated o.chatMessages, so don't double-load.
-      // Subsequent `ready` frames mean EventSource auto-reconnected
-      // after a transport drop — re-fetch in case events landed
-      // during the gap.
-      if (firstReady) { firstReady = false; return; }
-      refreshChatMessages(sp.info.id, oid).catch(() => {});
-    });
-    es.addEventListener('changes', () => {
-      // Re-fetch and re-render the message list. We don't trust the
-      // SSE frame's payload to carry message bodies — it's a routing
-      // tuple by design.
-      refreshChatMessages(sp.info.id, oid).catch(() => {});
-    });
-    es.addEventListener('closed', () => { es.close(); });
-    activeChat = { es, spaceId: sp.info.id, objectId: oid };
+    // TODO: chat liveness needs porting to POST /v1/spaces/:id/query/subscribe
+    // (browser EventSource is GET-only; use fetch + ReadableStream + manual
+    // SSE parsing). For now mount produces a static snapshot only.
+    activeChat = { es: null, spaceId: sp.info.id, objectId: oid };
   }
   function unmountChat() {
     if (activeChat) {
-      try { activeChat.es.close(); } catch (e) {}
+      try { if (activeChat.es) activeChat.es.close(); } catch (e) {}
       activeChat = null;
     }
   }

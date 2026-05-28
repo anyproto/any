@@ -39,7 +39,7 @@ func (c *Client) SyncStatusObject(ctx context.Context, spaceId, objectId string)
 // Blocks until the server sends `closed`, the body returns EOF, or
 // ctx is canceled.
 func (c *Client) StreamSyncStatusAccount(ctx context.Context, fn func(SSEFrame) error) error {
-	return c.streamSSE(ctx, "/v1/sync-status/subscribe", fn)
+	return c.streamSSE(ctx, http.MethodGet, "/v1/sync-status/subscribe", nil, fn)
 }
 
 // StreamSyncStatusObject opens
@@ -48,5 +48,5 @@ func (c *Client) StreamSyncStatusAccount(ctx context.Context, fn func(SSEFrame) 
 func (c *Client) StreamSyncStatusObject(ctx context.Context, spaceId, objectId string, fn func(SSEFrame) error) error {
 	path := fmt.Sprintf("/v1/spaces/%s/sync-status/objects/%s/subscribe",
 		url.PathEscape(spaceId), url.PathEscape(objectId))
-	return c.streamSSE(ctx, path, fn)
+	return c.streamSSE(ctx, http.MethodGet, path, nil, fn)
 }

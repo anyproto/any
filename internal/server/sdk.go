@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
@@ -16,6 +17,20 @@ import (
 	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/program"
 )
+
+// logConfigOnce gates Config.ApplyGlobal so the zap defaults are set
+// at most once per process. ApplyGlobal mutates the
+// any-sync/app/logger package globals (SetDefault, SetNamedLevels),
+// which races against any background SDK goroutine still reading the
+// logger after a prior boot — in the test suite, newTestDeps creates
+// + tears down the SDK per test, and the streampool sendLoop's Debug
+// calls from the previous boot trip the detector when the next boot
+// re-applies the config.
+//
+// In production Run calls ApplyGlobal first; OpenSDK's call is a
+// belt-and-braces no-op after the Once fires. In tests the first
+// newTestDeps wins; subsequent ones leave the global alone.
+var logConfigOnce sync.Once
 
 // OpenSDK boots the SDK against the wallet provider and the project
 // config. Storage lives under <dataDir>/sdk so the SDK's any-store and
@@ -39,7 +54,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		return nil, fmt.Errorf("unknown storage topology %q", cfg.Storage.Topology)
 	}
 
-	cfg.Log.ApplyGlobal()
+	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 
 	sdkCfg := sdkconfig.Config{
 		Storage: sdkconfig.Storage{

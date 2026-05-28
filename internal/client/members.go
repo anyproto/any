@@ -50,7 +50,7 @@ func (c *Client) JoinRequests(ctx context.Context, spaceId string) (*api.JoinReq
 // and dispatches every SSE frame to fn. Blocks until closed or ctx canceled.
 func (c *Client) StreamSubscribeMembers(ctx context.Context, spaceId string, fn func(SSEFrame) error) error {
 	path := fmt.Sprintf("/v1/spaces/%s/members/subscribe", url.PathEscape(spaceId))
-	return c.streamSSE(ctx, path, fn)
+	return c.streamSSE(ctx, http.MethodGet, path, nil, fn)
 }
 
 // Invite mint / list / revoke ----------------------------------------------

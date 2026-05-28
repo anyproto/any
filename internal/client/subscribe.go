@@ -23,34 +23,43 @@ type SSEFrame struct {
 	Data  []byte
 }
 
-// StreamSubscribeObject opens GET /v1/spaces/:spaceId/objects/:objectId/subscribe
-// and dispatches every SSE frame to fn. Blocks until the server sends
-// a `closed` frame, the body returns EOF, or ctx is canceled.
-func (c *Client) StreamSubscribeObject(ctx context.Context, spaceId, objectId, dataset string, fn func(SSEFrame) error) error {
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/subscribe?dataset=%s",
-		url.PathEscape(spaceId), url.PathEscape(objectId), url.QueryEscape(dataset))
-	return c.streamSSE(ctx, path, fn)
+// StreamObjectsQuerySubscribe opens
+// POST /v1/spaces/:spaceId/objects/query/subscribe with body as the
+// query (filter / sort / limit / offset / includeTotal /
+// mailboxCapacity / driftBudgetPercent) and dispatches every SSE
+// frame to fn. Blocks until the server sends a `closed` frame, the
+// body returns EOF, or ctx is canceled.
+func (c *Client) StreamObjectsQuerySubscribe(ctx context.Context, spaceId string, body []byte, fn func(SSEFrame) error) error {
+	path := fmt.Sprintf("/v1/spaces/%s/objects/query/subscribe", url.PathEscape(spaceId))
+	return c.streamSSE(ctx, http.MethodPost, path, body, fn)
 }
 
-// StreamSubscribeProperties opens GET /v1/spaces/:spaceId/properties/subscribe
-// (the per-space property-firehose) and dispatches every SSE frame to
-// fn.
-func (c *Client) StreamSubscribeProperties(ctx context.Context, spaceId string, fn func(SSEFrame) error) error {
-	path := fmt.Sprintf("/v1/spaces/%s/properties/subscribe", url.PathEscape(spaceId))
-	return c.streamSSE(ctx, path, fn)
+// StreamQuerySubscribe opens POST /v1/spaces/:spaceId/query/subscribe
+// with body containing objectId + dataset + standard query fields.
+func (c *Client) StreamQuerySubscribe(ctx context.Context, spaceId string, body []byte, fn func(SSEFrame) error) error {
+	path := fmt.Sprintf("/v1/spaces/%s/query/subscribe", url.PathEscape(spaceId))
+	return c.streamSSE(ctx, http.MethodPost, path, body, fn)
 }
 
-// streamSSE issues a GET to path and parses the SSE response into
-// frames. The shared *http.Client carries a request timeout that's
-// useless for long-lived streams, so we use a fresh client without
-// one — the caller's ctx is the only deadline.
-func (c *Client) streamSSE(ctx context.Context, path string, fn func(SSEFrame) error) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+// streamSSE issues an HTTP request to path with the given method and
+// optional body, and parses the SSE response into frames. The shared
+// *http.Client carries a request timeout that's useless for long-
+// lived streams, so we use a fresh client without one — the caller's
+// ctx is the only deadline.
+func (c *Client) streamSSE(ctx context.Context, method, path string, body []byte, fn func(SSEFrame) error) error {
+	var reqBody io.Reader
+	if len(body) > 0 {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reqBody)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := streamHTTP.Do(req)
 	if err != nil {
@@ -147,15 +156,15 @@ func splitSSEField(line []byte) (string, []byte) {
 	return string(line[:idx]), value
 }
 
-// SubscribeFrame is a typed view over an SSEFrame from one of the
-// /subscribe endpoints. Exactly one of Ready/Changes/Lagged/Closed is
-// non-nil. Unknown event types pass through with the type left as the
+// QuerySubscribeFrame is a typed view over an SSEFrame from a
+// query/subscribe stream. Exactly one of Ready/Snapshot/Changes/Closed
+// is non-nil. Unknown event types pass through with Type set to the
 // raw event name and Data unset — additive future events stay
 // consumable without a client update.
-type SubscribeFrame struct {
-	Type    string
-	Ready   *api.SubscribeReady
-	Changes []api.SubscribeEvent
-	Lagged  *api.SubscribeLagged
-	Closed  *api.SubscribeClosed
+type QuerySubscribeFrame struct {
+	Type     string
+	Ready    *api.SubscribeReady
+	Snapshot *api.QuerySubscribeSnapshot
+	Changes  []api.QuerySubscribeEvent
+	Closed   *api.SubscribeClosed
 }

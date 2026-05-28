@@ -228,23 +228,6 @@ func (d *deps) objectDelete(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 
-	// Tombstone the per-space row first. Errors here are not fatal —
-	// the row may already be tombstoned (idempotent re-delete) or the
-	// system handler may reject; we continue to the tree delete either
-	// way and log the situation.
-	if _, err := sp.Delete(c.Request().Context(), space.DeleteBatch{
-		ObjectId:  objectId,
-		Dataset:   "objects",
-		RecordIds: []string{objectId},
-	}); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		// Soft-fail: a missing or already-tombstoned row shouldn't
-		// stop the tree delete. Anything else surfaces in the log.
-		c.Logger().Warnf("objectDelete: tombstone row %s: %v", objectId, err)
-	}
-
 	if err := sp.Objects().Delete(c.Request().Context(), objectId); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)

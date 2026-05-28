@@ -22,13 +22,6 @@ type BlockNav struct {
 	Pos      string `json:"pos"`
 }
 
-// BlockListResponse is the body of GET .../blocks. Blocks are
-// returned in depth-first document order — top-level by nav.pos
-// ascending, each block followed inline by its children.
-type BlockListResponse struct {
-	Records []Block `json:"records"`
-}
-
 // BlockCreateRequest is the body of POST .../blocks. `type` is
 // required; everything else is optional with safe defaults.
 //

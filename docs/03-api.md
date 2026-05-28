@@ -15,6 +15,14 @@
 - **Errors**: see `06-errors.md`. Always JSON, always the same shape.
 - **Binding**: use `echo.Context.Bind` for request bodies. Share the
   request/response types between server and CLI via `internal/api/`.
+- **Dataset reads go through `/query` and `/query/subscribe`.**
+  Built-in types (chat, editor) keep bespoke handlers for *writes*
+  only — POST/PATCH/DELETE and reactions. Reads always go through
+  the per-object query primitive with the matching `dataset` value
+  (`chat_messages`, `editor_blocks`, etc.). One read path for every
+  dataset, one wire shape for every snapshot. The lone exception is
+  `GET /editor/markdown`, which renders blocks to markdown bytes —
+  a transform, not a dataset read.
 
 ## Endpoint catalog
 
@@ -63,8 +71,8 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
 metadata. Stable across peers and across SDK reboots — clients
-attach a subscribe stream to it on the `objects` dataset to live-
-update name / description / icon. Single-space responses
+attach a `POST /v1/spaces/:id/objects/query/subscribe` stream filtered
+on this id to live-update name / description / icon. Single-space responses
 (`POST /v1/spaces`, `GET /v1/spaces/:id`, `PATCH /v1/spaces/:id`)
 always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
@@ -94,24 +102,23 @@ mirrors the converged state into its own local tech-space row.
 Because the mirror runs asynchronously (subscription delivery, not
 in-line with the local write), an immediate follow-up `GET
 /v1/spaces/:id` may briefly return the pre-patch values. Callers that
-need the converged state poll, or attach a subscribe stream to
-`spaceIndexObjectId`'s `objects` dataset.
+need the converged state poll, or attach a `…/objects/query/subscribe`
+stream filtered on `spaceIndexObjectId`.
 
 ### Objects
 
-| Method | Path                                                      | Purpose                  |
-|--------|-----------------------------------------------------------|--------------------------|
-| POST   | `/v1/spaces/:spaceId/objects`                             | `Objects.Create`         |
-| POST   | `/v1/spaces/:spaceId/objects/derive`                      | `Objects.Derive`         |
-| POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.All` |
-| DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`         |
+| Method | Path                                                      | Purpose                            |
+|--------|-----------------------------------------------------------|------------------------------------|
+| POST   | `/v1/spaces/:spaceId/objects`                             | `Objects.Create`                   |
+| POST   | `/v1/spaces/:spaceId/objects/derive`                      | `Objects.Derive`                   |
+| POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.Snapshot`      |
+| POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | list every block (DFS order) |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | create one block         |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | $set / $unset one block  |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | tombstone one block      |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/subscribe`                    | `Space.Subscribe` (SSE)  |
 
 Object bodies are stored as a tree of atomic blocks on a per-object
 `editor_blocks` dataset (one record per block) and exposed through the
@@ -119,8 +126,8 @@ Object bodies are stored as a tree of atomic blocks on a per-object
 `…/editor/blocks` endpoints; the two `…/editor/markdown` routes are
 a lossless import/export layer over the same dataset for LLM tools,
 "Export as .md" / "Import .md" flows, and programmatic API users that
-don't want to walk the block tree. Liveness reuses the generic
-subscribe primitive with `dataset=editor_blocks`.
+don't want to walk the block tree. Liveness goes through the
+per-object query/subscribe endpoint with `dataset=editor_blocks`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
@@ -162,22 +169,23 @@ strikethrough. Block-level syntax (heading hashes, list bullets,
 fences, quote `>` prefixes) lives in `type` + `style` instead so
 clients render blocks structurally without re-parsing.
 
-##### List blocks
+##### Read blocks
 
-`GET /v1/spaces/:spaceId/objects/:objectId/editor/blocks`
+The bespoke list endpoint is gone — reads go through the per-object
+query primitive with `dataset=editor_blocks`:
 
-```json
-{ "records": [
-  { "id": "...", "_ver": {"id":"..."}, "type": "heading",
-    "style": {"level": 1}, "text": "Title",
-    "nav": {"parentId": "", "pos": "MMMM"} },
-  ...
-] }
+```
+POST /v1/spaces/:spaceId/query
+{ "objectId": "<oid>",
+  "dataset":  "editor_blocks",
+  "sort":     ["nav.pos"] }
 ```
 
-Records are returned in depth-first document order — top-level
-blocks first (sorted by `nav.pos`), each block followed inline by
-its children. Empty array when the object has no body blocks yet.
+Each record carries `id`, `_ver`, `type`, `style`, `text`, `nav`.
+Records sort by `nav.pos` ascending (flat order, not DFS — clients
+that want DFS reconstruct the tree by grouping children under each
+`nav.parentId`). Empty `records` array when the object has no body
+blocks yet.
 
 ##### Create
 
@@ -238,18 +246,21 @@ via `PUT /editor/markdown`, which diffs the whole body.
 
 ##### Subscribe
 
-Liveness reuses the existing subscribe endpoint with
-`dataset=editor_blocks`:
+Liveness goes through the per-object windowed query/subscribe endpoint
+with `dataset=editor_blocks`:
 
 ```
-GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
+POST /v1/spaces/:spaceId/query/subscribe
+{ "objectId": "<oid>", "dataset": "editor_blocks", "sort": ["nav.pos"] }
 ```
 
-`changes` frames carry projected `$set` / `$unset` ops per record;
-`created:true` records are newly inserted blocks (`ops` carries the
-full block), `deleted:true` records mean the block was tombstoned.
-The same events fire whether the change originated from a PATCH
-/editor/blocks call or from a PUT /editor/markdown bulk rewrite.
+`changes` frames carry `added` / `updated` / `removed` for blocks
+entering, mutating, or leaving the visible window. `added` records
+include the full block as `doc` plus its per-field ops; `updated`
+records carry the post-apply doc and the ops that triggered the
+change; `removed` carries just the id. The same events fire whether
+the change originated from a PATCH /editor/blocks call or a PUT
+/editor/markdown bulk rewrite. See `04-events.md`.
 
 #### `nav` auto-stamping on `Objects.Create`
 
@@ -311,48 +322,80 @@ compute drop-target positions without a server round-trip.
 
 #### Object deletion
 
-`Objects.Delete` only deletes the any-sync tree; the projection row
-in the per-space `objects` collection survives the call (the any-store
-collection isn't tied to the tree's lifecycle). The SDK's query
-iterator filters rows that carry `_deletedAt`, so the server's
-`DELETE /v1/spaces/:spaceId/objects/:objectId` first writes a
-record-level tombstone via `space.Delete(ObjectId, Dataset:"objects",
-RecordIds:[oid])` and **then** runs `Objects.Delete`. Order matters —
-once the tree is gone the per-object Modify path can no longer write
-the tombstone and the row would linger in queries indefinitely.
+`DELETE /v1/spaces/:spaceId/objects/:objectId` is a single
+`Objects.Delete` call. The SDK writes a record-level tombstone on the
+per-space `objects` row before tearing down the any-sync tree, so the
+row disappears from `QueryObjects` and a `deleted: true` event fires
+on the per-space firehose (`dataset=objects`) with the change's
+`versionId` — the canonical signal subscribers use to drop the id
+from local state. See `04-events.md`.
 
 ### Data plane
 
-| Method | Path                                                      | Purpose             |
-|--------|-----------------------------------------------------------|---------------------|
-| POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.All`   |
-| POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`      |
-| POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`      |
+| Method | Path                                                      | Purpose                              |
+|--------|-----------------------------------------------------------|--------------------------------------|
+| POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.Snapshot`               |
+| POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
+| POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
+| POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
-Two query endpoints, scoped differently:
+Two query scopes:
 
-- `POST /v1/spaces/:spaceId/objects/query` — **cross-object**. Reads
-  the per-space `objects` collection (one row per object's computed
-  property values). Use this to find objects by property
-  (e.g. `{"filter":{"<typeId>.<propId>":"Casablanca"}}`).
-- `POST /v1/spaces/:spaceId/query` — **per-object**. Reads one of an
-  object's own datasets (`objectId` and `dataset` required). Used
-  primarily for a type object's `properties` definitions dataset; the
-  per-object property *values* dataset went away when storage moved
-  to the shared per-space collection.
+- `POST /v1/spaces/:spaceId/objects/query` (+ `/subscribe`) —
+  **cross-object**. Reads the per-space `objects` collection (one row
+  per object's computed property values). Use this to find objects by
+  property, e.g. `{"filter":{"<typeId>.<propId>":"Casablanca"}}`.
+- `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
+  Reads one of an object's own datasets (`objectId` and `dataset`
+  required). Used for a type object's `properties` definitions
+  dataset, `editor_blocks`, `chat_messages`, etc.
 
-Both use POST (not GET) because the filter/sort body doesn't fit
-cleanly in a query string. For live updates use the SSE
-subscribe endpoints — see `04-events.md`.
+All four take POST (filter/sort body doesn't fit a query string).
+Reads always go through these — the bare `…/query` returns a
+point-in-time snapshot; `…/query/subscribe` returns the same
+snapshot plus a live SSE stream of windowed transitions. See
+`04-events.md` for the subscribe contract.
+
+#### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
+
+```json
+{
+  "objectId":   "obj_abc",            // per-object variant only
+  "dataset":    "notes",              // per-object variant only
+  "filter":     { "tags": "idea" },
+  "sort":       ["-_ver.id"],         // required when limit > 0 on subscribe
+  "limit":      100,
+  "offset":     0,
+  "includeTotal":       true,         // populate `total` in the snapshot
+  "mailboxCapacity":    256,          // subscribe only — default 256, min 16
+  "driftBudgetPercent": 30,           // subscribe only — default 30
+  "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
+}
+```
+
+**`projection` is not implemented yet.** The field is accepted in the
+body but the server doesn't thread it to `Query.Projection`, and the
+SDK's `Projection(opts)` is itself a no-op in MVP. Every record on
+snapshot frames and every `added` / `updated` record in `changes`
+events ships its full anyenc form — `_ver` (creation marker + per-
+field high-water), and `_traces` / `_deletedAt` if present. Clients
+that need a leaner shape strip those fields locally for now. See
+`docs/07-roadmap.md` § "Query `Projection`".
+
+Snapshot response (bare `…/query`):
+
+```json
+{ "records": [ /* *anyenc.Value rendered as JSON */ ],
+  "total":   17 }                     // omitted when includeTotal=false
+```
 
 #### Subscribe (Server-Sent Events)
 
-Two endpoints, mirroring the SDK's `Space.Subscribe(objectId, dataset)`
-and `Space.SubscribeProperties()` 1:1:
+Two endpoints — POST, body as documented above:
 
 ```
-GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=<name>
-GET /v1/spaces/:spaceId/properties/subscribe
+POST /v1/spaces/:spaceId/objects/query/subscribe       (cross-object)
+POST /v1/spaces/:spaceId/query/subscribe               (per-object)
 ```
 
 Response is `Content-Type: text/event-stream`. Errors before the
@@ -366,61 +409,74 @@ Wire format:
 event: ready
 data: {}
 
-event: changes
-data: [{"spaceId":"...","objectId":"...","dataset":"objects",
-        "versionId":"!!%>",
-        "records":[{"id":"...","created":true,
-                    "ops":[{"type":"$set","path":["typeId","propId"],
-                            "payload":"hello"}]}]}]
+event: snapshot
+data: {"records":[{"id":"obj_a", "...": "..."}, ...], "total": 17}
 
-event: lagged
-data: {"total": 3}
+event: changes
+data: [{"versionId":"!!%>",
+        "added":  [{"id":"obj_c","doc":{...},
+                    "ops":[{"type":"$set","path":[],
+                            "payload":{"title":"hello"}}]}],
+        "updated":[{"id":"obj_a","doc":{...},
+                    "ops":[{"type":"$set","path":["title"],
+                            "payload":"renamed"}]}],
+        "removed":["obj_b"]}]
 
 : keepalive
 
 event: closed
-data: {"reason": "server_shutdown"}
+data: {"reason": "overflow"}
 ```
 
-- `ready` is sent once after the SDK Subscribe call returns. Wait for
-  it before treating the stream as live.
-- `changes` carries a JSON array of zero-or-more events. Each event is
-  the routing tuple plus `versionId` (the per-change DAG order) and
-  `records` (the post-apply effect projected to a flat list of
-  `$set` / `$unset` ops per record — the SDK has already merged with
-  full CRDT semantics, so a thin client without a CRDT engine applies
-  `records[].ops` naively to a JSON-shaped local copy). A record with
-  `"created": true` is a new record — `ops` carries its full initial
-  field set; insert the id. A record with `"deleted": true` means drop
-  that id from local state; `ops` is empty. The two flags are mutually
-  exclusive; neither means a plain field update.
+- **`ready`** — sent once after the SDK `Subscribe` call returns. Wait
+  for it before treating the stream as live.
+- **`snapshot`** — sent once, right after `ready`. `records` is the
+  materialised window (bounded by `limit`/`offset`); `total` is the
+  unbounded filter-matching count, present only when `includeTotal`
+  was set in the request body.
+- **`changes`** — JSON array of zero-or-more windowed events. Each
+  event has `versionId` (per-change DAG order, locally-scoped — don't
+  compare across peers) plus three buckets:
+  - `added` — records that entered the visible window. Each carries
+    the full `doc` plus the per-field `$set`/`$unset` ops that
+    triggered the entry (a brand-new record's ops collapse to one
+    multi-field `$set` at path `[]`).
+  - `updated` — records already in the window whose state changed.
+    Same `doc`+`ops` shape as `added`.
+  - `removed` — array of ids that left the window. The wire does NOT
+    distinguish *deleted* / *filter-rejected* / *displaced* (pushed
+    past `limit`); all three look the same. From the consumer's view
+    the action is the same: drop the id from local state. If you need
+    to know which it was, query `…/query` with that id.
+
   An op's `path` is always a JSON array of dotted segments — never
   `null`. An empty array `[]` means the record root: on `$set`, the
   payload is then an object whose top-level keys are themselves
-  dot-separated paths to assign at (the wire shape every record-create
-  ships as). Wait coalesces every event accumulated during the previous
-  write into a single frame, so a slow client / network produces fewer,
-  larger frames rather than head-of-line stalls. There is no SSE
-  `id:` — clients dedup by comparing `versionId` against the per-
-  field `_ver` stamps in their snapshot. The `_ver` map itself is never
-  on the wire: the `_ver.id` creation marker is surfaced as `created`,
-  and per-field `_ver.<path>` stamps are derived client-side
-  (`_ver.<op.path> = versionId` on apply).
-- `lagged` is emitted before a `changes` frame whenever the SDK has
-  dropped events for this subscriber (slow consumer hit the per-
-  subscriber mailbox cap). `total` is the cumulative drop count.
-  Treat any `lagged` as "the in-stream events are no longer a full
-  picture — re-Query for current state".
-- `: keepalive` comments arrive every 25s during silence to defeat
+  dot-separated paths to assign at. `Wait` coalesces every event
+  accumulated during the previous write into a single frame, so a
+  slow client / network produces fewer, larger frames rather than
+  head-of-line stalls.
+- **`: keepalive`** — comment frame every 25s during silence; defeats
   idle middlebox timeouts.
-- `closed` is the terminal frame. Reasons: `server_shutdown` (signal
-  or `POST /v1/shutdown`), `sdk_closed` (space or SDK released the
-  subscription). Reconnect after either.
+- **`closed`** — terminal frame. Reasons:
+  - `server_shutdown` — server got a signal or `POST /v1/shutdown`.
+  - `sdk_closed` — the SDK released the subscription channel (space
+    or SDK closed).
+  - `overflow` — the per-subscriber mailbox filled before the consumer
+    drained it. The SDK closes the sub rather than dropping events —
+    resubscribe to get a fresh snapshot.
+  - `drifted` — more than `driftBudgetPercent` of the held window left
+    without replacements, and the engine refuses to re-query on the
+    hot path. Resubscribe.
+
+  All four reasons mean "the stream is over; if you want live state,
+  open a new POST." Recovery is identical for `overflow` and `drifted`
+  — the reason is split only so clients can log/backoff sensibly.
 
 Subscriptions deliver events from registration onward only — there is
-no replay. Cold-state callers must `Query` separately. POST to
-`/spaces/:spaceId/shutdown` doesn't exist; the per-subscription close
-is just disconnecting (or the server `closed` frame).
+no replay. The bundled `snapshot` frame is the only point-in-time read.
+There is no SSE `id:` — clients fence-and-replay on `versionId` if
+they want at-least-once semantics across reconnects.
 
 ### Types
 
@@ -439,7 +495,6 @@ is just disconnecting (or the server `closed` frame).
 
 | Method | Path                                                          | Purpose                          |
 |--------|---------------------------------------------------------------|----------------------------------|
-| GET    | `/v1/spaces/:spaceId/properties/subscribe`                    | `Space.SubscribeProperties` (SSE) |
 | GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`              |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/base/:typeId`       | `PropertiesAPI.SetBase`          |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/account/:typeId`    | `PropertiesAPI.SetAccount`       |
@@ -452,19 +507,23 @@ is just disconnecting (or the server `closed` frame).
 | Method | Path                                                                     | Purpose                  |
 |--------|--------------------------------------------------------------------------|--------------------------|
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages`                         | send a message           |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/chat/messages`                         | list messages            |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | edit own message text    |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | delete own message       |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 
-Liveness is the existing subscribe endpoint with `dataset=chat_messages`:
+Liveness goes through the per-object query/subscribe endpoint with
+`dataset=chat_messages`:
 
 ```
-GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=chat_messages
+POST /v1/spaces/:spaceId/query/subscribe
+{ "objectId": "<chatObjectId>",
+  "dataset":  "chat_messages",
+  "sort":     ["_ver.id"] }
 ```
 
-Clients re-query for the new message body when a `changes` frame
-arrives (the SSE event is just the routing tuple — see `04-events.md`).
+New incoming messages arrive in `added`; edits in `updated`; deletes
+and reactions toggling off in `removed`. `added.doc` carries the full
+message body — no follow-up GET needed. See `04-events.md`.
 
 #### Message wire shape
 
@@ -518,19 +577,33 @@ target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
 present; immutable post-create. Returns 201 with the full message
 record (server-stamped fields included).
 
-#### List
+#### Read
 
-`GET /v1/spaces/:spaceId/objects/:objectId/chat/messages?before=&after=&limit=`
+The bespoke list endpoint is gone — reads go through the per-object
+query primitive with `dataset=chat_messages`:
 
-Returns messages in ascending creation order (oldest first). Cursors
-`before` / `after` are message ids; the server resolves them to the
-underlying `_ver.id` boundary (the SDK's stable creation-version
-marker — set once on creation, never updated by edits, so reordering
-on edit is impossible). `limit` defaults to 50, max 200.
-
-```json
-{ "messages": [ /* ChatMessage, ... */ ] }
 ```
+POST /v1/spaces/:spaceId/query
+{ "objectId": "<chatObjectId>",
+  "dataset":  "chat_messages",
+  "sort":     ["_ver.id"],
+  "limit":    50 }
+```
+
+Records sort by `_ver.id` ascending — the SDK's stable creation-
+version marker (set once on creation, never bumped by edits, so
+chronological order survives mutations). Pagination via `before` /
+`after` is a client-side two-step: query the cursor message to read
+its `_ver.id`, then chain a second query with `filter: {"_ver.id":
+{"$lt": <id>}}` or `{"$gt": <id>}` and the same sort. The bespoke
+endpoint's `before` / `after` / `limit` flags moved off the API
+surface; the recipe replaces them.
+
+Reactions on queried records are NOT the transposed
+`{emoji: [accountId,...]}` shape — they ship raw as
+`reactions.<emoji>.<accountId> = <timestamp>` (server-derived). Use
+the POST `…/reactions/:emoji` response for the transposed wire shape
+when needed.
 
 #### Edit / delete (own only)
 
@@ -792,24 +865,7 @@ length — it is not a cross-peer primitive.
 
 ## Body shapes (examples)
 
-Exact JSON tags live in `internal/api/` when implementation starts.
-These are the target shapes — they mirror the SDK 1:1.
-
-**POST /v1/spaces/:spaceId/query**
-
-```json
-{
-  "objectId":   "obj_abc",
-  "dataset":    "notes",
-  "filter":     { "tags": "idea" },
-  "sort":       ["-_ver.id"],
-  "limit":      100,
-  "offset":     0,
-  "projection": { "includeVariants": false, "includeMeta": false }
-}
-```
-
-Response: `{ "records": [ /* *anyenc.Value rendered as JSON */ ] }`.
+Query body / response are documented in § Data plane above.
 
 **POST /v1/spaces/:spaceId/modify**
 
