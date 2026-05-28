@@ -68,6 +68,114 @@ func TestBeforeCreate_StampsServerFields(t *testing.T) {
 	// Smoke that no error escapes.
 }
 
+func TestBeforeCreate_AcceptsAttachments(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString("hello"))
+
+	atts := arena.NewObject()
+	one := arena.NewObject()
+	one.Set(FieldAttachmentType, arena.NewString("link"))
+	one.Set(FieldAttachmentLink, arena.NewString("any://abc/def"))
+	atts.Set("a1", one)
+	payload.Set(FieldAttachments, atts)
+
+	rec := &handler.RecordChange{
+		Id:     "",
+		Upsert: true,
+		Ops: []handler.Op{{
+			Type:    handler.OpSet,
+			Path:    nil,
+			Payload: payload,
+		}},
+	}
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
+		t.Fatalf("BeforeCreate with attachments: %v", err)
+	}
+}
+
+func TestBeforeCreate_AttachmentRejects(t *testing.T) {
+	cases := []struct {
+		name   string
+		build  func(arena *anyenc.Arena) *handler.RecordChange
+		wantIn string
+	}{
+		{
+			name: "attachments not an object",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("x"))
+				p.Set(FieldAttachments, a.NewString("nope"))
+				return setRoot(a, p)
+			},
+			wantIn: "attachments must be an object",
+		},
+		{
+			name: "attachment id with dot",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("x"))
+				atts := a.NewObject()
+				entry := a.NewObject()
+				entry.Set(FieldAttachmentType, a.NewString("link"))
+				entry.Set(FieldAttachmentLink, a.NewString("any://x"))
+				atts.Set("a.bad", entry)
+				p.Set(FieldAttachments, atts)
+				return setRoot(a, p)
+			},
+			wantIn: "invalid id",
+		},
+		{
+			name: "attachment missing link",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("x"))
+				atts := a.NewObject()
+				entry := a.NewObject()
+				entry.Set(FieldAttachmentType, a.NewString("link"))
+				atts.Set("a1", entry)
+				p.Set(FieldAttachments, atts)
+				return setRoot(a, p)
+			},
+			wantIn: "link required",
+		},
+		{
+			name: "attachment unknown sub-field",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("x"))
+				atts := a.NewObject()
+				entry := a.NewObject()
+				entry.Set(FieldAttachmentType, a.NewString("link"))
+				entry.Set(FieldAttachmentLink, a.NewString("any://x"))
+				entry.Set("ghost", a.NewString("hi"))
+				atts.Set("a1", entry)
+				p.Set(FieldAttachments, atts)
+				return setRoot(a, p)
+			},
+			wantIn: "unknown field ghost",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			arena := &anyenc.Arena{}
+			rec := tc.build(arena)
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{})
+			if err == nil {
+				t.Fatalf("expected validation error containing %q", tc.wantIn)
+			}
+			if !errors.Is(err, handler.ErrValidation) {
+				t.Errorf("err is not ErrValidation: %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantIn) {
+				t.Errorf("err = %q, want contains %q", err.Error(), tc.wantIn)
+			}
+		})
+	}
+}
+
 func TestBeforeCreate_AcceptsFromAgent(t *testing.T) {
 	arena := &anyenc.Arena{}
 	payload := arena.NewObject()
