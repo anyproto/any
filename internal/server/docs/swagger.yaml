@@ -159,6 +159,13 @@ definitions:
       versionId:
         type: string
     type: object
+  api.ChatAttachment:
+    properties:
+      link:
+        type: string
+      type:
+        type: string
+    type: object
   api.ChatEditRequest:
     properties:
       text:
@@ -173,6 +180,10 @@ definitions:
     type: object
   api.ChatMessage:
     properties:
+      attachments:
+        additionalProperties:
+          $ref: '#/definitions/api.ChatAttachment'
+        type: object
       createdAt:
         type: integer
       creator:
@@ -205,6 +216,10 @@ definitions:
     type: object
   api.ChatSendRequest:
     properties:
+      attachments:
+        additionalProperties:
+          $ref: '#/definitions/api.ChatAttachment'
+        type: object
       fromAgent:
         type: string
       replyToMessageId:

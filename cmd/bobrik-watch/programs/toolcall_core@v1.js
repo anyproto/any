@@ -2171,18 +2171,29 @@ export function main(args) {
       var finalText = textParts.join("\n").trim();
       if (!finalText) finalText = "(model returned end_turn with no text)";
       // Surface any://spaceId/objectId links in the reply as structured
-      // attachments — the chat renders these at the bottom of the message,
-      // so the user can open referenced objects in one click.
-      var attachIds = [];
-      var linkRe = /\(any:\/\/[^/]+\/([a-z2-7]{50,})/g;
+      // attachments. The wire shape is { id: { type, link } } — id is a
+      // short opaque string (must match [A-Za-z0-9_-]+, ≤ 64 chars; we
+      // use "a1", "a2", … to stay well under the cap) and `type` is
+      // an open enum; here every match comes from a markdown link, so
+      // they're all "link" — image extraction would happen elsewhere.
+      var attachments = {};
+      var attachCount = 0;
+      var linkRe = /\(any:\/\/[^/]+\/([a-z2-7]{50,})\)/g;
       var linkMatch;
       var seenIds = {};
       while ((linkMatch = linkRe.exec(finalText)) !== null) {
-        if (!seenIds[linkMatch[1]]) { seenIds[linkMatch[1]] = true; attachIds.push(linkMatch[1]); }
-        if (attachIds.length >= 5) break;
+        var objId = linkMatch[1];
+        if (seenIds[objId]) continue;
+        seenIds[objId] = true;
+        attachCount++;
+        attachments["a" + attachCount] = {
+          type: "link",
+          link: linkMatch[0].slice(1, -1), // strip the surrounding parens
+        };
+        if (attachCount >= 5) break;
       }
-      if (attachIds.length > 0) {
-        chatReply({ text: "✅ " + finalText, attachments: attachIds });
+      if (attachCount > 0) {
+        chatReply({ text: "✅ " + finalText, attachments: attachments });
       } else {
         chatReply("✅ " + finalText);
       }

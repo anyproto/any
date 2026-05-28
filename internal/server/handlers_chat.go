@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -54,11 +55,16 @@ func (d *deps) chatSend(c echo.Context) error {
 			"fromAgent too long",
 			map[string]any{"max_bytes": chat.MaxFromAgentBytes, "got_bytes": len(req.FromAgent)})
 	}
+	if err := validateAttachmentsRequest(req.Attachments); err != nil {
+		return writeError(c, http.StatusBadRequest, api.ErrChatAttachmentsInvalid,
+			err.Error(), nil)
+	}
 
 	msg, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
 		ReplyToMessageId: req.ReplyToMessageId,
 		FromAgent:        req.FromAgent,
+		Attachments:      req.Attachments,
 	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
@@ -223,6 +229,57 @@ func (d *deps) chatReact(c echo.Context) error {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, api.ChatReactionsResponse{Reactions: msg.Reactions})
+}
+
+// validateAttachmentsRequest runs the HTTP-layer shape checks on the
+// attachments map (id alphabet, count cap, per-entry type / link
+// presence + length). Deeper validation also runs handler-side; this
+// version exists so the server returns a clean 400 with a specific
+// error code instead of letting a malformed body burn an SDK
+// round-trip and surface as the generic SDK rejection.
+func validateAttachmentsRequest(atts map[string]api.ChatAttachment) error {
+	if len(atts) == 0 {
+		return nil
+	}
+	if len(atts) > chat.MaxAttachments {
+		return fmt.Errorf("attachments: too many entries (max %d, got %d)", chat.MaxAttachments, len(atts))
+	}
+	for id, a := range atts {
+		if !isValidAttachmentId(id) {
+			return fmt.Errorf("attachments: invalid id %q (must match [A-Za-z0-9_-]+, ≤ %d bytes)", id, chat.MaxAttachmentIdBytes)
+		}
+		if a.Type == "" {
+			return fmt.Errorf("attachments[%s].type required", id)
+		}
+		if len(a.Type) > chat.MaxAttachmentTypeBytes {
+			return fmt.Errorf("attachments[%s].type too long (%d > %d bytes)", id, len(a.Type), chat.MaxAttachmentTypeBytes)
+		}
+		if a.Link == "" {
+			return fmt.Errorf("attachments[%s].link required", id)
+		}
+		if len(a.Link) > chat.MaxAttachmentLinkBytes {
+			return fmt.Errorf("attachments[%s].link too long (%d > %d bytes)", id, len(a.Link), chat.MaxAttachmentLinkBytes)
+		}
+	}
+	return nil
+}
+
+func isValidAttachmentId(id string) bool {
+	if len(id) == 0 || len(id) > chat.MaxAttachmentIdBytes {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		case c >= '0' && c <= '9':
+		case c == '_' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // chatOpError maps chat-package errors to the canonical envelope.
