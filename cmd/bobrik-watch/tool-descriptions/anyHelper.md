@@ -1,4 +1,6 @@
-Core API library for creating, reading, updating, and deleting objects, types, and programs.
+## Tool Description
+
+`any` API client for managing objects, types, properties, and collections in an `any` space. Provides high-level methods that handle idempotent type creation, property format normalization, and global property conflict detection.
 
 ## Tool Schema
 

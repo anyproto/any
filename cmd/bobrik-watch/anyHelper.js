@@ -843,6 +843,14 @@ export function createClient(params) {
     if (!_isValidProgramName(progName)) {
       return { ok: false, error: "name must be a valid JS identifier (letters, digits, _, $; no leading digit) — got " + JSON.stringify(progName) };
     }
+    // markdown — when supplied — must carry the boot prelude's contract:
+    // a `## Tool Description` section. Without it the agent shows
+    // "(no description in tool's md)" and the tool is half-registered.
+    // saveTool always passes markdown; saveProgram callers that don't
+    // want tool docs simply pass nothing.
+    if (markdown != null && !/^##\s+Tool Description\s*$/m.test(String(markdown))) {
+      return { ok: false, error: "markdown must contain a '## Tool Description' section" };
+    }
 
     var existing = getProgram(progName, version);
     if (existing) {
