@@ -140,40 +140,12 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
-11. **bobrik-watch** — JS-powered chat agent (`cmd/bobrik-watch/`). Embeds
-    the `anytype-agent-runtime` (Sobek JS engine) and runs the full
-    assistantjs stack (init_agent → toolcall_core → LLM) against the
-    `any` HTTP API. See [`BOBRIK.md`](BOBRIK.md) for details.
-    - Programs stored in `program_source` dataset (not markdown)
-    - Skills stored via `editor/markdown` (`content` field)
-    - Tool descriptions in `cmd/bobrik-watch/tool-descriptions/*.md`
-    - `anyHelper.js` replaces `anytypeHelper.js`, same method surface
-    - All `__anytype_` prefixes renamed to `__any_`
-    - Registered handler type `program` in `internal/program/program.go`
-      (datasets: `program_source`, `program_description`, `program_methods`)
-    - **Source on disk, not embedded.** `anyHelper.js`, `skills/`, and
-      `tool-descriptions/` are read live from the parent of
-      `--programs-dir` (defaults to `cmd/bobrik-watch/`) at sync time
-      — edits to those files take effect on the next refresh without
-      rebuilding the binary. That was the whole point of SIGHUP-driven
-      bootstrap; embedding pinned the JS to the binary timestamp.
-    - **Refresh via SIGHUP**: on startup writes its PID to `./.bobrik-pid`.
-      `kill -HUP $(cat .bobrik-pid)` — or, equivalently,
-      `bobrik-watch --bootstrap` — deletes the "System Bobrik Files"
-      folder and every object parented under it (children first, then
-      the folder), then re-runs the bootstrap — `ensureSystemFolder` +
-      `syncPrograms` + `syncSkills` — so the next agent run picks up the
-      latest `anyHelper.js`, programs, skills, and tool descriptions
-      from disk. Subscribe loop stays up across the refresh; types
-      (`Program`, `Agent Skill`) are not recreated. SIGINT/SIGTERM
-      remove the PID file before exit.
-    - **Program name validity**: a program name must be a valid JS
-      identifier (`[A-Za-z_$][A-Za-z0-9_$]*`). The agent's boot prelude
-      emits `var <name>;` per tool, so a `-`/`.`/leading-digit name
-      would crash bootstrap with `Unexpected token`. `getTools()`
-      silently skips offenders (legacy data) and `anyHelper.saveProgram`
-      rejects them on write, so the bad name never reaches storage from
-      inside the agent.
+11. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
+    Full docs (storage shape, refresh mechanics, validation rules,
+    flags, what's missing) in
+    [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) and
+    [`cmd/bobrik-watch/BOBRIK.md`](cmd/bobrik-watch/BOBRIK.md). Read
+    those before changing anything under that directory.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -191,11 +163,9 @@ ANY_DATA_DIR=/tmp/any-e2e ./any init              # first-run wallet + mnemonic
 ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ./any status                                      # GET /v1/health
 ./any stop                                        # POST /v1/shutdown
-
-# bobrik-watch (in another terminal, while any server is running)
-./bin/bobrik-watch                                # default: space=bobrik, chat=bobrik
-./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ```
+
+For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Sibling repos wired via `replace`:
 `any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`,
