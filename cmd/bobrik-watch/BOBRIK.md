@@ -11,11 +11,18 @@ On startup bobrik-watch:
 
 1. Ensures a space and chat object exist (creates them if missing).
 2. Creates the `Program` and `Agent Skill` types with their properties.
-3. Syncs JS programs from `cmd/bobrik-watch/programs/` into the space
-   (stored in `program_source` datasets on program objects).
-4. Syncs agent skills from `cmd/bobrik-watch/skills/` (stored as
+3. Ensures the "System Bobrik Files" nav folder; everything synced
+   below is parented under it so `--bootstrap` (SIGHUP) can wipe it
+   for a clean refresh.
+4. Syncs JS programs from `cmd/bobrik-watch/programs/` (stored in the
+   `program_source` dataset) plus the sibling `anyHelper.js`. For
+   each tool, the matching `tool-descriptions/<name>.md` is written
+   to `program_description` (must contain a `## Tool Description`
+   section).
+5. Syncs agent skills from `cmd/bobrik-watch/skills/` (stored as
    editor/markdown content on skill objects).
-5. Subscribes to the chat's `chat_messages` SSE stream.
+6. Writes its PID to `./.bobrik-pid` and subscribes to the chat's
+   `chat_messages` SSE stream.
 
 On each human message (no `fromAgent` field):
 
@@ -79,7 +86,8 @@ cmd/bobrik-watch/
 
 - **`anyHelper.js`** — JS library with the same `createClient()` API surface
   as `anytypeHelper.js`, backed by the `any` HTTP API instead of the Anytype
-  API. Embedded in the binary via `//go:embed`.
+  API. Read from disk at sync time (sibling of `--programs-dir`) so edits
+  take effect on `--bootstrap` without rebuilding the binary.
 
 - **Module resolver** (`anyloader.go`) — resolves `import "name@version"`
   by querying program objects in the space (`program.name` + `program.version`
