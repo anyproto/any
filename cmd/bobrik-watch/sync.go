@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +12,15 @@ import (
 	"strings"
 )
 
-//go:embed anyHelper.js
-var anyHelperJS string
-
-//go:embed skills/*
-var skillsFS embed.FS
-
-//go:embed tool-descriptions/*
-var toolDescFS embed.FS
+// All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
+// refresh re-reads the live files on disk — embedding defeated the whole
+// point of the bootstrap/refresh story (anyHelper.js edits stayed pinned
+// to the binary timestamp).
+var (
+	anyHelperPath       string // <bobrikDir>/anyHelper.js
+	skillsDir           string // <bobrikDir>/skills
+	toolDescriptionsDir string // <bobrikDir>/tool-descriptions
+)
 
 // ensureProgramType creates the Program type with name and version
 // properties if it doesn't already exist. Returns the type ID.
@@ -114,20 +114,21 @@ func ensureSkillType(baseURL, spaceID string) (string, error) {
 	return typeID, nil
 }
 
-// syncSkills reads embedded skill .md files and upserts them as Agent Skill
-// objects. Each skill is identified by __any_agent_skill_name (e.g. "_soul").
-// Content is stored via PUT /editor/markdown.
+// syncSkills reads skill .md files from skillsDir on disk and upserts
+// them as Agent Skill objects. Each skill is identified by
+// __any_agent_skill_name (e.g. "_soul"). Content is stored via PUT
+// /editor/markdown.
 func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
-	entries, err := skillsFS.ReadDir("skills")
+	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
-		return fmt.Errorf("read embedded skills: %w", err)
+		return fmt.Errorf("read skills dir %s: %w", skillsDir, err)
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
 		skillName := strings.TrimSuffix(e.Name(), ".md")
-		content, err := skillsFS.ReadFile("skills/" + e.Name())
+		content, err := os.ReadFile(filepath.Join(skillsDir, e.Name()))
 		if err != nil {
 			return fmt.Errorf("read skill %s: %w", e.Name(), err)
 		}
@@ -292,10 +293,10 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 }
 
 // toolDescription returns the tool description for a program name,
-// read from embedded tool-descriptions/*.md files. Returns "" if
+// read from <toolDescriptionsDir>/<name>.md on disk. Returns "" if
 // no description file exists for the given name.
 func toolDescription(name string) string {
-	data, err := toolDescFS.ReadFile("tool-descriptions/" + name + ".md")
+	data, err := os.ReadFile(filepath.Join(toolDescriptionsDir, name+".md"))
 	if err != nil {
 		return ""
 	}
@@ -310,13 +311,17 @@ func toolDescription(name string) string {
 //
 // skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
 //
-// The embedded anyHelper.js is always synced as anyHelper@v1.
+// anyHelper.js is read from anyHelperPath on disk and synced as
+// anyHelper@v1 before the rest of the programs dir.
 func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool, folderID string) error {
-	// Sync the embedded anyHelper.js first
-	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", anyHelperJS, folderID); err != nil {
+	anyHelperJS, err := os.ReadFile(anyHelperPath)
+	if err != nil {
+		return fmt.Errorf("read anyHelper.js at %s: %w", anyHelperPath, err)
+	}
+	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", string(anyHelperJS), folderID); err != nil {
 		return fmt.Errorf("sync anyHelper: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 (embedded)\n")
+	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 from %s\n", anyHelperPath)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

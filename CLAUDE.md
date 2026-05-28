@@ -151,14 +151,20 @@ Implementation slices landed:
     - All `__anytype_` prefixes renamed to `__any_`
     - Registered handler type `program` in `internal/program/program.go`
       (datasets: `program_source`, `program_description`, `program_methods`)
+    - **Source on disk, not embedded.** `anyHelper.js`, `skills/`, and
+      `tool-descriptions/` are read live from the parent of
+      `--programs-dir` (defaults to `cmd/bobrik-watch/`) at sync time
+      — edits to those files take effect on the next refresh without
+      rebuilding the binary. That was the whole point of SIGHUP-driven
+      bootstrap; embedding pinned the JS to the binary timestamp.
     - **Refresh via SIGHUP**: on startup writes its PID to `./.bobrik-pid`.
       `kill -HUP $(cat .bobrik-pid)` — or, equivalently,
       `bobrik-watch --bootstrap` — deletes the "System Bobrik Files"
       folder and every object parented under it (children first, then
       the folder), then re-runs the bootstrap — `ensureSystemFolder` +
       `syncPrograms` + `syncSkills` — so the next agent run picks up the
-      freshly embedded `anyHelper.js`, programs, skills, and tool
-      descriptions. Subscribe loop stays up across the refresh; types
+      latest `anyHelper.js`, programs, skills, and tool descriptions
+      from disk. Subscribe loop stays up across the refresh; types
       (`Program`, `Agent Skill`) are not recreated. SIGINT/SIGTERM
       remove the PID file before exit.
     - **Program name validity**: a program name must be a valid JS

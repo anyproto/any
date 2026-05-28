@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -47,6 +48,11 @@ func main() {
 		}
 		return
 	}
+
+	bobrikDir := filepath.Dir(programsDir)
+	anyHelperPath = filepath.Join(bobrikDir, "anyHelper.js")
+	skillsDir = filepath.Join(bobrikDir, "skills")
+	toolDescriptionsDir = filepath.Join(bobrikDir, "tool-descriptions")
 
 	spaceID, err := ensureSpace(spaceName)
 	if err != nil {
