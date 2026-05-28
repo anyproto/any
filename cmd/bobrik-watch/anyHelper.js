@@ -472,11 +472,22 @@ export function createClient(params) {
 
   // ==================== TOOL DISCOVERY ====================
 
+  // The boot prelude emits `var <name>;` per tool and the system prompt
+  // references each tool bare (`### <name>`), so a tool name must be a
+  // valid JS identifier. Anything else (e.g. `hn-top10-summary`) would
+  // crash bootstrap with `Unexpected token -`. Enforced at both ends:
+  // `getTools` filters offenders out, `saveProgram` rejects them on
+  // write so the bad name never reaches storage.
+  function _isValidProgramName(name) {
+    return typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+  }
+
   function getTools() {
     var programs = listPrograms();
     var tools = [];
     for (var i = 0; i < programs.length; i++) {
       var p = programs[i];
+      if (!_isValidProgramName(p.name)) continue;
       var description = null;
       try {
         var path = _pathForScope(p.space || "user");
@@ -829,6 +840,9 @@ export function createClient(params) {
     var markdown = opts.markdown != null ? opts.markdown : opts.appendMarkdown;
     if (!progName) return { ok: false, error: "name is required" };
     if (!source) return { ok: false, error: "source is required" };
+    if (!_isValidProgramName(progName)) {
+      return { ok: false, error: "name must be a valid JS identifier (letters, digits, _, $; no leading digit) — got " + JSON.stringify(progName) };
+    }
 
     var existing = getProgram(progName, version);
     if (existing) {

@@ -152,7 +152,8 @@ Implementation slices landed:
     - Registered handler type `program` in `internal/program/program.go`
       (datasets: `program_source`, `program_description`, `program_methods`)
     - **Refresh via SIGHUP**: on startup writes its PID to `./.bobrik-pid`.
-      `kill -HUP $(cat .bobrik-pid)` deletes the "System Bobrik Files"
+      `kill -HUP $(cat .bobrik-pid)` — or, equivalently,
+      `bobrik-watch --bootstrap` — deletes the "System Bobrik Files"
       folder and every object parented under it (children first, then
       the folder), then re-runs the bootstrap — `ensureSystemFolder` +
       `syncPrograms` + `syncSkills` — so the next agent run picks up the
@@ -160,6 +161,13 @@ Implementation slices landed:
       descriptions. Subscribe loop stays up across the refresh; types
       (`Program`, `Agent Skill`) are not recreated. SIGINT/SIGTERM
       remove the PID file before exit.
+    - **Program name validity**: a program name must be a valid JS
+      identifier (`[A-Za-z_$][A-Za-z0-9_$]*`). The agent's boot prelude
+      emits `var <name>;` per tool, so a `-`/`.`/leading-digit name
+      would crash bootstrap with `Unexpected token`. `getTools()`
+      silently skips offenders (legacy data) and `anyHelper.saveProgram`
+      rejects them on write, so the bad name never reaches storage from
+      inside the agent.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

@@ -37,8 +37,16 @@ func main() {
 	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
 	flag.StringVar(&chatName, "chat", "bobrik", "chat object name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
+	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
 	flag.Parse()
 	base = "http://" + *addr
+
+	if *bootstrap {
+		if err := triggerBootstrap(pidFilePath); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	spaceID, err := ensureSpace(spaceName)
 	if err != nil {
@@ -99,6 +107,31 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
 	return sysFolderID, nil
+}
+
+// triggerBootstrap reads the PID file written by a running bobrik-watch
+// and sends it SIGHUP, which the signal handler picks up as a refresh
+// request. Errors if the PID file is missing or unparseable; the caller
+// `bobrik-watch --bootstrap` then exits non-zero so scripts can detect
+// "nothing was running."
+func triggerBootstrap(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read pid file %s: %w", path, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fmt.Errorf("parse pid from %s: %w", path, err)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Signal(syscall.SIGHUP); err != nil {
+		return fmt.Errorf("send SIGHUP to %d: %w", pid, err)
+	}
+	fmt.Fprintf(os.Stderr, "sent SIGHUP to %d\n", pid)
+	return nil
 }
 
 func writePIDFile(path string) error {
