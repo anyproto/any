@@ -358,6 +358,19 @@ export function createClient(params) {
       obj.body = obj.markdown;
     }
 
+    // Programs store their tool description + method docs in the
+    // `program_description` dataset, not in editor blocks. Surface it on
+    // `markdown`/`body` so downstream code (the boot prelude's tool-doc
+    // parser, anyPrograms' section editors) sees the same shape it
+    // expects for editor-backed objects.
+    if (!obj.markdown && obj.program) {
+      var pdRes = api("POST", path + "/query", { objectId: objId, dataset: "program_description" });
+      if (pdRes.ok && pdRes.data && pdRes.data.records && pdRes.data.records.length > 0) {
+        obj.markdown = pdRes.data.records[0].text || "";
+        obj.body = obj.markdown;
+      }
+    }
+
     if (opts.from || opts.to) {
       var lines = (obj.markdown || "").split("\n");
       var total = lines.length;
@@ -756,9 +769,15 @@ export function createClient(params) {
       source = qRes.data.records[0].code || "";
     }
 
+    var dRes = api("POST", path + "/query", { objectId: match.id, dataset: "program_description" });
+    var markdown = "";
+    if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
+      markdown = dRes.data.records[0].text || "";
+    }
+
     return {
       id: match.id, name: name, version: version,
-      title: match.title, source: source, space: match.space
+      title: match.title, source: source, markdown: markdown, space: match.space
     };
   }
 
@@ -804,6 +823,10 @@ export function createClient(params) {
     var version = opts.version || "v1";
     var title = opts.title || progName;
     var source = opts.source;
+    // Tool docs (description prelude + `## Tool Schema` section) live in
+    // the `program_description` dataset. Accept either `markdown` (the new
+    // name) or `appendMarkdown` (legacy from saveTool callers).
+    var markdown = opts.markdown != null ? opts.markdown : opts.appendMarkdown;
     if (!progName) return { ok: false, error: "name is required" };
     if (!source) return { ok: false, error: "source is required" };
 
@@ -813,6 +836,12 @@ export function createClient(params) {
         objectId: existing.id, dataset: "program_source",
         records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
       });
+      if (markdown != null) {
+        api("POST", spacePath + "/modify", {
+          objectId: existing.id, dataset: "program_description",
+          records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
+        });
+      }
       return { ok: true, object: { id: existing.id }, name: progName, version: version };
     }
 
@@ -832,6 +861,12 @@ export function createClient(params) {
       objectId: newId, dataset: "program_source",
       records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
     });
+    if (markdown != null) {
+      api("POST", spacePath + "/modify", {
+        objectId: newId, dataset: "program_description",
+        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
+      });
+    }
 
     return { ok: true, object: { id: newId }, name: progName, version: version };
   }
@@ -844,7 +879,7 @@ export function createClient(params) {
     return saveProgram({
       name: opts.name, version: opts.version || "v1",
       title: opts.title || opts.name, source: opts.source,
-      appendMarkdown: opts.schema
+      markdown: opts.schema
     });
   }
 

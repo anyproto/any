@@ -151,6 +151,15 @@ Implementation slices landed:
     - All `__anytype_` prefixes renamed to `__any_`
     - Registered handler type `program` in `internal/program/program.go`
       (datasets: `program_source`, `program_description`, `program_methods`)
+    - **Refresh via SIGHUP**: on startup writes its PID to `./.bobrik-pid`.
+      `kill -HUP $(cat .bobrik-pid)` deletes the "System Bobrik Files"
+      folder and every object parented under it (children first, then
+      the folder), then re-runs the bootstrap — `ensureSystemFolder` +
+      `syncPrograms` + `syncSkills` — so the next agent run picks up the
+      freshly embedded `anyHelper.js`, programs, skills, and tool
+      descriptions. Subscribe loop stays up across the refresh; types
+      (`Program`, `Agent Skill`) are not recreated. SIGINT/SIGTERM
+      remove the PID file before exit.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
