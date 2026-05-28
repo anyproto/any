@@ -163,13 +163,28 @@ function _parseToolMarkdown(md) {
   return { description: description, methods: methods };
 }
 
+// A program is only usable as a tool if its name is a valid JS
+// identifier — it gets emitted verbatim as a `var <name>;` declaration
+// in the boot prelude and referenced bare in the system prompt
+// (`### <name>`), so anything with a hyphen / dot / leading digit would
+// throw at js.eval time and abort bootstrap for the whole agent.
+function _isValidJSIdentifier(name) {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+}
+
 // Build the per-session toolDocs table from getTools() results. Hard-errors
 // if the anyHelper tool is not discoverable in the space — every kernel
-// must have it as the `anyHelper` global.
+// must have it as the `anyHelper` global. Programs with names that aren't
+// valid JS identifiers (e.g. "hn-top10-summary") are skipped with a
+// warning rather than poisoning the boot prelude.
 function _buildToolDocs(bootClient, tools) {
   var toolDocs = {};
   for (var ti = 0; ti < tools.length; ti++) {
     var t = tools[ti];
+    if (!_isValidJSIdentifier(t.programName)) {
+      console.log("[boot] skipping tool " + JSON.stringify(t.programName) + ": name is not a valid JS identifier");
+      continue;
+    }
     // Route the full-object fetch to the program's source space. Without this,
     // a system-space tool's id won't resolve from the user-space client.
     var fullObj = bootClient.getObject(t.id, t.space ? { space: t.space } : undefined);
