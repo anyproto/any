@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +12,15 @@ import (
 	"strings"
 )
 
-//go:embed anyHelper.js
-var anyHelperJS string
-
-//go:embed skills/*
-var skillsFS embed.FS
-
-//go:embed tool-descriptions/*
-var toolDescFS embed.FS
+// All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
+// refresh re-reads the live files on disk — embedding defeated the whole
+// point of the bootstrap/refresh story (anyHelper.js edits stayed pinned
+// to the binary timestamp).
+var (
+	anyHelperPath       string // <bobrikDir>/anyHelper.js
+	skillsDir           string // <bobrikDir>/skills
+	toolDescriptionsDir string // <bobrikDir>/tool-descriptions
+)
 
 // ensureProgramType creates the Program type with name and version
 // properties if it doesn't already exist. Returns the type ID.
@@ -114,20 +114,21 @@ func ensureSkillType(baseURL, spaceID string) (string, error) {
 	return typeID, nil
 }
 
-// syncSkills reads embedded skill .md files and upserts them as Agent Skill
-// objects. Each skill is identified by __any_agent_skill_name (e.g. "_soul").
-// Content is stored via PUT /editor/markdown.
+// syncSkills reads skill .md files from skillsDir on disk and upserts
+// them as Agent Skill objects. Each skill is identified by
+// __any_agent_skill_name (e.g. "_soul"). Content is stored via PUT
+// /editor/markdown.
 func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
-	entries, err := skillsFS.ReadDir("skills")
+	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
-		return fmt.Errorf("read embedded skills: %w", err)
+		return fmt.Errorf("read skills dir %s: %w", skillsDir, err)
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
 		skillName := strings.TrimSuffix(e.Name(), ".md")
-		content, err := skillsFS.ReadFile("skills/" + e.Name())
+		content, err := os.ReadFile(filepath.Join(skillsDir, e.Name()))
 		if err != nil {
 			return fmt.Errorf("read skill %s: %w", e.Name(), err)
 		}
@@ -292,10 +293,10 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 }
 
 // toolDescription returns the tool description for a program name,
-// read from embedded tool-descriptions/*.md files. Returns "" if
+// read from <toolDescriptionsDir>/<name>.md on disk. Returns "" if
 // no description file exists for the given name.
 func toolDescription(name string) string {
-	data, err := toolDescFS.ReadFile("tool-descriptions/" + name + ".md")
+	data, err := os.ReadFile(filepath.Join(toolDescriptionsDir, name+".md"))
 	if err != nil {
 		return ""
 	}
@@ -310,13 +311,17 @@ func toolDescription(name string) string {
 //
 // skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
 //
-// The embedded anyHelper.js is always synced as anyHelper@v1.
+// anyHelper.js is read from anyHelperPath on disk and synced as
+// anyHelper@v1 before the rest of the programs dir.
 func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool, folderID string) error {
-	// Sync the embedded anyHelper.js first
-	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", anyHelperJS, folderID); err != nil {
+	anyHelperJS, err := os.ReadFile(anyHelperPath)
+	if err != nil {
+		return fmt.Errorf("read anyHelper.js at %s: %w", anyHelperPath, err)
+	}
+	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", string(anyHelperJS), folderID); err != nil {
 		return fmt.Errorf("sync anyHelper: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 (embedded)\n")
+	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 from %s\n", anyHelperPath)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -509,6 +514,109 @@ func ensureSystemFolder(baseURL, spaceID string) (string, error) {
 		return "", err
 	}
 	return obj.ObjectId, nil
+}
+
+// removeSystemFiles deletes the "System Bobrik Files" folder and every
+// object parented under it. Children are deleted before the folder so the
+// nav tree doesn't have a moment with dangling parentIds. Missing folder
+// is a no-op, not an error — refresh should still re-bootstrap cleanly.
+func removeSystemFiles(baseURL, spaceID string) error {
+	folderID, err := findSystemFolder(baseURL, spaceID)
+	if err != nil {
+		return fmt.Errorf("find system folder: %w", err)
+	}
+	if folderID == "" {
+		return nil
+	}
+
+	childFilter := map[string]any{"filter": map[string]any{"nav.parentId": folderID}}
+	body, _ := json.Marshal(childFilter)
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("query children: %w", err)
+	}
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		resp.Body.Close()
+		return fmt.Errorf("decode children: %w", err)
+	}
+	resp.Body.Close()
+
+	for _, rec := range out.Records {
+		if err := deleteObject(baseURL, spaceID, rec.Id); err != nil {
+			fmt.Fprintf(os.Stderr, "delete child %s: %v\n", rec.Id, err)
+			continue
+		}
+	}
+	fmt.Fprintf(os.Stderr, "removed %d children from %s\n", len(out.Records), folderID)
+
+	if err := deleteObject(baseURL, spaceID, folderID); err != nil {
+		return fmt.Errorf("delete folder %s: %w", folderID, err)
+	}
+	fmt.Fprintf(os.Stderr, "removed system folder %s\n", folderID)
+	return nil
+}
+
+// findSystemFolder returns the System Bobrik Files folder id, or "" if
+// no folder with that name + nav.type=2 exists. Mirrors the lookup half
+// of ensureSystemFolder without the create path.
+func findSystemFolder(baseURL, spaceID string) (string, error) {
+	filter := map[string]any{
+		"filter": map[string]any{
+			"any.name": systemFolderName,
+			"nav.type": 2,
+		},
+	}
+	body, _ := json.Marshal(filter)
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Records) == 0 {
+		return "", nil
+	}
+	return out.Records[0].Id, nil
+}
+
+func deleteObject(baseURL, spaceID, objectID string) error {
+	req, err := http.NewRequest(http.MethodDelete,
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/"+url.PathEscape(objectID),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%d %s", resp.StatusCode, msg)
+	}
+	return nil
 }
 
 func setNavParent(baseURL, spaceID, objectID, parentID string) error {

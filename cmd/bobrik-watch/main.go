@@ -11,11 +11,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
 )
+
+const pidFilePath = ".bobrik-pid"
 
 var (
 	base          string
@@ -32,8 +38,21 @@ func main() {
 	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
 	flag.StringVar(&chatName, "chat", "bobrik", "chat object name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
+	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
 	flag.Parse()
 	base = "http://" + *addr
+
+	if *bootstrap {
+		if err := triggerBootstrap(pidFilePath); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	bobrikDir := filepath.Dir(programsDir)
+	anyHelperPath = filepath.Join(bobrikDir, "anyHelper.js")
+	skillsDir = filepath.Join(bobrikDir, "skills")
+	toolDescriptionsDir = filepath.Join(bobrikDir, "tool-descriptions")
 
 	spaceID, err := ensureSpace(spaceName)
 	if err != nil {
@@ -55,29 +74,100 @@ func main() {
 	if err != nil {
 		log.Fatalf("ensure skill type: %v", err)
 	}
-	_ = skillTypeID
 
+	if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
+		log.Fatalf("bootstrap system files: %v", err)
+	}
+
+	if err := writePIDFile(pidFilePath); err != nil {
+		log.Fatalf("write pid file: %v", err)
+	}
+	defer os.Remove(pidFilePath)
+
+	sigCh := make(chan os.Signal, 4)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	go handleSignals(sigCh, spaceID, programTypeID, skillTypeID)
+
+	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
+	subscribeLoop(spaceID, objectID)
+}
+
+// bootstrapSystemFiles (re)creates the "System Bobrik Files" folder and
+// syncs all embedded programs + skills into it. Idempotent: existing
+// programs/skills are updated rather than duplicated.
+func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, error) {
 	sysFolderID, err := ensureSystemFolder(base, spaceID)
 	if err != nil {
-		log.Fatalf("ensure system folder: %v", err)
+		return "", fmt.Errorf("ensure system folder: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "system folder → %s\n", sysFolderID)
 
-	skip := map[string]bool{
-		"anyHelper": true,
-	}
+	skip := map[string]bool{"anyHelper": true}
 	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip, sysFolderID); err != nil {
-		log.Fatalf("sync programs: %v", err)
+		return "", fmt.Errorf("sync programs: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
 
 	if err := syncSkills(base, spaceID, skillTypeID, sysFolderID); err != nil {
-		log.Fatalf("sync skills: %v", err)
+		return "", fmt.Errorf("sync skills: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
+	return sysFolderID, nil
+}
 
-	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
-	subscribeLoop(spaceID, objectID)
+// triggerBootstrap reads the PID file written by a running bobrik-watch
+// and sends it SIGHUP, which the signal handler picks up as a refresh
+// request. Errors if the PID file is missing or unparseable; the caller
+// `bobrik-watch --bootstrap` then exits non-zero so scripts can detect
+// "nothing was running."
+func triggerBootstrap(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read pid file %s: %w", path, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fmt.Errorf("parse pid from %s: %w", path, err)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Signal(syscall.SIGHUP); err != nil {
+		return fmt.Errorf("send SIGHUP to %d: %w", pid, err)
+	}
+	fmt.Fprintf(os.Stderr, "sent SIGHUP to %d\n", pid)
+	return nil
+}
+
+func writePIDFile(path string) error {
+	pid := strconv.Itoa(os.Getpid())
+	if err := os.WriteFile(path, []byte(pid+"\n"), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "pid file → %s (pid %s)\n", path, pid)
+	return nil
+}
+
+func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID string) {
+	for sig := range ch {
+		switch sig {
+		case syscall.SIGHUP:
+			fmt.Fprintf(os.Stderr, "SIGHUP received — refreshing System Bobrik Files\n")
+			if err := removeSystemFiles(base, spaceID); err != nil {
+				fmt.Fprintf(os.Stderr, "remove system files: %v\n", err)
+			}
+			if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
+				fmt.Fprintf(os.Stderr, "rebootstrap: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "refresh complete\n")
+			}
+		case syscall.SIGINT, syscall.SIGTERM:
+			fmt.Fprintf(os.Stderr, "%s received — exiting\n", sig)
+			_ = os.Remove(pidFilePath)
+			os.Exit(0)
+		}
+	}
 }
 
 func ensureSpace(name string) (string, error) {
