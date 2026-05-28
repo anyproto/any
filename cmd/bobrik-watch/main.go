@@ -411,10 +411,18 @@ func runAgent(spaceID, objectID, text string) error {
 		if len(args) == 0 {
 			return nil
 		}
-		msg := fmt.Sprintf("%v", args[0])
-		tr.SetInput(msg)
-		fmt.Fprintf(os.Stderr, "chatReply: %s\n", msg)
-		if err := chatSend(spaceID, objectID, msg); err != nil {
+		text, attachments := parseChatReplyArg(args[0])
+		// Record what we actually sent to the server, not just the
+		// stringified first arg — makes traces useful when the agent
+		// is sending structured replies with attachments.
+		traceInput := text
+		if len(attachments) > 0 {
+			b, _ := json.Marshal(map[string]any{"text": text, "attachments": attachments})
+			traceInput = string(b)
+		}
+		tr.SetInput(traceInput)
+		fmt.Fprintf(os.Stderr, "chatReply: %s (attachments=%d)\n", text, len(attachments))
+		if err := chatSend(spaceID, objectID, text, attachments); err != nil {
 			fmt.Fprintf(os.Stderr, "chatReply error: %v\n", err)
 			return map[string]any{"error": err.Error()}
 		}
@@ -454,15 +462,21 @@ export function main() {
 	return nil
 }
 
-func chatSend(spaceID, objectID, text string) error {
-	body, _ := json.Marshal(map[string]string{
+// chatSend posts a chat message. `attachments` may be nil; entries
+// must already be in the wire shape (map[id]{type,link}).
+func chatSend(spaceID, objectID, text string, attachments map[string]any) error {
+	body := map[string]any{
 		"text":      text,
 		"fromAgent": agentName,
-	})
+	}
+	if len(attachments) > 0 {
+		body["attachments"] = attachments
+	}
+	raw, _ := json.Marshal(body)
 	resp, err := http.Post(
 		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/"+url.PathEscape(objectID)+"/chat/messages",
 		"application/json",
-		bytes.NewReader(body),
+		bytes.NewReader(raw),
 	)
 	if err != nil {
 		return err
@@ -473,5 +487,68 @@ func chatSend(spaceID, objectID, text string) error {
 		return fmt.Errorf("chat send: %d %s", resp.StatusCode, msg)
 	}
 	return nil
+}
+
+// parseChatReplyArg normalizes the JS chatReply argument into the
+// pieces chatSend needs.
+//
+// Accepted shapes:
+//
+//   - string (legacy)                        → {text: arg}
+//   - {text, attachments?}                   → as-is, plus normalization
+//   - anything else                          → fmt-stringified into text
+//
+// Attachments are accepted as either:
+//
+//   - map[id] -> {type, link}                — the wire shape
+//   - map[id] -> "any://…" or "https://…"    — sugar: id of the form
+//     `img_*` becomes type=image, everything else type=link. Lets the
+//     agent write `{a1: "any://x"}` for the common case.
+//
+// Anything that doesn't normalize into the {type, link} shape is
+// dropped silently — the server would reject it anyway, and the
+// agent's main signal is "I got my text out" not "every key landed".
+func parseChatReplyArg(arg any) (text string, attachments map[string]any) {
+	switch v := arg.(type) {
+	case string:
+		return v, nil
+	case map[string]any:
+		if t, ok := v["text"].(string); ok {
+			text = t
+		} else {
+			text = fmt.Sprintf("%v", v["text"])
+		}
+		if raw, ok := v["attachments"].(map[string]any); ok && len(raw) > 0 {
+			attachments = normalizeAttachments(raw)
+		}
+		return text, attachments
+	default:
+		return fmt.Sprintf("%v", arg), nil
+	}
+}
+
+func normalizeAttachments(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for id, raw := range in {
+		switch entry := raw.(type) {
+		case map[string]any:
+			t, _ := entry["type"].(string)
+			l, _ := entry["link"].(string)
+			if t == "" || l == "" {
+				continue
+			}
+			out[id] = map[string]any{"type": t, "link": l}
+		case string:
+			t := "link"
+			if strings.HasPrefix(id, "img_") {
+				t = "image"
+			}
+			out[id] = map[string]any{"type": t, "link": entry}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 

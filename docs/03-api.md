@@ -536,6 +536,10 @@ message body — no follow-up GET needed. See `04-events.md`.
   "replyToMessageId": "<msgId>",
   "fromAgent":        "<opaque identity>",
   "text":             "**hi** _there_",
+  "attachments": {
+    "a1": { "type": "link",  "link": "any://abc/def" },
+    "a2": { "type": "image", "link": "https://example.com/x.png" }
+  },
   "reactions":        { "👍": ["<id1>", "<id2>"] }
 }
 ```
@@ -552,6 +556,14 @@ verified — `creator` is still the change signer; `fromAgent` is a UI
 hint. Typical use: an agent subscribed to `chat_messages` ignores its
 own messages (`fromAgent` non-empty) and only responds to human ones
 (`fromAgent` empty). Omitted from responses when unset.
+
+`attachments` is an optional, create-only map keyed by short opaque
+ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`.
+`type` is an open enum — known values are `"link"` and `"image"`, but
+clients should fall back to rendering `link` as a plain anchor for
+unknown types rather than dropping the entry. `link` is ≤ 2 KiB. Up
+to 32 attachments per message. Immutable post-create — the handler
+rejects $set on the attachments path.
 
 `reactions` is rolled up on the wire from
 `reactions.<emoji>.<accountId> = <changeTimestamp>` storage to the

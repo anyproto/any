@@ -160,6 +160,67 @@ func TestServer_Chat_Validation(t *testing.T) {
 	}
 }
 
+// TestServer_Chat_Attachments rounds the attachments field through
+// send → list, verifying entries are returned as-stored. Also covers
+// the 400 path on a bad attachment id so the http-layer fast-path is
+// exercised.
+func TestServer_Chat_Attachments(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	body := `{
+		"text":"with attachments",
+		"attachments":{
+			"a1":{"type":"link","link":"any://abc/def"},
+			"a2":{"type":"image","link":"https://example.com/x.png"}
+		}
+	}`
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	var msg api.ChatMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &msg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(msg.Attachments) != 2 {
+		t.Fatalf("attachments len = %d, want 2: %+v", len(msg.Attachments), msg.Attachments)
+	}
+	if a := msg.Attachments["a1"]; a.Type != "link" || a.Link != "any://abc/def" {
+		t.Errorf("a1 = %+v, want {type:link, link:any://abc/def}", a)
+	}
+	if a := msg.Attachments["a2"]; a.Type != "image" || a.Link != "https://example.com/x.png" {
+		t.Errorf("a2 = %+v, want {type:image, link:https://example.com/x.png}", a)
+	}
+
+	// Round-trip through list as well.
+	listed := chatList(t, e, base)
+	if len(listed.Messages) != 1 {
+		t.Fatalf("list: got %d messages, want 1", len(listed.Messages))
+	}
+	if got := listed.Messages[0]; len(got.Attachments) != 2 {
+		t.Errorf("list: attachments len = %d, want 2", len(got.Attachments))
+	}
+
+	// 400 on a bad id (contains '.').
+	badBody := `{"text":"x","attachments":{"a.bad":{"type":"link","link":"any://x"}}}`
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", badBody)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad id: expected 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if env.Error.Code != api.ErrChatAttachmentsInvalid {
+		t.Errorf("err code = %q, want %q", env.Error.Code, api.ErrChatAttachmentsInvalid)
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // setupChatFixture creates a space and an object on it. The object is
@@ -264,13 +325,14 @@ func chatList(t *testing.T, e http.Handler, base string) chatListResp {
 func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 	t.Helper()
 	var f struct {
-		Id               string  `json:"id"`
-		Creator          string  `json:"creator"`
-		CreatedAt        float64 `json:"createdAt"`
-		ModifiedAt       float64 `json:"modifiedAt"`
-		ReplyToMessageId string  `json:"replyToMessageId"`
-		FromAgent        string  `json:"fromAgent"`
-		Text             string  `json:"text"`
+		Id               string                        `json:"id"`
+		Creator          string                        `json:"creator"`
+		CreatedAt        float64                       `json:"createdAt"`
+		ModifiedAt       float64                       `json:"modifiedAt"`
+		ReplyToMessageId string                        `json:"replyToMessageId"`
+		FromAgent        string                        `json:"fromAgent"`
+		Text             string                        `json:"text"`
+		Attachments      map[string]api.ChatAttachment `json:"attachments"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("decode message: %v\nraw=%s", err, raw)
@@ -283,5 +345,6 @@ func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 		ReplyToMessageId: f.ReplyToMessageId,
 		FromAgent:        f.FromAgent,
 		Text:             f.Text,
+		Attachments:      f.Attachments,
 	}
 }

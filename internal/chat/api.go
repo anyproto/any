@@ -28,10 +28,15 @@ var ErrNotAuthor = errors.New("chat: not the message author")
 // the handler; ReplyToMessageId is an opaque soft reference;
 // FromAgent is an optional opaque tag marking the message as
 // agent-authored (UI hint, not verified — see chat.go package doc).
+//
+// Attachments is an optional create-only client hint. Each
+// attachment may carry an optional Order (pointer so absence is
+// distinguishable from 0); the handler skips the field when nil.
 type SendOpts struct {
 	Text             string
 	ReplyToMessageId string
 	FromAgent        string
+	Attachments      map[string]api.ChatAttachment
 }
 
 // Send writes one new message and returns the freshly-created record.
@@ -50,6 +55,16 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 	}
 	if opts.FromAgent != "" {
 		payload[FieldFromAgent] = opts.FromAgent
+	}
+	if len(opts.Attachments) > 0 {
+		atts := make(map[string]any, len(opts.Attachments))
+		for id, a := range opts.Attachments {
+			atts[id] = map[string]any{
+				FieldAttachmentType: a.Type,
+				FieldAttachmentLink: a.Link,
+			}
+		}
+		payload[FieldAttachments] = atts
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
@@ -322,8 +337,38 @@ func recordToMessage(rec *anyenc.Value) api.ChatMessage {
 		ReplyToMessageId: getString(rec, FieldReplyToMessageId),
 		FromAgent:        getString(rec, FieldFromAgent),
 		Text:             getString(rec, FieldText),
+		Attachments:      renderAttachments(rec.Get(FieldAttachments)),
 		Reactions:        renderReactions(rec.Get(FieldReactions)),
 	}
+}
+
+// renderAttachments walks the storage shape
+// (id → {type, link}) into the wire shape. Nil-safe; returns nil when
+// the record has no attachments to keep the JSON output clean
+// (omitempty-friendly). Unknown attachment sub-fields are silently
+// dropped — clients should only consume `type` and `link`.
+func renderAttachments(att *anyenc.Value) map[string]api.ChatAttachment {
+	if att == nil || att.Type() != anyenc.TypeObject {
+		return nil
+	}
+	obj, _ := att.Object()
+	if obj == nil {
+		return nil
+	}
+	out := map[string]api.ChatAttachment{}
+	obj.Visit(func(rawId []byte, v *anyenc.Value) {
+		if v == nil || v.Type() != anyenc.TypeObject {
+			return
+		}
+		out[string(rawId)] = api.ChatAttachment{
+			Type: getString(v, FieldAttachmentType),
+			Link: getString(v, FieldAttachmentLink),
+		}
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // renderReactions rolls the storage shape

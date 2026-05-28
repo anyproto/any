@@ -2883,6 +2883,17 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ChatAttachment": {
+            "type": "object",
+            "properties": {
+                "link": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChatEditRequest": {
             "type": "object",
             "properties": {
@@ -2894,6 +2905,12 @@ const docTemplate = `{
         "api.ChatMessage": {
             "type": "object",
             "properties": {
+                "attachments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/api.ChatAttachment"
+                    }
+                },
                 "createdAt": {
                     "type": "integer"
                 },
@@ -2943,6 +2960,12 @@ const docTemplate = `{
         "api.ChatSendRequest": {
             "type": "object",
             "properties": {
+                "attachments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/api.ChatAttachment"
+                    }
+                },
                 "fromAgent": {
                     "type": "string"
                 },
