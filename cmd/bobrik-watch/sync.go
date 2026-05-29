@@ -459,42 +459,50 @@ func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value m
 	return nil
 }
 
-const systemFolderName = "System Bobrik Files"
+const (
+	systemFolderName = "System Bobrik Files"
+	// debugFolderName holds bobrik's agent-trace notes. It is nested
+	// under the system folder, so --bootstrap (SIGHUP) wipes and
+	// recreates it along with everything else.
+	debugFolderName = "Debug"
+)
 
 func ensureSystemFolder(baseURL, spaceID string) (string, error) {
-	filter := map[string]any{
-		"filter": map[string]any{
-			"any.name": systemFolderName,
-			"nav.type": 2,
-		},
-	}
-	body, _ := json.Marshal(filter)
-	resp, err := http.Post(
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	return ensureNavFolder(baseURL, spaceID, systemFolderName)
+}
+
+// ensureDebugFolder find-or-creates the "Debug" nav folder that
+// agent-trace notes are parented under, nesting it beneath parentID
+// (the system folder) so a refresh wipes it along with the rest.
+func ensureDebugFolder(baseURL, spaceID, parentID string) (string, error) {
+	id, err := ensureNavFolder(baseURL, spaceID, debugFolderName)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	var out struct {
-		Records []struct {
-			Id string `json:"id"`
-		} `json:"records"`
+	if parentID != "" {
+		if err := setNavParent(baseURL, spaceID, id, parentID); err != nil {
+			return "", fmt.Errorf("parent debug folder: %w", err)
+		}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	return id, nil
+}
+
+// ensureNavFolder find-or-creates a top-level nav folder (nav.type=2)
+// with the given name, returning its object id.
+func ensureNavFolder(baseURL, spaceID, name string) (string, error) {
+	id, err := findNavFolder(baseURL, spaceID, name)
+	if err != nil {
 		return "", err
 	}
-	if len(out.Records) > 0 {
-		return out.Records[0].Id, nil
+	if id != "" {
+		return id, nil
 	}
 
 	createBody, _ := json.Marshal(map[string]any{
 		"nav":               map[string]any{"type": 2},
-		"initialProperties": map[string]any{"any": map[string]any{"name": systemFolderName}},
+		"initialProperties": map[string]any{"any": map[string]any{"name": name}},
 	})
-	resp2, err := http.Post(
+	resp, err := http.Post(
 		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects",
 		"application/json",
 		bytes.NewReader(createBody),
@@ -502,15 +510,15 @@ func ensureSystemFolder(baseURL, spaceID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode >= 400 {
-		msg, _ := io.ReadAll(resp2.Body)
-		return "", fmt.Errorf("create system folder: %d %s", resp2.StatusCode, msg)
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("create folder %q: %d %s", name, resp.StatusCode, msg)
 	}
 	var obj struct {
 		ObjectId string `json:"objectId"`
 	}
-	if err := json.NewDecoder(resp2.Body).Decode(&obj); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
 		return "", err
 	}
 	return obj.ObjectId, nil
@@ -566,12 +574,17 @@ func removeSystemFiles(baseURL, spaceID string) error {
 }
 
 // findSystemFolder returns the System Bobrik Files folder id, or "" if
-// no folder with that name + nav.type=2 exists. Mirrors the lookup half
-// of ensureSystemFolder without the create path.
+// no folder with that name + nav.type=2 exists.
 func findSystemFolder(baseURL, spaceID string) (string, error) {
+	return findNavFolder(baseURL, spaceID, systemFolderName)
+}
+
+// findNavFolder returns the id of the nav folder (nav.type=2) with the
+// given name, or "" if none exists.
+func findNavFolder(baseURL, spaceID, name string) (string, error) {
 	filter := map[string]any{
 		"filter": map[string]any{
-			"any.name": systemFolderName,
+			"any.name": name,
 			"nav.type": 2,
 		},
 	}

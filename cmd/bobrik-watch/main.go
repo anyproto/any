@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,7 +31,27 @@ var (
 	chatName      string
 	agentName     string
 	programTypeID string
+
+	// debugFolderID is the "Debug" nav folder (a child of "System
+	// Bobrik Files") that agent-trace notes are parented under. It is
+	// re-created by every bootstrap, so SIGHUP refresh (signal
+	// goroutine) rewrites it while the subscribe loop reads it — guard
+	// with debugFolderMu.
+	debugFolderMu sync.RWMutex
+	debugFolderID string
 )
+
+func getDebugFolderID() string {
+	debugFolderMu.RLock()
+	defer debugFolderMu.RUnlock()
+	return debugFolderID
+}
+
+func setDebugFolderID(id string) {
+	debugFolderMu.Lock()
+	defer debugFolderMu.Unlock()
+	debugFolderID = id
+}
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
@@ -112,6 +133,16 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 		return "", fmt.Errorf("sync skills: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
+
+	// Debug folder for agent-trace notes, nested under the system
+	// folder so refresh wipes stale logs along with everything else.
+	debugID, err := ensureDebugFolder(base, spaceID, sysFolderID)
+	if err != nil {
+		return "", fmt.Errorf("ensure debug folder: %w", err)
+	}
+	setDebugFolderID(debugID)
+	fmt.Fprintf(os.Stderr, "debug folder → %s\n", debugID)
+
 	return sysFolderID, nil
 }
 
@@ -405,6 +436,7 @@ func runAgent(spaceID, objectID, text string) error {
 		SpaceID:        spaceID,
 		PrivateSpaceID: spaceID,
 		ProgramTypeID:  programTypeID,
+		DebugFolderID:  getDebugFolderID(),
 	})
 
 	rt.SetEffectResolver("chatReply", func(tr *agentrt.TraceRecord, args ...any) any {

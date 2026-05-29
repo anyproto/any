@@ -23,6 +23,19 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   written to `program_description` at sync time. MUST contain a
   `## Tool Description` heading; `anyHelper.saveProgram` rejects
   markdown without it.
+- **Debug pages** — the JS kernel's debug collector (`dcInit` in
+  `toolcall_core@v1.js`) creates one `Agent Debug Log` page per agent
+  invocation. The Go side ensures a `Debug` nav folder
+  (`ensureDebugFolder`, nested under "System Bobrik Files") and passes
+  its id to the runtime as `env.ANY_DEBUG_FOLDER_ID`
+  (`runtime.go`/`runAgent`). `init_agent.js` forwards it to
+  `createClient` (→ `client.config.debugFolderId`), and `dcInit` files
+  the page there via `client.addToCollection`. Don't add a second,
+  Go-side debug writer — that just duplicates the page. Because the
+  folder is wiped/recreated on every `--bootstrap` refresh, its id
+  changes, so `debugFolderID` is guarded by `debugFolderMu` (signal
+  goroutine writes, subscribe loop reads). Folder find/create is
+  shared via `ensureNavFolder` / `findNavFolder`.
 
 ## Naming
 
@@ -47,7 +60,7 @@ On startup writes its PID to `./.bobrik-pid`.
 `bobrik-watch --bootstrap` — deletes the "System Bobrik Files"
 folder and every object parented under it (children first, then the
 folder), then re-runs the bootstrap — `ensureSystemFolder` +
-`syncPrograms` + `syncSkills` — so the next agent run picks up the
+`syncPrograms` + `syncSkills` + `ensureDebugFolder` — so the next agent run picks up the
 latest `anyHelper.js`, programs, skills, and tool descriptions from
 disk. Subscribe loop stays up across the refresh; types (`Program`,
 `Agent Skill`) are not recreated. SIGINT/SIGTERM remove the PID file
