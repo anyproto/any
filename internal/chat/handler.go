@@ -4,10 +4,23 @@ import (
 	"errors"
 	"fmt"
 
+	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/handler"
 )
+
+// Indexes declares the any-store indexes ensured on each chat
+// object's `chat_messages` collection. List sorts by `_ver.id` and
+// translates Before/After cursors into `_ver.id` range filters, so
+// the index keeps both the order scan and the bound seek off a full
+// collection sweep. `_ver.id` is SDK-stamped on every record (set on
+// creation, never edited), so the index is dense — no Sparse.
+func (messagesHandler) Indexes() []anystore.IndexInfo {
+	return []anystore.IndexInfo{
+		{Name: "idx_ver_id", Fields: []string{"_ver.id"}},
+	}
+}
 
 // BeforeCreate validates the creation payload, then derives the
 // server-stamped row-root fields (creator, createdAt, modifiedAt)
