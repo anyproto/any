@@ -5,8 +5,8 @@ go 1.26.2
 require (
 	github.com/anyproto/any-store v0.4.6
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.5
-	github.com/anyproto/any-sync v0.12.4
-	github.com/anyproto/any-sync-sdk v0.0.2
+	github.com/anyproto/any-sync v0.12.5
+	github.com/anyproto/any-sync-sdk v0.0.3
 	github.com/anyproto/anytype-agent-runtime v0.1.1
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
@@ -110,7 +110,7 @@ require (
 	golang.org/x/exp v0.0.0-20260527015227-08cc5374adb3 // indirect
 	golang.org/x/image v0.21.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
@@ -123,5 +123,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.37.1 // indirect
-	storj.io/drpc v0.0.34 // indirect
+	storj.io/drpc v1.0.0 // indirect
 )

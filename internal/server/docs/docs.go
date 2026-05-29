@@ -1405,6 +1405,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/query/subscribe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "objects"
+                ],
+                "summary": "Subscribe to a windowed objects query (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Query params",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceQueryObjectsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}": {
             "delete": {
                 "tags": [
@@ -1453,69 +1502,6 @@ const docTemplate = `{
             }
         },
         "/spaces/{spaceId}/objects/{objectId}/chat/messages": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "chat"
-                ],
-                "summary": "List chat messages",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Chat object ID",
-                        "name": "objectId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Cursor: message ID",
-                        "name": "before",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Cursor: message ID",
-                        "name": "after",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Max messages (default 50, max 200)",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.ChatListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            },
             "post": {
                 "consumes": [
                     "application/json"
@@ -1772,51 +1758,6 @@ const docTemplate = `{
             }
         },
         "/spaces/{spaceId}/objects/{objectId}/editor/blocks": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "editor"
-                ],
-                "summary": "List blocks in document order",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Object ID",
-                        "name": "objectId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.BlockListResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            },
             "post": {
                 "consumes": [
                     "application/json"
@@ -2103,88 +2044,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/subscribe": {
-            "get": {
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "subscribe"
-                ],
-                "summary": "Subscribe to object changes (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Object ID",
-                        "name": "objectId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Dataset name",
-                        "name": "dataset",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            }
-        },
-        "/spaces/{spaceId}/properties/subscribe": {
-            "get": {
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "subscribe"
-                ],
-                "summary": "Subscribe to property changes (SSE)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            }
-        },
         "/spaces/{spaceId}/properties/{objectId}": {
             "get": {
                 "produces": [
@@ -2346,6 +2205,55 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.QueryResponse"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/query/subscribe": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "data"
+                ],
+                "summary": "Subscribe to a windowed per-object query (SSE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Query params (objectId+dataset required)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceQueryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     },
                     "400": {
                         "description": "Bad Request",
@@ -2936,17 +2844,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.BlockListResponse": {
-            "type": "object",
-            "properties": {
-                "records": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.Block"
-                    }
-                }
-            }
-        },
         "api.BlockNav": {
             "type": "object",
             "properties": {
@@ -3002,17 +2899,6 @@ const docTemplate = `{
             "properties": {
                 "text": {
                     "type": "string"
-                }
-            }
-        },
-        "api.ChatListResponse": {
-            "type": "object",
-            "properties": {
-                "messages": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/api.ChatMessage"
-                    }
                 }
             }
         },
@@ -3567,6 +3453,9 @@ const docTemplate = `{
                             "type": "integer"
                         }
                     }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },

@@ -10,40 +10,122 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/anyproto/any/internal/api"
 )
 
+// chatListResp mirrors the old api.ChatListResponse shape, but is
+// materialised via POST /v1/spaces/:id/query — the canonical read
+// path after the GET endpoint was removed.
+type chatListResp struct {
+	Messages []api.ChatMessage
+}
+
 // chatMessages fetches the chat_messages list off `base` (the peer's
-// /v1/spaces/:id/objects/:objId prefix). Thin wrapper so the polling
-// loops below stay readable.
+// /v1/spaces/:id/objects/:objId prefix). Thin wrapper around POST
+// /v1/spaces/:id/query with dataset=chat_messages, sort=_ver.id.
 //
 // Tolerates non-200 responses by returning an empty list — convergence
 // pollUntils call this in tight loops right after a joiner activates,
-// before any-sync has fetched the chat tree. /messages then returns
+// before any-sync has fetched the chat tree. The query then returns
 // 500 with `tree does not exist`, which is the right thing for the
 // API to say (the local tree genuinely isn't there yet) but should
-// not bail the polling loop. Same pattern as the markdown test's
-// doRequest-tolerant pollUntil.
-func chatMessages(t *testing.T, base string) api.ChatListResponse {
+// not bail the polling loop.
+func chatMessages(t *testing.T, base string) chatListResp {
 	t.Helper()
-	resp, raw := doRequest(t, http.MethodGet, base+"/chat/messages", "")
-	if resp.StatusCode != http.StatusOK {
-		return api.ChatListResponse{}
+	// base = http://<addr>/v1/spaces/<spId>/objects/<objId>
+	idx := strings.LastIndex(base, "/v1/spaces/")
+	if idx < 0 {
+		t.Fatalf("chatMessages: unexpected base %q", base)
 	}
-	var out api.ChatListResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	hostAndV1 := base[:idx+len("/v1/spaces/")]
+	rest := base[idx+len("/v1/spaces/"):]
+	parts := strings.SplitN(rest, "/objects/", 2)
+	if len(parts) != 2 {
+		t.Fatalf("chatMessages: cannot parse %q", rest)
+	}
+	spaceId, objectId := parts[0], parts[1]
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  "chat_messages",
+		"sort":     []string{"_ver.id"},
+	})
+	resp, raw := doRequest(t, http.MethodPost, hostAndV1+spaceId+"/query", string(body))
+	if resp.StatusCode != http.StatusOK {
+		return chatListResp{}
+	}
+	var qr struct {
+		Records []json.RawMessage `json:"records"`
+	}
+	if err := json.Unmarshal(raw, &qr); err != nil {
 		t.Fatalf("chatMessages: parse %s: %v\nbody=%s", base, err, string(raw))
+	}
+	out := chatListResp{Messages: make([]api.ChatMessage, 0, len(qr.Records))}
+	for _, r := range qr.Records {
+		out.Messages = append(out.Messages, decodeQueryChatMessage(t, r))
 	}
 	return out
 }
 
+// decodeQueryChatMessage rehydrates one chat record from the raw
+// query wire shape. Two wrinkles vs. the bespoke /chat/messages
+// response shape:
+//
+//   - anyenc → fastjson renders numeric fields as JSON numbers in
+//     exponential form for large ints; we hop through float64 and cast.
+//   - Reactions are stored as `reactions.<emoji>.<accountId> =
+//     <timestamp>` (server-derived). We transpose to the wire-friendly
+//     `{emoji: [accountId, ...]}` shape (timestamp-sorted ascending) —
+//     mirrors what the bespoke handler used to do, so test assertions
+//     written against the old shape keep working.
+func decodeQueryChatMessage(t *testing.T, raw []byte) api.ChatMessage {
+	t.Helper()
+	var f struct {
+		Id               string                        `json:"id"`
+		Creator          string                        `json:"creator"`
+		CreatedAt        float64                       `json:"createdAt"`
+		ModifiedAt       float64                       `json:"modifiedAt"`
+		ReplyToMessageId string                        `json:"replyToMessageId"`
+		FromAgent        string                        `json:"fromAgent"`
+		Text             string                        `json:"text"`
+		Reactions        map[string]map[string]float64 `json:"reactions"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("chatMessages: decode record: %v\nraw=%s", err, raw)
+	}
+	var transposed map[string][]string
+	if len(f.Reactions) > 0 {
+		transposed = make(map[string][]string, len(f.Reactions))
+		for emoji, byAcct := range f.Reactions {
+			ids := make([]string, 0, len(byAcct))
+			for acctId := range byAcct {
+				ids = append(ids, acctId)
+			}
+			sort.Slice(ids, func(i, j int) bool {
+				return byAcct[ids[i]] < byAcct[ids[j]]
+			})
+			transposed[emoji] = ids
+		}
+	}
+	return api.ChatMessage{
+		Id:               f.Id,
+		Creator:          f.Creator,
+		CreatedAt:        int64(f.CreatedAt),
+		ModifiedAt:       int64(f.ModifiedAt),
+		ReplyToMessageId: f.ReplyToMessageId,
+		FromAgent:        f.FromAgent,
+		Text:             f.Text,
+		Reactions:        transposed,
+	}
+}
+
 // findMessage returns the first message in list with the given text,
-// or zero ChatMessage if absent. Helper for the convergence polls
-// where we don't know the id ahead of time.
-func findMessage(list api.ChatListResponse, text string) api.ChatMessage {
+// or zero ChatMessage if absent.
+func findMessage(list chatListResp, text string) api.ChatMessage {
 	for _, m := range list.Messages {
 		if m.Text == text {
 			return m

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/labstack/echo/v4"
 
@@ -70,53 +69,6 @@ func (d *deps) chatSend(c echo.Context) error {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusCreated, msg)
-}
-
-// chatList handles GET /v1/spaces/:spaceId/objects/:objectId/chat/messages.
-//
-//	@Summary	List chat messages
-//	@Tags		chat
-//	@Produce	json
-//	@Param		spaceId		path		string	true	"Space ID"
-//	@Param		objectId	path		string	true	"Chat object ID"
-//	@Param		before		query		string	false	"Cursor: message ID"
-//	@Param		after		query		string	false	"Cursor: message ID"
-//	@Param		limit		query		int		false	"Max messages (default 50, max 200)"
-//	@Success	200			{object}	api.ChatListResponse
-//	@Failure	400			{object}	api.ErrorEnvelope
-//	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages [get]
-func (d *deps) chatList(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
-	if done {
-		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
-
-	opts := chat.ListOpts{
-		Before: c.QueryParam("before"),
-		After:  c.QueryParam("after"),
-	}
-	if raw := c.QueryParam("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"limit must be a non-negative integer", map[string]any{"got": raw})
-		}
-		opts.Limit = n
-	}
-
-	msgs, err := chat.List(c.Request().Context(), sp, objectId, opts)
-	if err != nil {
-		return chatOpError(c, err, sp.Id(), objectId)
-	}
-	if msgs == nil {
-		msgs = []api.ChatMessage{}
-	}
-	return c.JSON(http.StatusOK, api.ChatListResponse{Messages: msgs})
 }
 
 // chatEdit handles PATCH .../chat/messages/:msgId.

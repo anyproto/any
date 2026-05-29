@@ -24,7 +24,7 @@ const gracefulShutdownDeadline = 10 * time.Second
 // printed to stderr before any request is accepted. The SDK is opened
 // next; failures here surface before the server starts accepting traffic.
 func Run(ctx context.Context, cfg config.Config) error {
-	cfg.Log.ApplyGlobal()
+	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 	lg := logger.NewNamed("server")
 
 	if err := ValidateLoopback(cfg.Listen.Addr); err != nil {

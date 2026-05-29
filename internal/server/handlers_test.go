@@ -74,6 +74,46 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 	}
 }
 
+// setupSubscribeFixture creates a space + type + object, returning
+// (spaceId, typeId, objectId). Shared across handler tests that need
+// a baseline space and object to subscribe to.
+func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objectId string) {
+	t.Helper()
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"SubTest"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+	spaceId = sp.Id
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
+		`{"name":"Movie","description":"film"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var typeResp api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &typeResp); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	typeId = typeResp.TypeId
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects",
+		`{"types":["`+typeId+`"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
+	}
+	var objResp api.ObjectsCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &objResp); err != nil {
+		t.Fatalf("decode object: %v", err)
+	}
+	objectId = objResp.ObjectId
+	return spaceId, typeId, objectId
+}
+
 func doJSON(t *testing.T, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request

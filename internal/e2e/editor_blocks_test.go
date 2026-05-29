@@ -70,9 +70,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	objBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	// 2. Fresh object — empty list.
-	var initial api.BlockListResponse
-	mustJSON(t, http.MethodGet, objBase+"/editor/blocks", "",
-		http.StatusOK, &initial)
+	initial := listBlocks(t, objBase)
 	if len(initial.Records) != 0 {
 		t.Fatalf("initial list = %d records, want 0: %+v", len(initial.Records), initial.Records)
 	}
@@ -106,10 +104,8 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 		t.Errorf("second.style.level = %v, want 2", got)
 	}
 
-	// 5. List in document order with _ver populated.
-	var listed api.BlockListResponse
-	mustJSON(t, http.MethodGet, objBase+"/editor/blocks", "",
-		http.StatusOK, &listed)
+	// 5. List in nav.pos order with _ver populated.
+	listed := listBlocks(t, objBase)
 	if len(listed.Records) != 3 {
 		t.Fatalf("list = %d, want 3", len(listed.Records))
 	}
@@ -182,9 +178,10 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 		http.StatusNoContent)
 
 	// 10. Nested tree: create two children under `second` (which
-	// survives the delete). DFS order = [..., second, childA, childB,
-	// third] with `third` still at the end because its pos is past
-	// second's children.
+	// survives the delete). The bare /query returns a flat list sorted
+	// by nav.pos — clients reconstruct the tree by grouping children
+	// under each nav.parentId. We assert the structural invariants on
+	// the flat list rather than a hard DFS order.
 	childA := createBlock(t, objBase,
 		fmt.Sprintf(`{"type":"paragraph","text":"child-a","nav":{"parentId":%q}}`, second.Id))
 	childB := createBlock(t, objBase,
@@ -195,12 +192,26 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 		t.Fatalf("nested list = %d, want 4 (second, childA, childB, third); got=%+v",
 			len(listed.Records), listed.Records)
 	}
-	wantOrder := []string{second.Id, childA.Id, childB.Id, third.Id}
-	for i, want := range wantOrder {
-		if listed.Records[i].Id != want {
-			t.Errorf("DFS[%d] = %s, want %s (full=%+v)",
-				i, listed.Records[i].Id, want, listed.Records)
+	byId := map[string]api.Block{}
+	for _, b := range listed.Records {
+		byId[b.Id] = b
+	}
+	for _, want := range []string{second.Id, third.Id, childA.Id, childB.Id} {
+		if _, ok := byId[want]; !ok {
+			t.Errorf("missing %s from list (got=%+v)", want, listed.Records)
 		}
+	}
+	if byId[childA.Id].Nav.ParentId != second.Id || byId[childB.Id].Nav.ParentId != second.Id {
+		t.Errorf("children parentId mismatch: a=%q b=%q want %q",
+			byId[childA.Id].Nav.ParentId, byId[childB.Id].Nav.ParentId, second.Id)
+	}
+	if byId[second.Id].Nav.ParentId != "" || byId[third.Id].Nav.ParentId != "" {
+		t.Errorf("top-level parentId not empty: second=%q third=%q",
+			byId[second.Id].Nav.ParentId, byId[third.Id].Nav.ParentId)
+	}
+	if !(byId[childA.Id].Nav.Pos < byId[childB.Id].Nav.Pos) {
+		t.Errorf("childA.pos (%q) not < childB.pos (%q)",
+			byId[childA.Id].Nav.Pos, byId[childB.Id].Nav.Pos)
 	}
 
 	// 11. Validation: POST without `type` → 400 blocks.type_required.
@@ -477,8 +488,12 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 
 	frames := make(chan client.SSEFrame, 32)
 	streamErr := make(chan error, 1)
+	body, _ := json.Marshal(map[string]any{
+		"objectId": obj.ObjectId,
+		"dataset":  editor.Dataset,
+	})
 	go func() {
-		streamErr <- cl.StreamSubscribeObject(streamCtx, sp.Id, obj.ObjectId, editor.Dataset,
+		streamErr <- cl.StreamQuerySubscribe(streamCtx, sp.Id, body,
 			func(f client.SSEFrame) error {
 				select {
 				case frames <- f:
@@ -491,38 +506,27 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 	if first := waitFrameWithTimeout(t, frames, 10*time.Second); first.Event != "ready" {
 		t.Fatalf("first frame = %q, want ready (data=%s)", first.Event, first.Data)
 	}
+	if snap := waitFrameWithTimeout(t, frames, 10*time.Second); snap.Event != "snapshot" {
+		t.Fatalf("second frame = %q, want snapshot (data=%s)", snap.Event, snap.Data)
+	}
 
-	// 1. POST /editor/blocks fires a `changes` frame with deleted=false.
+	// 1. POST /editor/blocks → Added.
 	created := createBlock(t, objBase, `{"type":"paragraph","text":"sse-1"}`)
-	createEvt := awaitEditorBlocksEvent(t, frames, created.Id)
+	createEvt := awaitWindowedEditorBlocksEvent(t, frames, created.Id, windowedKindAdded)
 	if createEvt.VersionId == "" {
 		t.Errorf("create event missing versionId")
 	}
-	if len(createEvt.Records) == 0 || createEvt.Records[0].Deleted {
-		t.Errorf("create event = %+v, want non-deleted record for %s", createEvt, created.Id)
-	}
 
-	// 2. PUT /editor/markdown drives the same dataset — a follow-up
-	// modification of the same block must fire a fresh changes frame.
-	// The renderer emits one paragraph per top-level block; the existing
-	// record's text canonical form is "sse-1", so we re-PUT with that
-	// plus a second block to force an insert event.
+	// 2. PUT /editor/markdown → at least one further changes frame.
 	putMarkdown(t, objBase+"/editor/markdown", "sse-1\n\nsse-2-new")
-
-	// We expect at least one more event referencing a editor_blocks
-	// record — either an insert for the new line, or an update on the
-	// existing block depending on diff alignment. Wait for any one.
-	if !awaitAnyEditorBlocksEvent(t, frames, 10*time.Second) {
+	if !awaitAnyWindowedEditorBlocksEvent(t, frames, 10*time.Second) {
 		t.Fatalf("no editor_blocks event after markdown PUT")
 	}
 
-	// 3. DELETE /editor/blocks fires a deleted=true event.
+	// 3. DELETE /editor/blocks → Removed.
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+created.Id, "",
 		http.StatusNoContent)
-	deleteEvt := awaitEditorBlocksEvent(t, frames, created.Id)
-	if len(deleteEvt.Records) == 0 || !deleteEvt.Records[0].Deleted {
-		t.Errorf("delete event = %+v, want deleted=true on %s", deleteEvt, created.Id)
-	}
+	_ = awaitWindowedEditorBlocksEvent(t, frames, created.Id, windowedKindRemoved)
 
 	streamCancel()
 	select {
@@ -550,12 +554,45 @@ func patchBlock(t *testing.T, objBase, blockId, body string) api.BlockPatchRespo
 	return resp
 }
 
-func listBlocks(t *testing.T, objBase string) api.BlockListResponse {
+// blockListResp mirrors the old api.BlockListResponse shape but is
+// materialised via POST /v1/spaces/:id/query with dataset=editor_blocks
+// (the canonical read path now that the GET endpoint is gone).
+type blockListResp struct {
+	Records []api.Block
+}
+
+func listBlocks(t *testing.T, objBase string) blockListResp {
 	t.Helper()
-	var resp api.BlockListResponse
-	mustJSON(t, http.MethodGet, objBase+"/editor/blocks", "",
-		http.StatusOK, &resp)
-	return resp
+	// objBase = http://<addr>/v1/spaces/<id>/objects/<oid>
+	idx := strings.LastIndex(objBase, "/v1/spaces/")
+	if idx < 0 {
+		t.Fatalf("listBlocks: unexpected objBase %q", objBase)
+	}
+	hostAndV1 := objBase[:idx+len("/v1/spaces/")]
+	rest := objBase[idx+len("/v1/spaces/"):]
+	parts := strings.SplitN(rest, "/objects/", 2)
+	if len(parts) != 2 {
+		t.Fatalf("listBlocks: cannot parse %q", rest)
+	}
+	spaceId, objectId := parts[0], parts[1]
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  "editor_blocks",
+		"sort":     []string{"nav.pos"},
+	})
+	var qr struct {
+		Records []json.RawMessage `json:"records"`
+	}
+	mustJSON(t, http.MethodPost, hostAndV1+spaceId+"/query", string(body), http.StatusOK, &qr)
+	out := blockListResp{Records: make([]api.Block, 0, len(qr.Records))}
+	for _, raw := range qr.Records {
+		var b api.Block
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatalf("decode record: %v", err)
+		}
+		out.Records = append(out.Records, b)
+	}
+	return out
 }
 
 func getMarkdownContent(t *testing.T, mdURL string) string {
@@ -601,10 +638,31 @@ func toInt(v any) int {
 	return 0
 }
 
-// awaitEditorBlocksEvent pulls SSE frames until it finds a `changes` frame
-// whose batch contains an event for (editor_blocks, recordId). Other
-// frames are discarded. Times out after 10s.
-func awaitEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordId string) api.SubscribeEvent {
+// waitFrameWithTimeout pulls one frame from ch with a deadline.
+func waitFrameWithTimeout(t *testing.T, ch <-chan client.SSEFrame, d time.Duration) client.SSEFrame {
+	t.Helper()
+	select {
+	case f := <-ch:
+		return f
+	case <-time.After(d):
+		t.Fatal("timed out waiting for SSE frame")
+		return client.SSEFrame{}
+	}
+}
+
+type windowedKind int
+
+const (
+	windowedKindAdded windowedKind = iota
+	windowedKindUpdated
+	windowedKindRemoved
+)
+
+// awaitWindowedEditorBlocksEvent pulls SSE frames until it finds a
+// `changes` frame whose batch contains an event for recordId in the
+// requested bucket (Added / Updated / Removed). Other frames are
+// discarded. Times out after 10s.
+func awaitWindowedEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordId string, kind windowedKind) api.QuerySubscribeEvent {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	for {
@@ -613,33 +671,44 @@ func awaitEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, recordI
 			if f.Event != "changes" {
 				continue
 			}
-			var batch []api.SubscribeEvent
+			var batch []api.QuerySubscribeEvent
 			if err := json.Unmarshal(f.Data, &batch); err != nil {
 				t.Fatalf("decode changes batch: %v\nraw=%s", err, f.Data)
 			}
 			for _, ev := range batch {
-				if ev.Dataset != editor.Dataset {
-					continue
-				}
-				for _, rec := range ev.Records {
-					if rec.Id == recordId {
-						return ev
+				switch kind {
+				case windowedKindAdded:
+					for _, r := range ev.Added {
+						if r.Id == recordId {
+							return ev
+						}
+					}
+				case windowedKindUpdated:
+					for _, r := range ev.Updated {
+						if r.Id == recordId {
+							return ev
+						}
+					}
+				case windowedKindRemoved:
+					for _, id := range ev.Removed {
+						if id == recordId {
+							return ev
+						}
 					}
 				}
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for editor_blocks event on %s", recordId)
-			return api.SubscribeEvent{}
+			t.Fatalf("timed out waiting for editor_blocks windowed event on %s (kind=%d)", recordId, kind)
+			return api.QuerySubscribeEvent{}
 		}
 	}
 }
 
-// awaitAnyEditorBlocksEvent waits for *any* changes frame on the
-// editor_blocks dataset (records list ignored). Used when the test driver
-// can't predict which specific record id will fire — markdown PUT might
-// emit either an Update on the existing record or an Insert on a new
-// one depending on how the diff aligns.
-func awaitAnyEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, d time.Duration) bool {
+// awaitAnyWindowedEditorBlocksEvent waits for *any* changes frame on
+// the windowed stream (records list ignored). Used when the test
+// driver can't predict which specific record id will fire — markdown
+// PUT might land as Added/Updated/Removed depending on diff alignment.
+func awaitAnyWindowedEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, d time.Duration) bool {
 	t.Helper()
 	deadline := time.After(d)
 	for {
@@ -648,14 +717,12 @@ func awaitAnyEditorBlocksEvent(t *testing.T, frames <-chan client.SSEFrame, d ti
 			if f.Event != "changes" {
 				continue
 			}
-			var batch []api.SubscribeEvent
+			var batch []api.QuerySubscribeEvent
 			if err := json.Unmarshal(f.Data, &batch); err != nil {
 				t.Fatalf("decode changes batch: %v", err)
 			}
-			for _, ev := range batch {
-				if ev.Dataset == editor.Dataset {
-					return true
-				}
+			if len(batch) > 0 {
+				return true
 			}
 		case <-deadline:
 			return false

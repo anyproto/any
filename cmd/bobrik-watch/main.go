@@ -297,15 +297,19 @@ func subscribeLoop(spaceID, objectID string) {
 }
 
 func subscribe(spaceID, objectID string) error {
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/subscribe?dataset=chat_messages",
-		url.PathEscape(spaceID), url.PathEscape(objectID))
+	path := fmt.Sprintf("/v1/spaces/%s/query/subscribe", url.PathEscape(spaceID))
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectID,
+		"dataset":  "chat_messages",
+	})
 
-	req, err := http.NewRequest("GET", base+path, nil)
+	req, err := http.NewRequest("POST", base+path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -334,6 +338,10 @@ func subscribe(spaceID, objectID string) error {
 			} else if eventType == "changes" && strings.HasPrefix(line, "data: ") {
 				data := strings.TrimPrefix(line, "data: ")
 				handleChanges(spaceID, objectID, []byte(data))
+			} else if eventType == "snapshot" {
+				// Initial window — bobrik only reacts to messages
+				// arriving live (Added events), so the snapshot is
+				// just the "starting point" and we drop it.
 			} else if eventType == "closed" {
 				fmt.Fprintf(os.Stderr, "SSE closed frame: %s\n", line)
 			}
@@ -348,35 +356,37 @@ func subscribe(spaceID, objectID string) error {
 }
 
 func handleChanges(spaceID, objectID string, data []byte) {
+	// Windowed query/subscribe wire shape: per batch, Added carries
+	// newly-visible records with their full Doc inline. Updated and
+	// Removed are ignored — bobrik only fires on fresh incoming
+	// messages.
 	var events []struct {
-		Records []struct {
-			Id      string `json:"id"`
-			Created bool   `json:"created"`
-			Ops     []struct {
-				Type    string          `json:"type"`
-				Path    []string        `json:"path"`
-				Payload json.RawMessage `json:"payload"`
-			} `json:"ops"`
-		} `json:"records"`
+		Added []struct {
+			Id  string          `json:"id"`
+			Doc json.RawMessage `json:"doc"`
+		} `json:"added"`
 	}
 	if err := json.Unmarshal(data, &events); err != nil {
 		fmt.Fprintf(os.Stderr, "handleChanges: unmarshal error: %v (data: %.200s)\n", err, data)
 		return
 	}
 	for _, ev := range events {
-		for _, rec := range ev.Records {
-			if !rec.Created {
+		for _, rec := range ev.Added {
+			var doc struct {
+				Text      string `json:"text"`
+				Creator   string `json:"creator"`
+				FromAgent string `json:"fromAgent"`
+			}
+			if err := json.Unmarshal(rec.Doc, &doc); err != nil {
+				fmt.Fprintf(os.Stderr, "decode chat doc %s: %v\n", rec.Id, err)
 				continue
 			}
-			fields := extractFields(rec.Ops)
-			if fields["fromAgent"] != "" {
+			if doc.FromAgent != "" {
 				continue
 			}
-			text := fields["text"]
-			creator := fields["creator"]
-			fmt.Printf("new human message [%s] from %s: %s\n", rec.Id, creator, text)
+			fmt.Printf("new human message [%s] from %s: %s\n", rec.Id, doc.Creator, doc.Text)
 
-			if err := runAgent(spaceID, objectID, text); err != nil {
+			if err := runAgent(spaceID, objectID, doc.Text); err != nil {
 				fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
 			}
 		}
@@ -542,32 +552,3 @@ func normalizeAttachments(in map[string]any) map[string]any {
 	return out
 }
 
-func extractFields(ops []struct {
-	Type    string          `json:"type"`
-	Path    []string        `json:"path"`
-	Payload json.RawMessage `json:"payload"`
-}) map[string]string {
-	out := map[string]string{}
-	for _, op := range ops {
-		if op.Type != "$set" {
-			continue
-		}
-		if len(op.Path) == 0 {
-			var bulk map[string]json.RawMessage
-			if json.Unmarshal(op.Payload, &bulk) == nil {
-				for k, v := range bulk {
-					var s string
-					if json.Unmarshal(v, &s) == nil {
-						out[k] = s
-					}
-				}
-			}
-		} else if len(op.Path) == 1 {
-			var s string
-			if json.Unmarshal(op.Payload, &s) == nil {
-				out[op.Path[0]] = s
-			}
-		}
-	}
-	return out
-}

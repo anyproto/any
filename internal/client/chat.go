@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -17,31 +16,6 @@ func (c *Client) ChatSend(ctx context.Context, spaceId, objectId string, req api
 	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages",
 		url.PathEscape(spaceId), url.PathEscape(objectId))
 	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-// ChatList fetches a page of messages. before/after are message ids
-// (cursor style). limit ≤ 0 means "use server default".
-func (c *Client) ChatList(ctx context.Context, spaceId, objectId, before, after string, limit int) (*api.ChatListResponse, error) {
-	var out api.ChatListResponse
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/chat/messages",
-		url.PathEscape(spaceId), url.PathEscape(objectId))
-	q := url.Values{}
-	if before != "" {
-		q.Set("before", before)
-	}
-	if after != "" {
-		q.Set("after", after)
-	}
-	if limit > 0 {
-		q.Set("limit", strconv.Itoa(limit))
-	}
-	if encoded := q.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

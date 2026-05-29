@@ -1318,22 +1318,51 @@
   const objectMessagesPath = (sp, oid) =>
     '/v1/spaces/' + encodeURIComponent(sp) + '/objects/' + encodeURIComponent(oid) + '/chat/messages';
 
+  // Reads run through POST /query with dataset=chat_messages — the
+  // bespoke GET endpoint is gone (writes still hit /chat/messages).
   async function loadChatMessages(spaceId, objectId) {
     const obj = App.spaces[spaceId]?.objects[objectId];
     if (!obj) return null;
     if (obj.chatLoading) return obj.chatMessages || [];
     obj.chatLoading = true;
     try {
-      const r = await api.get(objectMessagesPath(spaceId, objectId));
+      const r = await api.post('/v1/spaces/' + encodeURIComponent(spaceId) + '/query', {
+        objectId, dataset: 'chat_messages', sort: ['_ver.id'],
+      });
       if (!r.ok) {
         toast('err', 'load messages failed', r.body);
         return obj.chatMessages || [];
       }
-      obj.chatMessages = (r.json && Array.isArray(r.json.messages)) ? r.json.messages : [];
+      const raw = (r.json && Array.isArray(r.json.records)) ? r.json.records : [];
+      obj.chatMessages = raw.map(normalizeChatRecord);
       return obj.chatMessages;
     } finally {
       obj.chatLoading = false;
     }
+  }
+  // normalizeChatRecord rewrites the raw query record into the shape
+  // the chat renderer expects. The dataset stores
+  // `reactions.<emoji>.<accountId> = <timestamp>`; the renderer wants
+  // the transposed `{emoji: [accountId, ...]}` (timestamp-ascending).
+  // The bespoke GET endpoint used to do this server-side; we mirror it
+  // client-side now that reads go through /query.
+  function normalizeChatRecord(rec) {
+    const out = Object.assign({}, rec);
+    const raw = rec && rec.reactions;
+    if (raw && typeof raw === 'object') {
+      const transposed = {};
+      for (const emoji of Object.keys(raw)) {
+        const byAccount = raw[emoji];
+        if (!byAccount || typeof byAccount !== 'object') continue;
+        const ids = Object.keys(byAccount);
+        ids.sort((a, b) => (byAccount[a] || 0) - (byAccount[b] || 0));
+        transposed[emoji] = ids;
+      }
+      out.reactions = transposed;
+    } else {
+      out.reactions = {};
+    }
+    return out;
   }
   async function sendChatMessage(spaceId, objectId, text, replyTo, fromAgent) {
     const body = { text };
@@ -1859,32 +1888,79 @@
       });
     }
 
-    const path = '/v1/spaces/' + encodeURIComponent(sp.info.id) +
-      '/objects/' + encodeURIComponent(oid) +
-      '/subscribe?dataset=' + encodeURIComponent(CHAT_DATASET);
-    let firstReady = true;
-    const es = new EventSource(path);
-    es.addEventListener('ready', () => {
-      // First `ready` lands during the initial mount; the page-data
-      // fetch already populated o.chatMessages, so don't double-load.
-      // Subsequent `ready` frames mean EventSource auto-reconnected
-      // after a transport drop — re-fetch in case events landed
-      // during the gap.
-      if (firstReady) { firstReady = false; return; }
-      refreshChatMessages(sp.info.id, oid).catch(() => {});
-    });
-    es.addEventListener('changes', () => {
-      // Re-fetch and re-render the message list. We don't trust the
-      // SSE frame's payload to carry message bodies — it's a routing
-      // tuple by design.
-      refreshChatMessages(sp.info.id, oid).catch(() => {});
-    });
-    es.addEventListener('closed', () => { es.close(); });
-    activeChat = { es, spaceId: sp.info.id, objectId: oid };
+    // Live updates via POST /v1/spaces/:id/query/subscribe. Browser
+    // EventSource is GET-only, so we drive it with fetch + a manual
+    // SSE parser. On every `event: changes` frame we re-fetch the
+    // message list (refetch-on-event is conservative — same shape the
+    // previous web UI ran, scheduled to migrate to add/update/remove
+    // application but this keeps the change small).
+    const ctrl = new AbortController();
+    activeChat = { ctrl, spaceId: sp.info.id, objectId: oid };
+    startChatSubscribe(sp.info.id, oid, ctrl.signal);
+  }
+  async function startChatSubscribe(spaceId, objectId, signal) {
+    try {
+      const resp = await fetch(
+        '/v1/spaces/' + encodeURIComponent(spaceId) + '/query/subscribe',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+          },
+          body: JSON.stringify({
+            objectId, dataset: 'chat_messages', sort: ['_ver.id'],
+          }),
+          signal,
+        });
+      if (!resp.ok || !resp.body) {
+        toast('err', 'chat subscribe failed', String(resp.status));
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        // SSE frames are separated by blank lines.
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const raw = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const frame = parseSSEFrame(raw);
+          if (!frame || activeChat?.spaceId !== spaceId || activeChat?.objectId !== objectId) continue;
+          if (frame.event === 'changes') {
+            refreshChatMessages(spaceId, objectId).catch(() => {});
+          } else if (frame.event === 'closed') {
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') {
+        toast('err', 'chat subscribe error', String(e?.message || e));
+      }
+    }
+  }
+  function parseSSEFrame(raw) {
+    let event = '';
+    let data = '';
+    for (const line of raw.split('\n')) {
+      if (line.startsWith(':')) continue;
+      const colon = line.indexOf(':');
+      const field = colon < 0 ? line : line.slice(0, colon);
+      let value = colon < 0 ? '' : line.slice(colon + 1);
+      if (value.startsWith(' ')) value = value.slice(1);
+      if (field === 'event') event = value;
+      else if (field === 'data') data += data ? '\n' + value : value;
+    }
+    return { event, data };
   }
   function unmountChat() {
     if (activeChat) {
-      try { activeChat.es.close(); } catch (e) {}
+      try { activeChat.ctrl?.abort(); } catch (e) {}
       activeChat = null;
     }
   }
