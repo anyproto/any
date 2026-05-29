@@ -768,16 +768,11 @@ function resolveObjectRef(lastOut, inputArgs) {
   return ref;
 }
 
-// Render an Anytype object reference as a clickable markdown link.
-// Uses the qualified form `anytype://object?objectId=...&spaceId=...` which
-// the Anytype desktop client resolves reliably; the short `anytype://<id>`
-// form doesn't open.
-// Falls back to the bare id as label if name is missing (e.g. delete).
+// Render an object reference as a clickable markdown link: any://spaceId/objectId
 function objectLink(ref, spaceId) {
   var label = ref.name || ref.id || "?";
   if (!ref.id) return label;
-  var url = "anytype://object?objectId=" + ref.id;
-  if (spaceId) url += "&spaceId=" + spaceId;
+  var url = spaceId ? "any://" + spaceId + "/" + ref.id : "any://_/" + ref.id;
   return "[" + label + "](" + url + ")";
 }
 
@@ -785,10 +780,10 @@ function objectLink(ref, spaceId) {
 // anyHelper.* mutation calls and emits one prefixed line per mutation.
 // Lines carry the object type plus a clickable markdown link so the chat
 // history is both machine-parseable and human-readable.
-//   created <typeKey> [<name>](anytype://object?objectId=<id>&spaceId=<sid>)
-//   updated <typeKey> [<name>](anytype://object?objectId=<id>&spaceId=<sid>)
-//   deleted <typeKey> [<id>](anytype://...)      (name is gone post-delete)
-//   tagged <tag> on [<name>](anytype://...)
+//   created <typeKey> [<name>](any://<sid>/<id>)
+//   updated <typeKey> [<name>](any://<sid>/<id>)
+//   deleted <typeKey> [<id>](any://...)      (name is gone post-delete)
+//   tagged <tag> on [<name>](any://...)
 // Read-only helpers (getObjects, getObject, search, listTypes, …) are skipped.
 function extractEffects(traces, spaceId) {
   if (!traces) return [];
@@ -1038,7 +1033,7 @@ function compressOldestTurns(amem, markdown, chatId) {
 // the same format — one markdown document where each `# Title` section is one
 // context object. After parsing, all existing space_context objects are
 // deleted and fresh ones are recreated in order. This trades id-stability for
-// parser simplicity; any previously-shared anytype:// link to a space_context
+// parser simplicity; any previously-shared any:// link to a space_context
 // object will go stale after a split.
 
 function _parseSpaceContextSections(md) {
@@ -1072,13 +1067,13 @@ function _escapeRegex(s) {
 // Rewrite markdown-link references inside Main so they point at the freshly
 // created child ids. Handles both `[Title](...anything...)` and bare `[Title]`
 // (when the LLM chose the shorter form described in the split prompt).
-function _rewriteChildLinks(mainMd, titleToId) {
+function _rewriteChildLinks(mainMd, titleToId, spaceId) {
   var out = mainMd;
   for (var title in titleToId) {
     if (!Object.prototype.hasOwnProperty.call(titleToId, title)) continue;
     var id = titleToId[title];
     var esc = _escapeRegex(title);
-    var replacement = "[" + title + "](anytype://object?objectId=" + id + ")";
+    var replacement = "[" + title + "](any://" + (spaceId || "_") + "/" + id + ")";
     out = out.replace(new RegExp("\\[" + esc + "\\]\\([^)]*\\)", "g"), replacement);
     out = out.replace(new RegExp("\\[" + esc + "\\](?!\\()", "g"), replacement);
   }
@@ -1117,7 +1112,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
     "OUTPUT FORMAT: a single markdown document with the same `# Title` structure. `# Main` MUST be present and MUST come first. Every other `# Title` becomes one child context file. Output nothing outside the sections — no preamble, no trailing commentary.\n\n" +
     "RULES:\n" +
     "- Reorganize, do NOT summarize. Do not drop facts.\n" +
-    "- Main should shrink to well under the ceiling (aim ≤ " + SPACE_CTX_TARGET_CHARS + " chars). Rewrite Main as a map: short subheaders + `[Child Title](anytype://object?objectId=...)` links. You can use the plain form `[Child Title]` if easier — the runtime will rewrite it to a real link after creation.\n" +
+    "- Main should shrink to well under the ceiling (aim ≤ " + SPACE_CTX_TARGET_CHARS + " chars). Rewrite Main as a map: short subheaders + `[Child Title](any://spaceId/objectId)` links. You can use the plain form `[Child Title]` if easier — the runtime will rewrite it to a real link after creation.\n" +
     "- Use existing titles when the content continues an existing topic; invent new titles freely for genuinely new groupings. No expectation of id continuity — the corpus is rewritten wholesale.\n" +
     "- Preserve decision/flow history at a high level: when a rule has changed, keep both forms (\"previously X; now Y\"). Do NOT preserve history for trivial enumerations (field lists, property renames).\n" +
     "- Keep distinct parts distinct — never merge two child files into one unless the underlying topics truly unified.\n\n" +
@@ -1180,7 +1175,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
     }
   }
 
-  var finalMainMd = _rewriteChildLinks(mainSection.content, titleToNewId);
+  var finalMainMd = _rewriteChildLinks(mainSection.content, titleToNewId, client.config.spaceId);
   var mainRes = client.createObject("Space Context", { name: "Main", body: finalMainMd });
   if (!mainRes || !mainRes.ok) {
     if (breadcrumb) breadcrumb("[space-context] failed to create new Main: " + (mainRes && mainRes.error));
@@ -1315,11 +1310,12 @@ function _loadMetaSkillMarkdown(client) { return _loadSkillMarkdown(client, "_me
 // Render the "Space Context" section for the system prompt. skillMd is the
 // static `_space_context.md` guidance; mainObj = { id, markdown }; children is
 // [{id, name}]. Returns "" when skillMd is empty (feature gated off).
-function _loadSpaceContextSection(skillMd, mainObj, children) {
+function _loadSpaceContextSection(skillMd, mainObj, children, spaceId) {
   if (!skillMd) return "";
+  var sid = spaceId || "_";
   var parts = ["\n\n---\n\n", skillMd, "\n\n### Main Space Context\n\n"];
   if (mainObj && mainObj.id) {
-    parts.push("[Main](anytype://object?objectId=" + mainObj.id + ")\n\n");
+    parts.push("[Main](any://" + sid + "/" + mainObj.id + ")\n\n");
     parts.push(mainObj.markdown || "_(empty — edit Main to start building the space context)_");
     parts.push("\n");
   } else {
@@ -1330,7 +1326,7 @@ function _loadSpaceContextSection(skillMd, mainObj, children) {
     parts.push("If the current topic matches one of these titles, fetch its content via `anyHelper.getObject(<id>)`.\n\n");
     for (var i = 0; i < children.length; i++) {
       var c = children[i];
-      parts.push("- [" + c.name + "](anytype://object?objectId=" + c.id + ")\n");
+      parts.push("- [" + c.name + "](any://" + sid + "/" + c.id + ")\n");
     }
   }
   return parts.join("");
@@ -1361,7 +1357,7 @@ function _loadUserSkillsSection(client) {
     if (tags.indexOf("assistant_program") >= 0) continue;
     var title = o.name || o.__any_agent_skill_name || "(untitled skill)";
     var desc = (o.description || "").trim();
-    var line = "- [" + title + "](anytype://object?objectId=" + o.id + ")";
+    var line = "- [" + title + "](any://" + (client.config.spaceId || "_") + "/" + o.id + ")";
     if (desc) line += " — " + desc;
     lines.push(line);
   }
@@ -1987,7 +1983,7 @@ export function main(args) {
     anytypeSkill + "\n\n---\n\n" +
     toolcallerSkill +
     _loadUserSkillsSection(bootClient) +
-    _loadSpaceContextSection(spaceContextSkill, spaceContextMain, spaceContextChildren) +
+    _loadSpaceContextSection(spaceContextSkill, spaceContextMain, spaceContextChildren, args.spaceId) +
     _buildToolsPromptSection(toolDocs) +
     _fetchCategoriesSection();
 
@@ -2174,20 +2170,30 @@ export function main(args) {
     if (resp.stop_reason === "end_turn") {
       var finalText = textParts.join("\n").trim();
       if (!finalText) finalText = "(model returned end_turn with no text)";
-      // Surface anytype://object?objectId=<id> links in the reply as
-      // structured attachments — the chat renders these at the bottom of the
-      // message, so the user can open referenced objects in one click without
-      // hunting for them in the markdown link text.
-      var attachIds = [];
-      var linkRe = /\(anytype:\/\/object\?objectId=([a-z2-7]{50,})/g;
+      // Surface any://spaceId/objectId links in the reply as structured
+      // attachments. The wire shape is { id: { type, link } } — id is a
+      // short opaque string (must match [A-Za-z0-9_-]+, ≤ 64 chars; we
+      // use "a1", "a2", … to stay well under the cap) and `type` is
+      // an open enum; here every match comes from a markdown link, so
+      // they're all "link" — image extraction would happen elsewhere.
+      var attachments = {};
+      var attachCount = 0;
+      var linkRe = /\(any:\/\/[^/]+\/([a-z2-7]{50,})\)/g;
       var linkMatch;
       var seenIds = {};
       while ((linkMatch = linkRe.exec(finalText)) !== null) {
-        if (!seenIds[linkMatch[1]]) { seenIds[linkMatch[1]] = true; attachIds.push(linkMatch[1]); }
-        if (attachIds.length >= 5) break;
+        var objId = linkMatch[1];
+        if (seenIds[objId]) continue;
+        seenIds[objId] = true;
+        attachCount++;
+        attachments["a" + attachCount] = {
+          type: "link",
+          link: linkMatch[0].slice(1, -1), // strip the surrounding parens
+        };
+        if (attachCount >= 5) break;
       }
-      if (attachIds.length > 0) {
-        chatReply({ text: "✅ " + finalText, attachments: attachIds });
+      if (attachCount > 0) {
+        chatReply({ text: "✅ " + finalText, attachments: attachments });
       } else {
         chatReply("✅ " + finalText);
       }

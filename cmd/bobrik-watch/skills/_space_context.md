@@ -30,7 +30,7 @@ When migrating existing Main content, apply the same test: replace tallies and n
 
 ### How to edit
 
-Main's id is in the `[Main](anytype://object?objectId=...)` link at the top of the section. Pick the smallest tool:
+Main's id is in the `[Main](any://spaceId/objectId)` link at the top of the section. Pick the smallest tool:
 
 - **`editObject(mainId, { oldString, newString })`** — surgical change. The default. `oldString` must match once (pass `replaceAll: true` to relax).
 - **`appendToObject(mainId, "\n## New section\n…")`** — wholly new section.

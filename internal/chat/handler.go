@@ -143,6 +143,11 @@ func validateCreatePayload(payload *anyenc.Value) error {
 				visitErr = rejectCreate(fmt.Sprintf("fromAgent too long (%d > %d bytes)", len(fa), MaxFromAgentBytes))
 				return
 			}
+		case FieldAttachments:
+			if err := validateAttachments(v); err != nil {
+				visitErr = err
+				return
+			}
 		default:
 			visitErr = rejectCreate("field_not_allowed: " + key)
 			return
@@ -155,6 +160,146 @@ func validateCreatePayload(payload *anyenc.Value) error {
 		return rejectCreate("text required")
 	}
 	return nil
+}
+
+// validateAttachments enforces the structure of the attachments map:
+//
+//   - must be an object
+//   - 1..MaxAttachments entries
+//   - each id matches [A-Za-z0-9_-]+ and is ≤ MaxAttachmentIdBytes
+//   - each entry is an object with `type` (non-empty string,
+//     ≤ MaxAttachmentTypeBytes) and `link` (non-empty string,
+//     ≤ MaxAttachmentLinkBytes); both are required
+//   - no unknown sub-fields per entry (future-proof: bump dataVersion
+//     when adding any new sub-field)
+//
+// Open enum on `type` — we don't whitelist "link"/"image" here so new
+// kinds (e.g. "video", "embed") can flow through without a handler
+// bump. Clients render unknown types as plain links per task-chat-
+// attachments.md.
+func validateAttachments(v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeObject {
+		return rejectCreate("attachments must be an object")
+	}
+	obj, err := v.Object()
+	if err != nil || obj == nil {
+		return rejectCreate("attachments must be an object")
+	}
+	var (
+		visitErr error
+		count    int
+	)
+	obj.Visit(func(rawId []byte, entry *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		count++
+		if count > MaxAttachments {
+			visitErr = rejectCreate(fmt.Sprintf("attachments: too many entries (max %d)", MaxAttachments))
+			return
+		}
+		id := string(rawId)
+		if !isValidAttachmentId(id) {
+			visitErr = rejectCreate("attachments: invalid id (must match [A-Za-z0-9_-]+, ≤ " +
+				fmt.Sprintf("%d", MaxAttachmentIdBytes) + " bytes): " + id)
+			return
+		}
+		if visitErr = validateAttachmentEntry(id, entry); visitErr != nil {
+			return
+		}
+	})
+	if visitErr != nil {
+		return visitErr
+	}
+	if count == 0 {
+		return rejectCreate("attachments: must be non-empty when present")
+	}
+	return nil
+}
+
+func validateAttachmentEntry(id string, entry *anyenc.Value) error {
+	if entry == nil || entry.Type() != anyenc.TypeObject {
+		return rejectCreate("attachments[" + id + "]: must be an object")
+	}
+	obj, err := entry.Object()
+	if err != nil || obj == nil {
+		return rejectCreate("attachments[" + id + "]: must be an object")
+	}
+	var (
+		visitErr        error
+		hasType, hasLnk bool
+	)
+	obj.Visit(func(rawKey []byte, val *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		key := string(rawKey)
+		switch key {
+		case FieldAttachmentType:
+			hasType = true
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("attachments[" + id + "].type must be a string")
+				return
+			}
+			t := val.GetStringBytes()
+			if len(t) == 0 {
+				visitErr = rejectCreate("attachments[" + id + "].type required")
+				return
+			}
+			if len(t) > MaxAttachmentTypeBytes {
+				visitErr = rejectCreate(fmt.Sprintf("attachments[%s].type too long (%d > %d bytes)",
+					id, len(t), MaxAttachmentTypeBytes))
+				return
+			}
+		case FieldAttachmentLink:
+			hasLnk = true
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("attachments[" + id + "].link must be a string")
+				return
+			}
+			l := val.GetStringBytes()
+			if len(l) == 0 {
+				visitErr = rejectCreate("attachments[" + id + "].link required")
+				return
+			}
+			if len(l) > MaxAttachmentLinkBytes {
+				visitErr = rejectCreate(fmt.Sprintf("attachments[%s].link too long (%d > %d bytes)",
+					id, len(l), MaxAttachmentLinkBytes))
+				return
+			}
+		default:
+			visitErr = rejectCreate("attachments[" + id + "]: unknown field " + key)
+			return
+		}
+	})
+	if visitErr != nil {
+		return visitErr
+	}
+	if !hasType {
+		return rejectCreate("attachments[" + id + "].type required")
+	}
+	if !hasLnk {
+		return rejectCreate("attachments[" + id + "].link required")
+	}
+	return nil
+}
+
+func isValidAttachmentId(id string) bool {
+	if len(id) == 0 || len(id) > MaxAttachmentIdBytes {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		case c >= '0' && c <= '9':
+		case c == '_' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // stampCreate queues sink.Derive ops for the row-root server-stamped

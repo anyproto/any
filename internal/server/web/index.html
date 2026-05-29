@@ -575,6 +575,12 @@
 
   /* from-agent indicator */
   .chat-msg.from-agent { background: rgba(120, 90, 200, 0.06); }
+  .chat-msg .attachments-dump {
+    margin: 4px 0 0; padding: 6px 8px; background: var(--panel-2);
+    border: 1px solid var(--border-soft); border-radius: 4px;
+    font: 11px var(--mono); color: var(--muted);
+    white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto;
+  }
   .chat-msg .agent-tag {
     font: 10px var(--mono); color: #8a6dbf;
     padding: 1px 5px; border: 1px solid rgba(138, 109, 191, 0.4); border-radius: 3px;
@@ -1989,6 +1995,13 @@
       '<button data-act="chat-delete" data-id="' + escapeHTML(o.id) +
         '" data-msg="' + escapeHTML(m.id) + '" title="delete">🗑</button>' : '';
 
+    // Attachments are rendered as a raw JSON dump — the "proper" UI
+    // lives in any-ui. Block only renders when present so undecorated
+    // messages stay clean.
+    const attachmentsHTML = (m.attachments && Object.keys(m.attachments).length > 0)
+      ? '<pre class="attachments-dump">' + escapeHTML(JSON.stringify(m.attachments, null, 2)) + '</pre>'
+      : '';
+
     return '<div class="chat-msg' + (own ? ' own' : '') + (fromAgent ? ' from-agent' : '') + '">' +
       '<div class="meta">' +
         '<span class="author">' + escapeHTML(author) + '</span>' +
@@ -2000,6 +2013,7 @@
         '<span class="actions">' + quickReactionsHTML + ownActions + '</span>' +
       '</div>' +
       '<div class="text">' + escapeHTML(m.text || '') + '</div>' +
+      attachmentsHTML +
       reactionsHTML +
     '</div>';
   }

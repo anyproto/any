@@ -1,5 +1,15 @@
 package api
 
+// ChatAttachment is one entry in a message's attachments map. `Type`
+// is an open enum — known values are "link" and "image"; clients fall
+// back to rendering `Link` as a plain anchor for unknown types. `Link`
+// is the URL (any:// for in-space references, https:// or similar for
+// out-of-space resources). Attachments are immutable post-create.
+type ChatAttachment struct {
+	Type string `json:"type"`
+	Link string `json:"link"`
+}
+
 // ChatMessage is the wire shape of one chat message. Mirrors the
 // `chat_messages` dataset record 1:1 except for `reactions`, which is
 // rolled up from the storage layout (emoji → {accountId: timestamp})
@@ -7,29 +17,37 @@ package api
 // timestamp ascending. The roll-up lives at the API layer; storage
 // keeps the per-identity leaf so authorization is a single
 // path-segment compare (see internal/chat).
+//
+// `Attachments` is an optional client-side hint — see the internal/chat
+// package doc for storage details. Create-only.
 type ChatMessage struct {
-	Id               string              `json:"id"`
-	Creator          string              `json:"creator"`
-	CreatedAt        int64               `json:"createdAt"`
-	ModifiedAt       int64               `json:"modifiedAt,omitempty"`
-	ReplyToMessageId string              `json:"replyToMessageId,omitempty"`
-	FromAgent        string              `json:"fromAgent,omitempty"`
-	Text             string              `json:"text"`
-	Reactions        map[string][]string `json:"reactions,omitempty"`
+	Id               string                    `json:"id"`
+	Creator          string                    `json:"creator"`
+	CreatedAt        int64                     `json:"createdAt"`
+	ModifiedAt       int64                     `json:"modifiedAt,omitempty"`
+	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
+	FromAgent        string                    `json:"fromAgent,omitempty"`
+	Text             string                    `json:"text"`
+	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
+	Reactions        map[string][]string       `json:"reactions,omitempty"`
 }
 
 // ChatSendRequest is the body of POST /v1/spaces/:spaceId/objects/:objectId/messages.
 // `text` is a markdown-formatted string; rendering is the client's
-// problem. Server stamps creator, createdAt, modifiedAt, chatOrder.
+// problem. Server stamps creator, createdAt, modifiedAt.
 //
 // `fromAgent` is an optional opaque identity string the client sets
 // to mark the message as written by an agent acting on behalf of the
 // signer (vs typed by the signer directly). The server does not
 // validate it against any identity / signature — it's a UI hint.
+//
+// `attachments` is a map keyed by short opaque ids (≤ 64 chars,
+// [A-Za-z0-9_-]+) carrying {type, link, order?}. Create-only.
 type ChatSendRequest struct {
-	Text             string `json:"text"`
-	ReplyToMessageId string `json:"replyToMessageId,omitempty"`
-	FromAgent        string `json:"fromAgent,omitempty"`
+	Text             string                    `json:"text"`
+	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
+	FromAgent        string                    `json:"fromAgent,omitempty"`
+	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
 }
 
 // ChatEditRequest is the body of PATCH .../messages/:msgId. Only
@@ -57,13 +75,14 @@ type ChatReactionsResponse struct {
 
 // Error code namespace for chat endpoints.
 const (
-	ErrChatTextRequired      = "chat.text_required"
-	ErrChatTextTooLong       = "chat.text_too_long"
-	ErrChatReplyIdInvalid    = "chat.reply_id_invalid"
-	ErrChatFromAgentInvalid  = "chat.from_agent_invalid"
-	ErrChatEmojiInvalid      = "chat.emoji_invalid"
-	ErrChatUnknownField      = "chat.unknown_field"
-	ErrChatNotAuthor         = "chat.not_author"
-	ErrChatNotFound          = "chat.not_found"
-	ErrChatRejected          = "chat.rejected"
+	ErrChatTextRequired       = "chat.text_required"
+	ErrChatTextTooLong        = "chat.text_too_long"
+	ErrChatReplyIdInvalid     = "chat.reply_id_invalid"
+	ErrChatFromAgentInvalid   = "chat.from_agent_invalid"
+	ErrChatEmojiInvalid       = "chat.emoji_invalid"
+	ErrChatUnknownField       = "chat.unknown_field"
+	ErrChatNotAuthor          = "chat.not_author"
+	ErrChatNotFound           = "chat.not_found"
+	ErrChatRejected           = "chat.rejected"
+	ErrChatAttachmentsInvalid = "chat.attachments_invalid"
 )

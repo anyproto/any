@@ -2980,6 +2980,17 @@
                 }
             }
         },
+        "api.ChatAttachment": {
+            "type": "object",
+            "properties": {
+                "link": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChatEditRequest": {
             "type": "object",
             "properties": {
@@ -3002,6 +3013,12 @@
         "api.ChatMessage": {
             "type": "object",
             "properties": {
+                "attachments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/api.ChatAttachment"
+                    }
+                },
                 "createdAt": {
                     "type": "integer"
                 },
@@ -3051,6 +3068,12 @@
         "api.ChatSendRequest": {
             "type": "object",
             "properties": {
+                "attachments": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/api.ChatAttachment"
+                    }
+                },
                 "fromAgent": {
                     "type": "string"
                 },

@@ -1158,7 +1158,7 @@ export function createAMemory(client, opts) {
                   break;
                 }
               }
-              linksSection += "[" + linkName + "](anytype://object?objectId=" + linkId + ")    \n";
+              linksSection += "[" + linkName + "](any://" + (client.config.spaceId || "_") + "/" + linkId + ")    \n";
             }
 
             // Step 4d: Build forward edges for the new memory
@@ -1183,7 +1183,7 @@ export function createAMemory(client, opts) {
                 var blinkId = linkResults[bli].id;
                 var linkedObj = client.getObject(blinkId);
                 if (linkedObj && linkedObj.markdown) {
-                  var backlink = "\n[" + meta.context.substring(0, 60) + "](anytype://object?objectId=" + objId + ")    \n";
+                  var backlink = "\n[" + meta.context.substring(0, 60) + "](any://" + (client.config.spaceId || "_") + "/" + objId + ")    \n";
                   var existingMd = linkedObj.markdown;
                   if (existingMd.indexOf("## Links") === -1) {
                     existingMd += "\n\n## Links" + backlink;
@@ -1326,14 +1326,14 @@ export function createAMemory(client, opts) {
     return addResult;
   }
 
-  // ── extractLinkedIds: parse anytype:// links from markdown ───────────
+  // ── extractLinkedIds: parse any:// links from markdown ───────────
 
   function extractLinkedIds(objectId) {
     try {
       var obj = client.getObject(objectId);
       if (!obj || !obj.markdown) return [];
       var ids = [];
-      var regex = /anytype:\/\/object\?objectId=([a-z0-9._-]+)/g;
+      var regex = /any:\/\/[^/]+\/([a-z0-9._-]+)/g;
       var match;
       while ((match = regex.exec(obj.markdown)) !== null) {
         if (match[1] !== objectId) ids.push(match[1]);
