@@ -4,10 +4,24 @@ import (
 	"errors"
 	"fmt"
 
+	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/handler"
 )
+
+// Indexes declares the any-store indexes ensured on each object's
+// `editor_blocks` collection. Children listings and `MaxPos` both
+// filter by `nav.parentId` and sort by `nav.pos` (ascending for tree
+// walks, descending for tail-append), so a compound
+// `(nav.parentId, nav.pos)` index keeps both off a full sweep. Every
+// block carries `nav.parentId` and `nav.pos` (required at create),
+// so the index is dense — no Sparse.
+func (blocksHandler) Indexes() []anystore.IndexInfo {
+	return []anystore.IndexInfo{
+		{Name: "idx_nav", Fields: []string{"nav.parentId", "nav.pos"}},
+	}
+}
 
 // BeforeCreate validates a block-record creation payload. Expected
 // shape is exactly one multi-field $set op (empty Path, object

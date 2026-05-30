@@ -10,50 +10,24 @@ import (
 	"github.com/anyproto/any/internal/editor"
 )
 
-// Block endpoints — one record per block on the per-object
-// editor_blocks dataset.
+// Block endpoints — writes only. Reads go through the per-object
+// query primitive with dataset=editor_blocks.
 //
-//	GET    /v1/spaces/:spaceId/objects/:objectId/editor/blocks
 //	POST   /v1/spaces/:spaceId/objects/:objectId/editor/blocks
 //	PATCH  /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId
 //	DELETE /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId
 //
-// Liveness reuses the generic subscribe primitive:
+// Snapshot:
 //
-//	GET /v1/spaces/:spaceId/objects/:objectId/subscribe?dataset=editor_blocks
-
-// blocksList handles GET .../editor/blocks.
+//	POST /v1/spaces/:spaceId/query
+//	{ "objectId": "<oid>", "dataset": "editor_blocks",
+//	  "sort": ["nav.pos"] }
 //
-//	@Summary	List blocks in document order
-//	@Tags		editor
-//	@Produce	json
-//	@Param		spaceId		path		string	true	"Space ID"
-//	@Param		objectId	path		string	true	"Object ID"
-//	@Success	200			{object}	api.BlockListResponse
-//	@Failure	400			{object}	api.ErrorEnvelope
-//	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [get]
-func (d *deps) blocksList(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
-	if done {
-		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
-
-	list, err := editor.List(c.Request().Context(), sp, objectId)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
-	}
-
-	records := make([]api.Block, len(list))
-	for i, b := range list {
-		records[i] = blockToAPI(b)
-	}
-	return c.JSON(http.StatusOK, api.BlockListResponse{Records: records})
-}
+// Liveness:
+//
+//	POST /v1/spaces/:spaceId/query/subscribe
+//	{ "objectId": "<oid>", "dataset": "editor_blocks",
+//	  "sort": ["nav.pos"] }
 
 // blocksCreate handles POST .../editor/blocks.
 //

@@ -28,14 +28,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 
 	// 1. Initially empty.
-	rec := doJSON(t, e, http.MethodGet, base+"/editor/blocks", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("initial list: %d %s", rec.Code, rec.Body.String())
-	}
-	var initial api.BlockListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &initial); err != nil {
-		t.Fatalf("decode initial list: %v", err)
-	}
+	initial := blocksList(t, e, base)
 	if len(initial.Records) != 0 {
 		t.Fatalf("expected empty list, got %d records", len(initial.Records))
 	}
@@ -70,7 +63,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 
 	// 4. Patch the first block — change text and add a style entry.
 	patchBody := `{"set":{"text":"first edited","style":{"emphasis":true}}}`
-	rec = doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+first.Id, patchBody)
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+first.Id, patchBody)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
@@ -124,8 +117,10 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 }
 
 // TestServer_Blocks_NestedTree confirms parentId/pos navigation: a
-// block with parentId=<other.Id> appears after its parent in the
-// flat list, and listing returns DFS document order.
+// block with parentId=<other.Id> reports the right parent and
+// children sort by nav.pos. With the GET /blocks endpoint gone the
+// test now goes through POST /query — the same path real clients
+// take to reconstruct the tree (one query per parent for children).
 func TestServer_Blocks_NestedTree(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -144,18 +139,29 @@ func TestServer_Blocks_NestedTree(t *testing.T) {
 	if len(listed.Records) != 3 {
 		t.Fatalf("list: %d records, want 3", len(listed.Records))
 	}
-	// DFS: parent, childA, childB.
-	wantOrder := []string{parent.Id, childA.Id, childB.Id}
-	for i, b := range listed.Records {
-		if b.Id != wantOrder[i] {
-			t.Errorf("listed[%d] = %s, want %s (full: %+v)", i, b.Id, wantOrder[i], listed.Records)
-		}
+
+	byId := map[string]api.Block{}
+	for _, b := range listed.Records {
+		byId[b.Id] = b
+	}
+	if byId[parent.Id].Nav.ParentId != "" {
+		t.Errorf("parent.ParentId = %q, want empty", byId[parent.Id].Nav.ParentId)
+	}
+	if byId[childA.Id].Nav.ParentId != parent.Id || byId[childB.Id].Nav.ParentId != parent.Id {
+		t.Errorf("children parentId mismatch: a=%q b=%q want %q",
+			byId[childA.Id].Nav.ParentId, byId[childB.Id].Nav.ParentId, parent.Id)
+	}
+	if !(byId[childA.Id].Nav.Pos < byId[childB.Id].Nav.Pos) {
+		t.Errorf("children pos not ascending: a=%q b=%q",
+			byId[childA.Id].Nav.Pos, byId[childB.Id].Nav.Pos)
 	}
 }
 
-// TestServer_Blocks_SSE_EditorBlocks subscribes to dataset=editor_blocks
-// and observes a create + a patch + a delete event in that order.
-func TestServer_Blocks_SSE_EditorBlocks(t *testing.T) {
+// TestServer_Blocks_QuerySubscribe subscribes to the per-object
+// editor_blocks dataset via POST /v1/spaces/:id/query/subscribe and
+// observes a create as Added, a patch as Updated, and a delete as
+// Removed. Same windowed shape every consumer sees.
+func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
@@ -175,8 +181,12 @@ func TestServer_Blocks_SSE_EditorBlocks(t *testing.T) {
 
 	frames := make(chan client.SSEFrame, 32)
 	streamErr := make(chan error, 1)
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  editor.Dataset,
+	})
 	go func() {
-		streamErr <- cl.StreamSubscribeObject(streamCtx, spaceId, objectId, editor.Dataset, func(f client.SSEFrame) error {
+		streamErr <- cl.StreamQuerySubscribe(streamCtx, spaceId, body, func(f client.SSEFrame) error {
 			select {
 			case frames <- f:
 			case <-streamCtx.Done():
@@ -188,43 +198,31 @@ func TestServer_Blocks_SSE_EditorBlocks(t *testing.T) {
 	if got := waitFrame(t, frames, 5*time.Second); got.Event != "ready" {
 		t.Fatalf("first frame = %q, want ready", got.Event)
 	}
+	if got := waitFrame(t, frames, 5*time.Second); got.Event != "snapshot" {
+		t.Fatalf("second frame = %q, want snapshot", got.Event)
+	}
 
 	created := blocksCreate(t, e, base, `{"type":"paragraph","text":"hello"}`)
 
-	// Expect a `changes` frame with a $set op on the new block.
-	createEvt := awaitChangesEvent(t, frames, editor.Dataset, created.Id)
+	createEvt := awaitWindowedEvent(t, frames, created.Id, windowedAdded)
 	if createEvt.VersionId == "" {
 		t.Errorf("create event missing versionId")
 	}
-	if len(createEvt.Records) == 0 {
-		t.Fatalf("create event has no records")
-	}
-	if createEvt.Records[0].Deleted {
-		t.Errorf("expected create event, got deleted=true")
-	}
 
-	// Patch and observe.
 	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+created.Id, `{"set":{"text":"hello edited"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
-	patchEvt := awaitChangesEvent(t, frames, editor.Dataset, created.Id)
+	patchEvt := awaitWindowedEvent(t, frames, created.Id, windowedUpdated)
 	if patchEvt.VersionId == createEvt.VersionId {
 		t.Errorf("patch event reused versionId %q", patchEvt.VersionId)
 	}
-	if patchEvt.Records[0].Deleted {
-		t.Errorf("patch should not be deleted")
-	}
 
-	// Delete and observe.
 	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+created.Id, "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body.String())
 	}
-	deleteEvt := awaitChangesEvent(t, frames, editor.Dataset, created.Id)
-	if !deleteEvt.Records[0].Deleted {
-		t.Errorf("expected deleted=true on delete event, got %+v", deleteEvt.Records[0])
-	}
+	_ = awaitWindowedEvent(t, frames, created.Id, windowedRemoved)
 
 	streamCancel()
 	select {
@@ -391,17 +389,45 @@ func blocksCreate(t *testing.T, e http.Handler, base, body string) api.Block {
 	return b
 }
 
-func blocksList(t *testing.T, e http.Handler, base string) api.BlockListResponse {
+// blocksListResp mirrors the old api.BlockListResponse shape but is
+// materialised by POSTing /v1/spaces/:id/query with dataset=editor_blocks
+// and sort=nav.pos — the canonical "read" path now that the GET
+// endpoint is gone.
+type blocksListResp struct {
+	Records []api.Block
+}
+
+func blocksList(t *testing.T, e http.Handler, base string) blocksListResp {
 	t.Helper()
-	rec := doJSON(t, e, http.MethodGet, base+"/editor/blocks", "")
+	parts := strings.SplitN(strings.TrimPrefix(base, "/v1/spaces/"), "/objects/", 2)
+	if len(parts) != 2 {
+		t.Fatalf("blocksList: cannot parse spaceId/objectId from %q", base)
+	}
+	spaceId, objectId := parts[0], parts[1]
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectId,
+		"dataset":  "editor_blocks",
+		"sort":     []string{"nav.pos"},
+	})
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", string(body))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("list blocks: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("query blocks: %d %s", rec.Code, rec.Body.String())
 	}
-	var resp api.BlockListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode list: %v", err)
+	var qr struct {
+		Records []json.RawMessage `json:"records"`
 	}
-	return resp
+	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
+		t.Fatalf("decode query: %v", err)
+	}
+	out := blocksListResp{Records: make([]api.Block, 0, len(qr.Records))}
+	for _, raw := range qr.Records {
+		var b api.Block
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatalf("decode record: %v", err)
+		}
+		out.Records = append(out.Records, b)
+	}
+	return out
 }
 
 func getMarkdown(t *testing.T, e http.Handler, path string) string {
@@ -419,11 +445,20 @@ func getMarkdown(t *testing.T, e http.Handler, path string) string {
 	return resp.Content
 }
 
-// awaitChangesEvent pulls SSE frames until it finds a `changes` frame
-// whose batch contains an event for (dataset, recordId). Other
-// `changes` frames are consumed and discarded; non-changes frames
-// (ready, lagged, keepalive) are also consumed. Times out after 5s.
-func awaitChangesEvent(t *testing.T, frames <-chan client.SSEFrame, dataset, recordId string) api.SubscribeEvent {
+type windowedKind int
+
+const (
+	windowedAdded windowedKind = iota
+	windowedUpdated
+	windowedRemoved
+)
+
+// awaitWindowedEvent pulls SSE frames until it finds a `changes` frame
+// whose batch contains an event for recordId in the requested bucket
+// (Added / Updated / Removed). Other `changes` frames are consumed
+// and discarded; non-changes frames (ready, snapshot, keepalive) are
+// also consumed. Times out after 5s.
+func awaitWindowedEvent(t *testing.T, frames <-chan client.SSEFrame, recordId string, kind windowedKind) api.QuerySubscribeEvent {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
 	for {
@@ -432,22 +467,48 @@ func awaitChangesEvent(t *testing.T, frames <-chan client.SSEFrame, dataset, rec
 			if f.Event != "changes" {
 				continue
 			}
-			var batch []api.SubscribeEvent
+			var batch []api.QuerySubscribeEvent
 			if err := json.Unmarshal(f.Data, &batch); err != nil {
 				t.Fatalf("decode changes batch: %v", err)
 			}
 			for _, ev := range batch {
-				if ev.Dataset != dataset {
-					continue
-				}
-				for _, rec := range ev.Records {
-					if rec.Id == recordId {
-						return ev
+				switch kind {
+				case windowedAdded:
+					for _, r := range ev.Added {
+						if r.Id == recordId {
+							return ev
+						}
+					}
+				case windowedUpdated:
+					for _, r := range ev.Updated {
+						if r.Id == recordId {
+							return ev
+						}
+					}
+				case windowedRemoved:
+					for _, id := range ev.Removed {
+						if id == recordId {
+							return ev
+						}
 					}
 				}
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for changes event on %s/%s", dataset, recordId)
+			t.Fatalf("timed out waiting for windowed event on %s (kind=%d)", recordId, kind)
 		}
+	}
+}
+
+// waitFrame pulls one frame from ch with a deadline. Tests that
+// silently hang on a missed event are painful; a labeled timeout
+// turns those into immediate failures.
+func waitFrame(t *testing.T, ch <-chan client.SSEFrame, d time.Duration) client.SSEFrame {
+	t.Helper()
+	select {
+	case f := <-ch:
+		return f
+	case <-time.After(d):
+		t.Fatal("timed out waiting for SSE frame")
+		return client.SSEFrame{}
 	}
 }

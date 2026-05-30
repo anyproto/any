@@ -2,65 +2,17 @@ package api
 
 import "encoding/json"
 
-// SubscribeEvent is the data payload of an SSE `event: changes` frame.
-// Mirrors space.Event 1:1.
-//
-//   - VersionId is the per-change DAG order. Clients running the
-//     subscribe-then-query-then-apply pattern dedup per op path:
-//     compare this against `_ver.<op.path>` on the queried record
-//     (walking the `_ver` tree segment by segment, falling back to
-//     the closest `*` default key) to decide whether the snapshot
-//     already covers each op. `_ver.id` is the creation marker —
-//     set once and only lowered on delete — so it cannot be used as
-//     a record-level high-water mark.
-//
-//   - Records carries the post-apply effect of the change projected
-//     to a flat list of $set / $unset ops per record. The SDK has
-//     already merged with full CRDT semantics; what ships is the
-//     resulting field-level patch, so a thin client without a CRDT
-//     engine can apply Records directly to a JSON-shaped local copy.
-//     A record with Deleted=true means "drop this id from your local
-//     state"; Ops is empty in that case.
-type SubscribeEvent struct {
-	SpaceId   string                 `json:"spaceId"`
-	ObjectId  string                 `json:"objectId"`
-	Dataset   string                 `json:"dataset"`
-	VersionId string                 `json:"versionId"`
-	Records   []SubscribeEventRecord `json:"records,omitempty"`
-}
-
-// SubscribeEventRecord is one record's worth of projected change inside
-// a SubscribeEvent. Id is the record id within Dataset (for shared
-// per-space datasets like "objects" this equals SubscribeEvent.ObjectId).
-// Variant is empty for the canonical record; non-empty for sibling
-// variants (account / device property records).
-//
-// Created=true means this change first materialised the record — Ops
-// carries its full initial field set. Deleted=true means the change
-// tombstoned the record — drop it locally; Ops is empty. The two are
-// mutually exclusive; neither set means a plain field update.
-//
-// The record's `_ver` map is never on the wire — a consumer derives it
-// from SubscribeEvent.VersionId: a created record is all-at versionId,
-// and each applied op stamps `_ver.<op.path> = versionId` locally.
-type SubscribeEventRecord struct {
-	Id      string             `json:"id"`
-	Variant string             `json:"variant,omitempty"`
-	Created bool               `json:"created,omitempty"`
-	Deleted bool               `json:"deleted,omitempty"`
-	Ops     []SubscribeEventOp `json:"ops,omitempty"`
-}
-
-// SubscribeEventOp is one $set or $unset op inside an EventRecord. The
-// SDK only ever emits $set / $unset to subscribers — $inc / $addToSet
-// / $pull / $incGated are projected to the post-apply value before
-// delivery, so a thin client can apply Ops naively.
+// SubscribeEventOp is one $set or $unset op the SDK emits to
+// subscribers (windowed Query.Subscribe or — historically — the raw
+// apply stream). $inc / $addToSet / $pull / $incGated are projected
+// to the post-apply value as $set / $unset before delivery, so a thin
+// client without a CRDT engine can apply Ops naively.
 //
 // Path is the dotted-segment field path, always a JSON array on the
 // wire (never `null` — an empty array `[]` means the record root). On
 // $set, an empty Path activates the multi-field form: Payload is an
-// object whose keys are dot-separated paths, each value is what to
-// assign there. Payload is the JSON-shaped post-apply value for $set,
+// object whose top-level keys are themselves dot-separated paths to
+// assign at. Payload is the JSON-shaped post-apply value for $set,
 // omitted for $unset.
 type SubscribeEventOp struct {
 	Type    string          `json:"type"`
@@ -69,9 +21,9 @@ type SubscribeEventOp struct {
 }
 
 // SubscribeReady is the data payload of the initial `event: ready`
-// frame, sent once the SDK Subscribe call has succeeded and the
-// stream is open. Empty in v1; reserved so the wire shape doesn't
-// change when we add fields (e.g. server-issued cursor).
+// SSE frame on every subscribe-shaped endpoint (query/subscribe,
+// members/subscribe, sync-status/subscribe). Empty in v1; reserved so
+// the wire shape doesn't change when we add fields.
 type SubscribeReady struct{}
 
 // SubscribeClosed is the data payload of the terminal `event: closed`
@@ -80,19 +32,9 @@ type SubscribeClosed struct {
 	Reason string `json:"reason"`
 }
 
-// SubscribeLagged is the data payload of an `event: lagged` frame,
-// emitted when the SDK has dropped events for this subscriber since
-// the last `lagged` (typically because the consumer fell behind the
-// per-subscriber mailbox capacity). Total is the cumulative drop
-// count reported by Subscription.Dropped at the moment the frame is
-// emitted; clients should treat any `lagged` as "re-Query for current
-// state, the in-stream events are no longer a full picture".
-type SubscribeLagged struct {
-	Total uint64 `json:"total"`
-}
-
 // Reason values for SubscribeClosed. Stable strings; clients should
-// switch on these rather than message text.
+// switch on these rather than message text. Shared across every SSE
+// family — query/subscribe, sync-status/subscribe, members/subscribe.
 const (
 	// SubscribeClosedServerShutdown — the server is exiting (signal or
 	// POST /v1/shutdown). Reconnect when the server is back up.
@@ -102,4 +44,65 @@ const (
 	// subscription channel (typically because the space or SDK closed).
 	// Reconnect after re-resolving the space.
 	SubscribeClosedSDKClosed = "sdk_closed"
+
+	// SubscribeClosedOverflow — only on query/subscribe streams. The
+	// per-sub mailbox filled before the consumer could drain it; the
+	// SDK closes the subscription rather than dropping events. Recovery
+	// is resubscribe (which re-Snapshots).
+	SubscribeClosedOverflow = "overflow"
+
+	// SubscribeClosedDrifted — only on query/subscribe streams. More
+	// than DriftBudgetPercent of the held window left without
+	// replacements; the SDK closes the subscription rather than
+	// re-Query the database on the hot path. Recovery is resubscribe.
+	SubscribeClosedDrifted = "drifted"
 )
+
+// QuerySubscribeSnapshot is the data payload of the `event: snapshot`
+// frame on a query/subscribe stream. It mirrors QueryResponse — the
+// same point-in-time materialised window the bare Snapshot endpoint
+// returns. Carried as its own type so future extensions (e.g. cursor)
+// can land here without entangling Snapshot's HTTP shape.
+type QuerySubscribeSnapshot struct {
+	Records []json.RawMessage `json:"records"`
+	Total   *int              `json:"total,omitempty"`
+}
+
+// QuerySubscribeEvent is one batch of windowed transitions delivered
+// in an `event: changes` SSE frame. It groups every record-level
+// change observed during one CRDT apply:
+//
+//   - Added — records that entered the visible window.
+//   - Updated — records already in the window whose state changed.
+//   - Removed — records that left the visible window. The wire does
+//     NOT distinguish between deleted / filter-rejected / displaced
+//     (pushed past Limit); from the consumer's view, drop the id from
+//     local state regardless of cause.
+//
+// VersionId is the per-change DAG order of the underlying CRDT apply.
+// Useful for fence-and-replay semantics ("I've processed up to X —
+// discard ≤ X"). VersionIds are locally-scoped (each peer assigns its
+// own); don't compare across peers.
+//
+// Total is intentionally absent — the windowed engine does not
+// maintain a live counter. Callers who need a refreshed count call
+// Snapshot again.
+type QuerySubscribeEvent struct {
+	VersionId string                  `json:"versionId"`
+	Added     []QuerySubscribeRecord  `json:"added,omitempty"`
+	Updated   []QuerySubscribeRecord  `json:"updated,omitempty"`
+	Removed   []string                `json:"removed,omitempty"`
+}
+
+// QuerySubscribeRecord is one record's worth of state inside a
+// QuerySubscribeEvent's Added / Updated slices. Doc is the full
+// post-apply JSON value (safe to retain past the event). Ops carries
+// the per-field $set / $unset ops from the triggering change — same
+// shape as SubscribeEventOp on the raw stream, so callers can apply
+// atomic updates against a local mirror without re-materialising the
+// whole record.
+type QuerySubscribeRecord struct {
+	Id  string             `json:"id"`
+	Doc json.RawMessage    `json:"doc"`
+	Ops []SubscribeEventOp `json:"ops,omitempty"`
+}

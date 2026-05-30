@@ -21,7 +21,11 @@ On startup bobrik-watch:
    section).
 5. Syncs agent skills from `cmd/bobrik-watch/skills/` (stored as
    editor/markdown content on skill objects).
-6. Writes its PID to `./.bobrik-pid` and subscribes to the chat's
+6. Ensures a `Debug` nav folder nested under "System Bobrik Files"
+   (so `--bootstrap`/SIGHUP wipes and recreates it with everything
+   else). Its id is passed to the agent runtime as
+   `env.ANY_DEBUG_FOLDER_ID`.
+7. Writes its PID to `./.bobrik-pid` and subscribes to the chat's
    `chat_messages` SSE stream.
 
 On each human message (no `fromAgent` field):
@@ -31,6 +35,13 @@ On each human message (no `fromAgent` field):
 3. Evaluates a wrapper that imports `private:init_agent@v1`, which
    bootstraps types, loads skills, boots the LLM kernel
    (`toolcall_core@v1`), and generates a response.
+
+The kernel's debug collector (`dcInit` in `toolcall_core@v1.js`) creates
+one `Agent Debug Log` page per invocation and appends each turn live.
+When `env.ANY_DEBUG_FOLDER_ID` is set, the page is filed under the
+`Debug` nav folder (`client.addToCollection`); otherwise it stays at
+root. Those pages are wiped on the next `--bootstrap` refresh along with
+the rest of "System Bobrik Files".
 
 ## Build
 

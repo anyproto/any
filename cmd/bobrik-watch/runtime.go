@@ -13,6 +13,10 @@ type AnySDKRuntimeConfig struct {
 	SpaceID        string
 	PrivateSpaceID string
 	ProgramTypeID  string
+	// DebugFolderID is the "Debug" nav folder the agent files its
+	// "Agent Debug Log" pages under (exposed to JS as
+	// env.ANY_DEBUG_FOLDER_ID). Empty leaves debug pages at root.
+	DebugFolderID string
 }
 
 func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
@@ -39,6 +43,7 @@ func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
 		"ANY_API_URL":          cfg.APIBaseURL,
 		"ANY_SPACE_ID":         cfg.SpaceID,
 		"ANY_PRIVATE_SPACE_ID": privateSpaceID,
+		"ANY_DEBUG_FOLDER_ID":  cfg.DebugFolderID,
 		// Anytype compat — assistantjs reads these in init_agent.js
 		"ANYTYPE_API_URL":          cfg.APIBaseURL,
 		"ANYTYPE_API_KEY":          "",

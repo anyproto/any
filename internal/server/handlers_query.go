@@ -29,63 +29,15 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	if done {
 		return errResp
 	}
-
-	body, err := readBody(c)
-	if err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil)
+	q, opts, errResp, done := buildSharedQuery(c, sp)
+	if done {
+		return errResp
 	}
-
-	parser := getFastjsonParser()
-	defer putFastjsonParser(parser)
-	var root *fastjson.Value
-	if len(body) > 0 {
-		root, err = parser.ParseBytes(body)
-		if err != nil {
-			return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil)
-		}
-	}
-
-	q := sp.QueryObjects()
-	if root != nil {
-		if filter := root.Get("filter"); filter != nil && filter.Type() != fastjson.TypeNull {
-			q = q.Filter(filter)
-		}
-		if sortArr := root.GetArray("sort"); len(sortArr) > 0 {
-			keys := make([]any, 0, len(sortArr))
-			for _, s := range sortArr {
-				keys = append(keys, string(s.GetStringBytes()))
-			}
-			q = q.Sort(keys...)
-		}
-		if v := root.Get("limit"); v != nil {
-			if n := v.GetInt(); n > 0 {
-				q = q.Limit(n)
-			}
-		}
-		if v := root.Get("offset"); v != nil {
-			if n := v.GetInt(); n > 0 {
-				q = q.Offset(n)
-			}
-		}
-		// `projection` accepted but ignored — see roadmap.
-	}
-
-	docs, err := q.All(c.Request().Context())
+	res, err := q.Snapshot(c.Request().Context(), opts)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-
-	fa := getFastjsonArena()
-	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, len(docs))
-	for _, doc := range docs {
-		if doc == nil {
-			records = append(records, json.RawMessage("null"))
-			continue
-		}
-		records = append(records, json.RawMessage(doc.FastJson(fa).MarshalTo(nil)))
-	}
-	return c.JSON(http.StatusOK, api.QueryResponse{Records: records})
+	return writeQueryResponse(c, res, opts.IncludeTotal)
 }
 
 // spaceQuery handles POST /v1/spaces/:spaceId/query.
@@ -105,45 +57,80 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	q, opts, objectId, dataset, errResp, done := buildPerObjectQuery(c, sp)
+	if done {
+		return errResp
+	}
+	res, err := q.Snapshot(c.Request().Context(), opts)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{
+			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
+		})
+	}
+	return writeQueryResponse(c, res, opts.IncludeTotal)
+}
 
+// buildSharedQuery parses the request body for the QueryObjects (per-
+// space `objects` collection) endpoints and assembles the chained
+// Query plus its QueryOpts. Returns (q, opts, errResp, done=true) on
+// validation failure; the caller returns errResp directly in that
+// case. Shared between the snapshot and subscribe handlers so the body
+// shape stays in lockstep.
+func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, error, bool) {
+	body, err := readBody(c)
+	if err != nil {
+		return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
+	}
+	parser := getFastjsonParser()
+	defer putFastjsonParser(parser)
+	var root *fastjson.Value
+	if len(body) > 0 {
+		root, err = parser.ParseBytes(body)
+		if err != nil {
+			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+		}
+	}
+	q, opts := applyQueryParams(root, sp.QueryObjects())
+	return q, opts, nil, false
+}
+
+// buildPerObjectQuery is the per-object dataset counterpart to
+// buildSharedQuery. objectId and dataset are required body fields; a
+// missing or empty value short-circuits with 400 request.missing_field.
+func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, string, string, error, bool) {
 	body, err := readBody(c)
 	if err != nil || len(body) == 0 {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil)
+		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
 	}
-
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
 	root, err := parser.ParseBytes(body)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil)
+		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
-
-	var (
-		objectId string
-		dataset  string
-		limit    int
-		offset   int
-	)
-	if v := root.Get("objectId"); v != nil {
-		objectId = string(v.GetStringBytes())
-	}
-	if v := root.Get("dataset"); v != nil {
-		dataset = string(v.GetStringBytes())
-	}
-	if v := root.Get("limit"); v != nil {
-		limit = v.GetInt()
-	}
-	if v := root.Get("offset"); v != nil {
-		offset = v.GetInt()
-	}
+	objectId := string(root.GetStringBytes("objectId"))
+	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
+		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
 	}
 	if dataset == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil)
+		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
+	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
+	return q, opts, objectId, dataset, nil, false
+}
 
-	q := sp.Query(objectId, dataset)
+// applyQueryParams reads filter / sort / limit / offset / includeTotal
+// / mailboxCapacity / driftBudgetPercent off root and threads them
+// into the chained query builder. `projection` is accepted but
+// ignored — see docs/07-roadmap.md. MailboxCapacity /
+// DriftBudgetPercent only matter on the Subscribe terminal; Snapshot
+// ignores them.
+func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.QueryOpts) {
+	opts := space.QueryOpts{}
+	if root == nil {
+		return q, opts
+	}
 	if filter := root.Get("filter"); filter != nil && filter.Type() != fastjson.TypeNull {
 		q = q.Filter(filter)
 	}
@@ -154,31 +141,48 @@ func (d *deps) spaceQuery(c echo.Context) error {
 		}
 		q = q.Sort(keys...)
 	}
-	if limit > 0 {
-		q = q.Limit(limit)
+	if v := root.Get("limit"); v != nil {
+		if n := v.GetInt(); n > 0 {
+			q = q.Limit(n)
+		}
 	}
-	if offset > 0 {
-		q = q.Offset(offset)
+	if v := root.Get("offset"); v != nil {
+		if n := v.GetInt(); n > 0 {
+			q = q.Offset(n)
+		}
 	}
-	// `projection` accepted but ignored — see roadmap.
-	_ = space.ProjectionOpts{}
+	if v := root.Get("includeTotal"); v != nil && v.Type() == fastjson.TypeTrue {
+		opts.IncludeTotal = true
+	}
+	if v := root.Get("mailboxCapacity"); v != nil {
+		opts.MailboxCapacity = v.GetInt()
+	}
+	if v := root.Get("driftBudgetPercent"); v != nil {
+		opts.DriftBudgetPercent = v.GetInt()
+	}
+	return q, opts
+}
 
-	docs, err := q.All(c.Request().Context())
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{
-			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
-		})
-	}
-
+// writeQueryResponse renders a *space.QueryResult into the HTTP wire
+// shape. includeTotal mirrors the body flag — when false, Total is
+// nil-pointer and omitted from the JSON; when true, the SDK populates
+// res.Total (-1 only if it failed to count, which currently never
+// happens — we surface the SDK's value verbatim).
+func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool) error {
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, len(docs))
-	for _, doc := range docs {
+	records := make([]json.RawMessage, 0, len(res.Initial))
+	for _, doc := range res.Initial {
 		if doc == nil {
 			records = append(records, json.RawMessage("null"))
 			continue
 		}
 		records = append(records, json.RawMessage(doc.FastJson(fa).MarshalTo(nil)))
 	}
-	return c.JSON(http.StatusOK, api.QueryResponse{Records: records})
+	out := api.QueryResponse{Records: records}
+	if includeTotal {
+		t := res.Total
+		out.Total = &t
+	}
+	return c.JSON(http.StatusOK, out)
 }

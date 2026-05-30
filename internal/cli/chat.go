@@ -22,11 +22,10 @@ import (
 func newChatCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "chat",
-		Short: "send / list / edit / delete / react to messages on a chat object",
+		Short: "send / edit / delete / react to messages on a chat object (reads via `any query`)",
 	}
 	cmd.AddCommand(
 		newChatSendCmd(),
-		newChatListCmd(),
 		newChatEditCmd(),
 		newChatDeleteCmd(),
 		newChatReactCmd(),
@@ -66,31 +65,6 @@ func newChatSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", "read message text from FILE (use - for stdin)")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "id of a message this reply targets")
 	cmd.Flags().StringVar(&fromAgent, "from-agent", "", "opaque tag marking this message as written by an agent")
-	return cmd
-}
-
-func newChatListCmd() *cobra.Command {
-	var (
-		before string
-		after  string
-		limit  int
-	)
-	cmd := &cobra.Command{
-		Use:   "list <spaceId> <objectId>",
-		Short: "GET a page of messages, oldest first",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
-			out, err := cl.ChatList(cmd.Context(), args[0], args[1], before, after, limit)
-			if err != nil {
-				return err
-			}
-			return printJSON(out)
-		},
-	}
-	cmd.Flags().StringVar(&before, "before", "", "return messages older than this id (cursor)")
-	cmd.Flags().StringVar(&after, "after", "", "return messages newer than this id (cursor)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "page size (default 50, max 200)")
 	return cmd
 }
 

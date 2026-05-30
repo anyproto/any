@@ -9,19 +9,6 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// BlocksList fetches every block on the object's editor_blocks dataset
-// in DFS document order. Empty Records when the object has no body
-// blocks yet.
-func (c *Client) BlocksList(ctx context.Context, spaceId, objectId string) (*api.BlockListResponse, error) {
-	var out api.BlockListResponse
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/blocks",
-		url.PathEscape(spaceId), url.PathEscape(objectId))
-	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // BlocksCreate posts a new block. The server allocates the new
 // block's id (auto-derived from the change CID) and, when nav.pos is
 // empty in the request, fills in the next pos after the parent's

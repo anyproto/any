@@ -28,29 +28,28 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
 	g.POST("/spaces/:spaceId/objects/derive", d.objectDerive)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
+	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
-	g.GET("/spaces/:spaceId/objects/:objectId/subscribe", d.subscribeObject)
 
 	// Editor (built-in type — see internal/editor). Atomic blocks +
 	// markdown bridge, both backed by the per-object editor_blocks
-	// dataset. Liveness reuses the generic /subscribe endpoint with
-	// dataset=editor_blocks.
+	// dataset. Liveness reuses the per-object query/subscribe endpoint
+	// with dataset=editor_blocks.
 	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
 	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
-	g.GET("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksList)
 	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate)
 	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete)
 
-	// Chat (built-in type — see internal/chat). Liveness reuses the
-	// existing /subscribe?dataset=chat_messages — no chat-specific
-	// subscribe endpoint.
+	// Chat (built-in type — see internal/chat). Writes only here;
+	// reads + liveness go through /query and /query/subscribe with
+	// dataset=chat_messages.
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)
-	g.GET("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatList)
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
+	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
 
@@ -65,7 +64,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.UpdatePropertyMeta"))
 
 	// Properties.
-	g.GET("/spaces/:spaceId/properties/subscribe", d.subscribeProperties)
 	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
 	g.POST("/spaces/:spaceId/properties/:objectId/base/:typeId", d.propertiesSetBase)
 	g.POST("/spaces/:spaceId/properties/:objectId/account/:typeId", notImplemented("Properties.SetAccount"))

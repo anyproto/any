@@ -44,7 +44,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 // learn the bound address synchronously and surface bind / wallet / SDK
 // errors before returning.
 func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
-	cfg.Log.ApplyGlobal()
+	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 	lg := logger.NewNamed("server")
 
 	if err := ValidateLoopback(cfg.Listen.Addr); err != nil {

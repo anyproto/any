@@ -88,9 +88,9 @@ func TestE2E_ChatBinary(t *testing.T) {
 		t.Errorf("second.replyToMessageId = %q, want %q", second.ReplyToMessageId, first.Id)
 	}
 
-	// List returns three in send order.
-	var list api.ChatListResponse
-	mustJSON(t, http.MethodGet, chatBase+"/chat/messages", "", http.StatusOK, &list)
+	// List returns three in send order via POST /query (chat list
+	// endpoint is gone — reads go through the query primitive).
+	list := chatMessages(t, chatBase)
 	if len(list.Messages) != 3 {
 		t.Fatalf("list = %d, want 3", len(list.Messages))
 	}
@@ -130,8 +130,8 @@ func TestE2E_ChatBinary(t *testing.T) {
 	// Delete first.
 	mustStatus(t, http.MethodDelete, chatBase+"/chat/messages/"+first.Id, "", http.StatusNoContent)
 
-	// List after delete: two messages, no `first`.
-	mustJSON(t, http.MethodGet, chatBase+"/chat/messages", "", http.StatusOK, &list)
+	// List after delete via POST /query: two messages, no `first`.
+	list = chatMessages(t, chatBase)
 	if len(list.Messages) != 2 {
 		t.Fatalf("list after delete = %d, want 2", len(list.Messages))
 	}

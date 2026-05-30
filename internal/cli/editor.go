@@ -37,28 +37,11 @@ func newBlocksCmd() *cobra.Command {
 		Short: "list / create / patch / delete blocks on an object's body",
 	}
 	cmd.AddCommand(
-		newBlocksListCmd(),
 		newBlocksCreateCmd(),
 		newBlocksPatchCmd(),
 		newBlocksDeleteCmd(),
 	)
 	return cmd
-}
-
-func newBlocksListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list <spaceId> <objectId>",
-		Short: "GET every block in document order",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
-			out, err := cl.BlocksList(cmd.Context(), args[0], args[1])
-			if err != nil {
-				return err
-			}
-			return printJSON(out)
-		},
-	}
 }
 
 func newBlocksCreateCmd() *cobra.Command {
