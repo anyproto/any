@@ -512,18 +512,22 @@ they want at-least-once semantics across reconnects.
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 
 Liveness goes through the per-object query/subscribe endpoint with
-`dataset=chat_messages`:
+`dataset=chat_messages` — newest-first with a window `limit`, never
+ascending and never unbounded (see § "Consuming live reads correctly"
+in `04-events.md`):
 
 ```
 POST /v1/spaces/:spaceId/query/subscribe
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["_ver.id"] }
+  "sort":     ["-_ver.id"],
+  "limit":    50 }
 ```
 
-New incoming messages arrive in `added`; edits in `updated`; deletes
-and reactions toggling off in `removed`. `added.doc` carries the full
-message body — no follow-up GET needed. See `04-events.md`.
+New incoming messages arrive in `added`; the message pushed past the
+window's tail in `removed`; edits in `updated`; deletes and reactions
+toggling off in `removed`. `added.doc` carries the full message body —
+no follow-up GET needed. See `04-events.md`.
 
 #### Message wire shape
 
@@ -592,24 +596,29 @@ record (server-stamped fields included).
 #### Read
 
 The bespoke list endpoint is gone — reads go through the per-object
-query primitive with `dataset=chat_messages`:
+query primitive with `dataset=chat_messages`. To render the most
+recent messages, sort **descending** and cap with a `limit`, then
+reverse client-side for display (oldest → newest):
 
 ```
 POST /v1/spaces/:spaceId/query
 { "objectId": "<chatObjectId>",
   "dataset":  "chat_messages",
-  "sort":     ["_ver.id"],
+  "sort":     ["-_ver.id"],
   "limit":    50 }
 ```
 
-Records sort by `_ver.id` ascending — the SDK's stable creation-
-version marker (set once on creation, never bumped by edits, so
-chronological order survives mutations). Pagination via `before` /
-`after` is a client-side two-step: query the cursor message to read
+`_ver.id` is the SDK's stable creation-version marker — set once on
+creation, never bumped by edits, so chronological order survives
+mutations. Sorting ascending (`["_ver.id"]`) with a `limit` returns the
+*oldest* N and, once a chat exceeds the window, never surfaces new
+messages — for any recent-messages view sort `-_ver.id` (see
+§ "Consuming live reads correctly" in `04-events.md`). Scroll-back
+pagination is a client-side two-step: query the cursor message to read
 its `_ver.id`, then chain a second query with `filter: {"_ver.id":
-{"$lt": <id>}}` or `{"$gt": <id>}` and the same sort. The bespoke
-endpoint's `before` / `after` / `limit` flags moved off the API
-surface; the recipe replaces them.
+{"$lt": <id>}}` (older) or `{"$gt": <id>}` (newer) and the same sort.
+The bespoke endpoint's `before` / `after` / `limit` flags moved off the
+API surface; the recipe replaces them.
 
 Reactions on queried records are NOT the transposed
 `{emoji: [accountId,...]}` shape — they ship raw as

@@ -78,6 +78,84 @@ the SSE endpoints, not a replacement.
    id — deleted ⇒ no row; filter-rejected ⇒ row that doesn't match;
    displaced ⇒ row that does.
 
+## Consuming live reads correctly
+
+The contract above is the wire; this is how to use it without the
+mistakes that compile, run, and are still wrong. Each point is a
+property of the windowed primitive, not a convention — get one wrong
+and the client looks fine against a 10-message space and falls over on
+a real one.
+
+1. **`query` for render-once, `subscribe` for keep-live — never both
+   for the same data.** `query` returns a snapshot synchronously and is
+   cheaper for client and server. `subscribe` returns that *same*
+   snapshot as its first `snapshot` frame, then stays live. Firing a
+   `subscribe` *and* a parallel `query` for one view is a redundant
+   double-read — the snapshot already arrived on the stream.
+2. **A live list needs both `sort: ["-_ver.id"]` and a `limit`.**
+   Descending `_ver.id` puts newest first; the `limit` bounds the
+   window. A subscribe with no limit materialises the whole collection
+   (100k records on a 100k-message chat) and — because drift detection
+   is disabled when `limit == 0` — also loses the auto-shift (point 5)
+   and the drift-close safety net (point 6). Always set a limit on a
+   live read.
+3. **Hold a window, not a database.** `any-store` inside `any` *is* the
+   store. The client keeps the current window in memory and applies the
+   stream's `added` / `updated` / `removed` deltas to it — no
+   client-side DB, no mirror, no second copy to pour data into and
+   reconcile. A separate store is overhead that fakes what the
+   subscription already provides.
+4. **Paginate on absolute version IDs, not offset.** Offsets float —
+   row 50 becomes row 51 the moment a record lands. `_ver.id` is
+   absolute, and the collection is indexed on it, so a version-bounded
+   page returns from disk instantly. Scroll-back into history is a
+   plain `query` (not a subscribe) seeded from the oldest record in the
+   window:
+
+   ```
+   POST /v1/spaces/:id/query
+   { "objectId": "<oid>", "dataset": "chat_messages",
+     "sort": ["-_ver.id"], "limit": 15,
+     "filter": { "_ver.id": { "$lt": "<oldestInWindow>" } } }
+   ```
+
+   History doesn't change under you — don't subscribe to it; `query` is
+   cheaper for every party.
+5. **The window auto-shifts; appending is free.** When a new record
+   enters a full window, the engine emits the newcomer in `added` and
+   the record pushed past `limit` in `removed`, in the same frame. The
+   subscription is not torn down or recreated. A client that only
+   appends new records does nothing beyond applying those two deltas —
+   there is no "re-subscribe per new message," and no such concept
+   exists in the API.
+6. **On `closed{drifted}` or `closed{overflow}`, resubscribe — don't
+   reconcile.** Both are the engine telling you the cheap path is a
+   fresh snapshot:
+   - `drifted` — more than `driftBudgetPercent` of `limit` records left
+     the window *without replacements* (default 30; ~15 of a 50-record
+     window). Net departures count; churn backfilled by new arrivals
+     does not. The engine refuses to re-query on the hot path.
+   - `overflow` — events arrived faster than the client drained the SSE
+     mailbox (`mailboxCapacity`, default 256, min 16) — e.g. a cold
+     recovery dumping a 100k-record batch at once.
+   Reopening the POST yields a snapshot already reflecting current
+   state; rebuilding it from a giant delta does not. Both thresholds are
+   request-tunable when a workload needs more headroom.
+7. **Window size is free on the server; the cost is the client's.**
+   `any` streams the window straight from the indexed DB and is
+   indifferent to whether it holds 50 records or 50,000 — size the
+   window for the UI, not the server. The real cost of a large window
+   is client memory: holding 50k records hurts the client, not `any`.
+   Optimise for correctness and stability first; a windowed read slower
+   than ~100ms is by-design wrong and worth a bug report.
+8. **Cross-check client state against the DB when debugging.**
+   `anystore-cli` reads the same local DB that backs `any-store`. Sort a
+   collection by `-_ver.id`, set a reaction, re-query, and watch the new
+   value land with its own version — the same CRDT-with-versions shape
+   in which the change arrives over the wire. Client in-memory state
+   should layer versions the way the DB does, so the DB is the reference
+   when reconciling a divergence.
+
 ## Wire shape recap
 
 ```
