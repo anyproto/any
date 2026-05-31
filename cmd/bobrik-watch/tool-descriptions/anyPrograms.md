@@ -68,6 +68,28 @@ Create a new program.
 - opts.markdown: tool docs containing `## Tool Description` and `## Tool Schema` (required for tools)
 - opts.version: version (default "v1")
 
+`opts.source` is a string, so a plain template literal eats backslashes the same
+way any JS string does (`` `[\s\S]` `` becomes `[sS]`, `` `\d` `` becomes `d`) —
+which silently breaks regexes in the saved program. When the source contains
+regexes or backslashes, wrap it in `String.raw` so they survive verbatim:
+
+```js
+anyPrograms.createProgram({
+  name: "techCrunchNews",
+  source: String.raw`
+import { createClient } from "anyHelper@v1";
+export function fetchNews() {
+  var re = /<item[^>]*>([\s\S]*?)<\/item>/g;   // single backslashes — preserved as written
+  // ...
+}
+export function main(args) { return fetchNews(); }
+`,
+  markdown: "## Tool Description\n...\n## Tool Schema\n..."
+});
+```
+
+(Caveat: a `String.raw` template can't contain an unescaped backtick or `${` — rare in program source; escape just those if needed.)
+
 ### updateProgram(opts)
 Update an existing program's source.
 - opts.name: program name (required)
