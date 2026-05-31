@@ -57,6 +57,9 @@ export function main(args) {
   var apiKey        = args.apiKey        || env.ANYTYPE_API_KEY;
   var spaceId       = args.spaceId       || env.ANYTYPE_SPACE_ID;
   var systemSpaceId = args.sourceSpaceId || env.ANYTYPE_PRIVATE_SPACE_ID;
+  // Nav folder agent debug pages are filed under (host-injected). Empty
+  // leaves them at root.
+  var debugFolderId = args.debugFolderId || env.ANY_DEBUG_FOLDER_ID || "";
 
   if (!spaceId) return "Error: spaceId is required";
 
@@ -65,6 +68,7 @@ export function main(args) {
     apiKey: apiKey,
     spaceId: spaceId,
     systemSpaceId: systemSpaceId,
+    debugFolderId: debugFolderId,
     noTrace: true
   });
 
@@ -83,6 +87,7 @@ export function main(args) {
   runArgs.apiKey        = apiKey;
   runArgs.spaceId       = spaceId;
   runArgs.systemSpaceId = systemSpaceId;
+  runArgs.debugFolderId = debugFolderId;
 
   return assistantMain(runArgs);
 }

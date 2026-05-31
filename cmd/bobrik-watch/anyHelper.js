@@ -250,6 +250,8 @@ export function createClient(params) {
   const systemSpaceId = (params.systemSpaceId && params.systemSpaceId !== spaceId)
     ? params.systemSpaceId
     : null;
+  // Nav folder agent debug pages are filed under. Empty = leave at root.
+  const debugFolderId = params.debugFolderId || "";
 
   const spacePath = "/v1/spaces/" + spaceId;
   const systemSpacePath = systemSpaceId ? "/v1/spaces/" + systemSpaceId : null;
@@ -979,7 +981,7 @@ export function createClient(params) {
   return {
     api: api,
     _extractError: _extractError,
-    config: { baseUrl: baseUrl, spaceId: spaceId, spacePath: spacePath },
+    config: { baseUrl: baseUrl, spaceId: spaceId, spacePath: spacePath, debugFolderId: debugFolderId },
     __prepareTraces: __prepareTraces,
 
     getObjects: w("getObjects", getObjects),

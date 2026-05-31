@@ -1456,7 +1456,15 @@ function dcInit(client, _spaceId, userText, bootMeta) {
   }
   try {
     var r = client.createObject("Agent Debug Log", { name: name, body: initialBody });
-    if (r && r.ok && r.object) _dc.pageId = r.object.id;
+    if (r && r.ok && r.object) {
+      _dc.pageId = r.object.id;
+      // File the page under the host-provided Debug nav folder (best-
+      // effort; failure leaves it at root but the run continues).
+      var debugFolderId = client.config && client.config.debugFolderId;
+      if (debugFolderId) {
+        try { client.addToCollection(debugFolderId, _dc.pageId); } catch (e2) {}
+      }
+    }
   } catch (e) {}
 }
 
@@ -1874,7 +1882,8 @@ export function main(args) {
     apiBaseUrl: args.apiBaseUrl,
     apiKey: args.apiKey,
     spaceId: args.spaceId,
-    systemSpaceId: args.systemSpaceId
+    systemSpaceId: args.systemSpaceId,
+    debugFolderId: args.debugFolderId
   });
 
   // Mention gate: in Regular/Chat spaces, only respond in `bot-*` channels or
