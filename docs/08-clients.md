@@ -73,9 +73,17 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   the client actually renders changes in realtime.
 
 - **Always set `limit`.** Every read should carry a bounded `limit`, and page
-  the rest with `offset` or a cursor filter. An unbounded read can produce a
-  huge snapshot response or overflow a subscribe mailbox. Treat an unbounded
-  read as a bug.
+  the rest. An unbounded read can produce a huge snapshot response or overflow
+  a subscribe mailbox. Treat an unbounded read as a bug.
+
+- **Page on an absolute cursor, not `offset`, for anything that mutates under
+  you.** `offset` floats — row 50 becomes row 51 the moment a record lands
+  ahead of it, so paging a live collection by offset silently skips and
+  repeats rows. A `_ver.id` (or other indexed-field) cursor filter is
+  absolute: the next page is `{ "<field>": { "$lt": <lastSeen> } }` with the
+  same `sort`, and because the collection is indexed on it the page returns
+  from disk directly. `offset` is fine only for a frozen, point-in-time
+  snapshot you won't page across writes.
 
 - `sort` is an array of field-path strings; a `-` prefix means descending.
   `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
