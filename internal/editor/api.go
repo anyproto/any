@@ -109,9 +109,28 @@ func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, 
 // and allocates the next lexid past it. Concurrent inserts may
 // collide on the same pos — that's OK for sibling ordering; the
 // lexid alphabet has enough headroom for clients to re-rank later.
+// EnsureType attaches the editor type to the object's any.types if not
+// already present, so the membership-gated editor_blocks write is
+// admitted by the SDK. Idempotent and cheap: a local read, then
+// AttachType only on first use. Shared by Create and markdown.Set.
+func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
+	if rec, err := sp.Properties().Get(ctx, objectId, space.PropertyReadOpts{}); err == nil && rec != nil {
+		for _, v := range rec.GetArray("any", "types") {
+			if string(v.GetStringBytes()) == TypeId {
+				return nil
+			}
+		}
+	}
+	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
+	return err
+}
+
 func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput) (Block, error) {
 	if in.Type == "" {
 		return Block{}, fmt.Errorf("blocks: Create: type required")
+	}
+	if err := EnsureType(ctx, sp, objectId); err != nil {
+		return Block{}, fmt.Errorf("blocks: Create: ensure type: %w", err)
 	}
 	if in.Pos == "" {
 		maxPos, err := MaxPos(ctx, sp, objectId, in.ParentId)

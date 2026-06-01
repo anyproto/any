@@ -143,9 +143,10 @@ func NewType() handler.Type {
 		Id:          TypeId,
 		Name:        Name,
 		Description: Description,
-		Handlers: []handler.Registration{{
-			Handler:     messagesHandler{},
+		Datasets: []handler.Dataset{{
+			Name:        Dataset,
 			DataVersion: dataVersion,
+			Handler:     messagesHandler{},
 		}},
 	}
 }
@@ -157,6 +158,4 @@ type messagesHandler struct {
 	handler.DefaultHandler
 }
 
-func (messagesHandler) Dataset() string              { return Dataset }
-func (messagesHandler) Version() int                 { return 1 }
 func (messagesHandler) Init(_ context.Context) error { return nil }
