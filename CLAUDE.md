@@ -312,6 +312,7 @@ auto-start.
 | `docs/05-config.md` | config file schema, env vars, flags, first-run flow |
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
+| `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.
