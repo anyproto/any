@@ -144,6 +144,50 @@ the sort. With `-_ver.id` that's the newest messages, so new arrivals enter
 the window (and the oldest drops out as `removed`). Ascending would pin the
 *oldest* `limit` and new messages would never appear.
 
+## 5. Live subscriptions: hold a window, recover by resubscribing
+
+A `subscribe` stream is a moving window over the collection, not a feed you
+accumulate. Treat it as one and the lifecycle stays simple.
+
+- **Hold a window, not a database.** The `any-store` instance inside the
+  server *is* the store. Keep the current window in memory and apply the
+  stream's `added` / `updated` / `removed` deltas to it — no client-side DB,
+  no mirror, no second copy to pour rows into and reconcile. A parallel store
+  is overhead that re-implements what the subscription already gives you, and
+  it's the thing that drifts out of sync with the wire.
+
+- **Recover from a `closed` stream by resubscribing, not reconciling.** Every
+  `closed` reason is terminal and means "open a fresh POST" (see `04-events.md`
+  § "`closed` is terminal"). For the two load-shedding reasons, the reopened
+  snapshot *already* reflects current state — rebuilding it from a giant delta
+  is the expensive path the engine is deliberately refusing:
+  - `drifted` — more than `driftBudgetPercent` of the window left *without
+    replacements* (default 30 — ~15 rows of a 50-row window). Net departures
+    count; churn that new arrivals backfill does not.
+  - `overflow` — events arrived faster than the client drained the SSE mailbox
+    (`mailboxCapacity`, default 256, min 16) — e.g. a cold reconnect against a
+    busy collection.
+
+  Both thresholds are request-tunable when a workload needs more headroom.
+  Note the corollary to "always set a `limit`" (§3): drift detection is
+  **disabled when `limit == 0`**, so an unbounded subscribe loses both the
+  window auto-shift *and* the drift safety net — one more reason never to
+  subscribe without a limit.
+
+- **Window size is free on the server; the cost is the client's.** The server
+  streams the window straight from the indexed DB and is indifferent to
+  whether it holds 50 rows or 50,000 — size the window for the UI, not the
+  server. The real cost of a large window is client memory. Optimise for
+  correctness and stability first; a windowed read slower than ~100ms is
+  by-design wrong and worth a bug report.
+
+- **Cross-check client state against the DB when debugging.** `anystore-cli`
+  reads the same local DB that backs `any-store`. Sort a collection by
+  `-_ver.id`, mutate a record, re-query, and watch the new value land with its
+  own version — the same CRDT-with-versions shape the change arrives in over
+  the wire. Client in-memory state should layer versions the way the DB does,
+  so the DB is the reference when reconciling a divergence.
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.
