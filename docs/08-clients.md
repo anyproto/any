@@ -1,0 +1,204 @@
+# Client recommendations
+
+How a well-behaved client should call this server. These aren't new
+endpoints — they're the call patterns that keep a client correct and cheap
+on top of the contract in `03-api.md` (endpoints + bodies) and
+`04-events.md` (SSE lifecycle). Read those for the wire shapes; read this
+for *how to use them*.
+
+## 1. Writes go through the type's handler methods
+
+Built-in datasets are written **only** through their bespoke handler
+endpoints — never through a generic write path:
+
+- chat: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/chat/messages[/:msgId]`
+  and `…/:msgId/reactions/:emoji`
+- editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/blocks[/:id]`
+
+The handler is what stamps server-owned fields (`creator` / `createdAt` /
+`modifiedAt`), enforces author-only edit/delete, and keys reactions per
+identity. Bypassing it would skip all of that. The lone write-shaped
+exception is `PUT /editor/markdown`, which is a render/import *transform*,
+not a dataset write.
+
+## 2. Preflight-validate writes against the bound types
+
+An object carries an `any.types` array — the type IDs bound to it. Bind at
+create time:
+
+```
+POST /v1/spaces/:spaceId/objects
+{ "types": ["chat"], ... }
+```
+
+(Dedicated runtime attach/detach SDK methods are planned but not landed yet —
+bind at create for now.)
+
+- **Don't call a dataset write endpoint unless the target object has the
+  matching type bound.** A write to `chat_messages` / `editor_blocks` on an
+  object missing `"chat"` / `"editor"` in its `any.types` is rejected by the
+  SDK handler with `dataset.validation` (400). Check the object's `any.types`
+  (read its row from the per-space `objects` collection) before writing, or
+  create the object with the type bound up front. Don't fire the write and
+  hope.
+
+- **Preflight-validate property values against the bound type's property
+  definitions.** v1 does **not** enforce property schema server-side —
+  property writes are free-form. The client is responsible for keeping values
+  aligned with the type contract. Fetch the type's properties:
+
+  ```
+  GET /v1/spaces/:spaceId/types/:typeId/properties
+  ```
+
+  Each entry is a `PropertyDef` (`kind`, `required`, nested `items` /
+  `properties`). Validate kind and required-ness before writing. Don't rely
+  on the server to reject a mismatch today — the SDK-level guards
+  (`property.kind_mismatch`, `property.immutable_field`) are not wired into
+  the v1 write path, so a malformed write succeeds now and bites later.
+
+## 3. Reads go through query / subscribe
+
+One read path per dataset: a snapshot via `POST /v1/spaces/:id/query`, or a
+live stream via `POST /v1/spaces/:id/query/subscribe`. For per-object
+built-ins pass `objectId` + `dataset` (`chat_messages`, `editor_blocks`, …);
+the cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
+Body shape (filter / sort / limit / offset / includeTotal / mailboxCapacity /
+driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
+`04-events.md`.
+
+- **Prefer `query` over `subscribe`.** Use the one-shot snapshot whenever you
+  don't need live updates. It's cheaper, has no mailbox/drift lifecycle to
+  manage, and can't close on overflow. Only open a `subscribe` stream when
+  the client actually renders changes in realtime.
+
+- **Always set `limit`.** Every read should carry a bounded `limit`, and page
+  the rest. An unbounded read can produce a huge snapshot response or overflow
+  a subscribe mailbox. Treat an unbounded read as a bug.
+
+- **Page on an absolute cursor, not `offset`, for anything that mutates under
+  you.** `offset` floats — row 50 becomes row 51 the moment a record lands
+  ahead of it, so paging a live collection by offset silently skips and
+  repeats rows. A `_ver.id` (or other indexed-field) cursor filter is
+  absolute: the next page is `{ "<field>": { "$lt": <lastSeen> } }` with the
+  same `sort`, and because the collection is indexed on it the page returns
+  from disk directly. `offset` is fine only for a frozen, point-in-time
+  snapshot you won't page across writes.
+
+- `sort` is an array of field-path strings; a `-` prefix means descending.
+  `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
+  `sort` is required when `limit > 0`.
+
+## 4. Chat: newest-first reads and backward pagination
+
+Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
+and history paging all sort the same way. `_ver.id` is the record's
+`VersionId` at creation — its position in the any-sync DAG (the SDK's
+lex-monotonic, per-change DAG order). Sorting by it orders messages by
+**logical DAG order**, not wall-clock time. It's stamped once at creation
+and never bumped by edits, so that order is stable across message edits.
+Once you set a `limit` (rule above), descending is the *only* correct
+direction — see the live-tail reasoning below.
+
+**Open a chat view** — just subscribe. Don't `query` first and then
+subscribe: the subscribe stream's `snapshot` frame *is* your initial
+newest-N load (the windowed engine emits it atomically with registration —
+see `04-events.md` § "snapshot arrives once"). A separate up-front `query`
+refetches the same rows and opens a gap/dup race against the first
+`changes` frame. Use a one-shot `query` (below) only when you *don't* want
+live updates.
+
+```
+POST /v1/spaces/:spaceId/query/subscribe
+{ "objectId": "<chatObjectId>",
+  "dataset":  "chat_messages",
+  "sort":     ["-_ver.id"],
+  "limit":    50 }
+```
+
+The `snapshot` frame carries the newest 50; apply it, then apply each
+`changes` frame (new messages in `added`, edits in `updated`, deletes /
+reaction-offs in `removed`).
+
+**Read without subscribing** — when you only need a point-in-time render
+(no live updates), the one-shot query is the same window:
+
+```
+POST /v1/spaces/:spaceId/query
+{ "objectId": "<chatObjectId>",
+  "dataset":  "chat_messages",
+  "sort":     ["-_ver.id"],
+  "limit":    50 }
+```
+
+**Page into history** — scrolling up past the window. Take the oldest
+`_ver.id` you currently hold and `query` older messages (the subscribe
+window only tracks the newest `limit`; older history lives behind a paged
+query, not the stream):
+
+```
+{ "objectId": "<chatObjectId>",
+  "dataset":  "chat_messages",
+  "sort":     ["-_ver.id"],
+  "filter":   { "_ver.id": { "$lt": "<oldestMessageVersion>" } },
+  "limit":    50 }
+```
+
+Repeat until a short or empty page. Reverse each page client-side if you
+render oldest-at-top.
+
+**Why descending, not ascending:** the `limit`-sized window holds the top of
+the sort. With `-_ver.id` that's the newest messages, so new arrivals enter
+the window (and the oldest drops out as `removed`). Ascending would pin the
+*oldest* `limit` and new messages would never appear.
+
+## 5. Live subscriptions: hold a window, recover by resubscribing
+
+A `subscribe` stream is a moving window over the collection, not a feed you
+accumulate. Treat it as one and the lifecycle stays simple.
+
+- **Hold a window, not a database.** The `any-store` instance inside the
+  server *is* the store. Keep the current window in memory and apply the
+  stream's `added` / `updated` / `removed` deltas to it — no client-side DB,
+  no mirror, no second copy to pour rows into and reconcile. A parallel store
+  is overhead that re-implements what the subscription already gives you, and
+  it's the thing that drifts out of sync with the wire.
+
+- **Recover from a `closed` stream by resubscribing, not reconciling.** Every
+  `closed` reason is terminal and means "open a fresh POST" (see `04-events.md`
+  § "`closed` is terminal"). For the two load-shedding reasons, the reopened
+  snapshot *already* reflects current state — rebuilding it from a giant delta
+  is the expensive path the engine is deliberately refusing:
+  - `drifted` — more than `driftBudgetPercent` of the window left *without
+    replacements* (default 30 — ~15 rows of a 50-row window). Net departures
+    count; churn that new arrivals backfill does not.
+  - `overflow` — events arrived faster than the client drained the SSE mailbox
+    (`mailboxCapacity`, default 256, min 16) — e.g. a cold reconnect against a
+    busy collection.
+
+  Both thresholds are request-tunable when a workload needs more headroom.
+  Note the corollary to "always set a `limit`" (§3): drift detection is
+  **disabled when `limit == 0`**, so an unbounded subscribe loses both the
+  window auto-shift *and* the drift safety net — one more reason never to
+  subscribe without a limit.
+
+- **Window size is free on the server; the cost is the client's.** The server
+  streams the window straight from the indexed DB and is indifferent to
+  whether it holds 50 rows or 50,000 — size the window for the UI, not the
+  server. The real cost of a large window is client memory. Optimise for
+  correctness and stability first; a windowed read slower than ~100ms is
+  by-design wrong and worth a bug report.
+
+- **Cross-check client state against the DB when debugging.** `anystore-cli`
+  reads the same local DB that backs `any-store`. Sort a collection by
+  `-_ver.id`, mutate a record, re-query, and watch the new value land with its
+  own version — the same CRDT-with-versions shape the change arrives in over
+  the wire. Client in-memory state should layer versions the way the DB does,
+  so the DB is the reference when reconciling a divergence.
+
+## See also
+
+- `03-api.md` — endpoint catalog and request/response bodies.
+- `04-events.md` — SSE frame lifecycle, `closed` reasons, capacity tuning.
+- `06-errors.md` — error envelope and code namespace
+  (`dataset.validation`, `property.kind_mismatch`, …).
