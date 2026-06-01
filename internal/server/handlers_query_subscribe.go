@@ -242,10 +242,24 @@ func writeQuerySubscribeBatch(w http.ResponseWriter, events []space.Subscription
 			VersionId: string(ev.VersionId),
 			Added:     subRecordsToAPI(ev.Added, fa),
 			Updated:   subRecordsToAPI(ev.Updated, fa),
-			Removed:   ev.Removed,
+			Removed:   removedRecordsToAPI(ev.Removed),
 		}
 	}
 	return writeSSEEvent(w, "changes", "", payload)
+}
+
+// removedRecordsToAPI maps the SDK's []RemovedRecord onto the wire
+// shape, serializing each RemoveReason to its stable string
+// (deleted / filtered-out / displaced).
+func removedRecordsToAPI(in []space.RemovedRecord) []api.RemovedRecord {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]api.RemovedRecord, len(in))
+	for i, r := range in {
+		out[i] = api.RemovedRecord{Id: r.Id, Reason: r.Reason.String()}
+	}
+	return out
 }
 
 func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena) []api.QuerySubscribeRecord {

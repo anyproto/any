@@ -24,6 +24,22 @@ var ErrNotFound = errors.New("chat: message not found")
 // chat.not_author at the HTTP layer.
 var ErrNotAuthor = errors.New("chat: not the message author")
 
+// ensureType attaches the chat type to the object's any.types if not
+// already present, so the membership-gated chat_messages write is
+// admitted by the SDK. Idempotent and cheap: a local read, then
+// AttachType only on first use (subsequent sends find it present).
+func ensureType(ctx context.Context, sp space.Space, objectId string) error {
+	if rec, err := sp.Properties().Get(ctx, objectId, space.PropertyReadOpts{}); err == nil && rec != nil {
+		for _, v := range rec.GetArray("any", "types") {
+			if string(v.GetStringBytes()) == TypeId {
+				return nil
+			}
+		}
+	}
+	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
+	return err
+}
+
 // SendOpts is the input to Send. Text is required and validated by
 // the handler; ReplyToMessageId is an opaque soft reference;
 // FromAgent is an optional opaque tag marking the message as
@@ -47,6 +63,9 @@ type SendOpts struct {
 // carries the resolved id; we read it back so the caller gets the full
 // server-stamped record (creator, createdAt, _ver.id, …).
 func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (api.ChatMessage, error) {
+	if err := ensureType(ctx, sp, objectId); err != nil {
+		return api.ChatMessage{}, fmt.Errorf("chat: send: ensure type: %w", err)
+	}
 	payload := map[string]any{
 		FieldText: opts.Text,
 	}

@@ -17,10 +17,10 @@ func NewType() handler.Type {
 		Id:          TypeId,
 		Name:        Name,
 		Description: Description,
-		Handlers: []handler.Registration{
-			{Handler: handler.DefaultHandler{DatasetName: DatasetSource, HandlerVersion: 1}, DataVersion: "1"},
-			{Handler: handler.DefaultHandler{DatasetName: DatasetDescription, HandlerVersion: 1}, DataVersion: "1"},
-			{Handler: handler.DefaultHandler{DatasetName: DatasetMethods, HandlerVersion: 1}, DataVersion: "1"},
+		Datasets: []handler.Dataset{
+			{Name: DatasetSource, DataVersion: "1", Handler: handler.DefaultHandler{}},
+			{Name: DatasetDescription, DataVersion: "1", Handler: handler.DefaultHandler{}},
+			{Name: DatasetMethods, DataVersion: "1", Handler: handler.DefaultHandler{}},
 		},
 	}
 }
