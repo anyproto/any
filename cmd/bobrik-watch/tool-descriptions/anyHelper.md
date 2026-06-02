@@ -12,9 +12,18 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 ## Tool Schema
 
 ### getObjects(typeKey, options?)
-List objects of a type.
+List/query objects of a type. Returns normalized records (nested per type).
 - typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
 - options.space: "user" (default) or "system"
+- options.filter: mongo-style filter, keys as readable dotted paths
+  ("Agent Memory.tags", "Film.year"). Operators: $eq (bare value), $ne, $gt,
+  $gte, $lt, $lte, $in, $nin, $all, $exists, $regex, $and, $or, $not. Against
+  an ARRAY property a scalar means "contains" and {$in:[...]} means
+  "intersects" — this is how to filter by a tag/category array server-side.
+- options.sort: array of dotted paths, "-" prefix = descending (e.g.
+  ["-Film.year"]). options.limit / options.offset: paging.
+Full guide: docs/09-query.md. (Note: negation filters like $ne also match
+objects lacking the field — getObjects already scopes by type so that's safe.)
 
 ### getObject(objId, opts?)
 Fetch one object by ID. Returns the object with properties nested per type

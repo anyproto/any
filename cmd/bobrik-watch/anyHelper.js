@@ -497,7 +497,7 @@ export function createClient(params) {
       for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
     }
     var body = { filter: filter };
-    if (options.sort) body.sort = options.sort;
+    if (options.sort) body.sort = _resolveSortPaths(scope, options.sort);
     if (options.limit !== undefined) body.limit = options.limit;
     if (options.offset !== undefined) body.offset = options.offset;
     var res = api("POST", path + "/objects/query", body);
@@ -516,22 +516,35 @@ export function createClient(params) {
   // type (e.g. "any.types", "nav.parentId", "_ver.id", or an already-resolved
   // id pair) passes through unchanged — builtin namespaces use literal keys
   // that _resolvePropSeg returns as-is.
+  // _resolvePath maps a readable dotted path "Type.prop" to the server's
+  // "<typeId>.<propId>". Paths whose first segment isn't a known type (builtin
+  // namespaces any/nav, "_ver.id", already-resolved id pairs) pass through.
+  function _resolvePath(scope, path) {
+    var dot = path.indexOf(".");
+    if (dot <= 0) return path;
+    var typeId = _resolveTypeSeg(scope, path.substring(0, dot));
+    if (!typeId) return path;
+    var propId = _resolvePropSeg(scope, typeId, path.substring(dot + 1));
+    return propId ? typeId + "." + propId : path;
+  }
+
   function _resolveFilterPaths(scope, filter) {
     var out = {};
     for (var key in filter) {
-      if (!Object.prototype.hasOwnProperty.call(filter, key)) continue;
-      var dot = key.indexOf(".");
-      var mapped = key;
-      if (dot > 0) {
-        var typeId = _resolveTypeSeg(scope, key.substring(0, dot));
-        if (typeId) {
-          var propId = _resolvePropSeg(scope, typeId, key.substring(dot + 1));
-          if (propId) mapped = typeId + "." + propId;
-        }
-      }
-      out[mapped] = filter[key];
+      if (Object.prototype.hasOwnProperty.call(filter, key)) out[_resolvePath(scope, key)] = filter[key];
     }
     return out;
+  }
+
+  // _resolveSortPaths resolves each sort entry, preserving a leading "-"
+  // (descending) marker around the path resolution.
+  function _resolveSortPaths(scope, sort) {
+    if (!Array.isArray(sort)) return sort;
+    return sort.map(function (entry) {
+      if (typeof entry !== "string") return entry;
+      if (entry.charAt(0) === "-") return "-" + _resolvePath(scope, entry.substring(1));
+      return _resolvePath(scope, entry);
+    });
   }
 
   function getObject(objId, opts) {
