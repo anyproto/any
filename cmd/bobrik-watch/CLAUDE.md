@@ -55,13 +55,18 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 ## Naming
 
 - `anyHelper.js` replaces `anytypeHelper.js`, same method surface.
-- Property-key prefixes are being dropped: legacy `__anytype_`/`__any_`
+- Property-key prefixes are dropped: legacy `__anytype_`/`__any_`/`__amemory_`
   prefixes existed to avoid collisions in a flat namespace; per-type
   namespacing makes them redundant (`Agent Memory.chat_id`, not
-  `__any_chat_id`). Migrated: init_agent, toolcall_core, miniapp.
-  **amemory@v2 still uses `__amemory_` keys and is not yet migrated**
-  (it's broken on the current server until it is — its writes hit
-  `property.not_found`).
+  `__any_chat_id`; `Agent Memory.vector`, not `__amemory_vector`).
+  Migrated: init_agent, toolcall_core, miniapp, amemory@v2.
+- amemory categories live in the bare `tags` array on the `Agent Memory`
+  type (no per-tag prefix). Category filtering is server-side via the
+  any-store array filter (`getObjects("Agent Memory", {filter:{"Agent
+  Memory.tags":{$in:[...]}}})` — scalar = "contains", `$in` = "intersects");
+  `_buildCategoryFilter` still enforces exact `m.category` afterwards. FTS
+  (`client.search`) is still a stub — the keyword half of recall is inert,
+  vector similarity carries.
 - Env vars in JS programs (`env.ANYTYPE_API_URL`, etc.) keep their
   original names — they come from the runtime's `args` injection.
 

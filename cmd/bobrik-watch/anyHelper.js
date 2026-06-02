@@ -472,17 +472,35 @@ export function createClient(params) {
 
   // ==================== QUERIES ====================
 
+  // getObjects(typeKey, options) — cross-object query over the per-space
+  // `objects` collection, returning normalized (nested, readable) records.
+  //   options.space   — "user" (default) or "system"
+  //   options.filter  — extra filter merged with the type filter. Keys may be
+  //                     readable dotted paths ("Agent Memory.tags") — resolved
+  //                     to the server's <typeId>.<propId> form; builtin paths
+  //                     ("any.types", "nav.parentId") pass through. Values use
+  //                     mongo-style ops; against an array field, a scalar means
+  //                     "contains" and {$in:[...]} means "intersects".
+  //   options.sort/limit/offset — passed through.
   function getObjects(typeKey, options) {
     if (!options) options = {};
     var scope = options.space || "user";
     var path = _pathForScope(scope);
     var filter = {};
     if (typeKey) {
-      var resolved = _resolveTypeByName(typeKey, scope) || _resolveTypeId(typeKey, scope);
+      var resolved = _resolveTypeSeg(scope, typeKey);
       if (!resolved) return [];
       filter["any.types"] = resolved;
     }
-    var res = api("POST", path + "/objects/query", { filter: filter });
+    if (options.filter) {
+      var extra = _resolveFilterPaths(scope, options.filter);
+      for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
+    }
+    var body = { filter: filter };
+    if (options.sort) body.sort = options.sort;
+    if (options.limit !== undefined) body.limit = options.limit;
+    if (options.offset !== undefined) body.offset = options.offset;
+    var res = api("POST", path + "/objects/query", body);
     if (!res.ok) return [];
     var records = (res.data && res.data.records) || [];
     var objects = [];
@@ -491,6 +509,29 @@ export function createClient(params) {
     }
     objects.pagination = { total: objects.length };
     return objects;
+  }
+
+  // _resolveFilterPaths rewrites readable dotted filter keys ("Type.prop") to
+  // the server's "<typeId>.<propId>". A key whose first segment isn't a known
+  // type (e.g. "any.types", "nav.parentId", "_ver.id", or an already-resolved
+  // id pair) passes through unchanged — builtin namespaces use literal keys
+  // that _resolvePropSeg returns as-is.
+  function _resolveFilterPaths(scope, filter) {
+    var out = {};
+    for (var key in filter) {
+      if (!Object.prototype.hasOwnProperty.call(filter, key)) continue;
+      var dot = key.indexOf(".");
+      var mapped = key;
+      if (dot > 0) {
+        var typeId = _resolveTypeSeg(scope, key.substring(0, dot));
+        if (typeId) {
+          var propId = _resolvePropSeg(scope, typeId, key.substring(dot + 1));
+          if (propId) mapped = typeId + "." + propId;
+        }
+      }
+      out[mapped] = filter[key];
+    }
+    return out;
   }
 
   function getObject(objId, opts) {
@@ -1117,7 +1158,7 @@ export function createClient(params) {
   // Map a caller-facing property "format" to a server property kind. `objects`
   // (a multi-value list of object refs, e.g. chat_history) and `object` map to
   // the array/object kinds; falls back to an explicit `kind` then string.
-  var _formatToKind = { text: "string", number: "number", checkbox: "boolean", objects: "array", object: "object" };
+  var _formatToKind = { text: "string", number: "number", checkbox: "boolean", objects: "array", array: "array", object: "object", date: "string" };
 
   // createType is idempotent AND additive: if the type already exists it does
   // NOT early-return, it ensures each requested property is registered (adding
