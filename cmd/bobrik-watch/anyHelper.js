@@ -286,11 +286,27 @@ export function createClient(params) {
       try { data = JSON.parse(data); } catch(e) {}
     }
     var error = null;
+    var code = null;
     if (!res.ok) {
       error = (data && data.error && data.error.message) || (data && data.message) || ("HTTP " + res.status);
+      // The server's uniform envelope is {error:{code,message,details}} (see
+      // docs/06-errors.md). Surface the typed code (property.kind_mismatch,
+      // property.not_found, sdk.not_implemented, space.not_found, …) so callers
+      // can switch on it instead of regexing the message. Falls back to a
+      // status-derived code when the body isn't the standard envelope.
+      code = (data && data.error && data.error.code) || _codeForStatus(res.status);
     }
-    return { ok: res.ok, status: res.status, data: data, error: error };
+    return { ok: res.ok, status: res.status, data: data, error: error, code: code };
   };
+
+  function _codeForStatus(status) {
+    if (status === 404) return "request.not_found";
+    if (status === 501) return "sdk.not_implemented";
+    if (status === 503) return "server.unavailable";
+    if (status >= 500) return "internal";
+    if (status >= 400) return "request.bad";
+    return null;
+  }
 
   const _extractError = (apiResult) => {
     if (typeof apiResult.error === "string") return apiResult.error;
@@ -800,7 +816,7 @@ export function createClient(params) {
     if (Object.keys(initProps).length > 0) createBody.initialProperties = initProps;
 
     var res = api("POST", path + "/objects", createBody);
-    if (!res.ok) return { ok: false, error: _extractError(res) };
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
     var objectId = res.data.objectId;
 
     if (body) {
@@ -826,12 +842,12 @@ export function createClient(params) {
 
     if (body !== undefined) {
       var mdRes = api("PUT", path + "/objects/" + objId + "/editor/markdown", { content: body });
-      if (!mdRes.ok) return { ok: false, id: objId, error: _extractError(mdRes) };
+      if (!mdRes.ok) return { ok: false, id: objId, error: _extractError(mdRes), code: mdRes.code };
     }
 
     if (data.name !== undefined) {
       var nr = api("POST", path + "/properties/" + objId + "/base/any", { patch: { name: data.name } });
-      if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr) };
+      if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr), code: nr.code };
     }
 
     var hasProps = data.properties &&
@@ -843,7 +859,7 @@ export function createClient(params) {
       for (var gk2 in resolvedU.groups) {
         if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
         var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
-        if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr) };
+        if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr), code: pr.code };
       }
     }
 
@@ -852,7 +868,7 @@ export function createClient(params) {
 
   function deleteObject(objId) {
     var res = api("DELETE", spacePath + "/objects/" + objId);
-    return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res) };
+    return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
   // Append markdown to the tail of an object via the server's append-only
@@ -944,7 +960,7 @@ export function createClient(params) {
       objectId: objId, dataset: dataset,
       records: [{ id: recordId, upsert: true, ops: ops }]
     });
-    return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res) };
+    return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
   // deleteRecord tombstones one or more records in a dataset (completes the
@@ -956,7 +972,7 @@ export function createClient(params) {
     var ids = Array.isArray(recordIds) ? recordIds : [recordIds];
     if (ids.length === 0) return { ok: true };
     var res = api("POST", path + "/delete-records", { objectId: objId, dataset: dataset, recordIds: ids });
-    return { ok: res.ok, error: res.ok ? null : _extractError(res) };
+    return { ok: res.ok, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
   // ==================== TAGS ====================
