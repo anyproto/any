@@ -1127,22 +1127,28 @@ export function createClient(params) {
       return { ok: false, error: "markdown must contain a '## Tool Description' section" };
     }
 
+    // Write source + (optional) tool-doc datasets. setRecord upserts the
+    // single "main" record per dataset; same shape the program type expects.
+    function writeProgramDatasets(objId) {
+      var sr = setRecord(objId, "program_source", "main", { code: source });
+      if (!sr.ok) return sr;
+      if (markdown != null) {
+        var dr = setRecord(objId, "program_description", "main", { text: markdown });
+        if (!dr.ok) return dr;
+      }
+      return { ok: true };
+    }
+
     var existing = getProgram(progName, version);
     if (existing) {
-      api("POST", spacePath + "/modify", {
-        objectId: existing.id, dataset: "program_source",
-        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
-      });
-      if (markdown != null) {
-        api("POST", spacePath + "/modify", {
-          objectId: existing.id, dataset: "program_description",
-          records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
-        });
-      }
+      var w = writeProgramDatasets(existing.id);
+      if (!w.ok) return { ok: false, error: w.error };
       return { ok: true, object: { id: existing.id }, name: progName, version: version };
     }
 
-    var programTypeId = _resolveTypeId("program");
+    // The `program` builtin type uses literal property keys (name/version), so
+    // initialProperties can pass them directly — no xKey→propId resolution.
+    var programTypeId = _resolveTypeSeg("user", "program");
     if (!programTypeId) return { ok: false, error: _typeNotFoundError("program") };
     var createRes = api("POST", spacePath + "/objects", {
       types: [programTypeId],
@@ -1154,16 +1160,8 @@ export function createClient(params) {
     if (!createRes.ok) return { ok: false, error: _extractError(createRes) };
     var newId = createRes.data.objectId;
 
-    api("POST", spacePath + "/modify", {
-      objectId: newId, dataset: "program_source",
-      records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
-    });
-    if (markdown != null) {
-      api("POST", spacePath + "/modify", {
-        objectId: newId, dataset: "program_description",
-        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
-      });
-    }
+    var w2 = writeProgramDatasets(newId);
+    if (!w2.ok) return { ok: true, object: { id: newId }, name: progName, version: version, error: "program created but dataset write failed: " + w2.error };
 
     return { ok: true, object: { id: newId }, name: progName, version: version };
   }
