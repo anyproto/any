@@ -451,7 +451,7 @@ function loadOrCreateMemoryAnchor(client) {
   var objects = client.getObjects("Agent Memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    if (obj.__any_agent_memory === "_main") {
+    if (getProp(obj, "Agent Memory.agent_memory") === "_main") {
       return { id: obj.id, fullObj: client.getObject(obj.id, rawOpts) };
     }
   }
@@ -459,7 +459,7 @@ function loadOrCreateMemoryAnchor(client) {
   var result = client.createObject("Agent Memory", {
     name: "Agent Memory",
     body: "",
-    properties: [{ key: "__any_agent_memory", text: "_main" }]
+    properties: [{ key: "agent_memory", text: "_main" }]
   });
   if (!result || !result.ok) return null;
   return { id: result.object.id, fullObj: client.getObject(result.object.id, rawOpts) };
@@ -556,19 +556,19 @@ function shouldRespond(client, opts) {
 }
 
 // Find or create the rolling chat-history object for a given chatId, linked
-// from the memory anchor's __any_chat_history property (a multi-value
+// from the memory anchor's `Agent Memory.chat_history` property (a multi-value
 // `objects` field). Returns { id, markdown } or null on hard failure.
 //
 //   chatId    — the Anytype chat object id; null for legacy/unscoped mode
 //   chatName  — optional, used only to name a newly-created history object
 //   spaceType — used to enable one-time 1-1 adoption (see below)
 //
-// Lookup walks every linked history and matches by the top-level
-// __any_chat_id property. If none match and:
+// Lookup walks every linked history and matches by the
+// `Agent Memory.chat_id` property. If none match and:
 //   (a) chatId is set AND
-//   (b) there's exactly one linked history with NO __any_chat_id AND
+//   (b) there's exactly one linked history with NO chat_id AND
 //   (c) spaceType === 4 (OneToOne)
-// we *adopt* that legacy object in place by patching its __any_chat_id.
+// we *adopt* that legacy object in place by patching its chat_id.
 // This preserves 1-1 history continuity for users who had the agent deployed
 // before chat scoping existed.
 //
@@ -577,7 +577,7 @@ function shouldRespond(client, opts) {
 function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (!anchor || !anchor.fullObj) return null;
 
-  var val = getProp(anchor.fullObj, "__any_chat_history");
+  var val = getProp(anchor.fullObj, "Agent Memory.chat_history");
   var ids = [];
   if (Array.isArray(val)) {
     for (var vi = 0; vi < val.length; vi++) {
@@ -587,12 +587,12 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
     ids.push(val);
   }
 
-  // Hydrate each linked history so we can match by __any_chat_id.
+  // Hydrate each linked history so we can match by chat_id.
   var hydrated = [];
   for (var i = 0; i < ids.length; i++) {
     var obj;
     try { obj = client.getObject(ids[i], { resolveRefs: false }); } catch (e) { obj = null; }
-    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: obj.__any_chat_id || null });
+    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: getProp(obj, "Agent Memory.chat_id") || null });
   }
 
   // Match by chatId (when set).
@@ -612,7 +612,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
       if (unkeyed.length === 1) {
         try {
           client.updateObject(unkeyed[0].id, {
-            properties: [{ key: "__any_chat_id", text: chatId }]
+            properties: [{ key: "Agent Memory.chat_id", text: chatId }]
           });
         } catch (e) {}
         return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
@@ -630,7 +630,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   else if (chatId) historyName += " — " + chatId;
 
   var createProps = [];
-  if (chatId) createProps.push({ key: "__any_chat_id", text: chatId });
+  if (chatId) createProps.push({ key: "chat_id", text: chatId });
 
   var result = client.createObject("Agent Memory", {
     name: historyName,
@@ -646,7 +646,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   existing.push(newId);
   try {
     client.updateObject(anchor.id, {
-      properties: [{ key: "__any_chat_history", objects: existing }]
+      properties: [{ key: "Agent Memory.chat_history", objects: existing }]
     });
   } catch (e) {}
   return { id: newId, markdown: "" };
@@ -1268,9 +1268,8 @@ function renderWindowMessages(turns) {
   return msgs;
 }
 
-// Load an agent-skill object by its `__any_agent_skill_name`. Matches by
-// the top-level __any_agent_skill_name field. Returns "" when no such
-// skill exists so the caller can concatenate freely.
+// Load an agent-skill object by its `Agent Skill.agent_skill_name`. Returns
+// "" when no such skill exists so the caller can concatenate freely.
 //
 // Cross-space: tries the user space first, then falls back to the system
 // (private) space. Lets users override a system skill (e.g. _anytype) by
@@ -1290,7 +1289,7 @@ function _loadSkillMarkdown(client, skillName) {
     if (!objects || objects.length === 0) continue;
     for (var i = 0; i < objects.length; i++) {
       var o = objects[i];
-      if (!o || o.__any_agent_skill_name !== skillName) continue;
+      if (!o || getProp(o, "Agent Skill.agent_skill_name") !== skillName) continue;
       try {
         var full = client.getObject(o.id, { space: scope });
         if (full && full.markdown) return full.markdown;
@@ -1355,7 +1354,7 @@ function _loadUserSkillsSection(client) {
     if (!o) continue;
     var tags = Array.isArray(o.tag) ? o.tag : [];
     if (tags.indexOf("assistant_program") >= 0) continue;
-    var title = o.name || o.__any_agent_skill_name || "(untitled skill)";
+    var title = o.name || getProp(o, "Agent Skill.agent_skill_name") || "(untitled skill)";
     var desc = (o.description || "").trim();
     var line = "- [" + title + "](any://" + (client.config.spaceId || "_") + "/" + o.id + ")";
     if (desc) line += " — " + desc;

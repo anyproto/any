@@ -25,15 +25,15 @@ function bootstrapTypes(client) {
   client.createType({
     name: "Agent Skill",
     properties: [
-      { key: "__any_agent_skill_name", format: "text" }
+      { key: "agent_skill_name", format: "text" }
     ]
   });
   client.createType({
     name: "Agent Memory",
     properties: [
-      { key: "__any_agent_memory", format: "text" },
-      { key: "__any_chat_history", format: "objects" },
-      { key: "__any_chat_id", format: "text" }
+      { key: "agent_memory", format: "text" },
+      { key: "chat_history", format: "objects" },
+      { key: "chat_id", format: "text" }
     ]
   });
   client.createType({ name: "Pages" });

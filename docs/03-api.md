@@ -365,7 +365,8 @@ Two query scopes:
 - `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
   Reads one of an object's own datasets (`objectId` and `dataset`
   required). Used for a type object's `properties` definitions
-  dataset, `editor_blocks`, `chat_messages`, etc.
+  dataset, `editor_blocks`, `chat_messages`, `program_source` /
+  `program_description`, `mini_app`, etc.
 
 All four take POST (filter/sort body doesn't fit a query string).
 Reads always go through these — the bare `…/query` returns a

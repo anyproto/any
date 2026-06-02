@@ -21,9 +21,9 @@ type jsHarnessSummary struct {
 	Failures []string `json:"failures"`
 }
 
-// bobrikDir returns the absolute path to cmd/bobrik-watch (the -m module-
-// resolution root that holds anyHelper.js). The Go test runs with cwd set to
-// this package dir (cmd/bobrik-watch/tests), so the parent is the target.
+// bobrikDir returns the absolute path to cmd/bobrik-watch. The Go test runs
+// with cwd set to this package dir (cmd/bobrik-watch/tests), so the parent is
+// the target.
 func bobrikDir(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs("..")
@@ -31,6 +31,32 @@ func bobrikDir(t *testing.T) string {
 		t.Fatalf("resolve bobrik dir: %v", err)
 	}
 	return abs
+}
+
+// moduleDir builds a flat directory of symlinks the runtime uses as its single
+// -m module-resolution root: anyHelper.js (at the bobrik root) plus every
+// programs/*.js (already named like `amemory@v2.js`, `miniapp.js`). With
+// everything in one dir, imports like `anyHelper@v1`, `miniapp@v1`,
+// `amemory@v2` all resolve locally — so a test can exercise a full program
+// without syncing programs into a space.
+func moduleDir(t *testing.T) string {
+	t.Helper()
+	root := bobrikDir(t)
+	dir := t.TempDir()
+	link := func(src, name string) {
+		if err := os.Symlink(src, filepath.Join(dir, name)); err != nil {
+			t.Fatalf("symlink %s: %v", name, err)
+		}
+	}
+	link(filepath.Join(root, "anyHelper.js"), "anyHelper.js")
+	progs, err := filepath.Glob(filepath.Join(root, "programs", "*.js"))
+	if err != nil {
+		t.Fatalf("glob programs: %v", err)
+	}
+	for _, p := range progs {
+		link(p, filepath.Base(p))
+	}
+	return dir
 }
 
 // writeRuntimeEnv writes the .env the runtime expects (it reads API config from
@@ -99,10 +125,10 @@ func TestJSAnyHelper(t *testing.T) {
 		t.Skipf("anytype-agent-runtime not on PATH (%v) — `go install ./...` in the runtime repo", err)
 	}
 
-	dir := bobrikDir(t)
+	dir := moduleDir(t)
 	envPath := writeRuntimeEnv(t, spaceID)
 
-	files, err := filepath.Glob(filepath.Join(dir, "tests", "js", "*_test.js"))
+	files, err := filepath.Glob(filepath.Join(bobrikDir(t), "tests", "js", "*_test.js"))
 	if err != nil {
 		t.Fatalf("glob js tests: %v", err)
 	}

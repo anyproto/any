@@ -1,5 +1,19 @@
 import { createClient, editString } from "anyHelper@v1";
 
+// miniapp — author and manage embeddable HTML/JS mini apps.
+//
+// Storage: each mini app is one object of the built-in `Mini App` type whose
+// source / state / readme live in the structured `mini_app` dataset (record
+// "main"), NOT in markdown blocks. The object's display name (any.name) IS the
+// app's unique name. This replaces the old anytypeHelper scheme that wrote a
+// "## Source"/"## State" markdown body and parsed it back with fragile fence
+// matching — source/state now round-trip byte-for-byte and update atomically
+// per-field (editing state never rewrites source).
+
+var TYPE = "Mini App";
+var DATASET = "mini_app";
+var RECORD = "main";
+
 var _client = null;
 function _c() {
   if (_client) return _client;
@@ -15,23 +29,26 @@ function _c() {
 // Internals
 // ------------------------------------------------------------------
 
-function _miniappName(obj) {
-  if (!obj) return null;
-  return obj.miniapp_name || (obj.properties && obj.properties.miniapp_name) || null;
-}
-
+// Find a mini-app object by its name (any.name). Returns the object record or
+// null. listing uses the cross-object query (one call), no per-object reads.
 function _findByName(name) {
-  var all = _c().getObjects("any_mini_app");
+  var all = _c().getObjects(TYPE);
   for (var i = 0; i < all.length; i++) {
-    if (_miniappName(all[i]) === name) return all[i];
+    if (all[i].name === name) return all[i];
   }
   return null;
 }
 
-function _loadFull(name) {
-  var lite = _findByName(name);
-  if (!lite) return null;
-  return _c().getObject(lite.id);
+// Load the mini_app dataset record for an object id. Returns { source, state,
+// readme } with string defaults, or null if the object/record is missing.
+function _loadParts(objId) {
+  var rec = _c().getRecord(objId, DATASET, RECORD);
+  if (!rec) return { source: "", state: null, readme: "" };
+  return {
+    source: typeof rec.source === "string" ? rec.source : "",
+    state: rec.state != null ? rec.state : null,
+    readme: typeof rec.readme === "string" ? rec.readme : ""
+  };
 }
 
 // Runtime-script guard — prepend React UMD tags + the useAnytypeState hook
@@ -63,88 +80,6 @@ function _serializeState(state) {
   }
 }
 
-// Build full body from parts.
-function _buildBody(parts) {
-  var readme = (parts.readme || "").replace(/\s+$/, "");
-  var out = readme;
-  if (out.length > 0) out += "\n\n";
-  out += "## Source\n\n```html\n" + (parts.source || "") + "\n```";
-  if (parts.state != null) {
-    out += "\n\n## State\n\n```json\n" + parts.state + "\n```";
-  }
-  return out;
-}
-
-// Locate the first code block that follows a given heading. The Anytype API
-// strips lang tags from fences on round-trip (bare ``` comes back), so we
-// anchor on the heading and search for the next pair of fences. Returns
-// { content, openIdx, closeEnd } or null. openIdx points at the opening fence's
-// first backtick; closeEnd is one past the closing fence's last backtick.
-function _findBlockSpan(md, heading) {
-  var hIdx = md.indexOf(heading);
-  if (hIdx === -1) return null;
-  var openIdx = md.indexOf("```", hIdx + heading.length);
-  if (openIdx === -1) return null;
-  // Skip past "```" + optional lang tag + newline to find content start.
-  var contentStart = md.indexOf("\n", openIdx + 3);
-  if (contentStart === -1) return null;
-  contentStart += 1;
-  var closeIdx = md.indexOf("```", contentStart);
-  if (closeIdx === -1) return null;
-  // Strip the trailing "\n" before the closing fence (we wrote it that way).
-  var content = md.substring(contentStart, closeIdx);
-  if (content.length > 0 && content.charAt(content.length - 1) === "\n") {
-    content = content.substring(0, content.length - 1);
-  }
-  return { content: content, openIdx: openIdx, closeEnd: closeIdx + 3 };
-}
-
-// Extract the three parts from an existing body. Returns
-// { readme, source, state }. `state` is null if no state block exists.
-function _parseBody(md) {
-  md = md || "";
-  var sourceSpan = _findBlockSpan(md, "## Source");
-  var stateSpan  = _findBlockSpan(md, "## State");
-
-  var cutIdx = md.indexOf("## Source");
-  if (cutIdx === -1 && sourceSpan) cutIdx = sourceSpan.openIdx;
-  if (cutIdx === -1) cutIdx = md.length;
-  // The API often prepends "\n" to bodies — trim both ends of the readme.
-  var readme = md.substring(0, cutIdx).replace(/^\s+|\s+$/g, "");
-
-  return {
-    readme: readme,
-    source: sourceSpan ? sourceSpan.content : "",
-    state:  stateSpan  ? stateSpan.content  : null
-  };
-}
-
-// Replace a block's content in-place. Appends a fresh section if absent.
-// blockType: "source" | "state"
-function _replaceBlock(md, blockType, newContent) {
-  md = md || "";
-  var heading = blockType === "source" ? "## Source" : "## State";
-  var fence   = blockType === "source" ? "html" : "json";
-  var span = _findBlockSpan(md, heading);
-  if (span) {
-    var newFence = "```" + fence + "\n" + newContent + "\n```";
-    return md.substring(0, span.openIdx) + newFence + md.substring(span.closeEnd);
-  }
-  var joiner = md.length > 0 ? "\n\n" : "";
-  return md + joiner + heading + "\n\n```" + fence + "\n" + newContent + "\n```";
-}
-
-// Replace everything before the "## Source" heading with newReadme.
-function _replaceReadme(md, newReadme) {
-  md = md || "";
-  var cutIdx = md.indexOf("## Source");
-  var readme = (newReadme || "").replace(/\s+$/, "");
-  if (cutIdx === -1) return readme;
-  var rest = md.substring(cutIdx);
-  var joiner = readme.length > 0 ? "\n\n" : "";
-  return readme + joiner + rest;
-}
-
 function _sliceLines(text, from, to) {
   var lines = (text || "").split("\n");
   var total = lines.length;
@@ -172,18 +107,16 @@ export function createMiniApp(opts) {
   var st = _serializeState(opts.state);
   if (!st.ok) return { ok: false, error: st.error };
 
-  var body = _buildBody({ readme: opts.readme, source: guard.html, state: st.text });
-  var title = opts.title || name;
-
-  var res = _c().createObject("any_mini_app", {
-    name: title,
-    body: body,
-    mini_app_embed: true,
-    properties: { miniapp_name: name }
-  });
+  var res = _c().createObject(TYPE, { name: name });
   if (!res.ok) return { ok: false, error: res.error };
+  var id = res.object && res.object.id;
 
-  var out = { ok: true, name: name, title: title, object: res.object, id: res.object && res.object.id };
+  var fields = { source: guard.html, readme: opts.readme || "" };
+  if (st.text != null) fields.state = st.text;
+  var wr = _c().setRecord(id, DATASET, RECORD, fields);
+  if (!wr.ok) return { ok: false, id: id, error: "object created but content write failed: " + wr.error };
+
+  var out = { ok: true, name: name, title: name, object: res.object, id: id };
   if (guard.injected) out.warnings = ["auto-injected missing runtime script(s): " + guard.injected.join(", ")];
   return out;
 }
@@ -193,33 +126,31 @@ export function updateMiniApp(opts) {
   var name = opts.name;
   if (!name) return { ok: false, error: "opts.name is required" };
 
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return { ok: false, error: "mini app '" + name + "' not found" };
 
-  var md = obj.markdown || "";
+  var fields = {};
   var warnings = [];
 
   if (opts.source != null) {
     var guard = _ensureRuntimeScripts(opts.source);
-    md = _replaceBlock(md, "source", guard.html);
+    fields.source = guard.html;
     if (guard.injected) warnings.push("auto-injected missing runtime script(s): " + guard.injected.join(", "));
   }
-
   if (opts.state != null) {
     var st = _serializeState(opts.state);
     if (!st.ok) return { ok: false, name: name, error: st.error };
-    md = _replaceBlock(md, "state", st.text);
+    fields.state = st.text;
   }
+  if (opts.readme != null) fields.readme = opts.readme;
 
-  if (opts.readme != null) md = _replaceReadme(md, opts.readme);
+  if (Object.keys(fields).length > 0) {
+    var wr = _c().setRecord(obj.id, DATASET, RECORD, fields);
+    if (!wr.ok) return { ok: false, name: name, error: wr.error };
+  }
+  if (opts.title) _c().updateObject(obj.id, { name: opts.title });
 
-  var patch = { markdown: md, mini_app_embed: true };
-  if (opts.title) patch.name = opts.title;
-
-  var res = _c().updateObject(obj.id, patch);
-  if (!res.ok) return { ok: false, name: name, error: res.error };
-
-  var out = { ok: true, name: name, object: res.object };
+  var out = { ok: true, name: name, object: { id: obj.id } };
   if (warnings.length > 0) out.warnings = warnings;
   return out;
 }
@@ -239,10 +170,10 @@ export function editMiniApp(name, opts) {
   var newString  = opts.newString  != null ? opts.newString  : opts.new_str;
   var replaceAll = opts.replaceAll != null ? opts.replaceAll : opts.replace_all;
 
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return { ok: false, name: name, error: "mini app '" + name + "' not found" };
 
-  var parts = _parseBody(obj.markdown || "");
+  var parts = _loadParts(obj.id);
   var target = block === "source" ? parts.source : parts.state;
   if (target == null || target === "") {
     return { ok: false, name: name, block: block, error: "block '" + block + "' is empty or missing" };
@@ -252,22 +183,18 @@ export function editMiniApp(name, opts) {
   if (!r.ok) return { ok: false, name: name, block: block, error: r.error, lengthBefore: target.length };
 
   var newBlock = r.result;
-  if (block === "source") {
-    newBlock = _ensureRuntimeScripts(newBlock).html;
-  }
-  var newMd = _replaceBlock(obj.markdown || "", block, newBlock);
+  if (block === "source") newBlock = _ensureRuntimeScripts(newBlock).html;
 
-  var res = _c().updateObject(obj.id, { markdown: newMd, mini_app_embed: true });
-  if (!res.ok) return { ok: false, name: name, error: res.error };
+  var fields = {};
+  fields[block] = newBlock;
+  var wr = _c().setRecord(obj.id, DATASET, RECORD, fields);
+  if (!wr.ok) return { ok: false, name: name, error: wr.error };
 
   return {
-    ok: true,
-    name: name,
-    block: block,
+    ok: true, name: name, block: block,
     replacements: r.replacements,
-    lengthBefore: target.length,
-    lengthAfter: newBlock.length,
-    object: res.object
+    lengthBefore: target.length, lengthAfter: newBlock.length,
+    object: { id: obj.id }
   };
 }
 
@@ -277,20 +204,19 @@ export function setState(name, stateObject) {
   var st = _serializeState(stateObject);
   if (!st.ok) return { ok: false, name: name, error: st.error };
 
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return { ok: false, name: name, error: "mini app '" + name + "' not found" };
 
-  var newMd = _replaceBlock(obj.markdown || "", "state", st.text);
-  var res = _c().updateObject(obj.id, { markdown: newMd, mini_app_embed: true });
-  if (!res.ok) return { ok: false, name: name, error: res.error };
-  return { ok: true, name: name, object: res.object };
+  var wr = _c().setRecord(obj.id, DATASET, RECORD, { state: st.text });
+  if (!wr.ok) return { ok: false, name: name, error: wr.error };
+  return { ok: true, name: name, object: { id: obj.id } };
 }
 
 export function getState(name) {
   if (!name) return null;
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return null;
-  var parts = _parseBody(obj.markdown || "");
+  var parts = _loadParts(obj.id);
   if (parts.state == null) return null;
   try { return JSON.parse(parts.state); }
   catch (e) {
@@ -304,12 +230,11 @@ export function upsertReadme(name, newReadme) {
   if (typeof newReadme !== "string") {
     return { ok: false, name: name, error: "newReadme must be a string" };
   }
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return { ok: false, name: name, error: "mini app '" + name + "' not found" };
-  var newMd = _replaceReadme(obj.markdown || "", newReadme);
-  var res = _c().updateObject(obj.id, { markdown: newMd, mini_app_embed: true });
-  if (!res.ok) return { ok: false, name: name, error: res.error };
-  return { ok: true, name: name, object: res.object };
+  var wr = _c().setRecord(obj.id, DATASET, RECORD, { readme: newReadme });
+  if (!wr.ok) return { ok: false, name: name, error: wr.error };
+  return { ok: true, name: name, object: { id: obj.id } };
 }
 
 export function upsertMiniAppState(name, source) {
@@ -317,20 +242,19 @@ export function upsertMiniAppState(name, source) {
   if (typeof source !== "string") {
     return { ok: false, name: name, error: "source must be a string (raw JSON text)" };
   }
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return { ok: false, name: name, error: "mini app '" + name + "' not found" };
-  var existed = _findBlockSpan(obj.markdown || "", "## State") !== null;
-  var newMd = _replaceBlock(obj.markdown || "", "state", source);
-  var res = _c().updateObject(obj.id, { markdown: newMd, mini_app_embed: true });
-  if (!res.ok) return { ok: false, name: name, error: res.error };
-  return { ok: true, name: name, created: !existed, object: res.object };
+  var existed = _loadParts(obj.id).state != null;
+  var wr = _c().setRecord(obj.id, DATASET, RECORD, { state: source });
+  if (!wr.ok) return { ok: false, name: name, error: wr.error };
+  return { ok: true, name: name, created: !existed, object: { id: obj.id } };
 }
 
 export function getMiniApp(name, opts) {
   if (!name) return null;
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return null;
-  var parts = _parseBody(obj.markdown || "");
+  var parts = _loadParts(obj.id);
   var state = null;
   if (parts.state != null) {
     try { state = JSON.parse(parts.state); } catch (e) { state = parts.state; }
@@ -354,9 +278,9 @@ export function getMiniApp(name, opts) {
 
 export function getMiniAppSource(name, opts) {
   if (!name) return null;
-  var obj = _loadFull(name);
+  var obj = _findByName(name);
   if (!obj) return null;
-  var parts = _parseBody(obj.markdown || "");
+  var parts = _loadParts(obj.id);
   if (opts && (opts.from != null || opts.to != null)) {
     var slice = _sliceLines(parts.source, opts.from, opts.to);
     return { name: name, source: slice.text, range: slice.range };
@@ -365,12 +289,11 @@ export function getMiniAppSource(name, opts) {
 }
 
 export function listMiniApps() {
-  var all = _c().getObjects("any_mini_app");
+  var all = _c().getObjects(TYPE);
   var out = [];
   for (var i = 0; i < all.length; i++) {
-    var n = _miniappName(all[i]);
-    if (!n) continue;
-    out.push({ id: all[i].id, name: n, title: all[i].name });
+    if (!all[i].name) continue;
+    out.push({ id: all[i].id, name: all[i].name, title: all[i].name });
   }
   out.sort(function(a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
   return out;

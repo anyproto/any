@@ -825,6 +825,65 @@ export function createClient(params) {
     };
   }
 
+  // ==================== DATASETS ====================
+  // Generic per-object dataset accessors over POST /modify and POST /query.
+  // Built-in types store structured content in datasets (program → program_source
+  // / program_description, mini_app → mini_app, editor → editor_blocks, …).
+  // Dataset records are NOT type-namespaced, so they are returned raw (no
+  // _normalize). These let tools (anyPrograms, miniapp) read/write their
+  // dataset without hand-rolling the modify/query envelopes.
+
+  // getRecord returns a single dataset record by id (or the first record when
+  // recordId is omitted), or null. opts may carry {space}.
+  function getRecord(objId, dataset, recordId, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var res = api("POST", path + "/query", { objectId: objId, dataset: dataset });
+    if (!res.ok) return null;
+    var records = (res.data && res.data.records) || [];
+    if (recordId) {
+      for (var i = 0; i < records.length; i++) { if (records[i].id === recordId) return records[i]; }
+      return null;
+    }
+    return records.length ? records[0] : null;
+  }
+
+  // queryRecords returns all records of a dataset (raw), with optional
+  // filter/sort/limit/offset passed straight through to the query primitive.
+  function queryRecords(objId, dataset, query, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var body = { objectId: objId, dataset: dataset };
+    if (query) {
+      if (query.filter) body.filter = query.filter;
+      if (query.sort) body.sort = query.sort;
+      if (query.limit !== undefined) body.limit = query.limit;
+      if (query.offset !== undefined) body.offset = query.offset;
+      if (query.includeTotal !== undefined) body.includeTotal = query.includeTotal;
+    }
+    var res = api("POST", path + "/query", body);
+    if (!res.ok) return { ok: false, records: [], error: _extractError(res) };
+    return { ok: true, records: (res.data && res.data.records) || [], total: res.data && res.data.total };
+  }
+
+  // setRecord upserts a dataset record, emitting one atomic $set op per field
+  // at its own path so updating one field never rewrites the others. Pass a
+  // flat { field: value } map; nested dotted paths ("a.b") are allowed.
+  function setRecord(objId, dataset, recordId, fields, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var ops = [];
+    for (var k in fields) {
+      if (Object.prototype.hasOwnProperty.call(fields, k)) ops.push({ type: "$set", path: k, value: fields[k] });
+    }
+    if (ops.length === 0) return { ok: true, id: recordId };
+    var res = api("POST", path + "/modify", {
+      objectId: objId, dataset: dataset,
+      records: [{ id: recordId, upsert: true, ops: ops }]
+    });
+    return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res) };
+  }
+
   // ==================== TAGS ====================
   // TODO: any API has no select/multi_select property format yet
 
@@ -1055,41 +1114,58 @@ export function createClient(params) {
 
   // ==================== TYPE MANAGEMENT ====================
 
+  // Map a caller-facing property "format" to a server property kind. `objects`
+  // (a multi-value list of object refs, e.g. chat_history) and `object` map to
+  // the array/object kinds; falls back to an explicit `kind` then string.
+  var _formatToKind = { text: "string", number: "number", checkbox: "boolean", objects: "array", object: "object" };
+
+  // createType is idempotent AND additive: if the type already exists it does
+  // NOT early-return, it ensures each requested property is registered (adding
+  // only the missing ones). This is deliberate — multiple programs declare the
+  // same type with different properties (e.g. both init_agent and amemory
+  // declare "Agent Memory"); an early-return would silently drop the second
+  // program's properties and make its writes fail validation.
   function createType(opts) {
     if (!opts) return { ok: false, error: "opts required" };
     if (!opts.name) return { ok: false, error: "name is required" };
 
     var name = opts.name;
-
-    var existingId = _resolveTypeByName(name);
-    if (existingId) {
-      return { ok: true, type: { id: existingId, name: name }, created: false };
+    var created = false;
+    var typeId = _resolveTypeByName(name);
+    if (!typeId) {
+      var res = api("POST", spacePath + "/types", { name: name });
+      if (!res.ok) return { ok: false, error: _extractError(res) };
+      typeId = res.data.typeId;
+      created = true;
+      _catInvalidate("user");
     }
 
-    var body = { name: name };
-    var res = api("POST", spacePath + "/types", body);
-    if (!res.ok) return { ok: false, error: _extractError(res) };
-    var typeId = res.data.typeId;
-
-    if (opts.properties && Array.isArray(opts.properties)) {
+    if (opts.properties && Array.isArray(opts.properties) && opts.properties.length > 0) {
+      // Existing props on the type, so we add only what's missing.
+      var existing = _typeProps("user", typeId);
+      var have = {};
+      for (var e = 0; e < existing.length; e++) {
+        if (existing[e].xKey) have[existing[e].xKey] = true;
+        if (existing[e].name) have[existing[e].name] = true;
+      }
+      var addedAny = false;
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
-        var formatToKind = { text: "string", number: "number", checkbox: "boolean" };
+        if (have[prop.key]) continue; // already registered
         var ar = api("POST", spacePath + "/types/" + typeId + "/properties", {
           xKey: prop.key, name: prop.name || prop.key,
-          kind: formatToKind[prop.format] || prop.kind || "string"
+          kind: _formatToKind[prop.format] || prop.kind || "string"
         });
         if (!ar.ok) {
           _catInvalidate("user");
-          return { ok: false, error: "type created but property \"" + prop.key + "\" failed: " + _extractError(ar) };
+          return { ok: false, error: "type \"" + name + "\": property \"" + prop.key + "\" failed: " + _extractError(ar) };
         }
+        addedAny = true;
       }
+      if (addedAny) _catInvalidate("user");
     }
 
-    // Drop the cached catalog so the new type + its properties resolve on the
-    // next createObject/updateObject without waiting for a refresh-on-miss.
-    _catInvalidate("user");
-    return { ok: true, type: { id: typeId, name: name }, created: true };
+    return { ok: true, type: { id: typeId, name: name }, created: created };
   }
 
   // ==================== INTERNAL HELPERS ====================
@@ -1181,6 +1257,9 @@ export function createClient(params) {
     deleteObject: w("deleteObject", deleteObject),
     appendToObject: w("appendToObject", appendToObject),
     editObject: w("editObject", editObject),
+    getRecord: w("getRecord", getRecord),
+    queryRecords: w("queryRecords", queryRecords),
+    setRecord: w("setRecord", setRecord),
     setTags: w("setTags", setTags),
     addTag: w("addTag", addTag),
     listTags: w("listTags", listTags),
