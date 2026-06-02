@@ -55,6 +55,22 @@ Paths below are inside the module cache:
   uses published `github.com/anyproto/any-sync-sdk v0.0.4`. Read the module
   cache, not `../any-sync-sdk2`, when checking SDK behavior.
 
+## 5. (Runtime) the stock `anytype-agent-runtime` loader targets anytype-heart, not `any`
+
+- **Claim:** the CLI help says `import "name@v1"` resolves "via the Anytype
+  API", implying any Anytype-compatible server.
+- **Actual:** the stock loader (`anyruntime/anytype_loader.go`) hits
+  `GET /v1/spaces/:id/objects` and reads `__anytype_program_name` — that's
+  anytype-heart's API shape, which the `any` server does not serve (it uses
+  `POST /objects/query` and per-type propIds). So against `any`, the stock
+  loader resolves nothing and falls through to the `-m` file loader.
+- **Consequence:** bobrik-watch wires its OWN `any`-speaking resolver
+  (`cmd/bobrik-watch/runtime.go` → `newAnySDKLoader`), so program imports work
+  in production. But JS-harness tests that exec the stock CLI cannot exercise
+  module-import paths (e.g. anyPrograms `_verifyImportable`) for programs stored
+  in `any` — only file-loaded (`-m`) modules resolve. Tests assert the save and
+  treat the live-import probe as a known harness gap.
+
 ---
 
 How to add an entry: probe the live server (or read the v0.0.4 source in the
