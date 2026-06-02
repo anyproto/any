@@ -72,56 +72,78 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 	return typeID, nil
 }
 
-// ensureSkillType creates the Agent Skill type with __any_agent_skill_name
-// property if it doesn't already exist. Returns the type ID.
+// skillNameXKey is the stable property key for a skill's name. Bare (no
+// legacy __any_ prefix) — the type namespace already scopes it. The server
+// stores property values under the derived propId, not the xKey, so callers
+// resolve xKey→propId via skillNamePropID before reading/writing/filtering.
+const skillNameXKey = "agent_skill_name"
+
+// ensureSkillType ensures the "Agent Skill" type exists AND carries the
+// agent_skill_name property (find-or-add — idempotent and additive, so it
+// composes with init_agent's declaration of the same type). Returns the type ID.
 func ensureSkillType(baseURL, spaceID string) (string, error) {
 	typeID, err := findType(baseURL, spaceID, "Agent Skill")
 	if err != nil {
 		return "", err
 	}
-	if typeID != "" {
-		return typeID, nil
+	if typeID == "" {
+		body, _ := json.Marshal(map[string]string{"name": "Agent Skill"})
+		resp, err := http.Post(
+			baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
+			"application/json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return "", fmt.Errorf("create skill type: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			msg, _ := io.ReadAll(resp.Body)
+			return "", fmt.Errorf("create skill type: %d %s", resp.StatusCode, msg)
+		}
+		var created struct {
+			TypeId string `json:"typeId"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+			return "", fmt.Errorf("decode created type: %w", err)
+		}
+		typeID = created.TypeId
+		fmt.Fprintf(os.Stderr, "created type \"Agent Skill\" → %s\n", typeID)
 	}
 
-	body, _ := json.Marshal(map[string]string{"name": "Agent Skill"})
-	resp, err := http.Post(
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	// Ensure the name property exists (the type may have been created by
+	// init_agent, or pre-exist without it). addProperty errors if it's already
+	// there — tolerate that by checking first.
+	propID, err := skillNamePropID(baseURL, spaceID, typeID)
 	if err != nil {
-		return "", fmt.Errorf("create skill type: %w", err)
+		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("create skill type: %d %s", resp.StatusCode, msg)
-	}
-	var created struct {
-		TypeId string `json:"typeId"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return "", fmt.Errorf("decode created type: %w", err)
-	}
-	typeID = created.TypeId
-	fmt.Fprintf(os.Stderr, "created type \"Agent Skill\" → %s\n", typeID)
-
-	if err := addProperty(baseURL, spaceID, typeID, map[string]string{
-		"xKey": "__any_agent_skill_name", "name": "__any_agent_skill_name", "kind": "string",
-	}); err != nil {
-		return "", fmt.Errorf("add skill name property: %w", err)
+	if propID == "" {
+		if err := addProperty(baseURL, spaceID, typeID, map[string]string{
+			"xKey": skillNameXKey, "name": skillNameXKey, "kind": "string",
+		}); err != nil {
+			return "", fmt.Errorf("add skill name property: %w", err)
+		}
 	}
 	return typeID, nil
 }
 
 // syncSkills reads skill .md files from skillsDir on disk and upserts
 // them as Agent Skill objects. Each skill is identified by
-// __any_agent_skill_name (e.g. "_soul"). Content is stored via PUT
+// agent_skill_name (e.g. "_soul"). Content is stored via PUT
 // /editor/markdown.
 func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return fmt.Errorf("read skills dir %s: %w", skillsDir, err)
+	}
+	// Resolve the name property's id once — writes/filters key by propId, not xKey.
+	skillPropID, err := skillNamePropID(baseURL, spaceID, skillTypeID)
+	if err != nil {
+		return fmt.Errorf("resolve skill name prop: %w", err)
+	}
+	if skillPropID == "" {
+		return fmt.Errorf("skill type %s has no %q property", skillTypeID, skillNameXKey)
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
@@ -133,7 +155,7 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 			return fmt.Errorf("read skill %s: %w", e.Name(), err)
 		}
 
-		objectID, err := findSkillObject(baseURL, spaceID, skillTypeID, skillName)
+		objectID, err := findSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName)
 		if err != nil {
 			return fmt.Errorf("query skill %s: %w", skillName, err)
 		}
@@ -144,7 +166,7 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 			}
 			fmt.Fprintf(os.Stderr, "synced skill %s (updated %s)\n", skillName, objectID)
 		} else {
-			objectID, err = createSkillObject(baseURL, spaceID, skillTypeID, skillName, string(content))
+			objectID, err = createSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName, string(content))
 			if err != nil {
 				return fmt.Errorf("create skill %s: %w", skillName, err)
 			}
@@ -158,10 +180,41 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 	return nil
 }
 
-func findSkillObject(baseURL, spaceID, skillTypeID, skillName string) (string, error) {
+// skillNamePropID returns the propId of the Agent Skill type's name property
+// (xKey skillNameXKey), or "" if absent. Values are stored under the propId,
+// so this is needed for every read/write/filter of the name.
+func skillNamePropID(baseURL, spaceID, skillTypeID string) (string, error) {
+	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/types/" + url.PathEscape(skillTypeID) + "/properties")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("list properties: %d %s", resp.StatusCode, msg)
+	}
+	var out struct {
+		Properties []struct {
+			Id   string `json:"id"`
+			XKey string `json:"xKey"`
+			Name string `json:"name"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	for _, p := range out.Properties {
+		if p.XKey == skillNameXKey || p.Name == skillNameXKey {
+			return p.Id, nil
+		}
+	}
+	return "", nil
+}
+
+func findSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName string) (string, error) {
 	filter := map[string]any{
 		"filter": map[string]any{
-			skillTypeID + ".__any_agent_skill_name": skillName,
+			skillTypeID + "." + skillPropID: skillName,
 		},
 	}
 	body, _ := json.Marshal(filter)
@@ -192,7 +245,7 @@ func findSkillObject(baseURL, spaceID, skillTypeID, skillName string) (string, e
 	return rec.Id, nil
 }
 
-func createSkillObject(baseURL, spaceID, skillTypeID, skillName, markdown string) (string, error) {
+func createSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName, markdown string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{skillTypeID},
 		"initialProperties": map[string]any{
@@ -200,7 +253,7 @@ func createSkillObject(baseURL, spaceID, skillTypeID, skillName, markdown string
 				"name": "Skill: " + skillName,
 			},
 			skillTypeID: map[string]any{
-				"__any_agent_skill_name": skillName,
+				skillPropID: skillName,
 			},
 		},
 	})

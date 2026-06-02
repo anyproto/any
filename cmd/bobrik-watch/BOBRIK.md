@@ -109,7 +109,7 @@ cmd/bobrik-watch/
   dataset (not in markdown/editor blocks), avoiding the 65KB per-block limit.
 
 - **Skill storage** — each skill is an object of type `Agent Skill` with
-  a `__any_agent_skill_name` property. Content is stored as markdown via
+  a `agent_skill_name` property. Content is stored as markdown via
   the `editor/markdown` endpoint.
 
 ## What's missing
