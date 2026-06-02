@@ -282,6 +282,75 @@ func TestServer_Markdown_ConvergesWithBlocks(t *testing.T) {
 	}
 }
 
+// TestServer_Markdown_Append exercises the append-only fast path:
+// POST .../editor/markdown/append adds blocks at the tail without
+// reading or diffing the existing document, and the result renders
+// identically to a single PUT of the concatenated document.
+func TestServer_Markdown_Append(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupBlocksFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	// Append onto an empty object — exercises the maxPos=="" seed path.
+	appendMarkdown(t, e, base, "# Heading 1\n\nfirst body")
+	if got := getMarkdown(t, e, base+"/editor/markdown"); got != "# Heading 1\n\nfirst body" {
+		t.Fatalf("after first append: %q", got)
+	}
+
+	// Append again — new blocks land strictly after the existing tail.
+	resp := appendMarkdown(t, e, base, "## Heading 2\n\nsecond body")
+	if len(resp.Inserted) != 2 {
+		t.Errorf("expected 2 inserted ids, got %d (%v)", len(resp.Inserted), resp.Inserted)
+	}
+	if len(resp.Updated) != 0 || len(resp.Deleted) != 0 {
+		t.Errorf("append must not update/delete: updated=%v deleted=%v", resp.Updated, resp.Deleted)
+	}
+
+	want := "# Heading 1\n\nfirst body\n\n## Heading 2\n\nsecond body"
+	if got := getMarkdown(t, e, base+"/editor/markdown"); got != want {
+		t.Errorf("after second append:\nwant %q\ngot  %q", want, got)
+	}
+
+	// Block order is strictly ascending by nav.pos — the appended
+	// blocks must sort after the originals.
+	listed := blocksList(t, e, base)
+	if len(listed.Records) != 4 {
+		t.Fatalf("expected 4 blocks, got %d", len(listed.Records))
+	}
+	for i := 1; i < len(listed.Records); i++ {
+		if !(listed.Records[i-1].Nav.Pos < listed.Records[i].Nav.Pos) {
+			t.Errorf("nav.pos not ascending at %d: %q then %q",
+				i, listed.Records[i-1].Nav.Pos, listed.Records[i].Nav.Pos)
+		}
+	}
+
+	// Empty content is a no-op: 200, nothing inserted, document unchanged.
+	resp = appendMarkdown(t, e, base, "")
+	if len(resp.Inserted) != 0 {
+		t.Errorf("empty append inserted %v", resp.Inserted)
+	}
+	if got := getMarkdown(t, e, base+"/editor/markdown"); got != want {
+		t.Errorf("empty append changed document: %q", got)
+	}
+}
+
+func appendMarkdown(t *testing.T, e http.Handler, base, content string) api.MarkdownSetResponse {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"content": content})
+	rec := doJSON(t, e, http.MethodPost, base+"/editor/markdown/append", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST markdown/append: %d %s", rec.Code, rec.Body.String())
+	}
+	var resp api.MarkdownSetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode append resp: %v", err)
+	}
+	return resp
+}
+
 // TestServer_Blocks_MultiRecordBatchId exercises the PATCH/DELETE
 // routes against a block whose SDK-derived id carries the multi-
 // record-batch suffix (`<base58>:<N>`). The markdown PUT path

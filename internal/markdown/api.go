@@ -167,6 +167,70 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 	return result, nil
 }
 
+// Append parses content into blocks and appends them all after the
+// object's current last top-level block, in a single ModifyBatch. It
+// never reads the existing block bodies and never diffs — only the
+// tail position is looked up (one indexed `-nav.pos` query via
+// editor.MaxPos) — so the cost is O(appended content), independent of
+// how large the document already is.
+//
+// This is the append-only fast path for whole-document round-trips:
+// callers like the agent debug-log collector grow a page turn-by-turn
+// and would otherwise pay Set's O(document) GET+diff on every append,
+// making a full run O(N²) in page size. Append makes each call O(chunk)
+// and the run O(N).
+//
+// Semantics differ from Set in two ways the caller must accept:
+//   - No diffing. Append is purely additive: every parsed block becomes
+//     a new record. It cannot update or delete existing blocks, and it
+//     will happily create a block identical to an existing one.
+//   - No leading separator. content is appended as-is; if the caller
+//     wants a blank line / heading boundary before the new material it
+//     must include that in content (Split skips blank lines, so the
+//     separation is structural — new blocks simply follow the old).
+//
+// Empty (or blank-only) content is a no-op that returns a zero result.
+func Append(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {
+	rawNew := Split(content)
+	if len(rawNew) == 0 {
+		return SetResult{}, nil
+	}
+
+	maxPos, err := editor.MaxPos(ctx, sp, objectId, editor.RootParentId)
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: max pos: %w", err)
+	}
+	positions, err := editor.AllocateRun(maxPos, "", len(rawNew))
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: allocate pos: %w", err)
+	}
+
+	records := make([]space.RecordModify, len(rawNew))
+	for i, raw := range rawNew {
+		records[i] = buildCreateRecord(ParseBlock(raw), positions[i])
+	}
+
+	res, err := sp.Modify(ctx, space.ModifyBatch{
+		ObjectId: objectId,
+		Dataset:  editor.Dataset,
+		Records:  records,
+	})
+	if err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: modify: %w", err)
+	}
+	if len(res.Rejections) > 0 {
+		return SetResult{}, fmt.Errorf("markdown: Append: rejected: %s", res.Rejections[0].Reason)
+	}
+
+	result := SetResult{Inserted: make([]string, 0, len(records))}
+	for i := range records {
+		if i < len(res.RecordIds) {
+			result.Inserted = append(result.Inserted, res.RecordIds[i])
+		}
+	}
+	return result, nil
+}
+
 // Get returns the full markdown content of objectId by rendering each
 // top-level block and joining with "\n\n". Round-trip is canonical:
 // blank lines between blocks are always exactly one, and block-type

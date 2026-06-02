@@ -1923,6 +1923,45 @@ paths:
       summary: Set markdown content (diff-based)
       tags:
       - editor
+  /spaces/{spaceId}/objects/{objectId}/editor/markdown/append:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Markdown content to append
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.MarkdownContent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MarkdownSetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Append markdown content (append-only fast path)
+      tags:
+      - editor
   /spaces/{spaceId}/objects/derive:
     post:
       consumes:

@@ -103,8 +103,15 @@ Implementation slices landed:
    Import .md flows depend on it). GET renders blocks → markdown;
    PUT parses markdown → diffs against the current block tree →
    emits per-record create / update / delete ops, returning
-   `{inserted, updated, deleted, unchanged}`. CLI: `any editor
-   blocks create/patch/delete`.
+   `{inserted, updated, deleted, unchanged}`. `POST
+   /editor/markdown/append` is the append-only fast path: it parses
+   the fragment, looks up only the tail pos (no full-doc read, no
+   diff), and creates the new blocks in one ModifyBatch — O(chunk),
+   not O(doc). Purely additive; same reply shape as PUT with only
+   `inserted` populated (`markdown.Append` in `internal/markdown`).
+   Grow-by-append pages (e.g. the agent debug log, via
+   `anyHelper.appendToObject`) use it so a run of N appends is O(N),
+   not O(N²). CLI: `any editor blocks create/patch/delete`.
 8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
    space's `name` / `description` / `icon` in a derived in-space
    `spaceIndex` object (one per space, deterministic id) rather than

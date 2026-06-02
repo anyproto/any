@@ -651,12 +651,17 @@ export function createClient(params) {
     return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res) };
   }
 
+  // Append markdown to the tail of an object via the server's append-only
+  // fast path. The server parses `text` into blocks and creates them past
+  // the current last block in one ModifyBatch — no full-document read, no
+  // diff — so each append is O(text), not O(document). This matters for
+  // grow-by-append pages (the agent debug log appends every turn): the
+  // old read-modify-write-the-whole-doc path made a run O(N²) in page size.
   function appendToObject(objId, text) {
-    var obj = getObject(objId);
-    if (!obj) return { ok: false, id: objId, error: "Object not found" };
-    var current = obj.markdown || "";
-    var newMarkdown = current ? current + "\n" + text : text;
-    return updateObject(objId, { markdown: newMarkdown });
+    if (text == null || text === "") return { ok: true, id: objId, object: { id: objId } };
+    var res = api("POST", spacePath + "/objects/" + objId + "/editor/markdown/append", { content: String(text) });
+    if (!res.ok) return { ok: false, id: objId, error: _extractError(res) };
+    return { ok: true, id: objId, object: { id: objId } };
   }
 
   function editObject(objId, opts) {
