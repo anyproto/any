@@ -54,6 +54,38 @@ It creates (and reuses) an `integration_test` space. Point at another server
 with `ANY_ADDR=127.0.0.1:7002`. With no server reachable the test `t.Skip`s
 rather than failing.
 
+## JS-level tests (anyHelper / anyPrograms)
+
+`program_roundtrip_test.go` pins the *server*; `jsrunner_test.go` pins the JS
+*client* layered on top — it runs the real Anytype JS engine against the live
+server and asserts on what the JS methods actually return (the contract
+bobrik-watch's programs depend on).
+
+Each JS test lives in `tests/js/*_test.js`, exports `main(args)` with
+`{ apiBaseUrl, spaceId }`, runs assertions through a small inline harness, and
+prints exactly one line as its last act:
+
+```
+HARNESS_RESULT {"pass":N,"fail":M,"failures":[...]}
+```
+
+`jsrunner_test.go` (`TestJSAnyHelper`) discovers those files, execs
+`anytype-agent-runtime` on each (resolving `anyHelper@v1` from the
+`cmd/bobrik-watch` dir via `-m`), parses that line, and fails the Go subtest
+when `fail > 0` or the line is missing. It `t.Skip`s when the server is
+unreachable or `anytype-agent-runtime` isn't on `PATH`.
+
+```
+go install ./...                          # put anytype-agent-runtime on PATH
+ANY_ADDR=127.0.0.1:7003 \
+  go test -tags integration ./cmd/bobrik-watch/tests/ -run TestJSAnyHelper -v
+```
+
+> Gotcha: don't name a Go test file `*_js_test.go` — `js` is a valid `GOOS`
+> (the WASM target), so Go gives it an implicit `GOOS=js` build constraint and
+> silently excludes it on every other platform. The runner is `jsrunner_test.go`
+> for this reason.
+
 ## Takeaway for the agent / docs
 
 Authoring a regex in program source: double-escape inside the string
