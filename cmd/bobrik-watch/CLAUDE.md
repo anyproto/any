@@ -13,12 +13,27 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 
 ## Storage shape
 
+- **Properties are per-type namespaced.** An object can carry multiple
+  types; each type owns its property bag. anyHelper resolves readable
+  `"<Type>.<prop>"` keys to the server's internal ids (catalog-backed)
+  on write, and reverse-maps records to nested readable form on read
+  (`obj["Type"].prop`, via `getProp(obj,"Type.prop")`). Builtin
+  namespaces stay literal (`obj.name`, `obj.any.types`,
+  `obj.nav.parentId`, `obj.program.name`). Writes go one
+  `properties/:objId/base/:typeId` PATCH per type; unknown-prop /
+  wrong-kind writes fail loudly (server validation). No flatten-to-top-
+  level, no first-type guessing (both were legacy anytypeHelper hacks).
 - **Programs** — type `program` (built-in), datasets
   `program_source` (code), `program_description` (tool docs), and
   `program_methods` (per-method docs, currently unused). Registered
   in `internal/program/program.go`.
-- **Skills** — type `Agent Skill`, identified by
-  `__any_agent_skill_name`. Content stored via `editor/markdown`.
+- **Mini apps** — type `Mini App` (`mini_app`, built-in,
+  `internal/miniapp/miniapp.go`), dataset `mini_app` with one `main`
+  record `{source, state, readme}`. `programs/miniapp.js` reads/writes
+  it via `anyHelper.getRecord`/`setRecord` (per-field atomic) — no
+  markdown-block parsing.
+- **Skills** — type `Agent Skill`, property `agent_skill_name` (under
+  the `Agent Skill` namespace). Content stored via `editor/markdown`.
 - **Tool descriptions** — `cmd/bobrik-watch/tool-descriptions/*.md`,
   written to `program_description` at sync time. MUST contain a
   `## Tool Description` heading; `anyHelper.saveProgram` rejects
@@ -40,7 +55,13 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 ## Naming
 
 - `anyHelper.js` replaces `anytypeHelper.js`, same method surface.
-- All `__anytype_` prefixes renamed to `__any_`.
+- Property-key prefixes are being dropped: legacy `__anytype_`/`__any_`
+  prefixes existed to avoid collisions in a flat namespace; per-type
+  namespacing makes them redundant (`Agent Memory.chat_id`, not
+  `__any_chat_id`). Migrated: init_agent, toolcall_core, miniapp.
+  **amemory@v2 still uses `__amemory_` keys and is not yet migrated**
+  (it's broken on the current server until it is — its writes hit
+  `property.not_found`).
 - Env vars in JS programs (`env.ANYTYPE_API_URL`, etc.) keep their
   original names — they come from the runtime's `args` injection.
 
