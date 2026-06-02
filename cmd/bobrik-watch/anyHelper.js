@@ -6,9 +6,22 @@
 
 // ==================== UTILITY HELPERS (copied from anytypeHelper) ====================
 
+// getProp reads a value off a normalized record. Records are nested per
+// type (`record.<TypeName>.<xKey>`), so propKey may be a dotted path
+// ("Movie.title", "any.types", "nav.parentId") which is traversed segment
+// by segment. A bare key reads a top-level field (hoisted `name`/`id`, or a
+// builtin namespace object). Returns null on any missing segment.
 export function getProp(obj, propKey) {
-  if (!obj) return null;
-  if (obj.properties && obj.properties[propKey] !== undefined) return obj.properties[propKey];
+  if (!obj || propKey == null) return null;
+  if (propKey.indexOf(".") !== -1) {
+    var parts = propKey.split(".");
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null || typeof cur !== "object") return null;
+      cur = cur[parts[i]];
+    }
+    return cur === undefined ? null : cur;
+  }
   if (obj[propKey] !== undefined) return obj[propKey];
   return null;
 }
@@ -288,11 +301,11 @@ export function createClient(params) {
 
   // ==================== TYPE RESOLUTION ====================
 
+  // _fetchTypes returns the scope's type list, served from the memoized
+  // catalog (see TYPE / PROPERTY CATALOG below) so repeated resolves don't
+  // re-hit the server.
   function _fetchTypes(scope) {
-    var path = _pathForScope(scope || "user");
-    var res = api("GET", path + "/types");
-    if (!res.ok) return [];
-    return (res.data && res.data.types) || [];
+    return _cat(scope || "user").types;
   }
 
   function _resolveTypeId(typeId, scope) {
@@ -320,6 +333,143 @@ export function createClient(params) {
     return "type \"" + typeKey + "\" doesn't exist. Available types: " + available.join(", ");
   }
 
+  // ==================== TYPE / PROPERTY CATALOG ====================
+  // The server stores and validates properties by CID ids: a property
+  // value lives at record[typeId][propId]. Humans (and programs) want
+  // readable "TypeName.xKey". This catalog memoizes the type list and each
+  // type's property defs per scope so we can resolve readable names →ids on
+  // write and reverse-map records →readable on read. GET /types/:id/properties
+  // is uniform across builtin and user types: each prop has {id, name, xKey?,
+  // kind} where for builtins `id` is the literal key (e.g. nav→parentId) and
+  // for user types `id` is the CID and `xKey` is the stable caller key.
+
+  var _catalog = {}; // scope -> { types, typeById, propsByType }
+
+  function _cat(scope) {
+    var key = scope || "user";
+    if (_catalog[key]) return _catalog[key];
+    var cat = { types: [], typeById: {}, propsByType: {} };
+    var path = _pathForScope(scope);
+    var res = api("GET", path + "/types");
+    var types = (res.ok && res.data && res.data.types) || [];
+    for (var i = 0; i < types.length; i++) {
+      var t = types[i];
+      if (cat.typeById[t.id]) continue; // dedup (nav is listed twice)
+      cat.typeById[t.id] = t;
+      cat.types.push(t);
+    }
+    _catalog[key] = cat;
+    return cat;
+  }
+
+  function _catInvalidate(scope) { delete _catalog[scope || "user"]; }
+
+  function _typeProps(scope, typeId) {
+    var cat = _cat(scope);
+    if (cat.propsByType[typeId]) return cat.propsByType[typeId];
+    var path = _pathForScope(scope);
+    var res = api("GET", path + "/types/" + typeId + "/properties");
+    var props = (res.ok && res.data && res.data.properties) || [];
+    cat.propsByType[typeId] = props;
+    return props;
+  }
+
+  // _resolveTypeSeg: a type id, name, or xKey → type id (or null). Refreshes
+  // the catalog once on miss so freshly-created types resolve.
+  function _resolveTypeSeg(scope, seg, _retried) {
+    var cat = _cat(scope);
+    if (cat.typeById[seg]) return seg;
+    for (var i = 0; i < cat.types.length; i++) {
+      var t = cat.types[i];
+      if (t.name === seg || t.xKey === seg) return t.id;
+    }
+    if (!_retried) { _catInvalidate(scope); return _resolveTypeSeg(scope, seg, true); }
+    return null;
+  }
+
+  // _resolvePropSeg: a prop id, xKey, or name under typeId → prop id (or null).
+  function _resolvePropSeg(scope, typeId, seg, _retried) {
+    var props = _typeProps(scope, typeId);
+    for (var i = 0; i < props.length; i++) {
+      var p = props[i];
+      if (p.id === seg || p.xKey === seg || p.name === seg) return p.id;
+    }
+    if (!_retried) { _catInvalidate(scope); return _resolvePropSeg(scope, typeId, seg, true); }
+    return null;
+  }
+
+  function _hasBareKeys(propsInput) {
+    if (Array.isArray(propsInput)) {
+      for (var i = 0; i < propsInput.length; i++) {
+        if (propsInput[i] && typeof propsInput[i].key === "string" && propsInput[i].key.indexOf(".") === -1) return true;
+      }
+      return false;
+    }
+    for (var k in propsInput) {
+      if (Object.prototype.hasOwnProperty.call(propsInput, k) && k.indexOf(".") === -1) return true;
+    }
+    return false;
+  }
+
+  // _objectTypeIds: the object's any.types list (for resolving bare property
+  // keys against the types it actually carries).
+  function _objectTypeIds(scope, objId) {
+    var path = _pathForScope(scope);
+    var res = api("GET", path + "/properties/" + objId);
+    var rec = res.ok && res.data && res.data.record;
+    var types = rec && rec.any && rec.any.types;
+    return Array.isArray(types) ? types : [];
+  }
+
+  // _resolvePropertyWrites: turn a property input (dotted-key map
+  // { "Type.prop": val }, bare-key map { prop: val }, or legacy array
+  // [{key, text|number|checkbox|value|objects}]) into { groups: {typeId:
+  // {propId: val}} } keyed by the CID ids the server writes by. Bare keys
+  // resolve against bareTypeIds (the object's types) and must be unambiguous.
+  function _resolvePropertyWrites(scope, propsInput, bareTypeIds) {
+    var entries = [];
+    if (Array.isArray(propsInput)) {
+      for (var i = 0; i < propsInput.length; i++) {
+        var p = propsInput[i];
+        var v = p.objects !== undefined ? p.objects
+          : p.value !== undefined ? p.value
+          : p.text !== undefined ? p.text
+          : p.number !== undefined ? p.number
+          : p.checkbox !== undefined ? p.checkbox : "";
+        entries.push([p.key, v]);
+      }
+    } else {
+      for (var k in propsInput) {
+        if (Object.prototype.hasOwnProperty.call(propsInput, k)) entries.push([k, propsInput[k]]);
+      }
+    }
+    var groups = {};
+    for (var e = 0; e < entries.length; e++) {
+      var key = entries[e][0], val = entries[e][1];
+      var typeId, propId;
+      var dot = key.indexOf(".");
+      if (dot > 0) {
+        var typeSeg = key.substring(0, dot), propSeg = key.substring(dot + 1);
+        typeId = _resolveTypeSeg(scope, typeSeg);
+        if (!typeId) return { ok: false, error: "unknown type \"" + typeSeg + "\" in property key \"" + key + "\"" };
+        propId = _resolvePropSeg(scope, typeId, propSeg);
+        if (!propId) return { ok: false, error: "unknown property \"" + propSeg + "\" on type \"" + typeSeg + "\"" };
+      } else {
+        var matches = [];
+        for (var ti = 0; ti < (bareTypeIds || []).length; ti++) {
+          var pid = _resolvePropSeg(scope, bareTypeIds[ti], key);
+          if (pid) matches.push([bareTypeIds[ti], pid]);
+        }
+        if (matches.length === 0) return { ok: false, error: "property \"" + key + "\" not found on the object's types; use a dotted \"Type." + key + "\" key" };
+        if (matches.length > 1) return { ok: false, error: "property \"" + key + "\" is ambiguous across types; use a dotted \"Type." + key + "\" key" };
+        typeId = matches[0][0]; propId = matches[0][1];
+      }
+      if (!groups[typeId]) groups[typeId] = {};
+      groups[typeId][propId] = val;
+    }
+    return { ok: true, groups: groups };
+  }
+
   // ==================== QUERIES ====================
 
   function getObjects(typeKey, options) {
@@ -337,7 +487,7 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var objects = [];
     for (var i = 0; i < records.length; i++) {
-      objects.push(normalizeRecord(records[i]));
+      objects.push(_normalize(scope, records[i]));
     }
     objects.pagination = { total: objects.length };
     return objects;
@@ -351,7 +501,7 @@ export function createClient(params) {
     var propRes = api("GET", path + "/properties/" + objId);
     var obj = { id: objId };
     if (propRes.ok && propRes.data && propRes.data.record) {
-      obj = normalizeRecord(propRes.data.record);
+      obj = _normalize(scope, propRes.data.record);
     }
 
     var mdRes = api("GET", path + "/objects/" + objId + "/editor/markdown");
@@ -454,7 +604,7 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var objects = [];
     for (var i = 0; i < records.length; i++) {
-      objects.push(normalizeRecord(records[i]));
+      objects.push(_normalize("user", records[i]));
     }
     return objects;
   }
@@ -537,109 +687,100 @@ export function createClient(params) {
 
   // ==================== MUTATIONS ====================
 
+  // createObject(typeKey, data) — create an object of one or more types.
+  //   data.types       — extra type names/ids beyond typeKey (multitype)
+  //   data.name        — display name (stored as any.name)
+  //   data.body/markdown — editor markdown set after create
+  //   data.properties  — { "Type.prop": val } | { prop: val } (bare keys
+  //                      resolve against the object's types) | legacy array
+  //                      [{key, text|number|checkbox|value|objects}]
+  //   data.nav         — { type, parentId, pos } passthrough (folders)
+  // Property keys/types are resolved to the CID ids the server writes by.
   function createObject(typeKey, data) {
     if (!data) data = {};
+    var scope = data.space || "user";
+    var path = _pathForScope(scope);
     var name = data.name || "";
     var body = data.body || data.markdown || "";
 
-    var createBody = {};
-    var resolvedType = null;
+    var typeIds = [];
     if (typeKey) {
-      resolvedType = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
-      if (!resolvedType) return { ok: false, error: _typeNotFoundError(typeKey) };
-      createBody.types = [resolvedType];
+      var tid = _resolveTypeSeg(scope, typeKey);
+      if (!tid) return { ok: false, error: _typeNotFoundError(typeKey, scope) };
+      typeIds.push(tid);
     }
-    var initProps = {};
-    if (name) {
-      initProps.any = { name: name };
-    }
-    if (data.properties) {
-      var propObj = {};
-      if (Array.isArray(data.properties)) {
-        for (var i = 0; i < data.properties.length; i++) {
-          var p = data.properties[i];
-          if (p.objects !== undefined) {
-            propObj[p.key] = p.objects;
-          } else {
-            propObj[p.key] = p.text !== undefined ? p.text
-              : p.number !== undefined ? p.number
-              : p.checkbox !== undefined ? p.checkbox
-              : p.value !== undefined ? p.value : "";
-          }
-        }
-      } else {
-        propObj = data.properties;
+    if (Array.isArray(data.types)) {
+      for (var ti = 0; ti < data.types.length; ti++) {
+        var t2 = _resolveTypeSeg(scope, data.types[ti]);
+        if (!t2) return { ok: false, error: _typeNotFoundError(data.types[ti], scope) };
+        if (typeIds.indexOf(t2) === -1) typeIds.push(t2);
       }
-      if (resolvedType) {
-        initProps[resolvedType] = propObj;
-      }
-    }
-    if (Object.keys(initProps).length > 0) {
-      createBody.initialProperties = initProps;
     }
 
-    var res = api("POST", spacePath + "/objects", createBody);
-    if (!res.ok) {
-      return { ok: false, error: _extractError(res) };
+    var createBody = {};
+    if (typeIds.length > 0) createBody.types = typeIds;
+
+    var initProps = {};
+    if (name) initProps.any = { name: name };
+    if (data.nav) initProps.nav = data.nav;
+
+    if (data.properties) {
+      var resolved = _resolvePropertyWrites(scope, data.properties, typeIds);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+      for (var gk in resolved.groups) {
+        if (!Object.prototype.hasOwnProperty.call(resolved.groups, gk)) continue;
+        if (!initProps[gk]) initProps[gk] = {};
+        var g = resolved.groups[gk];
+        for (var pk in g) { if (Object.prototype.hasOwnProperty.call(g, pk)) initProps[gk][pk] = g[pk]; }
+      }
     }
+    if (Object.keys(initProps).length > 0) createBody.initialProperties = initProps;
+
+    var res = api("POST", path + "/objects", createBody);
+    if (!res.ok) return { ok: false, error: _extractError(res) };
     var objectId = res.data.objectId;
 
     if (body) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objectId + "/editor/markdown", { content: body });
+      var mdRes = api("PUT", path + "/objects/" + objectId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
         return { ok: true, id: objectId, object: { id: objectId, name: name }, error: "Object created but markdown set failed: " + _extractError(mdRes) };
       }
     }
 
-    var obj = { id: objectId, name: name };
-    return { ok: true, id: objectId, object: obj };
+    return { ok: true, id: objectId, object: { id: objectId, name: name } };
   }
 
+  // updateObject(objId, data) — update name / body / properties.
+  //   data.properties uses the same shapes as createObject. Writes are grouped
+  //   by type and applied one base/:typeId PATCH per type. Property/name write
+  //   failures (incl. server validation: property.not_found, kind_mismatch)
+  //   are surfaced as { ok: false, error } — never silently swallowed.
   function updateObject(objId, data) {
     if (!data) data = {};
+    var scope = data.space || "user";
+    var path = _pathForScope(scope);
     var body = data.body || data.markdown;
 
     if (body !== undefined) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objId + "/editor/markdown", { content: body });
-      if (!mdRes.ok) {
-        return { ok: false, id: objId, error: _extractError(mdRes) };
-      }
+      var mdRes = api("PUT", path + "/objects/" + objId + "/editor/markdown", { content: body });
+      if (!mdRes.ok) return { ok: false, id: objId, error: _extractError(mdRes) };
     }
 
     if (data.name !== undefined) {
-      api("POST", spacePath + "/properties/" + objId + "/base/any", {
-        patch: { name: data.name }
-      });
+      var nr = api("POST", path + "/properties/" + objId + "/base/any", { patch: { name: data.name } });
+      if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr) };
     }
 
-    if (data.properties) {
-      // Find the object's primary type to set properties under the right namespace
-      var existing = getObject(objId);
-      var typeId = null;
-      if (existing && existing.any && existing.any.types) {
-        for (var t = 0; t < existing.any.types.length; t++) {
-          var tid = existing.any.types[t];
-          if (tid !== "nav" && tid !== "any" && tid !== "editor") { typeId = tid; break; }
-        }
-      }
-      if (typeId) {
-        var patch = {};
-        if (Array.isArray(data.properties)) {
-          for (var i = 0; i < data.properties.length; i++) {
-            var p = data.properties[i];
-            if (p.objects !== undefined) {
-              patch[p.key] = p.objects;
-            } else {
-              patch[p.key] = p.text !== undefined ? p.text
-                : p.number !== undefined ? p.number
-                : p.checkbox !== undefined ? p.checkbox
-                : p.value !== undefined ? p.value : "";
-            }
-          }
-        } else {
-          patch = data.properties;
-        }
-        api("POST", spacePath + "/properties/" + objId + "/base/" + typeId, { patch: patch });
+    var hasProps = data.properties &&
+      (Array.isArray(data.properties) ? data.properties.length > 0 : Object.keys(data.properties).length > 0);
+    if (hasProps) {
+      var bareTypes = _hasBareKeys(data.properties) ? _objectTypeIds(scope, objId) : [];
+      var resolvedU = _resolvePropertyWrites(scope, data.properties, bareTypes);
+      if (!resolvedU.ok) return { ok: false, id: objId, error: resolvedU.error };
+      for (var gk2 in resolvedU.groups) {
+        if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
+        var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
+        if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr) };
       }
     }
 
@@ -733,7 +874,7 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var programs = [];
     for (var i = 0; i < records.length; i++) {
-      var rec = normalizeRecord(records[i]);
+      var rec = _normalize(scope, records[i]);
       var progName = (rec.program && rec.program.name) || rec.name || "";
       var progVersion = (rec.program && rec.program.version) || "";
       if (!progName) continue;
@@ -934,45 +1075,75 @@ export function createClient(params) {
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
         var formatToKind = { text: "string", number: "number", checkbox: "boolean" };
-        api("POST", spacePath + "/types/" + typeId + "/properties", {
+        var ar = api("POST", spacePath + "/types/" + typeId + "/properties", {
           xKey: prop.key, name: prop.name || prop.key,
           kind: formatToKind[prop.format] || prop.kind || "string"
         });
+        if (!ar.ok) {
+          _catInvalidate("user");
+          return { ok: false, error: "type created but property \"" + prop.key + "\" failed: " + _extractError(ar) };
+        }
       }
     }
 
+    // Drop the cached catalog so the new type + its properties resolve on the
+    // next createObject/updateObject without waiting for a refresh-on-miss.
+    _catInvalidate("user");
     return { ok: true, type: { id: typeId, name: name }, created: true };
   }
 
   // ==================== INTERNAL HELPERS ====================
 
-  function normalizeRecord(rec) {
+  // _normalize turns a raw wire record into a readable, nested-per-type shape.
+  // The server returns properties namespaced by type id and keyed by prop id
+  // (record[typeId][propId]). We:
+  //   - pass through scalar/builtin fields (id, _ver, author, createdAt, spaceId)
+  //   - pass through BUILTIN namespaces (any, nav, program, …) verbatim — their
+  //     prop keys are already literal (any.types, nav.parentId, program.name),
+  //     and existing code reads them by those ids
+  //   - reverse-map USER-type namespaces to readable form:
+  //     record[typeId][propId] → out[TypeName][xKey]
+  //   - hoist any.name → name
+  // Unknown namespaces (catalog stale) are refreshed once.
+  function _normalize(scope, rec) {
     if (!rec) return {};
-    var obj = {};
     if (typeof rec === "string") {
       try { rec = JSON.parse(rec); } catch (e) { return { raw: rec }; }
     }
+    var passthrough = { id: 1, _ver: 1, author: 1, createdAt: 1, spaceId: 1 };
+    var cat = _cat(scope);
+    // Refresh once if the record references a type id we don't know yet.
+    for (var probe in rec) {
+      if (!Object.prototype.hasOwnProperty.call(rec, probe)) continue;
+      if (passthrough[probe]) continue;
+      if (!cat.typeById[probe] && rec[probe] && typeof rec[probe] === "object" && !Array.isArray(rec[probe])) {
+        _catInvalidate(scope); cat = _cat(scope); break;
+      }
+    }
+    var out = {};
     for (var k in rec) {
-      if (Object.prototype.hasOwnProperty.call(rec, k)) {
-        obj[k] = rec[k];
+      if (!Object.prototype.hasOwnProperty.call(rec, k)) continue;
+      var tinfo = cat.typeById[k];
+      var isUserType = tinfo && !tinfo.builtIn;
+      if (!isUserType || !rec[k] || typeof rec[k] !== "object" || Array.isArray(rec[k])) {
+        out[k] = rec[k]; // passthrough: builtin namespace, scalar, or unknown
+        continue;
       }
-    }
-    if (obj.any && obj.any.name) {
-      obj.name = obj.any.name;
-    }
-    // Flatten type-namespaced properties to top level
-    var builtins = { id:1, _ver:1, any:1, nav:1, author:1, spaceId:1, createdAt:1, name:1 };
-    for (var tk in obj) {
-      if (builtins[tk]) continue;
-      if (obj[tk] && typeof obj[tk] === "object" && !Array.isArray(obj[tk])) {
-        for (var pk in obj[tk]) {
-          if (Object.prototype.hasOwnProperty.call(obj[tk], pk) && !obj[pk]) {
-            obj[pk] = obj[tk][pk];
-          }
-        }
+      // Reverse-map a user-type namespace: propId → xKey/name.
+      var props = _typeProps(scope, k);
+      var labelById = {};
+      for (var pi = 0; pi < props.length; pi++) {
+        labelById[props[pi].id] = props[pi].xKey || props[pi].name || props[pi].id;
       }
+      var readable = {};
+      for (var pid in rec[k]) {
+        if (!Object.prototype.hasOwnProperty.call(rec[k], pid)) continue;
+        readable[labelById[pid] || pid] = rec[k][pid];
+      }
+      out[tinfo.name] = readable;
     }
-    return obj;
+    if (out.any && out.any.name) out.name = out.any.name;
+    return out;
   }
 
   function __prepareTraces(traces) { return traces; }
