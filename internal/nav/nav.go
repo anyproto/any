@@ -2,8 +2,10 @@
 // objects into a folder/item tree.
 //
 // Storage is plain property values on the per-space `objects` collection
-// — no dedicated dataset, no SDK type registration. Every object's row
-// carries a `nav` namespace alongside `any` and any user types:
+// — no dedicated dataset. nav registers with the SDK as a property-only
+// type (NewType, no dataset handlers) so write-time schema validation
+// resolves and enforces nav.* values. Every object's row carries a
+// `nav` namespace alongside `any` and any user types:
 //
 //	{
 //	  "id":  "obj_abc",
@@ -24,6 +26,7 @@ package nav
 import (
 	"fmt"
 
+	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/lexid"
 
 	"github.com/anyproto/any/internal/api"
@@ -136,5 +139,25 @@ func PropertyDefs() []api.PropertyDef {
 		{Id: PropType, Name: "Type", Kind: api.PropertyKindNumber},
 		{Id: PropParentId, Name: "Parent", Kind: api.PropertyKindString},
 		{Id: PropPos, Name: "Position", Kind: api.PropertyKindString},
+	}
+}
+
+// NewType returns the SDK handler.Type registration for nav: a
+// property-only type with no dataset handlers — its entire footprint is
+// the three values it contributes to the shared `objects` namespace.
+// Registering it lets the SDK resolve nav's schema and enforce nav.*
+// writes (kind + known-property) instead of rejecting them as an
+// unknown type. Add it to config.Config.Types alongside the
+// dataset-owning types.
+func NewType() handler.Type {
+	return handler.Type{
+		Id:          TypeId,
+		Name:        Name,
+		Description: Description,
+		Properties: []handler.PropertyDecl{
+			{Id: PropType, Name: "Type", Kind: handler.PropertyKindNumber},
+			{Id: PropParentId, Name: "Parent", Kind: handler.PropertyKindString},
+			{Id: PropPos, Name: "Position", Kind: handler.PropertyKindString},
+		},
 	}
 }

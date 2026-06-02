@@ -74,10 +74,11 @@ type QuerySubscribeSnapshot struct {
 //
 //   - Added — records that entered the visible window.
 //   - Updated — records already in the window whose state changed.
-//   - Removed — records that left the visible window. The wire does
-//     NOT distinguish between deleted / filter-rejected / displaced
-//     (pushed past Limit); from the consumer's view, drop the id from
-//     local state regardless of cause.
+//   - Removed — records that left the visible window, each tagged with
+//     a Reason. Branch on reason=="deleted" to drop the object for
+//     good (it's tombstoned); "filtered-out" and "displaced" mean the
+//     record left your result set but still exists, so a fresh
+//     Snapshot would return it.
 //
 // VersionId is the per-change DAG order of the underlying CRDT apply.
 // Useful for fence-and-replay semantics ("I've processed up to X —
@@ -88,10 +89,28 @@ type QuerySubscribeSnapshot struct {
 // maintain a live counter. Callers who need a refreshed count call
 // Snapshot again.
 type QuerySubscribeEvent struct {
-	VersionId string                  `json:"versionId"`
-	Added     []QuerySubscribeRecord  `json:"added,omitempty"`
-	Updated   []QuerySubscribeRecord  `json:"updated,omitempty"`
-	Removed   []string                `json:"removed,omitempty"`
+	VersionId string                 `json:"versionId"`
+	Added     []QuerySubscribeRecord `json:"added,omitempty"`
+	Updated   []QuerySubscribeRecord `json:"updated,omitempty"`
+	Removed   []RemovedRecord        `json:"removed,omitempty"`
+}
+
+// RemovedRecord is one id that left the visible window, tagged with the
+// cause. Reason is one of:
+//
+//   - "deleted" — the record was tombstoned; it no longer exists. Drop
+//     it from local state for good.
+//   - "filtered-out" — an update changed a field so the query's filter
+//     no longer matches. The record still exists.
+//   - "displaced" — a higher-priority arrival (or the record's own
+//     sort-key change) pushed it past the Limit boundary. Still matches
+//     the filter; just outside the window.
+//
+// Only "deleted" means the object is gone; for the other two a fresh
+// Snapshot would still return it.
+type RemovedRecord struct {
+	Id     string `json:"id"`
+	Reason string `json:"reason"`
 }
 
 // QuerySubscribeRecord is one record's worth of state inside a

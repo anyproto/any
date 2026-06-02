@@ -120,6 +120,9 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 	}
 
 	if len(records) > 0 {
+		if err := editor.EnsureType(ctx, sp, objectId); err != nil {
+			return result, fmt.Errorf("markdown: Set: ensure type: %w", err)
+		}
 		res, err := sp.Modify(ctx, space.ModifyBatch{
 			ObjectId: objectId,
 			Dataset:  editor.Dataset,

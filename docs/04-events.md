@@ -66,17 +66,23 @@ the SSE endpoints, not a replacement.
 5. **Events carry a windowed delta.** Each `changes` array element is
    `{versionId, added, updated, removed}`. `added` and `updated`
    carry the full post-apply `doc` plus the per-field `$set`/`$unset`
-   ops the change ran; `removed` is just a list of ids. There is no
-   `_ver` map on the wire — clients derive it from `versionId` if
-   they care about fence-and-replay across reconnects.
-6. **`removed` doesn't say *why*.** Three engine-internal causes
-   funnel into the same signal: tombstoned, filter-rejected (an
-   update pushed the record out of the active filter), or displaced
-   (a higher-priority arrival pushed it past `limit`). From a
-   consumer view, drop the id from local state in all three cases.
-   If you need disambiguation, follow up with `POST …/query` on the
-   id — deleted ⇒ no row; filter-rejected ⇒ row that doesn't match;
-   displaced ⇒ row that does.
+   ops the change ran; `removed` is a list of `{id, reason}` objects.
+   There is no `_ver` map on the wire — clients derive it from
+   `versionId` if they care about fence-and-replay across reconnects.
+6. **`removed` carries a `reason`.** Each removed entry is
+   `{"id":…, "reason":…}` where `reason` is one of:
+   - `"deleted"` — the record was tombstoned; it no longer exists.
+     Drop it from local state for good.
+   - `"filtered-out"` — an update changed a field so the query's
+     filter no longer matches. The record still exists.
+   - `"displaced"` — a higher-priority arrival (or the record's own
+     sort-key change) pushed it past `limit`. Still matches the
+     filter; just outside the visible window.
+
+   Branch on `reason == "deleted"` to drop the object for good. For
+   `"filtered-out"` / `"displaced"` the object still exists — a fresh
+   `POST …/query` (or `Snapshot`) would return it — so keep it in any
+   model that spans beyond the current window.
 
 ## Wire shape recap
 
@@ -91,7 +97,8 @@ event: changes
 data: [{"versionId":"…",
         "added":[{"id":"…","doc":{…},"ops":[…]}],
         "updated":[{"id":"…","doc":{…},"ops":[…]}],
-        "removed":["id1","id2"]}]
+        "removed":[{"id":"id1","reason":"deleted"},
+                   {"id":"id2","reason":"displaced"}]}]
 
 : keepalive
 
@@ -101,7 +108,8 @@ data: {"reason":"overflow"}
 
 Wait for `ready`. Integrate `snapshot.records` (and stash `total` if
 you asked for it). Apply each subsequent `changes` batch to the local
-window: add new records, update mutated ones, drop ids in `removed`.
+window: add new records, update mutated ones, drop ids in `removed`
+(only `reason:"deleted"` means the object is gone for good).
 On `closed`, reconnect with a fresh POST.
 
 > **Projection is not implemented yet.** The body's `projection`

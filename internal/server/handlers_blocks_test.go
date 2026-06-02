@@ -555,8 +555,8 @@ func awaitWindowedEvent(t *testing.T, frames <-chan client.SSEFrame, recordId st
 						}
 					}
 				case windowedRemoved:
-					for _, id := range ev.Removed {
-						if id == recordId {
+					for _, r := range ev.Removed {
+						if r.Id == recordId {
 							return ev
 						}
 					}

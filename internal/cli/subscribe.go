@@ -41,7 +41,7 @@ Frames (one JSON object per line on stdout):
 
   {"event": "ready",    "data": {}}
   {"event": "snapshot", "data": {"records":[...], "total": 17}}
-  {"event": "changes",  "data": [{"versionId":"...","added":[...],"updated":[...],"removed":[...]}]}
+  {"event": "changes",  "data": [{"versionId":"...","added":[...],"updated":[...],"removed":[{"id":"...","reason":"deleted"}]}]}
   {"event": "closed",   "data": {"reason": "server_shutdown" | "sdk_closed" | "overflow" | "drifted"}}
 `,
 		Args: cobra.RangeArgs(1, 2),
