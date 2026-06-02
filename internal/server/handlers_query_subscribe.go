@@ -225,6 +225,8 @@ func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTo
 	if includeTotal {
 		t := res.Total
 		payload.Total = &t
+		hm := res.HasNext
+		payload.HasMore = &hm
 	}
 	return writeSSEEvent(w, "snapshot", "", payload)
 }

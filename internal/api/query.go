@@ -13,7 +13,14 @@ import "encoding/json"
 // includeTotal=true. Pointer so the field is omitted when the caller
 // didn't ask (`null` would be misleading; absent is unambiguous), and
 // an explicit zero still survives the round trip.
+//
+// HasMore reports whether more filter-matching records exist past this
+// page (offset+len(records) < total). The SDK derives it from the same
+// count, so it is meaningful only when includeTotal=true — gated on the
+// same flag and omitted otherwise (when unknown the SDK forces it
+// false, which would falsely read as "no more pages").
 type QueryResponse struct {
 	Records []json.RawMessage `json:"records"`
 	Total   *int              `json:"total,omitempty"`
+	HasMore *bool             `json:"hasMore,omitempty"`
 }

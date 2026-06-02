@@ -66,6 +66,7 @@ const (
 type QuerySubscribeSnapshot struct {
 	Records []json.RawMessage `json:"records"`
 	Total   *int              `json:"total,omitempty"`
+	HasMore *bool             `json:"hasMore,omitempty"`
 }
 
 // QuerySubscribeEvent is one batch of windowed transitions delivered

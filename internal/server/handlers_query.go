@@ -183,6 +183,8 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 	if includeTotal {
 		t := res.Total
 		out.Total = &t
+		hm := res.HasNext
+		out.HasMore = &hm
 	}
 	return c.JSON(http.StatusOK, out)
 }
