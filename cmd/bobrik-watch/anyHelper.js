@@ -590,10 +590,19 @@ export function createClient(params) {
     return obj;
   }
 
-  // TODO: no select/multi_select property format in the any API yet
-  function getObjectsByTag() { return []; }
+  // Tags aren't a distinct API on the any backend — they're ordinary array
+  // properties. Fail loud rather than silently returning [] (which masked dead
+  // reliance in the legacy port). To filter by tag, store a `tags` array
+  // property and query it: getObjects(type, {filter:{"Type.tags":"x"}}) (scalar
+  // = contains) or {$in:[...]}. See docs/09-query.md.
+  function getObjectsByTag() {
+    throw new Error("getObjectsByTag is not supported: tags are plain array properties now — use getObjects(type, {filter:{\"Type.tags\":value}}) (see docs/09-query.md)");
+  }
 
-  // TODO: no FTS indexer in the any API yet
+  // No full-text index on the any backend yet (the tags/FTS decision is open).
+  // Returns [] so the one intentional caller (amemory's hybrid ftsSearch) keeps
+  // working with its keyword half inert; vector similarity carries recall. For
+  // substring matching use getObjects with a $regex filter instead.
   function search() { return []; }
 
   function getTypes(opts) {
@@ -939,23 +948,28 @@ export function createClient(params) {
   }
 
   // ==================== TAGS ====================
-  // TODO: any API has no select/multi_select property format yet
-
-  function setTags()  { return { ok: false, error: "tag operations not available" }; }
-  function addTag()   { return { ok: false, error: "tag operations not available" }; }
-  function listTags() { return []; }
-  function createTag() { return { ok: false, error: "tag operations not available" }; }
+  // There is no select/multi_select tag API on the any backend — tags are
+  // ordinary array properties. These legacy no-ops fail loud so any remaining
+  // reliance surfaces instead of silently doing nothing. To tag: give the type
+  // a `tags` array property and write it via createObject/updateObject; filter
+  // via getObjects {filter:{"Type.tags":...}}. See docs/09-query.md.
+  function _tagsUnsupported() {
+    throw new Error("tag operations are not supported: use a `tags` array property (createObject/updateObject {properties:{\"Type.tags\":[...]}}) and getObjects array filters — see docs/09-query.md");
+  }
+  function setTags()  { return _tagsUnsupported(); }
+  function addTag()   { return _tagsUnsupported(); }
+  function listTags() { return _tagsUnsupported(); }
+  function createTag() { return _tagsUnsupported(); }
 
   // ==================== COLLECTIONS (nav folders) ====================
 
+  // A collection is a nav folder: an object with nav.type=2. nav must be set
+  // under initialProperties (the server ignores a top-level `nav` on create) —
+  // createObject routes data.nav there.
   function createCollection(name) {
-    var res = api("POST", spacePath + "/objects", {
-      nav: { type: 2, parentId: "", pos: "" },
-      initialProperties: { any: { name: name } }
-    });
-    if (!res.ok) return { ok: false, error: _extractError(res) };
-    var id = res.data.objectId;
-    return { ok: true, id: id, collection: { id: id, name: name }, object: { id: id, name: name } };
+    var res = createObject(null, { name: name, nav: { type: 2, parentId: "", pos: "" } });
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true, id: res.id, collection: { id: res.id, name: name }, object: { id: res.id, name: name } };
   }
 
   function addToCollection(collectionId, objectIds) {
