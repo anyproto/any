@@ -947,6 +947,18 @@ export function createClient(params) {
     return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res) };
   }
 
+  // deleteRecord tombstones one or more records in a dataset (completes the
+  // dataset CRUD with getRecord/queryRecords/setRecord). recordIds may be a
+  // single id or an array.
+  function deleteRecord(objId, dataset, recordIds, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var ids = Array.isArray(recordIds) ? recordIds : [recordIds];
+    if (ids.length === 0) return { ok: true };
+    var res = api("POST", path + "/delete-records", { objectId: objId, dataset: dataset, recordIds: ids });
+    return { ok: res.ok, error: res.ok ? null : _extractError(res) };
+  }
+
   // ==================== TAGS ====================
   // There is no select/multi_select tag API on the any backend — tags are
   // ordinary array properties. These legacy no-ops fail loud so any remaining
@@ -1326,6 +1338,7 @@ export function createClient(params) {
     getRecord: w("getRecord", getRecord),
     queryRecords: w("queryRecords", queryRecords),
     setRecord: w("setRecord", setRecord),
+    deleteRecord: w("deleteRecord", deleteRecord),
     setTags: w("setTags", setTags),
     addTag: w("addTag", addTag),
     listTags: w("listTags", listTags),

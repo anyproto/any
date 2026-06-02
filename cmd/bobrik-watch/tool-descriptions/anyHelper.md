@@ -85,6 +85,10 @@ Returns {ok, records, total?}.
 Upsert a dataset record, setting each field at its own path atomically (updating
 one field never rewrites the others). `fields` = flat `{ field: value }` map.
 
+### deleteRecord(objId, dataset, recordIds, opts?)
+Tombstone one or more dataset records. recordIds is a single id or an array.
+Completes the dataset CRUD set with getRecord/queryRecords/setRecord.
+
 ### describeType(typeKey)
 Inspect a type: metadata, properties, sample object, object count.
 - typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")

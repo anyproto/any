@@ -71,5 +71,14 @@ export function main(args) {
   var firstTwo = c.queryRecords(doc.id, "editor_blocks", { sort: ["nav.pos"], limit: 2 });
   h.check("dataset limit", firstTwo.records.length === 2, "" + firstTwo.records.length);
 
+  // deleteRecord completes dataset CRUD: drop the middle block.
+  var del = c.deleteRecord(doc.id, "editor_blocks", blocks.records[1].id);
+  h.check("deleteRecord ok", del && del.ok, JSON.stringify(del));
+  var after = c.queryRecords(doc.id, "editor_blocks", { sort: ["nav.pos"] });
+  h.check("deleteRecord removed one block", after.records.length === 2, "" + after.records.length);
+  h.check("deleteRecord removed the right one",
+    after.records.map(function (b) { return b.text; }).indexOf("second") === -1,
+    JSON.stringify(after.records.map(function (b) { return b.text; })));
+
   return h.done();
 }
