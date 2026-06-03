@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -96,9 +95,10 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 	return sdkOpError(c, err, details)
 }
 
-// inviteDecodeError reshapes a space.DecodeInvite failure into a
-// uniform 400 invalid_request envelope.
-func inviteDecodeError(c echo.Context, err error) error {
+// inviteDecodeError reshapes an invalid-invite failure into a uniform
+// 400 invite.invalid envelope. The message is static so it never leaks
+// SDK internal types or paths.
+func inviteDecodeError(c echo.Context) error {
 	return writeError(c, http.StatusBadRequest, "invite.invalid",
-		fmt.Sprintf("invite token: %v", err), nil)
+		"invite token is malformed or not recognized", nil)
 }

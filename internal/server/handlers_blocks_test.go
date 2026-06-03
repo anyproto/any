@@ -182,8 +182,9 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 	frames := make(chan client.SSEFrame, 32)
 	streamErr := make(chan error, 1)
 	body, _ := json.Marshal(map[string]any{
-		"objectId": objectId,
-		"dataset":  editor.Dataset,
+		"objectId":     objectId,
+		"dataset":      editor.Dataset,
+		"includeTotal": true,
 	})
 	go func() {
 		streamErr <- cl.StreamQuerySubscribe(streamCtx, spaceId, body, func(f client.SSEFrame) error {
@@ -198,8 +199,22 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 	if got := waitFrame(t, frames, 5*time.Second); got.Event != "ready" {
 		t.Fatalf("first frame = %q, want ready", got.Event)
 	}
-	if got := waitFrame(t, frames, 5*time.Second); got.Event != "snapshot" {
-		t.Fatalf("second frame = %q, want snapshot", got.Event)
+	snap := waitFrame(t, frames, 5*time.Second)
+	if snap.Event != "snapshot" {
+		t.Fatalf("second frame = %q, want snapshot", snap.Event)
+	}
+	// includeTotal=true → the snapshot frame carries total + hasNext,
+	// and hasNext is consistent with the window it returned.
+	var snapData api.QuerySubscribeSnapshot
+	if err := json.Unmarshal(snap.Data, &snapData); err != nil {
+		t.Fatalf("decode snapshot frame: %v", err)
+	}
+	if snapData.Total == nil || snapData.HasNext == nil {
+		t.Fatalf("snapshot frame: total=%v hasNext=%v, want both populated", snapData.Total, snapData.HasNext)
+	}
+	if want := len(snapData.Records) < *snapData.Total; *snapData.HasNext != want {
+		t.Errorf("snapshot hasNext=%v, want %v (records=%d total=%d)",
+			*snapData.HasNext, want, len(snapData.Records), *snapData.Total)
 	}
 
 	created := blocksCreate(t, e, base, `{"type":"paragraph","text":"hello"}`)
