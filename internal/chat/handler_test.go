@@ -260,6 +260,20 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 			wantIn: "field_not_allowed: createdAt",
 		},
 		{
+			name: "extra field — reactions (cannot seed reactions on create)",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				seed := a.NewObject()
+				perEmoji := a.NewObject()
+				perEmoji.Set(alice, a.NewNumberInt(1700000000))
+				seed.Set("👍", perEmoji)
+				p.Set(FieldReactions, seed)
+				return setRoot(a, p)
+			},
+			wantIn: "field_not_allowed: reactions",
+		},
+		{
 			name: "fromAgent empty string",
 			build: func(a *anyenc.Arena) *handler.RecordChange {
 				p := a.NewObject()
@@ -344,6 +358,50 @@ func setRoot(a *anyenc.Arena, payload *anyenc.Value) *handler.RecordChange {
 		Id:     "",
 		Upsert: true,
 		Ops:    []handler.Op{{Type: handler.OpSet, Path: nil, Payload: payload}},
+	}
+}
+
+// TestBeforeCreate_RejectsRemoteReactionSeed pins the invariant for
+// peer-originated creates. BeforeCreate is the SDK's single apply-time
+// gate (any-sync-sdk internal/crdt/controller.go: recordModifier.Modify
+// calls handler.BeforeCreate on every new record), and that path runs
+// identically for locally-issued writes and for inbound/remote changes
+// replayed off the DAG — there is no origin flag on ChangeCtx and no
+// separate apply route that skips the handler. So a malicious or buggy
+// peer that signs a create payload pre-seeded with a reaction is
+// rejected on every receiving peer, and the record never materialises
+// locally.
+//
+// The reaction here is keyed to the change's OWN signer (bob reacting
+// to bob's brand-new message) — the most innocuous-looking case, since
+// it isn't forging someone else's slot. It's still rejected: reactions
+// are post-create-only, addable solely through the toggle op that
+// BeforeModify binds to the signer. Seeding any reaction at create —
+// even a self-keyed one — would let an author fabricate reaction state
+// in a single signed change, so the create allow-list bars the field
+// outright.
+func TestBeforeCreate_RejectsRemoteReactionSeed(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString("hi from a peer"))
+	perEmoji := arena.NewObject()
+	perEmoji.Set(bob, arena.NewNumberInt(1700000000)) // signer's own slot
+	seed := arena.NewObject()
+	seed.Set("👍", perEmoji)
+	payload.Set(FieldReactions, seed)
+	rec := setRoot(arena, payload)
+
+	// Change signed by bob, a remote peer — not the local account.
+	ctx := &handler.ChangeCtx{Change: makeChange(bob, 1700000000)}
+	err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{})
+	if err == nil {
+		t.Fatal("expected remote create with seeded reaction to be rejected")
+	}
+	if !errors.Is(err, handler.ErrValidation) {
+		t.Errorf("err is not ErrValidation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "field_not_allowed: reactions") {
+		t.Errorf("err = %q, want contains %q", err.Error(), "field_not_allowed: reactions")
 	}
 }
 

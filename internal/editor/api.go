@@ -102,8 +102,9 @@ func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, 
 
 // Create issues one upsert with an empty record id so the SDK
 // derives a stable id from the change CID (base58(xxh3-64(ChangeId))).
-// Returns the freshly-created block (read back so _ver and any
-// server-stamped defaults are visible to the caller).
+// Returns the raw space.ModifyResult — recordIds[0] is the derived
+// block id, versionId correlates the write with the live event. Read
+// the block back through /query with dataset=editor_blocks.
 //
 // If in.Pos is empty, the server reads the parent's current max pos
 // and allocates the next lexid past it. Concurrent inserts may
@@ -125,17 +126,17 @@ func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
 	return err
 }
 
-func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput) (Block, error) {
+func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput) (space.ModifyResult, error) {
 	if in.Type == "" {
-		return Block{}, fmt.Errorf("blocks: Create: type required")
+		return space.ModifyResult{}, fmt.Errorf("blocks: Create: type required")
 	}
 	if err := EnsureType(ctx, sp, objectId); err != nil {
-		return Block{}, fmt.Errorf("blocks: Create: ensure type: %w", err)
+		return space.ModifyResult{}, fmt.Errorf("blocks: Create: ensure type: %w", err)
 	}
 	if in.Pos == "" {
 		maxPos, err := MaxPos(ctx, sp, objectId, in.ParentId)
 		if err != nil {
-			return Block{}, fmt.Errorf("blocks: Create: lookup max pos: %w", err)
+			return space.ModifyResult{}, fmt.Errorf("blocks: Create: lookup max pos: %w", err)
 		}
 		in.Pos = NextPos(maxPos)
 	}
@@ -168,21 +169,21 @@ func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput
 		}},
 	})
 	if err != nil {
-		return Block{}, fmt.Errorf("blocks: Create: modify: %w", err)
-	}
-	if len(res.RecordIds) == 0 {
-		return Block{}, fmt.Errorf("blocks: Create: empty RecordIds")
+		return space.ModifyResult{}, fmt.Errorf("blocks: Create: modify: %w", err)
 	}
 	if len(res.Rejections) > 0 {
-		return Block{}, fmt.Errorf("blocks: Create: rejected: %s", res.Rejections[0].Reason)
+		return space.ModifyResult{}, fmt.Errorf("blocks: Create: rejected: %s", res.Rejections[0].Reason)
 	}
-	return Get(ctx, sp, objectId, res.RecordIds[0])
+	if len(res.RecordIds) == 0 {
+		return space.ModifyResult{}, fmt.Errorf("blocks: Create: empty RecordIds")
+	}
+	return res, nil
 }
 
 // Patch applies the set/unset paths atomically against blockId. The
 // block must already exist (no upsert) — Patch on a missing record
-// returns ErrNotFound. Empty patch is a no-op that still returns the
-// current state's _ver, so clients can use it as a touch.
+// returns ErrNotFound. Empty patch is a no-op: no change is produced,
+// so the result carries recordIds=[blockId] with an empty versionId.
 //
 // Each Set entry is one $set op against its dotted path; the path
 // becomes the SDK's space.Op.Path and the JSON value (as
@@ -212,7 +213,7 @@ func Patch(ctx context.Context, sp space.Space, objectId, blockId string, in Pat
 		})
 	}
 	if len(ops) == 0 {
-		return space.ModifyResult{}, nil
+		return space.ModifyResult{RecordIds: []string{blockId}}, nil
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
@@ -236,15 +237,16 @@ func Patch(ctx context.Context, sp space.Space, objectId, blockId string, in Pat
 // with the same id would be rejected by the SDK's tombstone rule.
 // Children of the deleted block aren't cascaded automatically; the
 // caller (or the markdown bulk path) is responsible for cleaning up.
-func Delete(ctx context.Context, sp space.Space, objectId, blockId string) error {
-	if _, err := sp.Delete(ctx, space.DeleteBatch{
+func Delete(ctx context.Context, sp space.Space, objectId, blockId string) (space.ModifyResult, error) {
+	res, err := sp.Delete(ctx, space.DeleteBatch{
 		ObjectId:  objectId,
 		Dataset:   Dataset,
 		RecordIds: []string{blockId},
-	}); err != nil {
-		return fmt.Errorf("blocks: Delete: %w", err)
+	})
+	if err != nil {
+		return space.ModifyResult{}, fmt.Errorf("blocks: Delete: %w", err)
 	}
-	return nil
+	return res, nil
 }
 
 // MaxPos returns the highest nav.pos string among blocks with the

@@ -17,8 +17,23 @@ func newSpaceCmd() *cobra.Command {
 		Short: "space-level operations (metadata update, lookup)",
 	}
 
-	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd())
+	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSyncCmd())
 	return cmd
+}
+
+// newSpaceSyncCmd: `any space sync <spaceId>` — force an immediate
+// head-sync round instead of waiting for the periodic timer. Blocks
+// until the server-side round completes. Prints nothing on success.
+func newSpaceSyncCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "sync <spaceId>",
+		Short: "force an immediate head-sync round (sync now)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := client.New(flags.Addr, flags.Timeout)
+			return cl.SpaceSync(cmd.Context(), args[0])
+		},
+	}
 }
 
 func newSpaceGetCmd() *cobra.Command {
