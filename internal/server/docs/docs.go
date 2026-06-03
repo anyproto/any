@@ -3504,6 +3504,9 @@ const docTemplate = `{
         "api.QueryResponse": {
             "type": "object",
             "properties": {
+                "hasNext": {
+                    "type": "boolean"
+                },
                 "records": {
                     "type": "array",
                     "items": {

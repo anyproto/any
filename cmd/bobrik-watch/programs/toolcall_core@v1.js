@@ -1394,13 +1394,22 @@ function renderChunksMessage(chunks) {
 }
 
 // ============================================================================
-// Debug collector — captures every LLM call onto ONE any_agent_debug page
+// Debug collector — captures every LLM call as structured records on ONE
+// `agent_debug_log` object
 // ============================================================================
-// One page per invocation, named after the user prompt. Turns append in real
-// time via anyHelper.appendToObject — open the page in Anytype Desktop and
-// new turn sections show up as they happen, no flush required. All writes are
-// best-effort: if the agent space lacks the type or createObject fails, the
-// agent run continues unaffected.
+// One object per invocation, named after the user prompt. Instead of appending
+// markdown editor blocks, the collector writes an ordered ARRAY of structured
+// records into the object's `agent_debug_log` dataset — one record per log
+// entry — via anyHelper.setRecord. Each record carries a monotonic `seq` and a
+// `kind` ("boot" | "system_prompt" | "turn" | "done"); readers sort by `seq`
+// (or by the zero-padded record id, which matches insertion order) to replay
+// the timeline. The dataset is registered server-side by the built-in
+// `agent_debug_log` type (internal/agentdebug); DefaultHandler stores raw
+// values, so nested arrays/objects (cells, messages, response) round-trip
+// as-is. All writes are best-effort: if the agent space lacks the type or a
+// write fails, the agent run continues unaffected.
+
+var DC_DATASET = "agent_debug_log";
 
 var _dc = {
   client: null,
@@ -1409,6 +1418,7 @@ var _dc = {
   startMs: 0,
   model: "",
   turnCount: 0,
+  seq: 0,
   totalIn: 0,
   totalOut: 0,
   totalCost: 0
@@ -1416,8 +1426,33 @@ var _dc = {
 
 function _dcReset() {
   _dc.client = null; _dc.pageId = null; _dc.userText = "";
-  _dc.startMs = 0; _dc.model = ""; _dc.turnCount = 0;
+  _dc.startMs = 0; _dc.model = ""; _dc.turnCount = 0; _dc.seq = 0;
   _dc.totalIn = 0; _dc.totalOut = 0; _dc.totalCost = 0;
+}
+
+// Zero-pad a sequence number so lexical record-id order matches insertion order.
+function _dcPad(n) {
+  var s = "" + n;
+  while (s.length < 6) s = "0" + s;
+  return s;
+}
+
+// Write one structured entry record to the agent_debug_log dataset. Stamps a
+// monotonic `seq`, the `kind`, and an ISO `ts`, then merges the caller's
+// fields. Best-effort — a missing page/client or a setRecord failure is
+// swallowed so the agent run is never affected by debug logging.
+function _dcWriteEntry(kind, fields) {
+  if (!_dc.client || !_dc.pageId) return;
+  var seq = _dc.seq++;
+  var rec = { seq: seq, kind: kind };
+  try { rec.ts = new Date().toISOString(); } catch (e) {}
+  if (fields) {
+    for (var k in fields) {
+      if (Object.prototype.hasOwnProperty.call(fields, k)) rec[k] = fields[k];
+    }
+  }
+  var recordId = _dcPad(seq) + "_" + kind;
+  try { _dc.client.setRecord(_dc.pageId, DC_DATASET, recordId, rec); } catch (e) {}
 }
 
 function dcInit(client, _spaceId, userText, bootMeta) {
@@ -1426,19 +1461,35 @@ function dcInit(client, _spaceId, userText, bootMeta) {
   _dc.userText = userText || "";
   _dc.startMs = Date.now();
   var name = _dc.userText || "(no prompt)";
-  var initialBody = "> " + (_dc.userText || "(no prompt)").replace(/\n/g, "\n> ") + "\n";
+
+  // Create the log object (type agent_debug_log) with NO markdown body — the
+  // dataset is the content. File it under the host-provided Debug nav folder
+  // (best-effort; failure leaves it at root but the run continues).
+  try {
+    var r = client.createObject("agent_debug_log", { name: name });
+    if (r && r.ok && r.object) {
+      _dc.pageId = r.object.id;
+      var debugFolderId = client.config && client.config.debugFolderId;
+      if (debugFolderId) {
+        try { client.addToCollection(debugFolderId, _dc.pageId); } catch (e2) {}
+      }
+    }
+  } catch (e) {}
+
+  // First record: boot context (prompt + middleware meta + redacted rawArgs).
+  var boot = {
+    prompt: _dc.userText || "(no prompt)",
+    build: "chat-scoping@v2"
+  };
   if (bootMeta) {
-    initialBody += "\n`[boot]` build=chat-scoping@v2"
-      + " spaceType=" + (bootMeta.spaceType === null || bootMeta.spaceType === undefined ? "(none)" : bootMeta.spaceType)
-      + " chatId=" + (bootMeta.chatId || "(none)")
-      + " identity=" + (bootMeta.identity || "(none)")
-      + " botIdentity=" + (bootMeta.botIdentity || "(none)")
-      + "\n";
+    boot.spaceType   = (bootMeta.spaceType === null || bootMeta.spaceType === undefined) ? null : bootMeta.spaceType;
+    boot.chatId      = bootMeta.chatId || "";
+    boot.identity    = bootMeta.identity || "";
+    boot.botIdentity = bootMeta.botIdentity || "";
     if (bootMeta.rawArgs !== undefined) {
-      var rawJson;
+      // Redact anything that looks like a secret before it lands on the page.
+      var redacted = {};
       try {
-        // Redact anything that looks like a secret before it lands on the page.
-        var redacted = {};
         for (var k in bootMeta.rawArgs) {
           if (!Object.prototype.hasOwnProperty.call(bootMeta.rawArgs, k)) continue;
           if (/apiKey|api_key|token|secret|password/i.test(k)) {
@@ -1447,26 +1498,11 @@ function dcInit(client, _spaceId, userText, bootMeta) {
             redacted[k] = bootMeta.rawArgs[k];
           }
         }
-        rawJson = JSON.stringify(redacted, null, 2);
-      } catch (e) {
-        rawJson = "(stringify failed: " + (e && e.message ? e.message : String(e)) + ")";
-      }
-      initialBody += "\n`[boot.rawArgs]` keys=[" + Object.keys(bootMeta.rawArgs || {}).join(", ") + "]\n";
-      initialBody += "```json\n" + rawJson + "\n```\n";
+      } catch (e3) {}
+      boot.rawArgs = redacted;
     }
   }
-  try {
-    var r = client.createObject("agent_debug_log", { name: name, body: initialBody });
-    if (r && r.ok && r.object) {
-      _dc.pageId = r.object.id;
-      // File the page under the host-provided Debug nav folder (best-
-      // effort; failure leaves it at root but the run continues).
-      var debugFolderId = client.config && client.config.debugFolderId;
-      if (debugFolderId) {
-        try { client.addToCollection(debugFolderId, _dc.pageId); } catch (e2) {}
-      }
-    }
-  } catch (e) {}
+  _dcWriteEntry("boot", boot);
 }
 
 // Stringify a tool_result block's content. The block can hold either a plain
@@ -1492,34 +1528,25 @@ function _formatToolResultContent(block) {
   return block.is_error ? "[ERROR] " + text : text;
 }
 
-// Write a "## Initial context" section with the full system prompt the LLM
-// sees on every turn. Per-turn `messages` arrays are already captured in
-// dcLogTurn; this fills the only previously-invisible channel, the `system:`
-// parameter.
+// Record the full system prompt the LLM sees on every turn. Per-turn
+// `messages` arrays are captured in dcLogTurn; this fills the only otherwise-
+// invisible channel, the `system:` parameter. One `system_prompt` record.
 function dcLogInitialContext(systemText) {
-  if (!_dc.client || !_dc.pageId) return;
-  var len = (systemText || "").length;
-  var body = "\n\n---\n\n## Initial context\n\n";
-  body += "**System prompt:** " + len + " chars\n\n";
-  body += "```markdown\n" + (systemText || "") + "\n```\n";
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  _dcWriteEntry("system_prompt", {
+    chars: (systemText || "").length,
+    text: systemText || ""
+  });
 }
 
 function dcLogTurn(opts) {
   if (!_dc.client || !_dc.pageId) return;
   var n = opts.n;
-  var messages = opts.messages || [];
   var resp = opts.resp || {};
   var durationMs = opts.durationMs || 0;
   var toolResults = opts.toolResults || [];
   if (resp.model && !_dc.model) _dc.model = resp.model;
 
-  var toolBlocks = [];
   var content = resp.content || [];
-  for (var i = 0; i < content.length; i++) {
-    if (content[i] && content[i].type === "tool_use") toolBlocks.push(content[i]);
-  }
-
   var resultsById = {};
   for (var ri = 0; ri < toolResults.length; ri++) {
     if (toolResults[ri] && toolResults[ri].tool_use_id) {
@@ -1527,68 +1554,60 @@ function dcLogTurn(opts) {
     }
   }
 
-  // Update running totals (used by dcFlush footer).
+  // One structured cell per tool_use block, paired with its result text and
+  // an `executed` flag (false when the turn ended before the cell ran).
+  var cells = [];
+  for (var i = 0; i < content.length; i++) {
+    if (!content[i] || content[i].type !== "tool_use") continue;
+    var code = (content[i].input && content[i].input.code) || "";
+    var matched = resultsById[content[i].id];
+    cells.push({
+      code: code,
+      result: matched ? _formatToolResultContent(matched) : "",
+      isError: matched ? !!matched.is_error : false,
+      executed: !!matched
+    });
+  }
+
+  // Running totals (used by the dcFlush summary record).
   _dc.turnCount = n;
+  var inT = 0, outT = 0, cost = null;
   if (resp.usage) {
     var u = resp.usage;
-    _dc.totalIn += u.prompt_tokens || u.input_tokens || 0;
-    _dc.totalOut += u.completion_tokens || u.output_tokens || 0;
-    if (u.cost) _dc.totalCost += u.cost;
+    inT = u.prompt_tokens || u.input_tokens || 0;
+    outT = u.completion_tokens || u.output_tokens || 0;
+    _dc.totalIn += inT;
+    _dc.totalOut += outT;
+    if (u.cost !== undefined) { _dc.totalCost += (u.cost || 0); cost = u.cost; }
   }
 
-  var promptJson = JSON.stringify(messages, null, 2);
-  var respJson = JSON.stringify(resp, null, 2);
-
-  var body = "\n\n---\n\n## Turn " + n + " — " + (resp.stop_reason || "?") + "\n\n";
-  body += "**Duration:** " + durationMs + "ms";
-  if (resp.usage) {
-    var u2 = resp.usage;
-    var inT = u2.prompt_tokens || u2.input_tokens || 0;
-    var outT = u2.completion_tokens || u2.output_tokens || 0;
-    body += " | **In:** " + inT + " | **Out:** " + outT;
-    if (u2.cost !== undefined) body += " | **Cost:** $" + (u2.cost || 0).toFixed(6);
-  }
-  body += "\n\n";
-
-  if (toolBlocks.length > 0) {
-    body += "### Cells (" + toolBlocks.length + ")\n\n";
-    for (var ti = 0; ti < toolBlocks.length; ti++) {
-      var code = (toolBlocks[ti].input && toolBlocks[ti].input.code) || "";
-      body += "#### Cell " + (ti + 1) + "\n```javascript\n" + code + "\n```\n\n";
-      var matched = resultsById[toolBlocks[ti].id];
-      if (matched) {
-        var resultText = _formatToolResultContent(matched);
-        body += "**Result:**\n```\n" + resultText + "\n```\n\n";
-      } else {
-        body += "**Result:** _(not executed — turn ended before run)_\n\n";
-      }
-    }
-  }
-
-  body += "<details><summary>Prompt (" + promptJson.length + " chars)</summary>\n\n```json\n" + promptJson + "\n```\n\n</details>\n\n";
-  body += "<details><summary>Response</summary>\n\n```json\n" + respJson + "\n```\n\n</details>\n";
-
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  // Turn record holds the extracted scalars + the per-cell code/result.
+  // The full `messages[]` and raw `response{}` are intentionally NOT stored —
+  // they're redundant with `cells[]` (and the prior turns' records) and balloon
+  // the dataset. stopReason / tokens / model carry the useful response bits.
+  _dcWriteEntry("turn", {
+    n: n,
+    stopReason: resp.stop_reason || "",
+    durationMs: durationMs,
+    inTokens: inT,
+    outTokens: outT,
+    cost: cost,
+    cells: cells
+  });
 }
 
 function dcFlush(opts) {
-  if (!_dc.client || !_dc.pageId) return;
   opts = opts || {};
-  var status = opts.status || "?";
-  var finalText = opts.finalText || "";
-  var totalMs = opts.totalMs || (Date.now() - _dc.startMs);
-
-  var body = "\n\n---\n\n## Done — " + status + "\n\n";
-  body += "**Model:** " + (_dc.model || "?") +
-          " | **Turns:** " + _dc.turnCount +
-          " | **Total:** " + totalMs + "ms\n\n";
-  body += "**Tokens:** " + _dc.totalIn + " in / " + _dc.totalOut + " out";
-  if (_dc.totalCost > 0) body += " | **Cost:** $" + _dc.totalCost.toFixed(6);
-  body += "\n\n";
-  if (finalText) {
-    body += "**Final:**\n\n" + finalText + "\n";
-  }
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  _dcWriteEntry("done", {
+    status: opts.status || "?",
+    model: _dc.model || "",
+    turns: _dc.turnCount,
+    totalMs: opts.totalMs || (Date.now() - _dc.startMs),
+    totalIn: _dc.totalIn,
+    totalOut: _dc.totalOut,
+    totalCost: _dc.totalCost,
+    finalText: opts.finalText || ""
+  });
 }
 
 // ============================================================================

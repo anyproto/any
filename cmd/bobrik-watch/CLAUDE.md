@@ -42,9 +42,22 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   written to `program_description` at sync time. MUST contain a
   `## Tool Description` heading; `anyHelper.saveProgram` rejects
   markdown without it.
-- **Debug pages** — the JS kernel's debug collector (`dcInit` in
-  `toolcall_core@v1.js`) creates one `Agent Debug Log` page per agent
-  invocation. The Go side ensures a `Debug` nav folder
+- **Debug logs** — `Agent Debug Log` is a server **built-in** type
+  (`internal/agentdebug`, registered in `internal/server/sdk.go`) with a
+  structured `agent_debug_log` dataset — NOT a runtime-`createType`'d type
+  and no longer a markdown page. The JS kernel's debug collector (`dcInit`/
+  `dcLogInitialContext`/`dcLogTurn`/`dcFlush` in `toolcall_core@v1.js`)
+  creates one object per agent invocation (named after the prompt, empty
+  body) and writes an ordered **array** of entry records into the dataset via
+  `anyHelper.setRecord` — one record per entry, each with a monotonic `seq`
+  and a `kind` (`boot` | `system_prompt` | `turn` | `done`). Read back sorted
+  by `seq` (or by the zero-padded record id) via `getObjects({objectId,
+  dataset:"agent_debug_log", sort:["seq"]})`. A `turn` record holds the
+  extracted scalars (`stopReason`/`inTokens`/`outTokens`/`durationMs`) plus
+  `cells[]` (`{code, result, isError, executed}`); the full `messages[]` and
+  raw `response{}` are intentionally NOT stored (redundant with `cells[]` and
+  the prior turns, and they balloon the dataset).
+  The Go side ensures a `Debug` nav folder
   (`ensureDebugFolder`, nested under "System Bobrik Files") and passes
   its id to the runtime as `env.ANY_DEBUG_FOLDER_ID`
   (`runtime.go`/`runAgent`). `init_agent.js` forwards it to

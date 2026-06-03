@@ -538,6 +538,8 @@ definitions:
     type: object
   api.QueryResponse:
     properties:
+      hasNext:
+        type: boolean
       records:
         items:
           items:

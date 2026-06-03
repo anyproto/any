@@ -904,8 +904,9 @@ export function createClient(params) {
   // fast path. The server parses `text` into blocks and creates them past
   // the current last block in one ModifyBatch — no full-document read, no
   // diff — so each append is O(text), not O(document). This matters for
-  // grow-by-append pages (the agent debug log appends every turn): the
-  // old read-modify-write-the-whole-doc path made a run O(N²) in page size.
+  // grow-by-append pages where the old read-modify-write-the-whole-doc path
+  // made a run O(N²) in page size. (The agent debug log no longer uses this —
+  // it now writes structured records to the `agent_debug_log` dataset.)
   function appendToObject(objId, text) {
     if (text == null || text === "") return { ok: true, id: objId, object: { id: objId } };
     var res = api("POST", spacePath + "/objects/" + objId + "/editor/markdown/append", { content: String(text) });
