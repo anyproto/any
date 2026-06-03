@@ -448,7 +448,7 @@ function _fetchCategoriesSection() {
 // keeps working. Returns { id, fullObj } or null.
 function loadOrCreateMemoryAnchor(client) {
   var rawOpts = { resolveRefs: false };
-  var objects = client.getObjects("agent_memory", rawOpts);
+  var objects = client.getObjects("agent_memory", rawOpts).records;
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
     if (getProp(obj, "agent_memory.agent_memory") === "_main") {
@@ -668,7 +668,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
 
 function loadSpaceContextMain(client) {
   var objects;
-  try { objects = client.getObjects("space_context"); } catch (e) { return null; }
+  try { objects = client.getObjects("space_context").records; } catch (e) { return null; }
   if (!objects || objects.length === 0) return null;
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
@@ -685,7 +685,7 @@ function loadSpaceContextMain(client) {
 // agent pulls content on demand.
 function getChildSpaceContexts(client) {
   var objects;
-  try { objects = client.getObjects("space_context"); } catch (e) { return []; }
+  try { objects = client.getObjects("space_context").records; } catch (e) { return []; }
   if (!objects || objects.length === 0) return [];
   var out = [];
   for (var i = 0; i < objects.length; i++) {
@@ -1282,7 +1282,7 @@ function _loadSkillMarkdown(client, skillName) {
     var scope = scopes[s];
     var objects;
     try {
-      objects = client.getObjects("agent_skill", { space: scope });
+      objects = client.getObjects("agent_skill", { space: scope }).records;
     } catch (e) {
       continue;
     }
@@ -1343,7 +1343,7 @@ function _loadSpaceContextSection(skillMd, mainObj, children, spaceId) {
 function _loadUserSkillsSection(client) {
   var objects;
   try {
-    objects = client.getObjects("agent_skill");
+    objects = client.getObjects("agent_skill").records;
   } catch (e) {
     return "";
   }

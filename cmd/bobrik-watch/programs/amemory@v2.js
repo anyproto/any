@@ -658,7 +658,7 @@ function loadAllMemories(client, typeKey, queryOpts) {
   if (queryOpts && Array.isArray(queryOpts.categories) && queryOpts.categories.length > 0) {
     getOpts.filter = { "agent_memory.tags": { "$in": queryOpts.categories } };
   }
-  var objects = client.getObjects(typeKey, getOpts);
+  var objects = client.getObjects(typeKey, getOpts).records;
   var memories = [];
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
@@ -727,7 +727,7 @@ function loadAllMemories(client, typeKey, queryOpts) {
 
 // Extended loader that also fetches body (for verify/rethink — heavier)
 function loadAllMemoriesFull(client, typeKey) {
-  var objects = client.getObjects(typeKey);
+  var objects = client.getObjects(typeKey).records;
   var memories = [];
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
@@ -788,7 +788,7 @@ function loadAllMemoriesFull(client, typeKey) {
 // Step 7/9: Load ALL memories including archived (for decay processing).
 // Skips boot state only.
 function loadAllMemoriesForDecay(client, typeKey) {
-  var objects = client.getObjects(typeKey);
+  var objects = client.getObjects(typeKey).records;
   var memories = [];
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
@@ -2348,7 +2348,7 @@ export function createAMemory(client, opts) {
   function getOrCreateBootState() {
     try {
       // Search for an existing boot state object among all at_memory objects
-      var objects = client.getObjects(typeKey);
+      var objects = client.getObjects(typeKey).records;
       var bootObj = null;
       for (var i = 0; i < objects.length; i++) {
         var tags = (getProp(objects[i], "agent_memory.tags") || []) || [];
@@ -2423,7 +2423,7 @@ export function createAMemory(client, opts) {
     try {
       if (!state || !state._id) {
         // Try to find the boot state object
-        var objects = client.getObjects(typeKey);
+        var objects = client.getObjects(typeKey).records;
         for (var i = 0; i < objects.length; i++) {
           var tags = (getProp(objects[i], "agent_memory.tags") || []) || [];
           for (var ti = 0; ti < tags.length; ti++) {

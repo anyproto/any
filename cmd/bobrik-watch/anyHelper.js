@@ -494,33 +494,61 @@ export function createClient(params) {
   //                     mongo-style ops; against an array field, a scalar means
   //                     "contains" and {$in:[...]} means "intersects".
   //   options.sort/limit/offset — passed through.
+  // getObjects — the one query method, in two modes:
+  //   cross-object (default): getObjects(typeKey, { filter, sort, limit, offset,
+  //     includeTotal, space }) — reads the per-space `objects` collection scoped
+  //     to a type (typeKey is the type xKey/id). filter/sort keys are dotted
+  //     xKey paths, resolved to <typeId>.<propId>; records come back NORMALIZED
+  //     (nested, readable). Pass null typeKey to query across all types.
+  //   per-object dataset: getObjects(null, { objectId, dataset, filter, sort,
+  //     limit, offset, includeTotal, space }) — reads one object's dataset
+  //     (editor_blocks, program_source, …); filter/sort keys are literal dataset
+  //     fields (not resolved); records come back RAW (datasets aren't
+  //     type-namespaced).
+  // Always returns { ok, records, total, error } — consistent shape, errors
+  // surfaced (never a silent []). `total` is present only when includeTotal was
+  // requested (and is page-bounded in v0.0.4; see docs/09-query.md).
   function getObjects(typeKey, options) {
     if (!options) options = {};
     var scope = options.space || "user";
     var path = _pathForScope(scope);
-    var filter = {};
-    if (typeKey) {
-      var resolved = _resolveTypeSeg(scope, typeKey);
-      if (!resolved) return [];
-      filter["any.types"] = resolved;
+    var body = {};
+    var isDataset = !!options.dataset;
+
+    if (isDataset) {
+      if (!options.objectId) return { ok: false, records: [], error: "getObjects: objectId required with dataset" };
+      body.objectId = options.objectId;
+      body.dataset = options.dataset;
+      if (options.filter) body.filter = options.filter; // literal dataset fields
+      if (options.sort) body.sort = options.sort;
+    } else {
+      var filter = {};
+      if (typeKey) {
+        var resolved = _resolveTypeSeg(scope, typeKey);
+        if (!resolved) return { ok: false, records: [], error: _typeNotFoundError(typeKey, scope) };
+        filter["any.types"] = resolved;
+      }
+      if (options.filter) {
+        var extra = _resolveFilterPaths(scope, options.filter);
+        for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
+      }
+      body.filter = filter;
+      if (options.sort) body.sort = _resolveSortPaths(scope, options.sort);
     }
-    if (options.filter) {
-      var extra = _resolveFilterPaths(scope, options.filter);
-      for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
-    }
-    var body = { filter: filter };
-    if (options.sort) body.sort = _resolveSortPaths(scope, options.sort);
     if (options.limit !== undefined) body.limit = options.limit;
     if (options.offset !== undefined) body.offset = options.offset;
-    var res = api("POST", path + "/objects/query", body);
-    if (!res.ok) return [];
-    var records = (res.data && res.data.records) || [];
-    var objects = [];
-    for (var i = 0; i < records.length; i++) {
-      objects.push(_normalize(scope, records[i]));
+    if (options.includeTotal) body.includeTotal = true;
+
+    var res = api("POST", path + (isDataset ? "/query" : "/objects/query"), body);
+    if (!res.ok) return { ok: false, records: [], error: _extractError(res), code: res.code };
+    var raw = (res.data && res.data.records) || [];
+    var records = [];
+    for (var i = 0; i < raw.length; i++) {
+      records.push(isDataset ? raw[i] : _normalize(scope, raw[i]));
     }
-    objects.pagination = { total: objects.length };
-    return objects;
+    var out = { ok: true, records: records, error: null };
+    if (res.data && res.data.total !== undefined && res.data.total !== null) out.total = res.data.total;
+    return out;
   }
 
   // _resolveFilterPaths rewrites readable dotted filter keys ("Type.prop") to
@@ -664,7 +692,7 @@ export function createClient(params) {
     var propRes = api("GET", spacePath + "/types/" + typeObj.id + "/properties");
     var properties = (propRes.ok && propRes.data && propRes.data.properties) || [];
     var sample = null;
-    var objects = getObjects(typeKey);
+    var objects = getObjects(typeKey).records;
     if (objects.length > 0) sample = objects[0];
     return { type: typeObj, properties: properties, object_count: objects.length, sample: sample };
   }
@@ -923,23 +951,8 @@ export function createClient(params) {
     return records.length ? records[0] : null;
   }
 
-  // queryRecords returns all records of a dataset (raw), with optional
-  // filter/sort/limit/offset passed straight through to the query primitive.
-  function queryRecords(objId, dataset, query, opts) {
-    if (!opts) opts = {};
-    var path = _pathForScope(opts.space || "user");
-    var body = { objectId: objId, dataset: dataset };
-    if (query) {
-      if (query.filter) body.filter = query.filter;
-      if (query.sort) body.sort = query.sort;
-      if (query.limit !== undefined) body.limit = query.limit;
-      if (query.offset !== undefined) body.offset = query.offset;
-      if (query.includeTotal !== undefined) body.includeTotal = query.includeTotal;
-    }
-    var res = api("POST", path + "/query", body);
-    if (!res.ok) return { ok: false, records: [], error: _extractError(res) };
-    return { ok: true, records: (res.data && res.data.records) || [], total: res.data && res.data.total };
-  }
+  // (queryRecords was removed — query a dataset's records via
+  //  getObjects(null, { objectId, dataset, filter, sort, limit, ... }).)
 
   // setRecord upserts a dataset record, emitting one atomic $set op per field
   // at its own path so updating one field never rewrites the others. Pass a
@@ -1366,7 +1379,6 @@ export function createClient(params) {
     appendToObject: w("appendToObject", appendToObject),
     editObject: w("editObject", editObject),
     getRecord: w("getRecord", getRecord),
-    queryRecords: w("queryRecords", queryRecords),
     setRecord: w("setRecord", setRecord),
     deleteRecord: w("deleteRecord", deleteRecord),
     setTags: w("setTags", setTags),

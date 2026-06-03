@@ -15,18 +15,28 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 ## Tool Schema
 
 ### getObjects(typeKey, options?)
-List/query objects of a type. Returns normalized records (nested per type).
-- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
+The one query method. Returns `{ ok, records, total?, error }` (errors surfaced,
+never a silent []). Two modes:
+- **cross-object** (default): `getObjects(typeKey, {...})` — objects of a type;
+  records are NORMALIZED (nested, readable `rec["xkey"].prop`).
+- **per-object dataset**: `getObjects(null, { objectId, dataset, ... })` — records
+  of one object's dataset (editor_blocks, program_source, …); records are RAW
+  (datasets aren't type-namespaced). This subsumes the old queryRecords.
+
+Options:
+- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name. Pass null for a dataset query or to query across all types.
+- options.objectId + options.dataset: select the per-object dataset mode.
 - options.space: "user" (default) or "system"
-- options.filter: mongo-style filter, keys as dotted xKey paths
-  ("agent_memory.tags", "movie.year"). Operators: $eq (bare value), $ne, $gt,
-  $gte, $lt, $lte, $in, $nin, $all, $exists, $regex, $and, $or, $not. Against
-  an ARRAY property a scalar means "contains" and {$in:[...]} means
-  "intersects" — this is how to filter by a tag/category array server-side.
-- options.sort: array of dotted xKey paths, "-" prefix = descending (e.g.
-  ["-movie.year"]). options.limit / options.offset: paging.
+- options.filter: mongo-style filter. Cross-object keys are dotted xKey paths
+  ("agent_memory.tags", "movie.year") resolved to ids; dataset keys are literal
+  fields ("nav.pos", "_ver.id"). Operators: $eq (bare value), $ne, $gt, $gte,
+  $lt, $lte, $in, $nin, $all, $exists, $regex, $and, $or, $not. Against an ARRAY
+  property a scalar means "contains" and {$in:[...]} means "intersects" — how to
+  filter by a tag/category array server-side.
+- options.sort: array of dotted paths, "-" prefix = descending (e.g.
+  ["-movie.year"]). options.limit / options.offset / options.includeTotal.
 Full guide: docs/09-query.md. (Note: negation filters like $ne also match
-objects lacking the field — getObjects already scopes by type so that's safe.)
+objects lacking the field — cross-object getObjects scopes by type so that's safe.)
 
 ### getObject(objId, opts?)
 Fetch one object by ID. Returns the object with properties nested per type
@@ -81,11 +91,8 @@ stable namespace segment in dotted property paths.
 ### getRecord(objId, dataset, recordId?, opts?)
 Read one record from an object's dataset (raw, not type-namespaced). Returns the
 record or null. Datasets hold structured content (e.g. `mini_app`,
-`program_source`). Omit recordId to get the first record.
-
-### queryRecords(objId, dataset, query?, opts?)
-Read all records of a dataset. `query` = {filter, sort, limit, offset, includeTotal}.
-Returns {ok, records, total?}.
+`program_source`). Omit recordId to get the first record. (For multiple records,
+use getObjects dataset mode: `getObjects(null, {objectId, dataset, ...})`.)
 
 ### setRecord(objId, dataset, recordId, fields, opts?)
 Upsert a dataset record, setting each field at its own path atomically (updating

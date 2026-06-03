@@ -125,9 +125,11 @@ prefer an indexed builtin field or a dedicated per-object dataset. There is no
 
 | Method | Maps to |
 |--------|---------|
-| `getObjects(typeKey, {filter, sort, limit, offset, space})` | cross-object query, type-scoped, readable dotted filter keys, returns normalized records |
-| `getRecord(objId, dataset, recordId?, {space})` | per-object query → one record |
-| `queryRecords(objId, dataset, {filter, sort, limit, offset, includeTotal}, {space})` | per-object query → `{ok, records, total?}` |
+| `getObjects(typeKey, {filter, sort, limit, offset, includeTotal, space})` | **cross-object** query, type-scoped; readable dotted xKey filter/sort keys; normalized records |
+| `getObjects(null, {objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
+| `getRecord(objId, dataset, recordId?, {space})` | convenience → one raw dataset record (or null) |
 
-For dataset writes use `setRecord` (atomic per-field `$set` upsert); for property
-writes use `createObject`/`updateObject` with dotted `"typeXKey.prop"` keys.
+`getObjects` is the single query method (both modes) and always returns
+`{ ok, records, total?, error }`. For dataset writes use `setRecord` (atomic
+per-field `$set` upsert) / `deleteRecord`; for property writes use
+`createObject`/`updateObject` with dotted `"typeXKey.prop"` keys.

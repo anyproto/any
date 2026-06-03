@@ -6,11 +6,12 @@ you'd otherwise load a whole type and loop.
 
 ## Find objects by property
 
-`anyHelper.getObjects(type, { filter, sort, limit, offset })`. The `type` arg
-accepts the type xKey or id (not the display name); filter & sort keys are dotted **xKey** paths
-`"<typeXKey>.<propXKey>"` (the type xKey is a stable slug — `createType`
-returns it as `type.xKey`). Results come back nested, keyed by xKey
-(`obj["<typeXKey>"].prop`, read with `getProp(obj, "<typeXKey>.prop")`).
+`anyHelper.getObjects(type, { filter, sort, limit, offset })` → `{ ok, records,
+total?, error }`; iterate `.records`. The `type` arg accepts the type xKey or id
+(not the display name); filter & sort keys are dotted **xKey** paths
+`"<typeXKey>.<propXKey>"` (the type xKey is a stable slug — `createType` returns
+it as `type.xKey`). Each record is nested, keyed by xKey
+(`rec["<typeXKey>"].prop`, read with `getProp(rec, "<typeXKey>.prop")`).
 
 ```js
 // recent noir films, newest first, top 5
@@ -30,21 +31,23 @@ AND-ed.
 When a property is an array, the filter matches its elements:
 
 ```js
-anyHelper.getObjects("Agent Memory", { filter: { "agent_memory.tags": "lesson" } })        // contains "lesson"
-anyHelper.getObjects("Agent Memory", { filter: { "agent_memory.tags": { "$in": ["a","b"] } } }) // intersects
+anyHelper.getObjects("agent_memory", { filter: { "agent_memory.tags": "lesson" } }).records        // contains "lesson"
+anyHelper.getObjects("agent_memory", { filter: { "agent_memory.tags": { "$in": ["a","b"] } } }).records // intersects
 ```
 
-This is the efficient way to filter by category — the store does it, you don't
-pull everything back. (amemory uses exactly this for `categories`.)
+`getObjects` returns `{ ok, records, total?, error }` — iterate `.records`. This
+is the efficient way to filter by category — the store does it, you don't pull
+everything back. (amemory uses exactly this for `categories`.)
 
-## Read a dataset record
+## Read a dataset
 
 Structured content (a mini app's source/state, a program's source) lives in a
-dataset, not in properties. Use `getRecord` / `queryRecords`:
+dataset, not in properties. One record → `getRecord`; many → `getObjects`
+dataset mode (pass `null` type + `objectId`/`dataset`):
 
 ```js
-anyHelper.getRecord(objId, "mini_app", "main")                 // one record
-anyHelper.queryRecords(objId, "editor_blocks", { sort: ["nav.pos"] })  // {ok, records}
+anyHelper.getRecord(objId, "mini_app", "main")                                            // one raw record
+anyHelper.getObjects(null, { objectId: objId, dataset: "editor_blocks", sort: ["nav.pos"] }).records  // many
 ```
 
 Dataset field paths are literal (`nav.pos`, `_ver.id`, `text`) — no type prefix.
@@ -54,7 +57,7 @@ Dataset field paths are literal (`nav.pos`, `_ver.id`, `text`) — no type prefi
 - `limit`/`offset` is fine for stable, one-shot reads.
 - For mutable, growing collections page with a **cursor** on a monotonic
   indexed field instead — e.g. chat history backward:
-  `queryRecords(chatId, "chat_messages", { filter: { "_ver.id": { "$lt": oldestSeen } }, sort: ["-_ver.id"], limit: 30 })`.
+  `getObjects(null, { objectId: chatId, dataset: "chat_messages", filter: { "_ver.id": { "$lt": oldestSeen } }, sort: ["-_ver.id"], limit: 30 }).records`.
 
 ## Gotchas
 

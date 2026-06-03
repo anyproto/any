@@ -32,7 +32,7 @@ function _c() {
 // Find a mini-app object by its name (any.name). Returns the object record or
 // null. listing uses the cross-object query (one call), no per-object reads.
 function _findByName(name) {
-  var all = _c().getObjects(TYPE);
+  var all = _c().getObjects(TYPE).records;
   for (var i = 0; i < all.length; i++) {
     if (all[i].name === name) return all[i];
   }
@@ -289,7 +289,7 @@ export function getMiniAppSource(name, opts) {
 }
 
 export function listMiniApps() {
-  var all = _c().getObjects(TYPE);
+  var all = _c().getObjects(TYPE).records;
   var out = [];
   for (var i = 0; i < all.length; i++) {
     if (!all[i].name) continue;

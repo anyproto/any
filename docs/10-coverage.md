@@ -13,7 +13,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 |------|-----------|-----------|
 | Objects | `POST /objects`, `DELETE /objects/:id` | `createObject` / `createCollection`, `deleteObject` |
 | Properties | `GET /properties/:o`, `POST /properties/:o/base/:typeId` | `getObject`, `createObject`/`updateObject` (dotted `Type.prop`) |
-| Query | `POST /objects/query`, `POST /query` | `getObjects`, `getRecord` / `queryRecords` |
+| Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes), `getRecord` |
 | Datasets | `POST /modify`, `POST /delete-records` | `setRecord`, `deleteRecord` |
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |
 | Types | `GET`/`POST /types`, `GET /types/:id/properties`, `POST …/properties` | `getTypes`/`createType`, `getProperties`/`getProperty`/`describeType` (catalog-backed) |
@@ -24,7 +24,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 ## Added in this pass
 
 - `deleteRecord(objId, dataset, ids)` → `POST /delete-records` — completes the
-  dataset CRUD set (getRecord / queryRecords / setRecord / deleteRecord).
+  dataset CRUD set (getRecord / setRecord / deleteRecord; multi-record reads via getObjects dataset mode).
 - `getObjects` gained `filter`/`sort`/`limit`/`offset` → the full
   `POST /objects/query` surface (see `docs/09-query.md`).
 
@@ -41,7 +41,7 @@ surface added.
 | `GET /members/me`, `/members/requests`, `/members/subscribe` | membership admin/streaming |
 | `GET /sync-status*` (4), `GET /debug*` (2) | diagnostics — host/ops, not agent logic |
 | `POST /objects/derive` | deterministic-id creation — niche; no caller |
-| `POST`/`PATCH`/`DELETE …/editor/blocks` | atomic block writes — the markdown bridge (`append`/`edit`/`PUT`) covers agent needs; blocks reachable via `api()` and read via `queryRecords(o,"editor_blocks")` |
+| `POST`/`PATCH`/`DELETE …/editor/blocks` | atomic block writes — the markdown bridge (`append`/`edit`/`PUT`) covers agent needs; blocks reachable via `api()` and read via `getObjects(null,{objectId:o,dataset:"editor_blocks"})` |
 | chat `POST/PATCH/DELETE …/chat/messages[...]`, reactions | the agent's reply is posted host-side (bobrik-watch), not from JS; no in-JS caller yet |
 | `*/subscribe` (SSE) | live streams are a host/Go concern; the JS client is request/response |
 | `GET /health`, `POST /shutdown` | lifecycle, host-side |
