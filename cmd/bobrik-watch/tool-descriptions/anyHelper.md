@@ -10,7 +10,7 @@
 - **Writing**: property keys are dotted `"<typeXKey>.<prop>"`, e.g. `"movie.title"`, `"agent_memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. The `typeKey` argument of createObject/getObjects/etc. is the type **xKey** or id — NOT the display name (name is display-only metadata). Unknown property / wrong value-kind writes fail with a clear error (server-side validation), never silently dropped.
 - **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`, `obj.program.name`.
 
-Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); use `getRecord` / `setRecord` for those.
+Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); read with `getObjects({ objectId, dataset })`, write with `setRecord` / `deleteRecord`.
 
 ## Tool Schema
 
@@ -20,7 +20,7 @@ never a silent []). The argument is polymorphic:
 - **string** → the type xKey/id: `getObjects("agent_memory")` = all objects of that type.
 - **object** → the full query:
   - cross-object: `getObjects({ type, filter, sort, limit, offset, includeTotal, space })` — records NORMALIZED (nested, readable `rec["xkey"].prop`).
-  - per-object dataset: `getObjects({ objectId, dataset, filter, sort, limit, ... })` — records RAW (datasets aren't type-namespaced). Subsumes the old queryRecords.
+  - per-object dataset: `getObjects({ objectId, dataset, filter, sort, limit, ... })` — records RAW (datasets aren't type-namespaced).
 
 Fields:
 - type: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name. Omit to query across all types.
@@ -86,19 +86,13 @@ declare the same type with different properties).
 Returns `{ ok, type: { id, name, xKey }, created }`. Use `type.xKey` as the
 stable namespace segment in dotted property paths.
 
-### getRecord(objId, dataset, recordId?, opts?)
-Read one record from an object's dataset (raw, not type-namespaced). Returns the
-record or null. Datasets hold structured content (e.g. `mini_app`,
-`program_source`). Omit recordId to get the first record. (For multiple records,
-use getObjects dataset mode: `getObjects(null, {objectId, dataset, ...})`.)
-
 ### setRecord(objId, dataset, recordId, fields, opts?)
 Upsert a dataset record, setting each field at its own path atomically (updating
 one field never rewrites the others). `fields` = flat `{ field: value }` map.
+(Read datasets with `getObjects({ objectId, dataset, ... })`.)
 
 ### deleteRecord(objId, dataset, recordIds, opts?)
 Tombstone one or more dataset records. recordIds is a single id or an array.
-Completes the dataset CRUD set with getRecord/queryRecords/setRecord.
 
 ### describeType(typeKey)
 Inspect a type: metadata, properties, sample object, object count.

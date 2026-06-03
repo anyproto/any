@@ -928,31 +928,11 @@ export function createClient(params) {
     };
   }
 
-  // ==================== DATASETS ====================
-  // Generic per-object dataset accessors over POST /modify and POST /query.
+  // ==================== DATASETS (writes) ====================
   // Built-in types store structured content in datasets (program → program_source
   // / program_description, mini_app → mini_app, editor → editor_blocks, …).
-  // Dataset records are NOT type-namespaced, so they are returned raw (no
-  // _normalize). These let tools (anyPrograms, miniapp) read/write their
-  // dataset without hand-rolling the modify/query envelopes.
-
-  // getRecord returns a single dataset record by id (or the first record when
-  // recordId is omitted), or null. opts may carry {space}.
-  function getRecord(objId, dataset, recordId, opts) {
-    if (!opts) opts = {};
-    var path = _pathForScope(opts.space || "user");
-    var res = api("POST", path + "/query", { objectId: objId, dataset: dataset });
-    if (!res.ok) return null;
-    var records = (res.data && res.data.records) || [];
-    if (recordId) {
-      for (var i = 0; i < records.length; i++) { if (records[i].id === recordId) return records[i]; }
-      return null;
-    }
-    return records.length ? records[0] : null;
-  }
-
-  // (queryRecords was removed — query a dataset's records via
-  //  getObjects(null, { objectId, dataset, filter, sort, limit, ... }).)
+  // READS go through getObjects({ objectId, dataset, ... }) (records are raw —
+  // datasets aren't type-namespaced). setRecord/deleteRecord are the writes.
 
   // setRecord upserts a dataset record, emitting one atomic $set op per field
   // at its own path so updating one field never rewrites the others. Pass a
@@ -972,9 +952,9 @@ export function createClient(params) {
     return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
-  // deleteRecord tombstones one or more records in a dataset (completes the
-  // dataset CRUD with getRecord/queryRecords/setRecord). recordIds may be a
-  // single id or an array.
+  // deleteRecord tombstones one or more records in a dataset (read via
+  // getObjects dataset mode; write via setRecord). recordIds may be a single
+  // id or an array.
   function deleteRecord(objId, dataset, recordIds, opts) {
     if (!opts) opts = {};
     var path = _pathForScope(opts.space || "user");
@@ -1378,7 +1358,6 @@ export function createClient(params) {
     deleteObject: w("deleteObject", deleteObject),
     appendToObject: w("appendToObject", appendToObject),
     editObject: w("editObject", editObject),
-    getRecord: w("getRecord", getRecord),
     setRecord: w("setRecord", setRecord),
     deleteRecord: w("deleteRecord", deleteRecord),
     setTags: w("setTags", setTags),

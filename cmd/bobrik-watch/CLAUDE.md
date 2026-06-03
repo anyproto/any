@@ -33,9 +33,9 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   in `internal/program/program.go`.
 - **Mini apps** — type `Mini App` (`mini_app`, built-in,
   `internal/miniapp/miniapp.go`), dataset `mini_app` with one `main`
-  record `{source, state, readme}`. `programs/miniapp.js` reads/writes
-  it via `anyHelper.getRecord`/`setRecord` (per-field atomic) — no
-  markdown-block parsing.
+  record `{source, state, readme}`. `programs/miniapp.js` reads it via
+  `anyHelper.getObjects({objectId, dataset})` and writes via `setRecord`
+  (per-field atomic) — no markdown-block parsing.
 - **Skills** — type `Agent Skill`, property `agent_skill_name` (under
   the `Agent Skill` namespace). Content stored via `editor/markdown`.
 - **Tool descriptions** — `cmd/bobrik-watch/tool-descriptions/*.md`,

@@ -13,7 +13,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 |------|-----------|-----------|
 | Objects | `POST /objects`, `DELETE /objects/:id` | `createObject` / `createCollection`, `deleteObject` |
 | Properties | `GET /properties/:o`, `POST /properties/:o/base/:typeId` | `getObject`, `createObject`/`updateObject` (dotted `Type.prop`) |
-| Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes), `getRecord` |
+| Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes) |
 | Datasets | `POST /modify`, `POST /delete-records` | `setRecord`, `deleteRecord` |
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |
 | Types | `GET`/`POST /types`, `GET /types/:id/properties`, `POST …/properties` | `getTypes`/`createType`, `getProperties`/`getProperty`/`describeType` (catalog-backed) |
@@ -24,7 +24,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 ## Added in this pass
 
 - `deleteRecord(objId, dataset, ids)` → `POST /delete-records` — completes the
-  dataset CRUD set (getRecord / setRecord / deleteRecord; multi-record reads via getObjects dataset mode).
+  dataset CRUD (setRecord / deleteRecord; reads via getObjects dataset mode).
 - `getObjects` gained `filter`/`sort`/`limit`/`offset` → the full
   `POST /objects/query` surface (see `docs/09-query.md`).
 

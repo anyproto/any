@@ -42,7 +42,14 @@ function _findByName(name) {
 // Load the mini_app dataset record for an object id. Returns { source, state,
 // readme } with string defaults, or null if the object/record is missing.
 function _loadParts(objId) {
-  var rec = _c().getRecord(objId, DATASET, RECORD);
+  var res = _c().getObjects({ objectId: objId, dataset: DATASET });
+  var rec = null;
+  if (res && res.ok) {
+    for (var i = 0; i < res.records.length; i++) {
+      if (res.records[i].id === RECORD) { rec = res.records[i]; break; }
+    }
+    if (!rec && res.records.length) rec = res.records[0];
+  }
   if (!rec) return { source: "", state: null, readme: "" };
   return {
     source: typeof rec.source === "string" ? rec.source : "",

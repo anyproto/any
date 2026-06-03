@@ -126,7 +126,6 @@ prefer an indexed builtin field or a dedicated per-object dataset. There is no
 |--------|---------|
 | `getObjects("xkey")` or `getObjects({type, filter, sort, limit, offset, includeTotal, space})` | **cross-object** query; readable dotted xKey filter/sort keys; normalized records |
 | `getObjects({objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
-| `getRecord(objId, dataset, recordId?, {space})` | convenience → one raw dataset record (or null) |
 
 `getObjects` is the single query method (both modes) and always returns
 `{ ok, records, total?, error }`. For dataset writes use `setRecord` (atomic
