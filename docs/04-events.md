@@ -91,7 +91,7 @@ event: ready
 data: {}
 
 event: snapshot
-data: {"records":[…], "total":17, "hasMore":true}
+data: {"records":[…], "total":17, "hasNext":true}
 
 event: changes
 data: [{"versionId":"…",
@@ -107,7 +107,7 @@ data: {"reason":"overflow"}
 ```
 
 Wait for `ready`. Integrate `snapshot.records` (and stash `total` /
-`hasMore` if you asked for it via `includeTotal`). Apply each subsequent `changes` batch to the local
+`hasNext` if you asked for it via `includeTotal`). Apply each subsequent `changes` batch to the local
 window: add new records, update mutated ones, drop ids in `removed`
 (only `reason:"deleted"` means the object is gone for good).
 On `closed`, reconnect with a fresh POST.

@@ -366,7 +366,7 @@ snapshot plus a live SSE stream of windowed transitions. See
   "sort":       ["-_ver.id"],         // required when limit > 0 on subscribe
   "limit":      100,
   "offset":     0,
-  "includeTotal":       true,         // populate `total` + `hasMore` in the snapshot
+  "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
   "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
@@ -387,7 +387,7 @@ Snapshot response (bare `…/query`):
 ```json
 { "records": [ /* *anyenc.Value rendered as JSON */ ],
   "total":   17,                      // omitted when includeTotal=false
-  "hasMore": true }                   // more matches past this page; omitted when includeTotal=false
+  "hasNext": true }                   // more matches past this page; omitted when includeTotal=false
 ```
 
 #### Subscribe (Server-Sent Events)
@@ -411,7 +411,7 @@ event: ready
 data: {}
 
 event: snapshot
-data: {"records":[{"id":"obj_a", "...": "..."}, ...], "total": 17, "hasMore": true}
+data: {"records":[{"id":"obj_a", "...": "..."}, ...], "total": 17, "hasNext": true}
 
 event: changes
 data: [{"versionId":"!!%>",
@@ -433,7 +433,7 @@ data: {"reason": "overflow"}
   for it before treating the stream as live.
 - **`snapshot`** — sent once, right after `ready`. `records` is the
   materialised window (bounded by `limit`/`offset`); `total` is the
-  unbounded filter-matching count and `hasMore` reports whether more
+  unbounded filter-matching count and `hasNext` reports whether more
   matches exist past this page (`offset+len(records) < total`). Both
   are present only when `includeTotal` was set in the request body.
 - **`changes`** — JSON array of zero-or-more windowed events. Each

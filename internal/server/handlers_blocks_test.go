@@ -203,18 +203,18 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 	if snap.Event != "snapshot" {
 		t.Fatalf("second frame = %q, want snapshot", snap.Event)
 	}
-	// includeTotal=true → the snapshot frame carries total + hasMore,
-	// and hasMore is consistent with the window it returned.
+	// includeTotal=true → the snapshot frame carries total + hasNext,
+	// and hasNext is consistent with the window it returned.
 	var snapData api.QuerySubscribeSnapshot
 	if err := json.Unmarshal(snap.Data, &snapData); err != nil {
 		t.Fatalf("decode snapshot frame: %v", err)
 	}
-	if snapData.Total == nil || snapData.HasMore == nil {
-		t.Fatalf("snapshot frame: total=%v hasMore=%v, want both populated", snapData.Total, snapData.HasMore)
+	if snapData.Total == nil || snapData.HasNext == nil {
+		t.Fatalf("snapshot frame: total=%v hasNext=%v, want both populated", snapData.Total, snapData.HasNext)
 	}
-	if want := len(snapData.Records) < *snapData.Total; *snapData.HasMore != want {
-		t.Errorf("snapshot hasMore=%v, want %v (records=%d total=%d)",
-			*snapData.HasMore, want, len(snapData.Records), *snapData.Total)
+	if want := len(snapData.Records) < *snapData.Total; *snapData.HasNext != want {
+		t.Errorf("snapshot hasNext=%v, want %v (records=%d total=%d)",
+			*snapData.HasNext, want, len(snapData.Records), *snapData.Total)
 	}
 
 	created := blocksCreate(t, e, base, `{"type":"paragraph","text":"hello"}`)
