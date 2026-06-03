@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -191,7 +192,7 @@ func (d *deps) spaceJoin(c echo.Context) error {
 	if strings.Contains(err.Error(), "join pending owner approval") {
 		inv, dErr := space.DecodeInvite(req.InviteToken)
 		if dErr != nil {
-			return inviteDecodeError(c, dErr)
+			return inviteDecodeError(c)
 		}
 		infos, lErr := d.sdk.Spaces().List(c.Request().Context())
 		if lErr != nil {
@@ -208,6 +209,9 @@ func (d *deps) spaceJoin(c echo.Context) error {
 			Id:     inv.SpaceId,
 			Status: api.SpaceStatusJoining,
 		})
+	}
+	if errors.Is(err, space.ErrInvalidInvite) {
+		return inviteDecodeError(c)
 	}
 	return aclOpError(c, err, nil)
 }
