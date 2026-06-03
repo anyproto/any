@@ -28,7 +28,6 @@ var (
 	base          string
 	programsDir   string
 	spaceName     string
-	chatName      string
 	agentName     string
 	programTypeID string
 
@@ -57,7 +56,6 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
 	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
 	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
-	flag.StringVar(&chatName, "chat", "bobrik", "chat object name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
 	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
 	flag.Parse()
@@ -81,11 +79,11 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "space %q → %s\n", spaceName, spaceID)
 
-	objectID, err := ensureChat(spaceID, chatName)
+	objectID, err := derivePrimaryChat(spaceID)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintf(os.Stderr, "chat %q → %s\n", chatName, objectID)
+	fmt.Fprintf(os.Stderr, "primary chat (derived) → %s\n", objectID)
 
 	programTypeID, err = ensureProgramType(base, spaceID)
 	if err != nil {
@@ -246,72 +244,43 @@ func createSpace(name string) (string, error) {
 	return sp.Id, nil
 }
 
-func ensureChat(spaceID, name string) (string, error) {
-	id, err := findObject(spaceID, name)
-	if err == nil {
-		return id, nil
-	}
-	return createChat(spaceID, name)
-}
+// primaryChatSeed mirrors any-ui's `PRIMARY_CHAT_SEED = btoa('any-ui/primary-chat/v1')`
+// (src/lib/api/objects/ensure.ts) — json.Marshal base64-encodes the []byte
+// exactly like btoa, so both clients derive the SAME chat object in a space.
+//
+// TEMP: replicating the UI's seed constant here is a stopgap so bobrik watches
+// the chat the Desktop UI actually writes to. The real contract — who owns the
+// seed, how peers discover a space's primary chat — is still to be discussed.
+const primaryChatSeed = "any-ui/primary-chat/v1"
 
-func findObject(spaceID, name string) (string, error) {
-	filter := fmt.Sprintf(`{"filter":{"any.name":%q}}`, name)
-	resp, err := http.Post(
-		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
-		"application/json",
-		strings.NewReader(filter),
-	)
-	if err != nil {
-		return "", fmt.Errorf("query objects: %w", err)
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Records []json.RawMessage `json:"records"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode objects: %w", err)
-	}
-	if len(out.Records) == 0 {
-		return "", fmt.Errorf("object %q not found in space %s", name, spaceID)
-	}
-	var rec struct {
-		Id string `json:"id"`
-	}
-	if err := json.Unmarshal(out.Records[0], &rec); err != nil {
-		return "", fmt.Errorf("decode record: %w", err)
-	}
-	return rec.Id, nil
-}
-
-func createChat(spaceID, name string) (string, error) {
+// derivePrimaryChat resolves the space's primary chat via the server's
+// deterministic objects/derive primitive: derive(space, seed, types) returns
+// the same object id on every call, so this never mints a second chat —
+// across restarts, peers, or races with the UI.
+func derivePrimaryChat(spaceID string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
+		"seed":  []byte(primaryChatSeed),
 		"types": []string{"chat"},
-		"initialProperties": map[string]any{
-			"any": map[string]any{
-				"name": name,
-			},
-		},
 	})
 	resp, err := http.Post(
-		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects",
+		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/derive",
 		"application/json",
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return "", fmt.Errorf("create chat: %w", err)
+		return "", fmt.Errorf("derive chat: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("create chat: %d %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("derive chat: %d %s", resp.StatusCode, msg)
 	}
 	var obj struct {
 		ObjectId string `json:"objectId"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
-		return "", fmt.Errorf("decode created object: %w", err)
+		return "", fmt.Errorf("decode derived chat: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "created chat %q → %s\n", name, obj.ObjectId)
 	return obj.ObjectId, nil
 }
 

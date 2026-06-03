@@ -70,14 +70,19 @@ Then in another terminal:
 |------|---------|-------------|
 | `--addr` | `127.0.0.1:7001` | `any` server address (host:port) |
 | `--space` | `bobrik` | Space name (created if missing) |
-| `--chat` | `bobrik` | Chat object name (created if missing) |
 | `--agent-name` | `bobrik` | `fromAgent` tag on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
+
+There is no `--chat` flag: the watched chat is the space's **primary chat**,
+resolved via the server's deterministic `objects/derive` primitive with the
+same seed any-ui uses (`btoa('any-ui/primary-chat/v1')`), so bobrik and the
+Desktop UI always converge on the same chat object. (TEMP: the shared-seed
+convention is a stopgap — the primary-chat discovery contract is TBD.)
 
 ### Pointing at a different server
 
 ```sh
-./bin/bobrik-watch --addr 127.0.0.1:7002 --space myspace --chat mychat
+./bin/bobrik-watch --addr 127.0.0.1:7002 --space myspace
 ```
 
 ## Architecture

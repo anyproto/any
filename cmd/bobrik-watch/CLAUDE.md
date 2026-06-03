@@ -123,7 +123,9 @@ write, so the bad name never reaches storage from inside the agent.
 
 ```
 make build                                        # builds both any and bobrik-watch
-./bin/bobrik-watch                                # default: space=bobrik, chat=bobrik
+./bin/bobrik-watch                                # default: space=bobrik; watches the DERIVED primary chat
+                                                  # (same seed as any-ui: btoa('any-ui/primary-chat/v1') —
+                                                  #  TEMP shared-seed convention, contract TBD)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ./bin/bobrik-watch --bootstrap                    # SIGHUP a running instance
 ```
