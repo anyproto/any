@@ -133,21 +133,21 @@
 **Files:**
 - Modify: `docs/06-errors.md`
 
-- [ ] add `invite.invalid                  # 400 — invite token malformed or unrecognized`
+- [x] add `invite.invalid                  # 400 — invite token malformed or unrecognized`
       to the error-code namespace list (near the space/object codes)
-- [ ] no tests (docs-only); re-read the surrounding list to keep formatting
+- [x] no tests (docs-only); re-read the surrounding list to keep formatting
       consistent
 
 ### Task 4: Verify acceptance criteria
-- [ ] `400 invite.invalid` returned for an invalid token (Overview goal met)
-- [ ] message contains no SDK internals (`spaceimpl`, `anysyncsdk`, paths)
-- [ ] pending-approval and RequestJoin paths unchanged (out of scope, untouched)
-- [ ] run full suite: `go build ./cmd/any && go vet ./... && go test ./...`
+- [x] `400 invite.invalid` returned for an invalid token (Overview goal met)
+- [x] message contains no SDK internals (`spaceimpl`, `anysyncsdk`, paths)
+- [x] pending-approval and RequestJoin paths unchanged (out of scope, untouched)
+- [x] run full suite: `go build ./cmd/any && go vet ./... && go test ./...`
 
 ### Task 5: [Final] Update documentation and close out
-- [ ] confirm `docs/06-errors.md` updated (Task 3)
-- [ ] no CLAUDE.md change needed (no new pattern introduced)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] confirm `docs/06-errors.md` updated (Task 3)
+- [x] no CLAUDE.md change needed (no new pattern introduced)
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 *Items requiring manual intervention or external systems — informational only*
