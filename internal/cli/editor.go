@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -131,11 +130,11 @@ func newBlocksDeleteCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, flags.Timeout)
-			if err := cl.BlocksDelete(cmd.Context(), args[0], args[1], args[2]); err != nil {
+			out, err := cl.BlocksDelete(cmd.Context(), args[0], args[1], args[2])
+			if err != nil {
 				return err
 			}
-			fmt.Fprintln(os.Stderr, "deleted")
-			return nil
+			return printJSON(out)
 		},
 	}
 }

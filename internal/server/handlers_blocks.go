@@ -38,7 +38,7 @@ import (
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
 //	@Param		body		body		api.BlockCreateRequest	true	"Block params (type required)"
-//	@Success	201			{object}	api.Block
+//	@Success	201			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [post]
@@ -70,11 +70,11 @@ func (d *deps) blocksCreate(c echo.Context) error {
 		in.Pos = req.Nav.Pos
 	}
 
-	b, err := editor.Create(c.Request().Context(), sp, objectId, in)
+	res, err := editor.Create(c.Request().Context(), sp, objectId, in)
 	if err != nil {
 		return blockOpError(c, err, sp.Id(), objectId)
 	}
-	return c.JSON(http.StatusCreated, blockToAPI(b))
+	return c.JSON(http.StatusCreated, modifyResultToAPI(res))
 }
 
 // blocksPatch handles PATCH .../editor/blocks/:blockId.
@@ -87,7 +87,7 @@ func (d *deps) blocksCreate(c echo.Context) error {
 //	@Param		objectId	path		string					true	"Object ID"
 //	@Param		blockId		path		string					true	"Block ID"
 //	@Param		body		body		api.BlockPatchRequest	true	"Set/unset ops"
-//	@Success	200			{object}	api.BlockPatchResponse
+//	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
@@ -115,20 +115,7 @@ func (d *deps) blocksPatch(c echo.Context) error {
 	if err != nil {
 		return blockOpError(c, err, sp.Id(), objectId)
 	}
-	// Empty patch (no-op) returns the current state — re-read the
-	// block to surface its existing _ver.id.
-	if res.VersionId == "" {
-		current, getErr := editor.Get(c.Request().Context(), sp, objectId, blockId)
-		if getErr != nil {
-			return blockOpError(c, getErr, sp.Id(), objectId)
-		}
-		var verId string
-		if v, ok := current.Ver["id"].(string); ok {
-			verId = v
-		}
-		return c.JSON(http.StatusOK, api.BlockPatchResponse{VersionId: verId})
-	}
-	return c.JSON(http.StatusOK, api.BlockPatchResponse{VersionId: string(res.VersionId)})
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
 // blocksDelete handles DELETE .../editor/blocks/:blockId.
@@ -138,7 +125,7 @@ func (d *deps) blocksPatch(c echo.Context) error {
 //	@Param		spaceId		path	string	true	"Space ID"
 //	@Param		objectId	path	string	true	"Object ID"
 //	@Param		blockId		path	string	true	"Block ID"
-//	@Success	204
+//	@Success	200	{object}	api.ModifyResult
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -153,23 +140,11 @@ func (d *deps) blocksDelete(c echo.Context) error {
 	if objectId == "" || blockId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and blockId required", nil)
 	}
-	if err := editor.Delete(c.Request().Context(), sp, objectId, blockId); err != nil {
+	res, err := editor.Delete(c.Request().Context(), sp, objectId, blockId)
+	if err != nil {
 		return blockOpError(c, err, sp.Id(), objectId)
 	}
-	return c.NoContent(http.StatusNoContent)
-}
-
-// blockToAPI projects a editor.Block onto the wire-shape api.Block.
-// The two structs are field-aligned — the conversion is a copy.
-func blockToAPI(b editor.Block) api.Block {
-	return api.Block{
-		Id:    b.Id,
-		Ver:   b.Ver,
-		Type:  b.Type,
-		Style: b.Style,
-		Text:  b.Text,
-		Nav:   api.BlockNav{ParentId: b.Nav.ParentId, Pos: b.Nav.Pos},
-	}
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
 // blockOpError maps blocks-package errors to the canonical envelope.

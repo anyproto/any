@@ -24,6 +24,35 @@
   `GET /editor/markdown`, which renders blocks to markdown bytes —
   a transform, not a dataset read.
 
+### Write responses
+
+Every dataset write — `Space.Modify` / `Space.Delete` and the bespoke
+chat (send / edit / delete / react) and editor (create / patch /
+delete) handlers — returns the same shape, `api.ModifyResult`:
+
+```json
+{ "versionId": "<change VersionId>",
+  "changeId":  "<changeId>",
+  "recordIds": ["<id>"],
+  "rejections": [] }
+```
+
+- `versionId` is the **change's** VersionId. Clients running the
+  subscribe-then-query-then-apply recipe stamp `_ver.<op.path> =
+  versionId` on the touched paths to pre-seed dedup against the matching
+  live event, and use it to order their own writes against remote ones.
+  (Distinct from `_ver.id`, the per-record creation marker — a stable
+  id, not a per-edit version.)
+- `recordIds` mirrors the input record order. On creates it carries the
+  server-derived id (`recordIds[0]`); on edit / delete / react it echoes
+  the target id.
+- `rejections` is omitted unless a handler dropped an op (partial
+  success). The bespoke chat/editor handlers turn any rejection into a
+  4xx instead, so it's always empty there.
+
+Writes never return the record body — read it back through `/query` (or
+live via `/query/subscribe`). One write shape across the whole API.
+
 ## Endpoint catalog
 
 ### Meta
@@ -202,8 +231,10 @@ blocks yet.
 object — the handler accepts any sub-keys. `text` is inline markdown.
 `nav.parentId` defaults to `""` (top-level); `nav.pos` defaults to
 the next lexid past the parent's current max (queried server-side at
-create time). Returns 201 with the full block record (server-allocated
-`id` and `_ver` included).
+create time). Returns 201 with the shared write result
+`{versionId, changeId, recordIds}` — `recordIds[0]` is the
+server-allocated block id. Read the block back via `POST /query` with
+`dataset=editor_blocks` (see § Write responses).
 
 ##### Patch
 
@@ -216,10 +247,9 @@ create time). Returns 201 with the full block record (server-allocated
 
 Each key in `set` is a dotted field path applied as one `$set` op.
 Each entry in `unset` is a dotted path applied as one `$unset`. Both
-fields are optional; an empty patch is a no-op that returns the
-record's existing `_ver.id` (the creation marker — stable identifier
-for the record, not a per-edit version). All ops land in a single
-any-sync change (one VersionId).
+fields are optional; an empty patch is a no-op — no change is produced,
+so the result carries `recordIds=[blockId]` with an empty `versionId`.
+All ops land in a single any-sync change (one VersionId).
 
 Required fields cannot be `$unset`-ed (`type`, `nav.parentId`,
 `nav.pos`) — the handler rejects those ops while still applying the
@@ -230,19 +260,20 @@ parsed as one anyenc field path, NOT as nested objects. Use
 `"style.level"` to touch a single sub-field; use `"style": {"level":2}`
 only when you want to replace the entire `style` object whole-cloth.
 
-Response:
-
-```json
-{ "versionId": "<lexid>" }
-```
+Response: the shared write result `{versionId, changeId, recordIds}`
+(`recordIds=[blockId]`). Clients running the
+subscribe-then-query-then-apply recipe stamp `_ver.<op.path> = versionId`
+on the affected paths to pre-seed dedup against the matching live event.
 
 ##### Delete
 
 `DELETE /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`
-→ 204. Tombstones the record (sticky — re-creating the same id is
-rejected). Children of the deleted block are NOT cascaded; the client
-either deletes the descendants explicitly or rewrites the document
-via `PUT /editor/markdown`, which diffs the whole body.
+→ 200 with the shared write result `{versionId, changeId, recordIds}`
+(`recordIds=[blockId]`). Tombstones the record (sticky — re-creating
+the same id is rejected). Children of the deleted block are NOT
+cascaded; the client either deletes the descendants explicitly or
+rewrites the document via `PUT /editor/markdown`, which diffs the whole
+body.
 
 ##### Subscribe
 
@@ -539,7 +570,13 @@ New incoming messages arrive in `added`; edits in `updated`; deletes
 and reactions toggling off in `removed`. `added.doc` carries the full
 message body — no follow-up GET needed. See `04-events.md`.
 
-#### Message wire shape
+#### Message wire shape (read path)
+
+This is what `POST /query` and `/query/subscribe` return for a
+`chat_messages` record. The write endpoints (send / edit / delete /
+react) do NOT return this — they return the shared write result
+`{versionId, changeId, recordIds}` (see § Write responses); the message
+body is always read back through the query path.
 
 ```json
 {
@@ -554,7 +591,7 @@ message body — no follow-up GET needed. See `04-events.md`.
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
-  "reactions":        { "👍": ["<id1>", "<id2>"] }
+  "reactions":        { "👍": { "<id1>": 1714597200, "<id2>": 1714597205 } }
 }
 ```
 
@@ -579,15 +616,17 @@ unknown types rather than dropping the entry. `link` is ≤ 2 KiB. Up
 to 32 attachments per message. Immutable post-create — the handler
 rejects $set on the attachments path.
 
-`reactions` is rolled up on the wire from
-`reactions.<emoji>.<accountId> = <changeTimestamp>` storage to the
-emoji → `[accountId, ...]` shape clients render, sorted by timestamp
-ascending so they display in arrival order. Authorization on writes
-is a single path-segment compare against `ctx.Change.Creator` in the
-handler: only the change's signer can write into
-`reactions.<emoji>.<their-identity>`. The leaf timestamp is server-
-derived (`sink.Derive` overrides whatever the client sent). See
-`internal/chat/handler.go`.
+`reactions` ships on the wire in the same shape it has in storage:
+emoji → `{accountId: <changeTimestamp>}`, where the leaf timestamp is
+when that identity added the emoji. This is identical to what `/query`
+and `/query/subscribe` return for the record, so a client parses
+`reactions` exactly one way regardless of which endpoint produced it
+(clients sort by the leaf timestamp themselves if they want arrival
+order). Authorization on writes is a single path-segment compare
+against `ctx.Change.Creator` in the handler: only the change's signer
+can write into `reactions.<emoji>.<their-identity>`. The leaf timestamp
+is server-derived (`sink.Derive` overrides whatever the client sent).
+See `internal/chat/handler.go`.
 
 #### Send
 
@@ -600,8 +639,10 @@ derived (`sink.Derive` overrides whatever the client sent). See
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
 target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
-present; immutable post-create. Returns 201 with the full message
-record (server-stamped fields included).
+present; immutable post-create. Returns 201 with the shared write
+result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
+server-derived message id. Read the message back via the query path
+above.
 
 #### Read
 
@@ -630,19 +671,19 @@ each page client-side for oldest-at-top display. The bespoke endpoint's
 `before` / `after` / `limit` flags moved off the API surface; the recipe
 replaces them. See `08-clients.md` for the full read/write recommendations.
 
-Reactions on queried records are NOT the transposed
-`{emoji: [accountId,...]}` shape — they ship raw as
-`reactions.<emoji>.<accountId> = <timestamp>` (server-derived). Use
-the POST `…/reactions/:emoji` response for the transposed wire shape
-when needed.
+Reactions on queried records ship as
+`reactions.<emoji>.<accountId> = <timestamp>` (server-derived) — the
+same shape the bespoke send / edit / react responses return, so there
+is nothing to transpose between the read and write paths.
 
 #### Edit / delete (own only)
 
 `PATCH .../chat/messages/:msgId` body `{ "text": "..." }` replaces the
 text and bumps `modifiedAt`. `DELETE .../chat/messages/:msgId` tombstones
-the record. Both return `403 chat.not_author` for non-authors and
-`404 chat.not_found` for unknown ids. The handler enforces the same
-rules for peer-originated changes.
+the record. Both return `200` with the shared write result
+`{versionId, changeId, recordIds}` (`recordIds=[msgId]`), `403
+chat.not_author` for non-authors, and `404 chat.not_found` for unknown
+ids. The handler enforces the same rules for peer-originated changes.
 
 #### React (toggle)
 
@@ -651,11 +692,9 @@ caller's reaction. The CRDT op is `$set` (add) or `$unset` (remove)
 on the leaf `reactions.<emoji>.<callerId>`; the value on add is the
 triggering change's timestamp, server-derived. Because the leaf is
 unique per (emoji, identity), two clients toggling at the same time
-can't corrupt each other. Response:
-
-```json
-{ "reactions": { "👍": ["<id>"], "🎉": ["<id>"] } }
-```
+can't corrupt each other. Returns `200` with the shared write result
+`{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
+updated `reactions` back via the query path.
 
 ### Members
 
@@ -918,8 +957,10 @@ Query body / response are documented in § Data plane above.
 }
 ```
 
-Response: `{ "versionId": "..." }` (to become `{versionId, recordIds:[...]}`
-once the SDK grows `ModifyResult` — see `07-roadmap.md`).
+Response: the shared write result `{versionId, changeId, recordIds,
+rejections?}` — see § Write responses. `recordIds` mirrors the input
+record order (`recordIds[0]` is the derived id for the empty-id upsert
+above).
 
 ## Middleware
 

@@ -67,10 +67,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
-	var patchResp api.BlockPatchResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &patchResp); err != nil {
-		t.Fatalf("decode patch resp: %v", err)
-	}
+	patchResp := decodeModifyResult(t, rec.Body.Bytes())
 	if patchResp.VersionId == "" {
 		t.Errorf("patch versionId empty")
 	}
@@ -95,10 +92,13 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 		t.Errorf("post-unset style should be nil, got %+v", listed.Records[0].Style)
 	}
 
-	// 6. Delete the second block.
+	// 6. Delete the second block — now returns 200 with a ModifyResult.
 	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+second.Id, "")
-	if rec.Code != http.StatusNoContent {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body.String())
+	}
+	if res := decodeModifyResult(t, rec.Body.Bytes()); res.VersionId == "" {
+		t.Errorf("delete: empty versionId in %+v", res)
 	}
 
 	listed = blocksList(t, e, base)
@@ -140,7 +140,7 @@ func TestServer_Blocks_NestedTree(t *testing.T) {
 		t.Fatalf("list: %d records, want 3", len(listed.Records))
 	}
 
-	byId := map[string]api.Block{}
+	byId := map[string]block{}
 	for _, b := range listed.Records {
 		byId[b.Id] = b
 	}
@@ -234,7 +234,7 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+created.Id, "")
-	if rec.Code != http.StatusNoContent {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body.String())
 	}
 	_ = awaitWindowedEvent(t, frames, created.Id, windowedRemoved)
@@ -352,7 +352,7 @@ func TestServer_Blocks_MultiRecordBatchId(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+suffixedId, "")
-	if rec.Code != http.StatusNoContent {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE suffixed id: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -391,25 +391,51 @@ func setupBlocksFixture(t *testing.T, e http.Handler) (spaceId, objectId string)
 	return spaceId, objectId
 }
 
-func blocksCreate(t *testing.T, e http.Handler, base, body string) api.Block {
+// block is the test-local decode target for an editor_blocks record
+// read back via /query. Writes now return api.ModifyResult, so the
+// block body is always fetched through the query path.
+type block struct {
+	Id    string         `json:"id"`
+	Ver   map[string]any `json:"_ver"`
+	Type  string         `json:"type"`
+	Style map[string]any `json:"style"`
+	Text  string         `json:"text"`
+	Nav   struct {
+		ParentId string `json:"parentId"`
+		Pos      string `json:"pos"`
+	} `json:"nav"`
+}
+
+// blocksCreate posts a block and returns the read-back record.
+// recordIds[0] from the ModifyResult is the server-derived block id,
+// which we re-query to surface nav.pos / _ver / etc.
+func blocksCreate(t *testing.T, e http.Handler, base, body string) block {
 	t.Helper()
 	rec := doJSON(t, e, http.MethodPost, base+"/editor/blocks", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create block %s: %d %s", body, rec.Code, rec.Body.String())
 	}
-	var b api.Block
-	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
-		t.Fatalf("decode block: %v", err)
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if res.VersionId == "" {
+		t.Errorf("create block %s: empty versionId in %+v", body, res)
 	}
-	return b
+	if len(res.RecordIds) == 0 || res.RecordIds[0] == "" {
+		t.Fatalf("create block %s: no recordIds in %+v", body, res)
+	}
+	id := res.RecordIds[0]
+	for _, b := range blocksList(t, e, base).Records {
+		if b.Id == id {
+			return b
+		}
+	}
+	t.Fatalf("create block %s: %s not found after create", body, id)
+	return block{}
 }
 
-// blocksListResp mirrors the old api.BlockListResponse shape but is
-// materialised by POSTing /v1/spaces/:id/query with dataset=editor_blocks
-// and sort=nav.pos — the canonical "read" path now that the GET
-// endpoint is gone.
+// blocksListResp is the read-back block list, materialised by POSTing
+// /v1/spaces/:id/query with dataset=editor_blocks and sort=nav.pos.
 type blocksListResp struct {
-	Records []api.Block
+	Records []block
 }
 
 func blocksList(t *testing.T, e http.Handler, base string) blocksListResp {
@@ -434,9 +460,9 @@ func blocksList(t *testing.T, e http.Handler, base string) blocksListResp {
 	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
 		t.Fatalf("decode query: %v", err)
 	}
-	out := blocksListResp{Records: make([]api.Block, 0, len(qr.Records))}
+	out := blocksListResp{Records: make([]block, 0, len(qr.Records))}
 	for _, raw := range qr.Records {
-		var b api.Block
+		var b block
 		if err := json.Unmarshal(raw, &b); err != nil {
 			t.Fatalf("decode record: %v", err)
 		}

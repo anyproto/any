@@ -28,7 +28,7 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	second := chatSend(t, e, base, "second", first.Id)
 	third := chatSend(t, e, base, "third", "")
 
-	for _, msg := range []api.ChatMessage{first, second, third} {
+	for _, msg := range []chatMsg{first, second, third} {
 		if msg.Id == "" {
 			t.Fatalf("message id empty: %+v", msg)
 		}
@@ -59,16 +59,17 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 			listed.Messages[0].Text, listed.Messages[1].Text, listed.Messages[2].Text)
 	}
 
-	// Edit second message.
+	// Edit second message — write returns a ModifyResult; the edited
+	// record is read back via query.
 	body := `{"text":"second-edited"}`
 	rec := doJSON(t, e, http.MethodPatch, base+"/chat/messages/"+second.Id, body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
-	var edited api.ChatMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &edited); err != nil {
-		t.Fatalf("decode edited: %v", err)
+	if res := decodeModifyResult(t, rec.Body.Bytes()); res.VersionId == "" {
+		t.Errorf("edit: empty versionId in %+v", res)
 	}
+	edited := getChatMsg(t, e, base, second.Id)
 	if edited.Text != "second-edited" {
 		t.Errorf("edited.Text = %q, want second-edited", edited.Text)
 	}
@@ -76,17 +77,21 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 		t.Errorf("modifiedAt should be set and >= createdAt: %+v", edited)
 	}
 
-	// React with 👍 (add).
+	// React with 👍 (add) — write returns a ModifyResult; reactions are
+	// read back via query.
 	rxRec := doJSON(t, e, http.MethodPost, base+"/chat/messages/"+second.Id+"/reactions/"+url.PathEscape("👍"), "")
 	if rxRec.Code != http.StatusOK {
 		t.Fatalf("POST react add: %d %s", rxRec.Code, rxRec.Body.String())
 	}
-	var rxResp api.ChatReactionsResponse
-	if err := json.Unmarshal(rxRec.Body.Bytes(), &rxResp); err != nil {
-		t.Fatalf("decode react: %v", err)
+	if res := decodeModifyResult(t, rxRec.Body.Bytes()); res.VersionId == "" {
+		t.Errorf("react add: empty versionId in %+v", res)
 	}
-	if len(rxResp.Reactions["👍"]) != 1 || rxResp.Reactions["👍"][0] != d.account {
-		t.Errorf("after add: reactions = %+v, want {👍: [%s]}", rxResp.Reactions, d.account)
+	if reacted := getChatMsg(t, e, base, second.Id); func() bool {
+		_, ok := reacted.Reactions["👍"][d.account]
+		return len(reacted.Reactions["👍"]) != 1 || !ok
+	}() {
+		t.Errorf("after add: reactions = %+v, want {👍: {%s: ts}}",
+			getChatMsg(t, e, base, second.Id).Reactions, d.account)
 	}
 
 	// React again toggles off.
@@ -94,17 +99,17 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 	if rxRec.Code != http.StatusOK {
 		t.Fatalf("POST react toggle off: %d %s", rxRec.Code, rxRec.Body.String())
 	}
-	if err := json.Unmarshal(rxRec.Body.Bytes(), &rxResp); err != nil {
-		t.Fatalf("decode react toggle: %v", err)
-	}
-	if got := rxResp.Reactions["👍"]; len(got) != 0 {
+	if got := getChatMsg(t, e, base, second.Id).Reactions["👍"]; len(got) != 0 {
 		t.Errorf("after toggle off: reactions[👍] = %v, want empty", got)
 	}
 
-	// Delete first message.
+	// Delete first message — now returns 200 with a ModifyResult.
 	delRec := doJSON(t, e, http.MethodDelete, base+"/chat/messages/"+first.Id, "")
-	if delRec.Code != http.StatusNoContent {
+	if delRec.Code != http.StatusOK {
 		t.Fatalf("DELETE: %d %s", delRec.Code, delRec.Body.String())
+	}
+	if res := decodeModifyResult(t, delRec.Body.Bytes()); res.VersionId == "" {
+		t.Errorf("delete: empty versionId in %+v", res)
 	}
 
 	// List after delete: two messages remain.
@@ -183,10 +188,11 @@ func TestServer_Chat_Attachments(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
 	}
-	var msg api.ChatMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &msg); err != nil {
-		t.Fatalf("decode: %v", err)
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if len(res.RecordIds) == 0 {
+		t.Fatalf("send: no recordIds in %+v", res)
 	}
+	msg := getChatMsg(t, e, base, res.RecordIds[0])
 	if len(msg.Attachments) != 2 {
 		t.Fatalf("attachments len = %d, want 2: %+v", len(msg.Attachments), msg.Attachments)
 	}
@@ -256,7 +262,25 @@ func setupChatFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	return spaceId, objectId
 }
 
-func chatSend(t *testing.T, e http.Handler, base, text, replyTo string) api.ChatMessage {
+// chatMsg is the test-local decode target for a chat_messages record
+// read back via /query. Writes now return api.ModifyResult, so the
+// message body is always fetched through the query path.
+type chatMsg struct {
+	Id               string
+	Creator          string
+	CreatedAt        int64
+	ModifiedAt       int64
+	ReplyToMessageId string
+	FromAgent        string
+	Text             string
+	Attachments      map[string]api.ChatAttachment
+	Reactions        map[string]map[string]int64
+}
+
+// chatSend posts a message and returns the read-back record. recordIds[0]
+// from the ModifyResult is the server-derived message id, which we
+// re-query to surface creator/createdAt/replyTo/etc.
+func chatSend(t *testing.T, e http.Handler, base, text, replyTo string) chatMsg {
 	t.Helper()
 	body := fmt.Sprintf(`{"text":%q`, text)
 	if replyTo != "" {
@@ -267,18 +291,42 @@ func chatSend(t *testing.T, e http.Handler, base, text, replyTo string) api.Chat
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("send %q: %d %s", text, rec.Code, rec.Body.String())
 	}
-	var msg api.ChatMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &msg); err != nil {
-		t.Fatalf("decode send: %v", err)
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if res.VersionId == "" {
+		t.Errorf("send %q: empty versionId in %+v", text, res)
 	}
-	return msg
+	if len(res.RecordIds) == 0 || res.RecordIds[0] == "" {
+		t.Fatalf("send %q: no recordIds in %+v", text, res)
+	}
+	return getChatMsg(t, e, base, res.RecordIds[0])
 }
 
-// chatListResp mirrors the old api.ChatListResponse shape, materialised
-// via POST /v1/spaces/:id/query with dataset=chat_messages — the
-// canonical read path after the GET endpoint was removed.
+// decodeModifyResult decodes a write response into api.ModifyResult.
+func decodeModifyResult(t *testing.T, raw []byte) api.ModifyResult {
+	t.Helper()
+	var res api.ModifyResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("decode ModifyResult: %v\nraw=%s", err, raw)
+	}
+	return res
+}
+
+// getChatMsg queries one message by id and returns it; fails if absent.
+func getChatMsg(t *testing.T, e http.Handler, base, id string) chatMsg {
+	t.Helper()
+	for _, m := range chatList(t, e, base).Messages {
+		if m.Id == id {
+			return m
+		}
+	}
+	t.Fatalf("getChatMsg: message %s not found", id)
+	return chatMsg{}
+}
+
+// chatListResp is the read-back message list, materialised via POST
+// /v1/spaces/:id/query with dataset=chat_messages.
 type chatListResp struct {
-	Messages []api.ChatMessage
+	Messages []chatMsg
 }
 
 func chatList(t *testing.T, e http.Handler, base string) chatListResp {
@@ -303,26 +351,20 @@ func chatList(t *testing.T, e http.Handler, base string) chatListResp {
 	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
 		t.Fatalf("decode query: %v", err)
 	}
-	out := chatListResp{Messages: make([]api.ChatMessage, 0, len(qr.Records))}
+	out := chatListResp{Messages: make([]chatMsg, 0, len(qr.Records))}
 	for _, raw := range qr.Records {
-		out.Messages = append(out.Messages, decodeChatMessage(t, raw))
+		out.Messages = append(out.Messages, decodeChatMsg(t, raw))
 	}
 	return out
 }
 
-// decodeChatMessage rehydrates one record from the query wire shape
-// into api.ChatMessage. Two wrinkles vs. the bespoke /chat/messages
-// response shape:
-//
-//   - anyenc → fastjson renders numeric fields as JSON numbers in
-//     exponential form for large ints (`1.78e+09`), which Go's
-//     encoding/json can't unmarshal into int64. We hop through float64.
-//   - Reactions are stored as `reactions.<emoji>.<accountId> =
-//     <timestamp>` (server-derived) — the emoji→accountId-list
-//     transpose only happens in the bespoke handler. Tests that need
-//     the transposed shape go through POST /reactions/:emoji's
-//     response; we leave Reactions nil on queried records.
-func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
+// decodeChatMsg rehydrates one record from the query wire shape into
+// chatMsg. anyenc → fastjson renders numeric fields as JSON numbers in
+// exponential form for large ints (`1.78e+09`), which Go's
+// encoding/json can't unmarshal into int64, so we hop through float64.
+// Reactions ship in storage layout (emoji → {accountId: ts}) — the same
+// shape the write path no longer transposes.
+func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 	t.Helper()
 	var f struct {
 		Id               string                        `json:"id"`
@@ -333,11 +375,23 @@ func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 		FromAgent        string                        `json:"fromAgent"`
 		Text             string                        `json:"text"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
+		Reactions        map[string]map[string]float64 `json:"reactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("decode message: %v\nraw=%s", err, raw)
 	}
-	return api.ChatMessage{
+	var reactions map[string]map[string]int64
+	if len(f.Reactions) > 0 {
+		reactions = make(map[string]map[string]int64, len(f.Reactions))
+		for emoji, byAcct := range f.Reactions {
+			inner := make(map[string]int64, len(byAcct))
+			for acct, ts := range byAcct {
+				inner[acct] = int64(ts)
+			}
+			reactions[emoji] = inner
+		}
+	}
+	return chatMsg{
 		Id:               f.Id,
 		Creator:          f.Creator,
 		CreatedAt:        int64(f.CreatedAt),
@@ -346,5 +400,6 @@ func decodeChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 		FromAgent:        f.FromAgent,
 		Text:             f.Text,
 		Attachments:      f.Attachments,
+		Reactions:        reactions,
 	}
 }

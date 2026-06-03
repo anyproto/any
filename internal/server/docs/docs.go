@@ -1542,7 +1542,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.ChatMessage"
+                            "$ref": "#/definitions/api.ModifyResult"
                         }
                     },
                     "400": {
@@ -1590,8 +1590,11 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No Content"
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ModifyResult"
+                        }
                     },
                     "403": {
                         "description": "Forbidden",
@@ -1660,7 +1663,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.ChatMessage"
+                            "$ref": "#/definitions/api.ModifyResult"
                         }
                     },
                     "400": {
@@ -1733,7 +1736,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.ChatReactionsResponse"
+                            "$ref": "#/definitions/api.ModifyResult"
                         }
                     },
                     "400": {
@@ -1798,7 +1801,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/api.Block"
+                            "$ref": "#/definitions/api.ModifyResult"
                         }
                     },
                     "400": {
@@ -1846,8 +1849,11 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No Content"
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ModifyResult"
+                        }
                     },
                     "400": {
                         "description": "Bad Request",
@@ -1916,7 +1922,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/api.BlockPatchResponse"
+                            "$ref": "#/definitions/api.ModifyResult"
                         }
                     },
                     "400": {
@@ -2801,31 +2807,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.Block": {
-            "type": "object",
-            "properties": {
-                "_ver": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "id": {
-                    "type": "string"
-                },
-                "nav": {
-                    "$ref": "#/definitions/api.BlockNav"
-                },
-                "style": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "text": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            }
-        },
         "api.BlockCreateRequest": {
             "type": "object",
             "properties": {
@@ -2875,14 +2856,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.BlockPatchResponse": {
-            "type": "object",
-            "properties": {
-                "versionId": {
-                    "type": "string"
-                }
-            }
-        },
         "api.ChatAttachment": {
             "type": "object",
             "properties": {
@@ -2899,61 +2872,6 @@ const docTemplate = `{
             "properties": {
                 "text": {
                     "type": "string"
-                }
-            }
-        },
-        "api.ChatMessage": {
-            "type": "object",
-            "properties": {
-                "attachments": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/api.ChatAttachment"
-                    }
-                },
-                "createdAt": {
-                    "type": "integer"
-                },
-                "creator": {
-                    "type": "string"
-                },
-                "fromAgent": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "modifiedAt": {
-                    "type": "integer"
-                },
-                "reactions": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "replyToMessageId": {
-                    "type": "string"
-                },
-                "text": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ChatReactionsResponse": {
-            "type": "object",
-            "properties": {
-                "reactions": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
                 }
             }
         },
@@ -3445,6 +3363,9 @@ const docTemplate = `{
         "api.QueryResponse": {
             "type": "object",
             "properties": {
+                "hasNext": {
+                    "type": "boolean"
+                },
                 "records": {
                     "type": "array",
                     "items": {
