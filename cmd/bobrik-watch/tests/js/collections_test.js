@@ -28,9 +28,9 @@ export function main(args) {
 
   // Make a couple of objects and file them under the folder.
   var T = "Note_" + uniq;
-  c.createType({ name: T });
-  var a = c.createObject(T, { name: "a_" + uniq });
-  var b = c.createObject(T, { name: "b_" + uniq });
+  var tx = c.createType({ name: T }).type.xKey; // type xKey is the handle
+  var a = c.createObject(tx, { name: "a_" + uniq });
+  var b = c.createObject(tx, { name: "b_" + uniq });
   var add = c.addToCollection(col.id, [a.id, b.id]);
   h.check("addToCollection ok", add && add.ok, JSON.stringify(add));
 

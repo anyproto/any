@@ -17,18 +17,18 @@ export function main(args) {
   var c = createClient({ apiBaseUrl: args.apiBaseUrl, spaceId: args.spaceId, noTrace: true });
   var uniq = "" + new Date().getTime();
   var T = "Film_" + uniq;
-  var yearKey = T + ".year";
-  var genreKey = T + ".genre";
-
   // one-key object builder (computed keys aren't valid object literals in ES5)
   function one(k, v) { var o = {}; o[k] = v; return o; }
 
-  c.createType({ name: T, properties: [
+  // tx is the type xKey — the handle for type-args and dotted filter/sort keys.
+  var tx = c.createType({ name: T, properties: [
     { key: "year", name: "Year", format: "number" },
     { key: "genre", name: "Genre", format: "text" }
-  ]});
+  ]}).type.xKey;
+  var yearKey = tx + ".year";
+  var genreKey = tx + ".genre";
   function mk(name, year, genre) {
-    return c.createObject(T, { name: name + "_" + uniq, properties: { year: year, genre: genre } });
+    return c.createObject(tx, { name: name + "_" + uniq, properties: { year: year, genre: genre } });
   }
   mk("a", 1942, "drama"); mk("b", 1955, "drama"); mk("c", 1960, "noir"); mk("d", 1971, "noir");
 
@@ -36,27 +36,27 @@ export function main(args) {
   function ordered(list) { return list.map(function (x) { return x.name.replace("_" + uniq, ""); }); }
 
   // comparison + AND
-  var r1 = c.getObjects(T, { filter: one(yearKey, { "$gte": 1955, "$lt": 1971 }) });
+  var r1 = c.getObjects(tx, { filter: one(yearKey, { "$gte": 1955, "$lt": 1971 }) });
   h.check("$gte/$lt range", JSON.stringify(names(r1)) === JSON.stringify(["b", "c"]), JSON.stringify(names(r1)));
 
   // equality on string prop
-  var r2 = c.getObjects(T, { filter: one(genreKey, "noir") });
+  var r2 = c.getObjects(tx, { filter: one(genreKey, "noir") });
   h.check("equality filter", JSON.stringify(names(r2)) === JSON.stringify(["c", "d"]), JSON.stringify(names(r2)));
 
   // sort desc + limit
-  var r3 = c.getObjects(T, { sort: ["-" + yearKey], limit: 2 });
+  var r3 = c.getObjects(tx, { sort: ["-" + yearKey], limit: 2 });
   h.check("sort desc + limit", JSON.stringify(ordered(r3)) === JSON.stringify(["d", "c"]), JSON.stringify(ordered(r3)));
 
   // offset (skip the top one)
-  var r4 = c.getObjects(T, { sort: ["-" + yearKey], limit: 2, offset: 1 });
+  var r4 = c.getObjects(tx, { sort: ["-" + yearKey], limit: 2, offset: 1 });
   h.check("offset", JSON.stringify(ordered(r4)) === JSON.stringify(["c", "b"]), JSON.stringify(ordered(r4)));
 
   // $in on string
-  var r5 = c.getObjects(T, { filter: one(genreKey, { "$in": ["noir"] }) });
+  var r5 = c.getObjects(tx, { filter: one(genreKey, { "$in": ["noir"] }) });
   h.check("$in", JSON.stringify(names(r5)) === JSON.stringify(["c", "d"]), JSON.stringify(names(r5)));
 
   // --- per-object dataset query (editor_blocks) ---
-  var doc = c.createObject(T, { name: "doc_" + uniq });
+  var doc = c.createObject(tx, { name: "doc_" + uniq });
   var base = c.config.spacePath + "/objects/" + doc.id + "/editor/blocks";
   c.api("POST", base, { type: "paragraph", text: "first" });
   c.api("POST", base, { type: "paragraph", text: "second" });

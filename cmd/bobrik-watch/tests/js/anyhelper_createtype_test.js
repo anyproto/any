@@ -38,7 +38,7 @@ export function main(args) {
   h.check("xKey stable across re-declare", t2.type && t2.type.xKey === tx, "" + (t2.type && t2.type.xKey));
 
   // Both the original and the newly-added props must now be writable.
-  var co = c.createObject(typeName, {
+  var co = c.createObject(tx, {
     name: "anchor",
     properties: { "role": "_main", "count": 3, "history": ["bafyA", "bafyB"] }
   });

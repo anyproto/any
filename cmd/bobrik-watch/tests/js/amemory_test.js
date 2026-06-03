@@ -26,7 +26,7 @@ export function main(args) {
   var uniq = "" + new Date().getTime();
   // Helper: write a memory object the way addMemory does (minus the LLM bits).
   function mkMem(name, tags, context) {
-    return c.createObject("Agent Memory", {
+    return c.createObject("agent_memory", {
       name: name + "_" + uniq,
       properties: {
         "agent_memory.vector": "abcd",         // fake hex so loaders don't skip it
@@ -49,13 +49,13 @@ export function main(args) {
   h.check("read tags array", Array.isArray(t1) && t1[0] === "preference", JSON.stringify(t1));
 
   // THE optimization: server-side category filter via the array `tags` field.
-  var lessons = c.getObjects("Agent Memory", { filter: { "agent_memory.tags": { "$in": ["lesson"] } } });
+  var lessons = c.getObjects("agent_memory", { filter: { "agent_memory.tags": { "$in": ["lesson"] } } });
   var lessonNames = lessons.map(function (x) { return x.name; });
   h.check("array $in filter returns the lesson", lessonNames.indexOf("lesson_" + uniq) !== -1, JSON.stringify(lessonNames));
   h.check("array $in filter excludes the preference", lessonNames.indexOf("pref_" + uniq) === -1, JSON.stringify(lessonNames));
 
   // scalar-against-array = "contains"
-  var foodies = c.getObjects("Agent Memory", { filter: { "agent_memory.tags": "food" } });
+  var foodies = c.getObjects("agent_memory", { filter: { "agent_memory.tags": "food" } });
   h.check("scalar contains filter finds food", foodies.some(function (x) { return x.name === "lesson_" + uniq; }), JSON.stringify(foodies.map(function (x) { return x.name; })));
 
   // listCategories (no LLM) reflects the migrated tag model.

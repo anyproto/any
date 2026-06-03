@@ -332,13 +332,8 @@ export function createClient(params) {
     return null;
   }
 
-  function _resolveTypeByName(name, scope) {
-    var types = _fetchTypes(scope);
-    for (var i = 0; i < types.length; i++) {
-      if (types[i].name === name) return types[i].id;
-    }
-    return null;
-  }
+  // (Type resolution by display name was removed — types resolve by xKey/id
+  // only; see _resolveTypeSeg. The name is display-only metadata.)
 
   function _typeNotFoundError(typeKey, scope) {
     var types = _fetchTypes(scope);
@@ -390,14 +385,15 @@ export function createClient(params) {
     return props;
   }
 
-  // _resolveTypeSeg: a type id, name, or xKey → type id (or null). Refreshes
-  // the catalog once on miss so freshly-created types resolve.
+  // _resolveTypeSeg: a type **xKey** or id → type id (or null). The display
+  // name is NOT a resolution key — xKey is the stable programmatic handle (set
+  // at createType, derived from name); name is display-only. Refreshes the
+  // catalog once on miss so freshly-created types resolve.
   function _resolveTypeSeg(scope, seg, _retried) {
     var cat = _cat(scope);
-    if (cat.typeById[seg]) return seg;
+    if (cat.typeById[seg]) return seg; // already an id
     for (var i = 0; i < cat.types.length; i++) {
-      var t = cat.types[i];
-      if (t.name === seg || t.xKey === seg) return t.id;
+      if (cat.types[i].xKey === seg) return cat.types[i].id;
     }
     if (!_retried) { _catInvalidate(scope); return _resolveTypeSeg(scope, seg, true); }
     return null;
@@ -657,7 +653,7 @@ export function createClient(params) {
   }
 
   function describeType(typeKey) {
-    var resolvedId = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
+    var resolvedId = _resolveTypeSeg("user", typeKey);
     if (!resolvedId) return { error: _typeNotFoundError(typeKey) };
     var types = getTypes();
     var typeObj = null;
@@ -1239,19 +1235,14 @@ export function createClient(params) {
     var name = opts.name;
     var xKey = opts.xKey || _slugifyXKey(name);
     var created = false;
-    var typeId = _resolveTypeByName(name);
+    // Idempotency keyed by the stable xKey (not the display name).
+    var typeId = _resolveTypeSeg("user", xKey);
     if (!typeId) {
       var res = api("POST", spacePath + "/types", { name: name, xKey: xKey });
       if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
       typeId = res.data.typeId;
       created = true;
       _catInvalidate("user");
-    } else {
-      // Existing type: report its actual xKey (first-create wins; the SDK
-      // doesn't update xKey on re-declare).
-      var cat = _cat("user");
-      var info = cat.typeById[typeId];
-      if (info && info.xKey) xKey = info.xKey;
     }
 
     if (opts.properties && Array.isArray(opts.properties) && opts.properties.length > 0) {
@@ -1390,7 +1381,9 @@ export function createClient(params) {
     saveProgram: w("saveProgram", saveProgram),
     saveTool: w("saveTool", saveTool),
     createType: w("createType", createType),
-    resolveTypeByName: _resolveTypeByName,
+    // resolveType(xKeyOrId[, scope]) → type id (or null). xKey/id only — no
+    // display-name resolution (name is display metadata).
+    resolveType: function (seg, scope) { return _resolveTypeSeg(scope || "user", seg); },
     resolveTypeId: _resolveTypeId
   };
 }

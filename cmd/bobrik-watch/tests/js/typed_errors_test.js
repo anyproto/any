@@ -20,30 +20,32 @@ export function main(args) {
   var T = "Typed_" + uniq;
   function one(k, v) { var o = {}; o[k] = v; return o; }
 
-  c.createType({ name: T, properties: [{ key: "count", name: "Count", format: "number" }] });
-  var obj = c.createObject(T, { name: "x_" + uniq, properties: { count: 1 } });
+  var ct = c.createType({ name: T, properties: [{ key: "count", name: "Count", format: "number" }] });
+  var tx = ct.type.xKey;  // type handle (xKey)
+  var tid = ct.type.id;   // raw type id (for the hand-built 501 URL)
+  var obj = c.createObject(tx, { name: "x_" + uniq, properties: { count: 1 } });
   h.check("setup createObject ok", obj && obj.ok, JSON.stringify(obj));
 
   // wrong kind: string into a number prop → server property.kind_mismatch,
   // threaded into updateObject's result.
-  var km = c.updateObject(obj.id, { properties: one(T + ".count", "not a number") });
+  var km = c.updateObject(obj.id, { properties: one(tx + ".count", "not a number") });
   h.check("kind mismatch: ok false", km && km.ok === false, JSON.stringify(km));
   h.check("kind mismatch: code surfaced", km && km.code === "property.kind_mismatch", JSON.stringify(km));
 
   // unknown property is caught CLIENT-SIDE by the resolver (fail fast, never
   // hits the server) — ok:false with a clear message, no server code.
-  var unk = c.updateObject(obj.id, { properties: one(T + ".nope", "x") });
+  var unk = c.updateObject(obj.id, { properties: one(tx + ".nope", "x") });
   h.check("unknown prop: ok false", unk && unk.ok === false, JSON.stringify(unk));
   h.check("unknown prop: clear message", unk && /unknown property/.test(unk.error || ""), JSON.stringify(unk));
 
   // 501 route: account-scope property write isn't implemented → api() maps it
   // to sdk.not_implemented.
-  var r501 = c.api("POST", c.config.spacePath + "/properties/" + obj.id + "/account/" + T, { patch: {} });
+  var r501 = c.api("POST", c.config.spacePath + "/properties/" + obj.id + "/account/" + tid, { patch: {} });
   h.check("501 status", r501 && r501.status === 501, "" + (r501 && r501.status));
   h.check("501 code = sdk.not_implemented", r501 && r501.code === "sdk.not_implemented", JSON.stringify(r501 && r501.code));
 
   // success carries no error/code
-  var ok = c.updateObject(obj.id, { properties: one(T + ".count", 42) });
+  var ok = c.updateObject(obj.id, { properties: one(tx + ".count", 42) });
   h.check("success ok, no code", ok && ok.ok === true, JSON.stringify(ok));
 
   return h.done();

@@ -44,7 +44,7 @@ export function main(args) {
   h.check("createType returns derived xKey", mx === "movie_" + uniq, "" + mx);
 
   // --- createObject with type + properties (bare keys, single type) -------
-  var co = c.createObject(movieType, {
+  var co = c.createObject(mx, {
     name: "Casablanca",
     properties: { "title": "Casablanca", "year": 1942 }
   });
@@ -83,7 +83,7 @@ export function main(args) {
   h.check("kind mismatch rejected (not ok)", badKind && badKind.ok === false, JSON.stringify(badKind));
 
   // --- getObjects by type returns the object with nested props ------------
-  var list = c.getObjects(movieType);
+  var list = c.getObjects(mx);
   h.check("getObjects returns array", Array.isArray(list));
   var found = null;
   for (var i = 0; i < list.length; i++) { if (list[i].id === objId) { found = list[i]; break; } }
@@ -100,9 +100,9 @@ export function main(args) {
   h.check("createType comic ok", ctc && ctc.ok, JSON.stringify(ctc));
   var cx = ctc.type && ctc.type.xKey;
 
-  var multi = c.createObject(movieType, {
+  var multi = c.createObject(mx, {
     name: "Crossover",
-    types: [comicType],
+    types: [cx],
     properties: merge(dotted(mx, { title: "The Film" }), dotted(cx, { issue: 7 }))
   });
   h.check("multitype createObject ok", multi && multi.ok, JSON.stringify(multi));

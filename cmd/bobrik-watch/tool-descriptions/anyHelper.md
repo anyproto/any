@@ -7,7 +7,7 @@
 - **type xKey** — a stable slug. `createType` derives it from the name (`"Agent Memory"` → `agent_memory`, `"Mini App"` → `mini_app`) and returns it as `result.type.xKey`; builtins use their id (`program`, `nav`). It does NOT change when the display name is renamed — so hardcoded paths survive renames.
 - **prop xKey** — the `key` you pass to `createType` properties (`vector`, `title`).
 
-- **Writing**: property keys are dotted `"<typeXKey>.<prop>"`, e.g. `"movie.title"`, `"agent_memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. For the `typeKey` argument of createObject/getObjects you may pass the type's name, xKey, or id (all resolve). Unknown property / wrong value-kind writes fail with a clear error (server-side validation), never silently dropped.
+- **Writing**: property keys are dotted `"<typeXKey>.<prop>"`, e.g. `"movie.title"`, `"agent_memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. The `typeKey` argument of createObject/getObjects/etc. is the type **xKey** or id — NOT the display name (name is display-only metadata). Unknown property / wrong value-kind writes fail with a clear error (server-side validation), never silently dropped.
 - **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`, `obj.program.name`.
 
 Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); use `getRecord` / `setRecord` for those.
@@ -16,7 +16,7 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 
 ### getObjects(typeKey, options?)
 List/query objects of a type. Returns normalized records (nested per type).
-- typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
+- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
 - options.space: "user" (default) or "system"
 - options.filter: mongo-style filter, keys as dotted xKey paths
   ("agent_memory.tags", "movie.year"). Operators: $eq (bare value), $ne, $gt,
@@ -37,11 +37,11 @@ Fetch one object by ID. Returns the object with properties nested per type
 
 ### createObject(typeKey, data)
 Create a new object.
-- typeKey: primary type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
-- data.types: optional array of ADDITIONAL type names/ids (multitype object)
+- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
+- data.types: optional array of ADDITIONAL type xKeys/ids (multitype object)
 - data.name: display name
 - data.body: markdown content
-- data.properties: dotted-key map `{ "Type.prop": value }`, or bare `{ prop: value }` (resolves against the object's type(s)), or legacy array `[{key, text/number/checkbox/objects/value}]`
+- data.properties: dotted-key map `{ "typeXKey.prop": value }`, or bare `{ prop: value }` (resolves against the object's type(s)), or legacy array `[{key, text/number/checkbox/objects/value}]`
 
 ### updateObject(objId, data)
 Update an existing object. Property/name write failures (including server
@@ -97,7 +97,7 @@ Completes the dataset CRUD set with getRecord/queryRecords/setRecord.
 
 ### describeType(typeKey)
 Inspect a type: metadata, properties, sample object, object count.
-- typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
+- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
 
 ### getProperties()
 List all properties across all types.

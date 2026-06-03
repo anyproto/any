@@ -7,14 +7,14 @@ you'd otherwise load a whole type and loop.
 ## Find objects by property
 
 `anyHelper.getObjects(type, { filter, sort, limit, offset })`. The `type` arg
-accepts a name/xKey/id; filter & sort keys are dotted **xKey** paths
+accepts the type xKey or id (not the display name); filter & sort keys are dotted **xKey** paths
 `"<typeXKey>.<propXKey>"` (the type xKey is a stable slug — `createType`
 returns it as `type.xKey`). Results come back nested, keyed by xKey
 (`obj["<typeXKey>"].prop`, read with `getProp(obj, "<typeXKey>.prop")`).
 
 ```js
 // recent noir films, newest first, top 5
-anyHelper.getObjects("Film", {
+anyHelper.getObjects("film", {
   filter: { "film.genre": "noir", "film.year": { "$gte": 1950 } },
   sort: ["-film.year"],
   limit: 5

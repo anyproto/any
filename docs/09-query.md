@@ -63,7 +63,7 @@ When a property is an **array**, the filter compares against its *elements*:
 This is how amemory does category filtering server-side (categories live in a
 bare `tags` array; `getObjects("Agent Memory", {filter:{"agent_memory.tags":
 {$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
-arg accepts the name, but the dotted filter key uses the type **xKey**).
+arg is the type xKey too, and the dotted filter key uses the xKey).
 
 ### Two gotchas
 
@@ -130,4 +130,4 @@ prefer an indexed builtin field or a dedicated per-object dataset. There is no
 | `queryRecords(objId, dataset, {filter, sort, limit, offset, includeTotal}, {space})` | per-object query → `{ok, records, total?}` |
 
 For dataset writes use `setRecord` (atomic per-field `$set` upsert); for property
-writes use `createObject`/`updateObject` with dotted `"Type.prop"` keys.
+writes use `createObject`/`updateObject` with dotted `"typeXKey.prop"` keys.

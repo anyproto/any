@@ -10,7 +10,7 @@ import { createClient, editString } from "anyHelper@v1";
 // matching — source/state now round-trip byte-for-byte and update atomically
 // per-field (editing state never rewrites source).
 
-var TYPE = "Mini App";
+var TYPE = "mini_app";  // type xKey (== builtin id); display name "Mini App"
 var DATASET = "mini_app";
 var RECORD = "main";
 

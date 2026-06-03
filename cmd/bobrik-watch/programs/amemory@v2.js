@@ -845,8 +845,9 @@ function loadAllMemoriesForDecay(client, typeKey) {
 export function createAMemory(client, opts) {
   opts = opts || {};
   // Properties are namespaced under the type; read/write via "agent_memory.<prop>".
-  // typeKey is the type NAME — anyHelper resolves it to the id on every call.
-  var typeKey = "Agent Memory";
+  // typeKey is the type xKey — the stable programmatic handle anyHelper resolves
+  // to the id on every call (display name stays "Agent Memory", set at createType).
+  var typeKey = "agent_memory";
   var topK = opts.topK || 3;
   var minSimilarity = opts.minSimilarity !== undefined ? opts.minSimilarity : 0.3;
   var enableEvolution = opts.enableEvolution !== undefined ? opts.enableEvolution : true;
