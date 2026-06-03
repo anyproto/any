@@ -19,12 +19,6 @@ type ObjectCreateNav struct {
 	Pos      string `json:"pos,omitempty"`
 }
 
-// ObjectDeriveRequest documents the body of POST /v1/spaces/:spaceId/objects/derive.
-type ObjectDeriveRequest struct {
-	Seed  []byte   `json:"seed"`
-	Types []string `json:"types,omitempty"`
-}
-
 // SpaceQueryObjectsRequest documents the body of POST /v1/spaces/:spaceId/objects/query.
 type SpaceQueryObjectsRequest struct {
 	Filter map[string]any `json:"filter,omitempty"`

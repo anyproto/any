@@ -131,7 +131,7 @@ Not this repo's work; gate on the SDK:
   the data-plane (`query`/`modify`/`delete-records`).
 - **Objects + types + properties + data plane** — real handlers wired
   for the SDK surface that's shipped:
-  - `POST /v1/spaces/:id/objects`, `POST /v1/spaces/:id/objects/derive`
+  - `POST /v1/spaces/:id/objects`
   - `POST /v1/spaces/:id/modify`, `POST /v1/spaces/:id/delete-records`
     (return `{versionId, changeId, recordIds}` — the full `ModifyResult`)
   - `POST /v1/spaces/:id/types`, `POST /v1/spaces/:id/types/:typeId/properties`

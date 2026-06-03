@@ -238,39 +238,3 @@ func (d *deps) objectDelete(c echo.Context) error {
 	}
 	return c.NoContent(http.StatusNoContent)
 }
-
-// objectDerive handles POST /v1/spaces/:spaceId/objects/derive.
-//
-//	@Summary	Derive a deterministic object
-//	@Tags		objects
-//	@Accept		json
-//	@Produce	json
-//	@Param		spaceId	path		string					true	"Space ID"
-//	@Param		body	body		api.ObjectDeriveRequest	true	"Derive params"
-//	@Success	201		{object}	api.ObjectsDeriveResponse
-//	@Failure	400		{object}	api.ErrorEnvelope
-//	@Failure	500		{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/derive [post]
-func (d *deps) objectDerive(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
-	if done {
-		return errResp
-	}
-
-	var req struct {
-		Seed  []byte   `json:"seed"`
-		Types []string `json:"types"`
-	}
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
-	}
-
-	objectId, err := sp.Objects().Derive(c.Request().Context(), space.DeriveObjectOpts{
-		Seed:  req.Seed,
-		Types: req.Types,
-	})
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
-	}
-	return c.JSON(http.StatusCreated, api.ObjectsDeriveResponse{ObjectId: objectId})
-}

@@ -365,17 +365,6 @@ definitions:
       treeLen:
         type: integer
     type: object
-  api.ObjectDeriveRequest:
-    properties:
-      seed:
-        items:
-          type: integer
-        type: array
-      types:
-        items:
-          type: string
-        type: array
-    type: object
   api.ObjectSyncStatusResponse:
     properties:
       lastSyncAt:
@@ -386,11 +375,6 @@ definitions:
         type: string
     type: object
   api.ObjectsCreateResponse:
-    properties:
-      objectId:
-        type: string
-    type: object
-  api.ObjectsDeriveResponse:
     properties:
       objectId:
         type: string
@@ -1871,40 +1855,6 @@ paths:
       summary: Set markdown content (diff-based)
       tags:
       - editor
-  /spaces/{spaceId}/objects/derive:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        type: string
-      - description: Derive params
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/api.ObjectDeriveRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/api.ObjectsDeriveResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/api.ErrorEnvelope'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/api.ErrorEnvelope'
-      summary: Derive a deterministic object
-      tags:
-      - objects
   /spaces/{spaceId}/objects/query:
     post:
       consumes:

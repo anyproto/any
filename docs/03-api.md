@@ -159,7 +159,6 @@ writer first (push to the node) then the reader (pull back).
 | Method | Path                                                      | Purpose                            |
 |--------|-----------------------------------------------------------|------------------------------------|
 | POST   | `/v1/spaces/:spaceId/objects`                             | `Objects.Create`                   |
-| POST   | `/v1/spaces/:spaceId/objects/derive`                      | `Objects.Derive`                   |
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.Snapshot`      |
 | POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
