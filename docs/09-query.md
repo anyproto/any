@@ -61,8 +61,7 @@ When a property is an **array**, the filter compares against its *elements*:
 - **`$all`** means **superset**: `{ "<t>.tags": { "$all": ["a","b"] } }`.
 
 This is how amemory does category filtering server-side (categories live in a
-bare `tags` array; `getObjects("Agent Memory", {filter:{"agent_memory.tags":
-{$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
+bare `tags` array; `getObjects("agent_memory", {filter:{"agent_memory.tags":{$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
 arg is the type xKey too, and the dotted filter key uses the xKey).
 
 ### Two gotchas
@@ -125,8 +124,8 @@ prefer an indexed builtin field or a dedicated per-object dataset. There is no
 
 | Method | Maps to |
 |--------|---------|
-| `getObjects(typeKey, {filter, sort, limit, offset, includeTotal, space})` | **cross-object** query, type-scoped; readable dotted xKey filter/sort keys; normalized records |
-| `getObjects(null, {objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
+| `getObjects("xkey")` or `getObjects({type, filter, sort, limit, offset, includeTotal, space})` | **cross-object** query; readable dotted xKey filter/sort keys; normalized records |
+| `getObjects({objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
 | `getRecord(objId, dataset, recordId?, {space})` | convenience → one raw dataset record (or null) |
 
 `getObjects` is the single query method (both modes) and always returns

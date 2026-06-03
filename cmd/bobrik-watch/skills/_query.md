@@ -43,11 +43,11 @@ everything back. (amemory uses exactly this for `categories`.)
 
 Structured content (a mini app's source/state, a program's source) lives in a
 dataset, not in properties. One record → `getRecord`; many → `getObjects`
-dataset mode (pass `null` type + `objectId`/`dataset`):
+dataset mode (`{ objectId, dataset, ... }`):
 
 ```js
 anyHelper.getRecord(objId, "mini_app", "main")                                            // one raw record
-anyHelper.getObjects(null, { objectId: objId, dataset: "editor_blocks", sort: ["nav.pos"] }).records  // many
+anyHelper.getObjects({ objectId: objId, dataset: "editor_blocks", sort: ["nav.pos"] }).records  // many
 ```
 
 Dataset field paths are literal (`nav.pos`, `_ver.id`, `text`) — no type prefix.
@@ -57,7 +57,7 @@ Dataset field paths are literal (`nav.pos`, `_ver.id`, `text`) — no type prefi
 - `limit`/`offset` is fine for stable, one-shot reads.
 - For mutable, growing collections page with a **cursor** on a monotonic
   indexed field instead — e.g. chat history backward:
-  `getObjects(null, { objectId: chatId, dataset: "chat_messages", filter: { "_ver.id": { "$lt": oldestSeen } }, sort: ["-_ver.id"], limit: 30 }).records`.
+  `getObjects({ objectId: chatId, dataset: "chat_messages", filter: { "_ver.id": { "$lt": oldestSeen } }, sort: ["-_ver.id"], limit: 30 }).records`.
 
 ## Gotchas
 

@@ -484,60 +484,60 @@ export function createClient(params) {
 
   // ==================== QUERIES ====================
 
-  // getObjects(typeKey, options) — cross-object query over the per-space
-  // `objects` collection, returning normalized (nested, readable) records.
-  //   options.space   — "user" (default) or "system"
-  //   options.filter  — extra filter merged with the type filter. Keys may be
-  //                     readable dotted paths ("Agent Memory.tags") — resolved
-  //                     to the server's <typeId>.<propId> form; builtin paths
-  //                     ("any.types", "nav.parentId") pass through. Values use
-  //                     mongo-style ops; against an array field, a scalar means
-  //                     "contains" and {$in:[...]} means "intersects".
-  //   options.sort/limit/offset — passed through.
-  // getObjects — the one query method, in two modes:
-  //   cross-object (default): getObjects(typeKey, { filter, sort, limit, offset,
-  //     includeTotal, space }) — reads the per-space `objects` collection scoped
-  //     to a type (typeKey is the type xKey/id). filter/sort keys are dotted
-  //     xKey paths, resolved to <typeId>.<propId>; records come back NORMALIZED
-  //     (nested, readable). Pass null typeKey to query across all types.
-  //   per-object dataset: getObjects(null, { objectId, dataset, filter, sort,
-  //     limit, offset, includeTotal, space }) — reads one object's dataset
-  //     (editor_blocks, program_source, …); filter/sort keys are literal dataset
-  //     fields (not resolved); records come back RAW (datasets aren't
-  //     type-namespaced).
-  // Always returns { ok, records, total, error } — consistent shape, errors
-  // surfaced (never a silent []). `total` is present only when includeTotal was
-  // requested (and is page-bounded in v0.0.4; see docs/09-query.md).
-  function getObjects(typeKey, options) {
-    if (!options) options = {};
-    var scope = options.space || "user";
+  // getObjects — the one query method. The first argument is polymorphic:
+  //   - a STRING is the type xKey/id → "all objects of this type":
+  //       getObjects("agent_memory")
+  //   - an OBJECT is the full query:
+  //       getObjects({ type, filter, sort, limit, offset, includeTotal, space })  // cross-object
+  //       getObjects({ objectId, dataset, filter, sort, limit, ... })             // per-object dataset
+  //   (A 2nd options arg after a string is still merged, for convenience.)
+  //
+  // Cross-object mode reads the per-space `objects` collection (optionally
+  // type-scoped); filter/sort keys are dotted xKey paths resolved to
+  // <typeId>.<propId>; records come back NORMALIZED (nested, readable).
+  // Dataset mode reads one object's dataset (editor_blocks, program_source, …);
+  // filter/sort keys are literal fields; records come back RAW.
+  //
+  // Always returns { ok, records, total?, error } — errors surfaced (never a
+  // silent []). `total` only when includeTotal was requested (page-bounded in
+  // v0.0.4; see docs/09-query.md).
+  function getObjects(typeOrQuery, options) {
+    var q;
+    if (typeof typeOrQuery === "string") {
+      q = {};
+      if (options) { for (var ok in options) { if (Object.prototype.hasOwnProperty.call(options, ok)) q[ok] = options[ok]; } }
+      q.type = typeOrQuery;
+    } else {
+      q = typeOrQuery || options || {};
+    }
+    var scope = q.space || "user";
     var path = _pathForScope(scope);
     var body = {};
-    var isDataset = !!options.dataset;
+    var isDataset = !!q.dataset;
 
     if (isDataset) {
-      if (!options.objectId) return { ok: false, records: [], error: "getObjects: objectId required with dataset" };
-      body.objectId = options.objectId;
-      body.dataset = options.dataset;
-      if (options.filter) body.filter = options.filter; // literal dataset fields
-      if (options.sort) body.sort = options.sort;
+      if (!q.objectId) return { ok: false, records: [], error: "getObjects: objectId required with dataset" };
+      body.objectId = q.objectId;
+      body.dataset = q.dataset;
+      if (q.filter) body.filter = q.filter; // literal dataset fields
+      if (q.sort) body.sort = q.sort;
     } else {
       var filter = {};
-      if (typeKey) {
-        var resolved = _resolveTypeSeg(scope, typeKey);
-        if (!resolved) return { ok: false, records: [], error: _typeNotFoundError(typeKey, scope) };
+      if (q.type) {
+        var resolved = _resolveTypeSeg(scope, q.type);
+        if (!resolved) return { ok: false, records: [], error: _typeNotFoundError(q.type, scope) };
         filter["any.types"] = resolved;
       }
-      if (options.filter) {
-        var extra = _resolveFilterPaths(scope, options.filter);
+      if (q.filter) {
+        var extra = _resolveFilterPaths(scope, q.filter);
         for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
       }
       body.filter = filter;
-      if (options.sort) body.sort = _resolveSortPaths(scope, options.sort);
+      if (q.sort) body.sort = _resolveSortPaths(scope, q.sort);
     }
-    if (options.limit !== undefined) body.limit = options.limit;
-    if (options.offset !== undefined) body.offset = options.offset;
-    if (options.includeTotal) body.includeTotal = true;
+    if (q.limit !== undefined) body.limit = q.limit;
+    if (q.offset !== undefined) body.offset = q.offset;
+    if (q.includeTotal) body.includeTotal = true;
 
     var res = api("POST", path + (isDataset ? "/query" : "/objects/query"), body);
     if (!res.ok) return { ok: false, records: [], error: _extractError(res), code: res.code };

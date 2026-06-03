@@ -55,26 +55,32 @@ export function main(args) {
   var r5 = c.getObjects(tx, { filter: one(genreKey, { "$in": ["noir"] }) });
   h.check("$in", JSON.stringify(names(r5.records)) === JSON.stringify(["c", "d"]), JSON.stringify(names(r5.records)));
 
+  // polymorphic first arg: object-form {type, filter} and string-only
+  var r6 = c.getObjects({ type: tx, filter: one(genreKey, "drama") });
+  h.check("object-form query", r6.ok && JSON.stringify(names(r6.records)) === JSON.stringify(["a", "b"]), JSON.stringify(names(r6.records)));
+  var r7 = c.getObjects(tx);
+  h.check("string-only form returns all of type", r7.ok && r7.records.length === 4, "" + r7.records.length);
+
   // --- per-object dataset query (editor_blocks) ---
   var doc = c.createObject(tx, { name: "doc_" + uniq });
   var base = c.config.spacePath + "/objects/" + doc.id + "/editor/blocks";
   c.api("POST", base, { type: "paragraph", text: "first" });
   c.api("POST", base, { type: "paragraph", text: "second" });
   c.api("POST", base, { type: "paragraph", text: "third" });
-  var blocks = c.getObjects(null, { objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"] });
+  var blocks = c.getObjects({ objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"] });
   h.check("dataset query ok", blocks && blocks.ok, JSON.stringify(blocks && blocks.error));
   h.check("dataset query returns 3 blocks", blocks.records.length === 3, "" + blocks.records.length);
   h.check("dataset query sorted by nav.pos", blocks.records[0].text === "first" && blocks.records[2].text === "third",
     JSON.stringify(blocks.records.map(function (b) { return b.text; })));
 
   // dataset query with limit
-  var firstTwo = c.getObjects(null, { objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"], limit: 2 });
+  var firstTwo = c.getObjects({ objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"], limit: 2 });
   h.check("dataset limit", firstTwo.records.length === 2, "" + firstTwo.records.length);
 
   // deleteRecord completes dataset CRUD: drop the middle block.
   var del = c.deleteRecord(doc.id, "editor_blocks", blocks.records[1].id);
   h.check("deleteRecord ok", del && del.ok, JSON.stringify(del));
-  var after = c.getObjects(null, { objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"] });
+  var after = c.getObjects({ objectId: doc.id, dataset: "editor_blocks", sort: ["nav.pos"] });
   h.check("deleteRecord removed one block", after.records.length === 2, "" + after.records.length);
   h.check("deleteRecord removed the right one",
     after.records.map(function (b) { return b.text; }).indexOf("second") === -1,

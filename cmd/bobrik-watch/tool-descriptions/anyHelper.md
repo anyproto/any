@@ -14,27 +14,25 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 
 ## Tool Schema
 
-### getObjects(typeKey, options?)
+### getObjects(typeOrQuery)
 The one query method. Returns `{ ok, records, total?, error }` (errors surfaced,
-never a silent []). Two modes:
-- **cross-object** (default): `getObjects(typeKey, {...})` — objects of a type;
-  records are NORMALIZED (nested, readable `rec["xkey"].prop`).
-- **per-object dataset**: `getObjects(null, { objectId, dataset, ... })` — records
-  of one object's dataset (editor_blocks, program_source, …); records are RAW
-  (datasets aren't type-namespaced). This subsumes the old queryRecords.
+never a silent []). The argument is polymorphic:
+- **string** → the type xKey/id: `getObjects("agent_memory")` = all objects of that type.
+- **object** → the full query:
+  - cross-object: `getObjects({ type, filter, sort, limit, offset, includeTotal, space })` — records NORMALIZED (nested, readable `rec["xkey"].prop`).
+  - per-object dataset: `getObjects({ objectId, dataset, filter, sort, limit, ... })` — records RAW (datasets aren't type-namespaced). Subsumes the old queryRecords.
 
-Options:
-- typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name. Pass null for a dataset query or to query across all types.
-- options.objectId + options.dataset: select the per-object dataset mode.
-- options.space: "user" (default) or "system"
-- options.filter: mongo-style filter. Cross-object keys are dotted xKey paths
-  ("agent_memory.tags", "movie.year") resolved to ids; dataset keys are literal
-  fields ("nav.pos", "_ver.id"). Operators: $eq (bare value), $ne, $gt, $gte,
-  $lt, $lte, $in, $nin, $all, $exists, $regex, $and, $or, $not. Against an ARRAY
-  property a scalar means "contains" and {$in:[...]} means "intersects" — how to
-  filter by a tag/category array server-side.
-- options.sort: array of dotted paths, "-" prefix = descending (e.g.
-  ["-movie.year"]). options.limit / options.offset / options.includeTotal.
+Fields:
+- type: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name. Omit to query across all types.
+- objectId + dataset: select per-object dataset mode.
+- space: "user" (default) or "system"
+- filter: mongo-style. Cross-object keys are dotted xKey paths ("agent_memory.tags",
+  "movie.year") resolved to ids; dataset keys are literal fields ("nav.pos", "_ver.id").
+  Operators: $eq (bare value), $ne, $gt, $gte, $lt, $lte, $in, $nin, $all, $exists,
+  $regex, $and, $or, $not. Against an ARRAY property a scalar means "contains" and
+  {$in:[...]} means "intersects" — how to filter by a tag/category array server-side.
+- sort: array of dotted paths, "-" prefix = descending (e.g. ["-movie.year"]).
+  limit / offset / includeTotal.
 Full guide: docs/09-query.md. (Note: negation filters like $ne also match
 objects lacking the field — cross-object getObjects scopes by type so that's safe.)
 
