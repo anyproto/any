@@ -50,13 +50,13 @@ export function main(args) {
 
   // THE optimization: server-side category filter via the array `tags` field.
   var lessons = c.getObjects("agent_memory", { filter: { "agent_memory.tags": { "$in": ["lesson"] } } });
-  var lessonNames = lessons.records.map(function (x) { return x.name; });
+  var lessonNames = lessons.map(function (x) { return x.name; });
   h.check("array $in filter returns the lesson", lessonNames.indexOf("lesson_" + uniq) !== -1, JSON.stringify(lessonNames));
   h.check("array $in filter excludes the preference", lessonNames.indexOf("pref_" + uniq) === -1, JSON.stringify(lessonNames));
 
   // scalar-against-array = "contains"
   var foodies = c.getObjects("agent_memory", { filter: { "agent_memory.tags": "food" } });
-  h.check("scalar contains filter finds food", foodies.records.some(function (x) { return x.name === "lesson_" + uniq; }), JSON.stringify(foodies.records.map(function (x) { return x.name; })));
+  h.check("scalar contains filter finds food", foodies.some(function (x) { return x.name === "lesson_" + uniq; }), JSON.stringify(foodies.map(function (x) { return x.name; })));
 
   // listCategories (no LLM) reflects the migrated tag model.
   var cats = listCategories();

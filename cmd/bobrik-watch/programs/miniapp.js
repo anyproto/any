@@ -32,7 +32,7 @@ function _c() {
 // Find a mini-app object by its name (any.name). Returns the object record or
 // null. listing uses the cross-object query (one call), no per-object reads.
 function _findByName(name) {
-  var all = _c().getObjects(TYPE).records;
+  var all = _c().getObjects(TYPE);
   for (var i = 0; i < all.length; i++) {
     if (all[i].name === name) return all[i];
   }
@@ -42,14 +42,12 @@ function _findByName(name) {
 // Load the mini_app dataset record for an object id. Returns { source, state,
 // readme } with string defaults, or null if the object/record is missing.
 function _loadParts(objId) {
-  var res = _c().getObjects({ objectId: objId, dataset: DATASET });
+  var recs = _c().getObjects({ objectId: objId, dataset: DATASET });
   var rec = null;
-  if (res && res.ok) {
-    for (var i = 0; i < res.records.length; i++) {
-      if (res.records[i].id === RECORD) { rec = res.records[i]; break; }
-    }
-    if (!rec && res.records.length) rec = res.records[0];
+  for (var i = 0; i < recs.length; i++) {
+    if (recs[i].id === RECORD) { rec = recs[i]; break; }
   }
+  if (!rec && recs.length) rec = recs[0];
   if (!rec) return { source: "", state: null, readme: "" };
   return {
     source: typeof rec.source === "string" ? rec.source : "",
@@ -296,7 +294,7 @@ export function getMiniAppSource(name, opts) {
 }
 
 export function listMiniApps() {
-  var all = _c().getObjects(TYPE).records;
+  var all = _c().getObjects(TYPE);
   var out = [];
   for (var i = 0; i < all.length; i++) {
     if (!all[i].name) continue;

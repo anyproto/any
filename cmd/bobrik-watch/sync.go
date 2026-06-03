@@ -25,7 +25,10 @@ var (
 // ensureProgramType creates the Program type with name and version
 // properties if it doesn't already exist. Returns the type ID.
 func ensureProgramType(baseURL, spaceID string) (string, error) {
-	typeID, err := findType(baseURL, spaceID, "Program")
+	// Existence by xKey, not name. The builtin `program` type carries
+	// xKey="program" (server reports xKey=id for builtins), so this resolves to
+	// it; only a space lacking it falls through to create.
+	typeID, err := findTypeByXKey(baseURL, spaceID, "program")
 	if err != nil {
 		return "", err
 	}
@@ -35,6 +38,7 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 
 	body, _ := json.Marshal(map[string]string{
 		"name": "Program",
+		"xKey": "program",
 	})
 	resp, err := http.Post(
 		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
@@ -82,7 +86,10 @@ const skillNameXKey = "agent_skill_name"
 // agent_skill_name property (find-or-add — idempotent and additive, so it
 // composes with init_agent's declaration of the same type). Returns the type ID.
 func ensureSkillType(baseURL, spaceID string) (string, error) {
-	typeID, err := findType(baseURL, spaceID, "Agent Skill")
+	// Existence by xKey, not name — see findTypeByXKey. A pre-xKey "Agent Skill"
+	// type (no xKey) won't match here, so we create a correct xKey-bearing one
+	// and the agent can resolve "agent_skill"; the stale type orphans.
+	typeID, err := findTypeByXKey(baseURL, spaceID, "agent_skill")
 	if err != nil {
 		return "", err
 	}
@@ -308,7 +315,15 @@ func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
 	return nil
 }
 
-func findType(baseURL, spaceID, typeName string) (string, error) {
+// findTypeByXKey resolves a type by its stable xKey — the same handle the JS
+// side (anyHelper._resolveTypeSeg, getObjects, dotted property paths) keys on.
+// Returns "" if no type carries that xKey. Type existence MUST be decided by
+// xKey, not display name: a type created before the xKey feature (or by a
+// different name) has no xKey, so a name match would reuse an xKey-less type
+// that the agent can no longer resolve. Keying on xKey instead means the
+// bootstrap creates a correct xKey-bearing type (the stale one orphans, ignored
+// by xKey resolution), which self-heals a space carrying pre-xKey types.
+func findTypeByXKey(baseURL, spaceID, xKey string) (string, error) {
 	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/types")
 	if err != nil {
 		return "", err
@@ -317,14 +332,14 @@ func findType(baseURL, spaceID, typeName string) (string, error) {
 	var out struct {
 		Types []struct {
 			Id   string `json:"id"`
-			Name string `json:"name"`
+			XKey string `json:"xKey"`
 		} `json:"types"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
 	for _, t := range out.Types {
-		if t.Name == typeName {
+		if t.XKey == xKey {
 			return t.Id, nil
 		}
 	}

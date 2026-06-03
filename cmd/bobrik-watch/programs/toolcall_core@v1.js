@@ -448,7 +448,7 @@ function _fetchCategoriesSection() {
 // keeps working. Returns { id, fullObj } or null.
 function loadOrCreateMemoryAnchor(client) {
   var rawOpts = { resolveRefs: false };
-  var objects = client.getObjects("agent_memory", rawOpts).records;
+  var objects = client.getObjects("agent_memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
     if (getProp(obj, "agent_memory.agent_memory") === "_main") {
@@ -668,7 +668,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
 
 function loadSpaceContextMain(client) {
   var objects;
-  try { objects = client.getObjects("space_context").records; } catch (e) { return null; }
+  try { objects = client.getObjects("space_context"); } catch (e) { return null; }
   if (!objects || objects.length === 0) return null;
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
@@ -685,7 +685,7 @@ function loadSpaceContextMain(client) {
 // agent pulls content on demand.
 function getChildSpaceContexts(client) {
   var objects;
-  try { objects = client.getObjects("space_context").records; } catch (e) { return []; }
+  try { objects = client.getObjects("space_context"); } catch (e) { return []; }
   if (!objects || objects.length === 0) return [];
   var out = [];
   for (var i = 0; i < objects.length; i++) {
@@ -1282,7 +1282,7 @@ function _loadSkillMarkdown(client, skillName) {
     var scope = scopes[s];
     var objects;
     try {
-      objects = client.getObjects("agent_skill", { space: scope }).records;
+      objects = client.getObjects("agent_skill", { space: scope });
     } catch (e) {
       continue;
     }
@@ -1336,14 +1336,16 @@ function _loadSpaceContextSection(skillMd, mainObj, children, spaceId) {
 // can decide to fetch a skill's full content when the current topic matches.
 // The static guidance (what skills are, how to create/update them) lives in
 // the `_meta_skill` agent-skill — its markdown is prepended to the list when
-// deployed. System skills deployed via ./deploy-assistant.sh carry the
-// `assistant_program` tag and are excluded — their content is already woven
-// into the system prompt by dedicated loaders, so listing them here would be
-// redundant and would waste the agent's attention.
+// deployed. System skills (synced from cmd/bobrik-watch/skills/ by the
+// bobrik-watch bootstrap) are named with a leading underscore (_toolcaller, _soul, …) and are
+// excluded — their content is already woven into the system prompt by dedicated
+// loaders, so listing them here would be redundant. (We key on the `_` name
+// prefix, not a tag: tags are array properties now and these objects don't
+// carry one.)
 function _loadUserSkillsSection(client) {
   var objects;
   try {
-    objects = client.getObjects("agent_skill").records;
+    objects = client.getObjects("agent_skill");
   } catch (e) {
     return "";
   }
@@ -1352,9 +1354,9 @@ function _loadUserSkillsSection(client) {
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
     if (!o) continue;
-    var tags = Array.isArray(o.tag) ? o.tag : [];
-    if (tags.indexOf("assistant_program") >= 0) continue;
-    var title = o.name || getProp(o, "agent_skill.agent_skill_name") || "(untitled skill)";
+    var skillName = getProp(o, "agent_skill.agent_skill_name") || "";
+    if (skillName.charAt(0) === "_") continue; // system skill — woven in elsewhere
+    var title = o.name || skillName || "(untitled skill)";
     var desc = (o.description || "").trim();
     var line = "- [" + title + "](any://" + (client.config.spaceId || "_") + "/" + o.id + ")";
     if (desc) line += " — " + desc;
@@ -1963,14 +1965,14 @@ export function main(args) {
   // the skills in assistant-skills/*.md are the single source of truth.
   var anytypeSkill = _loadAnytypeSkill(bootClient);
   if (!anytypeSkill) {
-    var missA = "System skill `_anytype` is missing from this space. Run `./deploy-assistant.sh` from the project root to deploy agent skills.";
+    var missA = "System skill `_anytype` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply(missA);
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
   }
   var toolcallerSkill = _loadToolcallerSkill(bootClient);
   if (!toolcallerSkill) {
-    var missT = "System skill `_toolcaller` is missing from this space. Run `./deploy-assistant.sh` from the project root to deploy agent skills.";
+    var missT = "System skill `_toolcaller` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply(missT);
     dcFlush({ status: "skill_missing", finalText: missT });
     return "";

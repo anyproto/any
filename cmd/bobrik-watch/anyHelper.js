@@ -339,7 +339,11 @@ export function createClient(params) {
     var types = _fetchTypes(scope);
     var available = [];
     for (var i = 0; i < types.length; i++) {
-      available.push("\"" + types[i].id + "\" (" + types[i].name + ")");
+      // List the xKey — the stable handle callers pass back in — with the
+      // display name in parens for recognizability. The server reports
+      // xKey=id for builtins, so xKey is always set; the `|| id` is defensive.
+      var handle = types[i].xKey || types[i].id;
+      available.push("\"" + handle + "\" (" + types[i].name + ")");
     }
     return "type \"" + typeKey + "\" doesn't exist. Available types: " + available.join(", ");
   }
@@ -498,9 +502,11 @@ export function createClient(params) {
   // Dataset mode reads one object's dataset (editor_blocks, program_source, …);
   // filter/sort keys are literal fields; records come back RAW.
   //
-  // Always returns { ok, records, total?, error } — errors surfaced (never a
-  // silent []). `total` only when includeTotal was requested (page-bounded in
-  // v0.0.4; see docs/09-query.md).
+  // Returns the records ARRAY directly — iterate it as-is. THROWS on real
+  // failures (unknown type — the message lists the available types; server
+  // error; bad arguments) rather than returning a silent []. An empty array
+  // means "no matches," never "something went wrong." When includeTotal was
+  // requested the (page-bounded, v0.0.4) total is attached as `arr.total`.
   function getObjects(typeOrQuery, options) {
     var q;
     if (typeof typeOrQuery === "string") {
@@ -516,7 +522,7 @@ export function createClient(params) {
     var isDataset = !!q.dataset;
 
     if (isDataset) {
-      if (!q.objectId) return { ok: false, records: [], error: "getObjects: objectId required with dataset" };
+      if (!q.objectId) throw new Error("getObjects: objectId required with dataset");
       body.objectId = q.objectId;
       body.dataset = q.dataset;
       if (q.filter) body.filter = q.filter; // literal dataset fields
@@ -525,7 +531,7 @@ export function createClient(params) {
       var filter = {};
       if (q.type) {
         var resolved = _resolveTypeSeg(scope, q.type);
-        if (!resolved) return { ok: false, records: [], error: _typeNotFoundError(q.type, scope) };
+        if (!resolved) throw new Error(_typeNotFoundError(q.type, scope));
         filter["any.types"] = resolved;
       }
       if (q.filter) {
@@ -540,15 +546,14 @@ export function createClient(params) {
     if (q.includeTotal) body.includeTotal = true;
 
     var res = api("POST", path + (isDataset ? "/query" : "/objects/query"), body);
-    if (!res.ok) return { ok: false, records: [], error: _extractError(res), code: res.code };
+    if (!res.ok) throw new Error(_extractError(res));
     var raw = (res.data && res.data.records) || [];
     var records = [];
     for (var i = 0; i < raw.length; i++) {
       records.push(isDataset ? raw[i] : _normalize(scope, raw[i]));
     }
-    var out = { ok: true, records: records, error: null };
-    if (res.data && res.data.total !== undefined && res.data.total !== null) out.total = res.data.total;
-    return out;
+    if (res.data && res.data.total !== undefined && res.data.total !== null) records.total = res.data.total;
+    return records;
   }
 
   // _resolveFilterPaths rewrites readable dotted filter keys ("Type.prop") to
@@ -692,7 +697,7 @@ export function createClient(params) {
     var propRes = api("GET", spacePath + "/types/" + typeObj.id + "/properties");
     var properties = (propRes.ok && propRes.data && propRes.data.properties) || [];
     var sample = null;
-    var objects = getObjects(typeKey).records;
+    var objects = getObjects(typeKey);
     if (objects.length > 0) sample = objects[0];
     return { type: typeObj, properties: properties, object_count: objects.length, sample: sample };
   }

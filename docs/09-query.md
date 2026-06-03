@@ -127,7 +127,12 @@ prefer an indexed builtin field or a dedicated per-object dataset. There is no
 | `getObjects("xkey")` or `getObjects({type, filter, sort, limit, offset, includeTotal, space})` | **cross-object** query; readable dotted xKey filter/sort keys; normalized records |
 | `getObjects({objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
 
-`getObjects` is the single query method (both modes) and always returns
-`{ ok, records, total?, error }`. For dataset writes use `setRecord` (atomic
-per-field `$set` upsert) / `deleteRecord`; for property writes use
-`createObject`/`updateObject` with dotted `"typeXKey.prop"` keys.
+`getObjects` is the single query method (both modes). It returns the records
+**array directly** — iterate it as-is (`for (var o of getObjects("x")) …`). An
+empty array means "no matches"; it **throws** on a real failure (unknown type —
+the error message lists the available types; server error; bad arguments), so
+failures surface instead of masquerading as an empty result. When
+`includeTotal` is requested the (page-bounded) total is attached as
+`arr.total`. For dataset writes use `setRecord` (atomic per-field `$set` upsert)
+/ `deleteRecord`; for property writes use `createObject`/`updateObject` with
+dotted `"typeXKey.prop"` keys.

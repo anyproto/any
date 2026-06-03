@@ -83,7 +83,7 @@ export function main(args) {
   h.check("kind mismatch rejected (not ok)", badKind && badKind.ok === false, JSON.stringify(badKind));
 
   // --- getObjects by type returns the object with nested props ------------
-  var list = c.getObjects(mx).records;
+  var list = c.getObjects(mx);
   h.check("getObjects returns array", Array.isArray(list));
   var found = null;
   for (var i = 0; i < list.length; i++) { if (list[i].id === objId) { found = list[i]; break; } }

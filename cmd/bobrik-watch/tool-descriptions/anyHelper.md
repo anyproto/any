@@ -15,8 +15,11 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 ## Tool Schema
 
 ### getObjects(typeOrQuery)
-The one query method. Returns `{ ok, records, total?, error }` (errors surfaced,
-never a silent []). The argument is polymorphic:
+The one query method. Returns the records **array directly** — iterate it as-is.
+An empty array means "no matches"; it **throws** on a real failure (unknown
+type — the error lists the available types; server error; bad arguments), so
+failures surface instead of looking like an empty result. With `includeTotal`
+the page-bounded total is attached as `arr.total`. The argument is polymorphic:
 - **string** → the type xKey/id: `getObjects("agent_memory")` = all objects of that type.
 - **object** → the full query:
   - cross-object: `getObjects({ type, filter, sort, limit, offset, includeTotal, space })` — records NORMALIZED (nested, readable `rec["xkey"].prop`).

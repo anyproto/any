@@ -90,6 +90,6 @@ ANY_ADDR=127.0.0.1:7003 \
 
 Authoring a regex in program source: double-escape inside the string
 (`[\\s\\S]`, `<\\/item>`), or `new RegExp(stringWithDoubledBackslashes)`. The
-`anyPrograms` tool docs and the codegen system prompt should say so, and ideally
+`anyPrograms` tool docs should say so, and ideally
 flag "works in run_cell, fails in stored program → suspect string escaping, not
 the engine."

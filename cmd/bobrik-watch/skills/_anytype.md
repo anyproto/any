@@ -3,8 +3,8 @@
 Core mechanics:
 
 - Everything in a space is a **typed object**. Types define which properties objects can have.
-- Discover **existing types** with `anyHelper.getTypes()` before creating new ones — find an existing fit first. Avoid inventing parallel types.
-- Type names are passed to `createObject` / `getObjects` by **name** (e.g. `"Pages"`, `"Agent Memory"`). Built-in types (`chat`, `editor`, `program`, `nav`) can also be passed by ID.
+- Discover **existing types** with `anyHelper.getTypes()` before creating new ones — find an existing fit first. Avoid inventing parallel types. Each entry has `{ id, name, xKey, builtIn }`.
+- Types are referenced by their **xKey** (the stable programmatic slug, e.g. `"pages"`, `"agent_memory"`) — NOT the display name. `createType` derives the xKey from the name (and returns it); builtins use their id (`chat`, `editor`, `program`, `nav`). Pass the xKey (or id) to `createObject` / `getObjects` and as the first segment of dotted property paths.
 - When the user asks to "create X", consider whether an existing object could be edited instead — check memory for `preference` entries about this, and search the space before spawning a new object.
 
 Collections vs views / queries:
