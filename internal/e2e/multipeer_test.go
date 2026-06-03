@@ -64,6 +64,49 @@ func pollUntil(deadline time.Duration, fn func() bool) bool {
 	return false
 }
 
+// forceSync triggers an immediate head-sync (diff) round on each peer
+// for spaceID via POST /v1/spaces/:id/sync (→ Space.SyncHeads), instead
+// of waiting on any-sync's ~30s periodic headsync timer. Each call
+// blocks server-side until the round completes. Pass peers in
+// writer→reader order: the writer pushes its heads to the responsible
+// node first, then the reader pulls them back. Best-effort — a transient
+// sync error just means the surrounding pollUntilSynced retries on the
+// next tick, so non-2xx responses are ignored (the real predicate gates
+// success).
+func forceSync(t *testing.T, spaceID string, peers ...*peer) {
+	t.Helper()
+	for _, p := range peers {
+		doRequest(t, http.MethodPost, p.base+"/v1/spaces/"+spaceID+"/sync", "")
+	}
+}
+
+// pollUntilSynced is pollUntil with a forced head-sync round (forceSync)
+// on the given peers before each predicate check. This collapses the
+// multi-peer convergence wait from "next periodic headsync (~30s)" to
+// "as fast as the diff round + predicate settle" — typically a tick or
+// two. Peers are synced in slice order; pass writer first, reader last.
+//
+// IMPORTANT: only use this for predicates that read PER-OBJECT trees
+// (chat_messages, editor_blocks). Forcing SyncHeads while converging the
+// shared `objects` collection (type/property/value rows) or the derived
+// spaceIndex stalls those collections indefinitely on this SDK — use
+// plain pollUntil there. See TestE2E_MultipeerCRDTConvergence /
+// TestE2E_MultipeerSpaceMetadataSync.
+func pollUntilSynced(t *testing.T, deadline time.Duration, spaceID string, peers []*peer, fn func() bool) bool {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for {
+		forceSync(t, spaceID, peers...)
+		if fn() {
+			return true
+		}
+		if !time.Now().Before(end) {
+			return false
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // joinSpace runs the full owner-mints → joiner-joins → owner-accepts
 // handshake. Blocks until the joiner's /members/me reports active.
 func joinSpace(t *testing.T, owner, joiner *peer, spaceID, permission string) {
@@ -92,7 +135,12 @@ func joinSpace(t *testing.T, owner, joiner *peer, spaceID, permission string) {
 		t.Errorf("joiner space status = %q, want %q", joined.Status, api.SpaceStatusJoining)
 	}
 
-	// Owner waits for the join request to land via headsync.
+	// Owner waits for the join request to land. Plain pollUntil, NOT
+	// forced sync: SyncHeads is space-wide and stalls the shared
+	// `objects` / spaceIndex collections (see the caveats on
+	// TestE2E_MultipeerCRDTConvergence / SpaceMetadataSync), and joinSpace
+	// is shared by those tests. The join handshake converges in a couple
+	// of seconds on its own anyway — forced sync bought nothing here.
 	var req api.JoinRequest
 	if !pollUntil(90*time.Second, func() bool {
 		var resp api.JoinRequestsResponse
@@ -115,7 +163,8 @@ func joinSpace(t *testing.T, owner, joiner *peer, spaceID, permission string) {
 	mustStatus(t, http.MethodPost, owner.base+"/v1/spaces/"+spaceID+"/acl/accept",
 		string(accept), http.StatusNoContent)
 
-	// Joiner waits for the accept to propagate back.
+	// Joiner waits for the accept to propagate back. Plain pollUntil for
+	// the same reason as above.
 	if !pollUntil(90*time.Second, func() bool {
 		var me api.Member
 		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+spaceID+"/members/me",
@@ -140,6 +189,8 @@ func awaitJoinRequest(t *testing.T, owner, joiner *peer, spaceID string) api.Joi
 	mustStatus(t, http.MethodPost, joiner.base+"/v1/spaces/join",
 		string(body), http.StatusAccepted)
 
+	// Plain pollUntil — see the joinSpace note on why this path avoids
+	// forced sync.
 	var req api.JoinRequest
 	if !pollUntil(90*time.Second, func() bool {
 		var resp api.JoinRequestsResponse
@@ -268,6 +319,13 @@ func TestE2E_MultipeerCRDTConvergence(t *testing.T) {
 	// definition (under that type), (c) the object, and (d) the
 	// property record. Polling all four lets us see *which* step is
 	// stalled when we time out.
+	// NOTE: plain pollUntil, not pollUntilSynced. Forcing SyncHeads while
+	// polling the shared `objects` collection (property values) stalls
+	// convergence indefinitely on this SDK — the value never lands on the
+	// joiner even after hundreds of forced rounds, whereas reactive sync
+	// converges in ~3s. SyncHeads is safe for per-object trees (chat /
+	// editor) but not the shared/derived collections; see the same caveat
+	// on TestE2E_MultipeerSpaceMetadataSync. (Worth raising on the SDK repo.)
 	var lastSeen any
 	var lastTypeNames []string
 	var lastObjectsCount int
@@ -359,6 +417,10 @@ func TestE2E_MultipeerSpaceMetadataSync(t *testing.T) {
 	// metadata is set during Create and rides the same spaceIndex
 	// path, so it may take a beat to mirror on the joiner side after
 	// the join completes.
+	// NOTE: plain pollUntil, not pollUntilSynced. Like the property
+	// convergence test, forcing SyncHeads stalls the spaceIndex-mirrored
+	// metadata path — the joiner never observes the value. Reactive sync
+	// handles it in ~3s. (Worth raising on the SDK repo.)
 	if !pollUntil(60*time.Second, func() bool {
 		var got api.SpaceInfo
 		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id,
@@ -380,7 +442,8 @@ func TestE2E_MultipeerSpaceMetadataSync(t *testing.T) {
 	mustStatus(t, http.MethodPatch, owner.base+"/v1/spaces/"+sp.Id,
 		string(patch), http.StatusNoContent)
 
-	// Joiner polls the same endpoint the CLI / UI would read.
+	// Joiner polls the same endpoint the CLI / UI would read. Plain
+	// pollUntil — see the spaceIndex caveat on the orig-name poll above.
 	var last api.SpaceInfo
 	if !pollUntil(90*time.Second, func() bool {
 		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id,

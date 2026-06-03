@@ -243,7 +243,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// TestE2E_MultipeerCRDTConvergence — chat_messages is a per-object
 	// dataset, same sync path as properties/objects.
 	var m1OnJoiner chatMsg
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		m1OnJoiner = findMessage(list, "hello from owner")
 		return m1OnJoiner.Id == m1.Id && m1OnJoiner.Creator == ownerId
@@ -290,7 +290,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 
 	// Owner waits for M2.
 	var m2OnOwner chatMsg
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		list := chatMessages(t, ownerBase)
 		m2OnOwner = findMessage(list, "reply from joiner")
 		return m2OnOwner.Id == m2.Id && m2OnOwner.Creator == joinerId
@@ -311,7 +311,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 		"", http.StatusOK)
 
 	// Owner sees joiner's 👍 on M1.
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		list := chatMessages(t, ownerBase)
 		got := findMessage(list, "hello from owner")
 		_, ok := got.Reactions["👍"][joinerId]
@@ -321,7 +321,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	}
 
 	// Joiner sees owner's ❤️ on M2.
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		got := findMessage(list, "reply from joiner")
 		_, ok := got.Reactions["❤️"][ownerId]
@@ -368,7 +368,7 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	// First make sure the joiner has the original. Without this, the
 	// edit-converge poll below can't tell stale-cache "haven't seen
 	// the edit" from "haven't seen the message".
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		return findMessage(list, "original").Id == msg.Id
 	}) {
@@ -395,7 +395,7 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	// Joiner waits for the edit. modifiedAt must move forward — same
 	// id, new text, monotonic ts.
 	var lastSeen chatMsg
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		got := findMessage(list, "edited")
 		if got.Id == msg.Id {

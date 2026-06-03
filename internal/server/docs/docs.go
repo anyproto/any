@@ -2276,6 +2276,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/sync": {
+            "post": {
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Force an immediate head-sync round (sync now)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/sync-status": {
             "get": {
                 "produces": [

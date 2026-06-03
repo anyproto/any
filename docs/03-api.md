@@ -92,6 +92,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
+| POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
@@ -133,6 +134,25 @@ in-line with the local write), an immediate follow-up `GET
 /v1/spaces/:id` may briefly return the pre-patch values. Callers that
 need the converged state poll, or attach a `…/objects/query/subscribe`
 stream filtered on `spaceIndexObjectId`.
+
+#### Force a head-sync round (sync now)
+
+`POST /v1/spaces/:spaceId/sync`
+
+```
+// → 204 (no body)
+```
+
+Wraps `Space.SyncHeads`: forces an immediate head-sync (diff) round
+against the space's responsible nodes instead of waiting for the
+periodic headsync timer. The call **blocks** server-side until the
+round completes, then returns `204`. Normal operation never needs this
+— periodic + reactive sync keep a space current on their own — it
+exists for on-demand convergence: a manual "sync now" button, or
+collapsing the multi-peer convergence wait in tests from "next periodic
+headsync (~30s)" to "as fast as the diff round settles." A single round
+exchanges heads with the node; for a writer→reader handoff, sync the
+writer first (push to the node) then the reader (pull back).
 
 ### Objects
 

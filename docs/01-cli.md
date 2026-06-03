@@ -49,7 +49,14 @@ any account set-metadata --name "..." [--description "..."] [--icon CID]
 ```
 any space get    <spaceId>                          # shipped
 any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
+any space sync   <spaceId>                          # shipped — force a head-sync round now
 ```
+
+`any space sync` wraps `Space.SyncHeads`: it forces an immediate
+head-sync (diff) round and blocks until it completes (printing nothing
+on success). Use it to converge on demand instead of waiting for the
+periodic headsync timer — a manual "sync now", or to speed up
+multi-peer e2e tests.
 
 Planned (HTTP surface ships; no CLI subcommand yet):
 

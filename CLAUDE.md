@@ -134,6 +134,13 @@ Implementation slices landed:
      (cobra `Changed` distinguishes "flag absent" from "flag set
      to empty"). `spaceType` is intentionally not patchable —
      pinned by the initial Create.
+   - `POST /v1/spaces/:spaceId/sync` → `Space.SyncHeads`: forces an
+     immediate head-sync (diff) round against responsible nodes
+     instead of waiting for the ~30s periodic timer; blocks until the
+     round completes, returns 204. CLI: `any space sync <id>`. Used by
+     the multipeer e2e tests (`pollUntilSynced` in
+     `internal/e2e/multipeer_test.go`) to collapse cross-peer
+     convergence waits — sync writer then reader each poll tick.
 9. **Debug surface** — the SDK's new `Space.Debug()` is wrapped at
    `GET /v1/spaces/:spaceId/debug` (per-peer headsync counters, in-
    memory) and `GET /v1/spaces/:spaceId/debug/objects/:objectId`

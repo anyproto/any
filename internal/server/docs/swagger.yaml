@@ -2120,6 +2120,24 @@ paths:
       summary: Subscribe to a windowed per-object query (SSE)
       tags:
       - data
+  /spaces/{spaceId}/sync:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Force an immediate head-sync round (sync now)
+      tags:
+      - spaces
   /spaces/{spaceId}/sync-status:
     get:
       parameters:
