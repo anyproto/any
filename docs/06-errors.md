@@ -52,7 +52,7 @@ space.not_found
 space.exists                     # create conflict
 space.not_joined                 # operation requires membership
 
-invite.invalid                   # 400 — invite token malformed or unrecognized
+invite.invalid                   # invite token malformed or unrecognized
 
 object.not_found
 object.type_required

@@ -715,6 +715,8 @@ pass it back verbatim:
 // → 201 {SpaceInfo}      (AnyoneCanJoin: deferred — never returned in v1)
 ```
 
+A malformed or unrecognized `inviteToken` returns `400 invite.invalid`.
+
 In the v1 RequestToJoin flow `Service.Join` returns 202: the SDK has
 posted the join request, written a `joining` index entry, and the
 joiner now polls `GET /v1/spaces/:id/members/me` for the status flip
