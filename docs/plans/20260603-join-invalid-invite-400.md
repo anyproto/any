@@ -115,17 +115,17 @@
 **Files:**
 - Create: `internal/server/handlers_invites_test.go`
 
-- [ ] add a test that POSTs `/v1/spaces/join` with body
+- [x] add a test that POSTs `/v1/spaces/join` with body
       `{"inviteToken": "not-a-valid-token"}` against `newTestDeps`
-- [ ] assert HTTP status `400` and decoded error code `invite.invalid`
+- [x] assert HTTP status `400` and decoded error code `invite.invalid`
       (success case: the bad token is correctly rejected)
-- [ ] assert the error `message` contains no SDK internals (no `spaceimpl`,
+- [x] assert the error `message` contains no SDK internals (no `spaceimpl`,
       no `anysyncsdk`) — turns the no-leak rule into a regression-guarded test
       rather than a one-time manual check
-- [ ] add an error/edge case: empty `inviteToken` still yields
+- [x] add an error/edge case: empty `inviteToken` still yields
       `400 request.missing_field` (guards that the new branch did not change the
       earlier validation) — confirms the two 400s stay distinct
-- [ ] run `go test ./internal/server/` — must pass (or skip cleanly if staging
+- [x] run `go test ./internal/server/` — must pass (or skip cleanly if staging
       nodeconf is absent) before next task
 
 ### Task 3: Document the error code
