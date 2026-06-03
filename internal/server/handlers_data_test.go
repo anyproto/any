@@ -353,6 +353,57 @@ func TestServer_CrossObjectQueryFlow(t *testing.T) {
 	if gotTitleID != objId1 {
 		t.Errorf("by-title record id = %v, want %v", gotTitleID, objId1)
 	}
+
+	// 12. includeTotal drives total + hasNext. The unfiltered set holds
+	//     at least the two Movie rows (asserted above), so a limit-1 page
+	//     leaves more behind, while a page wide enough to cover everything
+	//     reports hasNext=false. Both fields are gated on includeTotal —
+	//     omitted (nil pointers) when the caller doesn't ask.
+	queryFull := func(t *testing.T, body string) api.QueryResponse {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query", body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST .../objects/query: %d %s", rec.Code, rec.Body.String())
+		}
+		var resp api.QueryResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode query: %v", err)
+		}
+		return resp
+	}
+
+	// First page of one: more matches remain.
+	page := queryFull(t, `{"limit":1,"includeTotal":true}`)
+	if page.Total == nil || page.HasNext == nil {
+		t.Fatalf("includeTotal page: total=%v hasNext=%v, want both populated", page.Total, page.HasNext)
+	}
+	if *page.Total < 2 {
+		t.Fatalf("includeTotal page: total=%d, want >= 2", *page.Total)
+	}
+	if len(page.Records) != 1 {
+		t.Fatalf("includeTotal page: %d records, want 1", len(page.Records))
+	}
+	if !*page.HasNext {
+		t.Errorf("limit-1 page over %d matches: hasNext=false, want true", *page.Total)
+	}
+
+	// A page wide enough to cover every match: nothing left.
+	full := queryFull(t, `{"limit":1000,"includeTotal":true}`)
+	if full.Total == nil || full.HasNext == nil {
+		t.Fatalf("full page: total=%v hasNext=%v, want both populated", full.Total, full.HasNext)
+	}
+	if len(full.Records) != *full.Total {
+		t.Errorf("full page: %d records vs total %d, want equal", len(full.Records), *full.Total)
+	}
+	if *full.HasNext {
+		t.Errorf("page covering all %d matches: hasNext=true, want false", *full.Total)
+	}
+
+	// Without includeTotal both fields are omitted from the wire (nil).
+	bare := queryFull(t, `{"limit":1}`)
+	if bare.Total != nil || bare.HasNext != nil {
+		t.Errorf("no includeTotal: total=%v hasNext=%v, want both nil", bare.Total, bare.HasNext)
+	}
 }
 
 // TestServer_TypeGet_NotFound covers the 404 sdk.not_found path on

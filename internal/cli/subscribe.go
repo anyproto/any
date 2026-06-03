@@ -40,7 +40,7 @@ POST /v1/spaces/:id/query/subscribe over a per-object dataset.
 Frames (one JSON object per line on stdout):
 
   {"event": "ready",    "data": {}}
-  {"event": "snapshot", "data": {"records":[...], "total": 17}}
+  {"event": "snapshot", "data": {"records":[...], "total": 17, "hasNext": true}}
   {"event": "changes",  "data": [{"versionId":"...","added":[...],"updated":[...],"removed":[{"id":"...","reason":"deleted"}]}]}
   {"event": "closed",   "data": {"reason": "server_shutdown" | "sdk_closed" | "overflow" | "drifted"}}
 `,
@@ -80,7 +80,7 @@ Frames (one JSON object per line on stdout):
 	cmd.Flags().StringVar(&sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "window size; required when --sort is set")
 	cmd.Flags().IntVar(&offset, "offset", 0, "skip the first N records of the snapshot")
-	cmd.Flags().BoolVar(&includeTot, "total", false, "include the unbounded match count in the snapshot frame")
+	cmd.Flags().BoolVar(&includeTot, "total", false, "include the unbounded match count and hasNext flag in the snapshot frame")
 	return cmd
 }
 
