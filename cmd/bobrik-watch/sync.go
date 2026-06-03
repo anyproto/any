@@ -87,7 +87,11 @@ func ensureSkillType(baseURL, spaceID string) (string, error) {
 		return "", err
 	}
 	if typeID == "" {
-		body, _ := json.Marshal(map[string]string{"name": "Agent Skill"})
+		// xKey must match what the JS reader uses (toolcall_core reads
+		// "agent_skill.agent_skill_name"); set it explicitly so it's stable
+		// regardless of whether init_agent or this bootstrap creates the type
+		// first (xKey is first-create-wins). Matches anyHelper's name→xKey slug.
+		body, _ := json.Marshal(map[string]string{"name": "Agent Skill", "xKey": "agent_skill"})
 		resp, err := http.Post(
 			baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
 			"application/json",

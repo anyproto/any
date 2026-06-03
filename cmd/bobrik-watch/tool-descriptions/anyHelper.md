@@ -2,10 +2,13 @@
 
 `any` API client for managing objects, types, properties, datasets, and collections in an `any` space.
 
-**Properties are namespaced per type.** An object can carry more than one type, and each type has its own property bag. The server stores properties under internal ids, but you always use readable names:
+**Properties are namespaced per type.** An object can carry more than one type, and each type has its own property bag. Dotted paths are `"<typeXKey>.<propXKey>"` — both segments are **xKeys**, the stable programmatic keys, NOT display names:
 
-- **Writing**: property keys are dotted `"<Type>.<prop>"`, e.g. `"Movie.title"`, `"Agent Memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. Unknown property / wrong value-kind writes fail with a clear error (server-side validation), they are NOT silently dropped.
-- **Reading**: records come back nested — `obj["Movie"].title`, `obj["Agent Memory"].chat_id`. Use `getProp(obj, "Movie.title")` to read a dotted path. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`.
+- **type xKey** — a stable slug. `createType` derives it from the name (`"Agent Memory"` → `agent_memory`, `"Mini App"` → `mini_app`) and returns it as `result.type.xKey`; builtins use their id (`program`, `nav`). It does NOT change when the display name is renamed — so hardcoded paths survive renames.
+- **prop xKey** — the `key` you pass to `createType` properties (`vector`, `title`).
+
+- **Writing**: property keys are dotted `"<typeXKey>.<prop>"`, e.g. `"movie.title"`, `"agent_memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. For the `typeKey` argument of createObject/getObjects you may pass the type's name, xKey, or id (all resolve). Unknown property / wrong value-kind writes fail with a clear error (server-side validation), never silently dropped.
+- **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`, `obj.program.name`.
 
 Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); use `getRecord` / `setRecord` for those.
 
@@ -15,19 +18,19 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 List/query objects of a type. Returns normalized records (nested per type).
 - typeKey: type name (e.g. "Pages", "Agent Memory") or built-in ID (e.g. "chat", "program")
 - options.space: "user" (default) or "system"
-- options.filter: mongo-style filter, keys as readable dotted paths
-  ("Agent Memory.tags", "Film.year"). Operators: $eq (bare value), $ne, $gt,
+- options.filter: mongo-style filter, keys as dotted xKey paths
+  ("agent_memory.tags", "movie.year"). Operators: $eq (bare value), $ne, $gt,
   $gte, $lt, $lte, $in, $nin, $all, $exists, $regex, $and, $or, $not. Against
   an ARRAY property a scalar means "contains" and {$in:[...]} means
   "intersects" — this is how to filter by a tag/category array server-side.
-- options.sort: array of dotted paths, "-" prefix = descending (e.g.
-  ["-Film.year"]). options.limit / options.offset: paging.
+- options.sort: array of dotted xKey paths, "-" prefix = descending (e.g.
+  ["-movie.year"]). options.limit / options.offset: paging.
 Full guide: docs/09-query.md. (Note: negation filters like $ne also match
 objects lacking the field — getObjects already scopes by type so that's safe.)
 
 ### getObject(objId, opts?)
 Fetch one object by ID. Returns the object with properties nested per type
-(`obj["Type"].prop`, read via `getProp(obj, "Type.prop")`) plus `markdown` body.
+(`obj["<typeXKey>"].prop`, read via `getProp(obj, "<typeXKey>.prop")`) plus `markdown` body.
 - objId: object ID
 - opts.space: "user" or "system"
 - opts.from, opts.to: line range for markdown slicing
@@ -70,7 +73,10 @@ Create a type with properties. Idempotent AND additive — if the type already
 exists, only the missing properties are added (safe for multiple programs to
 declare the same type with different properties).
 - opts.name: type name (required)
-- opts.properties: [{key, name?, format}] where format ∈ text | number | checkbox | objects (ref list) | object
+- opts.xKey: stable programmatic key (optional; derived snake_case from name if omitted, e.g. "Agent Memory" → agent_memory)
+- opts.properties: [{key, name?, format}] where format ∈ text | number | checkbox | objects (ref list) | object | array | date
+Returns `{ ok, type: { id, name, xKey }, created }`. Use `type.xKey` as the
+stable namespace segment in dotted property paths.
 
 ### getRecord(objId, dataset, recordId?, opts?)
 Read one record from an object's dataset (raw, not type-namespaced). Returns the

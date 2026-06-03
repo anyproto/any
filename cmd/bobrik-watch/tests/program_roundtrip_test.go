@@ -35,7 +35,11 @@ import (
 	"time"
 )
 
-const spaceName = "integration_test"
+// Bumped to _xkey when type xKey landed: the old space carried "Agent Memory"
+// types created before xKey support (no xKey, and the SDK can't backfill it —
+// first-create-wins), which broke xKey-keyed reads. A fresh space recreates
+// every type with its derived xKey.
+const spaceName = "integration_test_xkey"
 
 func baseURL() string {
 	if v := os.Getenv("ANY_ADDR"); v != "" {

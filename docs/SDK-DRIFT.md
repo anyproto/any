@@ -45,15 +45,25 @@ Paths below are inside the module cache:
   `record[typeId][propId]`, and **writes must key by propId**, not xKey.
   Writing by xKey → `400 property.not_found`. `GET /types/:id/properties`
   returns `{id, name, xKey, kind}` so callers can map xKey→propId. anyHelper
-  hides this behind readable `"Type.prop"` resolution.
+  hides this behind dotted `"<typeXKey>.<propXKey>"` resolution.
+- **Types now have an xKey too** (SDK branch `add-type-xkey`): a record's per-type
+  root keys and `any.types` entries are **type ids** (CIDs for user types). The
+  type xKey is *separate* stable metadata (`any.xkey` on the type object,
+  returned in `TypeInfo.XKey`); anyHelper keys read records by xKey and resolves
+  dotted type segments xKey/name/id → typeId. ⚠ The branch's `Create` writes
+  `any.xkey` but the `any` builtin schema didn't declare an `xkey` property — we
+  added it (`internal/types/any/any.go`); incorporate into the PR. There's no
+  API to set/rename a type's xKey after create (first-create-wins), so existing
+  pre-xKey types can't be backfilled — recreate (fresh space) to get one.
 
-## 4. (Repo, not SDK) the sibling-checkout `replace` is gone
+## 4. (Repo) the sibling-checkout `replace` — removed by the merge, re-added for xKey
 
-- `CLAUDE.md` (root) and `cmd/bobrik-watch/CLAUDE.md` still describe the SDK as
-  a sibling checkout wired via `replace` (`any-sync-sdk → ../any-sync-sdk2`).
-- **Actual:** after the `main` merge, `go.mod` has **no replace** — the build
-  uses published `github.com/anyproto/any-sync-sdk v0.0.4`. Read the module
-  cache, not `../any-sync-sdk2`, when checking SDK behavior.
+- The `main` merge dropped the `replace` and pinned published
+  `any-sync-sdk v0.0.4`. To pick up the type-xKey work, `go.mod` now re-adds
+  `replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk2` (branch
+  `add-type-xkey`, which is `v0.0.4` + the xKey commit + the `any.xkey` fix).
+  Read `../any-sync-sdk2` (on that branch), not the v0.0.4 module cache, when
+  checking SDK behavior now.
 
 ## 5. (Runtime) the stock `anytype-agent-runtime` loader targets anytype-heart, not `any`
 

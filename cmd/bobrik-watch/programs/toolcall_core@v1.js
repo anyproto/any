@@ -451,7 +451,7 @@ function loadOrCreateMemoryAnchor(client) {
   var objects = client.getObjects("Agent Memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    if (getProp(obj, "Agent Memory.agent_memory") === "_main") {
+    if (getProp(obj, "agent_memory.agent_memory") === "_main") {
       return { id: obj.id, fullObj: client.getObject(obj.id, rawOpts) };
     }
   }
@@ -577,7 +577,7 @@ function shouldRespond(client, opts) {
 function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (!anchor || !anchor.fullObj) return null;
 
-  var val = getProp(anchor.fullObj, "Agent Memory.chat_history");
+  var val = getProp(anchor.fullObj, "agent_memory.chat_history");
   var ids = [];
   if (Array.isArray(val)) {
     for (var vi = 0; vi < val.length; vi++) {
@@ -592,7 +592,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   for (var i = 0; i < ids.length; i++) {
     var obj;
     try { obj = client.getObject(ids[i], { resolveRefs: false }); } catch (e) { obj = null; }
-    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: getProp(obj, "Agent Memory.chat_id") || null });
+    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: getProp(obj, "agent_memory.chat_id") || null });
   }
 
   // Match by chatId (when set).
@@ -612,7 +612,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
       if (unkeyed.length === 1) {
         try {
           client.updateObject(unkeyed[0].id, {
-            properties: [{ key: "Agent Memory.chat_id", text: chatId }]
+            properties: [{ key: "agent_memory.chat_id", text: chatId }]
           });
         } catch (e) {}
         return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
@@ -646,7 +646,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   existing.push(newId);
   try {
     client.updateObject(anchor.id, {
-      properties: [{ key: "Agent Memory.chat_history", objects: existing }]
+      properties: [{ key: "agent_memory.chat_history", objects: existing }]
     });
   } catch (e) {}
   return { id: newId, markdown: "" };
@@ -1289,7 +1289,7 @@ function _loadSkillMarkdown(client, skillName) {
     if (!objects || objects.length === 0) continue;
     for (var i = 0; i < objects.length; i++) {
       var o = objects[i];
-      if (!o || getProp(o, "Agent Skill.agent_skill_name") !== skillName) continue;
+      if (!o || getProp(o, "agent_skill.agent_skill_name") !== skillName) continue;
       try {
         var full = client.getObject(o.id, { space: scope });
         if (full && full.markdown) return full.markdown;
@@ -1354,7 +1354,7 @@ function _loadUserSkillsSection(client) {
     if (!o) continue;
     var tags = Array.isArray(o.tag) ? o.tag : [];
     if (tags.indexOf("assistant_program") >= 0) continue;
-    var title = o.name || getProp(o, "Agent Skill.agent_skill_name") || "(untitled skill)";
+    var title = o.name || getProp(o, "agent_skill.agent_skill_name") || "(untitled skill)";
     var desc = (o.description || "").trim();
     var line = "- [" + title + "](any://" + (client.config.spaceId || "_") + "/" + o.id + ")";
     if (desc) line += " — " + desc;

@@ -6,15 +6,17 @@ you'd otherwise load a whole type and loop.
 
 ## Find objects by property
 
-`anyHelper.getObjects(type, { filter, sort, limit, offset })`. Filter keys are
-readable dotted paths `"<Type>.<prop>"`; results come back nested
-(`obj["<Type>"].prop`, read with `getProp(obj, "Type.prop")`).
+`anyHelper.getObjects(type, { filter, sort, limit, offset })`. The `type` arg
+accepts a name/xKey/id; filter & sort keys are dotted **xKey** paths
+`"<typeXKey>.<propXKey>"` (the type xKey is a stable slug — `createType`
+returns it as `type.xKey`). Results come back nested, keyed by xKey
+(`obj["<typeXKey>"].prop`, read with `getProp(obj, "<typeXKey>.prop")`).
 
 ```js
 // recent noir films, newest first, top 5
 anyHelper.getObjects("Film", {
-  filter: { "Film.genre": "noir", "Film.year": { "$gte": 1950 } },
-  sort: ["-Film.year"],
+  filter: { "film.genre": "noir", "film.year": { "$gte": 1950 } },
+  sort: ["-film.year"],
   limit: 5
 })
 ```
@@ -28,8 +30,8 @@ AND-ed.
 When a property is an array, the filter matches its elements:
 
 ```js
-anyHelper.getObjects("Agent Memory", { filter: { "Agent Memory.tags": "lesson" } })        // contains "lesson"
-anyHelper.getObjects("Agent Memory", { filter: { "Agent Memory.tags": { "$in": ["a","b"] } } }) // intersects
+anyHelper.getObjects("Agent Memory", { filter: { "agent_memory.tags": "lesson" } })        // contains "lesson"
+anyHelper.getObjects("Agent Memory", { filter: { "agent_memory.tags": { "$in": ["a","b"] } } }) // intersects
 ```
 
 This is the efficient way to filter by category — the store does it, you don't

@@ -1219,19 +1219,39 @@ export function createClient(params) {
   // same type with different properties (e.g. both init_agent and amemory
   // declare "Agent Memory"); an early-return would silently drop the second
   // program's properties and make its writes fail validation.
+  // _slugifyXKey derives a stable snake_case programmatic key from a display
+  // name: "Agent Memory" → "agent_memory", "Mini App" → "mini_app",
+  // "ComicBook" → "comic_book". This is the type's xKey — the stable handle used
+  // in dotted property paths, so it survives display-name renames.
+  function _slugifyXKey(name) {
+    return String(name)
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/[^A-Za-z0-9]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .toLowerCase();
+  }
+
   function createType(opts) {
     if (!opts) return { ok: false, error: "opts required" };
     if (!opts.name) return { ok: false, error: "name is required" };
 
     var name = opts.name;
+    var xKey = opts.xKey || _slugifyXKey(name);
     var created = false;
     var typeId = _resolveTypeByName(name);
     if (!typeId) {
-      var res = api("POST", spacePath + "/types", { name: name });
-      if (!res.ok) return { ok: false, error: _extractError(res) };
+      var res = api("POST", spacePath + "/types", { name: name, xKey: xKey });
+      if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
       typeId = res.data.typeId;
       created = true;
       _catInvalidate("user");
+    } else {
+      // Existing type: report its actual xKey (first-create wins; the SDK
+      // doesn't update xKey on re-declare).
+      var cat = _cat("user");
+      var info = cat.typeById[typeId];
+      if (info && info.xKey) xKey = info.xKey;
     }
 
     if (opts.properties && Array.isArray(opts.properties) && opts.properties.length > 0) {
@@ -1259,7 +1279,7 @@ export function createClient(params) {
       if (addedAny) _catInvalidate("user");
     }
 
-    return { ok: true, type: { id: typeId, name: name }, created: created };
+    return { ok: true, type: { id: typeId, name: name, xKey: xKey }, created: created };
   }
 
   // ==================== INTERNAL HELPERS ====================
@@ -1310,7 +1330,10 @@ export function createClient(params) {
         if (!Object.prototype.hasOwnProperty.call(rec[k], pid)) continue;
         readable[labelById[pid] || pid] = rec[k][pid];
       }
-      out[tinfo.name] = readable;
+      // Key the namespace by the type's STABLE xKey (not the mutable display
+      // name), falling back to the id. So records read as obj["agent_memory"]
+      // and dotted paths survive a type rename.
+      out[tinfo.xKey || tinfo.id] = readable;
     }
     if (out.any && out.any.name) out.name = out.any.name;
     return out;

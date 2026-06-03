@@ -3745,6 +3745,10 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "xKey": {
+                    "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"program\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
+                    "type": "string"
                 }
             }
         },
@@ -3758,6 +3762,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "xKey": {
+                    "description": "XKey is an optional stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). Display-metadata, like Name — not enforced unique.\nWhen omitted, clients typically derive one from Name.",
                     "type": "string"
                 }
             }

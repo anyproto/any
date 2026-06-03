@@ -29,10 +29,10 @@ export function main(args) {
     return c.createObject("Agent Memory", {
       name: name + "_" + uniq,
       properties: {
-        "Agent Memory.vector": "abcd",         // fake hex so loaders don't skip it
-        "Agent Memory.context": context,
-        "Agent Memory.confidence": 7,
-        "Agent Memory.tags": tags
+        "agent_memory.vector": "abcd",         // fake hex so loaders don't skip it
+        "agent_memory.context": context,
+        "agent_memory.confidence": 7,
+        "agent_memory.tags": tags
       }
     });
   }
@@ -43,19 +43,19 @@ export function main(args) {
 
   // Read-model: nested props resolve by readable name.
   var o1 = c.getObject(m1.id);
-  h.check("read context", getProp(o1, "Agent Memory.context") === "likes dark mode", getProp(o1, "Agent Memory.context"));
-  h.check("read confidence", getProp(o1, "Agent Memory.confidence") === 7, "" + getProp(o1, "Agent Memory.confidence"));
-  var t1 = getProp(o1, "Agent Memory.tags");
+  h.check("read context", getProp(o1, "agent_memory.context") === "likes dark mode", getProp(o1, "agent_memory.context"));
+  h.check("read confidence", getProp(o1, "agent_memory.confidence") === 7, "" + getProp(o1, "agent_memory.confidence"));
+  var t1 = getProp(o1, "agent_memory.tags");
   h.check("read tags array", Array.isArray(t1) && t1[0] === "preference", JSON.stringify(t1));
 
   // THE optimization: server-side category filter via the array `tags` field.
-  var lessons = c.getObjects("Agent Memory", { filter: { "Agent Memory.tags": { "$in": ["lesson"] } } });
+  var lessons = c.getObjects("Agent Memory", { filter: { "agent_memory.tags": { "$in": ["lesson"] } } });
   var lessonNames = lessons.map(function (x) { return x.name; });
   h.check("array $in filter returns the lesson", lessonNames.indexOf("lesson_" + uniq) !== -1, JSON.stringify(lessonNames));
   h.check("array $in filter excludes the preference", lessonNames.indexOf("pref_" + uniq) === -1, JSON.stringify(lessonNames));
 
   // scalar-against-array = "contains"
-  var foodies = c.getObjects("Agent Memory", { filter: { "Agent Memory.tags": "food" } });
+  var foodies = c.getObjects("Agent Memory", { filter: { "agent_memory.tags": "food" } });
   h.check("scalar contains filter finds food", foodies.some(function (x) { return x.name === "lesson_" + uniq; }), JSON.stringify(foodies.map(function (x) { return x.name; })));
 
   // listCategories (no LLM) reflects the migrated tag model.

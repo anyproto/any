@@ -61,8 +61,9 @@ When a property is an **array**, the filter compares against its *elements*:
 - **`$all`** means **superset**: `{ "<t>.tags": { "$all": ["a","b"] } }`.
 
 This is how amemory does category filtering server-side (categories live in a
-bare `tags` array; `getObjects("Agent Memory", {filter:{"Agent Memory.tags":
-{$in:cats}}})` prunes candidates before they cross the wire).
+bare `tags` array; `getObjects("Agent Memory", {filter:{"agent_memory.tags":
+{$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
+arg accepts the name, but the dotted filter key uses the type **xKey**).
 
 ### Two gotchas
 
@@ -89,10 +90,14 @@ Multi-key sorts apply left-to-right: `["nav.parentId", "nav.pos"]`. A
 
 On the wire, property paths are `<typeId>.<propId>` — both are CID ids — plus
 the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
-`_ver.id`. Through **anyHelper** you use readable dotted names instead
-(`"Agent Memory.tags"`, `"Movie.title"`); `getObjects`/`getRecord` resolve them
-to ids on the way in and reverse-map records to readable nested form on the way
-out. Builtin paths pass through unchanged.
+`_ver.id`. Through **anyHelper** you use dotted **xKey** paths instead
+(`"agent_memory.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
+slug of the name, returned by `createType` as `type.xKey`; builtins use their
+id) plus the *property xKey*. anyHelper resolves these to the server's
+`<typeId>.<propId>` on the way in and reverse-maps records to readable nested
+form (keyed by type xKey) on the way out. The xKey is stable across display-name
+renames; builtin paths (`any.types`, `nav.parentId`, `program.name`) pass
+through unchanged.
 
 ## Paging
 

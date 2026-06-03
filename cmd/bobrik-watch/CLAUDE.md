@@ -13,16 +13,20 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 
 ## Storage shape
 
-- **Properties are per-type namespaced.** An object can carry multiple
-  types; each type owns its property bag. anyHelper resolves readable
-  `"<Type>.<prop>"` keys to the server's internal ids (catalog-backed)
-  on write, and reverse-maps records to nested readable form on read
-  (`obj["Type"].prop`, via `getProp(obj,"Type.prop")`). Builtin
-  namespaces stay literal (`obj.name`, `obj.any.types`,
+- **Properties are per-type namespaced, keyed by xKey.** An object can carry
+  multiple types; each type owns its property bag. Dotted paths use the
+  type's **xKey** (a stable snake_case slug of the name — `"Agent Memory"` →
+  `agent_memory`; builtins use their id) plus the property xKey:
+  `getProp(obj,"agent_memory.chat_id")`, `{ "agent_memory.tags": [...] }`.
+  `createType` derives+returns `type.xKey` (or pass `opts.xKey`); the xKey
+  survives display-name renames (needs SDK `add-type-xkey`; the type meta
+  stores `any.xkey`). anyHelper resolves name/xKey/id for the `typeKey`
+  *argument*, but dotted *paths* must use the xKey — reads come back keyed by
+  it. Builtin namespaces stay literal (`obj.name`, `obj.any.types`,
   `obj.nav.parentId`, `obj.program.name`). Writes go one
-  `properties/:objId/base/:typeId` PATCH per type; unknown-prop /
-  wrong-kind writes fail loudly (server validation). No flatten-to-top-
-  level, no first-type guessing (both were legacy anytypeHelper hacks).
+  `properties/:objId/base/:typeId` PATCH per type; unknown-prop / wrong-kind
+  writes fail loudly (server validation). No flatten-to-top-level, no
+  first-type guessing (both were legacy anytypeHelper hacks).
 - **Programs** — type `program` (built-in), datasets
   `program_source` (code), `program_description` (tool docs), and
   `program_methods` (per-method docs, currently unused). Registered
@@ -57,13 +61,14 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 - `anyHelper.js` replaces `anytypeHelper.js`, same method surface.
 - Property-key prefixes are dropped: legacy `__anytype_`/`__any_`/`__amemory_`
   prefixes existed to avoid collisions in a flat namespace; per-type
-  namespacing makes them redundant (`Agent Memory.chat_id`, not
-  `__any_chat_id`; `Agent Memory.vector`, not `__amemory_vector`).
+  namespacing makes them redundant (`agent_memory.chat_id`, not
+  `__any_chat_id`; `agent_memory.vector`, not `__amemory_vector` — the
+  `agent_memory` segment is the type xKey).
   Migrated: init_agent, toolcall_core, miniapp, amemory@v2.
 - amemory categories live in the bare `tags` array on the `Agent Memory`
   type (no per-tag prefix). Category filtering is server-side via the
-  any-store array filter (`getObjects("Agent Memory", {filter:{"Agent
-  Memory.tags":{$in:[...]}}})` — scalar = "contains", `$in` = "intersects");
+  any-store array filter (`getObjects("Agent Memory", {filter:{"agent_memory.tags":{$in:[...]}}})`
+  — scalar = "contains", `$in` = "intersects");
   `_buildCategoryFilter` still enforces exact `m.category` afterwards. FTS
   (`client.search`) is still a stub — the keyword half of recall is inert,
   vector similarity carries.

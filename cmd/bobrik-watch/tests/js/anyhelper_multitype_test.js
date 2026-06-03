@@ -38,6 +38,10 @@ export function main(args) {
     ]
   });
   h.check("createType ok", ct && ct.ok, JSON.stringify(ct));
+  // The stable type handle for dotted paths is the xKey (slug of the name),
+  // NOT the display name — records read back keyed by it.
+  var mx = ct.type && ct.type.xKey;
+  h.check("createType returns derived xKey", mx === "movie_" + uniq, "" + mx);
 
   // --- createObject with type + properties (bare keys, single type) -------
   var co = c.createObject(movieType, {
@@ -51,10 +55,10 @@ export function main(args) {
   // --- getObject: readable nested record ----------------------------------
   var obj = c.getObject(objId);
   h.check("getObject name hoisted", obj && obj.name === "Casablanca", obj && obj.name);
-  h.check("getObject nested title", getProp(obj, movieType + ".title") === "Casablanca",
+  h.check("getObject nested title", getProp(obj, mx + ".title") === "Casablanca",
     JSON.stringify(obj && obj[movieType]));
-  h.check("getObject nested year (number)", getProp(obj, movieType + ".year") === 1942,
-    JSON.stringify(getProp(obj, movieType + ".year")));
+  h.check("getObject nested year (number)", getProp(obj, mx + ".year") === 1942,
+    JSON.stringify(getProp(obj, mx + ".year")));
   h.check("getObject keeps any.types", obj && obj.any && Array.isArray(obj.any.types));
 
   // --- updateObject: dotted property write --------------------------------
@@ -62,20 +66,20 @@ export function main(args) {
   // empty is a no-op success
   h.check("updateObject empty props ok", up && up.ok, JSON.stringify(up));
 
-  var up3 = c.updateObject(objId, { properties: dotted(movieType, { title: "Casablanca (1942)", year: 1943 }) });
+  var up3 = c.updateObject(objId, { properties: dotted(mx, { title: "Casablanca (1942)", year: 1943 }) });
   h.check("updateObject dotted ok", up3 && up3.ok, JSON.stringify(up3));
   var obj2 = c.getObject(objId);
-  h.check("update applied title", getProp(obj2, movieType + ".title") === "Casablanca (1942)",
-    getProp(obj2, movieType + ".title"));
-  h.check("update applied year", getProp(obj2, movieType + ".year") === 1943,
-    "" + getProp(obj2, movieType + ".year"));
+  h.check("update applied title", getProp(obj2, mx + ".title") === "Casablanca (1942)",
+    getProp(obj2, mx + ".title"));
+  h.check("update applied year", getProp(obj2, mx + ".year") === 1943,
+    "" + getProp(obj2, mx + ".year"));
 
   // --- validation surfaces: unknown prop ----------------------------------
-  var bad = c.updateObject(objId, { properties: dotted(movieType, { nope: "x" }) });
+  var bad = c.updateObject(objId, { properties: dotted(mx, { nope: "x" }) });
   h.check("unknown prop rejected (not ok)", bad && bad.ok === false, JSON.stringify(bad));
 
   // --- validation surfaces: kind mismatch ---------------------------------
-  var badKind = c.updateObject(objId, { properties: dotted(movieType, { year: "not a number" }) });
+  var badKind = c.updateObject(objId, { properties: dotted(mx, { year: "not a number" }) });
   h.check("kind mismatch rejected (not ok)", badKind && badKind.ok === false, JSON.stringify(badKind));
 
   // --- getObjects by type returns the object with nested props ------------
@@ -84,7 +88,7 @@ export function main(args) {
   var found = null;
   for (var i = 0; i < list.length; i++) { if (list[i].id === objId) { found = list[i]; break; } }
   h.check("getObjects finds our object", !!found);
-  h.check("getObjects nested prop readable", found && getProp(found, movieType + ".title") === "Casablanca (1942)",
+  h.check("getObjects nested prop readable", found && getProp(found, mx + ".title") === "Casablanca (1942)",
     found && JSON.stringify(found[movieType]));
 
   // --- true multitype: one object carrying two user types -----------------
@@ -94,11 +98,12 @@ export function main(args) {
     properties: [{ key: "issue", name: "Issue", format: "number" }]
   });
   h.check("createType comic ok", ctc && ctc.ok, JSON.stringify(ctc));
+  var cx = ctc.type && ctc.type.xKey;
 
   var multi = c.createObject(movieType, {
     name: "Crossover",
     types: [comicType],
-    properties: merge(dotted(movieType, { title: "The Film" }), dotted(comicType, { issue: 7 }))
+    properties: merge(dotted(mx, { title: "The Film" }), dotted(cx, { issue: 7 }))
   });
   h.check("multitype createObject ok", multi && multi.ok, JSON.stringify(multi));
   var mObj = c.getObject(multi.id);
@@ -106,18 +111,18 @@ export function main(args) {
     mObj && mObj.any && mObj.any.types.indexOf(_id(c, movieType)) !== -1 &&
     mObj.any.types.indexOf(_id(c, comicType)) !== -1,
     JSON.stringify(mObj && mObj.any && mObj.any.types));
-  h.check("multitype reads Movie.title", getProp(mObj, movieType + ".title") === "The Film",
-    getProp(mObj, movieType + ".title"));
-  h.check("multitype reads ComicBook.issue", getProp(mObj, comicType + ".issue") === 7,
-    "" + getProp(mObj, comicType + ".issue"));
+  h.check("multitype reads Movie.title", getProp(mObj, mx + ".title") === "The Film",
+    getProp(mObj, mx + ".title"));
+  h.check("multitype reads ComicBook.issue", getProp(mObj, cx + ".issue") === 7,
+    "" + getProp(mObj, cx + ".issue"));
 
   // dotted update hitting both type namespaces in one call
-  var bothUpd = merge(dotted(movieType, { title: "The Film v2" }), dotted(comicType, { issue: 8 }));
+  var bothUpd = merge(dotted(mx, { title: "The Film v2" }), dotted(cx, { issue: 8 }));
   var ub = c.updateObject(multi.id, { properties: bothUpd });
   h.check("multitype dotted update ok", ub && ub.ok, JSON.stringify(ub));
   var mObj2 = c.getObject(multi.id);
-  h.check("multitype update Movie.title", getProp(mObj2, movieType + ".title") === "The Film v2");
-  h.check("multitype update ComicBook.issue", getProp(mObj2, comicType + ".issue") === 8);
+  h.check("multitype update Movie.title", getProp(mObj2, mx + ".title") === "The Film v2");
+  h.check("multitype update ComicBook.issue", getProp(mObj2, cx + ".issue") === 8);
 
   return h.done();
 }
