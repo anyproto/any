@@ -14,7 +14,7 @@
 //
 // Run: anytype-agent-runtime -m assistantjs assistantjs/toolcall_core@v1.js text="..."
 
-import { createClient, getProp, extractMarkdownSection } from "anyHelper@v1";
+import { createClient, getProp } from "anyHelper@v1";
 import { createLLM } from "llm@v1";
 import { displayValue, formatTraceOneLiner, summarizeTrace } from "utils@v1";
 import { createAMemory } from "amemory@v2";
@@ -93,89 +93,27 @@ var RUN_CELL_TOOL = {
 // Helpers — tool discovery, boot prelude, and dynamic system prompt section
 // ============================================================================
 
-function _stripMethodNameSuffix(name) {
-  var parenIdx = name.indexOf("(");
-  if (parenIdx > 0) return name.substring(0, parenIdx).trim();
-  return name.trim();
+// Render one stored method record back to its markdown section — the shape
+// describeMethod returns. The kind tag is re-attached to the heading
+// (`### name(sig) [kind]`), matching how the doc was authored.
+function _renderMethodDoc(m) {
+  var heading = "### " + m.name + (m.kind ? " [" + m.kind + "]" : "");
+  return m.text ? heading + "\n\n" + m.text : heading;
 }
 
-// Walk a tool's full markdown and return { description, methods }, where
-// methods = [{ name, bareName, content, kind }] sliced from "## Tool Schema"
-// (or "# Tools") subsections.
-//
-// Recognized kind tags: getter, mutator, setup, program. Methods tagged
-// `program` are included here; the boot path filters them out for anyHelper
-// so they vanish from the discovery surface.
-function _parseToolMarkdown(md) {
-  if (!md) return { description: "", methods: [] };
-  var description = extractMarkdownSection(md, "Tool Description") || "";
-  var toolsStart = -1;
-  var candidates = ["\n# Tools\n", "# Tools\n", "\n## Tools\n", "## Tools\n", "\n## Tool Schema\n", "## Tool Schema\n"];
-  for (var ci = 0; ci < candidates.length; ci++) {
-    toolsStart = md.indexOf(candidates[ci]);
-    if (toolsStart !== -1) break;
-  }
-  if (toolsStart === -1) return { description: description, methods: [] };
-  if (md.charAt(toolsStart) === "\n") toolsStart++;
-
-  var lines = md.substring(toolsStart).split("\n");
-  var sectionLevel = 1;
-  var headM = lines[0] && lines[0].match(/^(#{1,6})\s/);
-  if (headM) sectionLevel = headM[1].length;
-  var methodPrefix = "";
-  for (var h = 0; h <= sectionLevel; h++) methodPrefix += "#";
-  methodPrefix += " ";
-
-  var methods = [];
-  var currentName = null;
-  var currentKind = "getter";
-  var currentLines = [];
-
-  function flush() {
-    if (currentName === null) return;
-    methods.push({
-      name: currentName,
-      bareName: _stripMethodNameSuffix(currentName),
-      content: currentLines.join("\n"),
-      kind: currentKind
-    });
-  }
-
-  for (var i = 1; i < lines.length; i++) {
-    var hm = lines[i].match(/^(#{1,6})\s/);
-    if (hm && hm[1].length <= sectionLevel) break;
-    if (lines[i].indexOf(methodPrefix) === 0) {
-      flush();
-      var headingText = lines[i].substring(methodPrefix.length).trim();
-      var kindMatch = headingText.match(/\s*\[(getter|mutator|setup|program)\]\s*$/);
-      currentKind = "getter";
-      if (kindMatch) {
-        currentKind = kindMatch[1];
-        headingText = headingText.substring(0, kindMatch.index).trim();
-      }
-      currentName = headingText;
-      currentLines = [lines[i]];
-    } else if (currentName !== null) {
-      currentLines.push(lines[i]);
-    }
-  }
-  flush();
-  return { description: description, methods: methods };
-}
-
-// Build the per-session toolDocs table from getTools() results. Hard-errors
-// if the anyHelper tool is not discoverable in the space — every kernel
-// must have it as the `anyHelper` global.
+// Build the per-session toolDocs table from getTools() results. Docs come
+// from the split datasets via getToolDocs (program_description = description
+// body, program_methods = one record per method) — no markdown parsing.
+// Hard-errors if the anyHelper tool is not discoverable in the space — every
+// kernel must have it as the `anyHelper` global.
 function _buildToolDocs(bootClient, tools) {
   var toolDocs = {};
   for (var ti = 0; ti < tools.length; ti++) {
     var t = tools[ti];
-    // Route the full-object fetch to the program's source space. Without this,
+    // Route the dataset reads to the program's source space. Without this,
     // a system-space tool's id won't resolve from the user-space client.
-    var fullObj = bootClient.getObject(t.id, t.space ? { space: t.space } : undefined);
-    var md = fullObj && fullObj.markdown ? fullObj.markdown : "";
-    var parsed = _parseToolMarkdown(md);
-    var methods = parsed.methods;
+    var docs = bootClient.getToolDocs(t.id, t.space ? { space: t.space } : undefined);
+    var methods = docs.methods;
 
     // For anyHelper specifically, hide [program]-tagged methods from the
     // discovery surface. They stay callable on the underlying instance, just
@@ -188,9 +126,9 @@ function _buildToolDocs(bootClient, tools) {
       toolId: t.id,
       programName: t.programName,
       programVersion: t.programVersion || "v1",
-      description: parsed.description,
-      createdDate: (fullObj && fullObj.created_date) || "",
-      methods: methods.map(function(m) { return { bareName: m.bareName, content: m.content }; })
+      description: docs.description,
+      createdDate: "",
+      methods: methods.map(function(m) { return { bareName: m.bareName, content: _renderMethodDoc(m) }; })
     };
   }
   if (!toolDocs["anyHelper"]) {
@@ -201,9 +139,10 @@ function _buildToolDocs(bootClient, tools) {
 
 // For anyHelper specifically, additional method names that exist on the
 // instance but should be hidden from the discovery surface. The .md may not
-// document them at all (e.g. saveTool); we still want them out of listMethods.
+// document them at all (e.g. getToolDocs — boot plumbing); we still want
+// them out of listMethods.
 var ANYHELPER_HIDDEN_METHODS = [
-  "saveTool",
+  "getToolDocs",
   "fetchTrace",
   "fetchTraceSchema"
 ];
@@ -448,18 +387,18 @@ function _fetchCategoriesSection() {
 // keeps working. Returns { id, fullObj } or null.
 function loadOrCreateMemoryAnchor(client) {
   var rawOpts = { resolveRefs: false };
-  var objects = client.getObjects("Agent Memory", rawOpts);
+  var objects = client.getObjects("agent_memory", rawOpts);
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    if (obj.__any_agent_memory === "_main") {
+    if (getProp(obj, "agent_memory.agent_memory") === "_main") {
       return { id: obj.id, fullObj: client.getObject(obj.id, rawOpts) };
     }
   }
 
-  var result = client.createObject("Agent Memory", {
+  var result = client.createObject("agent_memory", {
     name: "Agent Memory",
     body: "",
-    properties: [{ key: "__any_agent_memory", text: "_main" }]
+    agent_memory: { agent_memory: "_main" }
   });
   if (!result || !result.ok) return null;
   return { id: result.object.id, fullObj: client.getObject(result.object.id, rawOpts) };
@@ -556,19 +495,19 @@ function shouldRespond(client, opts) {
 }
 
 // Find or create the rolling chat-history object for a given chatId, linked
-// from the memory anchor's __any_chat_history property (a multi-value
+// from the memory anchor's `Agent Memory.chat_history` property (a multi-value
 // `objects` field). Returns { id, markdown } or null on hard failure.
 //
 //   chatId    — the Anytype chat object id; null for legacy/unscoped mode
 //   chatName  — optional, used only to name a newly-created history object
 //   spaceType — used to enable one-time 1-1 adoption (see below)
 //
-// Lookup walks every linked history and matches by the top-level
-// __any_chat_id property. If none match and:
+// Lookup walks every linked history and matches by the
+// `Agent Memory.chat_id` property. If none match and:
 //   (a) chatId is set AND
-//   (b) there's exactly one linked history with NO __any_chat_id AND
+//   (b) there's exactly one linked history with NO chat_id AND
 //   (c) spaceType === 4 (OneToOne)
-// we *adopt* that legacy object in place by patching its __any_chat_id.
+// we *adopt* that legacy object in place by patching its chat_id.
 // This preserves 1-1 history continuity for users who had the agent deployed
 // before chat scoping existed.
 //
@@ -577,7 +516,7 @@ function shouldRespond(client, opts) {
 function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (!anchor || !anchor.fullObj) return null;
 
-  var val = getProp(anchor.fullObj, "__any_chat_history");
+  var val = getProp(anchor.fullObj, "agent_memory.chat_history");
   var ids = [];
   if (Array.isArray(val)) {
     for (var vi = 0; vi < val.length; vi++) {
@@ -587,12 +526,12 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
     ids.push(val);
   }
 
-  // Hydrate each linked history so we can match by __any_chat_id.
+  // Hydrate each linked history so we can match by chat_id.
   var hydrated = [];
   for (var i = 0; i < ids.length; i++) {
     var obj;
     try { obj = client.getObject(ids[i], { resolveRefs: false }); } catch (e) { obj = null; }
-    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: obj.__any_chat_id || null });
+    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: getProp(obj, "agent_memory.chat_id") || null });
   }
 
   // Match by chatId (when set).
@@ -612,7 +551,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
       if (unkeyed.length === 1) {
         try {
           client.updateObject(unkeyed[0].id, {
-            properties: [{ key: "__any_chat_id", text: chatId }]
+            agent_memory: { chat_id: chatId }
           });
         } catch (e) {}
         return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
@@ -629,13 +568,13 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (chatName) historyName += " — " + chatName;
   else if (chatId) historyName += " — " + chatId;
 
-  var createProps = [];
-  if (chatId) createProps.push({ key: "__any_chat_id", text: chatId });
+  var createProps = {};
+  if (chatId) createProps.chat_id = chatId;
 
-  var result = client.createObject("Agent Memory", {
+  var result = client.createObject("agent_memory", {
     name: historyName,
     body: "",
-    properties: createProps
+    agent_memory: createProps
   });
   if (!result || !result.ok) return null;
   var newId = result.object.id;
@@ -646,7 +585,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   existing.push(newId);
   try {
     client.updateObject(anchor.id, {
-      properties: [{ key: "__any_chat_history", objects: existing }]
+      agent_memory: { chat_history: existing }
     });
   } catch (e) {}
   return { id: newId, markdown: "" };
@@ -668,7 +607,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
 
 function loadSpaceContextMain(client) {
   var objects;
-  try { objects = client.getObjects("Space Context"); } catch (e) { return null; }
+  try { objects = client.getObjects("space_context"); } catch (e) { return null; }
   if (!objects || objects.length === 0) return null;
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
@@ -685,7 +624,7 @@ function loadSpaceContextMain(client) {
 // agent pulls content on demand.
 function getChildSpaceContexts(client) {
   var objects;
-  try { objects = client.getObjects("Space Context"); } catch (e) { return []; }
+  try { objects = client.getObjects("space_context"); } catch (e) { return []; }
   if (!objects || objects.length === 0) return [];
   var out = [];
   for (var i = 0; i < objects.length; i++) {
@@ -799,7 +738,8 @@ function extractEffects(traces, spaceId) {
     else if (bare === "addTag") op = "tagged";
     else if (bare === "removeTag") op = "untagged";
     else if (bare === "createType") op = "typed";
-    else if (bare === "saveProgram") op = "program-saved";
+    // (saveProgram moved to anyPrograms — its inner client calls surface
+    // here as createObject/setRecord, so program saves still show up.)
     else continue;
 
     var record = traces[name];
@@ -1166,7 +1106,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
   var createdChildren = 0;
   for (var ki = 0; ki < childSections.length; ki++) {
     var cs = childSections[ki];
-    var r = client.createObject("Space Context", { name: cs.title, body: cs.content });
+    var r = client.createObject("space_context", { name: cs.title, body: cs.content });
     if (r && r.ok) {
       titleToNewId[cs.title] = r.object.id;
       createdChildren++;
@@ -1176,7 +1116,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
   }
 
   var finalMainMd = _rewriteChildLinks(mainSection.content, titleToNewId, client.config.spaceId);
-  var mainRes = client.createObject("Space Context", { name: "Main", body: finalMainMd });
+  var mainRes = client.createObject("space_context", { name: "Main", body: finalMainMd });
   if (!mainRes || !mainRes.ok) {
     if (breadcrumb) breadcrumb("[space-context] failed to create new Main: " + (mainRes && mainRes.error));
     return { skipped: false, ok: false, reason: "main-create-failed" };
@@ -1268,9 +1208,8 @@ function renderWindowMessages(turns) {
   return msgs;
 }
 
-// Load an agent-skill object by its `__any_agent_skill_name`. Matches by
-// the top-level __any_agent_skill_name field. Returns "" when no such
-// skill exists so the caller can concatenate freely.
+// Load an agent-skill object by its `Agent Skill.agent_skill_name`. Returns
+// "" when no such skill exists so the caller can concatenate freely.
 //
 // Cross-space: tries the user space first, then falls back to the system
 // (private) space. Lets users override a system skill (e.g. _anytype) by
@@ -1283,14 +1222,14 @@ function _loadSkillMarkdown(client, skillName) {
     var scope = scopes[s];
     var objects;
     try {
-      objects = client.getObjects("Agent Skill", { space: scope });
+      objects = client.getObjects("agent_skill", { space: scope });
     } catch (e) {
       continue;
     }
     if (!objects || objects.length === 0) continue;
     for (var i = 0; i < objects.length; i++) {
       var o = objects[i];
-      if (!o || o.__any_agent_skill_name !== skillName) continue;
+      if (!o || getProp(o, "agent_skill.agent_skill_name") !== skillName) continue;
       try {
         var full = client.getObject(o.id, { space: scope });
         if (full && full.markdown) return full.markdown;
@@ -1337,14 +1276,16 @@ function _loadSpaceContextSection(skillMd, mainObj, children, spaceId) {
 // can decide to fetch a skill's full content when the current topic matches.
 // The static guidance (what skills are, how to create/update them) lives in
 // the `_meta_skill` agent-skill — its markdown is prepended to the list when
-// deployed. System skills deployed via ./deploy-assistant.sh carry the
-// `assistant_program` tag and are excluded — their content is already woven
-// into the system prompt by dedicated loaders, so listing them here would be
-// redundant and would waste the agent's attention.
+// deployed. System skills (synced from cmd/bobrik-watch/skills/ by the
+// bobrik-watch bootstrap) are named with a leading underscore (_toolcaller, _soul, …) and are
+// excluded — their content is already woven into the system prompt by dedicated
+// loaders, so listing them here would be redundant. (We key on the `_` name
+// prefix, not a tag: tags are array properties now and these objects don't
+// carry one.)
 function _loadUserSkillsSection(client) {
   var objects;
   try {
-    objects = client.getObjects("Agent Skill");
+    objects = client.getObjects("agent_skill");
   } catch (e) {
     return "";
   }
@@ -1353,9 +1294,9 @@ function _loadUserSkillsSection(client) {
   for (var i = 0; i < objects.length; i++) {
     var o = objects[i];
     if (!o) continue;
-    var tags = Array.isArray(o.tag) ? o.tag : [];
-    if (tags.indexOf("assistant_program") >= 0) continue;
-    var title = o.name || o.__any_agent_skill_name || "(untitled skill)";
+    var skillName = getProp(o, "agent_skill.agent_skill_name") || "";
+    if (skillName.charAt(0) === "_") continue; // system skill — woven in elsewhere
+    var title = o.name || skillName || "(untitled skill)";
     var desc = (o.description || "").trim();
     var line = "- [" + title + "](any://" + (client.config.spaceId || "_") + "/" + o.id + ")";
     if (desc) line += " — " + desc;
@@ -1393,13 +1334,22 @@ function renderChunksMessage(chunks) {
 }
 
 // ============================================================================
-// Debug collector — captures every LLM call onto ONE any_agent_debug page
+// Debug collector — captures every LLM call as structured records on ONE
+// `agent_debug_log` object
 // ============================================================================
-// One page per invocation, named after the user prompt. Turns append in real
-// time via anyHelper.appendToObject — open the page in Anytype Desktop and
-// new turn sections show up as they happen, no flush required. All writes are
-// best-effort: if the agent space lacks the type or createObject fails, the
-// agent run continues unaffected.
+// One object per invocation, named after the user prompt. Instead of appending
+// markdown editor blocks, the collector writes an ordered ARRAY of structured
+// records into the object's `agent_debug_log` dataset — one record per log
+// entry — via anyHelper.setRecord. Each record carries a monotonic `seq` and a
+// `kind` ("boot" | "system_prompt" | "turn" | "done"); readers sort by `seq`
+// (or by the zero-padded record id, which matches insertion order) to replay
+// the timeline. The dataset is registered server-side by the built-in
+// `agent_debug_log` type (internal/agentdebug); DefaultHandler stores raw
+// values, so nested arrays/objects (cells, response) round-trip as-is. All
+// writes are best-effort: if the agent space lacks the type or a write
+// fails, the agent run continues unaffected.
+
+var DC_DATASET = "agent_debug_log";
 
 var _dc = {
   client: null,
@@ -1408,6 +1358,7 @@ var _dc = {
   startMs: 0,
   model: "",
   turnCount: 0,
+  seq: 0,
   totalIn: 0,
   totalOut: 0,
   totalCost: 0
@@ -1415,8 +1366,33 @@ var _dc = {
 
 function _dcReset() {
   _dc.client = null; _dc.pageId = null; _dc.userText = "";
-  _dc.startMs = 0; _dc.model = ""; _dc.turnCount = 0;
+  _dc.startMs = 0; _dc.model = ""; _dc.turnCount = 0; _dc.seq = 0;
   _dc.totalIn = 0; _dc.totalOut = 0; _dc.totalCost = 0;
+}
+
+// Zero-pad a sequence number so lexical record-id order matches insertion order.
+function _dcPad(n) {
+  var s = "" + n;
+  while (s.length < 6) s = "0" + s;
+  return s;
+}
+
+// Write one structured entry record to the agent_debug_log dataset. Stamps a
+// monotonic `seq`, the `kind`, and an ISO `ts`, then merges the caller's
+// fields. Best-effort — a missing page/client or a setRecord failure is
+// swallowed so the agent run is never affected by debug logging.
+function _dcWriteEntry(kind, fields) {
+  if (!_dc.client || !_dc.pageId) return;
+  var seq = _dc.seq++;
+  var rec = { seq: seq, kind: kind };
+  try { rec.ts = new Date().toISOString(); } catch (e) {}
+  if (fields) {
+    for (var k in fields) {
+      if (Object.prototype.hasOwnProperty.call(fields, k)) rec[k] = fields[k];
+    }
+  }
+  var recordId = _dcPad(seq) + "_" + kind;
+  try { _dc.client.setRecord(_dc.pageId, DC_DATASET, recordId, rec); } catch (e) {}
 }
 
 function dcInit(client, _spaceId, userText, bootMeta) {
@@ -1425,19 +1401,35 @@ function dcInit(client, _spaceId, userText, bootMeta) {
   _dc.userText = userText || "";
   _dc.startMs = Date.now();
   var name = _dc.userText || "(no prompt)";
-  var initialBody = "> " + (_dc.userText || "(no prompt)").replace(/\n/g, "\n> ") + "\n";
+
+  // Create the log object (type agent_debug_log) with NO markdown body — the
+  // dataset is the content. File it under the host-provided Debug nav folder
+  // (best-effort; failure leaves it at root but the run continues).
+  try {
+    var r = client.createObject("agent_debug_log", { name: name });
+    if (r && r.ok && r.object) {
+      _dc.pageId = r.object.id;
+      var debugFolderId = client.config && client.config.debugFolderId;
+      if (debugFolderId) {
+        try { client.addToCollection(debugFolderId, _dc.pageId); } catch (e2) {}
+      }
+    }
+  } catch (e) {}
+
+  // First record: boot context (prompt + middleware meta + redacted rawArgs).
+  var boot = {
+    prompt: _dc.userText || "(no prompt)",
+    build: "chat-scoping@v2"
+  };
   if (bootMeta) {
-    initialBody += "\n`[boot]` build=chat-scoping@v2"
-      + " spaceType=" + (bootMeta.spaceType === null || bootMeta.spaceType === undefined ? "(none)" : bootMeta.spaceType)
-      + " chatId=" + (bootMeta.chatId || "(none)")
-      + " identity=" + (bootMeta.identity || "(none)")
-      + " botIdentity=" + (bootMeta.botIdentity || "(none)")
-      + "\n";
+    boot.spaceType   = (bootMeta.spaceType === null || bootMeta.spaceType === undefined) ? null : bootMeta.spaceType;
+    boot.chatId      = bootMeta.chatId || "";
+    boot.identity    = bootMeta.identity || "";
+    boot.botIdentity = bootMeta.botIdentity || "";
     if (bootMeta.rawArgs !== undefined) {
-      var rawJson;
+      // Redact anything that looks like a secret before it lands on the page.
+      var redacted = {};
       try {
-        // Redact anything that looks like a secret before it lands on the page.
-        var redacted = {};
         for (var k in bootMeta.rawArgs) {
           if (!Object.prototype.hasOwnProperty.call(bootMeta.rawArgs, k)) continue;
           if (/apiKey|api_key|token|secret|password/i.test(k)) {
@@ -1446,26 +1438,11 @@ function dcInit(client, _spaceId, userText, bootMeta) {
             redacted[k] = bootMeta.rawArgs[k];
           }
         }
-        rawJson = JSON.stringify(redacted, null, 2);
-      } catch (e) {
-        rawJson = "(stringify failed: " + (e && e.message ? e.message : String(e)) + ")";
-      }
-      initialBody += "\n`[boot.rawArgs]` keys=[" + Object.keys(bootMeta.rawArgs || {}).join(", ") + "]\n";
-      initialBody += "```json\n" + rawJson + "\n```\n";
+      } catch (e3) {}
+      boot.rawArgs = redacted;
     }
   }
-  try {
-    var r = client.createObject("Agent Debug Log", { name: name, body: initialBody });
-    if (r && r.ok && r.object) {
-      _dc.pageId = r.object.id;
-      // File the page under the host-provided Debug nav folder (best-
-      // effort; failure leaves it at root but the run continues).
-      var debugFolderId = client.config && client.config.debugFolderId;
-      if (debugFolderId) {
-        try { client.addToCollection(debugFolderId, _dc.pageId); } catch (e2) {}
-      }
-    }
-  } catch (e) {}
+  _dcWriteEntry("boot", boot);
 }
 
 // Stringify a tool_result block's content. The block can hold either a plain
@@ -1491,34 +1468,25 @@ function _formatToolResultContent(block) {
   return block.is_error ? "[ERROR] " + text : text;
 }
 
-// Write a "## Initial context" section with the full system prompt the LLM
-// sees on every turn. Per-turn `messages` arrays are already captured in
-// dcLogTurn; this fills the only previously-invisible channel, the `system:`
-// parameter.
+// Record the full system prompt the LLM sees on every turn. Per-turn raw
+// responses are captured in dcLogTurn; this fills the only otherwise-
+// invisible channel, the `system:` parameter. One `system_prompt` record.
 function dcLogInitialContext(systemText) {
-  if (!_dc.client || !_dc.pageId) return;
-  var len = (systemText || "").length;
-  var body = "\n\n---\n\n## Initial context\n\n";
-  body += "**System prompt:** " + len + " chars\n\n";
-  body += "```markdown\n" + (systemText || "") + "\n```\n";
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  _dcWriteEntry("system_prompt", {
+    chars: (systemText || "").length,
+    text: systemText || ""
+  });
 }
 
 function dcLogTurn(opts) {
   if (!_dc.client || !_dc.pageId) return;
   var n = opts.n;
-  var messages = opts.messages || [];
   var resp = opts.resp || {};
   var durationMs = opts.durationMs || 0;
   var toolResults = opts.toolResults || [];
   if (resp.model && !_dc.model) _dc.model = resp.model;
 
-  var toolBlocks = [];
   var content = resp.content || [];
-  for (var i = 0; i < content.length; i++) {
-    if (content[i] && content[i].type === "tool_use") toolBlocks.push(content[i]);
-  }
-
   var resultsById = {};
   for (var ri = 0; ri < toolResults.length; ri++) {
     if (toolResults[ri] && toolResults[ri].tool_use_id) {
@@ -1526,68 +1494,65 @@ function dcLogTurn(opts) {
     }
   }
 
-  // Update running totals (used by dcFlush footer).
+  // One structured cell per tool_use block, paired with its result text and
+  // an `executed` flag (false when the turn ended before the cell ran).
+  var cells = [];
+  for (var i = 0; i < content.length; i++) {
+    if (!content[i] || content[i].type !== "tool_use") continue;
+    var code = (content[i].input && content[i].input.code) || "";
+    var matched = resultsById[content[i].id];
+    cells.push({
+      code: code,
+      result: matched ? _formatToolResultContent(matched) : "",
+      isError: matched ? !!matched.is_error : false,
+      executed: !!matched
+    });
+  }
+
+  // Running totals (used by the dcFlush summary record).
   _dc.turnCount = n;
+  var inT = 0, outT = 0, cost = null;
   if (resp.usage) {
     var u = resp.usage;
-    _dc.totalIn += u.prompt_tokens || u.input_tokens || 0;
-    _dc.totalOut += u.completion_tokens || u.output_tokens || 0;
-    if (u.cost) _dc.totalCost += u.cost;
+    inT = u.prompt_tokens || u.input_tokens || 0;
+    outT = u.completion_tokens || u.output_tokens || 0;
+    _dc.totalIn += inT;
+    _dc.totalOut += outT;
+    if (u.cost !== undefined) { _dc.totalCost += (u.cost || 0); cost = u.cost; }
   }
 
-  var promptJson = JSON.stringify(messages, null, 2);
-  var respJson = JSON.stringify(resp, null, 2);
-
-  var body = "\n\n---\n\n## Turn " + n + " — " + (resp.stop_reason || "?") + "\n\n";
-  body += "**Duration:** " + durationMs + "ms";
-  if (resp.usage) {
-    var u2 = resp.usage;
-    var inT = u2.prompt_tokens || u2.input_tokens || 0;
-    var outT = u2.completion_tokens || u2.output_tokens || 0;
-    body += " | **In:** " + inT + " | **Out:** " + outT;
-    if (u2.cost !== undefined) body += " | **Cost:** $" + (u2.cost || 0).toFixed(6);
-  }
-  body += "\n\n";
-
-  if (toolBlocks.length > 0) {
-    body += "### Cells (" + toolBlocks.length + ")\n\n";
-    for (var ti = 0; ti < toolBlocks.length; ti++) {
-      var code = (toolBlocks[ti].input && toolBlocks[ti].input.code) || "";
-      body += "#### Cell " + (ti + 1) + "\n```javascript\n" + code + "\n```\n\n";
-      var matched = resultsById[toolBlocks[ti].id];
-      if (matched) {
-        var resultText = _formatToolResultContent(matched);
-        body += "**Result:**\n```\n" + resultText + "\n```\n\n";
-      } else {
-        body += "**Result:** _(not executed — turn ended before run)_\n\n";
-      }
-    }
-  }
-
-  body += "<details><summary>Prompt (" + promptJson.length + " chars)</summary>\n\n```json\n" + promptJson + "\n```\n\n</details>\n\n";
-  body += "<details><summary>Response</summary>\n\n```json\n" + respJson + "\n```\n\n</details>\n";
-
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  // Turn record holds the extracted scalars + the per-cell code/result, plus
+  // the raw API `response` — one message object (NOT the window), small, and
+  // the only home for the per-turn assistant narration text blocks, the cache
+  // counters (cache_read_input_tokens & co — the cache-miss-regression
+  // signal), and tool_use ids. The full `messages[]` window stays intentionally
+  // NOT stored — it repeats the whole conversation every turn (quadratic
+  // growth) and is reconstructible from chat history + prior turn records;
+  // only the literal window construction is lost, which we accept.
+  _dcWriteEntry("turn", {
+    n: n,
+    stopReason: resp.stop_reason || "",
+    durationMs: durationMs,
+    inTokens: inT,
+    outTokens: outT,
+    cost: cost,
+    response: resp,
+    cells: cells
+  });
 }
 
 function dcFlush(opts) {
-  if (!_dc.client || !_dc.pageId) return;
   opts = opts || {};
-  var status = opts.status || "?";
-  var finalText = opts.finalText || "";
-  var totalMs = opts.totalMs || (Date.now() - _dc.startMs);
-
-  var body = "\n\n---\n\n## Done — " + status + "\n\n";
-  body += "**Model:** " + (_dc.model || "?") +
-          " | **Turns:** " + _dc.turnCount +
-          " | **Total:** " + totalMs + "ms\n\n";
-  body += "**Tokens:** " + _dc.totalIn + " in / " + _dc.totalOut + " out";
-  if (_dc.totalCost > 0) body += " | **Cost:** $" + _dc.totalCost.toFixed(6);
-  body += "\n\n";
-  if (finalText) {
-    body += "**Final:**\n\n" + finalText + "\n";
-  }
-  try { _dc.client.appendToObject(_dc.pageId, body); } catch (e) {}
+  _dcWriteEntry("done", {
+    status: opts.status || "?",
+    model: _dc.model || "",
+    turns: _dc.turnCount,
+    totalMs: opts.totalMs || (Date.now() - _dc.startMs),
+    totalIn: _dc.totalIn,
+    totalOut: _dc.totalOut,
+    totalCost: _dc.totalCost,
+    finalText: opts.finalText || ""
+  });
 }
 
 // ============================================================================
@@ -1964,14 +1929,14 @@ export function main(args) {
   // the skills in assistant-skills/*.md are the single source of truth.
   var anytypeSkill = _loadAnytypeSkill(bootClient);
   if (!anytypeSkill) {
-    var missA = "System skill `_anytype` is missing from this space. Run `./deploy-assistant.sh` from the project root to deploy agent skills.";
+    var missA = "System skill `_anytype` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply(missA);
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
   }
   var toolcallerSkill = _loadToolcallerSkill(bootClient);
   if (!toolcallerSkill) {
-    var missT = "System skill `_toolcaller` is missing from this space. Run `./deploy-assistant.sh` from the project root to deploy agent skills.";
+    var missT = "System skill `_toolcaller` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply(missT);
     dcFlush({ status: "skill_missing", finalText: missT });
     return "";
@@ -2065,7 +2030,6 @@ export function main(args) {
   for (var iter = 0; ; iter++) {
     var resp;
     var _t = Date.now();
-    var _messagesSnapshot = messages.slice();
     try {
       resp = llm.chat(messages, {
         system: systemBlocks,
@@ -2116,7 +2080,7 @@ export function main(args) {
       } catch (e) {
         var sumErr = "FAILED at turn " + (iter + 1) + ": max_tokens recovery LLM error: " + (e.message || e);
         chatReply("⚠ max_tokens — recovery summary failed: " + (e.message || e));
-        dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
+        dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
         dcFlush({ status: "max_tokens_summary_failed", finalText: sumErr });
         return sumErr;
       }
@@ -2154,7 +2118,7 @@ export function main(args) {
         } catch (e) {}
       }
 
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
       dcFlush({ status: "max_tokens_summary", finalText: summaryText });
       return "";
     }
@@ -2162,7 +2126,7 @@ export function main(args) {
     if (!resp || !resp.content) {
       chatReply("Empty LLM response on turn " + (iter + 1));
       var emptyMsg = "FAILED at turn " + (iter + 1) + ": empty response";
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp || {}, durationMs: _turnMs });
+      dcLogTurn({ n: iter + 1, resp: resp || {}, durationMs: _turnMs });
       dcFlush({ status: "empty_response", finalText: emptyMsg });
       return emptyMsg;
     }
@@ -2262,7 +2226,7 @@ export function main(args) {
         }
       }
 
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: [] });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: [] });
       dcFlush({ status: "end_turn", finalText: finalText });
       return "";
     }
@@ -2282,7 +2246,7 @@ export function main(args) {
       // No text and no tool_use? Treat as termination with whatever we have.
       chatReply("(no tool_use and no text — terminating)");
       var fallbackText = textParts.join("\n") || "(no content)";
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: [] });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: [] });
       dcFlush({ status: "no_content", finalText: fallbackText });
       return fallbackText;
     }
@@ -2298,7 +2262,7 @@ export function main(args) {
       }
     }
 
-    dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: toolResults });
+    dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: toolResults });
     messages.push({ role: "user", content: toolResults });
   }
 

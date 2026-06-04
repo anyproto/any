@@ -1,5 +1,5 @@
 // __main_source
-// utils@v1 — pure utility functions shared by toolcall_core and codegen_core.
+// utils@v1 — pure utility functions used by toolcall_core.
 // No client, no fetch, no LLM. Self-contained so importers can pull these
 // without dragging in any other module's dependency chain.
 //

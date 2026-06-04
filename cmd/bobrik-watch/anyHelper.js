@@ -6,9 +6,22 @@
 
 // ==================== UTILITY HELPERS (copied from anytypeHelper) ====================
 
+// getProp reads a value off a normalized record. Records are nested per
+// type (`record.<TypeName>.<xKey>`), so propKey may be a dotted path
+// ("Movie.title", "any.types", "nav.parentId") which is traversed segment
+// by segment. A bare key reads a top-level field (hoisted `name`/`id`, or a
+// builtin namespace object). Returns null on any missing segment.
 export function getProp(obj, propKey) {
-  if (!obj) return null;
-  if (obj.properties && obj.properties[propKey] !== undefined) return obj.properties[propKey];
+  if (!obj || propKey == null) return null;
+  if (propKey.indexOf(".") !== -1) {
+    var parts = propKey.split(".");
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null || typeof cur !== "object") return null;
+      cur = cur[parts[i]];
+    }
+    return cur === undefined ? null : cur;
+  }
   if (obj[propKey] !== undefined) return obj[propKey];
   return null;
 }
@@ -273,11 +286,27 @@ export function createClient(params) {
       try { data = JSON.parse(data); } catch(e) {}
     }
     var error = null;
+    var code = null;
     if (!res.ok) {
       error = (data && data.error && data.error.message) || (data && data.message) || ("HTTP " + res.status);
+      // The server's uniform envelope is {error:{code,message,details}} (see
+      // docs/06-errors.md). Surface the typed code (property.kind_mismatch,
+      // property.not_found, sdk.not_implemented, space.not_found, …) so callers
+      // can switch on it instead of regexing the message. Falls back to a
+      // status-derived code when the body isn't the standard envelope.
+      code = (data && data.error && data.error.code) || _codeForStatus(res.status);
     }
-    return { ok: res.ok, status: res.status, data: data, error: error };
+    return { ok: res.ok, status: res.status, data: data, error: error, code: code };
   };
+
+  function _codeForStatus(status) {
+    if (status === 404) return "request.not_found";
+    if (status === 501) return "sdk.not_implemented";
+    if (status === 503) return "server.unavailable";
+    if (status >= 500) return "internal";
+    if (status >= 400) return "request.bad";
+    return null;
+  }
 
   const _extractError = (apiResult) => {
     if (typeof apiResult.error === "string") return apiResult.error;
@@ -288,11 +317,11 @@ export function createClient(params) {
 
   // ==================== TYPE RESOLUTION ====================
 
+  // _fetchTypes returns the scope's type list, served from the memoized
+  // catalog (see TYPE / PROPERTY CATALOG below) so repeated resolves don't
+  // re-hit the server.
   function _fetchTypes(scope) {
-    var path = _pathForScope(scope || "user");
-    var res = api("GET", path + "/types");
-    if (!res.ok) return [];
-    return (res.data && res.data.types) || [];
+    return _cat(scope || "user").types;
   }
 
   function _resolveTypeId(typeId, scope) {
@@ -303,44 +332,232 @@ export function createClient(params) {
     return null;
   }
 
-  function _resolveTypeByName(name, scope) {
-    var types = _fetchTypes(scope);
-    for (var i = 0; i < types.length; i++) {
-      if (types[i].name === name) return types[i].id;
-    }
-    return null;
-  }
+  // (Type resolution by display name was removed — types resolve by xKey/id
+  // only; see _resolveTypeSeg. The name is display-only metadata.)
 
   function _typeNotFoundError(typeKey, scope) {
     var types = _fetchTypes(scope);
     var available = [];
     for (var i = 0; i < types.length; i++) {
-      available.push("\"" + types[i].id + "\" (" + types[i].name + ")");
+      // List the xKey — the stable handle callers pass back in — with the
+      // display name in parens for recognizability. The server reports
+      // xKey=id for builtins, so xKey is always set; the `|| id` is defensive.
+      var handle = types[i].xKey || types[i].id;
+      available.push("\"" + handle + "\" (" + types[i].name + ")");
     }
     return "type \"" + typeKey + "\" doesn't exist. Available types: " + available.join(", ");
   }
 
+  // ==================== TYPE / PROPERTY CATALOG ====================
+  // The server stores and validates properties by CID ids: a property
+  // value lives at record[typeId][propId]. Humans (and programs) want
+  // readable "TypeName.xKey". This catalog memoizes the type list and each
+  // type's property defs per scope so we can resolve readable names →ids on
+  // write and reverse-map records →readable on read. GET /types/:id/properties
+  // is uniform across builtin and user types: each prop has {id, name, xKey?,
+  // kind} where for builtins `id` is the literal key (e.g. nav→parentId) and
+  // for user types `id` is the CID and `xKey` is the stable caller key.
+
+  var _catalog = {}; // scope -> { types, typeById, propsByType }
+
+  function _cat(scope) {
+    var key = scope || "user";
+    if (_catalog[key]) return _catalog[key];
+    var cat = { types: [], typeById: {}, propsByType: {} };
+    var path = _pathForScope(scope);
+    var res = api("GET", path + "/types");
+    var types = (res.ok && res.data && res.data.types) || [];
+    for (var i = 0; i < types.length; i++) {
+      var t = types[i];
+      if (cat.typeById[t.id]) continue; // dedup (nav is listed twice)
+      cat.typeById[t.id] = t;
+      cat.types.push(t);
+    }
+    _catalog[key] = cat;
+    return cat;
+  }
+
+  function _catInvalidate(scope) { delete _catalog[scope || "user"]; }
+
+  function _typeProps(scope, typeId) {
+    var cat = _cat(scope);
+    if (cat.propsByType[typeId]) return cat.propsByType[typeId];
+    var path = _pathForScope(scope);
+    var res = api("GET", path + "/types/" + typeId + "/properties");
+    var props = (res.ok && res.data && res.data.properties) || [];
+    cat.propsByType[typeId] = props;
+    return props;
+  }
+
+  // _resolveTypeSeg: a type **xKey** or id → type id (or null). The display
+  // name is NOT a resolution key — xKey is the stable programmatic handle (set
+  // at createType, derived from name); name is display-only. Refreshes the
+  // catalog once on miss so freshly-created types resolve.
+  function _resolveTypeSeg(scope, seg, _retried) {
+    var cat = _cat(scope);
+    if (cat.typeById[seg]) return seg; // already an id
+    for (var i = 0; i < cat.types.length; i++) {
+      if (cat.types[i].xKey === seg) return cat.types[i].id;
+    }
+    if (!_retried) { _catInvalidate(scope); return _resolveTypeSeg(scope, seg, true); }
+    return null;
+  }
+
+  // _resolvePropSeg: a prop id, xKey, or name under typeId → prop id (or null).
+  function _resolvePropSeg(scope, typeId, seg, _retried) {
+    var props = _typeProps(scope, typeId);
+    for (var i = 0; i < props.length; i++) {
+      var p = props[i];
+      if (p.id === seg || p.xKey === seg || p.name === seg) return p.id;
+    }
+    if (!_retried) { _catInvalidate(scope); return _resolvePropSeg(scope, typeId, seg, true); }
+    return null;
+  }
+
+  // _resolveGroupWrites: property writes are nested type groups — every
+  // non-reserved top-level key of `data` is a type xKey/id whose value is a
+  // { prop: value } map, mirroring the nested shape reads come back in:
+  //   createObject("book", { name: "Dune", book: { author: "Frank Herbert" } })
+  // Returns { groups: {typeId: {propId: val}} } keyed by the CID ids the
+  // server writes by. Unknown keys ERROR — never silently dropped (a top-level
+  // typo'd/misplaced property key once lost a whole batch of writes).
+  var _reservedDataKeys = { name: 1, body: 1, markdown: 1, types: 1, space: 1 };
+
+  function _resolveGroupWrites(scope, data) {
+    var groups = {};
+    for (var k in data) {
+      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
+      if (_reservedDataKeys[k]) continue;
+      if (k === "properties") {
+        return { ok: false, error: "data.properties was removed — nest properties under their type key: { book: { author: \"...\" } }" };
+      }
+      if (k.indexOf(".") !== -1) {
+        var seg = k.substring(0, k.indexOf("."));
+        return { ok: false, error: "dotted key \"" + k + "\" is not a valid data field — nest property writes under the type key: { " + seg + ": { " + k.substring(k.indexOf(".") + 1) + ": ... } }" };
+      }
+      var typeId = _resolveTypeSeg(scope, k);
+      if (!typeId) {
+        return { ok: false, error: "key \"" + k + "\" is neither a data field (name, body, markdown, types, space) nor a type. Property writes are nested per type: { " + k + ": { prop: value } }. " + _typeNotFoundError(k, scope) };
+      }
+      var group = data[k];
+      if (group === null || typeof group !== "object" || Array.isArray(group)) {
+        return { ok: false, error: "value for type group \"" + k + "\" must be a { prop: value } object, got " + (Array.isArray(group) ? "an array" : typeof group) };
+      }
+      for (var pk in group) {
+        if (!Object.prototype.hasOwnProperty.call(group, pk)) continue;
+        var propId = _resolvePropSeg(scope, typeId, pk);
+        if (!propId) return { ok: false, error: "unknown property \"" + pk + "\" on type \"" + k + "\"" };
+        if (!groups[typeId]) groups[typeId] = {};
+        groups[typeId][propId] = group[pk];
+      }
+    }
+    return { ok: true, groups: groups };
+  }
+
   // ==================== QUERIES ====================
 
-  function getObjects(typeKey, options) {
-    if (!options) options = {};
-    var scope = options.space || "user";
+  // getObjects — the one query method. The first argument is polymorphic:
+  //   - a STRING is the type xKey/id → "all objects of this type":
+  //       getObjects("agent_memory")
+  //   - an OBJECT is the full query:
+  //       getObjects({ type, filter, sort, limit, offset, includeTotal, space })  // cross-object
+  //       getObjects({ objectId, dataset, filter, sort, limit, ... })             // per-object dataset
+  //   (A 2nd options arg after a string is still merged, for convenience.)
+  //
+  // Cross-object mode reads the per-space `objects` collection (optionally
+  // type-scoped); filter/sort keys are dotted xKey paths resolved to
+  // <typeId>.<propId>; records come back NORMALIZED (nested, readable).
+  // Dataset mode reads one object's dataset (editor_blocks, program_source, …);
+  // filter/sort keys are literal fields; records come back RAW.
+  //
+  // Returns the records ARRAY directly — iterate it as-is. THROWS on real
+  // failures (unknown type — the message lists the available types; server
+  // error; bad arguments) rather than returning a silent []. An empty array
+  // means "no matches," never "something went wrong." When includeTotal was
+  // requested the (page-bounded, v0.0.4) total is attached as `arr.total`.
+  function getObjects(typeOrQuery, options) {
+    var q;
+    if (typeof typeOrQuery === "string") {
+      q = {};
+      if (options) { for (var ok in options) { if (Object.prototype.hasOwnProperty.call(options, ok)) q[ok] = options[ok]; } }
+      q.type = typeOrQuery;
+    } else {
+      q = typeOrQuery || options || {};
+    }
+    var scope = q.space || "user";
     var path = _pathForScope(scope);
-    var filter = {};
-    if (typeKey) {
-      var resolved = _resolveTypeByName(typeKey, scope) || _resolveTypeId(typeKey, scope);
-      if (!resolved) return [];
-      filter["any.types"] = resolved;
+    var body = {};
+    var isDataset = !!q.dataset;
+
+    if (isDataset) {
+      if (!q.objectId) throw new Error("getObjects: objectId required with dataset");
+      body.objectId = q.objectId;
+      body.dataset = q.dataset;
+      if (q.filter) body.filter = q.filter; // literal dataset fields
+      if (q.sort) body.sort = q.sort;
+    } else {
+      var filter = {};
+      if (q.type) {
+        var resolved = _resolveTypeSeg(scope, q.type);
+        if (!resolved) throw new Error(_typeNotFoundError(q.type, scope));
+        filter["any.types"] = resolved;
+      }
+      if (q.filter) {
+        var extra = _resolveFilterPaths(scope, q.filter);
+        for (var fk in extra) { if (Object.prototype.hasOwnProperty.call(extra, fk)) filter[fk] = extra[fk]; }
+      }
+      body.filter = filter;
+      if (q.sort) body.sort = _resolveSortPaths(scope, q.sort);
     }
-    var res = api("POST", path + "/objects/query", { filter: filter });
-    if (!res.ok) return [];
-    var records = (res.data && res.data.records) || [];
-    var objects = [];
-    for (var i = 0; i < records.length; i++) {
-      objects.push(normalizeRecord(records[i]));
+    if (q.limit !== undefined) body.limit = q.limit;
+    if (q.offset !== undefined) body.offset = q.offset;
+    if (q.includeTotal) body.includeTotal = true;
+
+    var res = api("POST", path + (isDataset ? "/query" : "/objects/query"), body);
+    if (!res.ok) throw new Error(_extractError(res));
+    var raw = (res.data && res.data.records) || [];
+    var records = [];
+    for (var i = 0; i < raw.length; i++) {
+      records.push(isDataset ? raw[i] : _normalize(scope, raw[i]));
     }
-    objects.pagination = { total: objects.length };
-    return objects;
+    if (res.data && res.data.total !== undefined && res.data.total !== null) records.total = res.data.total;
+    return records;
+  }
+
+  // _resolveFilterPaths rewrites readable dotted filter keys ("Type.prop") to
+  // the server's "<typeId>.<propId>". A key whose first segment isn't a known
+  // type (e.g. "any.types", "nav.parentId", "_ver.id", or an already-resolved
+  // id pair) passes through unchanged — builtin namespaces use literal keys
+  // that _resolvePropSeg returns as-is.
+  // _resolvePath maps a readable dotted path "Type.prop" to the server's
+  // "<typeId>.<propId>". Paths whose first segment isn't a known type (builtin
+  // namespaces any/nav, "_ver.id", already-resolved id pairs) pass through.
+  function _resolvePath(scope, path) {
+    var dot = path.indexOf(".");
+    if (dot <= 0) return path;
+    var typeId = _resolveTypeSeg(scope, path.substring(0, dot));
+    if (!typeId) return path;
+    var propId = _resolvePropSeg(scope, typeId, path.substring(dot + 1));
+    return propId ? typeId + "." + propId : path;
+  }
+
+  function _resolveFilterPaths(scope, filter) {
+    var out = {};
+    for (var key in filter) {
+      if (Object.prototype.hasOwnProperty.call(filter, key)) out[_resolvePath(scope, key)] = filter[key];
+    }
+    return out;
+  }
+
+  // _resolveSortPaths resolves each sort entry, preserving a leading "-"
+  // (descending) marker around the path resolution.
+  function _resolveSortPaths(scope, sort) {
+    if (!Array.isArray(sort)) return sort;
+    return sort.map(function (entry) {
+      if (typeof entry !== "string") return entry;
+      if (entry.charAt(0) === "-") return "-" + _resolvePath(scope, entry.substring(1));
+      return _resolvePath(scope, entry);
+    });
   }
 
   function getObject(objId, opts) {
@@ -351,7 +568,7 @@ export function createClient(params) {
     var propRes = api("GET", path + "/properties/" + objId);
     var obj = { id: objId };
     if (propRes.ok && propRes.data && propRes.data.record) {
-      obj = normalizeRecord(propRes.data.record);
+      obj = _normalize(scope, propRes.data.record);
     }
 
     var mdRes = api("GET", path + "/objects/" + objId + "/editor/markdown");
@@ -360,11 +577,10 @@ export function createClient(params) {
       obj.body = obj.markdown;
     }
 
-    // Programs store their tool description + method docs in the
-    // `program_description` dataset, not in editor blocks. Surface it on
-    // `markdown`/`body` so downstream code (the boot prelude's tool-doc
-    // parser, anyPrograms' section editors) sees the same shape it
-    // expects for editor-backed objects.
+    // Programs store their tool DESCRIPTION in the `program_description`
+    // dataset (method docs live separately in `program_methods` — read via
+    // getToolDocs), not in editor blocks. Surface the description on
+    // `markdown`/`body` so generic markdown consumers see something useful.
     if (!obj.markdown && obj.program) {
       var pdRes = api("POST", path + "/query", { objectId: objId, dataset: "program_description" });
       if (pdRes.ok && pdRes.data && pdRes.data.records && pdRes.data.records.length > 0) {
@@ -386,10 +602,19 @@ export function createClient(params) {
     return obj;
   }
 
-  // TODO: no select/multi_select property format in the any API yet
-  function getObjectsByTag() { return []; }
+  // Tags aren't a distinct API on the any backend — they're ordinary array
+  // properties. Fail loud rather than silently returning [] (which masked dead
+  // reliance in the legacy port). To filter by tag, store a `tags` array
+  // property and query it: getObjects(type, {filter:{"Type.tags":"x"}}) (scalar
+  // = contains) or {$in:[...]}. See docs/09-query.md.
+  function getObjectsByTag() {
+    throw new Error("getObjectsByTag is not supported: tags are plain array properties now — use getObjects(type, {filter:{\"Type.tags\":value}}) (see docs/09-query.md)");
+  }
 
-  // TODO: no FTS indexer in the any API yet
+  // No full-text index on the any backend yet (the tags/FTS decision is open).
+  // Returns [] so the one intentional caller (amemory's hybrid ftsSearch) keeps
+  // working with its keyword half inert; vector similarity carries recall. For
+  // substring matching use getObjects with a $regex filter instead.
   function search() { return []; }
 
   function getTypes(opts) {
@@ -428,7 +653,7 @@ export function createClient(params) {
   }
 
   function describeType(typeKey) {
-    var resolvedId = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
+    var resolvedId = _resolveTypeSeg("user", typeKey);
     if (!resolvedId) return { error: _typeNotFoundError(typeKey) };
     var types = getTypes();
     var typeObj = null;
@@ -454,7 +679,7 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var objects = [];
     for (var i = 0; i < records.length; i++) {
-      objects.push(normalizeRecord(records[i]));
+      objects.push(_normalize("user", records[i]));
     }
     return objects;
   }
@@ -478,33 +703,65 @@ export function createClient(params) {
   // references each tool bare (`### <name>`), so a tool name must be a
   // valid JS identifier. Anything else (e.g. `hn-top10-summary`) would
   // crash bootstrap with `Unexpected token -`. Enforced at both ends:
-  // `getTools` filters offenders out, `saveProgram` rejects them on
-  // write so the bad name never reaches storage.
+  // `getTools` filters offenders out, `anyPrograms.saveProgram` rejects
+  // them on write so the bad name never reaches storage.
   function _isValidProgramName(name) {
     return typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
   }
 
+  // getToolDocs reads a program's split tool docs: the description body from
+  // program_description and the per-method records from program_methods
+  // (id = bareName, fields name/kind/text/pos), ordered by pos. Writers
+  // (bobrik-watch sync, anyPrograms.saveProgram) keep the split in sync.
+  function getToolDocs(toolId, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var description = "";
+    var dRes = api("POST", path + "/query", { objectId: toolId, dataset: "program_description" });
+    if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
+      description = dRes.data.records[0].text || "";
+    }
+    var methods = [];
+    var mRes = api("POST", path + "/query", { objectId: toolId, dataset: "program_methods", sort: ["pos"] });
+    if (mRes.ok && mRes.data && mRes.data.records) {
+      var recs = mRes.data.records;
+      for (var i = 0; i < recs.length; i++) {
+        var r = recs[i];
+        var name = r.name || r.id || "";
+        var parenIdx = name.indexOf("(");
+        methods.push({
+          name: name,
+          bareName: parenIdx > 0 ? name.substring(0, parenIdx).trim() : (r.id || name.trim()),
+          kind: r.kind || "getter",
+          text: r.text || "",
+          pos: typeof r.pos === "number" ? r.pos : i
+        });
+      }
+      methods.sort(function(a, b) { return a.pos - b.pos; });
+    }
+    return { description: description, methods: methods };
+  }
+
+  // A program is a tool iff program.any_tool === true — set by the writers
+  // when the docs carry both a Tool Description and a Tool Schema. Strict:
+  // no fallback to "description non-empty" (the pre-any_tool heuristic).
   function getTools() {
     var programs = listPrograms();
     var tools = [];
     for (var i = 0; i < programs.length; i++) {
       var p = programs[i];
+      if (!p.anyTool) continue;
       if (!_isValidProgramName(p.name)) continue;
       var description = null;
       try {
-        var path = _pathForScope(p.space || "user");
-        var dRes = api("POST", path + "/query", { objectId: p.id, dataset: "program_description" });
-        if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
-          description = dRes.data.records[0].text || null;
-        }
+        var docs = getToolDocs(p.id, { space: p.space || "user" });
+        description = docs.description || null;
       } catch (e) {}
-      if (description) {
-        tools.push({
-          id: p.id, name: p.name, description: description,
-          programName: p.name, programVersion: p.version,
-          space: p.space || "user"
-        });
-      }
+      tools.push({
+        id: p.id, name: p.name, description: description,
+        programName: p.name, programVersion: p.version,
+        space: p.space || "user"
+      });
     }
     // anyHelper is always a tool
     var hasHelper = false;
@@ -537,110 +794,99 @@ export function createClient(params) {
 
   // ==================== MUTATIONS ====================
 
+  // createObject(typeKey, data) — create an object of one or more types.
+  //   data.types       — extra type xKeys/ids beyond typeKey (multitype)
+  //   data.name        — display name (stored as any.name)
+  //   data.body/markdown — editor markdown set after create
+  //   data.<typeXKey>  — { prop: value } property group for that type,
+  //                      mirroring the nested shape reads return:
+  //                      createObject("book", { name: "Dune",
+  //                        book: { author: "Frank Herbert", year: 1965 } })
+  //                      (nav folders: { nav: { type: 2, parentId, pos } })
+  // Any other key ERRORS — see _resolveGroupWrites. Property keys/types are
+  // resolved to the CID ids the server writes by.
   function createObject(typeKey, data) {
     if (!data) data = {};
+    var scope = data.space || "user";
+    var path = _pathForScope(scope);
     var name = data.name || "";
     var body = data.body || data.markdown || "";
 
-    var createBody = {};
-    var resolvedType = null;
+    var typeIds = [];
     if (typeKey) {
-      resolvedType = _resolveTypeByName(typeKey) || _resolveTypeId(typeKey);
-      if (!resolvedType) return { ok: false, error: _typeNotFoundError(typeKey) };
-      createBody.types = [resolvedType];
+      var tid = _resolveTypeSeg(scope, typeKey);
+      if (!tid) return { ok: false, error: _typeNotFoundError(typeKey, scope) };
+      typeIds.push(tid);
     }
-    var initProps = {};
-    if (name) {
-      initProps.any = { name: name };
-    }
-    if (data.properties) {
-      var propObj = {};
-      if (Array.isArray(data.properties)) {
-        for (var i = 0; i < data.properties.length; i++) {
-          var p = data.properties[i];
-          if (p.objects !== undefined) {
-            propObj[p.key] = p.objects;
-          } else {
-            propObj[p.key] = p.text !== undefined ? p.text
-              : p.number !== undefined ? p.number
-              : p.checkbox !== undefined ? p.checkbox
-              : p.value !== undefined ? p.value : "";
-          }
-        }
-      } else {
-        propObj = data.properties;
+    if (Array.isArray(data.types)) {
+      for (var ti = 0; ti < data.types.length; ti++) {
+        var t2 = _resolveTypeSeg(scope, data.types[ti]);
+        if (!t2) return { ok: false, error: _typeNotFoundError(data.types[ti], scope) };
+        if (typeIds.indexOf(t2) === -1) typeIds.push(t2);
       }
-      if (resolvedType) {
-        initProps[resolvedType] = propObj;
-      }
-    }
-    if (Object.keys(initProps).length > 0) {
-      createBody.initialProperties = initProps;
     }
 
-    var res = api("POST", spacePath + "/objects", createBody);
-    if (!res.ok) {
-      return { ok: false, error: _extractError(res) };
+    var createBody = {};
+    if (typeIds.length > 0) createBody.types = typeIds;
+
+    var resolved = _resolveGroupWrites(scope, data);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+
+    var initProps = {};
+    if (name) initProps.any = { name: name };
+    for (var gk in resolved.groups) {
+      if (!Object.prototype.hasOwnProperty.call(resolved.groups, gk)) continue;
+      if (!initProps[gk]) initProps[gk] = {};
+      var g = resolved.groups[gk];
+      for (var pk in g) { if (Object.prototype.hasOwnProperty.call(g, pk)) initProps[gk][pk] = g[pk]; }
     }
+    if (Object.keys(initProps).length > 0) createBody.initialProperties = initProps;
+
+    var res = api("POST", path + "/objects", createBody);
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
     var objectId = res.data.objectId;
 
     if (body) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objectId + "/editor/markdown", { content: body });
+      var mdRes = api("PUT", path + "/objects/" + objectId + "/editor/markdown", { content: body });
       if (!mdRes.ok) {
         return { ok: true, id: objectId, object: { id: objectId, name: name }, error: "Object created but markdown set failed: " + _extractError(mdRes) };
       }
     }
 
-    var obj = { id: objectId, name: name };
-    return { ok: true, id: objectId, object: obj };
+    return { ok: true, id: objectId, object: { id: objectId, name: name } };
   }
 
+  // updateObject(objId, data) — update name / body / properties.
+  //   data.<typeXKey> property groups use the same nested shape as
+  //   createObject ({ book: { rating: 9 } }); writes are applied one
+  //   base/:typeId PATCH per group. Property/name write failures (incl.
+  //   server validation: property.not_found, kind_mismatch) are surfaced
+  //   as { ok: false, error } — never silently swallowed.
   function updateObject(objId, data) {
     if (!data) data = {};
+    var scope = data.space || "user";
+    var path = _pathForScope(scope);
     var body = data.body || data.markdown;
 
+    // Resolve before writing anything so a bad group doesn't land a partial
+    // update (markdown applied, properties rejected).
+    var resolvedU = _resolveGroupWrites(scope, data);
+    if (!resolvedU.ok) return { ok: false, id: objId, error: resolvedU.error };
+
     if (body !== undefined) {
-      var mdRes = api("PUT", spacePath + "/objects/" + objId + "/editor/markdown", { content: body });
-      if (!mdRes.ok) {
-        return { ok: false, id: objId, error: _extractError(mdRes) };
-      }
+      var mdRes = api("PUT", path + "/objects/" + objId + "/editor/markdown", { content: body });
+      if (!mdRes.ok) return { ok: false, id: objId, error: _extractError(mdRes), code: mdRes.code };
     }
 
     if (data.name !== undefined) {
-      api("POST", spacePath + "/properties/" + objId + "/base/any", {
-        patch: { name: data.name }
-      });
+      var nr = api("POST", path + "/properties/" + objId + "/base/any", { patch: { name: data.name } });
+      if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr), code: nr.code };
     }
 
-    if (data.properties) {
-      // Find the object's primary type to set properties under the right namespace
-      var existing = getObject(objId);
-      var typeId = null;
-      if (existing && existing.any && existing.any.types) {
-        for (var t = 0; t < existing.any.types.length; t++) {
-          var tid = existing.any.types[t];
-          if (tid !== "nav" && tid !== "any" && tid !== "editor") { typeId = tid; break; }
-        }
-      }
-      if (typeId) {
-        var patch = {};
-        if (Array.isArray(data.properties)) {
-          for (var i = 0; i < data.properties.length; i++) {
-            var p = data.properties[i];
-            if (p.objects !== undefined) {
-              patch[p.key] = p.objects;
-            } else {
-              patch[p.key] = p.text !== undefined ? p.text
-                : p.number !== undefined ? p.number
-                : p.checkbox !== undefined ? p.checkbox
-                : p.value !== undefined ? p.value : "";
-            }
-          }
-        } else {
-          patch = data.properties;
-        }
-        api("POST", spacePath + "/properties/" + objId + "/base/" + typeId, { patch: patch });
-      }
+    for (var gk2 in resolvedU.groups) {
+      if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
+      var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
+      if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr), code: pr.code };
     }
 
     return { ok: true, id: objId, object: { id: objId } };
@@ -648,15 +894,21 @@ export function createClient(params) {
 
   function deleteObject(objId) {
     var res = api("DELETE", spacePath + "/objects/" + objId);
-    return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res) };
+    return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
+  // Append markdown to the tail of an object via the server's append-only
+  // fast path. The server parses `text` into blocks and creates them past
+  // the current last block in one ModifyBatch — no full-document read, no
+  // diff — so each append is O(text), not O(document). This matters for
+  // grow-by-append pages where the old read-modify-write-the-whole-doc path
+  // made a run O(N²) in page size. (The agent debug log no longer uses this —
+  // it now writes structured records to the `agent_debug_log` dataset.)
   function appendToObject(objId, text) {
-    var obj = getObject(objId);
-    if (!obj) return { ok: false, id: objId, error: "Object not found" };
-    var current = obj.markdown || "";
-    var newMarkdown = current ? current + "\n" + text : text;
-    return updateObject(objId, { markdown: newMarkdown });
+    if (text == null || text === "") return { ok: true, id: objId, object: { id: objId } };
+    var res = api("POST", spacePath + "/objects/" + objId + "/editor/markdown/append", { content: String(text) });
+    if (!res.ok) return { ok: false, id: objId, error: _extractError(res) };
+    return { ok: true, id: objId, object: { id: objId } };
   }
 
   function editObject(objId, opts) {
@@ -679,24 +931,65 @@ export function createClient(params) {
     };
   }
 
-  // ==================== TAGS ====================
-  // TODO: any API has no select/multi_select property format yet
+  // ==================== DATASETS (writes) ====================
+  // Built-in types store structured content in datasets (program → program_source
+  // / program_description, mini_app → mini_app, editor → editor_blocks, …).
+  // READS go through getObjects({ objectId, dataset, ... }) (records are raw —
+  // datasets aren't type-namespaced). setRecord/deleteRecord are the writes.
 
-  function setTags()  { return { ok: false, error: "tag operations not available" }; }
-  function addTag()   { return { ok: false, error: "tag operations not available" }; }
-  function listTags() { return []; }
-  function createTag() { return { ok: false, error: "tag operations not available" }; }
+  // setRecord upserts a dataset record, emitting one atomic $set op per field
+  // at its own path so updating one field never rewrites the others. Pass a
+  // flat { field: value } map; nested dotted paths ("a.b") are allowed.
+  function setRecord(objId, dataset, recordId, fields, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var ops = [];
+    for (var k in fields) {
+      if (Object.prototype.hasOwnProperty.call(fields, k)) ops.push({ type: "$set", path: k, value: fields[k] });
+    }
+    if (ops.length === 0) return { ok: true, id: recordId };
+    var res = api("POST", path + "/modify", {
+      objectId: objId, dataset: dataset,
+      records: [{ id: recordId, upsert: true, ops: ops }]
+    });
+    return { ok: res.ok, id: recordId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
+  }
+
+  // deleteRecord tombstones one or more records in a dataset (read via
+  // getObjects dataset mode; write via setRecord). recordIds may be a single
+  // id or an array.
+  function deleteRecord(objId, dataset, recordIds, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var ids = Array.isArray(recordIds) ? recordIds : [recordIds];
+    if (ids.length === 0) return { ok: true };
+    var res = api("POST", path + "/delete-records", { objectId: objId, dataset: dataset, recordIds: ids });
+    return { ok: res.ok, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
+  }
+
+  // ==================== TAGS ====================
+  // There is no select/multi_select tag API on the any backend — tags are
+  // ordinary array properties. These legacy no-ops fail loud so any remaining
+  // reliance surfaces instead of silently doing nothing. To tag: give the type
+  // a `tags` array property and write it via createObject/updateObject; filter
+  // via getObjects {filter:{"Type.tags":...}}. See docs/09-query.md.
+  function _tagsUnsupported() {
+    throw new Error("tag operations are not supported: use a `tags` array property (createObject/updateObject { typeXKey: { tags: [...] } }) and getObjects array filters — see docs/09-query.md");
+  }
+  function setTags()  { return _tagsUnsupported(); }
+  function addTag()   { return _tagsUnsupported(); }
+  function listTags() { return _tagsUnsupported(); }
+  function createTag() { return _tagsUnsupported(); }
 
   // ==================== COLLECTIONS (nav folders) ====================
 
+  // A collection is a nav folder: an object with nav.type=2. nav must be set
+  // under initialProperties (the server ignores a top-level `nav` on create) —
+  // the nav property group routes there like any other type group.
   function createCollection(name) {
-    var res = api("POST", spacePath + "/objects", {
-      nav: { type: 2, parentId: "", pos: "" },
-      initialProperties: { any: { name: name } }
-    });
-    if (!res.ok) return { ok: false, error: _extractError(res) };
-    var id = res.data.objectId;
-    return { ok: true, id: id, collection: { id: id, name: name }, object: { id: id, name: name } };
+    var res = createObject(null, { name: name, nav: { type: 2, parentId: "", pos: "" } });
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true, id: res.id, collection: { id: res.id, name: name }, object: { id: res.id, name: name } };
   }
 
   function addToCollection(collectionId, objectIds) {
@@ -728,13 +1021,16 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var programs = [];
     for (var i = 0; i < records.length; i++) {
-      var rec = normalizeRecord(records[i]);
+      var rec = _normalize(scope, records[i]);
       var progName = (rec.program && rec.program.name) || rec.name || "";
       var progVersion = (rec.program && rec.program.version) || "";
       if (!progName) continue;
       programs.push({
         id: rec.id, name: progName, version: progVersion,
-        title: rec.name || progName, description: null, space: scope
+        title: rec.name || progName, description: null, space: scope,
+        // Toolhood flag — the object query already returns program.* so
+        // getTools doesn't need a per-program fetch to filter.
+        anyTool: !!(rec.program && rec.program.any_tool === true)
       });
     }
     return programs;
@@ -782,15 +1078,16 @@ export function createClient(params) {
       source = qRes.data.records[0].code || "";
     }
 
-    var dRes = api("POST", path + "/query", { objectId: match.id, dataset: "program_description" });
-    var markdown = "";
-    if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
-      markdown = dRes.data.records[0].text || "";
-    }
+    // Tool docs are split storage: description body + per-method records.
+    // `markdown` stays as an alias of the description for back-compat —
+    // method docs are NOT in it; read `methods` (or getToolDocs) for those.
+    var docs = getToolDocs(match.id, { space: match.space || "user" });
 
     return {
       id: match.id, name: name, version: version,
-      title: match.title, source: source, markdown: markdown, space: match.space
+      title: match.title, source: source,
+      description: docs.description, methods: docs.methods,
+      markdown: docs.description, space: match.space
     };
   }
 
@@ -830,144 +1127,136 @@ export function createClient(params) {
     return out;
   }
 
-  function saveProgram(opts) {
-    if (!opts) opts = {};
-    var progName = opts.name;
-    var version = opts.version || "v1";
-    var title = opts.title || progName;
-    var source = opts.source;
-    // Tool docs (description prelude + `## Tool Schema` section) live in
-    // the `program_description` dataset. Accept either `markdown` (the new
-    // name) or `appendMarkdown` (legacy from saveTool callers).
-    var markdown = opts.markdown != null ? opts.markdown : opts.appendMarkdown;
-    if (!progName) return { ok: false, error: "name is required" };
-    if (!source) return { ok: false, error: "source is required" };
-    if (!_isValidProgramName(progName)) {
-      return { ok: false, error: "name must be a valid JS identifier (letters, digits, _, $; no leading digit) — got " + JSON.stringify(progName) };
-    }
-    // markdown — when supplied — must carry the boot prelude's contract:
-    // a `## Tool Description` section. Without it the agent shows
-    // "(no description in tool's md)" and the tool is half-registered.
-    // saveTool always passes markdown; saveProgram callers that don't
-    // want tool docs simply pass nothing.
-    if (markdown != null && !/^##\s+Tool Description\s*$/m.test(String(markdown))) {
-      return { ok: false, error: "markdown must contain a '## Tool Description' section" };
-    }
-
-    var existing = getProgram(progName, version);
-    if (existing) {
-      api("POST", spacePath + "/modify", {
-        objectId: existing.id, dataset: "program_source",
-        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
-      });
-      if (markdown != null) {
-        api("POST", spacePath + "/modify", {
-          objectId: existing.id, dataset: "program_description",
-          records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
-        });
-      }
-      return { ok: true, object: { id: existing.id }, name: progName, version: version };
-    }
-
-    var programTypeId = _resolveTypeId("program");
-    if (!programTypeId) return { ok: false, error: _typeNotFoundError("program") };
-    var createRes = api("POST", spacePath + "/objects", {
-      types: [programTypeId],
-      initialProperties: {
-        any: { name: title || (progName + "@" + version) },
-        program: { name: progName, version: version }
-      }
-    });
-    if (!createRes.ok) return { ok: false, error: _extractError(createRes) };
-    var newId = createRes.data.objectId;
-
-    api("POST", spacePath + "/modify", {
-      objectId: newId, dataset: "program_source",
-      records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { code: source } }] }]
-    });
-    if (markdown != null) {
-      api("POST", spacePath + "/modify", {
-        objectId: newId, dataset: "program_description",
-        records: [{ id: "main", upsert: true, ops: [{ type: "$set", path: "", value: { text: markdown } }] }]
-      });
-    }
-
-    return { ok: true, object: { id: newId }, name: progName, version: version };
-  }
-
-  function saveTool(opts) {
-    if (!opts) return { ok: false, error: "opts required" };
-    if (!opts.name) return { ok: false, error: "name is required" };
-    if (!opts.source) return { ok: false, error: "source is required" };
-    if (!opts.schema) return { ok: false, error: "schema is required" };
-    return saveProgram({
-      name: opts.name, version: opts.version || "v1",
-      title: opts.title || opts.name, source: opts.source,
-      markdown: opts.schema
-    });
-  }
+  // (saveProgram/saveTool moved to anyPrograms — program WRITES are
+  // anyPrograms' surface; anyHelper keeps the generic primitives they
+  // compose: createObject, updateObject, setRecord, deleteRecord.)
 
   // ==================== TYPE MANAGEMENT ====================
+
+  // Map a caller-facing property "format" to a server property kind. `objects`
+  // (a multi-value list of object refs, e.g. chat_history) and `object` map to
+  // the array/object kinds; falls back to an explicit `kind` then string.
+  var _formatToKind = { text: "string", number: "number", checkbox: "boolean", objects: "array", array: "array", object: "object", date: "string" };
+
+  // createType is idempotent AND additive: if the type already exists it does
+  // NOT early-return, it ensures each requested property is registered (adding
+  // only the missing ones). This is deliberate — multiple programs declare the
+  // same type with different properties (e.g. both init_agent and amemory
+  // declare "Agent Memory"); an early-return would silently drop the second
+  // program's properties and make its writes fail validation.
+  // _slugifyXKey derives a stable snake_case programmatic key from a display
+  // name: "Agent Memory" → "agent_memory", "Mini App" → "mini_app",
+  // "ComicBook" → "comic_book". This is the type's xKey — the stable handle used
+  // in dotted property paths, so it survives display-name renames.
+  function _slugifyXKey(name) {
+    return String(name)
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/[^A-Za-z0-9]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .toLowerCase();
+  }
 
   function createType(opts) {
     if (!opts) return { ok: false, error: "opts required" };
     if (!opts.name) return { ok: false, error: "name is required" };
 
     var name = opts.name;
-
-    var existingId = _resolveTypeByName(name);
-    if (existingId) {
-      return { ok: true, type: { id: existingId, name: name }, created: false };
+    var xKey = opts.xKey || _slugifyXKey(name);
+    var created = false;
+    // Idempotency keyed by the stable xKey (not the display name).
+    var typeId = _resolveTypeSeg("user", xKey);
+    if (!typeId) {
+      var res = api("POST", spacePath + "/types", { name: name, xKey: xKey });
+      if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
+      typeId = res.data.typeId;
+      created = true;
+      _catInvalidate("user");
     }
 
-    var body = { name: name };
-    var res = api("POST", spacePath + "/types", body);
-    if (!res.ok) return { ok: false, error: _extractError(res) };
-    var typeId = res.data.typeId;
-
-    if (opts.properties && Array.isArray(opts.properties)) {
+    if (opts.properties && Array.isArray(opts.properties) && opts.properties.length > 0) {
+      // Existing props on the type, so we add only what's missing.
+      var existing = _typeProps("user", typeId);
+      var have = {};
+      for (var e = 0; e < existing.length; e++) {
+        if (existing[e].xKey) have[existing[e].xKey] = true;
+        if (existing[e].name) have[existing[e].name] = true;
+      }
+      var addedAny = false;
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
-        var formatToKind = { text: "string", number: "number", checkbox: "boolean" };
-        api("POST", spacePath + "/types/" + typeId + "/properties", {
+        if (have[prop.key]) continue; // already registered
+        var ar = api("POST", spacePath + "/types/" + typeId + "/properties", {
           xKey: prop.key, name: prop.name || prop.key,
-          kind: formatToKind[prop.format] || prop.kind || "string"
+          kind: _formatToKind[prop.format] || prop.kind || "string"
         });
+        if (!ar.ok) {
+          _catInvalidate("user");
+          return { ok: false, error: "type \"" + name + "\": property \"" + prop.key + "\" failed: " + _extractError(ar) };
+        }
+        addedAny = true;
       }
+      if (addedAny) _catInvalidate("user");
     }
 
-    return { ok: true, type: { id: typeId, name: name }, created: true };
+    return { ok: true, type: { id: typeId, name: name, xKey: xKey }, created: created };
   }
 
   // ==================== INTERNAL HELPERS ====================
 
-  function normalizeRecord(rec) {
+  // _normalize turns a raw wire record into a readable, nested-per-type shape.
+  // The server returns properties namespaced by type id and keyed by prop id
+  // (record[typeId][propId]). We:
+  //   - pass through scalar/builtin fields (id, _ver, author, createdAt, spaceId)
+  //   - pass through BUILTIN namespaces (any, nav, program, …) verbatim — their
+  //     prop keys are already literal (any.types, nav.parentId, program.name),
+  //     and existing code reads them by those ids
+  //   - reverse-map USER-type namespaces to readable form:
+  //     record[typeId][propId] → out[TypeName][xKey]
+  //   - hoist any.name → name
+  // Unknown namespaces (catalog stale) are refreshed once.
+  function _normalize(scope, rec) {
     if (!rec) return {};
-    var obj = {};
     if (typeof rec === "string") {
       try { rec = JSON.parse(rec); } catch (e) { return { raw: rec }; }
     }
+    var passthrough = { id: 1, _ver: 1, author: 1, createdAt: 1, spaceId: 1 };
+    var cat = _cat(scope);
+    // Refresh once if the record references a type id we don't know yet.
+    for (var probe in rec) {
+      if (!Object.prototype.hasOwnProperty.call(rec, probe)) continue;
+      if (passthrough[probe]) continue;
+      if (!cat.typeById[probe] && rec[probe] && typeof rec[probe] === "object" && !Array.isArray(rec[probe])) {
+        _catInvalidate(scope); cat = _cat(scope); break;
+      }
+    }
+    var out = {};
     for (var k in rec) {
-      if (Object.prototype.hasOwnProperty.call(rec, k)) {
-        obj[k] = rec[k];
+      if (!Object.prototype.hasOwnProperty.call(rec, k)) continue;
+      var tinfo = cat.typeById[k];
+      var isUserType = tinfo && !tinfo.builtIn;
+      if (!isUserType || !rec[k] || typeof rec[k] !== "object" || Array.isArray(rec[k])) {
+        out[k] = rec[k]; // passthrough: builtin namespace, scalar, or unknown
+        continue;
       }
-    }
-    if (obj.any && obj.any.name) {
-      obj.name = obj.any.name;
-    }
-    // Flatten type-namespaced properties to top level
-    var builtins = { id:1, _ver:1, any:1, nav:1, author:1, spaceId:1, createdAt:1, name:1 };
-    for (var tk in obj) {
-      if (builtins[tk]) continue;
-      if (obj[tk] && typeof obj[tk] === "object" && !Array.isArray(obj[tk])) {
-        for (var pk in obj[tk]) {
-          if (Object.prototype.hasOwnProperty.call(obj[tk], pk) && !obj[pk]) {
-            obj[pk] = obj[tk][pk];
-          }
-        }
+      // Reverse-map a user-type namespace: propId → xKey/name.
+      var props = _typeProps(scope, k);
+      var labelById = {};
+      for (var pi = 0; pi < props.length; pi++) {
+        labelById[props[pi].id] = props[pi].xKey || props[pi].name || props[pi].id;
       }
+      var readable = {};
+      for (var pid in rec[k]) {
+        if (!Object.prototype.hasOwnProperty.call(rec[k], pid)) continue;
+        readable[labelById[pid] || pid] = rec[k][pid];
+      }
+      // Key the namespace by the type's STABLE xKey (not the mutable display
+      // name), falling back to the id. So records read as obj["agent_memory"]
+      // and dotted paths survive a type rename.
+      out[tinfo.xKey || tinfo.id] = readable;
     }
-    return obj;
+    if (out.any && out.any.name) out.name = out.any.name;
+    return out;
   }
 
   function __prepareTraces(traces) { return traces; }
@@ -997,6 +1286,7 @@ export function createClient(params) {
     listSpaceMembers: w("listSpaceMembers", listSpaceMembers),
 
     getTools: w("getTools", getTools),
+    getToolDocs: w("getToolDocs", getToolDocs),
     fetchTraceSchema: fetchTraceSchema,
     fetchTrace: fetchTrace,
 
@@ -1005,6 +1295,8 @@ export function createClient(params) {
     deleteObject: w("deleteObject", deleteObject),
     appendToObject: w("appendToObject", appendToObject),
     editObject: w("editObject", editObject),
+    setRecord: w("setRecord", setRecord),
+    deleteRecord: w("deleteRecord", deleteRecord),
     setTags: w("setTags", setTags),
     addTag: w("addTag", addTag),
     listTags: w("listTags", listTags),
@@ -1014,10 +1306,10 @@ export function createClient(params) {
     listPrograms: w("listPrograms", listPrograms),
     getProgram: w("getProgram", getProgram),
     runProgram: w("runProgram", runProgram),
-    saveProgram: w("saveProgram", saveProgram),
-    saveTool: w("saveTool", saveTool),
     createType: w("createType", createType),
-    resolveTypeByName: _resolveTypeByName,
+    // resolveType(xKeyOrId[, scope]) → type id (or null). xKey/id only — no
+    // display-name resolution (name is display metadata).
+    resolveType: function (seg, scope) { return _resolveTypeSeg(scope || "user", seg); },
     resolveTypeId: _resolveTypeId
   };
 }

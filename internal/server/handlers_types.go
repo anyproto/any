@@ -39,6 +39,7 @@ func (d *deps) typeCreate(c echo.Context) error {
 		Name:        req.Name,
 		Description: req.Description,
 		IconCID:     req.IconCID,
+		XKey:        req.XKey,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -194,11 +195,19 @@ func (d *deps) typeProperties(c echo.Context) error {
 }
 
 func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
+	// Builtin/registered types have clean literal ids (program, chat, …) and no
+	// caller-set xKey; report xKey=id so every type has a stable programmatic
+	// handle (user types carry the xKey set at create / derived from name).
+	xkey := t.XKey
+	if xkey == "" && t.BuiltIn {
+		xkey = t.Id
+	}
 	return api.TypeInfo{
 		Id:          t.Id,
 		Name:        t.Name,
 		Description: t.Description,
 		IconCID:     t.IconCID,
+		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
 	}
 }

@@ -16,9 +16,12 @@ On startup bobrik-watch:
    for a clean refresh.
 4. Syncs JS programs from `cmd/bobrik-watch/programs/` (stored in the
    `program_source` dataset) plus the sibling `anyHelper.js`. For
-   each tool, the matching `tool-descriptions/<name>.md` is written
-   to `program_description` (must contain a `## Tool Description`
-   section).
+   each tool, the matching `tool-descriptions/<name>.md` is SPLIT on
+   write: the `## Tool Description` body goes to `program_description`,
+   each `### method(sig) [kind]` subsection of `## Tool Schema` becomes
+   one `program_methods` record (`{name, kind, text, pos}`, id =
+   method name), and `program.any_tool` is set true. Programs without
+   a description file get `any_tool: false` and are not tools.
 5. Syncs agent skills from `cmd/bobrik-watch/skills/` (stored as
    editor/markdown content on skill objects).
 6. Ensures a `Debug` nav folder nested under "System Bobrik Files"
@@ -70,14 +73,19 @@ Then in another terminal:
 |------|---------|-------------|
 | `--addr` | `127.0.0.1:7001` | `any` server address (host:port) |
 | `--space` | `bobrik` | Space name (created if missing) |
-| `--chat` | `bobrik` | Chat object name (created if missing) |
 | `--agent-name` | `bobrik` | `fromAgent` tag on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
+
+There is no `--chat` flag: the watched chat is the space's **primary chat**,
+resolved via the server's deterministic `objects/derive` primitive with the
+same seed any-ui uses (`btoa('any-ui/primary-chat/v1')`), so bobrik and the
+Desktop UI always converge on the same chat object. (TEMP: the shared-seed
+convention is a stopgap — the primary-chat discovery contract is TBD.)
 
 ### Pointing at a different server
 
 ```sh
-./bin/bobrik-watch --addr 127.0.0.1:7002 --space myspace --chat mychat
+./bin/bobrik-watch --addr 127.0.0.1:7002 --space myspace
 ```
 
 ## Architecture
@@ -109,7 +117,7 @@ cmd/bobrik-watch/
   dataset (not in markdown/editor blocks), avoiding the 65KB per-block limit.
 
 - **Skill storage** — each skill is an object of type `Agent Skill` with
-  a `__any_agent_skill_name` property. Content is stored as markdown via
+  a `agent_skill_name` property. Content is stored as markdown via
   the `editor/markdown` endpoint.
 
 ## What's missing

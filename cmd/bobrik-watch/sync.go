@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anyproto/any/internal/anyrt"
 )
 
 // All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
@@ -25,7 +27,10 @@ var (
 // ensureProgramType creates the Program type with name and version
 // properties if it doesn't already exist. Returns the type ID.
 func ensureProgramType(baseURL, spaceID string) (string, error) {
-	typeID, err := findType(baseURL, spaceID, "Program")
+	// Existence by xKey, not name. The builtin `program` type carries
+	// xKey="program" (server reports xKey=id for builtins), so this resolves to
+	// it; only a space lacking it falls through to create.
+	typeID, err := findTypeByXKey(baseURL, spaceID, "program")
 	if err != nil {
 		return "", err
 	}
@@ -35,6 +40,7 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 
 	body, _ := json.Marshal(map[string]string{
 		"name": "Program",
+		"xKey": "program",
 	})
 	resp, err := http.Post(
 		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
@@ -61,6 +67,7 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 	for _, prop := range []map[string]string{
 		{"xKey": "name", "name": "name", "kind": "string"},
 		{"xKey": "version", "name": "version", "kind": "string"},
+		{"xKey": "any_tool", "name": "any_tool", "kind": "boolean"},
 		{"xKey": "source", "name": "source", "kind": "string"},
 		{"xKey": "tool_description", "name": "tool_description", "kind": "string"},
 		{"xKey": "tool_schema", "name": "tool_schema", "kind": "string"},
@@ -72,56 +79,85 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 	return typeID, nil
 }
 
-// ensureSkillType creates the Agent Skill type with __any_agent_skill_name
-// property if it doesn't already exist. Returns the type ID.
+// skillNameXKey is the stable property key for a skill's name. Bare (no
+// legacy __any_ prefix) — the type namespace already scopes it. The server
+// stores property values under the derived propId, not the xKey, so callers
+// resolve xKey→propId via skillNamePropID before reading/writing/filtering.
+const skillNameXKey = "agent_skill_name"
+
+// ensureSkillType ensures the "Agent Skill" type exists AND carries the
+// agent_skill_name property (find-or-add — idempotent and additive, so it
+// composes with init_agent's declaration of the same type). Returns the type ID.
 func ensureSkillType(baseURL, spaceID string) (string, error) {
-	typeID, err := findType(baseURL, spaceID, "Agent Skill")
+	// Existence by xKey, not name — see findTypeByXKey. A pre-xKey "Agent Skill"
+	// type (no xKey) won't match here, so we create a correct xKey-bearing one
+	// and the agent can resolve "agent_skill"; the stale type orphans.
+	typeID, err := findTypeByXKey(baseURL, spaceID, "agent_skill")
 	if err != nil {
 		return "", err
 	}
-	if typeID != "" {
-		return typeID, nil
+	if typeID == "" {
+		// xKey must match what the JS reader uses (toolcall_core reads
+		// "agent_skill.agent_skill_name"); set it explicitly so it's stable
+		// regardless of whether init_agent or this bootstrap creates the type
+		// first (xKey is first-create-wins). Matches anyHelper's name→xKey slug.
+		body, _ := json.Marshal(map[string]string{"name": "Agent Skill", "xKey": "agent_skill"})
+		resp, err := http.Post(
+			baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
+			"application/json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return "", fmt.Errorf("create skill type: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			msg, _ := io.ReadAll(resp.Body)
+			return "", fmt.Errorf("create skill type: %d %s", resp.StatusCode, msg)
+		}
+		var created struct {
+			TypeId string `json:"typeId"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+			return "", fmt.Errorf("decode created type: %w", err)
+		}
+		typeID = created.TypeId
+		fmt.Fprintf(os.Stderr, "created type \"Agent Skill\" → %s\n", typeID)
 	}
 
-	body, _ := json.Marshal(map[string]string{"name": "Agent Skill"})
-	resp, err := http.Post(
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/types",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	// Ensure the name property exists (the type may have been created by
+	// init_agent, or pre-exist without it). addProperty errors if it's already
+	// there — tolerate that by checking first.
+	propID, err := skillNamePropID(baseURL, spaceID, typeID)
 	if err != nil {
-		return "", fmt.Errorf("create skill type: %w", err)
+		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("create skill type: %d %s", resp.StatusCode, msg)
-	}
-	var created struct {
-		TypeId string `json:"typeId"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-		return "", fmt.Errorf("decode created type: %w", err)
-	}
-	typeID = created.TypeId
-	fmt.Fprintf(os.Stderr, "created type \"Agent Skill\" → %s\n", typeID)
-
-	if err := addProperty(baseURL, spaceID, typeID, map[string]string{
-		"xKey": "__any_agent_skill_name", "name": "__any_agent_skill_name", "kind": "string",
-	}); err != nil {
-		return "", fmt.Errorf("add skill name property: %w", err)
+	if propID == "" {
+		if err := addProperty(baseURL, spaceID, typeID, map[string]string{
+			"xKey": skillNameXKey, "name": skillNameXKey, "kind": "string",
+		}); err != nil {
+			return "", fmt.Errorf("add skill name property: %w", err)
+		}
 	}
 	return typeID, nil
 }
 
 // syncSkills reads skill .md files from skillsDir on disk and upserts
 // them as Agent Skill objects. Each skill is identified by
-// __any_agent_skill_name (e.g. "_soul"). Content is stored via PUT
+// agent_skill_name (e.g. "_soul"). Content is stored via PUT
 // /editor/markdown.
 func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return fmt.Errorf("read skills dir %s: %w", skillsDir, err)
+	}
+	// Resolve the name property's id once — writes/filters key by propId, not xKey.
+	skillPropID, err := skillNamePropID(baseURL, spaceID, skillTypeID)
+	if err != nil {
+		return fmt.Errorf("resolve skill name prop: %w", err)
+	}
+	if skillPropID == "" {
+		return fmt.Errorf("skill type %s has no %q property", skillTypeID, skillNameXKey)
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
@@ -133,7 +169,7 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 			return fmt.Errorf("read skill %s: %w", e.Name(), err)
 		}
 
-		objectID, err := findSkillObject(baseURL, spaceID, skillTypeID, skillName)
+		objectID, err := findSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName)
 		if err != nil {
 			return fmt.Errorf("query skill %s: %w", skillName, err)
 		}
@@ -144,7 +180,7 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 			}
 			fmt.Fprintf(os.Stderr, "synced skill %s (updated %s)\n", skillName, objectID)
 		} else {
-			objectID, err = createSkillObject(baseURL, spaceID, skillTypeID, skillName, string(content))
+			objectID, err = createSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName, string(content))
 			if err != nil {
 				return fmt.Errorf("create skill %s: %w", skillName, err)
 			}
@@ -158,10 +194,41 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 	return nil
 }
 
-func findSkillObject(baseURL, spaceID, skillTypeID, skillName string) (string, error) {
+// skillNamePropID returns the propId of the Agent Skill type's name property
+// (xKey skillNameXKey), or "" if absent. Values are stored under the propId,
+// so this is needed for every read/write/filter of the name.
+func skillNamePropID(baseURL, spaceID, skillTypeID string) (string, error) {
+	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/types/" + url.PathEscape(skillTypeID) + "/properties")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("list properties: %d %s", resp.StatusCode, msg)
+	}
+	var out struct {
+		Properties []struct {
+			Id   string `json:"id"`
+			XKey string `json:"xKey"`
+			Name string `json:"name"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	for _, p := range out.Properties {
+		if p.XKey == skillNameXKey || p.Name == skillNameXKey {
+			return p.Id, nil
+		}
+	}
+	return "", nil
+}
+
+func findSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName string) (string, error) {
 	filter := map[string]any{
 		"filter": map[string]any{
-			skillTypeID + ".__any_agent_skill_name": skillName,
+			skillTypeID + "." + skillPropID: skillName,
 		},
 	}
 	body, _ := json.Marshal(filter)
@@ -192,7 +259,7 @@ func findSkillObject(baseURL, spaceID, skillTypeID, skillName string) (string, e
 	return rec.Id, nil
 }
 
-func createSkillObject(baseURL, spaceID, skillTypeID, skillName, markdown string) (string, error) {
+func createSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName, markdown string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{skillTypeID},
 		"initialProperties": map[string]any{
@@ -200,7 +267,7 @@ func createSkillObject(baseURL, spaceID, skillTypeID, skillName, markdown string
 				"name": "Skill: " + skillName,
 			},
 			skillTypeID: map[string]any{
-				"__any_agent_skill_name": skillName,
+				skillPropID: skillName,
 			},
 		},
 	})
@@ -251,7 +318,15 @@ func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
 	return nil
 }
 
-func findType(baseURL, spaceID, typeName string) (string, error) {
+// findTypeByXKey resolves a type by its stable xKey — the same handle the JS
+// side (anyHelper._resolveTypeSeg, getObjects, dotted property paths) keys on.
+// Returns "" if no type carries that xKey. Type existence MUST be decided by
+// xKey, not display name: a type created before the xKey feature (or by a
+// different name) has no xKey, so a name match would reuse an xKey-less type
+// that the agent can no longer resolve. Keying on xKey instead means the
+// bootstrap creates a correct xKey-bearing type (the stale one orphans, ignored
+// by xKey resolution), which self-heals a space carrying pre-xKey types.
+func findTypeByXKey(baseURL, spaceID, xKey string) (string, error) {
 	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/types")
 	if err != nil {
 		return "", err
@@ -260,14 +335,14 @@ func findType(baseURL, spaceID, typeName string) (string, error) {
 	var out struct {
 		Types []struct {
 			Id   string `json:"id"`
-			Name string `json:"name"`
+			XKey string `json:"xKey"`
 		} `json:"types"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
 	}
 	for _, t := range out.Types {
-		if t.Name == typeName {
+		if t.XKey == xKey {
 			return t.Id, nil
 		}
 	}
@@ -352,7 +427,12 @@ func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[str
 }
 
 func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folderID string) error {
-	objectID, err := findProgramObject(baseURL, spaceID, programTypeID, name, version)
+	// Tool docs split: description body → program_description, per-method
+	// records → program_methods, any_tool = "has description AND schema".
+	description, methods := splitToolMarkdown(toolDescription(name))
+	anyTool := description != "" && len(methods) > 0
+
+	objectID, err := anyrt.FindProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
 		return fmt.Errorf("query %s@%s: %w", name, version, err)
 	}
@@ -361,9 +441,13 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		if err := modifyDataset(baseURL, spaceID, objectID, "program_source", "main", map[string]any{"code": source}); err != nil {
 			return fmt.Errorf("update %s@%s: %w", name, version, err)
 		}
+		// Written explicitly both ways so a removed .md flips a stale true off.
+		if err := setProgramProps(baseURL, spaceID, programTypeID, objectID, map[string]any{"any_tool": anyTool}); err != nil {
+			return fmt.Errorf("set any_tool on %s@%s: %w", name, version, err)
+		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source)
+		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source, anyTool)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
@@ -374,10 +458,42 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		_ = setNavParent(baseURL, spaceID, objectID, folderID)
 	}
 
-	if desc := toolDescription(name); desc != "" {
-		_ = modifyDataset(baseURL, spaceID, objectID, "program_description", "main", map[string]any{"text": desc})
+	if anyTool {
+		if err := writeToolDocs(baseURL, spaceID, objectID, description, methods); err != nil {
+			return fmt.Errorf("write tool docs for %s@%s: %w", name, version, err)
+		}
 	}
 	return nil
+}
+
+// writeToolDocs writes the split tool docs: the description body to
+// program_description/"main" and one program_methods record per method,
+// then deletes stale method records the new doc no longer carries (a
+// renamed/removed method would otherwise linger in listMethods forever).
+func writeToolDocs(baseURL, spaceID, objectID, description string, methods []methodDoc) error {
+	if err := modifyDataset(baseURL, spaceID, objectID, "program_description", "main", map[string]any{"text": description}); err != nil {
+		return err
+	}
+	keep := make(map[string]bool, len(methods))
+	for _, m := range methods {
+		keep[m.BareName] = true
+		if err := modifyDataset(baseURL, spaceID, objectID, "program_methods", m.BareName, map[string]any{
+			"name": m.Name, "kind": m.Kind, "text": m.Text, "pos": m.Pos,
+		}); err != nil {
+			return err
+		}
+	}
+	existing, err := datasetRecordIDs(baseURL, spaceID, objectID, "program_methods")
+	if err != nil {
+		return err
+	}
+	var stale []string
+	for _, id := range existing {
+		if !keep[id] {
+			stale = append(stale, id)
+		}
+	}
+	return deleteRecords(baseURL, spaceID, objectID, "program_methods", stale)
 }
 
 // parseProgramFilename splits "name@version" → (name, version).
@@ -389,7 +505,7 @@ func parseProgramFilename(baseName string) (name, version string) {
 	return baseName, "v1"
 }
 
-func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string) (string, error) {
+func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string, anyTool bool) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{programTypeID},
 		"initialProperties": map[string]any{
@@ -397,8 +513,9 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, source 
 				"name": name + "@" + version,
 			},
 			programTypeID: map[string]any{
-				"name":    name,
-				"version": version,
+				"name":     name,
+				"version":  version,
+				"any_tool": anyTool,
 			},
 		},
 	})
@@ -426,6 +543,85 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, source 
 		return "", fmt.Errorf("set source: %w", err)
 	}
 	return obj.ObjectId, nil
+}
+
+// setProgramProps patches properties on an existing program object —
+// same properties/:objId/base/:typeId endpoint setNavParent uses.
+func setProgramProps(baseURL, spaceID, programTypeID, objectID string, patch map[string]any) error {
+	body, _ := json.Marshal(map[string]any{"patch": patch})
+	req, err := http.NewRequest(http.MethodPost,
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/base/"+url.PathEscape(programTypeID),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set program props: %d %s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+// datasetRecordIDs lists the record ids currently in a dataset on an object.
+func datasetRecordIDs(baseURL, spaceID, objectID, dataset string) ([]string, error) {
+	body, _ := json.Marshal(map[string]any{"objectId": objectID, "dataset": dataset})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("query %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.Records))
+	for _, r := range out.Records {
+		ids = append(ids, r.Id)
+	}
+	return ids, nil
+}
+
+// deleteRecords tombstones dataset records. No-op on an empty id list.
+func deleteRecords(baseURL, spaceID, objectID, dataset string, recordIDs []string) error {
+	if len(recordIDs) == 0 {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectID, "dataset": dataset, "recordIds": recordIDs,
+	})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/delete-records",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete-records %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	return nil
 }
 
 // modifyDataset upserts a single record in a dataset on an object.
@@ -461,9 +657,11 @@ func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value m
 
 const (
 	systemFolderName = "System Bobrik Files"
-	// debugFolderName holds bobrik's agent-trace notes. It is nested
-	// under the system folder, so --bootstrap (SIGHUP) wipes and
-	// recreates it along with everything else.
+	// debugFolderName holds bobrik's agent-trace notes. It lives at the
+	// nav ROOT — deliberately outside the system folder — so --bootstrap
+	// (SIGHUP) refreshes never delete it and the accumulated traces
+	// survive. (It used to be nested under the system folder; every
+	// refresh deleted it and orphaned the traces parented inside.)
 	debugFolderName = "Debug"
 )
 
@@ -471,20 +669,12 @@ func ensureSystemFolder(baseURL, spaceID string) (string, error) {
 	return ensureNavFolder(baseURL, spaceID, systemFolderName)
 }
 
-// ensureDebugFolder find-or-creates the "Debug" nav folder that
-// agent-trace notes are parented under, nesting it beneath parentID
-// (the system folder) so a refresh wipes it along with the rest.
-func ensureDebugFolder(baseURL, spaceID, parentID string) (string, error) {
-	id, err := ensureNavFolder(baseURL, spaceID, debugFolderName)
-	if err != nil {
-		return "", err
-	}
-	if parentID != "" {
-		if err := setNavParent(baseURL, spaceID, id, parentID); err != nil {
-			return "", fmt.Errorf("parent debug folder: %w", err)
-		}
-	}
-	return id, nil
+// ensureDebugFolder find-or-creates the root-level "Debug" nav folder
+// that agent-trace notes are parented under. If the folder already
+// exists it is reused untouched — never reparented, never recreated —
+// so its id is stable and the traces inside survive every refresh.
+func ensureDebugFolder(baseURL, spaceID string) (string, error) {
+	return ensureNavFolder(baseURL, spaceID, debugFolderName)
 }
 
 // ensureNavFolder find-or-creates a top-level nav folder (nav.type=2)

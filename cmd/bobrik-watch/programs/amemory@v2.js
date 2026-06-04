@@ -1,5 +1,5 @@
 // __main_source
-import { createClient, getNumber, getProp, getTagKeys } from "anyHelper@v1";
+import { createClient, getNumber, getProp } from "anyHelper@v1";
 import { createLLM } from "llm@v1";
 var llm = createLLM();
 
@@ -568,13 +568,24 @@ function findWeakMemories(allMems) {
 
 // ── Internal: Load all A-mem objects ────────────────────────────────────────
 
+// _mkTags builds the bare `tags` array for a new memory: category first, then
+// any extra tags, deduped, empties dropped.
+function _mkTags(category, extraTags) {
+  var out = [];
+  var seen = {};
+  function add(t) { if (t && !seen[t]) { seen[t] = true; out.push(t); } }
+  add(category);
+  for (var i = 0; i < (extraTags || []).length; i++) add(extraTags[i]);
+  return out;
+}
+
+// Tags are stored bare in the `tags` array (no per-tag prefix — the type
+// namespace already scopes them), so this is now a passthrough that just drops
+// empties. Kept as a named function so callers don't change.
 function stripTagPrefix(tags) {
   var result = [];
-  for (var i = 0; i < tags.length; i++) {
-    var t = tags[i];
-    if (t.indexOf("amemory_") === 0) {
-      result.push(t.substring(8));
-    }
+  for (var i = 0; i < (tags || []).length; i++) {
+    if (tags[i]) result.push(tags[i]);
   }
   return result;
 }
@@ -618,40 +629,47 @@ function _buildChatIdFilter(chatId, mode) {
   };
 }
 
-// Detect the category of a memory from its raw (prefixed) tag list.
-// chat_chunk takes priority when present — legacy data written before chunks
-// were a first-class category carries BOTH amemory_episode and amemory_chat_chunk
-// tags, and the truer label is chunk. Otherwise the first amemory_<cat> tag
-// wins, skipping system tags (boot_state, archived) that carry no category.
-function _detectCategory(rawTags) {
-  if (!rawTags) return "";
-  for (var i = 0; i < rawTags.length; i++) {
-    if (rawTags[i] === "amemory_chat_chunk") return "chat_chunk";
+// Detect the category of a memory from its (bare) tag list. chat_chunk takes
+// priority when present — a chunk memory may carry both its base category and
+// chat_chunk, and chat_chunk is the truer label. Otherwise the first non-system
+// tag wins; system tags (boot_state, archived) carry no category.
+function _detectCategory(tags) {
+  if (!tags) return "";
+  for (var i = 0; i < tags.length; i++) {
+    if (tags[i] === "chat_chunk") return "chat_chunk";
   }
-  for (var j = 0; j < rawTags.length; j++) {
-    var t = rawTags[j];
-    if (!t || t.indexOf("amemory_") !== 0) continue;
-    var cat = t.substring(8);
-    if (!cat) continue;
-    if (cat === "boot_state" || cat === "archived") continue;
-    return cat;
+  for (var j = 0; j < tags.length; j++) {
+    var t = tags[j];
+    if (!t || t === "boot_state" || t === "archived") continue;
+    return t;
   }
   return "";
 }
 
-function loadAllMemories(client, typeKey) {
-  var objects = client.getObjects(typeKey);
+// queryOpts.categories (optional) narrows the load SERVER-SIDE via the array
+// `tags` filter ({$in: categories}) — the any-store query matches objects whose
+// tags array intersects the list, so the candidate set is pruned before it
+// crosses the wire. This is a superset of the precise category match (a memory
+// tagged [a,b] has category a; $in:[b] still returns it), so callers must still
+// apply _buildCategoryFilter on m.category for exactness. Omit categories to
+// load everything (the default).
+function loadAllMemories(client, typeKey, queryOpts) {
+  var getOpts = {};
+  if (queryOpts && Array.isArray(queryOpts.categories) && queryOpts.categories.length > 0) {
+    getOpts.filter = { "agent_memory.tags": { "$in": queryOpts.categories } };
+  }
+  var objects = client.getObjects(typeKey, getOpts);
   var memories = [];
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    var vectorHex = obj.__amemory_vector;
+    var vectorHex = getProp(obj, "agent_memory.vector");
     if (!vectorHex) continue;
 
     // Step 7/9: Skip boot state and archived memories (they're not real memories)
-    var objTags = getTagKeys(obj, "tag") || [];
+    var objTags = (getProp(obj, "agent_memory.tags") || []) || [];
     var skipObj = false;
     for (var sti = 0; sti < objTags.length; sti++) {
-      if (objTags[sti] === "amemory_boot_state" || objTags[sti] === "amemory_archived") {
+      if (objTags[sti] === "boot_state" || objTags[sti] === "archived") {
         skipObj = true;
         break;
       }
@@ -663,16 +681,16 @@ function loadAllMemories(client, typeKey) {
     var modDate = obj.last_modified_date || "";
 
     // Step 1: Load structured properties (with backward-compatible defaults for old memories)
-    var confidence = getNumber(obj, "__amemory_confidence");
-    var importance = getNumber(obj, "__amemory_importance");
-    var salience = getNumber(obj, "__amemory_salience");
-    var accessCount = getNumber(obj, "__amemory_access_count");
-    var validFrom = obj.__amemory_valid_from || "";
-    var entities = obj.__amemory_entities || "";
-    var edges = obj.__amemory_edges || "[]";
-    var periodStart = obj.__amemory_period_start || "";
-    var periodEnd = obj.__amemory_period_end || "";
-    var chatId = obj.__amemory_chat_id || "";
+    var confidence = getNumber(obj, "agent_memory.confidence");
+    var importance = getNumber(obj, "agent_memory.importance");
+    var salience = getNumber(obj, "agent_memory.salience");
+    var accessCount = getNumber(obj, "agent_memory.access_count");
+    var validFrom = getProp(obj, "agent_memory.valid_from") || "";
+    var entities = getProp(obj, "agent_memory.entities") || "";
+    var edges = getProp(obj, "agent_memory.edges") || "[]";
+    var periodStart = getProp(obj, "agent_memory.period_start") || "";
+    var periodEnd = getProp(obj, "agent_memory.period_end") || "";
+    var chatId = getProp(obj, "agent_memory.chat_id") || "";
 
     // Determine category from tags. chat_chunk wins if present (legacy data has
     // both amemory_episode + amemory_chat_chunk — chat_chunk is the truer label).
@@ -683,8 +701,8 @@ function loadAllMemories(client, typeKey) {
     memories.push({
       id: obj.id,
       name: obj.name,
-      context: obj.__amemory_context || "",
-      keywords: obj.__amemory_keywords || "",
+      context: getProp(obj, "agent_memory.context") || "",
+      keywords: getProp(obj, "agent_memory.keywords") || "",
       tags: stripTagPrefix(allTags),
       vec: vectorHex,
       createdDate: createdDate,
@@ -713,14 +731,14 @@ function loadAllMemoriesFull(client, typeKey) {
   var memories = [];
   for (var i = 0; i < objects.length; i++) {
     var obj = objects[i];
-    var vectorHex = obj.__amemory_vector || "";
-    var contentVecHex = obj.__amemory_vector_content || "";
+    var vectorHex = getProp(obj, "agent_memory.vector") || "";
+    var contentVecHex = getProp(obj, "agent_memory.vector_content") || "";
 
     // Step 7/9: Skip boot state and archived memories
-    var objTags = getTagKeys(obj, "tag") || [];
+    var objTags = (getProp(obj, "agent_memory.tags") || []) || [];
     var skipObj = false;
     for (var sti = 0; sti < objTags.length; sti++) {
-      if (objTags[sti] === "amemory_boot_state" || objTags[sti] === "amemory_archived") {
+      if (objTags[sti] === "boot_state" || objTags[sti] === "archived") {
         skipObj = true;
         break;
       }
@@ -731,13 +749,13 @@ function loadAllMemoriesFull(client, typeKey) {
     var body = (fullObj && fullObj.markdown) ? fullObj.markdown : "";
 
     // Step 1: Load structured properties (with backward-compatible defaults)
-    var confidence = getNumber(obj, "__amemory_confidence");
-    var importance = getNumber(obj, "__amemory_importance");
-    var salience = getNumber(obj, "__amemory_salience");
-    var accessCount = getNumber(obj, "__amemory_access_count");
-    var validFrom = obj.__amemory_valid_from || "";
-    var entities = obj.__amemory_entities || "";
-    var edges = obj.__amemory_edges || "[]";
+    var confidence = getNumber(obj, "agent_memory.confidence");
+    var importance = getNumber(obj, "agent_memory.importance");
+    var salience = getNumber(obj, "agent_memory.salience");
+    var accessCount = getNumber(obj, "agent_memory.access_count");
+    var validFrom = getProp(obj, "agent_memory.valid_from") || "";
+    var entities = getProp(obj, "agent_memory.entities") || "";
+    var edges = getProp(obj, "agent_memory.edges") || "[]";
 
     var allTags = objTags;
     var category = _detectCategory(allTags);
@@ -745,8 +763,8 @@ function loadAllMemoriesFull(client, typeKey) {
     memories.push({
       id: obj.id,
       name: obj.name,
-      context: obj.__amemory_context || "",
-      keywords: obj.__amemory_keywords || "",
+      context: getProp(obj, "agent_memory.context") || "",
+      keywords: getProp(obj, "agent_memory.keywords") || "",
       tags: stripTagPrefix(allTags),
       vec: vectorHex,
       contentVec: contentVecHex,
@@ -760,7 +778,7 @@ function loadAllMemoriesFull(client, typeKey) {
       validFrom: validFrom,
       entities: entities,
       edges: edges,
-      chatId: obj.__amemory_chat_id || "",
+      chatId: getProp(obj, "agent_memory.chat_id") || "",
       obj: obj
     });
   }
@@ -776,10 +794,10 @@ function loadAllMemoriesForDecay(client, typeKey) {
     var obj = objects[i];
 
     // Skip boot state objects only (archived memories need decay processing too)
-    var objTags = getTagKeys(obj, "tag") || [];
+    var objTags = (getProp(obj, "agent_memory.tags") || []) || [];
     var isBootState = false;
     for (var sti = 0; sti < objTags.length; sti++) {
-      if (objTags[sti] === "amemory_boot_state") {
+      if (objTags[sti] === "boot_state") {
         isBootState = true;
         break;
       }
@@ -789,17 +807,17 @@ function loadAllMemoriesForDecay(client, typeKey) {
     // Check if already archived
     var isArchived = false;
     for (var ati = 0; ati < objTags.length; ati++) {
-      if (objTags[ati] === "amemory_archived") {
+      if (objTags[ati] === "archived") {
         isArchived = true;
         break;
       }
     }
 
-    var confidence = getNumber(obj, "__amemory_confidence");
-    var importance = getNumber(obj, "__amemory_importance");
-    var salience = getNumber(obj, "__amemory_salience");
-    var accessCount = getNumber(obj, "__amemory_access_count");
-    var validFrom = obj.__amemory_valid_from || "";
+    var confidence = getNumber(obj, "agent_memory.confidence");
+    var importance = getNumber(obj, "agent_memory.importance");
+    var salience = getNumber(obj, "agent_memory.salience");
+    var accessCount = getNumber(obj, "agent_memory.access_count");
+    var validFrom = getProp(obj, "agent_memory.valid_from") || "";
 
     var category = _detectCategory(objTags);
 
@@ -810,6 +828,7 @@ function loadAllMemoriesForDecay(client, typeKey) {
       id: obj.id,
       name: obj.name || "",
       category: category || "claim",
+      tags: stripTagPrefix(objTags),
       confidence: confidence !== null ? confidence : 5,
       importance: importance !== null ? importance : 5,
       salience: salience !== null ? salience : 10,
@@ -825,34 +844,43 @@ function loadAllMemoriesForDecay(client, typeKey) {
 
 export function createAMemory(client, opts) {
   opts = opts || {};
-  var typeKey = client.resolveTypeByName("Agent Memory") || "at_memory";
+  // Properties are namespaced under the type; read/write via "agent_memory.<prop>".
+  // typeKey is the type xKey — the stable programmatic handle anyHelper resolves
+  // to the id on every call (display name stays "Agent Memory", set at createType).
+  var typeKey = "agent_memory";
   var topK = opts.topK || 3;
   var minSimilarity = opts.minSimilarity !== undefined ? opts.minSimilarity : 0.3;
   var enableEvolution = opts.enableEvolution !== undefined ? opts.enableEvolution : true;
   var enableLinks = opts.enableLinks !== undefined ? opts.enableLinks : true;
   var debugHook = opts.debugHook || null;  // function(event, data) — optional debug callback
 
-  // Ensure the memory type and all required properties exist (bootstrap on empty space)
+  // Ensure the memory type and all required properties exist (bootstrap on empty
+  // space). createType is additive — it adds only the missing properties, so it
+  // composes with init_agent's "Agent Memory" declaration. Property keys are
+  // bare xKeys; categories live in the `tags` array (no per-tag prefix — the
+  // type namespace already scopes them), enabling server-side category filtering
+  // via the array `tags` field.
   try {
     client.createType({ name: "Agent Memory", properties: [
-      { key: "__amemory_context", format: "text" },
-      { key: "__amemory_keywords", format: "text" },
-      { key: "__amemory_vector", format: "text" },
-      { key: "__amemory_vector_content", format: "text" },
+      { key: "context", format: "text" },
+      { key: "keywords", format: "text" },
+      { key: "vector", format: "text" },
+      { key: "vector_content", format: "text" },
+      { key: "tags", format: "array" },
       // Step 1: Structured properties for memory graph
-      { key: "__amemory_confidence", format: "number" },
-      { key: "__amemory_importance", format: "number" },
-      { key: "__amemory_salience", format: "number" },
-      { key: "__amemory_access_count", format: "number" },
-      { key: "__amemory_valid_from", format: "text" },
-      { key: "__amemory_entities", format: "text" },
-      { key: "__amemory_edges", format: "text" },
+      { key: "confidence", format: "number" },
+      { key: "importance", format: "number" },
+      { key: "salience", format: "number" },
+      { key: "access_count", format: "number" },
+      { key: "valid_from", format: "text" },
+      { key: "entities", format: "text" },
+      { key: "edges", format: "text" },
       // Chat-chunk period span (set only on chat_chunk-tagged memories)
-      { key: "__amemory_period_start", format: "date" },
-      { key: "__amemory_period_end", format: "date" },
+      { key: "period_start", format: "text" },
+      { key: "period_end", format: "text" },
       // Chat-scoping — set on chat_chunk memories to track which chat the
       // compressed history came from. Empty on space-wide memories.
-      { key: "__amemory_chat_id", format: "text" }
+      { key: "chat_id", format: "text" }
     ]});
   } catch (e) {
     // Type may already exist — that's fine
@@ -932,7 +960,7 @@ export function createAMemory(client, opts) {
       for (var di = 0; di < sameCatMems.length; di++) {
         var mm = sameCatMems[di];
         if (mm.category !== category) continue;
-        var mmContentVec = mm.obj && mm.obj.__amemory_vector_content;
+        var mmContentVec = mm.obj && mm.getProp(obj, "agent_memory.vector_content");
         if (!mmContentVec) continue;
         var sim = cosineSimilarity(contentEmbeddingHex, mmContentVec);
         if (sim >= dedupThreshold && (!bestDup || sim > bestDup.similarity)) {
@@ -951,34 +979,32 @@ export function createAMemory(client, opts) {
       }
     }
 
-    var properties = [];
-    properties.push({ key: "__amemory_keywords", text: keywords.join(", ") });
-    properties.push({ key: "__amemory_context", text: context });
-    if (embeddingHex) properties.push({ key: "__amemory_vector", text: embeddingHex });
-    if (contentEmbeddingHex) properties.push({ key: "__amemory_vector_content", text: contentEmbeddingHex });
-    properties.push({ key: "__amemory_confidence", number: confidence });
-    properties.push({ key: "__amemory_importance", number: importance });
-    properties.push({ key: "__amemory_salience", number: 10 });
-    properties.push({ key: "__amemory_access_count", number: 0 });
-    properties.push({ key: "__amemory_valid_from", text: new Date().toISOString() });
-    if (entities.length > 0) properties.push({ key: "__amemory_entities", text: entities.join(", ") });
-    properties.push({ key: "__amemory_edges", text: "[]" });
+    var properties = {
+      keywords: keywords.join(", "),
+      context: context,
+      confidence: confidence,
+      importance: importance,
+      salience: 10,
+      access_count: 0,
+      valid_from: new Date().toISOString(),
+      edges: "[]",
+      // Categories live in the bare `tags` array (category first, then extras),
+      // written atomically with the rest — no post-create addTag round-trips.
+      tags: _mkTags(category, extraTags)
+    };
+    if (embeddingHex) properties.vector = embeddingHex;
+    if (contentEmbeddingHex) properties.vector_content = contentEmbeddingHex;
+    if (entities.length > 0) properties.entities = entities.join(", ");
 
     var result = client.createObject(typeKey, {
       name: context.substring(0, 80),  // display-name cap, pre-existing convention
       body: content,
-      properties: properties
+      agent_memory: properties
     });
     if (!result || !result.ok) {
       return { ok: false, error: (result && result.error) || "createObject failed" };
     }
     var objId = result.object.id;
-
-    try { client.addTag(objId, "amemory"); } catch (e) {}
-    try { client.addTag(objId, "amemory_" + category); } catch (e) {}
-    for (var eti = 0; eti < extraTags.length; eti++) {
-      try { client.addTag(objId, "amemory_" + extraTags[eti]); } catch (e) {}
-    }
 
     return {
       ok: true, id: objId, category: category, context: context,
@@ -1067,31 +1093,29 @@ export function createAMemory(client, opts) {
     var contentEmbeddingHex = contentEmbedding ? encodeVector(contentEmbedding) : "";
 
     // Create Anytype object
-    var properties = [];
-    properties.push({ key: "__amemory_keywords", text: meta.keywords.join(", ") });
-    properties.push({ key: "__amemory_context", text: meta.context });
-    if (embeddingHex) {
-      properties.push({ key: "__amemory_vector", text: embeddingHex });
-    }
-    if (contentEmbeddingHex) {
-      properties.push({ key: "__amemory_vector_content", text: contentEmbeddingHex });
-    }
-    // Step 1: Structured properties
-    properties.push({ key: "__amemory_confidence", number: meta.confidence });
-    properties.push({ key: "__amemory_importance", number: meta.importance });
-    properties.push({ key: "__amemory_salience", number: 10 }); // starts at max
-    properties.push({ key: "__amemory_access_count", number: 0 });
-    properties.push({ key: "__amemory_valid_from", text: new Date().toISOString() });
-    if (meta.entities.length > 0) {
-      properties.push({ key: "__amemory_entities", text: meta.entities.join(", ") });
-    }
-    // Edges start empty — populated by Ps2 link generation in later steps
-    properties.push({ key: "__amemory_edges", text: "[]" });
+    var properties = {
+      keywords: meta.keywords.join(", "),
+      context: meta.context,
+      // Step 1: Structured properties
+      confidence: meta.confidence,
+      importance: meta.importance,
+      salience: 10, // starts at max
+      access_count: 0,
+      valid_from: new Date().toISOString(),
+      // Edges start empty — populated by Ps2 link generation in later steps
+      edges: "[]",
+      // Categories in the bare `tags` array (category first, then extras),
+      // written atomically with create.
+      tags: _mkTags(meta.category, meta.tags)
+    };
+    if (embeddingHex) properties.vector = embeddingHex;
+    if (contentEmbeddingHex) properties.vector_content = contentEmbeddingHex;
+    if (meta.entities.length > 0) properties.entities = meta.entities.join(", ");
 
     var result = client.createObject(typeKey, {
       name: meta.context.substring(0, 80),
       body: content,
-      properties: properties
+      agent_memory: properties
     });
 
     if (!result.ok) {
@@ -1099,18 +1123,6 @@ export function createAMemory(client, opts) {
     }
 
     var objId = result.object.id;
-
-    // Add base amemory tag (for FTS filtering) + classification tags with amemory_ prefix
-    try { client.addTag(objId, "amemory"); } catch (e) {}
-    // Add category as prefixed tag (e.g., "preference" → "amemory_preference")
-    if (meta.category) {
-      try { client.addTag(objId, "amemory_" + meta.category); } catch (e) {}
-    }
-    for (var ti = 0; ti < meta.tags.length; ti++) {
-      try {
-        client.addTag(objId, "amemory_" + meta.tags[ti]);
-      } catch (e) {}
-    }
 
     // Ps2: Link generation
     if (enableLinks && embeddingHex) {
@@ -1174,7 +1186,7 @@ export function createAMemory(client, opts) {
             // Update new memory with links markdown AND forward edges
             client.updateObject(objId, {
               markdown: content + linksSection,
-              properties: [{ key: "__amemory_edges", text: JSON.stringify(forwardEdges) }]
+              agent_memory: { edges: JSON.stringify(forwardEdges) }
             });
 
             // Backlinks + reverse edges on linked memories
@@ -1192,7 +1204,7 @@ export function createAMemory(client, opts) {
                   }
 
                   // Step 4d: Append reverse edge to linked memory's existing edges
-                  var existingEdgesStr = linkedObj.__amemory_edges || "[]";
+                  var existingEdgesStr = getProp(linkedObj, "agent_memory.edges") || "[]";
                   var existingEdges = [];
                   try { existingEdges = JSON.parse(existingEdgesStr); } catch (e) { existingEdges = []; }
                   if (!Array.isArray(existingEdges)) existingEdges = [];
@@ -1204,7 +1216,7 @@ export function createAMemory(client, opts) {
 
                   client.updateObject(blinkId, {
                     markdown: existingMd,
-                    properties: [{ key: "__amemory_edges", text: JSON.stringify(existingEdges) }]
+                    agent_memory: { edges: JSON.stringify(existingEdges) }
                   });
                 }
               } catch (e) {}
@@ -1268,25 +1280,28 @@ export function createAMemory(client, opts) {
                     var evoR = evoResults[ui];
                     if (!evoR || !evoR.should_evolve) continue;
                     try {
-                      var updateProps = [];
-                      if (evoR.new_context) updateProps.push({ key: "__amemory_context", text: evoR.new_context });
-                      if (evoR.new_keywords) updateProps.push({ key: "__amemory_keywords", text: evoR.new_keywords });
+                      var updateProps = {};
+                      if (evoR.new_context) updateProps.context = evoR.new_context;
+                      if (evoR.new_keywords) updateProps.keywords = evoR.new_keywords;
 
                       // Find this item's embedding in the batch result
                       for (var embI = 0; embI < embIdxMap.length; embI++) {
                         if (embIdxMap[embI] === ui && newEmbeddings[embI]) {
-                          updateProps.push({ key: "__amemory_vector", text: encodeVector(newEmbeddings[embI]) });
+                          updateProps.vector = encodeVector(newEmbeddings[embI]);
                           break;
                         }
                       }
 
-                      if (updateProps.length > 0) {
-                        client.updateObject(evoItems[ui].id, { properties: updateProps });
-                      }
                       if (evoR.new_tags && evoR.new_tags.length > 0) {
+                        var mergedTags = (evoItems[ui].tags || []).slice();
                         for (var eti = 0; eti < evoR.new_tags.length; eti++) {
-                          try { client.addTag(evoItems[ui].id, "amemory_" + evoR.new_tags[eti]); } catch(e) {}
+                          var nt = evoR.new_tags[eti];
+                          if (nt && mergedTags.indexOf(nt) === -1) mergedTags.push(nt);
                         }
+                        updateProps.tags = mergedTags;
+                      }
+                      if (Object.keys(updateProps).length > 0) {
+                        client.updateObject(evoItems[ui].id, { agent_memory: updateProps });
                       }
                     } catch(e) {}
                   }
@@ -1571,7 +1586,9 @@ export function createAMemory(client, opts) {
       var queryEmb = getEmbedding(query);
       queryVec = queryEmb ? encodeVector(queryEmb) : "";
     }
-    var allMems = loadAllMemories(client, typeKey);
+    // Server-side prune by category when the caller whitelisted some (array
+    // `tags` $in filter); _buildCategoryFilter below still enforces exactness.
+    var allMems = loadAllMemories(client, typeKey, { categories: searchOpts.categories });
     if (allMems.length === 0) return [];
 
     // Category filter (absolute — applies to both initial retrieval and
@@ -1791,7 +1808,7 @@ export function createAMemory(client, opts) {
           if (expResult) expanded.push(expResult);
         }
 
-        // Step 4c: Follow typed edges from __amemory_edges
+        // Step 4c: Follow typed edges from Agent Memory.edges
         var edgesJson = topResults[ti].edges || (memById[topResults[ti].id] && memById[topResults[ti].id].edges) || "[]";
         var edges = [];
         try { edges = JSON.parse(edgesJson); } catch (e) { edges = []; }
@@ -1827,12 +1844,12 @@ export function createAMemory(client, opts) {
       }
     }
 
-    // Step 5: Increment __amemory_access_count on recalled memories (best-effort)
+    // Step 5: Increment Agent Memory.access_count on recalled memories (best-effort)
     for (var ai = 0; ai < topResults.length; ai++) {
       try {
         var currentCount = topResults[ai].accessCount || 0;
         client.updateObject(topResults[ai].id, {
-          properties: [{ key: "__amemory_access_count", number: currentCount + 1 }]
+          agent_memory: { access_count: currentCount + 1 }
         });
       } catch (e) {
         // best-effort — don't fail search on update error
@@ -2021,15 +2038,15 @@ export function createAMemory(client, opts) {
     var fullObj = client.getObject(memoryId);
     if (!fullObj) return { status: "FAIL", score: 0, issues: [{ severity: "FAIL", check: "exists", msg: "Memory not found" }] };
 
-    var vectorHex = fullObj.__amemory_vector || "";
+    var vectorHex = getProp(fullObj, "agent_memory.vector") || "";
 
     var allMems = loadAllMemories(client, typeKey);
 
     var memData = {
       name: fullObj.name || "",
-      context: fullObj.__amemory_context || "",
-      keywords: fullObj.__amemory_keywords || "",
-      tags: stripTagPrefix(getTagKeys(fullObj, "tag") || []),
+      context: getProp(fullObj, "agent_memory.context") || "",
+      keywords: getProp(fullObj, "agent_memory.keywords") || "",
+      tags: stripTagPrefix((getProp(fullObj, "agent_memory.tags") || []) || []),
       vec: vectorHex,
       body: fullObj.markdown || ""
     };
@@ -2330,9 +2347,9 @@ export function createAMemory(client, opts) {
       var objects = client.getObjects(typeKey);
       var bootObj = null;
       for (var i = 0; i < objects.length; i++) {
-        var tags = getTagKeys(objects[i], "tag") || [];
+        var tags = (getProp(objects[i], "agent_memory.tags") || []) || [];
         for (var ti = 0; ti < tags.length; ti++) {
-          if (tags[ti] === "amemory_boot_state") {
+          if (tags[ti] === "boot_state") {
             bootObj = objects[i];
             break;
           }
@@ -2376,17 +2393,17 @@ export function createAMemory(client, opts) {
           // Needs a dummy vector to pass loadAllMemories filter, but boot state
           // is filtered out by tag anyway. Use a short placeholder.
           var result = client.createObject(typeKey, {
-            name: "amemory_boot_state",
+            name: "boot_state",
             body: JSON.stringify(state),
-            properties: [
-              { key: "__amemory_vector", text: "00" },
-              { key: "__amemory_context", text: "Boot state singleton for amemory system" },
-              { key: "__amemory_keywords", text: "boot,state,system" }
-            ]
+            agent_memory: {
+              vector: "00",
+              context: "Boot state singleton for amemory system",
+              keywords: "boot,state,system",
+              tags: ["boot_state"]
+            }
           });
           if (result.ok && result.object) {
             state._id = result.object.id;
-            try { client.addTag(result.object.id, "amemory_boot_state"); } catch (e) {}
           }
         } catch (e) {}
       }
@@ -2404,9 +2421,9 @@ export function createAMemory(client, opts) {
         // Try to find the boot state object
         var objects = client.getObjects(typeKey);
         for (var i = 0; i < objects.length; i++) {
-          var tags = getTagKeys(objects[i], "tag") || [];
+          var tags = (getProp(objects[i], "agent_memory.tags") || []) || [];
           for (var ti = 0; ti < tags.length; ti++) {
-            if (tags[ti] === "amemory_boot_state") {
+            if (tags[ti] === "boot_state") {
               state._id = objects[i].id;
               break;
             }
@@ -2579,7 +2596,7 @@ export function createAMemory(client, opts) {
             if (newConf < 1) newConf = 1;
             try {
               client.updateObject(olderMem.id, {
-                properties: [{ key: "__amemory_confidence", number: newConf }]
+                agent_memory: { confidence: newConf }
               });
             } catch (e) {}
 
@@ -2590,7 +2607,7 @@ export function createAMemory(client, opts) {
               if (!Array.isArray(aEdges)) aEdges = [];
               aEdges.push({ to: memB.id, type: "contradicts", strength: 0.8 });
               client.updateObject(memA.id, {
-                properties: [{ key: "__amemory_edges", text: JSON.stringify(aEdges) }]
+                agent_memory: { edges: JSON.stringify(aEdges) }
               });
 
               var bEdges = [];
@@ -2598,7 +2615,7 @@ export function createAMemory(client, opts) {
               if (!Array.isArray(bEdges)) bEdges = [];
               bEdges.push({ to: memA.id, type: "contradicts", strength: 0.8 });
               client.updateObject(memB.id, {
-                properties: [{ key: "__amemory_edges", text: JSON.stringify(bEdges) }]
+                agent_memory: { edges: JSON.stringify(bEdges) }
               });
             } catch (e) {}
           }
@@ -2670,11 +2687,13 @@ export function createAMemory(client, opts) {
 
         // Check for archival: salience < 0.5 AND never accessed AND 30+ days old
         if (newSalience < 0.5 && mem.accessCount === 0 && daysSince > 30) {
-          // Soft archive — add amemory_archived tag
+          // Soft archive — add the bare `archived` tag alongside the salience
+          // update, in one write.
           try {
-            client.addTag(mem.id, "amemory_archived");
+            var archTags = (mem.tags || []).slice();
+            if (archTags.indexOf("archived") === -1) archTags.push("archived");
             client.updateObject(mem.id, {
-              properties: [{ key: "__amemory_salience", number: newSalience }]
+              agent_memory: { salience: newSalience, tags: archTags }
             });
             archived++;
           } catch (e) {}
@@ -2683,7 +2702,7 @@ export function createAMemory(client, opts) {
 
         // Update salience
         client.updateObject(mem.id, {
-          properties: [{ key: "__amemory_salience", number: Math.round(newSalience * 100) / 100 }]
+          agent_memory: { salience: Math.round(newSalience * 100) / 100 }
         });
         decayed++;
       } catch (e) {
@@ -2743,12 +2762,9 @@ export function createAMemory(client, opts) {
     var chunkChatId = (typeof opts.chatId === "string" && opts.chatId.length > 0) ? opts.chatId : "";
     var updateErr = null;
     try {
-      var patchProps = [
-        { key: "__amemory_period_start", date: normStart },
-        { key: "__amemory_period_end", date: normEnd }
-      ];
-      if (chunkChatId) patchProps.push({ key: "__amemory_chat_id", text: chunkChatId });
-      var upd = client.updateObject(added.id, { properties: patchProps });
+      var patchProps = { period_start: normStart, period_end: normEnd };
+      if (chunkChatId) patchProps.chat_id = chunkChatId;
+      var upd = client.updateObject(added.id, { agent_memory: patchProps });
       if (upd && upd.ok === false) updateErr = upd.error || "updateObject returned ok:false";
     } catch (e) {
       updateErr = (e && e.message) ? e.message : String(e);
