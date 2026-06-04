@@ -4,7 +4,8 @@ Core mechanics:
 
 - Everything in a space is a **typed object**. Types define which properties objects can have.
 - Discover **existing types** with `anyHelper.getTypes()` before creating new ones — find an existing fit first. Avoid inventing parallel types. Each entry has `{ id, name, xKey, builtIn }`.
-- Types are referenced by their **xKey** (the stable programmatic slug, e.g. `"pages"`, `"agent_memory"`) — NOT the display name. `createType` derives the xKey from the name (and returns it); builtins use their id (`chat`, `editor`, `program`, `nav`). Pass the xKey (or id) to `createObject` / `getObjects` and as the first segment of dotted property paths.
+- Types are referenced by their **xKey** (the stable programmatic slug, e.g. `"pages"`, `"agent_memory"`) — NOT the display name. `createType` derives the xKey from the name (and returns it); builtins use their id (`chat`, `editor`, `program`, `nav`). Pass the xKey (or id) to `createObject` / `getObjects` and as the first segment of dotted filter/sort paths.
+- **Property writes are nested type groups** keyed by the type xKey, mirroring the read shape: `anyHelper.createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965 } })`. Properties placed anywhere else (top-level keys, dotted keys, a `properties:` field) error — they are never silently dropped.
 - When the user asks to "create X", consider whether an existing object could be edited instead — check memory for `preference` entries about this, and search the space before spawning a new object.
 
 Collections vs views / queries:

@@ -7,8 +7,8 @@
 - **type xKey** — a stable slug. `createType` derives it from the name (`"Agent Memory"` → `agent_memory`, `"Mini App"` → `mini_app`) and returns it as `result.type.xKey`; builtins use their id (`program`, `nav`). It does NOT change when the display name is renamed — so hardcoded paths survive renames.
 - **prop xKey** — the `key` you pass to `createType` properties (`vector`, `title`).
 
-- **Writing**: property keys are dotted `"<typeXKey>.<prop>"`, e.g. `"movie.title"`, `"agent_memory.chat_id"`. A bare key (`"title"`) is allowed only when it resolves unambiguously against the object's type(s); otherwise it errors — prefer dotted. The `typeKey` argument of createObject/getObjects/etc. is the type **xKey** or id — NOT the display name (name is display-only metadata). Unknown property / wrong value-kind writes fail with a clear error (server-side validation), never silently dropped.
-- **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`, `obj.program.name`.
+- **Writing**: properties go in as nested type groups, mirroring the read shape — `createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965 } })`. Every top-level data key that isn't a reserved field (`name`, `body`, `markdown`, `types`, `space`) must be a type xKey/id with a `{ prop: value }` map; anything else fails with a clear error — misplaced/typo'd keys are NEVER silently dropped. The `typeKey` argument of createObject/getObjects/etc. is the type **xKey** or id — NOT the display name (name is display-only metadata). Unknown property / wrong value-kind writes also fail loud (client + server validation).
+- **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin namespaces stay literal: `obj.name` (display name), `obj.id`, `obj.any.types` (the object's type ids), `obj.nav.parentId`, `obj.program.name`. Dotted `"type.prop"` paths are for READS (getProp) and query filter/sort keys — writes always use the nested group shape.
 
 Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); read with `getObjects({ objectId, dataset })`, write with `setRecord` / `deleteRecord`.
 
@@ -47,20 +47,25 @@ Fetch one object by ID. Returns the object with properties nested per type
 - opts.from, opts.to: line range for markdown slicing
 
 ### createObject(typeKey, data)
-Create a new object.
+Create a new object. Properties are nested type groups (write what you read):
+```js
+createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965 } })
+```
 - typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
 - data.types: optional array of ADDITIONAL type xKeys/ids (multitype object)
 - data.name: display name
 - data.body: markdown content
-- data.properties: dotted-key map `{ "typeXKey.prop": value }`, or bare `{ prop: value }` (resolves against the object's type(s)), or legacy array `[{key, text/number/checkbox/objects/value}]`
+- data.<typeXKey>: `{ prop: value }` property group for that type. One group per type — a multitype object takes several. Any other top-level key errors.
 
 ### updateObject(objId, data)
-Update an existing object. Property/name write failures (including server
-validation — unknown property, wrong kind) are returned as `{ok:false, error}`.
+Update an existing object. Property groups use the same nested shape as
+createObject (`{ book: { rating: 9 } }`). Property/name write failures
+(including server validation — unknown property, wrong kind) are returned
+as `{ok:false, error}`.
 - objId: object ID
 - data.name — display name
 - data.body / data.markdown — full markdown body (use appendToObject to append cheaply)
-- data.properties — same shapes as createObject; dotted keys can target multiple types in one call
+- data.<typeXKey> — `{ prop: value }` group; several groups update multiple types in one call
 
 ### deleteObject(objId)
 Delete an object.
@@ -87,7 +92,7 @@ declare the same type with different properties).
 - opts.xKey: stable programmatic key (optional; derived snake_case from name if omitted, e.g. "Agent Memory" → agent_memory)
 - opts.properties: [{key, name?, format}] where format ∈ text | number | checkbox | objects (ref list) | object | array | date
 Returns `{ ok, type: { id, name, xKey }, created }`. Use `type.xKey` as the
-stable namespace segment in dotted property paths.
+property-group key in writes and the namespace segment in dotted read/filter paths.
 
 ### setRecord(objId, dataset, recordId, fields, opts?)
 Upsert a dataset record, setting each field at its own path atomically (updating

@@ -414,74 +414,42 @@ export function createClient(params) {
     return null;
   }
 
-  function _hasBareKeys(propsInput) {
-    if (Array.isArray(propsInput)) {
-      for (var i = 0; i < propsInput.length; i++) {
-        if (propsInput[i] && typeof propsInput[i].key === "string" && propsInput[i].key.indexOf(".") === -1) return true;
-      }
-      return false;
-    }
-    for (var k in propsInput) {
-      if (Object.prototype.hasOwnProperty.call(propsInput, k) && k.indexOf(".") === -1) return true;
-    }
-    return false;
-  }
+  // _resolveGroupWrites: property writes are nested type groups — every
+  // non-reserved top-level key of `data` is a type xKey/id whose value is a
+  // { prop: value } map, mirroring the nested shape reads come back in:
+  //   createObject("book", { name: "Dune", book: { author: "Frank Herbert" } })
+  // Returns { groups: {typeId: {propId: val}} } keyed by the CID ids the
+  // server writes by. Unknown keys ERROR — never silently dropped (a top-level
+  // typo'd/misplaced property key once lost a whole batch of writes).
+  var _reservedDataKeys = { name: 1, body: 1, markdown: 1, types: 1, space: 1 };
 
-  // _objectTypeIds: the object's any.types list (for resolving bare property
-  // keys against the types it actually carries).
-  function _objectTypeIds(scope, objId) {
-    var path = _pathForScope(scope);
-    var res = api("GET", path + "/properties/" + objId);
-    var rec = res.ok && res.data && res.data.record;
-    var types = rec && rec.any && rec.any.types;
-    return Array.isArray(types) ? types : [];
-  }
-
-  // _resolvePropertyWrites: turn a property input (dotted-key map
-  // { "Type.prop": val }, bare-key map { prop: val }, or legacy array
-  // [{key, text|number|checkbox|value|objects}]) into { groups: {typeId:
-  // {propId: val}} } keyed by the CID ids the server writes by. Bare keys
-  // resolve against bareTypeIds (the object's types) and must be unambiguous.
-  function _resolvePropertyWrites(scope, propsInput, bareTypeIds) {
-    var entries = [];
-    if (Array.isArray(propsInput)) {
-      for (var i = 0; i < propsInput.length; i++) {
-        var p = propsInput[i];
-        var v = p.objects !== undefined ? p.objects
-          : p.value !== undefined ? p.value
-          : p.text !== undefined ? p.text
-          : p.number !== undefined ? p.number
-          : p.checkbox !== undefined ? p.checkbox : "";
-        entries.push([p.key, v]);
-      }
-    } else {
-      for (var k in propsInput) {
-        if (Object.prototype.hasOwnProperty.call(propsInput, k)) entries.push([k, propsInput[k]]);
-      }
-    }
+  function _resolveGroupWrites(scope, data) {
     var groups = {};
-    for (var e = 0; e < entries.length; e++) {
-      var key = entries[e][0], val = entries[e][1];
-      var typeId, propId;
-      var dot = key.indexOf(".");
-      if (dot > 0) {
-        var typeSeg = key.substring(0, dot), propSeg = key.substring(dot + 1);
-        typeId = _resolveTypeSeg(scope, typeSeg);
-        if (!typeId) return { ok: false, error: "unknown type \"" + typeSeg + "\" in property key \"" + key + "\"" };
-        propId = _resolvePropSeg(scope, typeId, propSeg);
-        if (!propId) return { ok: false, error: "unknown property \"" + propSeg + "\" on type \"" + typeSeg + "\"" };
-      } else {
-        var matches = [];
-        for (var ti = 0; ti < (bareTypeIds || []).length; ti++) {
-          var pid = _resolvePropSeg(scope, bareTypeIds[ti], key);
-          if (pid) matches.push([bareTypeIds[ti], pid]);
-        }
-        if (matches.length === 0) return { ok: false, error: "property \"" + key + "\" not found on the object's types; use a dotted \"Type." + key + "\" key" };
-        if (matches.length > 1) return { ok: false, error: "property \"" + key + "\" is ambiguous across types; use a dotted \"Type." + key + "\" key" };
-        typeId = matches[0][0]; propId = matches[0][1];
+    for (var k in data) {
+      if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
+      if (_reservedDataKeys[k]) continue;
+      if (k === "properties") {
+        return { ok: false, error: "data.properties was removed — nest properties under their type key: { book: { author: \"...\" } }" };
       }
-      if (!groups[typeId]) groups[typeId] = {};
-      groups[typeId][propId] = val;
+      if (k.indexOf(".") !== -1) {
+        var seg = k.substring(0, k.indexOf("."));
+        return { ok: false, error: "dotted key \"" + k + "\" is not a valid data field — nest property writes under the type key: { " + seg + ": { " + k.substring(k.indexOf(".") + 1) + ": ... } }" };
+      }
+      var typeId = _resolveTypeSeg(scope, k);
+      if (!typeId) {
+        return { ok: false, error: "key \"" + k + "\" is neither a data field (name, body, markdown, types, space) nor a type. Property writes are nested per type: { " + k + ": { prop: value } }. " + _typeNotFoundError(k, scope) };
+      }
+      var group = data[k];
+      if (group === null || typeof group !== "object" || Array.isArray(group)) {
+        return { ok: false, error: "value for type group \"" + k + "\" must be a { prop: value } object, got " + (Array.isArray(group) ? "an array" : typeof group) };
+      }
+      for (var pk in group) {
+        if (!Object.prototype.hasOwnProperty.call(group, pk)) continue;
+        var propId = _resolvePropSeg(scope, typeId, pk);
+        if (!propId) return { ok: false, error: "unknown property \"" + pk + "\" on type \"" + k + "\"" };
+        if (!groups[typeId]) groups[typeId] = {};
+        groups[typeId][propId] = group[pk];
+      }
     }
     return { ok: true, groups: groups };
   }
@@ -796,14 +764,16 @@ export function createClient(params) {
   // ==================== MUTATIONS ====================
 
   // createObject(typeKey, data) — create an object of one or more types.
-  //   data.types       — extra type names/ids beyond typeKey (multitype)
+  //   data.types       — extra type xKeys/ids beyond typeKey (multitype)
   //   data.name        — display name (stored as any.name)
   //   data.body/markdown — editor markdown set after create
-  //   data.properties  — { "Type.prop": val } | { prop: val } (bare keys
-  //                      resolve against the object's types) | legacy array
-  //                      [{key, text|number|checkbox|value|objects}]
-  //   data.nav         — { type, parentId, pos } passthrough (folders)
-  // Property keys/types are resolved to the CID ids the server writes by.
+  //   data.<typeXKey>  — { prop: value } property group for that type,
+  //                      mirroring the nested shape reads return:
+  //                      createObject("book", { name: "Dune",
+  //                        book: { author: "Frank Herbert", year: 1965 } })
+  //                      (nav folders: { nav: { type: 2, parentId, pos } })
+  // Any other key ERRORS — see _resolveGroupWrites. Property keys/types are
+  // resolved to the CID ids the server writes by.
   function createObject(typeKey, data) {
     if (!data) data = {};
     var scope = data.space || "user";
@@ -828,19 +798,16 @@ export function createClient(params) {
     var createBody = {};
     if (typeIds.length > 0) createBody.types = typeIds;
 
+    var resolved = _resolveGroupWrites(scope, data);
+    if (!resolved.ok) return { ok: false, error: resolved.error };
+
     var initProps = {};
     if (name) initProps.any = { name: name };
-    if (data.nav) initProps.nav = data.nav;
-
-    if (data.properties) {
-      var resolved = _resolvePropertyWrites(scope, data.properties, typeIds);
-      if (!resolved.ok) return { ok: false, error: resolved.error };
-      for (var gk in resolved.groups) {
-        if (!Object.prototype.hasOwnProperty.call(resolved.groups, gk)) continue;
-        if (!initProps[gk]) initProps[gk] = {};
-        var g = resolved.groups[gk];
-        for (var pk in g) { if (Object.prototype.hasOwnProperty.call(g, pk)) initProps[gk][pk] = g[pk]; }
-      }
+    for (var gk in resolved.groups) {
+      if (!Object.prototype.hasOwnProperty.call(resolved.groups, gk)) continue;
+      if (!initProps[gk]) initProps[gk] = {};
+      var g = resolved.groups[gk];
+      for (var pk in g) { if (Object.prototype.hasOwnProperty.call(g, pk)) initProps[gk][pk] = g[pk]; }
     }
     if (Object.keys(initProps).length > 0) createBody.initialProperties = initProps;
 
@@ -859,15 +826,21 @@ export function createClient(params) {
   }
 
   // updateObject(objId, data) — update name / body / properties.
-  //   data.properties uses the same shapes as createObject. Writes are grouped
-  //   by type and applied one base/:typeId PATCH per type. Property/name write
-  //   failures (incl. server validation: property.not_found, kind_mismatch)
-  //   are surfaced as { ok: false, error } — never silently swallowed.
+  //   data.<typeXKey> property groups use the same nested shape as
+  //   createObject ({ book: { rating: 9 } }); writes are applied one
+  //   base/:typeId PATCH per group. Property/name write failures (incl.
+  //   server validation: property.not_found, kind_mismatch) are surfaced
+  //   as { ok: false, error } — never silently swallowed.
   function updateObject(objId, data) {
     if (!data) data = {};
     var scope = data.space || "user";
     var path = _pathForScope(scope);
     var body = data.body || data.markdown;
+
+    // Resolve before writing anything so a bad group doesn't land a partial
+    // update (markdown applied, properties rejected).
+    var resolvedU = _resolveGroupWrites(scope, data);
+    if (!resolvedU.ok) return { ok: false, id: objId, error: resolvedU.error };
 
     if (body !== undefined) {
       var mdRes = api("PUT", path + "/objects/" + objId + "/editor/markdown", { content: body });
@@ -879,17 +852,10 @@ export function createClient(params) {
       if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr), code: nr.code };
     }
 
-    var hasProps = data.properties &&
-      (Array.isArray(data.properties) ? data.properties.length > 0 : Object.keys(data.properties).length > 0);
-    if (hasProps) {
-      var bareTypes = _hasBareKeys(data.properties) ? _objectTypeIds(scope, objId) : [];
-      var resolvedU = _resolvePropertyWrites(scope, data.properties, bareTypes);
-      if (!resolvedU.ok) return { ok: false, id: objId, error: resolvedU.error };
-      for (var gk2 in resolvedU.groups) {
-        if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
-        var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
-        if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr), code: pr.code };
-      }
+    for (var gk2 in resolvedU.groups) {
+      if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
+      var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
+      if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr), code: pr.code };
     }
 
     return { ok: true, id: objId, object: { id: objId } };
@@ -977,7 +943,7 @@ export function createClient(params) {
   // a `tags` array property and write it via createObject/updateObject; filter
   // via getObjects {filter:{"Type.tags":...}}. See docs/09-query.md.
   function _tagsUnsupported() {
-    throw new Error("tag operations are not supported: use a `tags` array property (createObject/updateObject {properties:{\"Type.tags\":[...]}}) and getObjects array filters — see docs/09-query.md");
+    throw new Error("tag operations are not supported: use a `tags` array property (createObject/updateObject { typeXKey: { tags: [...] } }) and getObjects array filters — see docs/09-query.md");
   }
   function setTags()  { return _tagsUnsupported(); }
   function addTag()   { return _tagsUnsupported(); }
@@ -988,7 +954,7 @@ export function createClient(params) {
 
   // A collection is a nav folder: an object with nav.type=2. nav must be set
   // under initialProperties (the server ignores a top-level `nav` on create) —
-  // createObject routes data.nav there.
+  // the nav property group routes there like any other type group.
   function createCollection(name) {
     var res = createObject(null, { name: name, nav: { type: 2, parentId: "", pos: "" } });
     if (!res.ok) return { ok: false, error: res.error };

@@ -69,7 +69,9 @@ For SMALL batches (5-12 items, mostly compact data), define a helper and call it
 ```
 // Cell 1 — define helper, test on one item
 var make_movie = function(name, director, year, rating) {
-  return anyHelper.createObject("movie", { name: name, title: name, director: director, year: year, rating: rating });
+  // properties go in a nested group keyed by the type xKey — top-level keys
+  // other than name/body/types are NOT property writes and will error
+  return anyHelper.createObject("movie", { name: name, movie: { title: name, director: director, year: year, rating: rating } });
 };
 var test = make_movie("Test", "Test Dir", 2000, 5);
 var result = { ok: test.ok, sample: inferSchema(test) };

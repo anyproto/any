@@ -28,7 +28,9 @@ export function main(args) {
   var yearKey = tx + ".year";
   var genreKey = tx + ".genre";
   function mk(name, year, genre) {
-    return c.createObject(tx, { name: name + "_" + uniq, properties: { year: year, genre: genre } });
+    var d = one(tx, { year: year, genre: genre });
+    d.name = name + "_" + uniq;
+    return c.createObject(tx, d);
   }
   mk("a", 1942, "drama"); mk("b", 1955, "drama"); mk("c", 1960, "noir"); mk("d", 1971, "noir");
 

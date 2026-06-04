@@ -265,7 +265,7 @@ export function research(question, opts) {
     var src = dedupSources[bi];
     var bm = client.createObject("bookmark", {
       name: src.title || src.domain,
-      properties: [{ key: "source", url: src.url }]
+      bookmark: { source: src.url }
     });
     if (bm && bm.ok) {
       bookmarkResults.push({ id: bm.id, name: src.title || src.domain, url: src.url });

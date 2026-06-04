@@ -459,7 +459,7 @@ function loadOrCreateMemoryAnchor(client) {
   var result = client.createObject("agent_memory", {
     name: "Agent Memory",
     body: "",
-    properties: [{ key: "agent_memory", text: "_main" }]
+    agent_memory: { agent_memory: "_main" }
   });
   if (!result || !result.ok) return null;
   return { id: result.object.id, fullObj: client.getObject(result.object.id, rawOpts) };
@@ -612,7 +612,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
       if (unkeyed.length === 1) {
         try {
           client.updateObject(unkeyed[0].id, {
-            properties: [{ key: "agent_memory.chat_id", text: chatId }]
+            agent_memory: { chat_id: chatId }
           });
         } catch (e) {}
         return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
@@ -629,13 +629,13 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   if (chatName) historyName += " — " + chatName;
   else if (chatId) historyName += " — " + chatId;
 
-  var createProps = [];
-  if (chatId) createProps.push({ key: "chat_id", text: chatId });
+  var createProps = {};
+  if (chatId) createProps.chat_id = chatId;
 
   var result = client.createObject("agent_memory", {
     name: historyName,
     body: "",
-    properties: createProps
+    agent_memory: createProps
   });
   if (!result || !result.ok) return null;
   var newId = result.object.id;
@@ -646,7 +646,7 @@ function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
   existing.push(newId);
   try {
     client.updateObject(anchor.id, {
-      properties: [{ key: "agent_memory.chat_history", objects: existing }]
+      agent_memory: { chat_history: existing }
     });
   } catch (e) {}
   return { id: newId, markdown: "" };

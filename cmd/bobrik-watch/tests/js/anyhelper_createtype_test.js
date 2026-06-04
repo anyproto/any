@@ -38,10 +38,7 @@ export function main(args) {
   h.check("xKey stable across re-declare", t2.type && t2.type.xKey === tx, "" + (t2.type && t2.type.xKey));
 
   // Both the original and the newly-added props must now be writable.
-  var co = c.createObject(tx, {
-    name: "anchor",
-    properties: { "role": "_main", "count": 3, "history": ["bafyA", "bafyB"] }
-  });
+  var co = c.createObject(tx, grpOne(tx, { role: "_main", count: 3, history: ["bafyA", "bafyB"] }, { name: "anchor" }));
   h.check("createObject with additive props ok", co && co.ok, JSON.stringify(co));
 
   var obj = c.getObject(co.id);
@@ -51,9 +48,8 @@ export function main(args) {
   h.check("read history is array", Array.isArray(hist) && hist.length === 2, JSON.stringify(hist));
   h.check("history element preserved", hist && hist[0] === "bafyA", JSON.stringify(hist));
 
-  // Append to the objects field via updateObject (dotted).
-  var up = c.updateObject(co.id, { properties: { } });
-  up = c.updateObject(co.id, { properties: dottedOne(tx + ".history", ["bafyA", "bafyB", "bafyC"]) });
+  // Append to the objects field via updateObject (nested group).
+  var up = c.updateObject(co.id, grpOne(tx, { history: ["bafyA", "bafyB", "bafyC"] }));
   h.check("update history ok", up && up.ok, JSON.stringify(up));
   var hist2 = getProp(c.getObject(co.id), tx + ".history");
   h.check("history grew to 3", Array.isArray(hist2) && hist2.length === 3, JSON.stringify(hist2));
@@ -61,4 +57,11 @@ export function main(args) {
   return h.done();
 }
 
-function dottedOne(k, v) { var o = {}; o[k] = v; return o; }
+// grpOne builds a { [typeKey]: group, ...extra } data object (type keys are
+// uniq-suffixed at runtime).
+function grpOne(typeKey, group, extra) {
+  var o = {};
+  o[typeKey] = group;
+  if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) o[k] = extra[k]; } }
+  return o;
+}

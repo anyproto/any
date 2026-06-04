@@ -17,16 +17,23 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   multiple types; each type owns its property bag. Dotted paths use the
   type's **xKey** (a stable snake_case slug of the name — `"Agent Memory"` →
   `agent_memory`; builtins use their id) plus the property xKey:
-  `getProp(obj,"agent_memory.chat_id")`, `{ "agent_memory.tags": [...] }`.
-  `createType` derives+returns `type.xKey` (or pass `opts.xKey`); the xKey
-  survives display-name renames (needs SDK `add-type-xkey`; the type meta
-  stores `any.xkey`). anyHelper resolves name/xKey/id for the `typeKey`
-  *argument*, but dotted *paths* must use the xKey — reads come back keyed by
-  it. Builtin namespaces stay literal (`obj.name`, `obj.any.types`,
-  `obj.nav.parentId`, `obj.program.name`). Writes go one
+  `getProp(obj,"agent_memory.chat_id")`. `createType` derives+returns
+  `type.xKey` (or pass `opts.xKey`); the xKey survives display-name renames
+  (needs SDK `add-type-xkey`; the type meta stores `any.xkey`). anyHelper
+  resolves name/xKey/id for the `typeKey` *argument*, but dotted *paths*
+  (reads, filter, sort) must use the xKey — reads come back keyed by it.
+  **Property writes are nested type groups mirroring the read shape**:
+  `createObject("book", { name, book: { author: "..." } })` /
+  `updateObject(id, { book: { rating: 9 } })` — top-level data keys other
+  than `name`/`body`/`markdown`/`types`/`space` must resolve to a type
+  xKey/id or the call errors (`data.properties` and dotted write keys are
+  gone; a silently-dropped misplaced key once lost a whole batch). Builtin
+  namespaces stay literal (`obj.name`, `obj.any.types`, `obj.nav.parentId`,
+  `obj.program.name`); `nav` writes are just the `nav` group. Writes go one
   `properties/:objId/base/:typeId` PATCH per type; unknown-prop / wrong-kind
-  writes fail loudly (server validation). No flatten-to-top-level, no
-  first-type guessing (both were legacy anytypeHelper hacks).
+  writes fail loudly (client resolver + server validation). No
+  flatten-to-top-level, no first-type guessing (both were legacy
+  anytypeHelper hacks).
 - **Programs** — type `program` (built-in), datasets
   `program_source` (code), `program_description` (tool docs), and
   `program_methods` (per-method docs, currently unused). Registered

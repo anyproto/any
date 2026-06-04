@@ -135,4 +135,5 @@ failures surface instead of masquerading as an empty result. When
 `includeTotal` is requested the (page-bounded) total is attached as
 `arr.total`. For dataset writes use `setRecord` (atomic per-field `$set` upsert)
 / `deleteRecord`; for property writes use `createObject`/`updateObject` with
-dotted `"typeXKey.prop"` keys.
+nested type groups (`{ book: { author: "..." } }`) — dotted
+`"typeXKey.prop"` paths are read/filter/sort syntax, not write syntax.

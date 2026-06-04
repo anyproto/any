@@ -979,26 +979,27 @@ export function createAMemory(client, opts) {
       }
     }
 
-    var properties = [];
-    properties.push({ key: "agent_memory.keywords", text: keywords.join(", ") });
-    properties.push({ key: "agent_memory.context", text: context });
-    if (embeddingHex) properties.push({ key: "agent_memory.vector", text: embeddingHex });
-    if (contentEmbeddingHex) properties.push({ key: "agent_memory.vector_content", text: contentEmbeddingHex });
-    properties.push({ key: "agent_memory.confidence", number: confidence });
-    properties.push({ key: "agent_memory.importance", number: importance });
-    properties.push({ key: "agent_memory.salience", number: 10 });
-    properties.push({ key: "agent_memory.access_count", number: 0 });
-    properties.push({ key: "agent_memory.valid_from", text: new Date().toISOString() });
-    if (entities.length > 0) properties.push({ key: "agent_memory.entities", text: entities.join(", ") });
-    properties.push({ key: "agent_memory.edges", text: "[]" });
-    // Categories live in the bare `tags` array (category first, then extras),
-    // written atomically with the rest — no post-create addTag round-trips.
-    properties.push({ key: "agent_memory.tags", value: _mkTags(category, extraTags) });
+    var properties = {
+      keywords: keywords.join(", "),
+      context: context,
+      confidence: confidence,
+      importance: importance,
+      salience: 10,
+      access_count: 0,
+      valid_from: new Date().toISOString(),
+      edges: "[]",
+      // Categories live in the bare `tags` array (category first, then extras),
+      // written atomically with the rest — no post-create addTag round-trips.
+      tags: _mkTags(category, extraTags)
+    };
+    if (embeddingHex) properties.vector = embeddingHex;
+    if (contentEmbeddingHex) properties.vector_content = contentEmbeddingHex;
+    if (entities.length > 0) properties.entities = entities.join(", ");
 
     var result = client.createObject(typeKey, {
       name: context.substring(0, 80),  // display-name cap, pre-existing convention
       body: content,
-      properties: properties
+      agent_memory: properties
     });
     if (!result || !result.ok) {
       return { ok: false, error: (result && result.error) || "createObject failed" };
@@ -1092,34 +1093,29 @@ export function createAMemory(client, opts) {
     var contentEmbeddingHex = contentEmbedding ? encodeVector(contentEmbedding) : "";
 
     // Create Anytype object
-    var properties = [];
-    properties.push({ key: "agent_memory.keywords", text: meta.keywords.join(", ") });
-    properties.push({ key: "agent_memory.context", text: meta.context });
-    if (embeddingHex) {
-      properties.push({ key: "agent_memory.vector", text: embeddingHex });
-    }
-    if (contentEmbeddingHex) {
-      properties.push({ key: "agent_memory.vector_content", text: contentEmbeddingHex });
-    }
-    // Step 1: Structured properties
-    properties.push({ key: "agent_memory.confidence", number: meta.confidence });
-    properties.push({ key: "agent_memory.importance", number: meta.importance });
-    properties.push({ key: "agent_memory.salience", number: 10 }); // starts at max
-    properties.push({ key: "agent_memory.access_count", number: 0 });
-    properties.push({ key: "agent_memory.valid_from", text: new Date().toISOString() });
-    if (meta.entities.length > 0) {
-      properties.push({ key: "agent_memory.entities", text: meta.entities.join(", ") });
-    }
-    // Edges start empty — populated by Ps2 link generation in later steps
-    properties.push({ key: "agent_memory.edges", text: "[]" });
-    // Categories in the bare `tags` array (category first, then extras),
-    // written atomically with create.
-    properties.push({ key: "agent_memory.tags", value: _mkTags(meta.category, meta.tags) });
+    var properties = {
+      keywords: meta.keywords.join(", "),
+      context: meta.context,
+      // Step 1: Structured properties
+      confidence: meta.confidence,
+      importance: meta.importance,
+      salience: 10, // starts at max
+      access_count: 0,
+      valid_from: new Date().toISOString(),
+      // Edges start empty — populated by Ps2 link generation in later steps
+      edges: "[]",
+      // Categories in the bare `tags` array (category first, then extras),
+      // written atomically with create.
+      tags: _mkTags(meta.category, meta.tags)
+    };
+    if (embeddingHex) properties.vector = embeddingHex;
+    if (contentEmbeddingHex) properties.vector_content = contentEmbeddingHex;
+    if (meta.entities.length > 0) properties.entities = meta.entities.join(", ");
 
     var result = client.createObject(typeKey, {
       name: meta.context.substring(0, 80),
       body: content,
-      properties: properties
+      agent_memory: properties
     });
 
     if (!result.ok) {
@@ -1190,7 +1186,7 @@ export function createAMemory(client, opts) {
             // Update new memory with links markdown AND forward edges
             client.updateObject(objId, {
               markdown: content + linksSection,
-              properties: [{ key: "agent_memory.edges", text: JSON.stringify(forwardEdges) }]
+              agent_memory: { edges: JSON.stringify(forwardEdges) }
             });
 
             // Backlinks + reverse edges on linked memories
@@ -1220,7 +1216,7 @@ export function createAMemory(client, opts) {
 
                   client.updateObject(blinkId, {
                     markdown: existingMd,
-                    properties: [{ key: "agent_memory.edges", text: JSON.stringify(existingEdges) }]
+                    agent_memory: { edges: JSON.stringify(existingEdges) }
                   });
                 }
               } catch (e) {}
@@ -1284,14 +1280,14 @@ export function createAMemory(client, opts) {
                     var evoR = evoResults[ui];
                     if (!evoR || !evoR.should_evolve) continue;
                     try {
-                      var updateProps = [];
-                      if (evoR.new_context) updateProps.push({ key: "agent_memory.context", text: evoR.new_context });
-                      if (evoR.new_keywords) updateProps.push({ key: "agent_memory.keywords", text: evoR.new_keywords });
+                      var updateProps = {};
+                      if (evoR.new_context) updateProps.context = evoR.new_context;
+                      if (evoR.new_keywords) updateProps.keywords = evoR.new_keywords;
 
                       // Find this item's embedding in the batch result
                       for (var embI = 0; embI < embIdxMap.length; embI++) {
                         if (embIdxMap[embI] === ui && newEmbeddings[embI]) {
-                          updateProps.push({ key: "agent_memory.vector", text: encodeVector(newEmbeddings[embI]) });
+                          updateProps.vector = encodeVector(newEmbeddings[embI]);
                           break;
                         }
                       }
@@ -1302,10 +1298,10 @@ export function createAMemory(client, opts) {
                           var nt = evoR.new_tags[eti];
                           if (nt && mergedTags.indexOf(nt) === -1) mergedTags.push(nt);
                         }
-                        updateProps.push({ key: "agent_memory.tags", value: mergedTags });
+                        updateProps.tags = mergedTags;
                       }
-                      if (updateProps.length > 0) {
-                        client.updateObject(evoItems[ui].id, { properties: updateProps });
+                      if (Object.keys(updateProps).length > 0) {
+                        client.updateObject(evoItems[ui].id, { agent_memory: updateProps });
                       }
                     } catch(e) {}
                   }
@@ -1853,7 +1849,7 @@ export function createAMemory(client, opts) {
       try {
         var currentCount = topResults[ai].accessCount || 0;
         client.updateObject(topResults[ai].id, {
-          properties: [{ key: "agent_memory.access_count", number: currentCount + 1 }]
+          agent_memory: { access_count: currentCount + 1 }
         });
       } catch (e) {
         // best-effort — don't fail search on update error
@@ -2399,12 +2395,12 @@ export function createAMemory(client, opts) {
           var result = client.createObject(typeKey, {
             name: "boot_state",
             body: JSON.stringify(state),
-            properties: [
-              { key: "agent_memory.vector", text: "00" },
-              { key: "agent_memory.context", text: "Boot state singleton for amemory system" },
-              { key: "agent_memory.keywords", text: "boot,state,system" },
-              { key: "agent_memory.tags", value: ["boot_state"] }
-            ]
+            agent_memory: {
+              vector: "00",
+              context: "Boot state singleton for amemory system",
+              keywords: "boot,state,system",
+              tags: ["boot_state"]
+            }
           });
           if (result.ok && result.object) {
             state._id = result.object.id;
@@ -2600,7 +2596,7 @@ export function createAMemory(client, opts) {
             if (newConf < 1) newConf = 1;
             try {
               client.updateObject(olderMem.id, {
-                properties: [{ key: "agent_memory.confidence", number: newConf }]
+                agent_memory: { confidence: newConf }
               });
             } catch (e) {}
 
@@ -2611,7 +2607,7 @@ export function createAMemory(client, opts) {
               if (!Array.isArray(aEdges)) aEdges = [];
               aEdges.push({ to: memB.id, type: "contradicts", strength: 0.8 });
               client.updateObject(memA.id, {
-                properties: [{ key: "agent_memory.edges", text: JSON.stringify(aEdges) }]
+                agent_memory: { edges: JSON.stringify(aEdges) }
               });
 
               var bEdges = [];
@@ -2619,7 +2615,7 @@ export function createAMemory(client, opts) {
               if (!Array.isArray(bEdges)) bEdges = [];
               bEdges.push({ to: memA.id, type: "contradicts", strength: 0.8 });
               client.updateObject(memB.id, {
-                properties: [{ key: "agent_memory.edges", text: JSON.stringify(bEdges) }]
+                agent_memory: { edges: JSON.stringify(bEdges) }
               });
             } catch (e) {}
           }
@@ -2697,10 +2693,7 @@ export function createAMemory(client, opts) {
             var archTags = (mem.tags || []).slice();
             if (archTags.indexOf("archived") === -1) archTags.push("archived");
             client.updateObject(mem.id, {
-              properties: [
-                { key: "agent_memory.salience", number: newSalience },
-                { key: "agent_memory.tags", value: archTags }
-              ]
+              agent_memory: { salience: newSalience, tags: archTags }
             });
             archived++;
           } catch (e) {}
@@ -2709,7 +2702,7 @@ export function createAMemory(client, opts) {
 
         // Update salience
         client.updateObject(mem.id, {
-          properties: [{ key: "agent_memory.salience", number: Math.round(newSalience * 100) / 100 }]
+          agent_memory: { salience: Math.round(newSalience * 100) / 100 }
         });
         decayed++;
       } catch (e) {
@@ -2769,12 +2762,9 @@ export function createAMemory(client, opts) {
     var chunkChatId = (typeof opts.chatId === "string" && opts.chatId.length > 0) ? opts.chatId : "";
     var updateErr = null;
     try {
-      var patchProps = [
-        { key: "agent_memory.period_start", date: normStart },
-        { key: "agent_memory.period_end", date: normEnd }
-      ];
-      if (chunkChatId) patchProps.push({ key: "agent_memory.chat_id", text: chunkChatId });
-      var upd = client.updateObject(added.id, { properties: patchProps });
+      var patchProps = { period_start: normStart, period_end: normEnd };
+      if (chunkChatId) patchProps.chat_id = chunkChatId;
+      var upd = client.updateObject(added.id, { agent_memory: patchProps });
       if (upd && upd.ok === false) updateErr = upd.error || "updateObject returned ok:false";
     } catch (e) {
       updateErr = (e && e.message) ? e.message : String(e);

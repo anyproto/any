@@ -28,11 +28,11 @@ export function main(args) {
   function mkMem(name, tags, context) {
     return c.createObject("agent_memory", {
       name: name + "_" + uniq,
-      properties: {
-        "agent_memory.vector": "abcd",         // fake hex so loaders don't skip it
-        "agent_memory.context": context,
-        "agent_memory.confidence": 7,
-        "agent_memory.tags": tags
+      agent_memory: {
+        vector: "abcd",         // fake hex so loaders don't skip it
+        context: context,
+        confidence: 7,
+        tags: tags
       }
     });
   }

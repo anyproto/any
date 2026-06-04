@@ -4,8 +4,9 @@
 //   - properties are stored/written by CID propId, namespaced per typeId
 //   - GET /types/:id/properties maps propId <-> xKey <-> name (uniform for
 //     builtin and user types)
-//   - the helper resolves readable "Type.prop" <-> ids on write, and reverse-
-//     maps records to readable nested "Type.prop" on read.
+//   - writes mirror reads: properties go in as nested type groups
+//     ({ book: { author: "..." } }) and come back the same shape; unknown
+//     top-level data keys ERROR rather than silently dropping the write.
 //
 // Run via jsrunner_test.go (TestJSAnyHelper).
 
@@ -38,16 +39,13 @@ export function main(args) {
     ]
   });
   h.check("createType ok", ct && ct.ok, JSON.stringify(ct));
-  // The stable type handle for dotted paths is the xKey (slug of the name),
+  // The stable type handle for group keys is the xKey (slug of the name),
   // NOT the display name — records read back keyed by it.
   var mx = ct.type && ct.type.xKey;
   h.check("createType returns derived xKey", mx === "movie_" + uniq, "" + mx);
 
-  // --- createObject with type + properties (bare keys, single type) -------
-  var co = c.createObject(mx, {
-    name: "Casablanca",
-    properties: { "title": "Casablanca", "year": 1942 }
-  });
+  // --- createObject with a nested type group (write what you read) --------
+  var co = c.createObject(mx, grp(mx, { title: "Casablanca", year: 1942 }, { name: "Casablanca" }));
   h.check("createObject ok", co && co.ok, JSON.stringify(co));
   var objId = co && co.id;
   h.check("createObject returns id", !!objId);
@@ -61,13 +59,13 @@ export function main(args) {
     JSON.stringify(getProp(obj, mx + ".year")));
   h.check("getObject keeps any.types", obj && obj.any && Array.isArray(obj.any.types));
 
-  // --- updateObject: dotted property write --------------------------------
-  var up = c.updateObject(objId, { properties: { } });
+  // --- updateObject: nested type-group write -------------------------------
+  var up = c.updateObject(objId, {});
   // empty is a no-op success
-  h.check("updateObject empty props ok", up && up.ok, JSON.stringify(up));
+  h.check("updateObject empty data ok", up && up.ok, JSON.stringify(up));
 
-  var up3 = c.updateObject(objId, { properties: dotted(mx, { title: "Casablanca (1942)", year: 1943 }) });
-  h.check("updateObject dotted ok", up3 && up3.ok, JSON.stringify(up3));
+  var up3 = c.updateObject(objId, grp(mx, { title: "Casablanca (1942)", year: 1943 }));
+  h.check("updateObject group ok", up3 && up3.ok, JSON.stringify(up3));
   var obj2 = c.getObject(objId);
   h.check("update applied title", getProp(obj2, mx + ".title") === "Casablanca (1942)",
     getProp(obj2, mx + ".title"));
@@ -75,12 +73,29 @@ export function main(args) {
     "" + getProp(obj2, mx + ".year"));
 
   // --- validation surfaces: unknown prop ----------------------------------
-  var bad = c.updateObject(objId, { properties: dotted(mx, { nope: "x" }) });
+  var bad = c.updateObject(objId, grp(mx, { nope: "x" }));
   h.check("unknown prop rejected (not ok)", bad && bad.ok === false, JSON.stringify(bad));
 
   // --- validation surfaces: kind mismatch ---------------------------------
-  var badKind = c.updateObject(objId, { properties: dotted(mx, { year: "not a number" }) });
+  var badKind = c.updateObject(objId, grp(mx, { year: "not a number" }));
   h.check("kind mismatch rejected (not ok)", badKind && badKind.ok === false, JSON.stringify(badKind));
+
+  // --- validation surfaces: misplaced property writes fail LOUD -----------
+  // (a silently-dropped top-level key once lost a whole batch of writes)
+  var dot = c.createObject(mx, grp(mx + ".title", "x", { name: "dotted" }));
+  h.check("dotted top-level key rejected", dot && dot.ok === false && /nest property writes/.test(dot.error || ""), JSON.stringify(dot));
+
+  var legacy = c.createObject(mx, { name: "legacy", properties: grp(mx, { title: "x" }) });
+  h.check("data.properties rejected with hint", legacy && legacy.ok === false && /properties was removed/.test(legacy.error || ""), JSON.stringify(legacy));
+
+  var stray = c.createObject(mx, grp("not_a_type_" + uniq, { title: "x" }, { name: "stray" }));
+  h.check("unknown top-level key rejected", stray && stray.ok === false && /neither a data field/.test(stray.error || ""), JSON.stringify(stray));
+
+  var notMap = c.createObject(mx, grp(mx, "not a map", { name: "notmap" }));
+  h.check("non-object group rejected", notMap && notMap.ok === false && /must be a \{ prop: value \} object/.test(notMap.error || ""), JSON.stringify(notMap));
+
+  var upStray = c.updateObject(objId, grp("not_a_type_" + uniq, { title: "x" }));
+  h.check("updateObject unknown key rejected", upStray && upStray.ok === false && /neither a data field/.test(upStray.error || ""), JSON.stringify(upStray));
 
   // --- getObjects by type returns the object with nested props ------------
   var list = c.getObjects(mx);
@@ -100,11 +115,9 @@ export function main(args) {
   h.check("createType comic ok", ctc && ctc.ok, JSON.stringify(ctc));
   var cx = ctc.type && ctc.type.xKey;
 
-  var multi = c.createObject(mx, {
-    name: "Crossover",
-    types: [cx],
-    properties: merge(dotted(mx, { title: "The Film" }), dotted(cx, { issue: 7 }))
-  });
+  var multiData = grp(mx, { title: "The Film" }, { name: "Crossover", types: [cx] });
+  multiData[cx] = { issue: 7 };
+  var multi = c.createObject(mx, multiData);
   h.check("multitype createObject ok", multi && multi.ok, JSON.stringify(multi));
   var mObj = c.getObject(multi.id);
   h.check("multitype carries both types",
@@ -116,10 +129,11 @@ export function main(args) {
   h.check("multitype reads ComicBook.issue", getProp(mObj, cx + ".issue") === 7,
     "" + getProp(mObj, cx + ".issue"));
 
-  // dotted update hitting both type namespaces in one call
-  var bothUpd = merge(dotted(mx, { title: "The Film v2" }), dotted(cx, { issue: 8 }));
-  var ub = c.updateObject(multi.id, { properties: bothUpd });
-  h.check("multitype dotted update ok", ub && ub.ok, JSON.stringify(ub));
+  // group update hitting both type namespaces in one call
+  var bothUpd = grp(mx, { title: "The Film v2" });
+  bothUpd[cx] = { issue: 8 };
+  var ub = c.updateObject(multi.id, bothUpd);
+  h.check("multitype group update ok", ub && ub.ok, JSON.stringify(ub));
   var mObj2 = c.getObject(multi.id);
   h.check("multitype update Movie.title", getProp(mObj2, mx + ".title") === "The Film v2");
   h.check("multitype update ComicBook.issue", getProp(mObj2, cx + ".issue") === 8);
@@ -135,16 +149,11 @@ function _id(c, typeName) {
   return null;
 }
 
-function merge(a, b) {
+// grp builds a { [typeKey]: group, ...extra } data object — type-group keys
+// are dynamic (uniq-suffixed) in these tests.
+function grp(typeKey, group, extra) {
   var out = {};
-  for (var k in a) { if (Object.prototype.hasOwnProperty.call(a, k)) out[k] = a[k]; }
-  for (var k2 in b) { if (Object.prototype.hasOwnProperty.call(b, k2)) out[k2] = b[k2]; }
-  return out;
-}
-
-// dotted builds a { "Type.prop": value } map from a type name + plain object.
-function dotted(typeName, kv) {
-  var out = {};
-  for (var k in kv) { if (Object.prototype.hasOwnProperty.call(kv, k)) out[typeName + "." + k] = kv[k]; }
+  out[typeKey] = group;
+  if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) out[k] = extra[k]; } }
   return out;
 }

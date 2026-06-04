@@ -18,23 +18,30 @@ export function main(args) {
   var c = createClient({ apiBaseUrl: args.apiBaseUrl, spaceId: args.spaceId, noTrace: true });
   var uniq = "" + new Date().getTime();
   var T = "Typed_" + uniq;
-  function one(k, v) { var o = {}; o[k] = v; return o; }
+  // one(typeKey, group, extra?) — build a { [typeKey]: group, ...extra } data
+  // object (type-group keys are dynamic in tests).
+  function one(k, v, extra) {
+    var o = {};
+    o[k] = v;
+    if (extra) { for (var ek in extra) { if (Object.prototype.hasOwnProperty.call(extra, ek)) o[ek] = extra[ek]; } }
+    return o;
+  }
 
   var ct = c.createType({ name: T, properties: [{ key: "count", name: "Count", format: "number" }] });
   var tx = ct.type.xKey;  // type handle (xKey)
   var tid = ct.type.id;   // raw type id (for the hand-built 501 URL)
-  var obj = c.createObject(tx, { name: "x_" + uniq, properties: { count: 1 } });
+  var obj = c.createObject(tx, one(tx, { count: 1 }, { name: "x_" + uniq }));
   h.check("setup createObject ok", obj && obj.ok, JSON.stringify(obj));
 
   // wrong kind: string into a number prop → server property.kind_mismatch,
   // threaded into updateObject's result.
-  var km = c.updateObject(obj.id, { properties: one(tx + ".count", "not a number") });
+  var km = c.updateObject(obj.id, one(tx, { count: "not a number" }));
   h.check("kind mismatch: ok false", km && km.ok === false, JSON.stringify(km));
   h.check("kind mismatch: code surfaced", km && km.code === "property.kind_mismatch", JSON.stringify(km));
 
   // unknown property is caught CLIENT-SIDE by the resolver (fail fast, never
   // hits the server) — ok:false with a clear message, no server code.
-  var unk = c.updateObject(obj.id, { properties: one(tx + ".nope", "x") });
+  var unk = c.updateObject(obj.id, one(tx, { nope: "x" }));
   h.check("unknown prop: ok false", unk && unk.ok === false, JSON.stringify(unk));
   h.check("unknown prop: clear message", unk && /unknown property/.test(unk.error || ""), JSON.stringify(unk));
 
@@ -45,7 +52,7 @@ export function main(args) {
   h.check("501 code = sdk.not_implemented", r501 && r501.code === "sdk.not_implemented", JSON.stringify(r501 && r501.code));
 
   // success carries no error/code
-  var ok = c.updateObject(obj.id, { properties: one(tx + ".count", 42) });
+  var ok = c.updateObject(obj.id, one(tx, { count: 42 }));
   h.check("success ok, no code", ok && ok.ok === true, JSON.stringify(ok));
 
   return h.done();
