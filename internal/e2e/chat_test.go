@@ -60,20 +60,17 @@ func TestE2E_ChatBinary(t *testing.T) {
 		`{}`, http.StatusCreated, &obj)
 	chatBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
-	// Send three messages.
-	var first, second, third api.ChatMessage
-	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
-		`{"text":"first"}`, http.StatusCreated, &first)
-	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
-		fmt.Sprintf(`{"text":"second","replyToMessageId":%q}`, first.Id),
-		http.StatusCreated, &second)
-	mustJSON(t, http.MethodPost, chatBase+"/chat/messages",
-		`{"text":"third"}`, http.StatusCreated, &third)
+	// Send three messages. Writes return ModifyResult; sendChat reads
+	// the record back from the same peer.
+	first := sendChat(t, chatBase, `{"text":"first"}`)
+	second := sendChat(t, chatBase,
+		fmt.Sprintf(`{"text":"second","replyToMessageId":%q}`, first.Id))
+	third := sendChat(t, chatBase, `{"text":"third"}`)
 	creator := first.Creator
 	if creator == "" {
 		t.Fatalf("creator unstamped: %+v", first)
 	}
-	for _, m := range []api.ChatMessage{first, second, third} {
+	for _, m := range []chatMsg{first, second, third} {
 		if m.Id == "" {
 			t.Fatalf("message id empty: %+v", m)
 		}
@@ -99,10 +96,14 @@ func TestE2E_ChatBinary(t *testing.T) {
 			list.Messages[1].Text, list.Messages[2].Text)
 	}
 
-	// Edit second.
-	var edited api.ChatMessage
+	// Edit second — PATCH returns a ModifyResult; read the record back.
+	var editRes api.ModifyResult
 	mustJSON(t, http.MethodPatch, chatBase+"/chat/messages/"+second.Id,
-		`{"text":"second-edited"}`, http.StatusOK, &edited)
+		`{"text":"second-edited"}`, http.StatusOK, &editRes)
+	if editRes.VersionId == "" {
+		t.Errorf("edit: empty versionId in %+v", editRes)
+	}
+	edited := findById(chatMessages(t, chatBase), second.Id)
 	if edited.Text != "second-edited" {
 		t.Errorf("edited.Text = %q", edited.Text)
 	}
@@ -113,22 +114,26 @@ func TestE2E_ChatBinary(t *testing.T) {
 	// React twice with the same emoji → toggle off. Path encoding for
 	// 👍 is what we're really testing here — a multibyte emoji has to
 	// round-trip through net/http's path matcher and echo's :emoji
-	// param without mojibake.
+	// param without mojibake. The reaction state is read back via query.
 	emoji := url.PathEscape("👍")
-	var rxResp api.ChatReactionsResponse
+	var rxRes api.ModifyResult
 	mustJSON(t, http.MethodPost, chatBase+"/chat/messages/"+second.Id+"/reactions/"+emoji,
-		"", http.StatusOK, &rxResp)
-	if len(rxResp.Reactions["👍"]) != 1 || rxResp.Reactions["👍"][0] != creator {
-		t.Errorf("after add: reactions = %+v, want {👍:[%s]}", rxResp.Reactions, creator)
+		"", http.StatusOK, &rxRes)
+	if rxRes.VersionId == "" {
+		t.Errorf("react add: empty versionId in %+v", rxRes)
+	}
+	added := findById(chatMessages(t, chatBase), second.Id)
+	if _, ok := added.Reactions["👍"][creator]; len(added.Reactions["👍"]) != 1 || !ok {
+		t.Errorf("after add: reactions = %+v, want {👍:{%s:ts}}", added.Reactions, creator)
 	}
 	mustJSON(t, http.MethodPost, chatBase+"/chat/messages/"+second.Id+"/reactions/"+emoji,
-		"", http.StatusOK, &rxResp)
-	if got := rxResp.Reactions["👍"]; len(got) != 0 {
+		"", http.StatusOK, &rxRes)
+	if got := findById(chatMessages(t, chatBase), second.Id).Reactions["👍"]; len(got) != 0 {
 		t.Errorf("after toggle off: reactions[👍] = %v, want empty", got)
 	}
 
-	// Delete first.
-	mustStatus(t, http.MethodDelete, chatBase+"/chat/messages/"+first.Id, "", http.StatusNoContent)
+	// Delete first — now returns 200 with a ModifyResult.
+	mustStatus(t, http.MethodDelete, chatBase+"/chat/messages/"+first.Id, "", http.StatusOK)
 
 	// List after delete via POST /query: two messages, no `first`.
 	list = chatMessages(t, chatBase)

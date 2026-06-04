@@ -20,7 +20,7 @@ import (
 //	@Param		spaceId		path		string				true	"Space ID"
 //	@Param		objectId	path		string				true	"Chat object ID"
 //	@Param		body		body		api.ChatSendRequest	true	"Message body"
-//	@Success	201			{object}	api.ChatMessage
+//	@Success	201			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages [post]
@@ -59,7 +59,7 @@ func (d *deps) chatSend(c echo.Context) error {
 			err.Error(), nil)
 	}
 
-	msg, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
+	res, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
 		ReplyToMessageId: req.ReplyToMessageId,
 		FromAgent:        req.FromAgent,
@@ -68,7 +68,7 @@ func (d *deps) chatSend(c echo.Context) error {
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
-	return c.JSON(http.StatusCreated, msg)
+	return c.JSON(http.StatusCreated, modifyResultToAPI(res))
 }
 
 // chatEdit handles PATCH .../chat/messages/:msgId.
@@ -81,7 +81,7 @@ func (d *deps) chatSend(c echo.Context) error {
 //	@Param		objectId	path		string				true	"Chat object ID"
 //	@Param		msgId		path		string				true	"Message ID"
 //	@Param		body		body		api.ChatEditRequest	true	"New text"
-//	@Success	200			{object}	api.ChatMessage
+//	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	403			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
@@ -110,11 +110,11 @@ func (d *deps) chatEdit(c echo.Context) error {
 			map[string]any{"max_bytes": chat.MaxTextBytes, "got_bytes": len(req.Text)})
 	}
 
-	msg, err := chat.Edit(c.Request().Context(), sp, objectId, msgId, d.account, req.Text)
+	res, err := chat.Edit(c.Request().Context(), sp, objectId, msgId, d.account, req.Text)
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
-	return c.JSON(http.StatusOK, msg)
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
 // chatDelete handles DELETE .../chat/messages/:msgId.
@@ -124,7 +124,7 @@ func (d *deps) chatEdit(c echo.Context) error {
 //	@Param		spaceId		path	string	true	"Space ID"
 //	@Param		objectId	path	string	true	"Chat object ID"
 //	@Param		msgId		path	string	true	"Message ID"
-//	@Success	204
+//	@Success	200	{object}	api.ModifyResult
 //	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -140,10 +140,11 @@ func (d *deps) chatDelete(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
 	}
 
-	if err := chat.Delete(c.Request().Context(), sp, objectId, msgId, d.account); err != nil {
+	res, err := chat.Delete(c.Request().Context(), sp, objectId, msgId, d.account)
+	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
 // chatReact handles POST .../chat/messages/:msgId/reactions/:emoji.
@@ -155,7 +156,7 @@ func (d *deps) chatDelete(c echo.Context) error {
 //	@Param		objectId	path		string	true	"Chat object ID"
 //	@Param		msgId		path		string	true	"Message ID"
 //	@Param		emoji		path		string	true	"Emoji (≤64 bytes)"
-//	@Success	200			{object}	api.ChatReactionsResponse
+//	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
@@ -176,11 +177,11 @@ func (d *deps) chatReact(c echo.Context) error {
 			"emoji must be non-empty and ≤ 64 bytes", map[string]any{"len": len(emoji)})
 	}
 
-	msg, err := chat.ToggleReaction(c.Request().Context(), sp, objectId, msgId, d.account, emoji)
+	res, err := chat.ToggleReaction(c.Request().Context(), sp, objectId, msgId, d.account, emoji)
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
-	return c.JSON(http.StatusOK, api.ChatReactionsResponse{Reactions: msg.Reactions})
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
 
 // validateAttachmentsRequest runs the HTTP-layer shape checks on the

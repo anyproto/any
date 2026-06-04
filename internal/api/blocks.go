@@ -2,18 +2,13 @@ package api
 
 import "encoding/json"
 
-// Block is the wire shape of one record in the editor_blocks dataset.
-// Mirrors blocks.Block 1:1; the duplicate definition keeps
-// internal/api self-contained for clients that import it without
-// pulling internal/editor.
-type Block struct {
-	Id    string         `json:"id"`
-	Ver   map[string]any `json:"_ver,omitempty"`
-	Type  string         `json:"type"`
-	Style map[string]any `json:"style,omitempty"`
-	Text  string         `json:"text,omitempty"`
-	Nav   BlockNav       `json:"nav"`
-}
+// Editor block writes (create / patch / delete) return the shared
+// api.ModifyResult — {versionId, changeId, recordIds} — like every
+// other dataset write. recordIds[0] is the new block id on create
+// (server-derived) and the target id on patch / delete. The block
+// record is read back through POST /query (or live via
+// /query/subscribe) with dataset=editor_blocks; there is no curated
+// per-block wire struct. See docs/03-api.md § Editor.
 
 // BlockNav is the per-record sibling-ordering namespace. parentId
 // references another block's id; pos is a lexid that sorts siblings.
@@ -49,18 +44,6 @@ type BlockCreateRequest struct {
 type BlockPatchRequest struct {
 	Set   map[string]json.RawMessage `json:"set,omitempty"`
 	Unset []string                   `json:"unset,omitempty"`
-}
-
-// BlockPatchResponse is the body of PATCH .../blocks/:blockId. On a
-// real patch, VersionId is the new change's versionId — clients
-// running the subscribe-then-query-then-apply recipe can stamp
-// `_ver.<op.path> = versionId` on the affected paths locally to
-// pre-seed dedup against the matching live event.
-// On a no-op patch, VersionId is the record's existing `_ver.id`
-// (the creation marker — stable record identifier, not a per-edit
-// version; cannot be used as a dedup high-water mark).
-type BlockPatchResponse struct {
-	VersionId string `json:"versionId"`
 }
 
 // Error code namespace for block endpoints.

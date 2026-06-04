@@ -10,27 +10,13 @@ type ChatAttachment struct {
 	Link string `json:"link"`
 }
 
-// ChatMessage is the wire shape of one chat message. Mirrors the
-// `chat_messages` dataset record 1:1 except for `reactions`, which is
-// rolled up from the storage layout (emoji → {accountId: timestamp})
-// to the emoji → [accountId, ...] shape clients render — sorted by
-// timestamp ascending. The roll-up lives at the API layer; storage
-// keeps the per-identity leaf so authorization is a single
-// path-segment compare (see internal/chat).
-//
-// `Attachments` is an optional client-side hint — see the internal/chat
-// package doc for storage details. Create-only.
-type ChatMessage struct {
-	Id               string                    `json:"id"`
-	Creator          string                    `json:"creator"`
-	CreatedAt        int64                     `json:"createdAt"`
-	ModifiedAt       int64                     `json:"modifiedAt,omitempty"`
-	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
-	FromAgent        string                    `json:"fromAgent,omitempty"`
-	Text             string                    `json:"text"`
-	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
-	Reactions        map[string][]string       `json:"reactions,omitempty"`
-}
+// Chat writes (send / edit / delete / react) return the shared
+// api.ModifyResult — {versionId, changeId, recordIds} — like every
+// other dataset write. recordIds[0] is the new message id on send
+// (server-derived) and the target id on edit / delete / react. The
+// message record itself is read back through POST /query (or live via
+// /query/subscribe) with dataset=chat_messages; there is no curated
+// per-message wire struct. See docs/03-api.md § Chat.
 
 // ChatSendRequest is the body of POST /v1/spaces/:spaceId/objects/:objectId/messages.
 // `text` is a markdown-formatted string; rendering is the client's
@@ -56,13 +42,6 @@ type ChatSendRequest struct {
 // 403 chat.not_author.
 type ChatEditRequest struct {
 	Text string `json:"text"`
-}
-
-// ChatReactionsResponse is the body of POST
-// .../messages/:msgId/reactions/:emoji. Carries the post-toggle
-// reactions map for the message, transposed for the wire.
-type ChatReactionsResponse struct {
-	Reactions map[string][]string `json:"reactions"`
 }
 
 // Error code namespace for chat endpoints.

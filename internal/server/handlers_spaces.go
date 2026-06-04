@@ -18,6 +18,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
+	g.POST("/spaces/:spaceId/sync", d.spaceSync)
 
 	g.POST("/spaces/join", d.spaceJoin)
 	// Space lifecycle the SDK exposes but doesn't implement yet.
@@ -216,6 +217,29 @@ func (d *deps) spaceUpdate(c echo.Context) error {
 		IconCID:     req.IconCID,
 	}); err != nil {
 		return spaceError(c, err, sp.Id())
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// spaceSync forces an immediate head-sync (diff) round against the
+// space's responsible nodes instead of waiting for the periodic
+// headsync timer. Blocks until the round completes. Normal operation
+// never needs this — periodic + reactive sync keep the space current —
+// it exists for on-demand convergence ("sync now", tests).
+//
+//	@Summary	Force an immediate head-sync round (sync now)
+//	@Tags		spaces
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/sync [post]
+func (d *deps) spaceSync(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	if err := sp.SyncHeads(c.Request().Context()); err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
 	return c.NoContent(http.StatusNoContent)
 }

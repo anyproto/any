@@ -98,23 +98,6 @@ definitions:
       propId:
         type: string
     type: object
-  api.Block:
-    properties:
-      _ver:
-        additionalProperties: {}
-        type: object
-      id:
-        type: string
-      nav:
-        $ref: '#/definitions/api.BlockNav'
-      style:
-        additionalProperties: {}
-        type: object
-      text:
-        type: string
-      type:
-        type: string
-    type: object
   api.BlockCreateRequest:
     properties:
       nav:
@@ -147,11 +130,6 @@ definitions:
           type: string
         type: array
     type: object
-  api.BlockPatchResponse:
-    properties:
-      versionId:
-        type: string
-    type: object
   api.ChatAttachment:
     properties:
       link:
@@ -163,42 +141,6 @@ definitions:
     properties:
       text:
         type: string
-    type: object
-  api.ChatMessage:
-    properties:
-      attachments:
-        additionalProperties:
-          $ref: '#/definitions/api.ChatAttachment'
-        type: object
-      createdAt:
-        type: integer
-      creator:
-        type: string
-      fromAgent:
-        type: string
-      id:
-        type: string
-      modifiedAt:
-        type: integer
-      reactions:
-        additionalProperties:
-          items:
-            type: string
-          type: array
-        type: object
-      replyToMessageId:
-        type: string
-      text:
-        type: string
-    type: object
-  api.ChatReactionsResponse:
-    properties:
-      reactions:
-        additionalProperties:
-          items:
-            type: string
-          type: array
-        type: object
     type: object
   api.ChatSendRequest:
     properties:
@@ -1603,7 +1545,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.ChatMessage'
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -1634,8 +1576,10 @@ paths:
         required: true
         type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
         "403":
           description: Forbidden
           schema:
@@ -1682,7 +1626,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.ChatMessage'
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -1731,7 +1675,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.ChatReactionsResponse'
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -1774,7 +1718,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/api.Block'
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -1805,8 +1749,10 @@ paths:
         required: true
         type: string
       responses:
-        "204":
-          description: No Content
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -1853,7 +1799,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/api.BlockPatchResponse'
+            $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
           schema:
@@ -2226,6 +2172,24 @@ paths:
       summary: Subscribe to a windowed per-object query (SSE)
       tags:
       - data
+  /spaces/{spaceId}/sync:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Force an immediate head-sync round (sync now)
+      tags:
+      - spaces
   /spaces/{spaceId}/sync-status:
     get:
       parameters:

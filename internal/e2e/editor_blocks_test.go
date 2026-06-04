@@ -153,7 +153,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	// 9. Delete first; subsequent ops on its id return 404
 	// blocks.not_found.
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+first.Id, "",
-		http.StatusNoContent)
+		http.StatusOK)
 
 	listed = listBlocks(t, objBase)
 	if len(listed.Records) != 2 {
@@ -167,7 +167,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 
 	// PATCH on a tombstoned block surfaces 404 (Patch reads the record
 	// first to keep edits author-checkable). DELETE is idempotent at
-	// the SDK layer — the second delete returns 204 with no effect.
+	// the SDK layer — the second delete returns 200 with no effect.
 	var env api.ErrorEnvelope
 	mustJSON(t, http.MethodPatch, objBase+"/editor/blocks/"+first.Id,
 		`{"set":{"text":"resurrect"}}`, http.StatusNotFound, &env)
@@ -175,7 +175,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 		t.Errorf("PATCH after delete: code = %q, want %q", env.Error.Code, api.ErrBlockNotFound)
 	}
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+first.Id, "",
-		http.StatusNoContent)
+		http.StatusOK)
 
 	// 10. Nested tree: create two children under `second` (which
 	// survives the delete). The bare /query returns a flat list sorted
@@ -192,7 +192,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 		t.Fatalf("nested list = %d, want 4 (second, childA, childB, third); got=%+v",
 			len(listed.Records), listed.Records)
 	}
-	byId := map[string]api.Block{}
+	byId := map[string]block{}
 	for _, b := range listed.Records {
 		byId[b.Id] = b
 	}
@@ -370,7 +370,7 @@ func TestE2E_EditorMarkdownRoundTrip(t *testing.T) {
 
 	patchBlock(t, objBase, suffixed, `{"set":{"text":"patched batched"}}`)
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+suffixed, "",
-		http.StatusNoContent)
+		http.StatusOK)
 
 	listed = listBlocks(t, objBase)
 	for _, b := range listed.Records {
@@ -525,7 +525,7 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 
 	// 3. DELETE /editor/blocks → Removed.
 	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+created.Id, "",
-		http.StatusNoContent)
+		http.StatusOK)
 	_ = awaitWindowedEditorBlocksEvent(t, frames, created.Id, windowedKindRemoved)
 
 	streamCancel()
@@ -538,27 +538,51 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 
 // --- helpers ---------------------------------------------------------------
 
-func createBlock(t *testing.T, objBase, body string) api.Block {
-	t.Helper()
-	var b api.Block
-	mustJSON(t, http.MethodPost, objBase+"/editor/blocks", body,
-		http.StatusCreated, &b)
-	return b
+// block is the test-local decode target for an editor_blocks record
+// read back via /query. Writes return api.ModifyResult, so the block
+// body is always fetched through the query path.
+type block struct {
+	Id    string         `json:"id"`
+	Ver   map[string]any `json:"_ver"`
+	Type  string         `json:"type"`
+	Style map[string]any `json:"style"`
+	Text  string         `json:"text"`
+	Nav   struct {
+		ParentId string `json:"parentId"`
+		Pos      string `json:"pos"`
+	} `json:"nav"`
 }
 
-func patchBlock(t *testing.T, objBase, blockId, body string) api.BlockPatchResponse {
+func createBlock(t *testing.T, objBase, body string) block {
 	t.Helper()
-	var resp api.BlockPatchResponse
+	var res api.ModifyResult
+	mustJSON(t, http.MethodPost, objBase+"/editor/blocks", body,
+		http.StatusCreated, &res)
+	if len(res.RecordIds) == 0 || res.RecordIds[0] == "" {
+		t.Fatalf("createBlock: no recordIds in %+v", res)
+	}
+	id := res.RecordIds[0]
+	for _, b := range listBlocks(t, objBase).Records {
+		if b.Id == id {
+			return b
+		}
+	}
+	t.Fatalf("createBlock: %s not found after create", id)
+	return block{}
+}
+
+func patchBlock(t *testing.T, objBase, blockId, body string) api.ModifyResult {
+	t.Helper()
+	var resp api.ModifyResult
 	mustJSON(t, http.MethodPatch, objBase+"/editor/blocks/"+blockId, body,
 		http.StatusOK, &resp)
 	return resp
 }
 
-// blockListResp mirrors the old api.BlockListResponse shape but is
-// materialised via POST /v1/spaces/:id/query with dataset=editor_blocks
-// (the canonical read path now that the GET endpoint is gone).
+// blockListResp is the read-back block list, materialised via POST
+// /v1/spaces/:id/query with dataset=editor_blocks.
 type blockListResp struct {
-	Records []api.Block
+	Records []block
 }
 
 func listBlocks(t *testing.T, objBase string) blockListResp {
@@ -584,9 +608,9 @@ func listBlocks(t *testing.T, objBase string) blockListResp {
 		Records []json.RawMessage `json:"records"`
 	}
 	mustJSON(t, http.MethodPost, hostAndV1+spaceId+"/query", string(body), http.StatusOK, &qr)
-	out := blockListResp{Records: make([]api.Block, 0, len(qr.Records))}
+	out := blockListResp{Records: make([]block, 0, len(qr.Records))}
 	for _, raw := range qr.Records {
-		var b api.Block
+		var b block
 		if err := json.Unmarshal(raw, &b); err != nil {
 			t.Fatalf("decode record: %v", err)
 		}
