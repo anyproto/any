@@ -13,7 +13,9 @@ Run `git fetch origin`.
 
 ## 2. Update the SDK checkout
 
-`git -C ~/Projects/any-sync-sdk fetch origin`, then the same ff-only pull on `main` if that checkout is clean.
+The SDK lives in a sibling checkout at `../any-sync-sdk` (relative to the repo root). If that directory doesn't exist (e.g. running from a worktree or a checkout without the sibling), skip this step with a note.
+
+`git -C ../any-sync-sdk fetch origin`, then the same ff-only pull on `main` if that checkout is clean.
 
 This is reference-only: the build uses the published `any-sync-sdk` module pinned in `go.mod`, not the sibling checkout. Don't add a `replace` directive.
 
