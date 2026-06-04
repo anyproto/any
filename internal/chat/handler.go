@@ -39,10 +39,14 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 // Allowed payload keys: text (required, non-empty, ≤ MaxTextBytes),
 // replyToMessageId (optional, non-empty, ≤ MaxReplyIdBytes),
 // fromAgent (optional, non-empty, ≤ MaxFromAgentBytes — opaque UI
-// tag, not verified). Any other key — including server-stamped ones
-// (creator, createdAt, modifiedAt, _co) — rejects, defending against
-// attempts to spoof authorship by stuffing fields into the create
-// payload.
+// tag, not verified), attachments (optional). Any other key rejects:
+//   - server-stamped fields (creator, createdAt, modifiedAt, _co) —
+//     defends against spoofing authorship via the create payload.
+//   - reactions — a message is always born with zero reactions; the
+//     only way to add one is the post-create toggle op (BeforeModify),
+//     which binds the leaf to the change signer. Seeding reactions at
+//     create would let the author forge reactions under other
+//     identities, so the create allow-list omits it.
 func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChange, sink *handler.Sink) error {
 	if len(rec.Ops) != 1 {
 		return rejectCreate("expected exactly one multi-field $set op")

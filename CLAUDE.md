@@ -68,12 +68,17 @@ Implementation slices landed:
    for per-object `chat_messages` records. Bespoke endpoints under
    `/v1/spaces/:id/objects/:objectId/chat/messages` cover writes only —
    send / edit / delete and the `…/:msgId/reactions/:emoji` toggle.
-   Reads go through `POST /v1/spaces/:id/query` with
-   `dataset=chat_messages` (sort `_ver.id`); live updates through
-   `POST /v1/spaces/:id/query/subscribe`. Reactions are
-   identity-keyed in storage (`reactions.<accountId> = [emoji, ...]`)
-   so the handler authorization is `op.Path[1] == ctx.Change.Creator`;
-   the API server transposes to emoji-keyed on read. Server-stamped
+   Every write returns the shared `api.ModifyResult`
+   (`{versionId, changeId, recordIds}`) — not the message body;
+   `recordIds[0]` is the derived id on send. Reads go through `POST
+   /v1/spaces/:id/query` with `dataset=chat_messages` (sort `_ver.id`);
+   live updates through `POST /v1/spaces/:id/query/subscribe`. Reactions
+   are stored emoji-first, identity at the leaf
+   (`reactions.<emoji>.<accountId> = <ts>`) so the handler authorization
+   is a single path-segment compare on the leaf (`op.Path[2] ==
+   ctx.Change.Creator`). That storage shape is the read wire shape too —
+   `/query`(`/subscribe`) return `reactions: {emoji: {accountId: ts}}`
+   verbatim, no transpose. Server-stamped
    `creator` / `createdAt` / `modifiedAt` come from `sink.Derive`;
    handler rejects any client payload that tries to set them. Edit /
    delete enforce author-only via `ctx.Before.creator == ctx.Change.Creator`.
@@ -94,7 +99,10 @@ Implementation slices landed:
    under `/v1/spaces/:s/objects/:o/editor/blocks` cover writes only —
    create / patch / delete. PATCH takes
    `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
-   per-path `$set` / `$unset`. Block ids are auto-derived from the
+   per-path `$set` / `$unset`. Every write returns the shared
+   `api.ModifyResult` (`{versionId, changeId, recordIds}`), same as
+   chat — `recordIds[0]` is the derived block id on create; the block
+   body is read back via query. Block ids are auto-derived from the
    change CID (same shape chat uses). Reads go through `POST
    /v1/spaces/:id/query` with `dataset=editor_blocks` (sort
    `nav.pos`); liveness through `POST /v1/spaces/:id/query/subscribe`.
@@ -126,6 +134,13 @@ Implementation slices landed:
      (cobra `Changed` distinguishes "flag absent" from "flag set
      to empty"). `spaceType` is intentionally not patchable —
      pinned by the initial Create.
+   - `POST /v1/spaces/:spaceId/sync` → `Space.SyncHeads`: forces an
+     immediate head-sync (diff) round against responsible nodes
+     instead of waiting for the ~30s periodic timer; blocks until the
+     round completes, returns 204. CLI: `any space sync <id>`. Used by
+     the multipeer e2e tests (`pollUntilSynced` in
+     `internal/e2e/multipeer_test.go`) to collapse cross-peer
+     convergence waits — sync writer then reader each poll tick.
 9. **Debug surface** — the SDK's new `Space.Debug()` is wrapped at
    `GET /v1/spaces/:spaceId/debug` (per-peer headsync counters, in-
    memory) and `GET /v1/spaces/:spaceId/debug/objects/:objectId`
@@ -178,9 +193,12 @@ ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 
 For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
 
-Module path: `github.com/anyproto/any`. Go 1.26.2. Sibling repos wired via `replace`:
-`any-sync-sdk` → `../any-sync-sdk2`, `any-sync` → `../any-sync`,
-`anytype-agent-runtime` → `../../anytype/anytype-agent-runtime`.
+Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
+(`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
+**published modules**, not sibling checkouts — `go.mod` has no `replace`;
+see `go.mod` for pinned versions. To inspect SDK behavior, read the module
+cache (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`),
+not `../any-sync-sdk2`.
 
 ## What this project is
 
@@ -199,7 +217,7 @@ changes to request/response shapes are expected and are absorbed by bumping the
 
 ## Repo relationship
 
-This repo imports `any-sync-sdk` from a sibling checkout:
+This repo imports the **published** `any-sync-sdk` module:
 
 ```
 any            (this repo)  — HTTP server + CLI
@@ -207,10 +225,18 @@ any            (this repo)  — HTTP server + CLI
       └── any-sync, any-store
 ```
 
-`../any-sync-sdk/docs/00-common-context.md` has the full stack context. When an SDK
+The full stack context lives in the SDK's `docs/00-common-context.md` (in the
+module cache, or the `../any-sync-sdk2` source checkout if you have it). When an SDK
 method is missing or awkward, raise it on the SDK repo rather than working around
 it here — several v1 endpoints are explicitly blocked on SDK work (see
 `docs/07-roadmap.md` § SDK-side prerequisites).
+
+**Property `xKey` is client-side only — the SDK never sees it.** Property
+values are stored and validated at `record[typeId][propId]`; writes MUST key
+by the content-addressed `propId`, not `xKey` (keying by `xKey` →
+`property.not_found`). `xKey` is an optional stable label clients may attach
+to map their own keys → `propId`; `GET /types/:id/properties` returns it
+alongside `{id, name, kind}` so callers can resolve `xKey → propId`.
 
 ## Planned package layout
 

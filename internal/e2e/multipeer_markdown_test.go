@@ -75,7 +75,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	// 3. Joiner reads the owner's markdown — sanity that owner→joiner
 	// per-tree sync still works at all on this fixture.
 	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
-	if !pollUntil(2*time.Minute, func() bool {
+	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
 		if resp.StatusCode != http.StatusOK {
@@ -128,7 +128,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	// broadcast-ctx bug aside, the only path back to owner is the
 	// per-tree HeadUpdate broadcast triggered by AddContent.
 	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
-	if !pollUntil(2*time.Minute, func() bool {
+	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
 		if resp.StatusCode != http.StatusOK {
@@ -206,7 +206,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
-	if !pollUntil(2*time.Minute, func() bool {
+	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
 		if resp.StatusCode != http.StatusOK {
@@ -254,7 +254,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
 	ownerEditorBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
 	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"editor_blocks"}`, objectID)
-	if !pollUntil(2*time.Minute, func() bool {
+	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
 		if resp.StatusCode != http.StatusOK {

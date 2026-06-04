@@ -21,6 +21,16 @@ identity. Bypassing it would skip all of that. The lone write-shaped
 exception is `PUT /editor/markdown`, which is a render/import *transform*,
 not a dataset write.
 
+Every write returns the shared `api.ModifyResult`
+(`{versionId, changeId, recordIds}`), never the record body —
+`recordIds[0]` is the server-derived id on a create, and `versionId` is
+the change's version. Use `versionId` to keep your own writes consistent
+with the live stream: stamp `_ver.<op.path> = versionId` on the records
+you just wrote so that when the matching `/query/subscribe` event arrives
+you recognise it as your own and don't double-apply (and so you can order
+it against remote changes). Read the resulting record back through
+`/query` — the write never returns it.
+
 ## 2. Preflight-validate writes against the bound types
 
 An object carries an `any.types` array — the type IDs bound to it. Bind at

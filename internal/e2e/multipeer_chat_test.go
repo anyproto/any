@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -18,11 +17,56 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// chatListResp mirrors the old api.ChatListResponse shape, but is
-// materialised via POST /v1/spaces/:id/query — the canonical read
-// path after the GET endpoint was removed.
+// chatMsg is the test-local decode target for a chat_messages record
+// read back via /query. Chat writes return api.ModifyResult, so the
+// message body is always fetched through the query path.
+type chatMsg struct {
+	Id               string
+	Creator          string
+	CreatedAt        int64
+	ModifiedAt       int64
+	ReplyToMessageId string
+	FromAgent        string
+	Text             string
+	Reactions        map[string]map[string]int64
+}
+
+// chatListResp is the read-back message list, materialised via POST
+// /v1/spaces/:id/query with dataset=chat_messages.
 type chatListResp struct {
-	Messages []api.ChatMessage
+	Messages []chatMsg
+}
+
+// sendChat posts a message to base and returns the read-back record
+// from the same peer (a local write is immediately queryable). Fails
+// if the message doesn't surface. Replaces decoding the send response,
+// which now carries only api.ModifyResult.
+func sendChat(t *testing.T, base, body string) chatMsg {
+	t.Helper()
+	var res api.ModifyResult
+	mustJSON(t, http.MethodPost, base+"/chat/messages", body, http.StatusCreated, &res)
+	if len(res.RecordIds) == 0 || res.RecordIds[0] == "" {
+		t.Fatalf("sendChat: no recordIds in %+v", res)
+	}
+	id := res.RecordIds[0]
+	var got chatMsg
+	if !pollUntil(30*time.Second, func() bool {
+		got = findById(chatMessages(t, base), id)
+		return got.Id == id
+	}) {
+		t.Fatalf("sendChat: message %s not queryable on sender", id)
+	}
+	return got
+}
+
+// findById returns the message with the given id, or zero chatMsg.
+func findById(list chatListResp, id string) chatMsg {
+	for _, m := range list.Messages {
+		if m.Id == id {
+			return m
+		}
+	}
+	return chatMsg{}
 }
 
 // chatMessages fetches the chat_messages list off `base` (the peer's
@@ -64,7 +108,7 @@ func chatMessages(t *testing.T, base string) chatListResp {
 	if err := json.Unmarshal(raw, &qr); err != nil {
 		t.Fatalf("chatMessages: parse %s: %v\nbody=%s", base, err, string(raw))
 	}
-	out := chatListResp{Messages: make([]api.ChatMessage, 0, len(qr.Records))}
+	out := chatListResp{Messages: make([]chatMsg, 0, len(qr.Records))}
 	for _, r := range qr.Records {
 		out.Messages = append(out.Messages, decodeQueryChatMessage(t, r))
 	}
@@ -78,11 +122,10 @@ func chatMessages(t *testing.T, base string) chatListResp {
 //   - anyenc → fastjson renders numeric fields as JSON numbers in
 //     exponential form for large ints; we hop through float64 and cast.
 //   - Reactions are stored as `reactions.<emoji>.<accountId> =
-//     <timestamp>` (server-derived). We transpose to the wire-friendly
-//     `{emoji: [accountId, ...]}` shape (timestamp-sorted ascending) —
-//     mirrors what the bespoke handler used to do, so test assertions
-//     written against the old shape keep working.
-func decodeQueryChatMessage(t *testing.T, raw []byte) api.ChatMessage {
+//     <timestamp>` (server-derived). The bespoke write handlers now
+//     return this same shape, so we just narrow the float64 timestamps
+//     to int64 — no transpose — and assertions compare object-to-object.
+func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 	t.Helper()
 	var f struct {
 		Id               string                        `json:"id"`
@@ -97,21 +140,20 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("chatMessages: decode record: %v\nraw=%s", err, raw)
 	}
-	var transposed map[string][]string
+	// Reactions ship in storage layout (emoji → {accountId: ts}); narrow
+	// the JSON float64 timestamps to int64.
+	var reactions map[string]map[string]int64
 	if len(f.Reactions) > 0 {
-		transposed = make(map[string][]string, len(f.Reactions))
+		reactions = make(map[string]map[string]int64, len(f.Reactions))
 		for emoji, byAcct := range f.Reactions {
-			ids := make([]string, 0, len(byAcct))
-			for acctId := range byAcct {
-				ids = append(ids, acctId)
+			inner := make(map[string]int64, len(byAcct))
+			for acctId, ts := range byAcct {
+				inner[acctId] = int64(ts)
 			}
-			sort.Slice(ids, func(i, j int) bool {
-				return byAcct[ids[i]] < byAcct[ids[j]]
-			})
-			transposed[emoji] = ids
+			reactions[emoji] = inner
 		}
 	}
-	return api.ChatMessage{
+	return chatMsg{
 		Id:               f.Id,
 		Creator:          f.Creator,
 		CreatedAt:        int64(f.CreatedAt),
@@ -119,19 +161,19 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) api.ChatMessage {
 		ReplyToMessageId: f.ReplyToMessageId,
 		FromAgent:        f.FromAgent,
 		Text:             f.Text,
-		Reactions:        transposed,
+		Reactions:        reactions,
 	}
 }
 
 // findMessage returns the first message in list with the given text,
-// or zero ChatMessage if absent.
-func findMessage(list chatListResp, text string) api.ChatMessage {
+// or zero chatMsg if absent.
+func findMessage(list chatListResp, text string) chatMsg {
 	for _, m := range list.Messages {
 		if m.Text == text {
 			return m
 		}
 	}
-	return api.ChatMessage{}
+	return chatMsg{}
 }
 
 // TestE2E_MultipeerChat exercises the full chat surface across two
@@ -183,15 +225,13 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	// Pre-join message: tests that chat data laid down before headsync
-	// still converges into the joiner's local store. The send response
-	// carries the StrKey-encoded `creator` (PubKey.Account()) — that's
-	// the identity the chat handler stamps and the only one we should
-	// compare against. /v1/account.id and Members.identity use the
-	// libp2p PeerId encoding of the same key — equivalent identities
-	// but different strings, do not cross-compare.
-	var m1 api.ChatMessage
-	mustJSON(t, http.MethodPost, ownerBase+"/chat/messages",
-		`{"text":"hello from owner"}`, http.StatusCreated, &m1)
+	// still converges into the joiner's local store. Read back from the
+	// owner, the record carries the StrKey-encoded `creator`
+	// (PubKey.Account()) — that's the identity the chat handler stamps
+	// and the only one we should compare against. /v1/account.id and
+	// Members.identity use the libp2p PeerId encoding of the same key —
+	// equivalent identities but different strings, do not cross-compare.
+	m1 := sendChat(t, ownerBase, `{"text":"hello from owner"}`)
 	ownerId := m1.Creator
 	if m1.Id == "" || ownerId == "" {
 		t.Fatalf("m1 not stamped: %+v", m1)
@@ -202,8 +242,8 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// Wait for M1 to land on the joiner. ~3 min budget mirrors
 	// TestE2E_MultipeerCRDTConvergence — chat_messages is a per-object
 	// dataset, same sync path as properties/objects.
-	var m1OnJoiner api.ChatMessage
-	if !pollUntil(3*time.Minute, func() bool {
+	var m1OnJoiner chatMsg
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		m1OnJoiner = findMessage(list, "hello from owner")
 		return m1OnJoiner.Id == m1.Id && m1OnJoiner.Creator == ownerId
@@ -236,9 +276,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 		Text:             "reply from joiner",
 		ReplyToMessageId: m1.Id,
 	})
-	var m2 api.ChatMessage
-	mustJSON(t, http.MethodPost, joinerBase+"/chat/messages",
-		string(body), http.StatusCreated, &m2)
+	m2 := sendChat(t, joinerBase, string(body))
 	joinerId := m2.Creator
 	if m2.Id == "" || joinerId == "" {
 		t.Fatalf("m2 not stamped: %+v", m2)
@@ -251,8 +289,8 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	}
 
 	// Owner waits for M2.
-	var m2OnOwner api.ChatMessage
-	if !pollUntil(3*time.Minute, func() bool {
+	var m2OnOwner chatMsg
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		list := chatMessages(t, ownerBase)
 		m2OnOwner = findMessage(list, "reply from joiner")
 		return m2OnOwner.Id == m2.Id && m2OnOwner.Creator == joinerId
@@ -273,31 +311,21 @@ func TestE2E_MultipeerChat(t *testing.T) {
 		"", http.StatusOK)
 
 	// Owner sees joiner's 👍 on M1.
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		list := chatMessages(t, ownerBase)
 		got := findMessage(list, "hello from owner")
-		ids := got.Reactions["👍"]
-		for _, id := range ids {
-			if id == joinerId {
-				return true
-			}
-		}
-		return false
+		_, ok := got.Reactions["👍"][joinerId]
+		return ok
 	}) {
 		t.Fatalf("owner never saw joiner's 👍 reaction on M1")
 	}
 
 	// Joiner sees owner's ❤️ on M2.
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		got := findMessage(list, "reply from joiner")
-		ids := got.Reactions["❤️"]
-		for _, id := range ids {
-			if id == ownerId {
-				return true
-			}
-		}
-		return false
+		_, ok := got.Reactions["❤️"][ownerId]
+		return ok
 	}) {
 		t.Fatalf("joiner never saw owner's ❤️ reaction on M2")
 	}
@@ -333,28 +361,30 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
-	var msg api.ChatMessage
-	mustJSON(t, http.MethodPost, ownerBase+"/chat/messages",
-		`{"text":"original"}`, http.StatusCreated, &msg)
+	msg := sendChat(t, ownerBase, `{"text":"original"}`)
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	// First make sure the joiner has the original. Without this, the
 	// edit-converge poll below can't tell stale-cache "haven't seen
 	// the edit" from "haven't seen the message".
-	if !pollUntil(3*time.Minute, func() bool {
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		return findMessage(list, "original").Id == msg.Id
 	}) {
 		t.Fatalf("joiner never saw the original message")
 	}
 
-	// Owner edits. The PATCH response carries the locally-applied
-	// post-edit record; the wire convergence to the joiner is what
-	// we're really exercising here.
-	var edited api.ChatMessage
+	// Owner edits. The PATCH returns a ModifyResult; we read the
+	// post-edit record back from the owner, then exercise wire
+	// convergence to the joiner.
+	var editRes api.ModifyResult
 	mustJSON(t, http.MethodPatch, ownerBase+"/chat/messages/"+msg.Id,
-		`{"text":"edited"}`, http.StatusOK, &edited)
+		`{"text":"edited"}`, http.StatusOK, &editRes)
+	if editRes.VersionId == "" {
+		t.Errorf("edit: empty versionId in %+v", editRes)
+	}
+	edited := findById(chatMessages(t, ownerBase), msg.Id)
 	if edited.Text != "edited" {
 		t.Fatalf("owner-side edit didn't apply: %+v", edited)
 	}
@@ -364,8 +394,8 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 
 	// Joiner waits for the edit. modifiedAt must move forward — same
 	// id, new text, monotonic ts.
-	var lastSeen api.ChatMessage
-	if !pollUntil(3*time.Minute, func() bool {
+	var lastSeen chatMsg
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		list := chatMessages(t, joinerBase)
 		got := findMessage(list, "edited")
 		if got.Id == msg.Id {
@@ -380,4 +410,3 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 		t.Errorf("joiner-side modifiedAt %d < createdAt %d", lastSeen.ModifiedAt, lastSeen.CreatedAt)
 	}
 }
-

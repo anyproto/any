@@ -102,7 +102,11 @@ func newChatDeleteCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, flags.Timeout)
-			return cl.ChatDelete(cmd.Context(), args[0], args[1], args[2])
+			out, err := cl.ChatDelete(cmd.Context(), args[0], args[1], args[2])
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
 		},
 	}
 }
