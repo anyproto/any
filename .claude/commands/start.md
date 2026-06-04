@@ -7,17 +7,9 @@ Start the `any` dev server: update sources, rebuild, run. Execute these steps in
 ## 1. Update this repo
 
 Run `git fetch origin`.
-
+=
 - If on `main` with a clean working tree: `git merge --ff-only origin/main`.
 - Otherwise (dirty tree, other branch, or ff not possible): report how many commits behind `origin/main` the checkout is and continue — build what's checked out.
-
-## 2. Update the SDK checkout
-
-The SDK lives in a sibling checkout at `../any-sync-sdk` (relative to the repo root). If that directory doesn't exist (e.g. running from a worktree or a checkout without the sibling), skip this step with a note.
-
-`git -C ../any-sync-sdk fetch origin`, then the same ff-only pull on `main` if that checkout is clean.
-
-This is reference-only: the build uses the published `any-sync-sdk` module pinned in `go.mod`, not the sibling checkout. Don't add a `replace` directive.
 
 ## 3. Build
 
