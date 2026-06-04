@@ -180,6 +180,40 @@ Implementation slices landed:
     [`cmd/bobrik-watch/BOBRIK.md`](cmd/bobrik-watch/BOBRIK.md). Read
     those before changing anything under that directory.
 
+12. **Dataset schemas + space-list query/subscribe** — built on the
+    SDK's unified tech-space query (`Service.Query` /
+    `SpaceIndexObjectId`) and required-schema work (`handler.Dataset.Schema`
+    + `Space.Datasets` / `Service.Datasets`).
+    - **Space-list query/subscribe.** `POST /v1/spaces/query` and
+      `POST /v1/spaces/query/subscribe` wrap
+      `Service.Query(SpaceIndexObjectId(), "spaces")` — the windowed
+      snapshot + SSE primitive over the tech-space `spaces` dataset, same
+      body/frames as the per-object `…/query[/subscribe]`. Records are the
+      **raw** tech-index rows; `GET /v1/spaces` (`Service.List`) stays the
+      mapped `SpaceInfo` convenience. `dataset` body field defaults to
+      `spaces` (`profile` also available). Routes registered before the
+      `:spaceId` matcher so the static `query` segment isn't swallowed.
+      CLI: `any space query` / `any space subscribe`.
+    - **Schemas on handlers.** Every built-in dataset handler now declares
+      a `handler.Schema` (`internal/chat`, `internal/editor`): fields +
+      per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
+      rest synced; editor all synced). `Dynamic: true` keeps undeclared
+      keys permitted, mirroring the `objects` dataset. Opaque content
+      datasets (program/miniapp/agentdebug) stay schema-less (default
+      Dynamic).
+    - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
+      and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
+      `[{name, schema}]` where `schema` is a JSON Schema doc with a
+      per-field `x-scope` (synced/derived/local). CLI: `any datasets
+      [<spaceId>]`.
+    - **SDK prerequisite (branch `feat/techspace-store-query-schemas`,
+      commit `74446da`).** The public `handler.Dataset` gained a `Schema`
+      field + re-exported schema primitives (`handler.Field` / `Scope` /
+      `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
+      it (back-compat: a zero Schema → Dynamic). `any` pins the
+      pre-release pseudo-version off that branch; bump to the tagged
+      release once the SDK cuts one.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -202,10 +236,16 @@ For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/C
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
-**published modules**, not sibling checkouts — `go.mod` has no `replace`;
-see `go.mod` for pinned versions. To inspect SDK behavior, read the module
-cache (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`),
-not `../any-sync-sdk2`.
+**published modules**, not sibling checkouts — `go.mod` pins versions
+with no `replace`. The SDK is currently pinned at a pre-release
+pseudo-version off branch `feat/techspace-store-query-schemas`
+(`v0.0.8-0.2026…-74446dacdb2e`, the dataset-schema + unified-query work —
+see status item 12); bump it to the tagged release once the SDK tags one.
+`any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
+(+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
+behavior, read the module cache
+(`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`) or
+the source checkout `../any-sync-sdk2/`.
 
 ## What this project is
 

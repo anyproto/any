@@ -90,6 +90,8 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 |--------|---------------------------------|-------------------------------------|
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
 | GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
+| POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
+| POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
@@ -107,6 +109,55 @@ on this id to live-update name / description / icon. Single-space responses
 always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
+
+#### Query / subscribe the space list
+
+`GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
+returns the public `SpaceInfo` shape (status / ownRole projected from the
+raw tech-index rows). For a **filterable / sortable / live** view, the
+generic windowed primitive reads the tech-space `spaces` dataset
+directly:
+
+```
+POST /v1/spaces/query              snapshot   → { records, total?, hasNext? }
+POST /v1/spaces/query/subscribe    SSE        → ready → snapshot → changes → closed
+```
+
+Both wrap `Service.Query(SpaceIndexObjectId(), "spaces")` and take the
+same body as the per-object `…/query` endpoints (`filter` / `sort` /
+`limit` / `offset` / `includeTotal` / `mailboxCapacity` /
+`driftBudgetPercent`), plus an optional `dataset` override (defaults to
+`spaces`; `profile` is the other system dataset). `objectId` is fixed
+server-side to the tech-space index object. Records are the **raw**
+tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
+you want the projected status/role. The subscribe frame set and `closed`
+reasons are identical to the per-object `…/query/subscribe` (see the Data
+plane § Subscribe and `docs/04-events.md`); a space joined on another
+device or head-synced in arrives as an `added` change.
+
+#### Dataset schema discovery
+
+```
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema } ] }   Service.Datasets
+```
+
+`schema` is a standard **JSON Schema** object per dataset
+(`{type:"object", properties:{…}, additionalProperties:<dynamic>}`). Each
+property carries an `x-scope` extension keyword classifying the field:
+
+- `synced` — user/DAG-written, synced across the account's devices;
+- `derived` — handler-computed, read-only to writers (e.g. chat
+  `creator` / `createdAt`);
+- `local` — device-local, never synced.
+
+`additionalProperties:true` marks a dynamic dataset (free-form keys
+allowed, defaulting to synced — e.g. the per-type `objects` namespace and
+the chat/editor datasets, which declare their known fields while staying
+open). The per-space form lists every dataset the space hosts (`objects`,
+`chat_messages`, `editor_blocks`, …); the account-wide form lists the
+tech-space system datasets (`spaces`, `profile`) behind the space-list
+query/subscribe above.
 
 #### Update space metadata
 

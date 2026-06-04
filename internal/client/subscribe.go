@@ -41,6 +41,14 @@ func (c *Client) StreamQuerySubscribe(ctx context.Context, spaceId string, body 
 	return c.streamSSE(ctx, http.MethodPost, path, body, fn)
 }
 
+// StreamSpaceListQuerySubscribe opens POST /v1/spaces/query/subscribe —
+// the windowed live view over the account's space list. body carries
+// the standard query fields plus an optional `dataset` override; an
+// empty body is a full snapshot + live stream.
+func (c *Client) StreamSpaceListQuerySubscribe(ctx context.Context, body []byte, fn func(SSEFrame) error) error {
+	return c.streamSSE(ctx, http.MethodPost, "/v1/spaces/query/subscribe", body, fn)
+}
+
 // streamSSE issues an HTTP request to path with the given method and
 // optional body, and parses the SSE response into frames. The shared
 // *http.Client carries a request timeout that's useless for long-
