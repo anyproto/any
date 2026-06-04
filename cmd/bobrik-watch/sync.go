@@ -533,9 +533,11 @@ func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value m
 
 const (
 	systemFolderName = "System Bobrik Files"
-	// debugFolderName holds bobrik's agent-trace notes. It is nested
-	// under the system folder, so --bootstrap (SIGHUP) wipes and
-	// recreates it along with everything else.
+	// debugFolderName holds bobrik's agent-trace notes. It lives at the
+	// nav ROOT — deliberately outside the system folder — so --bootstrap
+	// (SIGHUP) refreshes never delete it and the accumulated traces
+	// survive. (It used to be nested under the system folder; every
+	// refresh deleted it and orphaned the traces parented inside.)
 	debugFolderName = "Debug"
 )
 
@@ -543,20 +545,12 @@ func ensureSystemFolder(baseURL, spaceID string) (string, error) {
 	return ensureNavFolder(baseURL, spaceID, systemFolderName)
 }
 
-// ensureDebugFolder find-or-creates the "Debug" nav folder that
-// agent-trace notes are parented under, nesting it beneath parentID
-// (the system folder) so a refresh wipes it along with the rest.
-func ensureDebugFolder(baseURL, spaceID, parentID string) (string, error) {
-	id, err := ensureNavFolder(baseURL, spaceID, debugFolderName)
-	if err != nil {
-		return "", err
-	}
-	if parentID != "" {
-		if err := setNavParent(baseURL, spaceID, id, parentID); err != nil {
-			return "", fmt.Errorf("parent debug folder: %w", err)
-		}
-	}
-	return id, nil
+// ensureDebugFolder find-or-creates the root-level "Debug" nav folder
+// that agent-trace notes are parented under. If the folder already
+// exists it is reused untouched — never reparented, never recreated —
+// so its id is stable and the traces inside survive every refresh.
+func ensureDebugFolder(baseURL, spaceID string) (string, error) {
+	return ensureNavFolder(baseURL, spaceID, debugFolderName)
 }
 
 // ensureNavFolder find-or-creates a top-level nav folder (nav.type=2)

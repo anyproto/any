@@ -31,11 +31,11 @@ var (
 	agentName     string
 	programTypeID string
 
-	// debugFolderID is the "Debug" nav folder (a child of "System
-	// Bobrik Files") that agent-trace notes are parented under. It is
-	// re-created by every bootstrap, so SIGHUP refresh (signal
-	// goroutine) rewrites it while the subscribe loop reads it — guard
-	// with debugFolderMu.
+	// debugFolderID is the root-level "Debug" nav folder that
+	// agent-trace notes are parented under. The folder is reused if it
+	// exists (stable id), but SIGHUP refresh (signal goroutine) still
+	// re-runs bootstrap and rewrites the variable while the subscribe
+	// loop reads it — guard with debugFolderMu.
 	debugFolderMu sync.RWMutex
 	debugFolderID string
 )
@@ -132,9 +132,9 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
 
-	// Debug folder for agent-trace notes, nested under the system
-	// folder so refresh wipes stale logs along with everything else.
-	debugID, err := ensureDebugFolder(base, spaceID, sysFolderID)
+	// Debug folder for agent-trace notes — root-level, outside the
+	// system folder, so refresh never deletes it (traces accumulate).
+	debugID, err := ensureDebugFolder(base, spaceID)
 	if err != nil {
 		return "", fmt.Errorf("ensure debug folder: %w", err)
 	}

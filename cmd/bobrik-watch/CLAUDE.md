@@ -67,17 +67,22 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   tool_use ids. The full `messages[]` window is intentionally NOT stored
   (repeats the whole conversation every turn → quadratic growth;
   reconstructible from chat history + prior turn records).
-  The Go side ensures a `Debug` nav folder
-  (`ensureDebugFolder`, nested under "System Bobrik Files") and passes
-  its id to the runtime as `env.ANY_DEBUG_FOLDER_ID`
-  (`runtime.go`/`runAgent`). `init_agent.js` forwards it to
-  `createClient` (→ `client.config.debugFolderId`), and `dcInit` files
-  the page there via `client.addToCollection`. Don't add a second,
-  Go-side debug writer — that just duplicates the page. Because the
-  folder is wiped/recreated on every `--bootstrap` refresh, its id
-  changes, so `debugFolderID` is guarded by `debugFolderMu` (signal
-  goroutine writes, subscribe loop reads). Folder find/create is
-  shared via `ensureNavFolder` / `findNavFolder`.
+  The Go side ensures a **root-level** `Debug` nav folder
+  (`ensureDebugFolder` — find-or-create only: an existing folder is
+  reused untouched, never reparented or recreated) and passes its id
+  to the runtime as `env.ANY_DEBUG_FOLDER_ID` (`runtime.go`/`runAgent`).
+  `init_agent.js` forwards it to `createClient`
+  (→ `client.config.debugFolderId`), and `dcInit` files the page there
+  via `client.addToCollection`. Don't add a second, Go-side debug
+  writer — that just duplicates the page. The folder deliberately sits
+  OUTSIDE "System Bobrik Files" so `--bootstrap` (SIGHUP) refreshes —
+  which wipe the system folder's children — never delete it; traces
+  accumulate across refreshes. (It used to be nested inside; every
+  refresh orphaned the traces.) The folder id is stable, but SIGHUP
+  still re-runs bootstrap and rewrites `debugFolderID`, so it stays
+  guarded by `debugFolderMu` (signal goroutine writes, subscribe loop
+  reads). Folder find/create is shared via `ensureNavFolder` /
+  `findNavFolder`.
 
 ## Naming
 
