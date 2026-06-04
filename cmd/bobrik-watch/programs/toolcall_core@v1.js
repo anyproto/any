@@ -1405,9 +1405,9 @@ function renderChunksMessage(chunks) {
 // (or by the zero-padded record id, which matches insertion order) to replay
 // the timeline. The dataset is registered server-side by the built-in
 // `agent_debug_log` type (internal/agentdebug); DefaultHandler stores raw
-// values, so nested arrays/objects (cells, messages, response) round-trip
-// as-is. All writes are best-effort: if the agent space lacks the type or a
-// write fails, the agent run continues unaffected.
+// values, so nested arrays/objects (cells, response) round-trip as-is. All
+// writes are best-effort: if the agent space lacks the type or a write
+// fails, the agent run continues unaffected.
 
 var DC_DATASET = "agent_debug_log";
 
@@ -1528,8 +1528,8 @@ function _formatToolResultContent(block) {
   return block.is_error ? "[ERROR] " + text : text;
 }
 
-// Record the full system prompt the LLM sees on every turn. Per-turn
-// `messages` arrays are captured in dcLogTurn; this fills the only otherwise-
+// Record the full system prompt the LLM sees on every turn. Per-turn raw
+// responses are captured in dcLogTurn; this fills the only otherwise-
 // invisible channel, the `system:` parameter. One `system_prompt` record.
 function dcLogInitialContext(systemText) {
   _dcWriteEntry("system_prompt", {
@@ -1581,10 +1581,14 @@ function dcLogTurn(opts) {
     if (u.cost !== undefined) { _dc.totalCost += (u.cost || 0); cost = u.cost; }
   }
 
-  // Turn record holds the extracted scalars + the per-cell code/result.
-  // The full `messages[]` and raw `response{}` are intentionally NOT stored —
-  // they're redundant with `cells[]` (and the prior turns' records) and balloon
-  // the dataset. stopReason / tokens / model carry the useful response bits.
+  // Turn record holds the extracted scalars + the per-cell code/result, plus
+  // the raw API `response` — one message object (NOT the window), small, and
+  // the only home for the per-turn assistant narration text blocks, the cache
+  // counters (cache_read_input_tokens & co — the cache-miss-regression
+  // signal), and tool_use ids. The full `messages[]` window stays intentionally
+  // NOT stored — it repeats the whole conversation every turn (quadratic
+  // growth) and is reconstructible from chat history + prior turn records;
+  // only the literal window construction is lost, which we accept.
   _dcWriteEntry("turn", {
     n: n,
     stopReason: resp.stop_reason || "",
@@ -1592,6 +1596,7 @@ function dcLogTurn(opts) {
     inTokens: inT,
     outTokens: outT,
     cost: cost,
+    response: resp,
     cells: cells
   });
 }
@@ -2085,7 +2090,6 @@ export function main(args) {
   for (var iter = 0; ; iter++) {
     var resp;
     var _t = Date.now();
-    var _messagesSnapshot = messages.slice();
     try {
       resp = llm.chat(messages, {
         system: systemBlocks,
@@ -2136,7 +2140,7 @@ export function main(args) {
       } catch (e) {
         var sumErr = "FAILED at turn " + (iter + 1) + ": max_tokens recovery LLM error: " + (e.message || e);
         chatReply("⚠ max_tokens — recovery summary failed: " + (e.message || e));
-        dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
+        dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
         dcFlush({ status: "max_tokens_summary_failed", finalText: sumErr });
         return sumErr;
       }
@@ -2174,7 +2178,7 @@ export function main(args) {
         } catch (e) {}
       }
 
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
       dcFlush({ status: "max_tokens_summary", finalText: summaryText });
       return "";
     }
@@ -2182,7 +2186,7 @@ export function main(args) {
     if (!resp || !resp.content) {
       chatReply("Empty LLM response on turn " + (iter + 1));
       var emptyMsg = "FAILED at turn " + (iter + 1) + ": empty response";
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp || {}, durationMs: _turnMs });
+      dcLogTurn({ n: iter + 1, resp: resp || {}, durationMs: _turnMs });
       dcFlush({ status: "empty_response", finalText: emptyMsg });
       return emptyMsg;
     }
@@ -2282,7 +2286,7 @@ export function main(args) {
         }
       }
 
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: [] });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: [] });
       dcFlush({ status: "end_turn", finalText: finalText });
       return "";
     }
@@ -2302,7 +2306,7 @@ export function main(args) {
       // No text and no tool_use? Treat as termination with whatever we have.
       chatReply("(no tool_use and no text — terminating)");
       var fallbackText = textParts.join("\n") || "(no content)";
-      dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: [] });
+      dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: [] });
       dcFlush({ status: "no_content", finalText: fallbackText });
       return fallbackText;
     }
@@ -2318,7 +2322,7 @@ export function main(args) {
       }
     }
 
-    dcLogTurn({ n: iter + 1, messages: _messagesSnapshot, resp: resp, durationMs: _turnMs, toolResults: toolResults });
+    dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: toolResults });
     messages.push({ role: "user", content: toolResults });
   }
 

@@ -60,10 +60,13 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   and a `kind` (`boot` | `system_prompt` | `turn` | `done`). Read back sorted
   by `seq` (or by the zero-padded record id) via `getObjects({objectId,
   dataset:"agent_debug_log", sort:["seq"]})`. A `turn` record holds the
-  extracted scalars (`stopReason`/`inTokens`/`outTokens`/`durationMs`) plus
-  `cells[]` (`{code, result, isError, executed}`); the full `messages[]` and
-  raw `response{}` are intentionally NOT stored (redundant with `cells[]` and
-  the prior turns, and they balloon the dataset).
+  extracted scalars (`stopReason`/`inTokens`/`outTokens`/`durationMs`),
+  `cells[]` (`{code, result, isError, executed}`), and the raw `response{}` —
+  one message object, small, and the only home for the per-turn assistant
+  narration text, cache counters (`cache_read_input_tokens` & co), and
+  tool_use ids. The full `messages[]` window is intentionally NOT stored
+  (repeats the whole conversation every turn → quadratic growth;
+  reconstructible from chat history + prior turn records).
   The Go side ensures a `Debug` nav folder
   (`ensureDebugFolder`, nested under "System Bobrik Files") and passes
   its id to the runtime as `env.ANY_DEBUG_FOLDER_ID`
