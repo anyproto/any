@@ -1,4 +1,4 @@
-import { createClient, editString, replaceMarkdownSection, extractMarkdownSection } from "anyHelper@v1";
+import { createClient, editString, extractMarkdownSection } from "anyHelper@v1";
 
 var _client = null;
 function _getClient() {
@@ -13,6 +13,191 @@ function _getClient() {
 
 function _hasMainExport(source) {
   return /export\s+function\s+main\s*\(/.test(source);
+}
+
+// Program names become kernel globals (`var <name> = ...` in the boot
+// prelude), so they must be valid JS identifiers. Same check getTools
+// applies on read.
+function _isValidProgramName(name) {
+  return typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+}
+
+// Callable name: heading text up to the first "(". Prose headings without a
+// signature keep their full text.
+function _methodBareName(name) {
+  var idx = name.indexOf("(");
+  if (idx > 0) return name.substring(0, idx).trim();
+  return name.trim();
+}
+
+// Render one stored method record back to its markdown section. The kind tag
+// is re-attached to the heading — that exact shape (`### name(sig) [kind]`)
+// is what describeMethod returns and what gets injected into agent prompts.
+function _renderMethodDoc(m) {
+  var heading = "### " + m.name + (m.kind ? " [" + m.kind + "]" : "");
+  return m.text ? heading + "\n\n" + m.text : heading;
+}
+
+// Split a full tool markdown into { description, methods } — the STORAGE
+// shape: description = "## Tool Description" section body; methods = one
+// entry per "### name(sig) [kind]" subsection of "## Tool Schema" (or
+// "# Tools"/"## Tools"), kind defaulting to getter. Mirror of the Go
+// splitter in cmd/bobrik-watch/toolmd.go — keep the two in sync.
+function _splitToolMarkdown(md) {
+  if (!md) return { description: "", methods: [] };
+  var description = extractMarkdownSection(md, "Tool Description") || "";
+  var toolsStart = -1;
+  var candidates = ["\n# Tools\n", "# Tools\n", "\n## Tools\n", "## Tools\n", "\n## Tool Schema\n", "## Tool Schema\n"];
+  for (var ci = 0; ci < candidates.length; ci++) {
+    toolsStart = md.indexOf(candidates[ci]);
+    if (toolsStart !== -1) break;
+  }
+  if (toolsStart === -1) return { description: description, methods: [] };
+  if (md.charAt(toolsStart) === "\n") toolsStart++;
+
+  var lines = md.substring(toolsStart).split("\n");
+  var sectionLevel = 1;
+  var headM = lines[0] && lines[0].match(/^(#{1,6})\s/);
+  if (headM) sectionLevel = headM[1].length;
+  var methodPrefix = "";
+  for (var h = 0; h <= sectionLevel; h++) methodPrefix += "#";
+  methodPrefix += " ";
+
+  var methods = [];
+  var seen = {};
+  var currentName = null;
+  var currentKind = "getter";
+  var currentLines = [];
+
+  function flush() {
+    if (currentName === null) return;
+    var bare = _methodBareName(currentName);
+    if (seen[bare]) bare = bare + "-" + methods.length; // record ids must be unique
+    seen[bare] = true;
+    methods.push({
+      bareName: bare, name: currentName, kind: currentKind,
+      // Body stored without surrounding blank lines; _renderMethodDoc
+      // reconstructs the section as heading + "\n\n" + text.
+      text: currentLines.join("\n").replace(/^\n+/, "").replace(/\n+$/, ""),
+      pos: methods.length
+    });
+  }
+
+  for (var i = 1; i < lines.length; i++) {
+    var hm = lines[i].match(/^(#{1,6})\s/);
+    if (hm && hm[1].length <= sectionLevel) break;
+    if (lines[i].indexOf(methodPrefix) === 0) {
+      flush();
+      var headingText = lines[i].substring(methodPrefix.length).trim();
+      var kindMatch = headingText.match(/\s*\[(getter|mutator|setup|program)\]\s*$/);
+      currentKind = "getter";
+      if (kindMatch) {
+        currentKind = kindMatch[1];
+        headingText = headingText.substring(0, kindMatch.index).trim();
+      }
+      currentName = headingText;
+      currentLines = [];
+    } else if (currentName !== null) {
+      currentLines.push(lines[i]);
+    }
+  }
+  flush();
+  return { description: description, methods: methods };
+}
+
+// Write the split tool docs onto a program object: description body to
+// program_description/"main", one program_methods record per method, then
+// delete stale method records the new doc no longer carries.
+function _writeToolDocs(c, objId, parsed) {
+  var dr = c.setRecord(objId, "program_description", "main", { text: parsed.description });
+  if (!dr.ok) return dr;
+  var existing = [];
+  try { existing = c.getObjects({ objectId: objId, dataset: "program_methods" }); } catch (e) {}
+  var keep = {};
+  for (var i = 0; i < parsed.methods.length; i++) {
+    var m = parsed.methods[i];
+    keep[m.bareName] = true;
+    var mr = c.setRecord(objId, "program_methods", m.bareName, {
+      name: m.name, kind: m.kind, text: m.text, pos: m.pos
+    });
+    if (!mr.ok) return mr;
+  }
+  var stale = [];
+  for (var j = 0; j < existing.length; j++) {
+    if (existing[j] && existing[j].id && !keep[existing[j].id]) stale.push(existing[j].id);
+  }
+  if (stale.length > 0) {
+    var delr = c.deleteRecord(objId, "program_methods", stale);
+    if (!delr.ok) return delr;
+  }
+  return { ok: true };
+}
+
+// saveProgram — the one program write path (moved here from anyHelper;
+// anyHelper keeps only the generic primitives this composes). Two modes:
+//   - source-only (no markdown): writes program_source, leaves docs and
+//     any_tool untouched. Used by editProgram and source-only updates.
+//   - tool save (markdown given): splits the md, writes description +
+//     method records, reconciles stale ones, and sets program.any_tool=true.
+//     The markdown MUST carry a non-empty "## Tool Description" AND a
+//     "## Tool Schema" with at least one "### method()" subsection —
+//     toolhood is all-or-nothing, no half-registered tools.
+export function saveProgram(opts) {
+  if (!opts) opts = {};
+  var c = _getClient();
+  var progName = opts.name;
+  var version = opts.version || "v1";
+  var title = opts.title || progName;
+  var source = opts.source;
+  // Accept `markdown` (canonical) or `schema` (legacy saveTool spelling).
+  var markdown = opts.markdown != null ? opts.markdown : opts.schema;
+  if (!progName) return { ok: false, error: "name is required" };
+  if (!source) return { ok: false, error: "source is required" };
+  if (!_isValidProgramName(progName)) {
+    return { ok: false, error: "name must be a valid JS identifier (letters, digits, _, $; no leading digit) — got " + JSON.stringify(progName) };
+  }
+
+  var parsed = null;
+  if (markdown != null) {
+    parsed = _splitToolMarkdown(String(markdown));
+    if (!parsed.description) {
+      return { ok: false, error: "markdown must contain a non-empty '## Tool Description' section" };
+    }
+    if (parsed.methods.length === 0) {
+      return { ok: false, error: "markdown must contain a '## Tool Schema' section with at least one '### method()' subsection" };
+    }
+  }
+
+  function writeProgramDatasets(objId) {
+    var sr = c.setRecord(objId, "program_source", "main", { code: source });
+    if (!sr.ok) return sr;
+    if (parsed) {
+      var wr = _writeToolDocs(c, objId, parsed);
+      if (!wr.ok) return wr;
+      var ur = c.updateObject(objId, { program: { any_tool: true } });
+      if (!ur.ok) return ur;
+    }
+    return { ok: true };
+  }
+
+  var existing = c.getProgram(progName, version);
+  if (existing) {
+    var w = writeProgramDatasets(existing.id);
+    if (!w.ok) return { ok: false, error: w.error };
+    return { ok: true, object: { id: existing.id }, name: progName, version: version };
+  }
+
+  var createRes = c.createObject("program", {
+    name: title || (progName + "@" + version),
+    program: { name: progName, version: version, any_tool: parsed != null }
+  });
+  if (!createRes.ok) return { ok: false, error: createRes.error };
+  var newId = createRes.id;
+
+  var w2 = writeProgramDatasets(newId);
+  if (!w2.ok) return { ok: true, object: { id: newId }, name: progName, version: version, error: "program created but dataset write failed: " + w2.error };
+
+  return { ok: true, object: { id: newId }, name: progName, version: version };
 }
 
 // Probe the live runtime: import the just-saved tool and report its methods.
@@ -58,14 +243,14 @@ export function createProgram(opts) {
     return { ok: false, error: "opts.source must contain `export function main(args)`" };
   }
 
-  var saveResult = _getClient().saveTool({
+  var saveResult = saveProgram({
     name: name,
     source: source,
-    schema: markdown,
+    markdown: markdown,
     version: version,
     title: title
   });
-  if (!saveResult.ok) return { ok: false, error: "saveTool failed: " + saveResult.error };
+  if (!saveResult.ok) return { ok: false, error: "saveProgram failed: " + saveResult.error };
 
   var probe = _verifyImportable(name, version);
   if (!probe.ok) {
@@ -104,11 +289,12 @@ export function updateProgram(opts) {
 
   var saveResult;
   if (opts.markdown) {
-    saveResult = _getClient().saveTool({
-      name: name, source: source, schema: opts.markdown, version: version
+    saveResult = saveProgram({
+      name: name, source: source, markdown: opts.markdown, version: version
     });
   } else {
-    saveResult = _getClient().saveProgram({
+    // Source-only update — docs and any_tool stay as the last tool save left them.
+    saveResult = saveProgram({
       name: name, source: source, version: version
     });
   }
@@ -138,22 +324,6 @@ export function listPrograms() {
 
 export function getProgram(name, versionOrOpts, opts) {
   return _getClient().getProgram(name, versionOrOpts, opts);
-}
-
-// Escape a string for safe literal inclusion in a RegExp.
-function _reEscape(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Locate a method section inside the full program markdown. Returns either the
-// zero-based start line index (int) or -1 if no heading of the form
-// `### methodName(...)` is present.
-function _findMethodHeadingLine(lines, methodName) {
-  var re = new RegExp("^###\\s+" + _reEscape(methodName) + "\\s*\\(");
-  for (var i = 0; i < lines.length; i++) {
-    if (re.test(lines[i])) return i;
-  }
-  return -1;
 }
 
 // Stub used when editProgram drops `export function main(args)` — keeps the
@@ -195,15 +365,17 @@ export function editProgram(programName, opts) {
     message = "main export was missing after edit; injected stub";
   }
 
-  var saveResult = _getClient().saveTool({
+  // Source-only save: deliberately NO markdown. Round-tripping the (now
+  // description-only) markdown through a tool save would re-split it and
+  // wipe every program_methods record — docs are not editProgram's surface.
+  var saveResult = saveProgram({
     name: programName,
     source: newSource,
-    schema: prog.markdown,
     version: version,
     title: prog.title || programName
   });
   if (!saveResult.ok) {
-    return { ok: false, name: programName, version: version, error: "saveTool failed: " + saveResult.error };
+    return { ok: false, name: programName, version: version, error: "saveProgram failed: " + saveResult.error };
   }
 
   var out = {
@@ -220,10 +392,17 @@ export function editProgram(programName, opts) {
 }
 
 // ============================================================================
-// Doc edits — structured, section-aware. Go through saveTool so the linter
-// re-runs on every save (empty Tool Description, method with no `- ` bullets
-// → fail fast).
+// Doc edits — write the split datasets directly: description body to
+// program_description, one record per method to program_methods. any_tool is
+// recomputed after every doc write (true iff non-empty description AND ≥1
+// method) so toolhood tracks the docs.
 // ============================================================================
+
+function _recomputeAnyTool(prog, description, methodCount) {
+  var anyTool = !!(description && methodCount > 0);
+  return _getClient().updateObject(prog.id, { program: { any_tool: anyTool } });
+}
+
 export function upsertDescription(programName, newDescription, opts) {
   if (!programName) return { ok: false, error: "programName is required" };
   if (typeof newDescription !== "string") {
@@ -235,21 +414,14 @@ export function upsertDescription(programName, newDescription, opts) {
   var prog = _getClient().getProgram(programName, version);
   if (!prog) return { ok: false, name: programName, version: version, error: "program '" + programName + "@" + version + "' not found" };
 
-  var r = replaceMarkdownSection(prog.markdown || "", "## Tool Description", newDescription);
-  if (!r.ok) return { ok: false, name: programName, version: version, error: r.error };
+  var created = !prog.description;
+  var dr = _getClient().setRecord(prog.id, "program_description", "main", { text: newDescription });
+  if (!dr.ok) return { ok: false, name: programName, version: version, error: dr.error };
 
-  var saveResult = _getClient().saveTool({
-    name: programName,
-    source: prog.source,
-    schema: r.result,
-    version: version,
-    title: prog.title || programName
-  });
-  if (!saveResult.ok) {
-    return { ok: false, name: programName, version: version, error: "saveTool failed: " + saveResult.error };
-  }
+  var ur = _recomputeAnyTool(prog, newDescription, (prog.methods || []).length);
+  if (!ur.ok) return { ok: false, name: programName, version: version, error: ur.error };
 
-  return { ok: true, name: programName, version: version, created: r.created, object: saveResult.object };
+  return { ok: true, name: programName, version: version, created: created, object: { id: prog.id } };
 }
 
 export function upsertMethodDescription(programName, methodName, newMethodDescription, opts) {
@@ -264,38 +436,54 @@ export function upsertMethodDescription(programName, methodName, newMethodDescri
   var prog = _getClient().getProgram(programName, version);
   if (!prog) return { ok: false, name: programName, version: version, error: "program '" + programName + "@" + version + "' not found" };
 
-  var md = prog.markdown || "";
-  var re = new RegExp("^###\\s+" + _reEscape(methodName) + "\\s*\\(");
-  var matcher = function(line) { return re.test(line); };
-
-  var r = replaceMarkdownSection(md, matcher, newMethodDescription, {
-    headingLine: "### " + methodName + "()"
-  });
-  if (!r.ok) return { ok: false, name: programName, version: version, methodName: methodName, error: r.error };
-
-  var saveResult = _getClient().saveTool({
-    name: programName,
-    source: prog.source,
-    schema: r.result,
-    version: version,
-    title: prog.title || programName
-  });
-  if (!saveResult.ok) {
-    return { ok: false, name: programName, version: version, methodName: methodName, error: "saveTool failed: " + saveResult.error };
+  var methods = prog.methods || [];
+  var existing = null;
+  var maxPos = -1;
+  for (var i = 0; i < methods.length; i++) {
+    if (methods[i].bareName === _methodBareName(methodName)) existing = methods[i];
+    if (typeof methods[i].pos === "number" && methods[i].pos > maxPos) maxPos = methods[i].pos;
   }
+
+  // Existing method: only the body changes — name/kind/pos stay (setRecord
+  // sets per-field). New method: appended at the tail with a bare signature;
+  // pass a full heading as methodName (e.g. "run(args) [mutator]") to set
+  // the signature and kind explicitly.
+  var fields, recId;
+  if (existing) {
+    recId = existing.bareName;
+    fields = { text: newMethodDescription };
+  } else {
+    recId = _methodBareName(methodName);
+    var headingText = methodName;
+    var kind = "getter";
+    var kindMatch = headingText.match(/\s*\[(getter|mutator|setup|program)\]\s*$/);
+    if (kindMatch) {
+      kind = kindMatch[1];
+      headingText = headingText.substring(0, kindMatch.index).trim();
+    }
+    if (headingText.indexOf("(") === -1) headingText += "()";
+    fields = { name: headingText, kind: kind, text: newMethodDescription, pos: maxPos + 1 };
+  }
+
+  var mr = _getClient().setRecord(prog.id, "program_methods", recId, fields);
+  if (!mr.ok) return { ok: false, name: programName, version: version, methodName: methodName, error: mr.error };
+
+  var methodCount = methods.length + (existing ? 0 : 1);
+  var ur = _recomputeAnyTool(prog, prog.description, methodCount);
+  if (!ur.ok) return { ok: false, name: programName, version: version, methodName: methodName, error: ur.error };
 
   return {
     ok: true,
     name: programName,
     version: version,
     methodName: methodName,
-    created: r.created,
-    object: saveResult.object
+    created: !existing,
+    object: { id: prog.id }
   };
 }
 
 // ============================================================================
-// Doc reads
+// Doc reads — straight off the split datasets (via getProgram).
 // ============================================================================
 export function getProgramDescription(programName, opts) {
   if (!programName) return null;
@@ -303,7 +491,7 @@ export function getProgramDescription(programName, opts) {
   var version = opts.version || "v1";
   var prog = _getClient().getProgram(programName, version);
   if (!prog) return null;
-  return extractMarkdownSection(prog.markdown || "", "Tool Description");
+  return prog.description || null;
 }
 
 export function getMethodDescription(programName, methodName, opts) {
@@ -313,20 +501,14 @@ export function getMethodDescription(programName, methodName, opts) {
   var prog = _getClient().getProgram(programName, version);
   if (!prog) return null;
 
-  var lines = (prog.markdown || "").split("\n");
-  var startIdx = _findMethodHeadingLine(lines, methodName);
-  if (startIdx === -1) return null;
-
-  // End at the next heading of same-or-higher level (### or ##).
-  var endIdx = lines.length;
-  for (var i = startIdx + 1; i < lines.length; i++) {
-    if (/^###\s/.test(lines[i]) || /^##\s/.test(lines[i])) { endIdx = i; break; }
+  var methods = prog.methods || [];
+  var bare = _methodBareName(methodName);
+  for (var i = 0; i < methods.length; i++) {
+    if (methods[i].bareName === bare) return _renderMethodDoc(methods[i]);
   }
-  // Trim trailing blank lines from the returned section.
-  while (endIdx > startIdx + 1 && lines[endIdx - 1] === "") endIdx--;
-  return lines.slice(startIdx, endIdx).join("\n");
+  return null;
 }
 
 export function main() {
-  return "anyPrograms loaded — methods: createProgram, updateProgram, runProgram, listPrograms, getProgram, editProgram, upsertDescription, upsertMethodDescription, getProgramDescription, getMethodDescription";
+  return "anyPrograms loaded — methods: createProgram, updateProgram, saveProgram, runProgram, listPrograms, getProgram, editProgram, upsertDescription, upsertMethodDescription, getProgramDescription, getMethodDescription";
 }

@@ -25,7 +25,7 @@ The real cause has two halves, and these tests pin both:
    Reproduce:
 
    ```
-   anytype-agent-runtime cmd/bobrik-watch/tests/engine_string_semantics.js
+   ./bin/any-agent-runtime cmd/bobrik-watch/tests/engine_string_semantics.js
    ```
 
    `fromTemplateLiteral` / `fromDoubleQuoted` → `[sS]*?</item>` (the trap);
@@ -69,14 +69,18 @@ prints exactly one line as its last act:
 HARNESS_RESULT {"pass":N,"fail":M,"failures":[...]}
 ```
 
-`jsrunner_test.go` (`TestJSAnyHelper`) discovers those files, execs
-`anytype-agent-runtime` on each (resolving `anyHelper@v1` from the
-`cmd/bobrik-watch` dir via `-m`), parses that line, and fails the Go subtest
-when `fail > 0` or the line is missing. It `t.Skip`s when the server is
-unreachable or `anytype-agent-runtime` isn't on `PATH`.
+`jsrunner_test.go` (`TestJSAnyHelper`) discovers those files, builds this
+repo's **`cmd/any-agent-runtime`** (same engine, but module resolution wired
+through `internal/anyrt` — the production anySDK loader), and execs it on
+each test. Imports resolve **space-first** exactly like production (so a
+program a test saves, e.g. `createProgram`'s import probe, is importable
+immediately), with the `cmd/bobrik-watch` dir as `-m` file fallback for
+modules not synced into the test space. It parses the HARNESS_RESULT line and
+fails the Go subtest when `fail > 0` or the line is missing. It `t.Skip`s
+when the server is unreachable; no PATH setup needed — the runtime builds
+from this repo.
 
 ```
-go install ./...                          # put anytype-agent-runtime on PATH
 ANY_ADDR=127.0.0.1:7003 \
   go test -tags integration ./cmd/bobrik-watch/tests/ -run TestJSAnyHelper -v
 ```

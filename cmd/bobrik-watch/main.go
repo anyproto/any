@@ -20,6 +20,8 @@ import (
 	"time"
 
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
+
+	"github.com/anyproto/any/internal/anyrt"
 )
 
 const pidFilePath = ".bobrik-pid"
@@ -400,7 +402,7 @@ func runAgent(spaceID, objectID, text string) error {
 		return fmt.Errorf("create runtime: %w", err)
 	}
 
-	SetupAnySDKDirtyRuntime(rt, AnySDKRuntimeConfig{
+	anyrt.SetupAnySDKDirtyRuntime(rt, anyrt.RuntimeConfig{
 		APIBaseURL:     base,
 		SpaceID:        spaceID,
 		PrivateSpaceID: spaceID,

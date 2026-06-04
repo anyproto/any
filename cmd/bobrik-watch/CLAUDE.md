@@ -35,9 +35,25 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   flatten-to-top-level, no first-type guessing (both were legacy
   anytypeHelper hacks).
 - **Programs** — type `program` (built-in), datasets
-  `program_source` (code), `program_description` (tool docs), and
-  `program_methods` (per-method docs, currently unused). Registered
-  in `internal/program/program.go`.
+  `program_source` (record `main`, field `code`), `program_description`
+  (record `main`, field `text` — the `## Tool Description` BODY only),
+  and `program_methods` (one record per method: id = bare method name,
+  fields `{name, kind, text, pos}` where `name` is the heading with
+  signature but WITHOUT the kind tag, e.g. `createType(opts)`; renderers
+  reconstruct `### name [kind]` + blank line + text). Registered in
+  `internal/program/program.go`. Boolean property `program.any_tool`
+  marks toolhood: set true by the writers iff the docs carry a non-empty
+  description AND ≥1 method; `anyHelper.getTools` filters STRICTLY on
+  it (description presence no longer implies toolhood). Readers use
+  `anyHelper.getToolDocs(toolId)` → `{description, methods}`; the
+  toolcall_core boot builds prompts and `describeMethod` from that.
+  Writers are `sync.go::upsertProgram` (Go, splits via
+  `toolmd.go::splitToolMarkdown`) and `anyPrograms.saveProgram` (JS,
+  `_splitToolMarkdown` — keep the two splitters in sync); both
+  reconcile stale method records on re-save. `saveProgram`/`saveTool`
+  are GONE from anyHelper — program writes live in anyPrograms only;
+  `editProgram` is deliberately source-only (round-tripping markdown
+  through a tool save would wipe `program_methods`).
 - **Mini apps** — type `Mini App` (`mini_app`, built-in,
   `internal/miniapp/miniapp.go`), dataset `mini_app` with one `main`
   record `{source, state, readme}`. `programs/miniapp.js` reads it via
@@ -46,9 +62,12 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 - **Skills** — type `Agent Skill`, property `agent_skill_name` (under
   the `Agent Skill` namespace). Content stored via `editor/markdown`.
 - **Tool descriptions** — `cmd/bobrik-watch/tool-descriptions/*.md`,
-  written to `program_description` at sync time. MUST contain a
-  `## Tool Description` heading; `anyHelper.saveProgram` rejects
-  markdown without it.
+  SPLIT into `program_description` + `program_methods` at sync time
+  (see Programs above). Authored as one file: a `## Tool Description`
+  section plus a `## Tool Schema` section with `### method(sig) [kind]`
+  subsections (kind ∈ getter|mutator|setup|program, default getter).
+  Both sections are required for toolhood; `anyPrograms.saveProgram`
+  rejects markdown missing either.
 - **Debug logs** — `Agent Debug Log` is a server **built-in** type
   (`internal/agentdebug`, registered in `internal/server/sdk.go`) with a
   structured `agent_debug_log` dataset — NOT a runtime-`createType`'d type
@@ -131,16 +150,28 @@ A program name must be a valid JS identifier
 (`[A-Za-z_$][A-Za-z0-9_$]*`). The agent's boot prelude emits
 `var <name>;` per tool, so a `-`/`.`/leading-digit name would crash
 bootstrap with `Unexpected token`. `getTools()` silently skips
-offenders (legacy data) and `anyHelper.saveProgram` rejects them on
+offenders (legacy data) and `anyPrograms.saveProgram` rejects them on
 write, so the bad name never reaches storage from inside the agent.
 
 ## Build / run
 
 ```
-make build                                        # builds both any and bobrik-watch
+make build                                        # builds any, bobrik-watch, any-agent-runtime
 ./bin/bobrik-watch                                # default: space=bobrik; watches the DERIVED primary chat
                                                   # (same seed as any-ui: btoa('any-ui/primary-chat/v1') —
                                                   #  TEMP shared-seed convention, contract TBD)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ./bin/bobrik-watch --bootstrap                    # SIGHUP a running instance
+./bin/any-agent-runtime -e .env script.js k=v     # run one JS file with PRODUCTION module
+                                                  # resolution (imports resolve from the `any`
+                                                  # space via internal/anyrt — same loader as
+                                                  # bobrik-watch; -m adds a file-dir fallback)
 ```
+
+The runtime wiring (anySDK module loader + effect/global setup) lives in
+`internal/anyrt/` and is shared by bobrik-watch, `cmd/any-agent-runtime`,
+and (via the latter) the JS integration tests — one loader, three
+consumers, no test/prod resolution drift. Module imports are resolved
+per-import over HTTP with NO caching, by design: editing a program in the
+space (anyPrograms.saveProgram / editProgram) is live on the next message;
+disk edits land via SIGHUP re-sync. Don't add a cache here.

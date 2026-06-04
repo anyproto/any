@@ -14,7 +14,7 @@ Returns an array of strings, one entry per query (max 5). Each entry is `[N] que
 
 ## Tool Schema
 
-### search(query, opts?)
+### search(query, opts?) [getter]
 Run one or more grounded web queries. Returns an array of stringified answers (max 5 queries per call).
 - query: string or array of strings — each becomes one independently synthesized answer
 - opts: search options (reserved)

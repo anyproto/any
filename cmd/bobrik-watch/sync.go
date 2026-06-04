@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anyproto/any/internal/anyrt"
 )
 
 // All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
@@ -65,6 +67,7 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 	for _, prop := range []map[string]string{
 		{"xKey": "name", "name": "name", "kind": "string"},
 		{"xKey": "version", "name": "version", "kind": "string"},
+		{"xKey": "any_tool", "name": "any_tool", "kind": "boolean"},
 		{"xKey": "source", "name": "source", "kind": "string"},
 		{"xKey": "tool_description", "name": "tool_description", "kind": "string"},
 		{"xKey": "tool_schema", "name": "tool_schema", "kind": "string"},
@@ -424,7 +427,12 @@ func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[str
 }
 
 func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folderID string) error {
-	objectID, err := findProgramObject(baseURL, spaceID, programTypeID, name, version)
+	// Tool docs split: description body → program_description, per-method
+	// records → program_methods, any_tool = "has description AND schema".
+	description, methods := splitToolMarkdown(toolDescription(name))
+	anyTool := description != "" && len(methods) > 0
+
+	objectID, err := anyrt.FindProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
 		return fmt.Errorf("query %s@%s: %w", name, version, err)
 	}
@@ -433,9 +441,13 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		if err := modifyDataset(baseURL, spaceID, objectID, "program_source", "main", map[string]any{"code": source}); err != nil {
 			return fmt.Errorf("update %s@%s: %w", name, version, err)
 		}
+		// Written explicitly both ways so a removed .md flips a stale true off.
+		if err := setProgramProps(baseURL, spaceID, programTypeID, objectID, map[string]any{"any_tool": anyTool}); err != nil {
+			return fmt.Errorf("set any_tool on %s@%s: %w", name, version, err)
+		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source)
+		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source, anyTool)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
@@ -446,10 +458,42 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		_ = setNavParent(baseURL, spaceID, objectID, folderID)
 	}
 
-	if desc := toolDescription(name); desc != "" {
-		_ = modifyDataset(baseURL, spaceID, objectID, "program_description", "main", map[string]any{"text": desc})
+	if anyTool {
+		if err := writeToolDocs(baseURL, spaceID, objectID, description, methods); err != nil {
+			return fmt.Errorf("write tool docs for %s@%s: %w", name, version, err)
+		}
 	}
 	return nil
+}
+
+// writeToolDocs writes the split tool docs: the description body to
+// program_description/"main" and one program_methods record per method,
+// then deletes stale method records the new doc no longer carries (a
+// renamed/removed method would otherwise linger in listMethods forever).
+func writeToolDocs(baseURL, spaceID, objectID, description string, methods []methodDoc) error {
+	if err := modifyDataset(baseURL, spaceID, objectID, "program_description", "main", map[string]any{"text": description}); err != nil {
+		return err
+	}
+	keep := make(map[string]bool, len(methods))
+	for _, m := range methods {
+		keep[m.BareName] = true
+		if err := modifyDataset(baseURL, spaceID, objectID, "program_methods", m.BareName, map[string]any{
+			"name": m.Name, "kind": m.Kind, "text": m.Text, "pos": m.Pos,
+		}); err != nil {
+			return err
+		}
+	}
+	existing, err := datasetRecordIDs(baseURL, spaceID, objectID, "program_methods")
+	if err != nil {
+		return err
+	}
+	var stale []string
+	for _, id := range existing {
+		if !keep[id] {
+			stale = append(stale, id)
+		}
+	}
+	return deleteRecords(baseURL, spaceID, objectID, "program_methods", stale)
 }
 
 // parseProgramFilename splits "name@version" → (name, version).
@@ -461,7 +505,7 @@ func parseProgramFilename(baseName string) (name, version string) {
 	return baseName, "v1"
 }
 
-func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string) (string, error) {
+func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string, anyTool bool) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{programTypeID},
 		"initialProperties": map[string]any{
@@ -469,8 +513,9 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, source 
 				"name": name + "@" + version,
 			},
 			programTypeID: map[string]any{
-				"name":    name,
-				"version": version,
+				"name":     name,
+				"version":  version,
+				"any_tool": anyTool,
 			},
 		},
 	})
@@ -498,6 +543,85 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, source 
 		return "", fmt.Errorf("set source: %w", err)
 	}
 	return obj.ObjectId, nil
+}
+
+// setProgramProps patches properties on an existing program object —
+// same properties/:objId/base/:typeId endpoint setNavParent uses.
+func setProgramProps(baseURL, spaceID, programTypeID, objectID string, patch map[string]any) error {
+	body, _ := json.Marshal(map[string]any{"patch": patch})
+	req, err := http.NewRequest(http.MethodPost,
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/base/"+url.PathEscape(programTypeID),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set program props: %d %s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+// datasetRecordIDs lists the record ids currently in a dataset on an object.
+func datasetRecordIDs(baseURL, spaceID, objectID, dataset string) ([]string, error) {
+	body, _ := json.Marshal(map[string]any{"objectId": objectID, "dataset": dataset})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("query %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out.Records))
+	for _, r := range out.Records {
+		ids = append(ids, r.Id)
+	}
+	return ids, nil
+}
+
+// deleteRecords tombstones dataset records. No-op on an empty id list.
+func deleteRecords(baseURL, spaceID, objectID, dataset string, recordIDs []string) error {
+	if len(recordIDs) == 0 {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{
+		"objectId": objectID, "dataset": dataset, "recordIds": recordIDs,
+	})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/delete-records",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("delete-records %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	return nil
 }
 
 // modifyDataset upserts a single record in a dataset on an object.

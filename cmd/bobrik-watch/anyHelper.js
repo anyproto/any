@@ -577,11 +577,10 @@ export function createClient(params) {
       obj.body = obj.markdown;
     }
 
-    // Programs store their tool description + method docs in the
-    // `program_description` dataset, not in editor blocks. Surface it on
-    // `markdown`/`body` so downstream code (the boot prelude's tool-doc
-    // parser, anyPrograms' section editors) sees the same shape it
-    // expects for editor-backed objects.
+    // Programs store their tool DESCRIPTION in the `program_description`
+    // dataset (method docs live separately in `program_methods` — read via
+    // getToolDocs), not in editor blocks. Surface the description on
+    // `markdown`/`body` so generic markdown consumers see something useful.
     if (!obj.markdown && obj.program) {
       var pdRes = api("POST", path + "/query", { objectId: objId, dataset: "program_description" });
       if (pdRes.ok && pdRes.data && pdRes.data.records && pdRes.data.records.length > 0) {
@@ -704,33 +703,65 @@ export function createClient(params) {
   // references each tool bare (`### <name>`), so a tool name must be a
   // valid JS identifier. Anything else (e.g. `hn-top10-summary`) would
   // crash bootstrap with `Unexpected token -`. Enforced at both ends:
-  // `getTools` filters offenders out, `saveProgram` rejects them on
-  // write so the bad name never reaches storage.
+  // `getTools` filters offenders out, `anyPrograms.saveProgram` rejects
+  // them on write so the bad name never reaches storage.
   function _isValidProgramName(name) {
     return typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
   }
 
+  // getToolDocs reads a program's split tool docs: the description body from
+  // program_description and the per-method records from program_methods
+  // (id = bareName, fields name/kind/text/pos), ordered by pos. Writers
+  // (bobrik-watch sync, anyPrograms.saveProgram) keep the split in sync.
+  function getToolDocs(toolId, opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space || "user");
+    var description = "";
+    var dRes = api("POST", path + "/query", { objectId: toolId, dataset: "program_description" });
+    if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
+      description = dRes.data.records[0].text || "";
+    }
+    var methods = [];
+    var mRes = api("POST", path + "/query", { objectId: toolId, dataset: "program_methods", sort: ["pos"] });
+    if (mRes.ok && mRes.data && mRes.data.records) {
+      var recs = mRes.data.records;
+      for (var i = 0; i < recs.length; i++) {
+        var r = recs[i];
+        var name = r.name || r.id || "";
+        var parenIdx = name.indexOf("(");
+        methods.push({
+          name: name,
+          bareName: parenIdx > 0 ? name.substring(0, parenIdx).trim() : (r.id || name.trim()),
+          kind: r.kind || "getter",
+          text: r.text || "",
+          pos: typeof r.pos === "number" ? r.pos : i
+        });
+      }
+      methods.sort(function(a, b) { return a.pos - b.pos; });
+    }
+    return { description: description, methods: methods };
+  }
+
+  // A program is a tool iff program.any_tool === true — set by the writers
+  // when the docs carry both a Tool Description and a Tool Schema. Strict:
+  // no fallback to "description non-empty" (the pre-any_tool heuristic).
   function getTools() {
     var programs = listPrograms();
     var tools = [];
     for (var i = 0; i < programs.length; i++) {
       var p = programs[i];
+      if (!p.anyTool) continue;
       if (!_isValidProgramName(p.name)) continue;
       var description = null;
       try {
-        var path = _pathForScope(p.space || "user");
-        var dRes = api("POST", path + "/query", { objectId: p.id, dataset: "program_description" });
-        if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
-          description = dRes.data.records[0].text || null;
-        }
+        var docs = getToolDocs(p.id, { space: p.space || "user" });
+        description = docs.description || null;
       } catch (e) {}
-      if (description) {
-        tools.push({
-          id: p.id, name: p.name, description: description,
-          programName: p.name, programVersion: p.version,
-          space: p.space || "user"
-        });
-      }
+      tools.push({
+        id: p.id, name: p.name, description: description,
+        programName: p.name, programVersion: p.version,
+        space: p.space || "user"
+      });
     }
     // anyHelper is always a tool
     var hasHelper = false;
@@ -996,7 +1027,10 @@ export function createClient(params) {
       if (!progName) continue;
       programs.push({
         id: rec.id, name: progName, version: progVersion,
-        title: rec.name || progName, description: null, space: scope
+        title: rec.name || progName, description: null, space: scope,
+        // Toolhood flag — the object query already returns program.* so
+        // getTools doesn't need a per-program fetch to filter.
+        anyTool: !!(rec.program && rec.program.any_tool === true)
       });
     }
     return programs;
@@ -1044,15 +1078,16 @@ export function createClient(params) {
       source = qRes.data.records[0].code || "";
     }
 
-    var dRes = api("POST", path + "/query", { objectId: match.id, dataset: "program_description" });
-    var markdown = "";
-    if (dRes.ok && dRes.data && dRes.data.records && dRes.data.records.length > 0) {
-      markdown = dRes.data.records[0].text || "";
-    }
+    // Tool docs are split storage: description body + per-method records.
+    // `markdown` stays as an alias of the description for back-compat —
+    // method docs are NOT in it; read `methods` (or getToolDocs) for those.
+    var docs = getToolDocs(match.id, { space: match.space || "user" });
 
     return {
       id: match.id, name: name, version: version,
-      title: match.title, source: source, markdown: markdown, space: match.space
+      title: match.title, source: source,
+      description: docs.description, methods: docs.methods,
+      markdown: docs.description, space: match.space
     };
   }
 
@@ -1092,80 +1127,9 @@ export function createClient(params) {
     return out;
   }
 
-  function saveProgram(opts) {
-    if (!opts) opts = {};
-    var progName = opts.name;
-    var version = opts.version || "v1";
-    var title = opts.title || progName;
-    var source = opts.source;
-    // Tool docs (description prelude + `## Tool Schema` section) live in
-    // the `program_description` dataset. Accept either `markdown` (the new
-    // name) or `appendMarkdown` (legacy from saveTool callers).
-    var markdown = opts.markdown != null ? opts.markdown : opts.appendMarkdown;
-    if (!progName) return { ok: false, error: "name is required" };
-    if (!source) return { ok: false, error: "source is required" };
-    if (!_isValidProgramName(progName)) {
-      return { ok: false, error: "name must be a valid JS identifier (letters, digits, _, $; no leading digit) — got " + JSON.stringify(progName) };
-    }
-    // markdown — when supplied — must carry the boot prelude's contract:
-    // a `## Tool Description` section. Without it the agent shows
-    // "(no description in tool's md)" and the tool is half-registered.
-    // saveTool always passes markdown; saveProgram callers that don't
-    // want tool docs simply pass nothing.
-    if (markdown != null && !/^##\s+Tool Description\s*$/m.test(String(markdown))) {
-      return { ok: false, error: "markdown must contain a '## Tool Description' section" };
-    }
-
-    // Write source + (optional) tool-doc datasets. setRecord upserts the
-    // single "main" record per dataset; same shape the program type expects.
-    function writeProgramDatasets(objId) {
-      var sr = setRecord(objId, "program_source", "main", { code: source });
-      if (!sr.ok) return sr;
-      if (markdown != null) {
-        var dr = setRecord(objId, "program_description", "main", { text: markdown });
-        if (!dr.ok) return dr;
-      }
-      return { ok: true };
-    }
-
-    var existing = getProgram(progName, version);
-    if (existing) {
-      var w = writeProgramDatasets(existing.id);
-      if (!w.ok) return { ok: false, error: w.error };
-      return { ok: true, object: { id: existing.id }, name: progName, version: version };
-    }
-
-    // The `program` builtin type uses literal property keys (name/version), so
-    // initialProperties can pass them directly — no xKey→propId resolution.
-    var programTypeId = _resolveTypeSeg("user", "program");
-    if (!programTypeId) return { ok: false, error: _typeNotFoundError("program") };
-    var createRes = api("POST", spacePath + "/objects", {
-      types: [programTypeId],
-      initialProperties: {
-        any: { name: title || (progName + "@" + version) },
-        program: { name: progName, version: version }
-      }
-    });
-    if (!createRes.ok) return { ok: false, error: _extractError(createRes) };
-    var newId = createRes.data.objectId;
-
-    var w2 = writeProgramDatasets(newId);
-    if (!w2.ok) return { ok: true, object: { id: newId }, name: progName, version: version, error: "program created but dataset write failed: " + w2.error };
-
-    return { ok: true, object: { id: newId }, name: progName, version: version };
-  }
-
-  function saveTool(opts) {
-    if (!opts) return { ok: false, error: "opts required" };
-    if (!opts.name) return { ok: false, error: "name is required" };
-    if (!opts.source) return { ok: false, error: "source is required" };
-    if (!opts.schema) return { ok: false, error: "schema is required" };
-    return saveProgram({
-      name: opts.name, version: opts.version || "v1",
-      title: opts.title || opts.name, source: opts.source,
-      markdown: opts.schema
-    });
-  }
+  // (saveProgram/saveTool moved to anyPrograms — program WRITES are
+  // anyPrograms' surface; anyHelper keeps the generic primitives they
+  // compose: createObject, updateObject, setRecord, deleteRecord.)
 
   // ==================== TYPE MANAGEMENT ====================
 
@@ -1322,6 +1286,7 @@ export function createClient(params) {
     listSpaceMembers: w("listSpaceMembers", listSpaceMembers),
 
     getTools: w("getTools", getTools),
+    getToolDocs: w("getToolDocs", getToolDocs),
     fetchTraceSchema: fetchTraceSchema,
     fetchTrace: fetchTrace,
 
@@ -1341,8 +1306,6 @@ export function createClient(params) {
     listPrograms: w("listPrograms", listPrograms),
     getProgram: w("getProgram", getProgram),
     runProgram: w("runProgram", runProgram),
-    saveProgram: w("saveProgram", saveProgram),
-    saveTool: w("saveTool", saveTool),
     createType: w("createType", createType),
     // resolveType(xKeyOrId[, scope]) → type id (or null). xKey/id only — no
     // display-name resolution (name is display metadata).

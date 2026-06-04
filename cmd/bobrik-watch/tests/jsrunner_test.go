@@ -116,14 +116,29 @@ func parseHarnessResult(t *testing.T, output string) (jsHarnessSummary, bool) {
 	return s, true
 }
 
+// buildLocalRuntime compiles cmd/any-agent-runtime (this repo's runtime CLI,
+// which wires the production anySDK module loader) into a temp dir and
+// returns the binary path. Building it here — instead of LookPath'ing the
+// stock anytype-agent-runtime — means imports in these tests resolve exactly
+// like production: space first (so a program saved BY a test, e.g.
+// createProgram's import probe, is importable immediately), -m files as
+// fallback.
+func buildLocalRuntime(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "any-agent-runtime")
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/anyproto/any/cmd/any-agent-runtime")
+	cmd.Dir = bobrikDir(t) // anywhere inside the module
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build any-agent-runtime: %v\n%s", err, out)
+	}
+	return bin
+}
+
 func TestJSAnyHelper(t *testing.T) {
 	// Ensure the server is reachable (doJSON t.Skips if not) and a space exists.
 	spaceID := ensureSpace(t)
 
-	runtime, err := exec.LookPath("anytype-agent-runtime")
-	if err != nil {
-		t.Skipf("anytype-agent-runtime not on PATH (%v) — `go install ./...` in the runtime repo", err)
-	}
+	runtime := buildLocalRuntime(t)
 
 	dir := moduleDir(t)
 	envPath := writeRuntimeEnv(t, spaceID)

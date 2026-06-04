@@ -1,4 +1,10 @@
-package main
+// Package anyrt wires the anytype-agent-runtime JS engine to the `any`
+// HTTP API: module resolution (programs import other programs straight from
+// the space, no cache — a program edit is live on the next import) and the
+// standard effect/global setup. Shared by cmd/bobrik-watch (the chat agent)
+// and cmd/any-agent-runtime (the standalone CLI the JS tests run under), so
+// tests resolve imports exactly like production.
+package anyrt
 
 import (
 	"encoding/json"
@@ -11,7 +17,7 @@ import (
 	"github.com/anyproto/anytype-agent-runtime/anyruntime"
 )
 
-type anySDKLoaderConfig struct {
+type LoaderConfig struct {
 	BaseURL        string
 	SpaceID        string
 	PrivateSpaceID string
@@ -19,7 +25,12 @@ type anySDKLoaderConfig struct {
 	OnResolve      func(anyruntime.ResolveInfo)
 }
 
-func newAnySDKLoader(cfg anySDKLoaderConfig) anyruntime.ModuleLoader {
+// NewAnySDKLoader returns a ModuleLoader that resolves "name@version" (or
+// "space:name@version" / "private:name@version") imports by querying the
+// `any` server: object lookup by typed properties, then the program_source
+// dataset. Unqualified imports that miss in the current space fall back to
+// the private space once.
+func NewAnySDKLoader(cfg LoaderConfig) anyruntime.ModuleLoader {
 	lookup := newAnySDKLookup(cfg.BaseURL, cfg.ProgramTypeID)
 
 	return func(importString string) (string, error) {
@@ -73,7 +84,7 @@ func newAnySDKLoader(cfg anySDKLoaderConfig) anyruntime.ModuleLoader {
 	}
 }
 
-func parseModuleName(cfg anySDKLoaderConfig, raw string) (spaceID, progName, progVersion string, qualified bool, err error) {
+func parseModuleName(cfg LoaderConfig, raw string) (spaceID, progName, progVersion string, qualified bool, err error) {
 	if idx := strings.Index(raw, ":"); idx >= 0 {
 		prefix := raw[:idx]
 		rest := raw[idx+1:]
@@ -97,7 +108,7 @@ func parseModuleName(cfg anySDKLoaderConfig, raw string) (spaceID, progName, pro
 	return spaceID, parts[0], parts[1], qualified, nil
 }
 
-func emitResolve(cfg anySDKLoaderConfig, info anyruntime.ResolveInfo) {
+func emitResolve(cfg LoaderConfig, info anyruntime.ResolveInfo) {
 	if cfg.OnResolve != nil {
 		cfg.OnResolve(info)
 	}
@@ -107,7 +118,7 @@ func emitResolve(cfg anySDKLoaderConfig, info anyruntime.ResolveInfo) {
 // Programs are objects of the given type with name and version properties.
 func newAnySDKLookup(baseURL, programTypeID string) func(spaceID, progName, progVersion string) (string, bool, error) {
 	return func(spaceID, progName, progVersion string) (string, bool, error) {
-		objectID, err := findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion)
+		objectID, err := FindProgramObject(baseURL, spaceID, programTypeID, progName, progVersion)
 		if err != nil {
 			return "", false, err
 		}
@@ -115,7 +126,7 @@ func newAnySDKLookup(baseURL, programTypeID string) func(spaceID, progName, prog
 			return "", false, nil
 		}
 
-		code, err := queryProgramSource(baseURL, spaceID, objectID)
+		code, err := QueryProgramSource(baseURL, spaceID, objectID)
 		if err != nil {
 			return "", false, fmt.Errorf("reading source for %s: %w", objectID, err)
 		}
@@ -126,8 +137,8 @@ func newAnySDKLookup(baseURL, programTypeID string) func(spaceID, progName, prog
 	}
 }
 
-// findProgramObject queries for a program object by its typed properties.
-func findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion string) (string, error) {
+// FindProgramObject queries for a program object by its typed properties.
+func FindProgramObject(baseURL, spaceID, programTypeID, progName, progVersion string) (string, error) {
 	filter := map[string]any{
 		"filter": map[string]any{
 			programTypeID + ".name":    progName,
@@ -167,8 +178,8 @@ func findProgramObject(baseURL, spaceID, programTypeID, progName, progVersion st
 	return rec.Id, nil
 }
 
-// queryProgramSource reads the "code" field from the program_source dataset.
-func queryProgramSource(baseURL, spaceID, objectID string) (string, error) {
+// QueryProgramSource reads the "code" field from the program_source dataset.
+func QueryProgramSource(baseURL, spaceID, objectID string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"objectId": objectID,
 		"dataset":  "program_source",

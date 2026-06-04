@@ -14,7 +14,7 @@ Structured, non-property content lives in **datasets** (e.g. `mini_app`, `progra
 
 ## Tool Schema
 
-### getObjects(typeOrQuery)
+### getObjects(typeOrQuery) [getter]
 The one query method. Returns the records **array directly** — iterate it as-is.
 An empty array means "no matches"; it **throws** on a real failure (unknown
 type — the error lists the available types; server error; bad arguments), so
@@ -39,14 +39,14 @@ Fields:
 Full guide: docs/09-query.md. (Note: negation filters like $ne also match
 objects lacking the field — cross-object getObjects scopes by type so that's safe.)
 
-### getObject(objId, opts?)
+### getObject(objId, opts?) [getter]
 Fetch one object by ID. Returns the object with properties nested per type
 (`obj["<typeXKey>"].prop`, read via `getProp(obj, "<typeXKey>.prop")`) plus `markdown` body.
 - objId: object ID
 - opts.space: "user" or "system"
 - opts.from, opts.to: line range for markdown slicing
 
-### createObject(typeKey, data)
+### createObject(typeKey, data) [mutator]
 Create a new object. Properties are nested type groups (write what you read):
 ```js
 createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965 } })
@@ -57,7 +57,7 @@ createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965
 - data.body: markdown content
 - data.<typeXKey>: `{ prop: value }` property group for that type. One group per type — a multitype object takes several. Any other top-level key errors.
 
-### updateObject(objId, data)
+### updateObject(objId, data) [mutator]
 Update an existing object. Property groups use the same nested shape as
 createObject (`{ book: { rating: 9 } }`). Property/name write failures
 (including server validation — unknown property, wrong kind) are returned
@@ -67,24 +67,24 @@ as `{ok:false, error}`.
 - data.body / data.markdown — full markdown body (use appendToObject to append cheaply)
 - data.<typeXKey> — `{ prop: value }` group; several groups update multiple types in one call
 
-### deleteObject(objId)
+### deleteObject(objId) [mutator]
 Delete an object.
 - objId: object ID
 
-### editObject(objId, opts)
+### editObject(objId, opts) [mutator]
 Surgical string replacement on markdown body.
 - objId: object ID
 - opts.oldString, opts.newString, opts.replaceAll
 
-### appendToObject(objId, text)
+### appendToObject(objId, text) [mutator]
 Append text to markdown body.
 - objId: object ID
 - text: text to append
 
-### getTypes(opts?)
+### getTypes(opts?) [getter]
 List all types in the space.
 
-### createType(opts)
+### createType(opts) [mutator]
 Create a type with properties. Idempotent AND additive — if the type already
 exists, only the missing properties are added (safe for multiple programs to
 declare the same type with different properties).
@@ -94,42 +94,42 @@ declare the same type with different properties).
 Returns `{ ok, type: { id, name, xKey }, created }`. Use `type.xKey` as the
 property-group key in writes and the namespace segment in dotted read/filter paths.
 
-### setRecord(objId, dataset, recordId, fields, opts?)
+### setRecord(objId, dataset, recordId, fields, opts?) [mutator]
 Upsert a dataset record, setting each field at its own path atomically (updating
 one field never rewrites the others). `fields` = flat `{ field: value }` map.
 (Read datasets with `getObjects({ objectId, dataset, ... })`.)
 
-### deleteRecord(objId, dataset, recordIds, opts?)
+### deleteRecord(objId, dataset, recordIds, opts?) [mutator]
 Tombstone one or more dataset records. recordIds is a single id or an array.
 
-### describeType(typeKey)
+### describeType(typeKey) [getter]
 Inspect a type: metadata, properties, sample object, object count.
 - typeKey: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
 
-### getProperties()
+### getProperties() [getter]
 List all properties across all types.
 
-### search(queries...)
+### search(queries...) [getter]
 Search objects by text (limited — no FTS indexer yet).
 
-### getSpaceMember(identityOrId)
+### getSpaceMember(identityOrId) [getter]
 Get a space member by identity or ID.
 
-### listSpaceMembers()
+### listSpaceMembers() [getter]
 List all space members.
 
-### getCollectionObjects(collectionId)
+### getCollectionObjects(collectionId) [getter]
 List objects in a folder/collection.
 - collectionId: folder object ID
 
-### createCollection(name)
+### createCollection(name) [mutator]
 Create a folder.
 - name: folder name
 
-### addToCollection(collectionId, objectIds)
+### addToCollection(collectionId, objectIds) [mutator]
 Move objects into a folder.
 - collectionId: folder ID
 - objectIds: single ID or array
 
-### removeFromCollection(collectionId, objectId)
+### removeFromCollection(collectionId, objectId) [mutator]
 Move object back to root.

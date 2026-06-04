@@ -14,7 +14,7 @@
 //
 // Run: anytype-agent-runtime -m assistantjs assistantjs/toolcall_core@v1.js text="..."
 
-import { createClient, getProp, extractMarkdownSection } from "anyHelper@v1";
+import { createClient, getProp } from "anyHelper@v1";
 import { createLLM } from "llm@v1";
 import { displayValue, formatTraceOneLiner, summarizeTrace } from "utils@v1";
 import { createAMemory } from "amemory@v2";
@@ -93,89 +93,27 @@ var RUN_CELL_TOOL = {
 // Helpers — tool discovery, boot prelude, and dynamic system prompt section
 // ============================================================================
 
-function _stripMethodNameSuffix(name) {
-  var parenIdx = name.indexOf("(");
-  if (parenIdx > 0) return name.substring(0, parenIdx).trim();
-  return name.trim();
+// Render one stored method record back to its markdown section — the shape
+// describeMethod returns. The kind tag is re-attached to the heading
+// (`### name(sig) [kind]`), matching how the doc was authored.
+function _renderMethodDoc(m) {
+  var heading = "### " + m.name + (m.kind ? " [" + m.kind + "]" : "");
+  return m.text ? heading + "\n\n" + m.text : heading;
 }
 
-// Walk a tool's full markdown and return { description, methods }, where
-// methods = [{ name, bareName, content, kind }] sliced from "## Tool Schema"
-// (or "# Tools") subsections.
-//
-// Recognized kind tags: getter, mutator, setup, program. Methods tagged
-// `program` are included here; the boot path filters them out for anyHelper
-// so they vanish from the discovery surface.
-function _parseToolMarkdown(md) {
-  if (!md) return { description: "", methods: [] };
-  var description = extractMarkdownSection(md, "Tool Description") || "";
-  var toolsStart = -1;
-  var candidates = ["\n# Tools\n", "# Tools\n", "\n## Tools\n", "## Tools\n", "\n## Tool Schema\n", "## Tool Schema\n"];
-  for (var ci = 0; ci < candidates.length; ci++) {
-    toolsStart = md.indexOf(candidates[ci]);
-    if (toolsStart !== -1) break;
-  }
-  if (toolsStart === -1) return { description: description, methods: [] };
-  if (md.charAt(toolsStart) === "\n") toolsStart++;
-
-  var lines = md.substring(toolsStart).split("\n");
-  var sectionLevel = 1;
-  var headM = lines[0] && lines[0].match(/^(#{1,6})\s/);
-  if (headM) sectionLevel = headM[1].length;
-  var methodPrefix = "";
-  for (var h = 0; h <= sectionLevel; h++) methodPrefix += "#";
-  methodPrefix += " ";
-
-  var methods = [];
-  var currentName = null;
-  var currentKind = "getter";
-  var currentLines = [];
-
-  function flush() {
-    if (currentName === null) return;
-    methods.push({
-      name: currentName,
-      bareName: _stripMethodNameSuffix(currentName),
-      content: currentLines.join("\n"),
-      kind: currentKind
-    });
-  }
-
-  for (var i = 1; i < lines.length; i++) {
-    var hm = lines[i].match(/^(#{1,6})\s/);
-    if (hm && hm[1].length <= sectionLevel) break;
-    if (lines[i].indexOf(methodPrefix) === 0) {
-      flush();
-      var headingText = lines[i].substring(methodPrefix.length).trim();
-      var kindMatch = headingText.match(/\s*\[(getter|mutator|setup|program)\]\s*$/);
-      currentKind = "getter";
-      if (kindMatch) {
-        currentKind = kindMatch[1];
-        headingText = headingText.substring(0, kindMatch.index).trim();
-      }
-      currentName = headingText;
-      currentLines = [lines[i]];
-    } else if (currentName !== null) {
-      currentLines.push(lines[i]);
-    }
-  }
-  flush();
-  return { description: description, methods: methods };
-}
-
-// Build the per-session toolDocs table from getTools() results. Hard-errors
-// if the anyHelper tool is not discoverable in the space — every kernel
-// must have it as the `anyHelper` global.
+// Build the per-session toolDocs table from getTools() results. Docs come
+// from the split datasets via getToolDocs (program_description = description
+// body, program_methods = one record per method) — no markdown parsing.
+// Hard-errors if the anyHelper tool is not discoverable in the space — every
+// kernel must have it as the `anyHelper` global.
 function _buildToolDocs(bootClient, tools) {
   var toolDocs = {};
   for (var ti = 0; ti < tools.length; ti++) {
     var t = tools[ti];
-    // Route the full-object fetch to the program's source space. Without this,
+    // Route the dataset reads to the program's source space. Without this,
     // a system-space tool's id won't resolve from the user-space client.
-    var fullObj = bootClient.getObject(t.id, t.space ? { space: t.space } : undefined);
-    var md = fullObj && fullObj.markdown ? fullObj.markdown : "";
-    var parsed = _parseToolMarkdown(md);
-    var methods = parsed.methods;
+    var docs = bootClient.getToolDocs(t.id, t.space ? { space: t.space } : undefined);
+    var methods = docs.methods;
 
     // For anyHelper specifically, hide [program]-tagged methods from the
     // discovery surface. They stay callable on the underlying instance, just
@@ -188,9 +126,9 @@ function _buildToolDocs(bootClient, tools) {
       toolId: t.id,
       programName: t.programName,
       programVersion: t.programVersion || "v1",
-      description: parsed.description,
-      createdDate: (fullObj && fullObj.created_date) || "",
-      methods: methods.map(function(m) { return { bareName: m.bareName, content: m.content }; })
+      description: docs.description,
+      createdDate: "",
+      methods: methods.map(function(m) { return { bareName: m.bareName, content: _renderMethodDoc(m) }; })
     };
   }
   if (!toolDocs["anyHelper"]) {
@@ -201,9 +139,10 @@ function _buildToolDocs(bootClient, tools) {
 
 // For anyHelper specifically, additional method names that exist on the
 // instance but should be hidden from the discovery surface. The .md may not
-// document them at all (e.g. saveTool); we still want them out of listMethods.
+// document them at all (e.g. getToolDocs — boot plumbing); we still want
+// them out of listMethods.
 var ANYHELPER_HIDDEN_METHODS = [
-  "saveTool",
+  "getToolDocs",
   "fetchTrace",
   "fetchTraceSchema"
 ];
@@ -799,7 +738,8 @@ function extractEffects(traces, spaceId) {
     else if (bare === "addTag") op = "tagged";
     else if (bare === "removeTag") op = "untagged";
     else if (bare === "createType") op = "typed";
-    else if (bare === "saveProgram") op = "program-saved";
+    // (saveProgram moved to anyPrograms — its inner client calls surface
+    // here as createObject/setRecord, so program saves still show up.)
     else continue;
 
     var record = traces[name];
