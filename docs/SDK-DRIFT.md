@@ -8,8 +8,7 @@ pre-release — `v0.0.8-0.20260604214834-07fafe207c9e` — with
 around here or fix upstream. Verified by probing the live server unless
 noted.
 
-Read the SDK source at `../any-sync-sdk2/` (the branch this pins), or the
-module cache
+Read the SDK source in the module cache
 (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
 
 ---
@@ -60,6 +59,6 @@ ignoring limit/offset, and adds `HasNext` — SDK `fd4c769`); the `Snapshot`
 `xkey` property; and the sibling-checkout `replace` is gone (`any` pins a
 published pseudo-version, no `replace`).
 
-How to add an entry: probe the live server (or read the SDK source under
-`../any-sync-sdk2/`), state what the doc/comment claims, what actually
-happens, the observable repro, and the suggested fix.
+How to add an entry: probe the live server (or read the SDK source in the
+module cache), state what the doc/comment claims, what actually happens,
+the observable repro, and the suggested fix.

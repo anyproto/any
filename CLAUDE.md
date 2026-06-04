@@ -249,8 +249,7 @@ bump it to the tagged release once the SDK tags one.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
-(`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`) or
-the source checkout `../any-sync-sdk2/`.
+(`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
 
 ## What this project is
 
@@ -278,7 +277,7 @@ any            (this repo)  — HTTP server + CLI
 ```
 
 The full stack context lives in the SDK's `docs/00-common-context.md` (in the
-module cache, or the `../any-sync-sdk2` source checkout if you have it). When an SDK
+module cache). When an SDK
 method is missing or awkward, raise it on the SDK repo rather than working around
 it here — several v1 endpoints are explicitly blocked on SDK work (see
 `docs/07-roadmap.md` § SDK-side prerequisites).

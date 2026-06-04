@@ -130,7 +130,7 @@ func TestE2E_FullFlow(t *testing.T) {
 	}
 
 	t.Run("types + properties demo flow", func(t *testing.T) {
-		// Mirrors any-sync-sdk2/sdk_test.go: TestSDK_TypesAndProperties
+		// Mirrors any-sync-sdk/sdk_test.go: TestSDK_TypesAndProperties
 		// against the real binary over loopback HTTP.
 		var typeResp map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types",

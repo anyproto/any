@@ -122,7 +122,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Debug — diagnostic surface; not a stable interface. Production UI
 	// should use /sync-status (above) once the SDK lands the
 	// production-grade methods. See internal/api/debug.go and
-	// any-sync-sdk2/space/debug.go for the field-level docs.
+	// any-sync-sdk/space/debug.go for the field-level docs.
 	g.GET("/spaces/:spaceId/debug", d.debugSpace)
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
