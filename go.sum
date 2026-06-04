@@ -12,12 +12,12 @@ github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578/go.mod h1:uGdko
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/anyproto/any-store v0.4.6 h1:opnTUGfuHa/VA9Incu6iLEy3WsQ4mb2o1oAXGDysH0s=
 github.com/anyproto/any-store v0.4.6/go.mod h1:Npi35qMUVZ8ouiV4o9AqpZDs6LbDOF+5ZLlVijXofFM=
-github.com/anyproto/any-store/v2 v2.0.0-alpha.5 h1:BAAnSEjglyZHtf7Uiu2KX0X+gnm8ucw+0mwBEPeUQrg=
-github.com/anyproto/any-store/v2 v2.0.0-alpha.5/go.mod h1:ZWYzw07hxnCN9sPovwb0GIAKmk9QBrOLGQ/TLa4D0+8=
+github.com/anyproto/any-store/v2 v2.0.0-alpha.10 h1:Uu9kGfyQ1XZK+VxbIOlMvzM3k9tSehixyG9VeDJ07Og=
+github.com/anyproto/any-store/v2 v2.0.0-alpha.10/go.mod h1:ZWYzw07hxnCN9sPovwb0GIAKmk9QBrOLGQ/TLa4D0+8=
 github.com/anyproto/any-sync v0.12.8 h1:vSEArZ8R/VMKP9kiGrSkSL1ShZ7NKzp6mdeoE6RkFH4=
 github.com/anyproto/any-sync v0.12.8/go.mod h1:cdXRZQPy30pdU0yeLukUMdaMrMxLtiBQObnr/UwAJ0Q=
-github.com/anyproto/any-sync-sdk v0.0.8-0.20260604214038-74446dacdb2e h1:vcX5NQ4p51M/O4XAlM0cTuO1NfcXIlpX4bPcqcZ41y0=
-github.com/anyproto/any-sync-sdk v0.0.8-0.20260604214038-74446dacdb2e/go.mod h1:gBXjLm6Fm3aY58hPn+uNQ1Unm+snXMJQWayXfFvGxwo=
+github.com/anyproto/any-sync-sdk v0.0.8-0.20260604214834-07fafe207c9e h1:aVGvCStFqyCsM0ynSKtBeLyMmPMEUicZeVQ+zNO0fmA=
+github.com/anyproto/any-sync-sdk v0.0.8-0.20260604214834-07fafe207c9e/go.mod h1:d23GKyDMa801uRM0jfnLODU7BN2IqwrjK8JEE1tviHI=
 github.com/anyproto/anytype-agent-runtime v0.1.1 h1:ir01eiqLeMlNGFvJv+a7D+dV3JF5IFSVRocvLIKKRjs=
 github.com/anyproto/anytype-agent-runtime v0.1.1/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=

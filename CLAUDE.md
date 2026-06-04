@@ -114,9 +114,12 @@ Implementation slices landed:
    `{inserted, updated, deleted, unchanged}`. `POST
    /editor/markdown/append` is the append-only fast path: it parses
    the fragment, looks up only the tail pos (no full-doc read, no
-   diff), and creates the new blocks in one ModifyBatch — O(chunk),
-   not O(doc). Purely additive; same reply shape as PUT with only
-   `inserted` populated (`markdown.Append` in `internal/markdown`).
+   diff), ensures the `editor` type is attached (one object-record
+   read via `editor.EnsureType` — the SDK gates `editor_blocks` writes
+   on type membership, so a first write to a fresh object needs it,
+   same as PUT), and creates the new blocks in one ModifyBatch —
+   O(chunk), not O(doc). Purely additive; same reply shape as PUT with
+   only `inserted` populated (`markdown.Append` in `internal/markdown`).
    Grow-by-append pages (e.g. the agent debug log, via
    `anyHelper.appendToObject`) use it so a run of N appends is O(N),
    not O(N²). CLI: `any editor blocks create/patch/delete`.
@@ -206,12 +209,13 @@ Implementation slices landed:
       `[{name, schema}]` where `schema` is a JSON Schema doc with a
       per-field `x-scope` (synced/derived/local). CLI: `any datasets
       [<spaceId>]`.
-    - **SDK prerequisite (branch `feat/techspace-store-query-schemas`,
-      commit `74446da`).** The public `handler.Dataset` gained a `Schema`
-      field + re-exported schema primitives (`handler.Field` / `Scope` /
+    - **SDK prerequisite (branch `feat/techspace-store-query-schemas`).**
+      The public `handler.Dataset` gained a `Schema` field + re-exported
+      schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
-      it (back-compat: a zero Schema → Dynamic). `any` pins the
-      pre-release pseudo-version off that branch; bump to the tagged
+      it (back-compat: a zero Schema → Dynamic). The same branch bumps
+      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the pre-release
+      pseudo-version off that branch; bump to the tagged
       release once the SDK cuts one.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
@@ -239,8 +243,9 @@ Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 **published modules**, not sibling checkouts — `go.mod` pins versions
 with no `replace`. The SDK is currently pinned at a pre-release
 pseudo-version off branch `feat/techspace-store-query-schemas`
-(`v0.0.8-0.2026…-74446dacdb2e`, the dataset-schema + unified-query work —
-see status item 12); bump it to the tagged release once the SDK tags one.
+(`v0.0.8-0.2026…-07fafe207c9e`, the dataset-schema + unified-query work,
+which also bumps `any-store/v2` to `alpha.10` — see status item 12);
+bump it to the tagged release once the SDK tags one.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
