@@ -165,6 +165,7 @@ writer first (push to the node) then the reader (pull back).
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown/append`       | append markdown at tail (no read/diff) |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | create one block         |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | $set / $unset one block  |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | tombstone one block      |
@@ -189,6 +190,22 @@ PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
 fire under the hood. `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N}` where the slices
 contain block ids.
+
+`POST …/editor/markdown/append` is the append-only fast path. It
+parses the supplied `{"content": "..."}`, looks up only the tail
+position (one indexed `-nav.pos` query, never the existing block
+bodies), allocates lexids past the last block, and creates every
+parsed block in a single ModifyBatch. Cost is O(appended content),
+independent of how large the document already is — unlike `PUT`, which
+renders and diffs the whole document on every call. The reply uses the
+same shape as `PUT` with only `inserted` populated (`updated` and
+`deleted` are always empty). Trade-offs the caller accepts: it is
+purely additive (no update/delete, and it will create a block
+identical to an existing one), and it inserts no leading separator —
+`content` is appended structurally after the current last block.
+Empty/blank content is a 200 no-op. Use this for grow-by-append pages
+(e.g. agent debug logs that append every turn); a run of N appends is
+O(N) here versus O(N²) through `PUT`.
 
 #### Blocks
 
@@ -399,7 +416,8 @@ Two query scopes:
 - `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
   Reads one of an object's own datasets (`objectId` and `dataset`
   required). Used for a type object's `properties` definitions
-  dataset, `editor_blocks`, `chat_messages`, etc.
+  dataset, `editor_blocks`, `chat_messages`, `program_source` /
+  `program_description`, `mini_app`, etc.
 
 All four take POST (filter/sort body doesn't fit a query string).
 Reads always go through these — the bare `…/query` returns a

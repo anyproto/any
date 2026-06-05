@@ -6,6 +6,10 @@ type TypesCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
+	// XKey is an optional stable, caller-side programmatic key for the type
+	// (e.g. "agent_memory"). Display-metadata, like Name — not enforced unique.
+	// When omitted, clients typically derive one from Name.
+	XKey string `json:"xKey,omitempty"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.
@@ -46,7 +50,12 @@ type TypeInfo struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
-	BuiltIn     bool   `json:"builtIn,omitempty"`
+	// XKey is the stable, caller-side programmatic key. For builtin/registered
+	// types it equals Id (a clean literal like "program"); for user types it's
+	// the value set at create (or derived from Name by the client). Clients use
+	// it as the stable type handle in dotted property paths.
+	XKey    string `json:"xKey,omitempty"`
+	BuiltIn bool   `json:"builtIn,omitempty"`
 }
 
 // TypesListResponse is the body of GET /v1/spaces/:spaceId/types.

@@ -14,8 +14,9 @@ import (
 // Markdown read/write endpoints — a lossless import/export layer
 // over the editor_blocks dataset (internal/editor).
 //
-//	GET  /v1/spaces/:spaceId/objects/:objectId/markdown
-//	PUT  /v1/spaces/:spaceId/objects/:objectId/markdown
+//	GET  /v1/spaces/:spaceId/objects/:objectId/editor/markdown
+//	PUT  /v1/spaces/:spaceId/objects/:objectId/editor/markdown
+//	POST /v1/spaces/:spaceId/objects/:objectId/editor/markdown/append
 //
 // These are convenience routes — each one bundles several SDK calls
 // (Query, Modify, Delete) under a single HTTP request — and explicitly
@@ -28,7 +29,10 @@ import (
 // supplied content, diffs against the stored blocks, and emits the
 // same per-record create / update / delete ops the /blocks endpoints
 // would — so the same `editor_blocks` SSE events fire regardless of
-// which path produced the change.
+// which path produced the change. POST .../append is the append-only
+// fast path: it skips the read+diff entirely and only creates blocks
+// past the current tail, so its cost is O(appended content) rather
+// than O(document) — see markdown.Append.
 
 // markdownGet returns the joined markdown content for an object.
 //
@@ -115,6 +119,57 @@ func (d *deps) markdownSet(c echo.Context) error {
 		Inserted:  inserted,
 		Updated:   updated,
 		Deleted:   deleted,
+		Unchanged: res.Unchanged,
+	})
+}
+
+// markdownAppend appends markdown content to the tail of an object
+// without reading or diffing the existing document.
+//
+//	@Summary	Append markdown content (append-only fast path)
+//	@Tags		editor
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId		path		string					true	"Space ID"
+//	@Param		objectId	path		string					true	"Object ID"
+//	@Param		body		body		api.MarkdownContent		true	"Markdown content to append"
+//	@Success	200			{object}	api.MarkdownSetResponse
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown/append [post]
+func (d *deps) markdownAppend(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	objectId := c.Param("objectId")
+	if objectId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	res, err := markdown.Append(c.Request().Context(), sp, objectId, req.Content)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+		}
+		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
+			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+	}
+	// Append only ever inserts; emit the same wire shape as Set with
+	// non-nil arrays so clients can iterate without nil checks.
+	inserted := res.Inserted
+	if inserted == nil {
+		inserted = []string{}
+	}
+	return c.JSON(http.StatusOK, api.MarkdownSetResponse{
+		Inserted:  inserted,
+		Updated:   []string{},
+		Deleted:   []string{},
 		Unchanged: res.Unchanged,
 	})
 }

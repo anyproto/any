@@ -22,6 +22,7 @@ build: swagger
 	@mkdir -p $(OUT)
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 	go build -v -o $(OUT)/bobrik-watch $(PKG)/cmd/bobrik-watch
+	go build -v -o $(OUT)/any-agent-runtime $(PKG)/cmd/any-agent-runtime
 
 test:
 	go test ./...

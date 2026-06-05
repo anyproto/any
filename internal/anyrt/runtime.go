@@ -1,14 +1,14 @@
-package main
+package anyrt
 
 import (
-	"os"
+	"io"
 
 	"github.com/anyproto/anytype-agent-runtime/anyruntime"
-	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
+	agentruntime "github.com/anyproto/anytype-agent-runtime/runtime"
 	"github.com/anyproto/anytype-agent-runtime/runtime/hostfn"
 )
 
-type AnySDKRuntimeConfig struct {
+type RuntimeConfig struct {
 	APIBaseURL     string
 	SpaceID        string
 	PrivateSpaceID string
@@ -17,13 +17,30 @@ type AnySDKRuntimeConfig struct {
 	// "Agent Debug Log" pages under (exposed to JS as
 	// env.ANY_DEBUG_FOLDER_ID). Empty leaves debug pages at root.
 	DebugFolderID string
+	// ChatReplyWriter receives chatReply effect output (bobrik-watch posts
+	// it to the chat; the CLI prints it to stdout).
+	ChatReplyWriter io.Writer
+	// ExtraLoaders are chained AFTER the anySDK loader — the space stays
+	// the source of truth (live reload: a program edit is picked up on the
+	// next import); files only fill misses (test-local modules).
+	ExtraLoaders []anyruntime.ModuleLoader
+	// ExtraEnv is merged into the JS-visible `env` map after the standard
+	// keys (so a dotenv file can add e.g. provider API keys).
+	ExtraEnv map[string]string
 }
 
-func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
+// SetupAnySDKDirtyRuntime configures a fresh runtime against the `any`
+// server: standard effects (fetch/fetchBatch/sleep/chatReply), console,
+// js.eval, trace wrapping, the env map, and module resolution through
+// NewAnySDKLoader (every resolve is recorded as a `module.resolve` trace
+// entry).
+func SetupAnySDKDirtyRuntime(rt agentruntime.Runtime, cfg RuntimeConfig) {
 	rt.SetEffectResolver("fetch", hostfn.Fetch)
 	rt.SetEffectResolver("fetchBatch", hostfn.FetchBatch)
 	rt.SetEffectResolver("sleep", hostfn.Sleep)
-	rt.SetEffectResolver("chatReply", hostfn.NewChatReply(os.Stdout))
+	if cfg.ChatReplyWriter != nil {
+		rt.SetEffectResolver("chatReply", hostfn.NewChatReply(cfg.ChatReplyWriter))
+	}
 	rt.EnableConsole()
 	rt.EnableJSEval()
 	rt.EnableWrapTrace()
@@ -50,10 +67,15 @@ func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
 		"ANYTYPE_SPACE_ID":         cfg.SpaceID,
 		"ANYTYPE_PRIVATE_SPACE_ID": privateSpaceID,
 	}
+	for k, v := range cfg.ExtraEnv {
+		if _, reserved := envMap[k]; !reserved {
+			envMap[k] = v
+		}
+	}
 	rt.SetGlobal("env", envMap)
 
-	rt.SetModuleResolver(anyruntime.ChainLoaders(
-		newAnySDKLoader(anySDKLoaderConfig{
+	loaders := []anyruntime.ModuleLoader{
+		NewAnySDKLoader(LoaderConfig{
 			BaseURL:        cfg.APIBaseURL,
 			SpaceID:        cfg.SpaceID,
 			PrivateSpaceID: privateSpaceID,
@@ -67,5 +89,7 @@ func SetupAnySDKDirtyRuntime(rt agentrt.Runtime, cfg AnySDKRuntimeConfig) {
 				})
 			},
 		}),
-	))
+	}
+	loaders = append(loaders, cfg.ExtraLoaders...)
+	rt.SetModuleResolver(anyruntime.ChainLoaders(loaders...))
 }

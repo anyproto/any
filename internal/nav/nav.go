@@ -126,6 +126,7 @@ func TypeInfo() api.TypeInfo {
 		Id:          TypeId,
 		Name:        Name,
 		Description: Description,
+		XKey:        TypeId, // builtin: xKey == id ("nav")
 		BuiltIn:     true,
 	}
 }
