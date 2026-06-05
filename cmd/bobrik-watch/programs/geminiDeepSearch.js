@@ -265,7 +265,7 @@ export function research(question, opts) {
     var src = dedupSources[bi];
     var bm = client.createObject("bookmark", {
       name: src.title || src.domain,
-      properties: [{ key: "source", url: src.url }]
+      bookmark: { source: src.url }
     });
     if (bm && bm.ok) {
       bookmarkResults.push({ id: bm.id, name: src.title || src.domain, url: src.url });
@@ -283,7 +283,7 @@ export function research(question, opts) {
         subMd += "- [" + (fur.sources[ssi].title || fur.sources[ssi].domain) + "](" + fur.sources[ssi].url + ")\n";
       }
     }
-    var sp = client.createObject("Pages", {
+    var sp = client.createObject("pages", {
       name: fur.question,
       body: subMd
     });
@@ -316,7 +316,7 @@ export function research(question, opts) {
     + "Phase 3: " + (phase3Ms / 1000).toFixed(1) + "s | "
     + "Total: " + (totalMs / 1000).toFixed(1) + "s*";
 
-  var overviewPage = client.createObject("Pages", {
+  var overviewPage = client.createObject("pages", {
     name: collectionName,
     body: overviewMd
   });
@@ -395,7 +395,7 @@ function createSinglePageResult(question, initial, model, elapsedMs) {
     spaceId: env.ANYTYPE_SPACE_ID
   });
 
-  var page = client.createObject("Pages", {
+  var page = client.createObject("pages", {
     name: "Research: " + question.substring(0, 80),
     body: md
   });

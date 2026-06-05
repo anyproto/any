@@ -12,9 +12,11 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
+	"github.com/anyproto/any/internal/agentdebug"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/nav"
 	"github.com/anyproto/any/internal/program"
 )
@@ -72,6 +74,8 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			editor.NewType(),
 			chat.NewType(),
 			program.NewType(),
+			miniapp.NewType(),
+			agentdebug.NewType(),
 			nav.NewType(), // property-only: no dataset, just nav.* schema
 		},
 	}

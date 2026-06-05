@@ -15,8 +15,8 @@ Main is **NOT a database.** Per-object state changes often and belongs in the ob
 
 ### What does NOT belong
 
-- Per-object IDs, ratings, statuses, progress — use `anyHelper.getObjects("TypeName")`
-- Full property lists — use `anyHelper.describeType("TypeName")`
+- Per-object IDs, ratings, statuses, progress — use `anyHelper.getObjects("<type_xkey>")` (returns the records array directly)
+- Full property lists — use `anyHelper.describeType("<type_xkey>")`
 - Ephemeral state, drafts, in-progress notes — those ride chat-history compression
 
 ### Entry style: rules, not inventory

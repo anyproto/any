@@ -624,6 +624,13 @@ definitions:
         type: string
       name:
         type: string
+      xKey:
+        description: |-
+          XKey is the stable, caller-side programmatic key. For builtin/registered
+          types it equals Id (a clean literal like "program"); for user types it's
+          the value set at create (or derived from Name by the client). Clients use
+          it as the stable type handle in dotted property paths.
+        type: string
     type: object
   api.TypesCreateRequest:
     properties:
@@ -632,6 +639,12 @@ definitions:
       iconCid:
         type: string
       name:
+        type: string
+      xKey:
+        description: |-
+          XKey is an optional stable, caller-side programmatic key for the type
+          (e.g. "agent_memory"). Display-metadata, like Name — not enforced unique.
+          When omitted, clients typically derive one from Name.
         type: string
     type: object
   api.TypesCreateResponse:
@@ -1853,6 +1866,45 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Set markdown content (diff-based)
+      tags:
+      - editor
+  /spaces/{spaceId}/objects/{objectId}/editor/markdown/append:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Markdown content to append
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.MarkdownContent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MarkdownSetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Append markdown content (append-only fast path)
       tags:
       - editor
   /spaces/{spaceId}/objects/query:

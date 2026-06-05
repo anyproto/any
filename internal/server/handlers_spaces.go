@@ -37,6 +37,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// with dataset=editor_blocks.
 	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
 	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/markdown/append", d.markdownAppend)
 	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate)
 	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete)

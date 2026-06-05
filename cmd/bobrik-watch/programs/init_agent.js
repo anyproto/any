@@ -21,19 +21,21 @@ import { main as assistantMain } from "private:assistant@v5";
 // deploy-assistant.sh's --migrate / --deploy-all-spaces modes.
 
 function bootstrapTypes(client) {
-  client.createType({ name: "Agent Debug Log" });
+  // "Agent Debug Log" is a server built-in type (internal/agentdebug) with a
+  // structured `agent_debug_log` dataset — registered at server boot, never
+  // created here. Minting a user-space copy would collide on the xKey.
   client.createType({
     name: "Agent Skill",
     properties: [
-      { key: "__any_agent_skill_name", format: "text" }
+      { key: "agent_skill_name", format: "text" }
     ]
   });
   client.createType({
     name: "Agent Memory",
     properties: [
-      { key: "__any_agent_memory", format: "text" },
-      { key: "__any_chat_history", format: "objects" },
-      { key: "__any_chat_id", format: "text" }
+      { key: "agent_memory", format: "text" },
+      { key: "chat_history", format: "objects" },
+      { key: "chat_id", format: "text" }
     ]
   });
   client.createType({ name: "Pages" });
@@ -41,7 +43,7 @@ function bootstrapTypes(client) {
 }
 
 function _typesReady(client) {
-  var needed = ["Agent Debug Log", "Agent Skill", "Agent Memory", "Pages", "Space Context"];
+  var needed = ["Agent Skill", "Agent Memory", "Pages", "Space Context"];
   var types = client.getTypes ? client.getTypes() : [];
   var names = {};
   for (var i = 0; i < types.length; i++) names[types[i].name] = true;

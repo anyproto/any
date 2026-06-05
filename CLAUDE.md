@@ -111,8 +111,15 @@ Implementation slices landed:
    Import .md flows depend on it). GET renders blocks → markdown;
    PUT parses markdown → diffs against the current block tree →
    emits per-record create / update / delete ops, returning
-   `{inserted, updated, deleted, unchanged}`. CLI: `any editor
-   blocks create/patch/delete`.
+   `{inserted, updated, deleted, unchanged}`. `POST
+   /editor/markdown/append` is the append-only fast path: it parses
+   the fragment, looks up only the tail pos (no full-doc read, no
+   diff), and creates the new blocks in one ModifyBatch — O(chunk),
+   not O(doc). Purely additive; same reply shape as PUT with only
+   `inserted` populated (`markdown.Append` in `internal/markdown`).
+   Grow-by-append pages (e.g. the agent debug log, via
+   `anyHelper.appendToObject`) use it so a run of N appends is O(N),
+   not O(N²). CLI: `any editor blocks create/patch/delete`.
 8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
    space's `name` / `description` / `icon` in a derived in-space
    `spaceIndex` object (one per space, deterministic id) rather than
@@ -339,6 +346,9 @@ auto-start.
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
+| `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
+| `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
+| `docs/SDK-DRIFT.md` | where the SDK's own docs/comments disagree with observed v0.0.4 behavior |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.
