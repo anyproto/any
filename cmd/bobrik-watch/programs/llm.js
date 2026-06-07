@@ -758,14 +758,24 @@ export function completeBatch(prompts, tier) {
 // order; text is null on per-prompt failure (usage zeros). Unlike
 // completeBatch there is no single-prompt fast path — one prompt is still one
 // fetchBatch so usage extraction stays uniform.
-export function completeBatchDetailed(prompts, tier) {
+export function completeBatchDetailed(prompts, tier, opts) {
   if (!prompts || prompts.length === 0) return [];
   var config = getConfig();
   var resolved = resolveTier(config, tier || "classify");
+  var provider = resolved.provider;
+  var model = resolved.model;
+  // opts.{provider, model} override the tier resolution (per-call A/B without
+  // touching config TIERS) — same contract as _chatDispatch.
+  if (opts && opts.provider) {
+    provider = opts.provider;
+    model = opts.model || (MODEL_TIERS[provider] ? MODEL_TIERS[provider][tier || "classify"] : null);
+  } else if (opts && opts.model) {
+    model = opts.model;
+  }
 
   var fetchArgs = [];
   for (var i = 0; i < prompts.length; i++) {
-    var fa = _buildFetchArgs(resolved.provider, prompts[i], resolved.model, config);
+    var fa = _buildFetchArgs(provider, prompts[i], model, config);
     if (fa) fetchArgs.push(fa);
   }
 
@@ -775,7 +785,7 @@ export function completeBatchDetailed(prompts, tier) {
   for (var j = 0; j < responses.length; j++) {
     var u = _extractUsage(responses[j]);
     results.push({
-      text: _extractResponse(resolved.provider, responses[j]),
+      text: _extractResponse(provider, responses[j]),
       inTokens: u.inTokens,
       outTokens: u.outTokens
     });
@@ -1172,6 +1182,13 @@ function _chatDispatch(messages, opts) {
   var resolved = resolveTier(config, tier);
   var provider = resolved.provider;
   var model = opts.model || resolved.model;
+  // opts.provider overrides the tier's provider (e.g. A/B-ing an openrouter
+  // model without editing config TIERS). Model falls back to the provider's
+  // tier default when not given explicitly.
+  if (opts.provider) {
+    provider = opts.provider;
+    model = opts.model || (MODEL_TIERS[provider] ? MODEL_TIERS[provider][tier] : null);
+  }
 
   _lastResolved.provider = provider;
   _lastResolved.model = model;
