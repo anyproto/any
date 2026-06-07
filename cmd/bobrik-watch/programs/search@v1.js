@@ -25,7 +25,7 @@
 
 import { createClient } from "anyHelper@v1";
 import { createConvMemory } from "convmemory@v1";
-import { createLLM, parseJSON, completeBatchDetailed } from "llm@v1";
+import { parseJSON, completeBatchDetailed, chatUntraced } from "llm@v1";
 import { displayValue, inferSchema } from "utils@v1";
 
 // ============================================================================
@@ -821,7 +821,7 @@ export function createSearch(deps) {
   var resolved = {
     client: client,
     conv: deps.conv || createConvMemory(client),
-    llm: deps.llm || createLLM(),
+    llm: deps.llm || _untracedLLM(),
     batch: deps.batch || completeBatchDetailed,
     spaceId: deps.spaceId || (typeof env !== "undefined" && env.ANYTYPE_SPACE_ID) || null,
     chatId: deps.chatId || _argsChatId(),
@@ -852,6 +852,24 @@ export function createSearch(deps) {
   return { search: search, ask: ask };
 }
 
+// The inner loop's LLM surface — DELIBERATELY untraced (chatUntraced +
+// completeBatchDetailed, neither carries a __wrapTrace wrapper). A search call
+// makes O(rootTurns + batches) LLM calls; traced, each becomes an entry in the
+// CALLING cell's Effects digest — the exact context pollution this tool exists
+// to prevent. Provider fetches still hit the raw trace but llm.js's
+// __prepareTraces drops LLM-host fetch/fetchBatch from the digest, so the
+// parent sees ONE search.* entry and nothing else. Same object is bound as
+// `llm` inside root cells.
+function _untracedLLM() {
+  return {
+    chat: chatUntraced,
+    classify: function (prompt) {
+      var r = completeBatchDetailed([prompt], "classify");
+      return r.length > 0 ? r[0].text : null;
+    }
+  };
+}
+
 function _argsChatId() {
   try {
     if (typeof args !== "undefined" && args && args.chatId) return args.chatId;
@@ -876,4 +894,53 @@ export function search(query, opts) {
 
 export function ask(question, opts) {
   return _getDefault().ask(question, opts);
+}
+
+// ── __prepareTraces — keep the calling cell's Effects digest clean ──────────
+// toolcall_core chains this during tool_result prep (per-tool isolation: we
+// may only touch our own `search.*` keys). The full return value is already
+// in the cell's "Last value" (or the cell's own variable) — re-rendering it
+// in the Effects digest would double its context cost. Replace each search.*
+// output with a one-line summary carrying the measurements that matter.
+export function __prepareTraces(traces) {
+  if (!traces) return traces;
+  var out = {};
+  for (var k in traces) {
+    if (traces.hasOwnProperty(k)) out[k] = traces[k];
+  }
+  for (var name in out) {
+    if (!out.hasOwnProperty(name)) continue;
+    if (name.indexOf("search.") !== 0) continue;
+    var rec = out[name];
+    var compact = {};
+    for (var input in rec) {
+      if (!rec.hasOwnProperty(input)) continue;
+      var outputs = rec[input];
+      var summarized = [];
+      for (var i = 0; i < outputs.length; i++) {
+        summarized.push(_compactTraceOutput(outputs[i]));
+      }
+      compact[input] = summarized;
+    }
+    out[name] = compact;
+  }
+  return out;
+}
+
+// One-line summary of a search/ask return value (outputs arrive
+// JSON-stringified from the trace layer). Non-result outputs pass through.
+function _compactTraceOutput(o) {
+  var v = o;
+  if (typeof v === "string") {
+    try { v = JSON.parse(v); } catch (e) { return o; }
+  }
+  if (!v || typeof v !== "object" || v.mode === undefined || !v.stats) return o;
+  var s = v.stats;
+  return (v.ok ? "ok" : "FAILED") + " mode=" + v.mode +
+    " results=" + (v.results ? v.results.length : 0) +
+    (v.answer ? " answer=yes" : "") +
+    " | turns=" + s.rootTurns + " cells=" + s.toolcalls +
+    " subCalls=" + s.subCalls + " scanned=" + s.objectsScanned +
+    " tokens=" + s.tokensIn + "/" + s.tokensOut + " ms=" + s.ms +
+    (s.wrappedUp ? " WRAPPED-UP" : "");
 }

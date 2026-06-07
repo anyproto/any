@@ -109,9 +109,6 @@ Inspect a type: metadata, properties, sample object, object count.
 ### getProperties() [getter]
 List all properties across all types.
 
-### search(queries...) [getter]
-Search objects by text (limited — no FTS indexer yet).
-
 ### getSpaceMember(identityOrId) [getter]
 Get a space member by identity or ID.
 

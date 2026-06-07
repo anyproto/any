@@ -611,12 +611,6 @@ export function createClient(params) {
     throw new Error("getObjectsByTag is not supported: tags are plain array properties now — use getObjects(type, {filter:{\"Type.tags\":value}}) (see docs/09-query.md)");
   }
 
-  // No full-text index on the any backend yet (the tags/FTS decision is open).
-  // Returns [] so a hybrid-FTS caller (none today — amemory is gone) keeps
-  // working with its keyword half inert; vector similarity carries recall. For
-  // substring matching use getObjects with a $regex filter instead.
-  function search() { return []; }
-
   function getTypes(opts) {
     var res = api("GET", spacePath + "/types");
     if (!res.ok) return [];
@@ -1276,7 +1270,6 @@ export function createClient(params) {
     getObjects: w("getObjects", getObjects),
     getObject: w("getObject", getObject),
     getObjectsByTag: w("getObjectsByTag", getObjectsByTag),
-    search: w("search", search),
     getTypes: w("getTypes", getTypes),
     getProperties: w("getProperties", getProperties),
     getProperty: w("getProperty", getProperty),

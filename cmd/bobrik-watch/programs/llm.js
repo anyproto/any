@@ -1152,34 +1152,46 @@ export function createLLM() {
   // (translated from OpenAI shape).
   // tier defaults to "codegen"; opts can override model and other params.
   llm.chat = function(messages, opts) {
-    opts = opts || {};
-    var tier = opts.tier || "codegen";
-    var resolved = resolveTier(config, tier);
-    var provider = resolved.provider;
-    var model = opts.model || resolved.model;
-
-    _lastResolved.provider = provider;
-    _lastResolved.model = model;
-
-    var chatFn;
-    if (provider === "claude") {
-      chatFn = function(m, o) { return chatClaude(m, model, config, o); };
-    } else if (provider === "openrouter") {
-      chatFn = function(m, o) { return chatOpenRouter(m, model, config, o); };
-    } else if (provider === "openai") {
-      chatFn = function(m, o) { return chatOpenAI(m, model, config, o); };
-    } else {
-      throw new Error("llm.chat() supports providers: claude, openai, openrouter. Got: " + provider);
-    }
-
     if (ENABLE_LLM_TRACE && typeof __wrapTrace === "function") {
-      var wrapped = __wrapTrace("llm.chat", chatFn);
+      var wrapped = __wrapTrace("llm.chat", _chatDispatch);
       return wrapped(messages, opts);
     }
-    return chatFn(messages, opts);
+    return _chatDispatch(messages, opts);
   };
 
   return llm;
+}
+
+// Shared chat dispatch — tier/provider resolution + provider call, no trace
+// wrapper. createLLM().chat wraps this with __wrapTrace; chatUntraced exposes
+// it bare.
+function _chatDispatch(messages, opts) {
+  opts = opts || {};
+  var config = getConfig();
+  var tier = opts.tier || "codegen";
+  var resolved = resolveTier(config, tier);
+  var provider = resolved.provider;
+  var model = opts.model || resolved.model;
+
+  _lastResolved.provider = provider;
+  _lastResolved.model = model;
+
+  if (provider === "claude") return chatClaude(messages, model, config, opts);
+  if (provider === "openrouter") return chatOpenRouter(messages, model, config, opts);
+  if (provider === "openai") return chatOpenAI(messages, model, config, opts);
+  throw new Error("llm.chat() supports providers: claude, openai, openrouter. Got: " + provider);
+}
+
+// chatUntraced — llm.chat WITHOUT the __wrapTrace wrapper, for callers that
+// run their own inner LLM loops and must not flood the calling cell's
+// Effects digest with one trace entry per inner turn (search@v1's RLM root
+// loop is the canonical consumer; see docs/12-rlm-search.md). The underlying
+// provider fetches are still recorded as fetch/fetchBatch effects, but this
+// module's __prepareTraces drops LLM-host fetches from the digest — so an
+// untraced caller's LLM traffic is fully invisible in tool results while
+// remaining visible to provider billing and the runtime's raw trace files.
+export function chatUntraced(messages, opts) {
+  return _chatDispatch(messages, opts);
 }
 
 // ── parseJSON — strip markdown fences and parse JSON from LLM responses ──────

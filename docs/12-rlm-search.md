@@ -20,9 +20,11 @@ ever enter its own context.
 
 `any` has **no search**. No vector index, no FTS:
 
-- `anyHelper.search()` is a stub returning `[]`
-  (`cmd/bobrik-watch/anyHelper.js:618` — "no full-text index on the any
-  backend yet").
+- `anyHelper.search()` was a stub returning `[]` — now REMOVED
+  entirely: debug-log analysis showed agents reaching for it by name,
+  getting `[]`, and concluding "no results" instead of "no search"
+  (four wasted probes in one observed conversation, while the working
+  `search` tool sat in the same kernel).
 - `convmemory.search()` runs in degraded mode — explicit/detected time
   ranges, category filters, recency. No similarity ranking
   (`tool-descriptions/convmemory.md`, `docs/11-agent-memory.md`).
@@ -519,8 +521,33 @@ then promote the primitives outward.
 |---|---|
 | `cmd/bobrik-watch/programs/search@v1.js` | the program: root loop, `rlm.*` primitives, prompts, stats; `createSearch(deps)` factory for injection |
 | `cmd/bobrik-watch/tool-descriptions/search.md` | tool description + method schema (`search`, `ask`, `createSearch`) for toolhood |
-| `cmd/bobrik-watch/programs/llm.js` | added `completeBatchDetailed` (batched completions with per-prompt token usage) |
-| `cmd/bobrik-watch/tests/js/search_test.js` | loop mechanics with a scripted mock LLM: final/nudge/wrap-up/fallback/containment/stats (jsrunner harness) |
+| `cmd/bobrik-watch/programs/llm.js` | added `completeBatchDetailed` (batched completions with per-prompt token usage) and `chatUntraced` (chat without the `__wrapTrace` wrapper) |
+| `cmd/bobrik-watch/tests/js/search_test.js` | loop mechanics with a scripted mock LLM: final/nudge/wrap-up/fallback/containment/stats/trace-compaction (jsrunner harness) |
+
+### Trace hygiene (the calling cell's Effects digest)
+
+A search call makes O(rootTurns + batches) LLM calls; if each landed in the
+calling cell's `callTrace`, the parent's Effects digest would replay the
+inner loop — observed live: 7 `llm.chat` one-liners including chunks of the
+inner system prompt. The runtime has no untraced-section facility, so
+hygiene is composed from two existing mechanisms:
+
+1. **Don't enter the trace.** The inner loop uses `chatUntraced` +
+   `completeBatchDetailed` — neither carries a `__wrapTrace` wrapper. The
+   provider fetches still record as raw `fetch`/`fetchBatch` effects (raw
+   trace files keep full observability) but llm.js's `__prepareTraces`
+   already drops LLM-host fetches from the digest.
+2. **Compact what remains.** `search@v1` exports `__prepareTraces`
+   (chained by toolcall_core, per-tool isolation: own `search.*` keys
+   only) that replaces each search/ask output in the digest with a
+   one-line summary — `ok mode=rlm results=3 | turns=2 cells=2
+   subCalls=2 scanned=29 tokens=9533/1465 ms=21339` — since the full
+   return is already in the cell's "Last value".
+
+Net: one compact line per search call in the parent's context.
+Relatedly, `anyHelper.search()` (the dead stub returning `[]`) is REMOVED —
+debug logs showed agents probing it repeatedly and reading `[]` as "no
+results"; the method doc and BOBRIK.md now point here instead.
 
 Measured live (all tiers pinned to sonnet):
 - memory scope, 19 items: `search` 1 root turn / 1 cell / 1 batched

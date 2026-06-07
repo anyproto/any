@@ -7,7 +7,7 @@
 
 import { createClient } from "anyHelper@v1";
 import { createConvMemory } from "convmemory@v1";
-import { createSearch } from "search@v1";
+import { createSearch, __prepareTraces } from "search@v1";
 
 function mkHarness() {
   var s = { pass: 0, fail: 0, failures: [] };
@@ -235,6 +235,22 @@ export function main(args) {
   // --- 10. query validation ---------------------------------------------------
   var r10 = s1.inst.search("");
   h.check("validation: empty query rejected", r10.ok === false && r10.mode === "error", JSON.stringify(r10));
+
+  // --- 11. __prepareTraces: search.* outputs compacted, other keys untouched -
+  var bigResult = JSON.stringify(r1); // a real search return, stringified like the trace layer does
+  var traces = {
+    "search.search": { '["q",{}]': [bigResult, "not json {"] },
+    "anyHelper.getObjects": { '["x"]': ["[1,2,3]"] }
+  };
+  var prepped = __prepareTraces(traces);
+  var compacted = prepped["search.search"]['["q",{}]'][0];
+  h.check("traces: search output compacted", typeof compacted === "string" &&
+    compacted.indexOf("ok mode=rlm") === 0 && compacted.indexOf("tokens=") !== -1 &&
+    compacted.length < 300, compacted);
+  h.check("traces: compact carries measurements", compacted.indexOf("ms=") !== -1 &&
+    compacted.indexOf("scanned=") !== -1, compacted);
+  h.check("traces: non-result output passes through", prepped["search.search"]['["q",{}]'][1] === "not json {");
+  h.check("traces: foreign keys untouched", prepped["anyHelper.getObjects"]['["x"]'][0] === "[1,2,3]");
 
   return h.done();
 }

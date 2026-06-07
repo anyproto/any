@@ -138,13 +138,18 @@ cmd/bobrik-watch/
 
 ## What's missing
 
-- **Semantic search / memory recall** — externalized to a separate
+- **Vector-backed semantic search** — externalized to a separate
   vector-search service that does not exist yet (docs/07-roadmap.md
   §9). `convmemory.search` runs in degraded mode (period / category /
   recency via indexed queries); similarity ranking, dedup, and the old
   link-gen/evolution/reflect/decay passes are dormant until the
-  service lands. No vectors are stored in the datasets.
-- **FTS** — `anyHelper.search()` returns empty. The `any` API has no
-  full-text search indexer yet.
+  service lands. No vectors are stored in the datasets. Interim
+  semantic recall is the `search` tool (RLM loop over the datasets,
+  docs/12-rlm-search.md) — slower and token-priced, but functional.
+- **FTS** — there is no full-text indexer in the `any` API.
+  `anyHelper.search()` is REMOVED (a stub returning `[]` that agents
+  kept reaching for and silently getting nothing — see the VM-boot
+  debug log analysis). Use the `search` tool, or `getObjects` with a
+  `$regex` filter for exact substrings.
 - **Tags** — `addTag`, `listTags`, etc. return errors. No select/multi_select
   property format in the `any` API yet.
