@@ -122,7 +122,15 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   transcript). amemory@v2 and memory-bootstrap are DELETED. Semantic
   recall is a non-functional TODO until the external vector-search
   service lands; `convmemory.search` falls back to indexed
-  period/category/recency reads.
+  period/category/recency reads. **Semantic-ish recall DOES exist now**
+  via the RLM-style `search@v1` program (`programs/search@v1.js` +
+  `tool-descriptions/search.md`): an isolated inner LLM loop pages the
+  datasets and maps batched classify sub-calls over snippets — kernel
+  global `search`, methods `search(query, opts)` / `ask(question,
+  opts)`, returns ranked results + `stats` (turns/toolcalls/tokens/ms).
+  Cells run via `new Function` (containment by function scope — NOT
+  js.eval, NOT js.reset). Read docs/12-rlm-search.md before changing
+  the loop. Tests: `tests/js/search_test.js` (mocked LLM).
 - Env vars in JS programs (`env.ANYTYPE_API_URL`, etc.) keep their
   original names — they come from the runtime's `args` injection.
 

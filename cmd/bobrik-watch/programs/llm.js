@@ -752,6 +752,49 @@ export function completeBatch(prompts, tier) {
   return results;
 }
 
+// completeBatchDetailed(prompts[], tier) — completeBatch plus per-prompt token
+// usage, for callers that account tokens burned by batched sub-calls (the
+// search@v1 RLM loop's stats). Returns [{text, inTokens, outTokens}] in input
+// order; text is null on per-prompt failure (usage zeros). Unlike
+// completeBatch there is no single-prompt fast path — one prompt is still one
+// fetchBatch so usage extraction stays uniform.
+export function completeBatchDetailed(prompts, tier) {
+  if (!prompts || prompts.length === 0) return [];
+  var config = getConfig();
+  var resolved = resolveTier(config, tier || "classify");
+
+  var fetchArgs = [];
+  for (var i = 0; i < prompts.length; i++) {
+    var fa = _buildFetchArgs(resolved.provider, prompts[i], resolved.model, config);
+    if (fa) fetchArgs.push(fa);
+  }
+
+  var responses = fetchBatch(fetchArgs);
+
+  var results = [];
+  for (var j = 0; j < responses.length; j++) {
+    var u = _extractUsage(responses[j]);
+    results.push({
+      text: _extractResponse(resolved.provider, responses[j]),
+      inTokens: u.inTokens,
+      outTokens: u.outTokens
+    });
+  }
+  return results;
+}
+
+// Pull token usage out of a raw fetch response body. Anthropic uses
+// input_tokens/output_tokens, OpenAI-shaped providers prompt_tokens/
+// completion_tokens — read both, first non-zero wins.
+function _extractUsage(response) {
+  var u = response && response.body && response.body.usage;
+  if (!u) return { inTokens: 0, outTokens: 0 };
+  return {
+    inTokens: u.input_tokens || u.prompt_tokens || 0,
+    outTokens: u.output_tokens || u.completion_tokens || 0
+  };
+}
+
 // Build [url, opts] for a single completion call (used by completeBatch)
 function _buildFetchArgs(provider, prompt, model, config) {
   if (provider === "claude") {
@@ -1097,6 +1140,7 @@ export function createLLM() {
   llm.embed = embed;
   llm.embedBatch = embedBatch;
   llm.completeBatch = completeBatch;
+  llm.completeBatchDetailed = completeBatchDetailed;
   llm.buildCompleteFetchArgs = buildCompleteFetchArgs;
   llm.parseCompleteResult = parseCompleteResult;
   llm.buildEmbedFetchArgs = buildEmbedFetchArgs;
