@@ -388,14 +388,14 @@ func handleChanges(spaceID, objectID string, data []byte) {
 			}
 			fmt.Printf("new human message [%s] from %s: %s\n", rec.Id, doc.Creator, doc.Text)
 
-			if err := runAgent(spaceID, objectID, doc.Text); err != nil {
+			if err := runAgent(spaceID, objectID, rec.Id, doc.Text); err != nil {
 				fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
 			}
 		}
 	}
 }
 
-func runAgent(spaceID, objectID, text string) error {
+func runAgent(spaceID, objectID, msgID, text string) error {
 	fmt.Fprintf(os.Stderr, "starting agent runtime…\n")
 	rt, err := agentrt.NewSobekRuntime()
 	if err != nil {
@@ -432,22 +432,25 @@ func runAgent(spaceID, objectID, text string) error {
 		return nil
 	})
 
-	return runWrapperProgram(rt, spaceID, objectID, text)
+	return runWrapperProgram(rt, spaceID, objectID, msgID, text)
 }
 
-func runWrapperProgram(rt agentrt.Runtime, spaceID, objectID, text string) error {
+func runWrapperProgram(rt agentrt.Runtime, spaceID, objectID, msgID, text string) error {
 	quotedText, _ := json.Marshal(text)
 	quotedSpaceID, _ := json.Marshal(spaceID)
 	quotedChatID, _ := json.Marshal(objectID)
+	quotedMsgID, _ := json.Marshal(msgID)
 	quotedBaseURL, _ := json.Marshal(base)
 
+	// msgId = the triggering chat_messages record id — lands on the turn
+	// record's messageIds so agent_turns rows link back to the chat message.
 	wrapper := fmt.Sprintf(`import { main as entryMain } from "private:init_agent@v1";
 export function main() {
   return entryMain({
-    text: %s, spaceId: %s, chatId: %s,
+    text: %s, spaceId: %s, chatId: %s, msgId: %s,
     apiBaseUrl: %s, verbose: false
   });
-}`, string(quotedText), string(quotedSpaceID), string(quotedChatID), string(quotedBaseURL))
+}`, string(quotedText), string(quotedSpaceID), string(quotedChatID), string(quotedMsgID), string(quotedBaseURL))
 
 	fmt.Fprintf(os.Stderr, "evaluating wrapper…\n")
 	result, err := rt.EvalToString("__wrapper__", wrapper, nil)

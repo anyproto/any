@@ -612,7 +612,7 @@ export function createClient(params) {
   }
 
   // No full-text index on the any backend yet (the tags/FTS decision is open).
-  // Returns [] so the one intentional caller (amemory's hybrid ftsSearch) keeps
+  // Returns [] so a hybrid-FTS caller (none today — amemory is gone) keeps
   // working with its keyword half inert; vector similarity carries recall. For
   // substring matching use getObjects with a $regex filter instead.
   function search() { return []; }
@@ -1141,7 +1141,7 @@ export function createClient(params) {
   // createType is idempotent AND additive: if the type already exists it does
   // NOT early-return, it ensures each requested property is registered (adding
   // only the missing ones). This is deliberate — multiple programs declare the
-  // same type with different properties (e.g. both init_agent and amemory
+  // same type with different properties (e.g. two programs bootstrapping
   // declare "Agent Memory"); an early-return would silently drop the second
   // program's properties and make its writes fail validation.
   // _slugifyXKey derives a stable snake_case programmatic key from a display

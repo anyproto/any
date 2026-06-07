@@ -60,6 +60,13 @@ object.type_required
 dataset.unknown                  # no handler registered
 dataset.validation               # schema or handler rejected ops
 
+agent.seq_required               # turn/chunk append missing the seq ordering key
+agent.turn_invalid               # turn record shape violation (caps, types)
+agent.chunk_invalid              # chunk shape violation (missing/inverted pointers or period)
+agent.memory_invalid             # memory item shape violation (category/context/caps)
+agent.memory_not_found           # 404 — unknown itemId on evolve/delete
+agent.not_author                 # 403 — evolve/delete by non-creator
+
 type.not_found
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
