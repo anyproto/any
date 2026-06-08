@@ -20,7 +20,14 @@ export function main() {
       summarize: "claude/claude-sonnet-4-6",
       codegen:   "claude/claude-sonnet-4-6",
       reason:    "claude/claude-sonnet-4-6",
-      converse:  "claude/claude-sonnet-4-6"
+      converse:  "claude/claude-sonnet-4-6",
+      // search@v1 tiers (docs/12-rlm-search.md). The orchestrator runs the
+      // RLM root loop (coverage judgment, when-to-stop — the capability that
+      // matters); search_classify scores snippet batches (model-insensitive).
+      // Eval (2026-06-07): glm-5.1 root was best on every axis; haiku-class
+      // maps lose nothing. gemini-2.5-flash classify is cheaper/faster still.
+      search_orchestrator: "openrouter/z-ai/glm-5.1",
+      search_classify:     "openrouter/google/gemini-2.5-flash"
     }
   };
 }

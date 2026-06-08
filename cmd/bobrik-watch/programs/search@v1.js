@@ -25,7 +25,7 @@
 
 import { createClient } from "anyHelper@v1";
 import { createConvMemory } from "convmemory@v1";
-import { parseJSON, completeBatchDetailed, chatUntraced } from "llm@v1";
+import { parseJSON, completeBatchDetailed, chatUntraced, resolveModel } from "llm@v1";
 import { displayValue, inferSchema } from "utils@v1";
 
 // ============================================================================
@@ -39,6 +39,12 @@ var CONTEXT_CEILING_CHARS = 320000; // ~80k tokens of root context → wrap-up
 var INLINE_VALUE_CHARS = 4000; // bigger cell returns: schema preview, value stays in s._N
 var CLASSIFY_BATCH = 20;       // snippets per classify prompt
 var DEFAULT_K = 8;
+
+// Config tiers (config@v1 TIERS). The orchestrator runs the RLM root loop;
+// search_classify scores snippet batches. Both fall back to the generic
+// reason/classify tiers if a deployment hasn't defined the search_* tiers.
+var ORCHESTRATOR_TIER = "search_orchestrator";
+var CLASSIFY_TIER = "search_classify";
 
 // ============================================================================
 // Root tool — single cell tool, function-body semantics
@@ -239,7 +245,7 @@ function _makeRLM(ctx) {
       );
     }
 
-    var responses = ctx.deps.batch(prompts, o.tier || "classify");
+    var responses = ctx.deps.batch(prompts, o.tier || ctx.deps.classifyTier || CLASSIFY_TIER);
     ctx.stats.batchedSubCalls += 1;
     ctx.stats.subCalls += prompts.length;
     ctx.stats.objectsScanned += norm.length;
@@ -627,6 +633,13 @@ function _fallbackRecency(ctx, scope, k) {
   }
 }
 
+// "tier → provider/model" label for stats. When the caller injected its own
+// llm/batch (tests), the tier name may not resolve — fall back to the raw name.
+function _tierLabel(tier) {
+  var m = resolveModel(tier);
+  return m ? (tier + "→" + m.provider + "/" + m.model) : tier;
+}
+
 // ============================================================================
 // The root loop
 // ============================================================================
@@ -636,7 +649,11 @@ function _runRoot(query, opts, deps) {
   var stats = {
     rootTurns: 0, toolcalls: 0, subCalls: 0, batchedSubCalls: 0,
     objectsScanned: 0, tokensIn: 0, tokensOut: 0, ms: 0,
-    wrappedUp: false, semantic: false
+    wrappedUp: false, semantic: false,
+    // which models actually ran — search's inner loop is isolated/untraced, so
+    // this is the ONLY place the model is observable after the fact. "tier→provider/model".
+    orchestrator: _tierLabel(deps.rootTier || ORCHESTRATOR_TIER),
+    classify: _tierLabel(deps.classifyTier || CLASSIFY_TIER)
   };
   var scope = opts.scope || "auto";
   var k = opts.k || DEFAULT_K;
@@ -726,7 +743,7 @@ function _runRoot(query, opts, deps) {
 
     var resp;
     try {
-      resp = deps.llm.chat(messages, { system: system, tools: [CELL_TOOL], tier: deps.rootTier || "reason" });
+      resp = deps.llm.chat(messages, { system: system, tools: [CELL_TOOL], tier: deps.rootTier || ORCHESTRATOR_TIER });
     } catch (e) {
       return finish("error", [], { error: "root LLM call failed on turn " + (stats.rootTurns + 1) + ": " + String((e && e.message) || e) });
     }
@@ -828,7 +845,8 @@ export function createSearch(deps) {
     maxToolcalls: deps.maxToolcalls,
     maxRootTurns: deps.maxRootTurns,
     contextCeilingChars: deps.contextCeilingChars,
-    rootTier: deps.rootTier
+    rootTier: deps.rootTier,
+    classifyTier: deps.classifyTier
   };
 
   function search(query, opts) {
@@ -864,7 +882,7 @@ function _untracedLLM() {
   return {
     chat: chatUntraced,
     classify: function (prompt) {
-      var r = completeBatchDetailed([prompt], "classify");
+      var r = completeBatchDetailed([prompt], CLASSIFY_TIER);
       return r.length > 0 ? r[0].text : null;
     }
   };
@@ -942,5 +960,6 @@ function _compactTraceOutput(o) {
     " | turns=" + s.rootTurns + " cells=" + s.toolcalls +
     " subCalls=" + s.subCalls + " scanned=" + s.objectsScanned +
     " tokens=" + s.tokensIn + "/" + s.tokensOut + " ms=" + s.ms +
-    (s.wrappedUp ? " WRAPPED-UP" : "");
+    (s.wrappedUp ? " WRAPPED-UP" : "") +
+    (s.orchestrator ? " [" + s.orchestrator + "]" : "");
 }

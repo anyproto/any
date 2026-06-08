@@ -657,6 +657,18 @@ function resolveTier(config, tier) {
   return parsed;
 }
 
+// resolveModel(tier) — public {provider, model} for a config tier, WITHOUT
+// making an LLM call. For instrumentation (e.g. stamping which model a tier
+// resolves to into stats so it's observable after the fact). Returns
+// {provider, model} or null if the tier isn't configured.
+export function resolveModel(tier) {
+  try {
+    return resolveTier(getConfig(), tier);
+  } catch (e) {
+    return null;
+  }
+}
+
 // embed(text) — generate embedding vector via OpenAI API
 // Returns array of floats, or null on failure
 export function embed(text) {
