@@ -10,7 +10,7 @@ import (
 )
 
 // TestServer_TypesAndPropertiesFlow mirrors
-// any-sync-sdk2/sdk_test.go: TestSDK_TypesAndProperties as an HTTP-level
+// any-sync-sdk/sdk_test.go: TestSDK_TypesAndProperties as an HTTP-level
 // walkthrough through the live echo router.
 func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	d, teardown := newTestDeps(t)

@@ -114,9 +114,12 @@ Implementation slices landed:
    `{inserted, updated, deleted, unchanged}`. `POST
    /editor/markdown/append` is the append-only fast path: it parses
    the fragment, looks up only the tail pos (no full-doc read, no
-   diff), and creates the new blocks in one ModifyBatch — O(chunk),
-   not O(doc). Purely additive; same reply shape as PUT with only
-   `inserted` populated (`markdown.Append` in `internal/markdown`).
+   diff), ensures the `editor` type is attached (one object-record
+   read via `editor.EnsureType` — the SDK gates `editor_blocks` writes
+   on type membership, so a first write to a fresh object needs it,
+   same as PUT), and creates the new blocks in one ModifyBatch —
+   O(chunk), not O(doc). Purely additive; same reply shape as PUT with
+   only `inserted` populated (`markdown.Append` in `internal/markdown`).
    Grow-by-append pages (e.g. the agent debug log, via
    `anyHelper.appendToObject`) use it so a run of N appends is O(N),
    not O(N²). CLI: `any editor blocks create/patch/delete`.
@@ -180,6 +183,40 @@ Implementation slices landed:
     [`cmd/bobrik-watch/BOBRIK.md`](cmd/bobrik-watch/BOBRIK.md). Read
     those before changing anything under that directory.
 
+12. **Dataset schemas + space-list query/subscribe** — built on the
+    SDK's unified tech-space query (`Service.Query` /
+    `SpaceIndexObjectId`) and required-schema work (`handler.Dataset.Schema`
+    + `Space.Datasets` / `Service.Datasets`).
+    - **Space-list query/subscribe.** `POST /v1/spaces/query` and
+      `POST /v1/spaces/query/subscribe` wrap
+      `Service.Query(SpaceIndexObjectId(), "spaces")` — the windowed
+      snapshot + SSE primitive over the tech-space `spaces` dataset, same
+      body/frames as the per-object `…/query[/subscribe]`. Records are the
+      **raw** tech-index rows; `GET /v1/spaces` (`Service.List`) stays the
+      mapped `SpaceInfo` convenience. `dataset` body field defaults to
+      `spaces` (`profile` also available). Routes registered before the
+      `:spaceId` matcher so the static `query` segment isn't swallowed.
+      CLI: `any space query` / `any space subscribe`.
+    - **Schemas on handlers.** Every built-in dataset handler now declares
+      a `handler.Schema` (`internal/chat`, `internal/editor`): fields +
+      per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
+      rest synced; editor all synced). `Dynamic: true` keeps undeclared
+      keys permitted, mirroring the `objects` dataset. Opaque content
+      datasets (program/miniapp/agentdebug) stay schema-less (default
+      Dynamic).
+    - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
+      and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
+      `[{name, schema}]` where `schema` is a JSON Schema doc with a
+      per-field `x-scope` (synced/derived/local). CLI: `any datasets
+      [<spaceId>]`.
+    - **SDK prerequisite (`any-sync-sdk v0.0.8`).**
+      The public `handler.Dataset` gained a `Schema` field + re-exported
+      schema primitives (`handler.Field` / `Scope` /
+      `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
+      it (back-compat: a zero Schema → Dynamic). The same release bumps
+      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
+      `v0.0.8` release.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -202,10 +239,14 @@ For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/C
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
-**published modules**, not sibling checkouts — `go.mod` has no `replace`;
-see `go.mod` for pinned versions. To inspect SDK behavior, read the module
-cache (`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`),
-not `../any-sync-sdk2`.
+**published modules**, not sibling checkouts — `go.mod` pins versions.
+The SDK is pinned at the tagged release
+`any-sync-sdk v0.0.8` (the dataset-schema + unified-query work, which
+also bumps `any-store/v2` to `alpha.10` — see status item 12).
+`any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
+(+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
+behavior, read the module cache
+(`$(go env GOMODCACHE)/github.com/anyproto/any-sync-sdk@<version>/`).
 
 ## What this project is
 
@@ -233,7 +274,7 @@ any            (this repo)  — HTTP server + CLI
 ```
 
 The full stack context lives in the SDK's `docs/00-common-context.md` (in the
-module cache, or the `../any-sync-sdk2` source checkout if you have it). When an SDK
+module cache). When an SDK
 method is missing or awkward, raise it on the SDK repo rather than working around
 it here — several v1 endpoints are explicitly blocked on SDK work (see
 `docs/07-roadmap.md` § SDK-side prerequisites).

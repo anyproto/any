@@ -7,7 +7,7 @@ import (
 )
 
 // lexidGen is the allocator for block `nav.pos` values. Mirrors the
-// parameters used in any-sync-sdk2's internal/object/lexid.go (the
+// parameters used in any-sync-sdk's internal/object/lexid.go (the
 // any-sync tree allocator) and in internal/markdown's md_blocks
 // allocator, so the alphabet, blockSize, and stepSize match the rest
 // of the stack.

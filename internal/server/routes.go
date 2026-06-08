@@ -32,6 +32,12 @@ func buildEcho(d *deps) *echo.Echo {
 	// rollup transitions on one stream, so it has no :spaceId scope.
 	v1.GET("/sync-status/subscribe", d.syncStatusSubscribe)
 
+	// Account-wide dataset discovery: the tech-space system datasets
+	// (spaces, profile) that back the generic space-list query/subscribe.
+	// Account-scoped, so like sync-status/subscribe it sits outside the
+	// per-space group.
+	v1.GET("/datasets", d.systemDatasets)
+
 	registerUIRoutes(e)
 
 	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))

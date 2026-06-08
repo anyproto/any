@@ -8,12 +8,19 @@ documented in `03-api.md` § "Subscribe (Server-Sent Events)"; this
 file records the design rationale and the contract clients must
 respect.
 
-The two windowed endpoints (cross-object and per-object) wrap the
-SDK's `Query.Snapshot` and `Query.Subscribe` 1:1 — same chained
+The three windowed endpoints — cross-object
+(`…/objects/query/subscribe`), per-object (`…/query/subscribe`), and the
+**account's space list** (`POST /v1/spaces/query/subscribe`) — all wrap
+the SDK's `Query.Snapshot` / `Query.Subscribe` 1:1 — same chained
 builder, same `QueryOpts`, same `SubscriptionEvent` shape on the wire.
-The raw per-apply `Space.Subscribe` / `Space.SubscribeProperties`
-endpoints were retired alongside the SDK; their use cases collapse
-into "windowed query with no filter".
+The space-list one is bound to `Service.Query(SpaceIndexObjectId(),
+"spaces")` instead of a regular space, but the frame set and `closed`
+reasons are identical; a space joined on another device or head-synced
+in surfaces as an `added` change. (`GET /v1/spaces` stays the mapped
+`SpaceInfo` snapshot convenience — the subscribe stream carries the raw
+tech-index rows.) The raw per-apply `Space.Subscribe` /
+`Space.SubscribeProperties` endpoints were retired alongside the SDK;
+their use cases collapse into "windowed query with no filter".
 
 ## Why SSE (not WebSocket)
 

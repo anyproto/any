@@ -50,7 +50,24 @@ any account set-metadata --name "..." [--description "..."] [--icon CID]
 any space get    <spaceId>                          # shipped
 any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
+any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
+any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
+any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
 ```
+
+`any space query` / `any space subscribe` wrap `POST /v1/spaces/query`
+and `/query/subscribe` (`Service.Query` over the tech-space `spaces`
+dataset): a filterable / sortable snapshot and a live SSE stream of the
+account's space list. `any space subscribe` prints one JSON frame per
+line on stdout, same shape as `any query-subscribe`. Records are the raw
+tech-index rows — `GET /v1/spaces` (no CLI subcommand yet) stays the
+mapped `SpaceInfo` convenience.
+
+`any datasets` dumps dataset schemas as JSON Schema with a per-field
+`x-scope` (synced / derived / local). With a `<spaceId>` it lists every
+dataset the space hosts (`Space.Datasets`); without one it lists the
+account's tech-space system datasets — `spaces` / `profile` —
+(`Service.Datasets`).
 
 `any space sync` wraps `Space.SyncHeads`: it forces an immediate
 head-sync (diff) round and blocks until it completes (printing nothing

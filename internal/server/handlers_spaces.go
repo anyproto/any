@@ -15,6 +15,12 @@ import (
 func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces", d.spaceCreate)
 	g.GET("/spaces", d.spaceList)
+	// Generic windowed query/subscribe over the account's space list,
+	// via Service.Query on the tech-space `spaces` dataset. Registered
+	// before the :spaceId routes so the static `query` segment isn't
+	// swallowed by the param matcher.
+	g.POST("/spaces/query", d.spaceListQuery)
+	g.POST("/spaces/query/subscribe", d.spaceListQuerySubscribe)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
@@ -54,6 +60,10 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
+
+	// Dataset schema discovery — JSON Schema (with per-field x-scope) for
+	// every dataset the space hosts. See Space.Datasets().
+	g.GET("/spaces/:spaceId/datasets", d.spaceDatasets)
 
 	// Types.
 	g.GET("/spaces/:spaceId/types", d.typeList)
@@ -112,7 +122,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Debug — diagnostic surface; not a stable interface. Production UI
 	// should use /sync-status (above) once the SDK lands the
 	// production-grade methods. See internal/api/debug.go and
-	// any-sync-sdk2/space/debug.go for the field-level docs.
+	// any-sync-sdk/space/debug.go for the field-level docs.
 	g.GET("/spaces/:spaceId/debug", d.debugSpace)
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
