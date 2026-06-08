@@ -1,52 +1,20 @@
 // __main_source
 // LLM completion interface — dispatches to provider from config
-// Supports prompt caching: converse(prompt, { cachedPrefix: "static part" })
-// Supports model tiers: classify(), summarize(), codegen(), reason()
+// Supports prompt caching: chat(messages, { cachedPrefix: "static part" })
+// Supports model tiers: classify(), codegen()
 import { main as getConfig } from "config@v1"
 
-// Model tier defaults per provider
+// Model tier defaults per provider — only consulted when a config@v1 TIERS
+// entry is provider-only (no "/model"), or for the opts.provider override path.
 // classify: binary/list selection, structured output (cheapest, fastest)
-// summarize: text condensation, narrative synthesis
-// codegen: JS code generation (plan steps + tracer fixes)
-// reason: semantic judgment, plan decomposition, memory graph ops
+// codegen: JS code generation — the toolcaller agent's main loop
 var MODEL_TIERS = {
-  claude: { classify: "claude-haiku-4-5-20251001", summarize: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-4-6", reason: "claude-sonnet-4-6", converse: "claude-sonnet-4-6" },
-  openai: { classify: "gpt-5-mini", summarize: "gpt-5-mini", codegen: "gpt-5", reason: "gpt-5", converse: "gpt-5" },
-  groq:     { classify: "llama-3.1-8b-instant", summarize: "llama-3.3-70b-versatile", codegen: "qwen/qwen3-32b", reason: "llama-3.3-70b-versatile", converse: "llama-3.3-70b-versatile" },
-  together: { classify: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", summarize: "meta-llama/Llama-3.3-70B-Instruct-Turbo", codegen: "Qwen/Qwen2.5-7B-Instruct-Turbo", reason: "meta-llama/Llama-3.3-70B-Instruct-Turbo", converse: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
-  kimi:     { classify: null, summarize: null, codegen: null, reason: null, converse: null },
-  openrouter: { classify: "z-ai/glm-5.1", summarize: "z-ai/glm-5.1", codegen: "z-ai/glm-5.1", reason: "z-ai/glm-5.1", converse: "z-ai/glm-5.1" },
-  local:  { classify: null, summarize: null, codegen: null, reason: null, converse: null }
+  claude: { classify: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-4-6" },
+  openai: { classify: "gpt-5-mini", codegen: "gpt-5" },
+  together: { classify: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", codegen: "Qwen/Qwen2.5-7B-Instruct-Turbo" },
+  openrouter: { classify: "z-ai/glm-5.1", codegen: "z-ai/glm-5.1" },
+  local:  { classify: null, codegen: null }
 };
-
-function completeKimi(prompt, model, config, opts) {
-  var apiKey = config.KIMI_API_TOKEN;
-  if (!apiKey) throw new Error("KIMI_API_TOKEN not set in config@v1");
-  model = model || config.KIMI_MODEL || "kimi-latest";
-
-  var fullPrompt = (opts && opts.cachedPrefix) ? opts.cachedPrefix + prompt : prompt;
-
-  var response = fetch("https://api.moonshot.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 8192,
-      messages: [{ role: "user", content: fullPrompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error("Kimi API error: " + response.status + " " + JSON.stringify(response.body));
-  }
-
-  var choices = response.body.choices;
-  if (!choices || choices.length === 0) return null;
-  return choices[0].message.content;
-}
 
 function completeClaude(prompt, model, config, opts) {
   var apiKey = config.CLAUDE_API_KEY;
@@ -191,40 +159,6 @@ function completeOpenAI(prompt, model, config, opts) {
   var choices = response.body.choices;
   if (!choices || choices.length === 0) return null;
   return choices[0].message.content;
-}
-
-function completeGroq(prompt, model, config, opts) {
-  var apiKey = config.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY not set in config@v1");
-  model = model || "llama-3.3-70b-versatile";
-
-  var fullPrompt = (opts && opts.cachedPrefix) ? opts.cachedPrefix + prompt : prompt;
-
-  var response = fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 4096,
-      messages: [{ role: "user", content: fullPrompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error("Groq API error: " + response.status + " " + JSON.stringify(response.body));
-  }
-
-  var choices = response.body.choices;
-  if (!choices || choices.length === 0) return null;
-  var content = choices[0].message.content;
-  // Strip <think>...</think> blocks from reasoning models (e.g. qwen3)
-  if (content && content.indexOf("<think>") !== -1) {
-    content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, "");
-  }
-  return content;
 }
 
 function completeTogether(prompt, model, config, opts) {
@@ -617,16 +551,14 @@ function completeLocal(prompt, model, config, opts) {
 }
 
 var providers = {
-  kimi: completeKimi,
   claude: completeClaude,
   openai: completeOpenAI,
-  groq: completeGroq,
   together: completeTogether,
   openrouter: completeOpenRouter,
   local: completeLocal
 };
 
-// Parse a tier spec: "groq/gemma2-9b-it" → {provider:"groq", model:"gemma2-9b-it"}
+// Parse a tier spec: "openrouter/z-ai/glm-5.1" → {provider:"openrouter", model:"z-ai/glm-5.1"}
 //                     "claude" → {provider:"claude", model:null}
 function parseTierSpec(spec) {
   if (!spec) return null;
@@ -640,7 +572,7 @@ function parseTierSpec(spec) {
 // Resolve provider + model for a given tier
 // Returns {provider, model}
 function resolveTier(config, tier) {
-  if (!tier) throw new Error("resolveTier requires a tier name. Use: classify, summarize, codegen, reason, converse.");
+  if (!tier) throw new Error("resolveTier requires a tier name. Use: classify, codegen, or a search_* tier.");
   var spec = config.TIERS && config.TIERS[tier];
   var parsed = parseTierSpec(spec);
 
@@ -741,7 +673,7 @@ export function embedBatch(texts) {
 
 // completeBatch(prompts[], tier?) — run multiple LLM completions in parallel via fetchBatch.
 // Returns array of response strings (same order as input), or nulls on failure.
-// Optional tier: "classify", "summarize", "codegen", "reason", or null for default.
+// Optional tier: "classify", "codegen", a search_* tier, or null for default.
 export function completeBatch(prompts, tier) {
   if (!prompts || prompts.length === 0) return [];
   if (prompts.length === 1) return [_complete(prompts[0], null, tier || null)];
@@ -854,38 +786,6 @@ function _buildFetchArgs(provider, prompt, model, config) {
       body: JSON.stringify(oaiBody)
     }];
   }
-  if (provider === "kimi") {
-    var apiKey = config.KIMI_API_TOKEN;
-    model = model || config.KIMI_MODEL || "kimi-latest";
-    return ["https://api.moonshot.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 8192,
-        messages: [{ role: "user", content: prompt }]
-      })
-    }];
-  }
-  if (provider === "groq") {
-    var apiKey = config.GROQ_API_KEY;
-    model = model || "llama-3.3-70b-versatile";
-    return ["https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }]
-      })
-    }];
-  }
   if (provider === "together") {
     var apiKey = config.TOGETHER_AI_API_KEY;
     model = model || "meta-llama/Llama-3.3-70B-Instruct-Turbo";
@@ -946,7 +846,7 @@ function _extractResponse(provider, response) {
     }
     return null;
   }
-  // OpenAI, Kimi, Local — all use choices[0].message.content
+  // OpenAI, Local — all use choices[0].message.content
   var choices = response.body && response.body.choices;
   if (!choices || choices.length === 0) return null;
   return choices[0].message.content;
@@ -967,7 +867,7 @@ function _complete(prompt, opts, tier) {
 
   var fn = providers[provider];
   if (!fn) {
-    throw new Error("Unknown provider: " + provider + ". Use: claude, openai, groq, kimi, local");
+    throw new Error("Unknown provider: " + provider + ". Use: claude, openai, openrouter, together, local");
   }
 
   // Expose resolved provider/model for debug instrumentation
@@ -993,18 +893,15 @@ function _wrapTier(tier) {
 }
 
 // Legacy named exports (backward compat) — prefer createLLM() for new code
-export var converse = _wrapTier("converse");
 export var classify = _wrapTier("classify");
-export var summarize = _wrapTier("summarize");
 export var codegen = _wrapTier("codegen");
-export var reason = _wrapTier("reason");
 
 // ── ask / askBatch — minimal text→text surface for tool authors ─────────────
-// Routes through the "summarize" tier so the default model is one config knob.
+// Routes through the "classify" tier so the default model is one config knob.
 // Never throws — returns { ok, text, error } so callers can branch without try/catch.
 function _ask(prompt) {
   try {
-    var text = _complete(prompt, null, "summarize");
+    var text = _complete(prompt, null, "classify");
     if (text == null || text === "") return { ok: false, text: null, error: "empty response" };
     return { ok: true, text: text, error: null };
   } catch (e) {
@@ -1016,7 +913,7 @@ function _askBatch(prompts) {
   if (!prompts || prompts.length === 0) return [];
   var results;
   try {
-    results = completeBatch(prompts, "summarize");
+    results = completeBatch(prompts, "classify");
   } catch (e) {
     var err = String((e && e.message) || e);
     var out = [];
@@ -1051,9 +948,7 @@ export var askBatch = (ENABLE_LLM_TRACE && typeof __wrapTrace === "function")
 var _LLM_HOSTS = [
   "https://api.anthropic.com",
   "https://api.openai.com",
-  "https://api.groq.com",
   "https://api.together.xyz",
-  "https://api.moonshot.ai",
   "https://openrouter.ai"
 ];
 
