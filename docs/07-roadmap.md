@@ -272,5 +272,5 @@ Not this repo's work; gate on the SDK:
   `GET /v1/spaces/:id/datasets` (`Space.Datasets`) and `GET /v1/datasets`
   (`Service.Datasets`) expose a JSON Schema per dataset with a per-field
   `x-scope`. CLI: `any space query` / `any space subscribe` / `any
-  datasets`. Pins the SDK at the `feat/techspace-store-query-schemas`
-  pre-release (also bumps `any-store/v2` to `alpha.10`).
+  datasets`. Pins the SDK at the tagged `any-sync-sdk v0.0.8`
+  release (also bumps `any-store/v2` to `alpha.10`).

@@ -2,8 +2,7 @@
 
 A living list of places where the SDK's own documentation, comments, or
 doc-comments disagree with how it actually behaves (as compiled into this
-server: `any-sync-sdk` pinned at the `feat/techspace-store-query-schemas`
-pre-release — `v0.0.8-0.20260604214834-07fafe207c9e` — with
+server: `any-sync-sdk` pinned at the tagged release `v0.0.8` — with
 `any-store/v2 v2.0.0-alpha.10`). Each entry is something to either work
 around here or fix upstream. Verified by probing the live server unless
 noted.
@@ -56,8 +55,7 @@ Resolved upstream since the v0.0.4 baseline (removed from this list):
 `IncludeTotal` is now unbounded (`Snapshot` counts via `totalWithin`,
 ignoring limit/offset, and adds `HasNext` — SDK `fd4c769`); the `Snapshot`
 "stub / task 4" comment is gone; the builtin `any` type now declares the
-`xkey` property; and the sibling-checkout `replace` is gone (`any` pins a
-published pseudo-version, no `replace`).
+`xkey` property; and `any` imports the published `any-sync-sdk` module.
 
 How to add an entry: probe the live server (or read the SDK source in the
 module cache), state what the doc/comment claims, what actually happens,

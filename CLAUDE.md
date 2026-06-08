@@ -209,14 +209,13 @@ Implementation slices landed:
       `[{name, schema}]` where `schema` is a JSON Schema doc with a
       per-field `x-scope` (synced/derived/local). CLI: `any datasets
       [<spaceId>]`.
-    - **SDK prerequisite (branch `feat/techspace-store-query-schemas`).**
+    - **SDK prerequisite (`any-sync-sdk v0.0.8`).**
       The public `handler.Dataset` gained a `Schema` field + re-exported
       schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
-      it (back-compat: a zero Schema → Dynamic). The same branch bumps
-      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the pre-release
-      pseudo-version off that branch; bump to the tagged
-      release once the SDK cuts one.
+      it (back-compat: a zero Schema → Dynamic). The same release bumps
+      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
+      `v0.0.8` release.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -240,12 +239,10 @@ For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/C
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
-**published modules**, not sibling checkouts — `go.mod` pins versions
-with no `replace`. The SDK is currently pinned at a pre-release
-pseudo-version off branch `feat/techspace-store-query-schemas`
-(`v0.0.8-0.2026…-07fafe207c9e`, the dataset-schema + unified-query work,
-which also bumps `any-store/v2` to `alpha.10` — see status item 12);
-bump it to the tagged release once the SDK tags one.
+**published modules**, not sibling checkouts — `go.mod` pins versions.
+The SDK is pinned at the tagged release
+`any-sync-sdk v0.0.8` (the dataset-schema + unified-query work, which
+also bumps `any-store/v2` to `alpha.10` — see status item 12).
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
