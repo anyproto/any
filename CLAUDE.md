@@ -416,7 +416,6 @@ auto-start.
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
 | `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
-| `docs/SDK-DRIFT.md` | where the SDK's own docs/comments disagree with observed v0.0.4 behavior |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

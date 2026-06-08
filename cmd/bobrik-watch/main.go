@@ -217,8 +217,12 @@ func ensureSpace(name string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode spaces: %w", err)
 	}
+	// Match an ACTIVE space by name. PR#29's space list surfaces spaces in
+	// non-active states too (joining / leaving / remote-dead / deleted); a
+	// stale non-active "bobrik" row must not shadow a real one — require
+	// active explicitly rather than just "not deleted".
 	for _, s := range out.Spaces {
-		if s.Name == name && s.Status != "deleted" {
+		if s.Name == name && s.Status == "active" {
 			return s.Id, nil
 		}
 	}
