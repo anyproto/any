@@ -202,27 +202,31 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 }
 
 func ensureSpace(name string) (string, error) {
-	resp, err := http.Get(base + "/v1/spaces")
+	// Resolve via PR#29's windowed space-list query (raw tech-index rows),
+	// NOT GET /v1/spaces. GET maps status through mapStatus(local, remote),
+	// which reports a locally-deleted-but-remotely-active space as "active" —
+	// so bobrik would adopt a space the user deleted (and the UI hides). The
+	// raw rows expose localStatus directly; match on localStatus=="active",
+	// the same field the UI filters on, so bobrik and the UI agree on which
+	// "bobrik" space is live.
+	body, _ := json.Marshal(map[string]any{"includeTotal": true})
+	resp, err := http.Post(base+"/v1/spaces/query", "application/json", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("list spaces: %w", err)
+		return "", fmt.Errorf("query spaces: %w", err)
 	}
 	defer resp.Body.Close()
 	var out struct {
-		Spaces []struct {
-			Id     string `json:"id"`
-			Name   string `json:"name"`
-			Status string `json:"status"`
-		} `json:"spaces"`
+		Records []struct {
+			Id          string `json:"id"`
+			Name        string `json:"name"`
+			LocalStatus string `json:"localStatus"`
+		} `json:"records"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode spaces: %w", err)
 	}
-	// Match an ACTIVE space by name. PR#29's space list surfaces spaces in
-	// non-active states too (joining / leaving / remote-dead / deleted); a
-	// stale non-active "bobrik" row must not shadow a real one — require
-	// active explicitly rather than just "not deleted".
-	for _, s := range out.Spaces {
-		if s.Name == name && s.Status == "active" {
+	for _, s := range out.Records {
+		if s.Name == name && s.LocalStatus == "active" {
 			return s.Id, nil
 		}
 	}
