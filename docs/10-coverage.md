@@ -38,6 +38,8 @@ surface added.
 |-----------|--------------|
 | `GET /account`, `PUT /account/metadata` | host/account admin, not per-space content |
 | `POST /spaces`, `GET`/`DELETE`/`PATCH /spaces/:id`, `POST /spaces/join` | space lifecycle — the client binds to an existing space at `createClient` |
+| `POST /spaces/query`, `/spaces/query/subscribe` | account-wide space-list query/subscribe — host/UI concern; the JS agent operates within one bound space |
+| `GET /datasets`, `GET /spaces/:id/datasets` | dataset-schema discovery — host/tooling concern; the agent already knows the datasets it writes |
 | `POST /acl/*` (9), `…/invites` (5) | sharing/membership admin — host concern |
 | `GET /members/me`, `/members/requests`, `/members/subscribe` | membership admin/streaming |
 | `GET /sync-status*` (4), `GET /debug*` (2) | diagnostics — host/ops, not agent logic |

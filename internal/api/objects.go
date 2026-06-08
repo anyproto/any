@@ -6,9 +6,3 @@ package api
 type ObjectsCreateResponse struct {
 	ObjectId string `json:"objectId"`
 }
-
-// ObjectsDeriveResponse mirrors ObjectsCreateResponse for the deterministic
-// /objects/derive path.
-type ObjectsDeriveResponse struct {
-	ObjectId string `json:"objectId"`
-}

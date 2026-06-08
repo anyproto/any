@@ -213,6 +213,13 @@ func Append(ctx context.Context, sp space.Space, objectId, content string) (SetR
 		records[i] = buildCreateRecord(ParseBlock(raw), positions[i])
 	}
 
+	// Attach the editor type before the membership-gated editor_blocks
+	// write — the append fast-path skips Set's full-doc read, so it must
+	// ensure type membership itself or the SDK rejects a first write to a
+	// fresh object ("object does not implement type (editor)").
+	if err := editor.EnsureType(ctx, sp, objectId); err != nil {
+		return SetResult{}, fmt.Errorf("markdown: Append: ensure type: %w", err)
+	}
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
 		Dataset:  editor.Dataset,

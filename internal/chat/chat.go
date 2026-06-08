@@ -147,7 +147,36 @@ func NewType() handler.Type {
 			Name:        Dataset,
 			DataVersion: dataVersion,
 			Handler:     messagesHandler{},
+			Schema:      datasetSchema(),
 		}},
+	}
+}
+
+// datasetSchema declares the chat_messages field schema for apply-time
+// enforcement and discovery (Space.Datasets / GET .../datasets).
+//
+// Dynamic so undeclared keys stay permitted (forward-compat with clients
+// that grow the record), but every known field is declared with its
+// class: creator / createdAt / modifiedAt are server-stamped via
+// sink.Derive → ScopeDerived (handler-only, rejected from client ops);
+// text / replyToMessageId / fromAgent / reactions / attachments are
+// user/DAG-written → ScopeSynced. nav.* lives in the shared `objects`
+// namespace, not here. reactions / attachments carry free-form nested
+// keyspaces (emoji→accountId→ts, attachmentId→{type,link}) so they
+// declare an unconstrained object shape.
+func datasetSchema() handler.Schema {
+	return handler.Schema{
+		Dynamic: true,
+		Fields: []handler.Field{
+			{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeDerived},
+			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
+			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
+			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldFromAgent, Name: "From Agent", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+		},
 	}
 }
 

@@ -8,7 +8,9 @@
 package e2e
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,7 +130,7 @@ func TestE2E_FullFlow(t *testing.T) {
 	}
 
 	t.Run("types + properties demo flow", func(t *testing.T) {
-		// Mirrors any-sync-sdk2/sdk_test.go: TestSDK_TypesAndProperties
+		// Mirrors any-sync-sdk/sdk_test.go: TestSDK_TypesAndProperties
 		// against the real binary over loopback HTTP.
 		var typeResp map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types",
@@ -226,6 +228,108 @@ func TestE2E_FullFlow(t *testing.T) {
 		spaces, _ := list["spaces"].([]any)
 		if len(spaces) != 1 {
 			t.Fatalf("want 1 space, got %d: %+v", len(spaces), spaces)
+		}
+	})
+
+	t.Run("GET /v1/datasets system schemas", func(t *testing.T) {
+		var resp map[string]any
+		mustJSON(t, http.MethodGet, base+"/v1/datasets", "", http.StatusOK, &resp)
+		ds, _ := resp["datasets"].([]any)
+		if !datasetPresent(ds, "spaces") {
+			t.Fatalf("system datasets missing `spaces`: %+v", ds)
+		}
+		// The `spaces` schema must be a JSON Schema object with x-scope
+		// annotations on its fields (discovery contract).
+		sch := datasetSchemaByName(ds, "spaces")
+		if sch["type"] != "object" {
+			t.Errorf("spaces schema not a JSON Schema object: %+v", sch)
+		}
+	})
+
+	t.Run("GET /v1/spaces/:id/datasets", func(t *testing.T) {
+		var resp map[string]any
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID+"/datasets", "", http.StatusOK, &resp)
+		ds, _ := resp["datasets"].([]any)
+		// The built-in handler datasets must surface with declared
+		// schemas (the SDK schema feature wired through any's handlers).
+		for _, name := range []string{"objects", "chat_messages", "editor_blocks"} {
+			if !datasetPresent(ds, name) {
+				t.Errorf("space datasets missing %q: %+v", name, ds)
+			}
+		}
+		// chat_messages declares `creator` as a derived field — assert
+		// the x-scope annotation rode through to the wire.
+		chat := datasetSchemaByName(ds, "chat_messages")
+		props, _ := chat["properties"].(map[string]any)
+		creator, _ := props["creator"].(map[string]any)
+		if creator["x-scope"] != "derived" {
+			t.Errorf("chat_messages.creator x-scope = %v, want derived: %+v", creator["x-scope"], creator)
+		}
+	})
+
+	t.Run("POST /v1/spaces/query windowed snapshot", func(t *testing.T) {
+		var resp map[string]any
+		mustJSON(t, http.MethodPost, base+"/v1/spaces/query", `{"includeTotal":true}`, http.StatusOK, &resp)
+		records, _ := resp["records"].([]any)
+		if len(records) != 1 {
+			t.Fatalf("want 1 space record, got %d: %+v", len(records), records)
+		}
+		rec, _ := records[0].(map[string]any)
+		if rec["id"] != spaceID {
+			t.Errorf("record id = %v, want %v", rec["id"], spaceID)
+		}
+	})
+
+	t.Run("POST /v1/spaces/query/subscribe streams live changes", func(t *testing.T) {
+		// Open the windowed space-list SSE stream and assert the initial
+		// ready → snapshot frames, then trigger an `updated` change via a
+		// PATCH rename and assert it streams through. PATCH (not a second
+		// create) so the space count the DELETE subtest asserts stays at 1.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, errc := openSSE(ctx, t, http.MethodPost, base+"/v1/spaces/query/subscribe", `{}`)
+
+		if f := waitSSE(t, frames, errc, "ready", 15*time.Second); f.Event != "ready" {
+			t.Fatalf("first frame = %q, want ready", f.Event)
+		}
+		snap := waitSSE(t, frames, errc, "snapshot", 15*time.Second)
+		var snapData struct {
+			Records []map[string]any `json:"records"`
+		}
+		if err := json.Unmarshal(snap.Data, &snapData); err != nil {
+			t.Fatalf("snapshot decode: %v", err)
+		}
+		if len(snapData.Records) != 1 || snapData.Records[0]["id"] != spaceID {
+			t.Fatalf("snapshot records = %+v, want [%s]", snapData.Records, spaceID)
+		}
+
+		mustStatus(t, http.MethodPatch, base+"/v1/spaces/"+spaceID, `{"name":"E2E-sub"}`, http.StatusNoContent)
+
+		// The rename arrives as a `changes` frame carrying an `updated`
+		// record for our space. Tolerate intervening frames.
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			f := waitSSE(t, frames, errc, "changes", time.Until(deadline))
+			var batch []struct {
+				Updated []map[string]any `json:"updated"`
+			}
+			if err := json.Unmarshal(f.Data, &batch); err != nil {
+				t.Fatalf("changes decode: %v", err)
+			}
+			found := false
+			for _, ev := range batch {
+				for _, u := range ev.Updated {
+					if u["id"] == spaceID {
+						found = true
+					}
+				}
+			}
+			if found {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("never saw an `updated` change for %s", spaceID)
+			}
 		}
 	})
 
@@ -469,6 +573,118 @@ func mustStatus(t *testing.T, method, url, body string, wantStatus int) {
 	if resp.StatusCode != wantStatus {
 		t.Fatalf("%s %s: status=%d want=%d body=%s", method, url, resp.StatusCode, wantStatus, raw)
 	}
+}
+
+// sseFrame is one parsed Server-Sent Events frame (event + joined data).
+type sseFrame struct {
+	Event string
+	Data  []byte
+}
+
+// openSSE issues a streaming request and parses the SSE response into
+// frames delivered on the returned channel. A terminal error (including
+// io.EOF when the stream closes) arrives on errc. The caller cancels ctx
+// to tear the stream down. Uses a no-timeout client — the request
+// timeout on the shared client is useless for long-lived streams.
+func openSSE(ctx context.Context, t *testing.T, method, url, body string) (<-chan sseFrame, <-chan error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader([]byte(body)))
+	if err != nil {
+		t.Fatalf("new SSE request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("open SSE %s: %v", url, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("open SSE %s: status=%d body=%s", url, resp.StatusCode, raw)
+	}
+	frames := make(chan sseFrame, 64)
+	errc := make(chan error, 1)
+	go func() {
+		defer resp.Body.Close()
+		defer close(frames)
+		br := bufio.NewReader(resp.Body)
+		var event string
+		var data bytes.Buffer
+		for {
+			line, err := br.ReadBytes('\n')
+			if len(line) > 0 {
+				ln := bytes.TrimRight(line, "\r\n")
+				switch {
+				case len(ln) == 0: // frame terminator
+					if event != "" || data.Len() > 0 {
+						frames <- sseFrame{Event: event, Data: append([]byte(nil), bytes.TrimSuffix(data.Bytes(), []byte("\n"))...)}
+					}
+					event = ""
+					data.Reset()
+				case ln[0] == ':': // comment / keepalive
+				case bytes.HasPrefix(ln, []byte("event:")):
+					event = string(bytes.TrimSpace(ln[len("event:"):]))
+				case bytes.HasPrefix(ln, []byte("data:")):
+					data.Write(bytes.TrimPrefix(ln[len("data:"):], []byte(" ")))
+					data.WriteByte('\n')
+				}
+			}
+			if err != nil {
+				errc <- err
+				return
+			}
+		}
+	}()
+	return frames, errc
+}
+
+// waitSSE blocks until a frame with the wanted event name arrives (within
+// timeout), skipping other frames (e.g. keepalives). Fails the test on
+// timeout or stream error.
+func waitSSE(t *testing.T, frames <-chan sseFrame, errc <-chan error, want string, timeout time.Duration) sseFrame {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				t.Fatalf("SSE stream closed before %q frame", want)
+			}
+			if f.Event == want {
+				return f
+			}
+		case err := <-errc:
+			t.Fatalf("SSE stream error before %q frame: %v", want, err)
+		case <-deadline:
+			t.Fatalf("timed out waiting for %q frame", want)
+		}
+	}
+}
+
+// datasetPresent reports whether a {name, schema} entry with the given
+// name is in the datasets array returned by GET /v1/[spaces/:id/]datasets.
+func datasetPresent(datasets []any, name string) bool {
+	for _, d := range datasets {
+		if m, ok := d.(map[string]any); ok && m["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
+// datasetSchemaByName returns the parsed JSON Schema object for the named
+// dataset, or nil. The schema rides as an embedded object on the wire.
+func datasetSchemaByName(datasets []any, name string) map[string]any {
+	for _, d := range datasets {
+		m, ok := d.(map[string]any)
+		if !ok || m["name"] != name {
+			continue
+		}
+		sch, _ := m["schema"].(map[string]any)
+		return sch
+	}
+	return nil
 }
 
 func doRequest(t *testing.T, method, url, body string) (*http.Response, []byte) {

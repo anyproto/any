@@ -11,7 +11,7 @@ export function main() {
     KIMI_MODEL: "kimi-k2.5",  // kimi-k2.5, kimi-latest, moonshot-v1-128k, etc.
     TOGETHER_AI_API_KEY: "ef3cdfa662b8f8043f05d6d70c4198ae60643064e347d430ec22b5aef6f4252f",
     GROQ_API_KEY: "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",  // paste your Groq API key here
-    GEMINI_API_KEY: "AIzaSyCluSJ6hVPAg_2skfccRZu6JXUNZw-wm6s",
+    GEMINI_API_KEY: "AQ.Ab8RN6J-qznxzQ-FVKn7foP_VtKSAoRG3S1AKEPJZWHzNdQRnw",
     OPENROUTER_API_KEY: "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",
     // Per-tier routing: "provider/model" pins a specific provider+model
     // "provider" alone uses the default model from MODEL_TIERS in llm.js

@@ -1509,58 +1509,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/spaces/{spaceId}/objects/derive": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "objects"
-                ],
-                "summary": "Derive a deterministic object",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Derive params",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/api.ObjectDeriveRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/api.ObjectsDeriveResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            }
-        },
         "/spaces/{spaceId}/objects/query": {
             "post": {
                 "consumes": [
@@ -3810,23 +3758,6 @@ const docTemplate = `{
                 }
             }
         },
-        "api.ObjectDeriveRequest": {
-            "type": "object",
-            "properties": {
-                "seed": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "types": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
         "api.ObjectSyncStatusResponse": {
             "type": "object",
             "properties": {
@@ -3842,14 +3773,6 @@ const docTemplate = `{
             }
         },
         "api.ObjectsCreateResponse": {
-            "type": "object",
-            "properties": {
-                "objectId": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.ObjectsDeriveResponse": {
             "type": "object",
             "properties": {
                 "objectId": {

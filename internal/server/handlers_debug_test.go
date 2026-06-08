@@ -9,7 +9,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestServer_DebugFlow mirrors any-sync-sdk2/debug_api_test.go at the
+// TestServer_DebugFlow mirrors any-sync-sdk/debug_api_test.go at the
 // HTTP level: create a space + type + property + object, do two
 // property writes, then hit /debug/objects/:id and /debug. We assert
 // shape, not exact tree-walk results — the SDK test already covers
