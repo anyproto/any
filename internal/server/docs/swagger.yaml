@@ -268,6 +268,22 @@ definitions:
       text:
         type: string
     type: object
+  api.DatasetSchema:
+    properties:
+      name:
+        type: string
+      schema:
+        items:
+          type: integer
+        type: array
+    type: object
+  api.DatasetsResponse:
+    properties:
+      datasets:
+        items:
+          $ref: '#/definitions/api.DatasetSchema'
+        type: array
+    type: object
   api.DeleteRecordsRequest:
     properties:
       dataset:
@@ -845,6 +861,22 @@ paths:
       summary: Update account metadata
       tags:
       - account
+  /datasets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DatasetsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List the account's system dataset schemas
+      tags:
+      - data
   /health:
     get:
       produces:
@@ -1348,6 +1380,28 @@ paths:
       summary: Evolve a memory item's mutable fields (author only)
       tags:
       - agent
+  /spaces/{spaceId}/datasets:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DatasetsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List a space's dataset schemas
+      tags:
+      - data
   /spaces/{spaceId}/debug:
     get:
       parameters:
@@ -2760,6 +2814,60 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Join a space via invite token
+      tags:
+      - spaces
+  /spaces/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Query params (objectId fixed; dataset defaults to spaces)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Query the account's space list (windowed)
+      tags:
+      - spaces
+  /spaces/query/subscribe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Query params (objectId fixed; dataset defaults to spaces)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryRequest'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to the account's space list (SSE)
       tags:
       - spaces
   /sync-status/subscribe:
