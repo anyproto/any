@@ -33,7 +33,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
-	g.POST("/spaces/:spaceId/objects/derive", d.objectDerive)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
