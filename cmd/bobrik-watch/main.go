@@ -204,29 +204,39 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 func ensureSpace(name string) (string, error) {
 	// Resolve via PR#29's windowed space-list query (raw tech-index rows),
 	// NOT GET /v1/spaces. GET maps status through mapStatus(local, remote),
-	// which reports a locally-deleted-but-remotely-active space as "active" —
-	// so bobrik would adopt a space the user deleted (and the UI hides). The
-	// raw rows expose localStatus directly; match on localStatus=="active",
-	// the same field the UI filters on, so bobrik and the UI agree on which
-	// "bobrik" space is live.
+	// which collapses both a locally-deleted-but-remotely-active space AND a
+	// locally-active-but-remotely-deleted one into a misleading single value —
+	// so bobrik would adopt a space the UI hides. Match on the SAME raw fields
+	// the UI filters on: a space is live only when it's active locally and not
+	// deleted remotely. No existing "bobrik" space qualifies (they're all
+	// deleted on one side or the other) → createSpace mints a fresh one that's
+	// active on both sides, which the UI then shows.
 	body, _ := json.Marshal(map[string]any{"includeTotal": true})
 	resp, err := http.Post(base+"/v1/spaces/query", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("query spaces: %w", err)
 	}
 	defer resp.Body.Close()
+	// Fail loudly on a non-200 — otherwise a decode of the error body yields
+	// zero records, which would silently mint a fresh space on every run (e.g.
+	// against a server too old to have /spaces/query → 405).
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("query spaces: %d %s", resp.StatusCode, msg)
+	}
 	var out struct {
 		Records []struct {
-			Id          string `json:"id"`
-			Name        string `json:"name"`
-			LocalStatus string `json:"localStatus"`
+			Id           string `json:"id"`
+			Name         string `json:"name"`
+			LocalStatus  string `json:"localStatus"`
+			RemoteStatus string `json:"remoteStatus"`
 		} `json:"records"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode spaces: %w", err)
 	}
 	for _, s := range out.Records {
-		if s.Name == name && s.LocalStatus == "active" {
+		if s.Name == name && s.LocalStatus == "active" && s.RemoteStatus != "deleted" {
 			return s.Id, nil
 		}
 	}
