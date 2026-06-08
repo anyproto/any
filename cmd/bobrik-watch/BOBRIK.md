@@ -76,11 +76,13 @@ Then in another terminal:
 | `--agent-name` | `bobrik` | `fromAgent` tag on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
 
-There is no `--chat` flag: the watched chat is the space's **primary chat**,
-resolved via the server's deterministic `objects/derive` primitive with the
-same seed any-ui uses (`btoa('any-ui/primary-chat/v1')`), so bobrik and the
-Desktop UI always converge on the same chat object. (TEMP: the shared-seed
-convention is a stopgap — the primary-chat discovery contract is TBD.)
+There is no `--chat` flag: the watched chat is the space's chat object named
+**`general`**, found-or-created by name + chat type. Clients (Desktop UI, etc.)
+create a `general` chat in each space by convention; bobrik watches that one,
+or mints it when it owns the space (e.g. the dev `bobrik` space has no other
+client to create it). This replaced the earlier deterministic-derive scheme
+(the `btoa('any-ui/primary-chat/v1')` seed), which coupled bobrik to a UI
+internal constant.
 
 ### Pointing at a different server
 

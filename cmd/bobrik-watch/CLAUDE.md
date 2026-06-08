@@ -169,9 +169,9 @@ write, so the bad name never reaches storage from inside the agent.
 
 ```
 make build                                        # builds any, bobrik-watch, any-agent-runtime
-./bin/bobrik-watch                                # default: space=bobrik; watches the DERIVED primary chat
-                                                  # (same seed as any-ui: btoa('any-ui/primary-chat/v1') —
-                                                  #  TEMP shared-seed convention, contract TBD)
+./bin/bobrik-watch                                # default: space=bobrik; watches the chat named
+                                                  # "general" (found-or-created by name + chat type;
+                                                  #  clients create "general" by convention)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ./bin/bobrik-watch --bootstrap                    # SIGHUP a running instance
 ./bin/any-agent-runtime -e .env script.js k=v     # run one JS file with PRODUCTION module

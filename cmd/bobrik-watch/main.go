@@ -81,11 +81,11 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "space %q → %s\n", spaceName, spaceID)
 
-	objectID, err := derivePrimaryChat(spaceID)
+	objectID, err := ensureChat(spaceID)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintf(os.Stderr, "primary chat (derived) → %s\n", objectID)
+	fmt.Fprintf(os.Stderr, "chat %q → %s\n", chatName, objectID)
 
 	programTypeID, err = ensureProgramType(base, spaceID)
 	if err != nil {
@@ -246,44 +246,86 @@ func createSpace(name string) (string, error) {
 	return sp.Id, nil
 }
 
-// primaryChatSeed mirrors any-ui's `PRIMARY_CHAT_SEED = btoa('any-ui/primary-chat/v1')`
-// (src/lib/api/objects/ensure.ts) — json.Marshal base64-encodes the []byte
-// exactly like btoa, so both clients derive the SAME chat object in a space.
-//
-// TEMP: replicating the UI's seed constant here is a stopgap so bobrik watches
-// the chat the Desktop UI actually writes to. The real contract — who owns the
-// seed, how peers discover a space's primary chat — is still to be discussed.
-const primaryChatSeed = "any-ui/primary-chat/v1"
+// chatName is the conventional name of the chat bobrik-watch watches. The
+// agreed contract: clients (Desktop UI, etc.) create a plain chat object named
+// "general" in each space, and bobrik finds-or-creates that one. This replaced
+// the earlier deterministic-derive scheme (the any-ui/primary-chat/v1 seed) —
+// the seed coupled bobrik to the UI's internal constant and produced a chat no
+// client necessarily showed.
+const chatName = "general"
 
-// derivePrimaryChat resolves the space's primary chat via the server's
-// deterministic objects/derive primitive: derive(space, seed, types) returns
-// the same object id on every call, so this never mints a second chat —
-// across restarts, peers, or races with the UI.
-func derivePrimaryChat(spaceID string) (string, error) {
-	body, _ := json.Marshal(map[string]any{
-		"seed":  []byte(primaryChatSeed),
-		"types": []string{"chat"},
+// ensureChat find-or-creates the space's "general" chat object, returning its
+// id. Find-or-create (not derive): it watches the chat a client already made,
+// or mints one when bobrik owns the space (the dev "bobrik" space has no other
+// client to create it). Matching on name + chat type means a re-run reuses the
+// same chat instead of minting duplicates.
+func ensureChat(spaceID string) (string, error) {
+	id, err := findChat(spaceID)
+	if err != nil {
+		return "", err
+	}
+	if id != "" {
+		return id, nil
+	}
+
+	createBody, _ := json.Marshal(map[string]any{
+		"types":             []string{"chat"},
+		"initialProperties": map[string]any{"any": map[string]any{"name": chatName}},
 	})
 	resp, err := http.Post(
-		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/derive",
+		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects",
 		"application/json",
-		bytes.NewReader(body),
+		bytes.NewReader(createBody),
 	)
 	if err != nil {
-		return "", fmt.Errorf("derive chat: %w", err)
+		return "", fmt.Errorf("create chat: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode >= 400 {
 		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("derive chat: %d %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("create chat %q: %d %s", chatName, resp.StatusCode, msg)
 	}
 	var obj struct {
 		ObjectId string `json:"objectId"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
-		return "", fmt.Errorf("decode derived chat: %w", err)
+		return "", fmt.Errorf("decode created chat: %w", err)
 	}
 	return obj.ObjectId, nil
+}
+
+// findChat returns the id of the chat object named "general", or "" if none
+// exists. Constrains on the chat type (any.types contains "chat") so it never
+// picks a non-chat object that happens to be named "general".
+func findChat(spaceID string) (string, error) {
+	filter := map[string]any{
+		"filter": map[string]any{
+			"any.name":  chatName,
+			"any.types": "chat",
+		},
+	}
+	body, _ := json.Marshal(filter)
+	resp, err := http.Post(
+		base+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if len(out.Records) == 0 {
+		return "", nil
+	}
+	return out.Records[0].Id, nil
 }
 
 func subscribeLoop(spaceID, objectID string) {
