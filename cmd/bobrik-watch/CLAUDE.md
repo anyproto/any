@@ -15,9 +15,9 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 
 - **Properties are per-type namespaced, keyed by xKey.** An object can carry
   multiple types; each type owns its property bag. Dotted paths use the
-  type's **xKey** (a stable snake_case slug of the name — `"Agent Memory"` →
-  `agent_memory`; builtins use their id) plus the property xKey:
-  `getProp(obj,"agent_memory.chat_id")`. `createType` derives+returns
+  type's **xKey** (a stable snake_case slug of the name — `"Agent Skill"` →
+  `agent_skill`; builtins use their id) plus the property xKey:
+  `getProp(obj,"agent_skill.agent_skill_name")`. `createType` derives+returns
   `type.xKey` (or pass `opts.xKey`); the xKey survives display-name renames
   (needs SDK `add-type-xkey`; the type meta stores `any.xkey`). anyHelper
   resolves name/xKey/id for the `typeKey` *argument*, but dotted *paths*
@@ -108,17 +108,29 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
 - `anyHelper.js` replaces `anytypeHelper.js`, same method surface.
 - Property-key prefixes are dropped: legacy `__anytype_`/`__any_`/`__amemory_`
   prefixes existed to avoid collisions in a flat namespace; per-type
-  namespacing makes them redundant (`agent_memory.chat_id`, not
-  `__any_chat_id`; `agent_memory.vector`, not `__amemory_vector` — the
-  `agent_memory` segment is the type xKey).
-  Migrated: init_agent, toolcall_core, miniapp, amemory@v2.
-- amemory categories live in the bare `tags` array on the `Agent Memory`
-  type (no per-tag prefix). Category filtering is server-side via the
-  any-store array filter (`getObjects("Agent Memory", {filter:{"agent_memory.tags":{$in:[...]}}})`
-  — scalar = "contains", `$in` = "intersects");
-  `_buildCategoryFilter` still enforces exact `m.category` afterwards. FTS
-  (`client.search`) is still a stub — the keyword half of recall is inert,
-  vector similarity carries.
+  namespacing makes them redundant (`agent_skill.agent_skill_name`, not
+  `__any_agent_skill_name` — the first segment is the type xKey).
+  Migrated: init_agent, toolcall_core, miniapp.
+- **Memory + chat history are server-side built-in datasets now**
+  (`convmemory@v1.js` over `internal/agentlog` + `internal/agentmem` —
+  see docs/11-agent-memory.md). `agent_turns`/`agent_chunks` live on the
+  chat object (append-only turn records; chunks carry `fromSeq..toSeq`
+  drill-down pointers); `agent_memory_items` lives on the seed-derived
+  per-space brain object with a real `category` field (the old
+  category-in-`tags[0]` convention is gone, as are the hex vector
+  properties, the `_main` anchor object, and the rolling-markdown
+  transcript). amemory@v2 and memory-bootstrap are DELETED. Semantic
+  recall is a non-functional TODO until the external vector-search
+  service lands; `convmemory.search` falls back to indexed
+  period/category/recency reads. **Semantic-ish recall DOES exist now**
+  via the RLM-style `search@v1` program (`programs/search@v1.js` +
+  `tool-descriptions/search.md`): an isolated inner LLM loop pages the
+  datasets and maps batched classify sub-calls over snippets — kernel
+  global `search`, methods `search(query, opts)` / `ask(question,
+  opts)`, returns ranked results + `stats` (turns/toolcalls/tokens/ms).
+  Cells run via `new Function` (containment by function scope — NOT
+  js.eval, NOT js.reset). Read docs/12-rlm-search.md before changing
+  the loop. Tests: `tests/js/search_test.js` (mocked LLM).
 - Env vars in JS programs (`env.ANYTYPE_API_URL`, etc.) keep their
   original names — they come from the runtime's `args` injection.
 
@@ -157,9 +169,9 @@ write, so the bad name never reaches storage from inside the agent.
 
 ```
 make build                                        # builds any, bobrik-watch, any-agent-runtime
-./bin/bobrik-watch                                # default: space=bobrik; watches the DERIVED primary chat
-                                                  # (same seed as any-ui: btoa('any-ui/primary-chat/v1') —
-                                                  #  TEMP shared-seed convention, contract TBD)
+./bin/bobrik-watch                                # default: space=bobrik; watches the chat named
+                                                  # "general" (found-or-created by name + chat type;
+                                                  #  clients create "general" by convention)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
 ./bin/bobrik-watch --bootstrap                    # SIGHUP a running instance
 ./bin/any-agent-runtime -e .env script.js k=v     # run one JS file with PRODUCTION module

@@ -784,6 +784,32 @@ can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
 
+### Agent data layer (built-in `agent_log` + `agent_memory` types)
+
+Full model, record shapes, and query recipes in
+[`docs/11-agent-memory.md`](11-agent-memory.md). Writes only here —
+reads + liveness go through `/query` and `/query/subscribe` with
+`dataset` ∈ `{agent_turns, agent_chunks, agent_memory_items}`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/turns`  | append one immutable turn record |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/chunks` | create one immutable summary chunk |
+| GET    | `/v1/spaces/:spaceId/agent/brain`                    | deterministic brain object id |
+| POST   | `/v1/spaces/:spaceId/agent/memory`                   | create a memory item |
+| PATCH  | `/v1/spaces/:spaceId/agent/memory/:itemId`           | evolve mutable fields (author only) |
+| DELETE | `/v1/spaces/:spaceId/agent/memory/:itemId`           | delete a memory item (author only) |
+
+Turns and chunks attach to the chat object itself (the `agent_log`
+type is attached on first write, making the object multitype chat +
+agent_log); a chunk's `fromSeq`/`toSeq` are explicit pointers to the
+raw `agent_turns` range it summarizes. Memory items live on the
+per-space brain object — the server resolves it internally on writes;
+clients call `GET /agent/brain` once to learn the objectId for reads.
+All writes return the shared write result `{versionId, changeId,
+recordIds}`. Errors use the `agent.*` code namespace
+(`docs/06-errors.md`).
+
 ### Members
 
 | Method | Path                                                 | Purpose                            |

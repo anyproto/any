@@ -176,7 +176,32 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
-11. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
+11. **Agent data layer (turns / chunks / memory)** — two new built-in
+    types replace bobrik's markdown-transcript + runtime-typed memory
+    scheme. `internal/agentlog` (type `agent_log`) puts two datasets ON
+    THE CHAT OBJECT (multitype chat + agent_log, attached on first
+    write): `agent_turns` — one append-only record per agent invocation
+    (seq, userText, think, replies[], effects[], messageIds[],
+    debugRef → agent_debug_log page, llm scalars; modify/delete
+    rejected) — and `agent_chunks` — immutable summaries carrying
+    EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
+    periodStart/periodEnd unix). `internal/agentmem` (type
+    `agent_memory`) puts `agent_memory_items` on a per-space brain
+    object derived from the fixed seed `any/agent-brain/v1`
+    (deterministic `Objects().Derive`, spaceIndex pattern): category
+    (open slug set) + context required; tags/entities/keywords real
+    arrays; confidence/importance/salience/accessCount numbers with
+    server defaults; structured `edges` array; evolve allow-list
+    (author-only, modifiedAt bumped); author-only delete. Indexes:
+    turns (seq),(createdAt); chunks (seq),(periodEnd); items
+    (category),(createdAt),(validFrom). Writes:
+    `POST …/objects/:o/agent/turns|chunks`, `GET /agent/brain`,
+    `POST/PATCH/DELETE /agent/memory[/:itemId]` (handlers_agentlog.go /
+    handlers_agentmem.go); CLI `any agent …`. Reads stay on `/query` —
+    no bespoke read endpoints. NO vectors stored — semantic search is
+    an external service (TODO, not built; recall is non-functional
+    until then; see docs/11-agent-memory.md + docs/07-roadmap.md §9).
+12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
     Full docs (storage shape, refresh mechanics, validation rules,
     flags, what's missing) in
     [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) and
@@ -389,7 +414,8 @@ auto-start.
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
-| `docs/SDK-DRIFT.md` | where the SDK's own docs/comments disagree with observed v0.0.4 behavior |
+| `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
+| `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

@@ -35,9 +35,9 @@ func bobrikDir(t *testing.T) string {
 
 // moduleDir builds a flat directory of symlinks the runtime uses as its single
 // -m module-resolution root: anyHelper.js (at the bobrik root) plus every
-// programs/*.js (already named like `amemory@v2.js`, `miniapp.js`). With
+// programs/*.js (already named like `convmemory@v1.js`, `miniapp.js`). With
 // everything in one dir, imports like `anyHelper@v1`, `miniapp@v1`,
-// `amemory@v2` all resolve locally — so a test can exercise a full program
+// `convmemory@v1` all resolve locally — so a test can exercise a full program
 // without syncing programs into a space.
 func moduleDir(t *testing.T) string {
 	t.Helper()

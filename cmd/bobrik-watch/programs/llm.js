@@ -1,52 +1,20 @@
 // __main_source
 // LLM completion interface — dispatches to provider from config
-// Supports prompt caching: converse(prompt, { cachedPrefix: "static part" })
-// Supports model tiers: classify(), summarize(), codegen(), reason()
+// Supports prompt caching: chat(messages, { cachedPrefix: "static part" })
+// Supports model tiers: classify(), codegen()
 import { main as getConfig } from "config@v1"
 
-// Model tier defaults per provider
+// Model tier defaults per provider — only consulted when a config@v1 TIERS
+// entry is provider-only (no "/model"), or for the opts.provider override path.
 // classify: binary/list selection, structured output (cheapest, fastest)
-// summarize: text condensation, narrative synthesis
-// codegen: JS code generation (plan steps + tracer fixes)
-// reason: semantic judgment, plan decomposition, memory graph ops
+// codegen: JS code generation — the toolcaller agent's main loop
 var MODEL_TIERS = {
-  claude: { classify: "claude-haiku-4-5-20251001", summarize: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-4-6", reason: "claude-sonnet-4-6", converse: "claude-sonnet-4-6" },
-  openai: { classify: "gpt-5-mini", summarize: "gpt-5-mini", codegen: "gpt-5", reason: "gpt-5", converse: "gpt-5" },
-  groq:     { classify: "llama-3.1-8b-instant", summarize: "llama-3.3-70b-versatile", codegen: "qwen/qwen3-32b", reason: "llama-3.3-70b-versatile", converse: "llama-3.3-70b-versatile" },
-  together: { classify: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", summarize: "meta-llama/Llama-3.3-70B-Instruct-Turbo", codegen: "Qwen/Qwen2.5-7B-Instruct-Turbo", reason: "meta-llama/Llama-3.3-70B-Instruct-Turbo", converse: "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
-  kimi:     { classify: null, summarize: null, codegen: null, reason: null, converse: null },
-  openrouter: { classify: "z-ai/glm-5.1", summarize: "z-ai/glm-5.1", codegen: "z-ai/glm-5.1", reason: "z-ai/glm-5.1", converse: "z-ai/glm-5.1" },
-  local:  { classify: null, summarize: null, codegen: null, reason: null, converse: null }
+  claude: { classify: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-4-6" },
+  openai: { classify: "gpt-5-mini", codegen: "gpt-5" },
+  together: { classify: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", codegen: "Qwen/Qwen2.5-7B-Instruct-Turbo" },
+  openrouter: { classify: "z-ai/glm-5.1", codegen: "z-ai/glm-5.1" },
+  local:  { classify: null, codegen: null }
 };
-
-function completeKimi(prompt, model, config, opts) {
-  var apiKey = config.KIMI_API_TOKEN;
-  if (!apiKey) throw new Error("KIMI_API_TOKEN not set in config@v1");
-  model = model || config.KIMI_MODEL || "kimi-latest";
-
-  var fullPrompt = (opts && opts.cachedPrefix) ? opts.cachedPrefix + prompt : prompt;
-
-  var response = fetch("https://api.moonshot.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 8192,
-      messages: [{ role: "user", content: fullPrompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error("Kimi API error: " + response.status + " " + JSON.stringify(response.body));
-  }
-
-  var choices = response.body.choices;
-  if (!choices || choices.length === 0) return null;
-  return choices[0].message.content;
-}
 
 function completeClaude(prompt, model, config, opts) {
   var apiKey = config.CLAUDE_API_KEY;
@@ -191,40 +159,6 @@ function completeOpenAI(prompt, model, config, opts) {
   var choices = response.body.choices;
   if (!choices || choices.length === 0) return null;
   return choices[0].message.content;
-}
-
-function completeGroq(prompt, model, config, opts) {
-  var apiKey = config.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY not set in config@v1");
-  model = model || "llama-3.3-70b-versatile";
-
-  var fullPrompt = (opts && opts.cachedPrefix) ? opts.cachedPrefix + prompt : prompt;
-
-  var response = fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: model,
-      max_tokens: 4096,
-      messages: [{ role: "user", content: fullPrompt }]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error("Groq API error: " + response.status + " " + JSON.stringify(response.body));
-  }
-
-  var choices = response.body.choices;
-  if (!choices || choices.length === 0) return null;
-  var content = choices[0].message.content;
-  // Strip <think>...</think> blocks from reasoning models (e.g. qwen3)
-  if (content && content.indexOf("<think>") !== -1) {
-    content = content.replace(/<think>[\s\S]*?<\/think>\s*/g, "");
-  }
-  return content;
 }
 
 function completeTogether(prompt, model, config, opts) {
@@ -617,16 +551,14 @@ function completeLocal(prompt, model, config, opts) {
 }
 
 var providers = {
-  kimi: completeKimi,
   claude: completeClaude,
   openai: completeOpenAI,
-  groq: completeGroq,
   together: completeTogether,
   openrouter: completeOpenRouter,
   local: completeLocal
 };
 
-// Parse a tier spec: "groq/gemma2-9b-it" → {provider:"groq", model:"gemma2-9b-it"}
+// Parse a tier spec: "openrouter/z-ai/glm-5.1" → {provider:"openrouter", model:"z-ai/glm-5.1"}
 //                     "claude" → {provider:"claude", model:null}
 function parseTierSpec(spec) {
   if (!spec) return null;
@@ -640,7 +572,7 @@ function parseTierSpec(spec) {
 // Resolve provider + model for a given tier
 // Returns {provider, model}
 function resolveTier(config, tier) {
-  if (!tier) throw new Error("resolveTier requires a tier name. Use: classify, summarize, codegen, reason, converse.");
+  if (!tier) throw new Error("resolveTier requires a tier name. Use: classify, codegen, or a search_* tier.");
   var spec = config.TIERS && config.TIERS[tier];
   var parsed = parseTierSpec(spec);
 
@@ -655,6 +587,18 @@ function resolveTier(config, tier) {
   }
 
   return parsed;
+}
+
+// resolveModel(tier) — public {provider, model} for a config tier, WITHOUT
+// making an LLM call. For instrumentation (e.g. stamping which model a tier
+// resolves to into stats so it's observable after the fact). Returns
+// {provider, model} or null if the tier isn't configured.
+export function resolveModel(tier) {
+  try {
+    return resolveTier(getConfig(), tier);
+  } catch (e) {
+    return null;
+  }
 }
 
 // embed(text) — generate embedding vector via OpenAI API
@@ -729,7 +673,7 @@ export function embedBatch(texts) {
 
 // completeBatch(prompts[], tier?) — run multiple LLM completions in parallel via fetchBatch.
 // Returns array of response strings (same order as input), or nulls on failure.
-// Optional tier: "classify", "summarize", "codegen", "reason", or null for default.
+// Optional tier: "classify", "codegen", a search_* tier, or null for default.
 export function completeBatch(prompts, tier) {
   if (!prompts || prompts.length === 0) return [];
   if (prompts.length === 1) return [_complete(prompts[0], null, tier || null)];
@@ -750,6 +694,59 @@ export function completeBatch(prompts, tier) {
     results.push(_extractResponse(resolved.provider, responses[i]));
   }
   return results;
+}
+
+// completeBatchDetailed(prompts[], tier) — completeBatch plus per-prompt token
+// usage, for callers that account tokens burned by batched sub-calls (the
+// search@v1 RLM loop's stats). Returns [{text, inTokens, outTokens}] in input
+// order; text is null on per-prompt failure (usage zeros). Unlike
+// completeBatch there is no single-prompt fast path — one prompt is still one
+// fetchBatch so usage extraction stays uniform.
+export function completeBatchDetailed(prompts, tier, opts) {
+  if (!prompts || prompts.length === 0) return [];
+  var config = getConfig();
+  var resolved = resolveTier(config, tier || "classify");
+  var provider = resolved.provider;
+  var model = resolved.model;
+  // opts.{provider, model} override the tier resolution (per-call A/B without
+  // touching config TIERS) — same contract as _chatDispatch.
+  if (opts && opts.provider) {
+    provider = opts.provider;
+    model = opts.model || (MODEL_TIERS[provider] ? MODEL_TIERS[provider][tier || "classify"] : null);
+  } else if (opts && opts.model) {
+    model = opts.model;
+  }
+
+  var fetchArgs = [];
+  for (var i = 0; i < prompts.length; i++) {
+    var fa = _buildFetchArgs(provider, prompts[i], model, config);
+    if (fa) fetchArgs.push(fa);
+  }
+
+  var responses = fetchBatch(fetchArgs);
+
+  var results = [];
+  for (var j = 0; j < responses.length; j++) {
+    var u = _extractUsage(responses[j]);
+    results.push({
+      text: _extractResponse(provider, responses[j]),
+      inTokens: u.inTokens,
+      outTokens: u.outTokens
+    });
+  }
+  return results;
+}
+
+// Pull token usage out of a raw fetch response body. Anthropic uses
+// input_tokens/output_tokens, OpenAI-shaped providers prompt_tokens/
+// completion_tokens — read both, first non-zero wins.
+function _extractUsage(response) {
+  var u = response && response.body && response.body.usage;
+  if (!u) return { inTokens: 0, outTokens: 0 };
+  return {
+    inTokens: u.input_tokens || u.prompt_tokens || 0,
+    outTokens: u.output_tokens || u.completion_tokens || 0
+  };
 }
 
 // Build [url, opts] for a single completion call (used by completeBatch)
@@ -787,38 +784,6 @@ function _buildFetchArgs(provider, prompt, model, config) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify(oaiBody)
-    }];
-  }
-  if (provider === "kimi") {
-    var apiKey = config.KIMI_API_TOKEN;
-    model = model || config.KIMI_MODEL || "kimi-latest";
-    return ["https://api.moonshot.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 8192,
-        messages: [{ role: "user", content: prompt }]
-      })
-    }];
-  }
-  if (provider === "groq") {
-    var apiKey = config.GROQ_API_KEY;
-    model = model || "llama-3.3-70b-versatile";
-    return ["https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }]
-      })
     }];
   }
   if (provider === "together") {
@@ -881,7 +846,7 @@ function _extractResponse(provider, response) {
     }
     return null;
   }
-  // OpenAI, Kimi, Local — all use choices[0].message.content
+  // OpenAI, Local — all use choices[0].message.content
   var choices = response.body && response.body.choices;
   if (!choices || choices.length === 0) return null;
   return choices[0].message.content;
@@ -902,7 +867,7 @@ function _complete(prompt, opts, tier) {
 
   var fn = providers[provider];
   if (!fn) {
-    throw new Error("Unknown provider: " + provider + ". Use: claude, openai, groq, kimi, local");
+    throw new Error("Unknown provider: " + provider + ". Use: claude, openai, openrouter, together, local");
   }
 
   // Expose resolved provider/model for debug instrumentation
@@ -928,18 +893,15 @@ function _wrapTier(tier) {
 }
 
 // Legacy named exports (backward compat) — prefer createLLM() for new code
-export var converse = _wrapTier("converse");
 export var classify = _wrapTier("classify");
-export var summarize = _wrapTier("summarize");
 export var codegen = _wrapTier("codegen");
-export var reason = _wrapTier("reason");
 
 // ── ask / askBatch — minimal text→text surface for tool authors ─────────────
-// Routes through the "summarize" tier so the default model is one config knob.
+// Routes through the "classify" tier so the default model is one config knob.
 // Never throws — returns { ok, text, error } so callers can branch without try/catch.
 function _ask(prompt) {
   try {
-    var text = _complete(prompt, null, "summarize");
+    var text = _complete(prompt, null, "classify");
     if (text == null || text === "") return { ok: false, text: null, error: "empty response" };
     return { ok: true, text: text, error: null };
   } catch (e) {
@@ -951,7 +913,7 @@ function _askBatch(prompts) {
   if (!prompts || prompts.length === 0) return [];
   var results;
   try {
-    results = completeBatch(prompts, "summarize");
+    results = completeBatch(prompts, "classify");
   } catch (e) {
     var err = String((e && e.message) || e);
     var out = [];
@@ -986,9 +948,7 @@ export var askBatch = (ENABLE_LLM_TRACE && typeof __wrapTrace === "function")
 var _LLM_HOSTS = [
   "https://api.anthropic.com",
   "https://api.openai.com",
-  "https://api.groq.com",
   "https://api.together.xyz",
-  "https://api.moonshot.ai",
   "https://openrouter.ai"
 ];
 
@@ -1097,6 +1057,7 @@ export function createLLM() {
   llm.embed = embed;
   llm.embedBatch = embedBatch;
   llm.completeBatch = completeBatch;
+  llm.completeBatchDetailed = completeBatchDetailed;
   llm.buildCompleteFetchArgs = buildCompleteFetchArgs;
   llm.parseCompleteResult = parseCompleteResult;
   llm.buildEmbedFetchArgs = buildEmbedFetchArgs;
@@ -1108,34 +1069,53 @@ export function createLLM() {
   // (translated from OpenAI shape).
   // tier defaults to "codegen"; opts can override model and other params.
   llm.chat = function(messages, opts) {
-    opts = opts || {};
-    var tier = opts.tier || "codegen";
-    var resolved = resolveTier(config, tier);
-    var provider = resolved.provider;
-    var model = opts.model || resolved.model;
-
-    _lastResolved.provider = provider;
-    _lastResolved.model = model;
-
-    var chatFn;
-    if (provider === "claude") {
-      chatFn = function(m, o) { return chatClaude(m, model, config, o); };
-    } else if (provider === "openrouter") {
-      chatFn = function(m, o) { return chatOpenRouter(m, model, config, o); };
-    } else if (provider === "openai") {
-      chatFn = function(m, o) { return chatOpenAI(m, model, config, o); };
-    } else {
-      throw new Error("llm.chat() supports providers: claude, openai, openrouter. Got: " + provider);
-    }
-
     if (ENABLE_LLM_TRACE && typeof __wrapTrace === "function") {
-      var wrapped = __wrapTrace("llm.chat", chatFn);
+      var wrapped = __wrapTrace("llm.chat", _chatDispatch);
       return wrapped(messages, opts);
     }
-    return chatFn(messages, opts);
+    return _chatDispatch(messages, opts);
   };
 
   return llm;
+}
+
+// Shared chat dispatch — tier/provider resolution + provider call, no trace
+// wrapper. createLLM().chat wraps this with __wrapTrace; chatUntraced exposes
+// it bare.
+function _chatDispatch(messages, opts) {
+  opts = opts || {};
+  var config = getConfig();
+  var tier = opts.tier || "codegen";
+  var resolved = resolveTier(config, tier);
+  var provider = resolved.provider;
+  var model = opts.model || resolved.model;
+  // opts.provider overrides the tier's provider (e.g. A/B-ing an openrouter
+  // model without editing config TIERS). Model falls back to the provider's
+  // tier default when not given explicitly.
+  if (opts.provider) {
+    provider = opts.provider;
+    model = opts.model || (MODEL_TIERS[provider] ? MODEL_TIERS[provider][tier] : null);
+  }
+
+  _lastResolved.provider = provider;
+  _lastResolved.model = model;
+
+  if (provider === "claude") return chatClaude(messages, model, config, opts);
+  if (provider === "openrouter") return chatOpenRouter(messages, model, config, opts);
+  if (provider === "openai") return chatOpenAI(messages, model, config, opts);
+  throw new Error("llm.chat() supports providers: claude, openai, openrouter. Got: " + provider);
+}
+
+// chatUntraced — llm.chat WITHOUT the __wrapTrace wrapper, for callers that
+// run their own inner LLM loops and must not flood the calling cell's
+// Effects digest with one trace entry per inner turn (search@v1's RLM root
+// loop is the canonical consumer; see docs/12-rlm-search.md). The underlying
+// provider fetches are still recorded as fetch/fetchBatch effects, but this
+// module's __prepareTraces drops LLM-host fetches from the digest — so an
+// untraced caller's LLM traffic is fully invisible in tool results while
+// remaining visible to provider billing and the runtime's raw trace files.
+export function chatUntraced(messages, opts) {
+  return _chatDispatch(messages, opts);
 }
 
 // ── parseJSON — strip markdown fences and parse JSON from LLM responses ──────

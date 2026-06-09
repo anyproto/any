@@ -98,6 +98,119 @@ definitions:
       propId:
         type: string
     type: object
+  api.AgentBrainResponse:
+    properties:
+      objectId:
+        type: string
+    type: object
+  api.AgentChunkCreateRequest:
+    properties:
+      fromAgent:
+        type: string
+      fromSeq:
+        type: integer
+      periodEnd:
+        type: integer
+      periodStart:
+        type: integer
+      seq:
+        type: integer
+      summary:
+        type: string
+      toSeq:
+        type: integer
+      turnsCovered:
+        type: integer
+    type: object
+  api.AgentMemoryCreateRequest:
+    properties:
+      body:
+        type: string
+      category:
+        type: string
+      chatId:
+        type: string
+      confidence:
+        type: integer
+      context:
+        type: string
+      edges:
+        items:
+          $ref: '#/definitions/api.Edge'
+        type: array
+      entities:
+        items:
+          type: string
+        type: array
+      fromAgent:
+        type: string
+      importance:
+        type: integer
+      keywords:
+        items:
+          type: string
+        type: array
+      salience:
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      validFrom:
+        type: integer
+    type: object
+  api.AgentMemoryEvolveRequest:
+    properties:
+      accessCount:
+        type: integer
+      body:
+        type: string
+      confidence:
+        type: integer
+      context:
+        type: string
+      edges:
+        items:
+          $ref: '#/definitions/api.Edge'
+        type: array
+      importance:
+        type: integer
+      salience:
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  api.AgentTurnAppendRequest:
+    properties:
+      debugRef:
+        type: string
+      effects:
+        items:
+          type: string
+        type: array
+      fromAgent:
+        type: string
+      llm:
+        $ref: '#/definitions/api.LLMStats'
+      messageIds:
+        items:
+          type: string
+        type: array
+      replies:
+        items:
+          type: string
+        type: array
+      seq:
+        type: integer
+      think:
+        type: string
+      userName:
+        type: string
+      userText:
+        type: string
+    type: object
   api.BlockCreateRequest:
     properties:
       nav:
@@ -155,6 +268,22 @@ definitions:
       text:
         type: string
     type: object
+  api.DatasetSchema:
+    properties:
+      name:
+        type: string
+      schema:
+        items:
+          type: integer
+        type: array
+    type: object
+  api.DatasetsResponse:
+    properties:
+      datasets:
+        items:
+          $ref: '#/definitions/api.DatasetSchema'
+        type: array
+    type: object
   api.DeleteRecordsRequest:
     properties:
       dataset:
@@ -169,6 +298,15 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  api.Edge:
+    properties:
+      strength:
+        type: number
+      to:
+        type: string
+      type:
+        type: string
     type: object
   api.ErrorEnvelope:
     properties:
@@ -226,6 +364,21 @@ definitions:
         items:
           $ref: '#/definitions/api.JoinRequest'
         type: array
+    type: object
+  api.LLMStats:
+    properties:
+      cacheRead:
+        type: integer
+      cacheWrite:
+        type: integer
+      inTokens:
+        type: integer
+      model:
+        type: string
+      outTokens:
+        type: integer
+      stopReason:
+        type: string
     type: object
   api.MarkdownContent:
     properties:
@@ -708,6 +861,22 @@ paths:
       summary: Update account metadata
       tags:
       - account
+  /datasets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DatasetsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List the account's system dataset schemas
+      tags:
+      - data
   /health:
     get:
       produces:
@@ -1074,6 +1243,165 @@ paths:
       summary: Stop sharing (removes all non-owners)
       tags:
       - acl
+  /spaces/{spaceId}/agent/brain:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AgentBrainResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Resolve the per-space agent brain object id
+      tags:
+      - agent
+  /spaces/{spaceId}/agent/memory:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Memory item
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AgentMemoryCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create a memory item on the space brain object
+      tags:
+      - agent
+  /spaces/{spaceId}/agent/memory/{itemId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Memory item ID
+        in: path
+        name: itemId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Delete a memory item (author only)
+      tags:
+      - agent
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Memory item ID
+        in: path
+        name: itemId
+        required: true
+        type: string
+      - description: Fields to set
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AgentMemoryEvolveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Evolve a memory item's mutable fields (author only)
+      tags:
+      - agent
+  /spaces/{spaceId}/datasets:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.DatasetsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List a space's dataset schemas
+      tags:
+      - data
   /spaces/{spaceId}/debug:
     get:
       parameters:
@@ -1502,6 +1830,84 @@ paths:
       summary: Delete an object
       tags:
       - objects
+  /spaces/{spaceId}/objects/{objectId}/agent/chunks:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Chunk record
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AgentChunkCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Create one immutable compressed-history chunk
+      tags:
+      - agent
+  /spaces/{spaceId}/objects/{objectId}/agent/turns:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Turn record
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.AgentTurnAppendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Append one immutable agent turn record
+      tags:
+      - agent
   /spaces/{spaceId}/objects/{objectId}/chat/messages:
     post:
       consumes:
@@ -2408,6 +2814,60 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Join a space via invite token
+      tags:
+      - spaces
+  /spaces/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Query params (objectId fixed; dataset defaults to spaces)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Query the account's space list (windowed)
+      tags:
+      - spaces
+  /spaces/query/subscribe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Query params (objectId fixed; dataset defaults to spaces)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryRequest'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to the account's space list (SSE)
       tags:
       - spaces
   /sync-status/subscribe:

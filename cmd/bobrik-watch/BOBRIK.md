@@ -76,11 +76,13 @@ Then in another terminal:
 | `--agent-name` | `bobrik` | `fromAgent` tag on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
 
-There is no `--chat` flag: the watched chat is the space's **primary chat**,
-resolved via the server's deterministic `objects/derive` primitive with the
-same seed any-ui uses (`btoa('any-ui/primary-chat/v1')`), so bobrik and the
-Desktop UI always converge on the same chat object. (TEMP: the shared-seed
-convention is a stopgap — the primary-chat discovery contract is TBD.)
+There is no `--chat` flag: the watched chat is the space's chat object named
+**`general`**, found-or-created by name + chat type. Clients (Desktop UI, etc.)
+create a `general` chat in each space by convention; bobrik watches that one,
+or mints it when it owns the space (e.g. the dev `bobrik` space has no other
+client to create it). This replaced the earlier deterministic-derive scheme
+(the `btoa('any-ui/primary-chat/v1')` seed), which coupled bobrik to a UI
+internal constant.
 
 ### Pointing at a different server
 
@@ -120,9 +122,36 @@ cmd/bobrik-watch/
   a `agent_skill_name` property. Content is stored as markdown via
   the `editor/markdown` endpoint.
 
+- **Conversation history + memory** (`convmemory@v1.js`,
+  docs/11-agent-memory.md) — structured server-side datasets, no
+  markdown transcripts:
+  - `agent_turns` on the chat object — one append-only record per
+    agent invocation (user text, reply bubbles, effects, debugRef →
+    debug page, llm scalars). Kept forever; the boot context is a
+    bounded `sort:["-seq"] limit:N` query, not a trimmed file.
+  - `agent_chunks` on the chat object — LLM-compressed summaries
+    carrying explicit `fromSeq..toSeq` pointers, so any summary the
+    agent sees expands back to the exact raw turns
+    (`convmemory.expandChunk`).
+  - `agent_memory_items` on the per-space brain object
+    (`GET /v1/spaces/:id/agent/brain`, seed-derived) — typed memory
+    items (category/context/body, tag/entity/keyword arrays,
+    confidence/importance/salience).
+
 ## What's missing
 
-- **Search** — `anyHelper.search()` returns empty. The `any` API has no
-  full-text search indexer yet.
+- **Vector-backed semantic search** — externalized to a separate
+  vector-search service that does not exist yet (docs/07-roadmap.md
+  §9). `convmemory.search` runs in degraded mode (period / category /
+  recency via indexed queries); similarity ranking, dedup, and the old
+  link-gen/evolution/reflect/decay passes are dormant until the
+  service lands. No vectors are stored in the datasets. Interim
+  semantic recall is the `search` tool (RLM loop over the datasets,
+  docs/12-rlm-search.md) — slower and token-priced, but functional.
+- **FTS** — there is no full-text indexer in the `any` API.
+  `anyHelper.search()` is REMOVED (a stub returning `[]` that agents
+  kept reaching for and silently getting nothing — see the VM-boot
+  debug log analysis). Use the `search` tool, or `getObjects` with a
+  `$regex` filter for exact substrings.
 - **Tags** — `addTag`, `listTags`, etc. return errors. No select/multi_select
   property format in the `any` API yet.

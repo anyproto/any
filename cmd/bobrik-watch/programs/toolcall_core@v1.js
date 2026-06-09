@@ -17,7 +17,7 @@
 import { createClient, getProp } from "anyHelper@v1";
 import { createLLM } from "llm@v1";
 import { displayValue, formatTraceOneLiner, summarizeTrace } from "utils@v1";
-import { createAMemory } from "amemory@v2";
+import { createConvMemory } from "convmemory@v1";
 // No tracer import: Sonnet recovers from errors directly via is_error tool_result.
 // The tracer added LLM calls for marginal benefit when the model is capable
 // enough to fix its own broken cells in the next turn.
@@ -35,19 +35,21 @@ var llm = createLLM();
 // toolEffects.get(toolUseId).
 var MAX_TOOL_RESULT_CHARS = 16000;
 
-// Rolling chat-history budget. Raw turns (user/think/assistant/effects
-// markdown) accumulate in a single at_memory object. When the file crosses
-// CHAT_MAX_CHARS, we Sonnet-compress the oldest ~CHAT_COMPRESS_CHARS into a
-// chat_chunk memory and trim the file, so the live rolling view oscillates
-// between CHAT_COMPRESS_CHARS and CHAT_MAX_CHARS.
-var CHAT_MAX_CHARS = 20000;
-var CHAT_COMPRESS_CHARS = 10000;
+// Conversation-history windows. History lives in structured datasets ON THE
+// CHAT OBJECT (agent_turns / agent_chunks — docs/11-agent-memory.md): raw
+// turns are append-only and kept forever; the boot context is bounded by
+// these query limits, NOT by trimming storage. Compression produces chunk
+// summaries with explicit fromSeq..toSeq pointers back into the raw turns —
+// it never rewrites or deletes anything.
+var TURNS_TO_INJECT = 8;        // raw turns rendered into the boot window
+var CHAT_CHUNKS_TO_INJECT = 8;  // compressed chunks injected above the window
 
-// How many most-recent compressed chunks to always inject at boot.
-// Bumped up because the live rolling window only holds ~4-5 raw turns before
-// compression kicks in; injecting more prior chunks restores long-range
-// session continuity without reinflating the live window.
-var CHAT_CHUNKS_TO_INJECT = 8;
+// Count-based compression trigger: when more than TURNS_PER_CHUNK + LIVE_TAIL
+// turns sit above the last chunk's toSeq, the oldest TURNS_PER_CHUNK-sized
+// overflow is summarized into a new chunk; the newest LIVE_TAIL turns always
+// stay un-summarized so the live window keeps raw fidelity.
+var TURNS_PER_CHUNK = 10;
+var LIVE_TAIL = 6;
 
 // Space-Context split thresholds. The Main space_context object is injected
 // into every system prompt; when its body crosses SPACE_CTX_SPLIT_CHARS we run
@@ -280,13 +282,13 @@ function _buildBootPrelude(toolDocs) {
 function _buildToolsPromptSection(toolDocs) {
   // Ordering discipline for the injected tool list:
   //   1. `anyHelper` pinned first.
-  //   2. `amemory` pinned second.
+  //   2. `convmemory` pinned second.
   //   3. Everything else by Anytype `created_date` ascending (oldest first),
   //      so stable tools bubble up above newer, churning ones. Undated tools
   //      sort last. Alphabetical as final tiebreak.
   // ISO 8601 dates with `Z` suffix sort correctly as strings — the format
   // is fixed-width left-to-right most-significant, no parsing needed.
-  var PIN_ORDER = { "anyHelper": 0, "amemory": 1 };
+  var PIN_ORDER = { "anyHelper": 0, "convmemory": 1 };
   var names = Object.keys(toolDocs).sort(function(a, b) {
     var ap = PIN_ORDER[a], bp = PIN_ORDER[b];
     if (ap !== undefined && bp !== undefined) return ap - bp;
@@ -335,18 +337,18 @@ function _buildToolsPromptSection(toolDocs) {
   return out;
 }
 
-// Fetch amemory's current categories at boot and render them into a short
+// Fetch convmemory's current categories at boot and render them into a short
 // system-prompt section. Gives the agent a live inventory (builtins + any
 // invented categories already in the space) so it can pick category filters
 // without running listCategories() as its first run_cell. Counts omitted —
 // they'd invalidate prompt cache on every memory write without helping the
 // agent pick filters. Uses js.eval against the already-booted kernel where
-// `amemory` is bound as a global. Fails silent (empty string) if amemory
+// `convmemory` is bound as a global. Fails silent (empty string) if it
 // isn't available — e.g. not deployed yet, or an import error during boot.
 function _fetchCategoriesSection() {
   try {
     var r = js.eval(
-      "(function(){ try { if (typeof amemory !== 'object' || !amemory || typeof amemory.listCategories !== 'function') return null; return JSON.stringify(amemory.listCategories()); } catch(e) { return null; } })()",
+      "(function(){ try { if (typeof convmemory !== 'object' || !convmemory || typeof convmemory.listCategories !== 'function') return null; return JSON.stringify(convmemory.listCategories()); } catch(e) { return null; } })()",
       {}
     );
     if (!r || r.error || !r.result) return "";
@@ -369,7 +371,7 @@ function _fetchCategoriesSection() {
     if (invented.length > 0) {
       lines.push("Invented (already in use — REUSE before inventing new): " + invented.join(", ") + ".");
     }
-    lines.push("\nUse `{categories: [...]}` on `amemory.search` to narrow retrieval. A category-filtered query surfaces items whose content wouldn't score close to the topic query in the shared embedding space (e.g. the user's general 'edit before create' preference won't match 'book reading notes', but `{categories: ['preference']}` will surface it).\n\n");
+    lines.push("\nUse `convmemory.memoryByCategory({categories: [...]})` to read them. NOTE: semantic (similarity-ranked) recall is not available yet — `convmemory.search` runs in degraded mode (period/category/recency only), so prefer explicit category and period reads.\n\n");
     return lines.join("\n");
   } catch (e) {
     return "";
@@ -378,31 +380,11 @@ function _fetchCategoriesSection() {
 
 
 // ============================================================================
-// Chat history — rolling markdown store + chunk injection
+// Chat history — structured agent_turns / agent_chunks datasets on the chat
+// object (docs/11-agent-memory.md). No anchor object, no markdown parsing:
+// the chat object id IS the scope, the boot window is a bounded indexed
+// query, and persistence is one append-only record per invocation.
 // ============================================================================
-
-// Find or create the "_main" memory anchor. This is a single at_memory object
-// that carries two non-amemory properties linking to (a) the rolling chat
-// history object. We reuse v4's scheme so any existing anchor on the space
-// keeps working. Returns { id, fullObj } or null.
-function loadOrCreateMemoryAnchor(client) {
-  var rawOpts = { resolveRefs: false };
-  var objects = client.getObjects("agent_memory", rawOpts);
-  for (var i = 0; i < objects.length; i++) {
-    var obj = objects[i];
-    if (getProp(obj, "agent_memory.agent_memory") === "_main") {
-      return { id: obj.id, fullObj: client.getObject(obj.id, rawOpts) };
-    }
-  }
-
-  var result = client.createObject("agent_memory", {
-    name: "Agent Memory",
-    body: "",
-    agent_memory: { agent_memory: "_main" }
-  });
-  if (!result || !result.ok) return null;
-  return { id: result.object.id, fullObj: client.getObject(result.object.id, rawOpts) };
-}
 
 // Resolve every usable display handle for a space member — typically two
 // values: the stripped `global_name` (e.g. `anton.any` → `anton`) and the
@@ -494,103 +476,6 @@ function shouldRespond(client, opts) {
   return { respond: false, reason: "no-mention", chatName: chatName, botHandle: primary };
 }
 
-// Find or create the rolling chat-history object for a given chatId, linked
-// from the memory anchor's `Agent Memory.chat_history` property (a multi-value
-// `objects` field). Returns { id, markdown } or null on hard failure.
-//
-//   chatId    — the Anytype chat object id; null for legacy/unscoped mode
-//   chatName  — optional, used only to name a newly-created history object
-//   spaceType — used to enable one-time 1-1 adoption (see below)
-//
-// Lookup walks every linked history and matches by the
-// `Agent Memory.chat_id` property. If none match and:
-//   (a) chatId is set AND
-//   (b) there's exactly one linked history with NO chat_id AND
-//   (c) spaceType === 4 (OneToOne)
-// we *adopt* that legacy object in place by patching its chat_id.
-// This preserves 1-1 history continuity for users who had the agent deployed
-// before chat scoping existed.
-//
-// chatId == null falls through to the legacy "first unkeyed" or "create new
-// unkeyed" path — keeps old non-middleware callers working unchanged.
-function loadOrCreateChatHistory(client, anchor, chatId, chatName, spaceType) {
-  if (!anchor || !anchor.fullObj) return null;
-
-  var val = getProp(anchor.fullObj, "agent_memory.chat_history");
-  var ids = [];
-  if (Array.isArray(val)) {
-    for (var vi = 0; vi < val.length; vi++) {
-      if (typeof val[vi] === "string" && val[vi].length > 10) ids.push(val[vi]);
-    }
-  } else if (typeof val === "string" && val.length > 10) {
-    ids.push(val);
-  }
-
-  // Hydrate each linked history so we can match by chat_id.
-  var hydrated = [];
-  for (var i = 0; i < ids.length; i++) {
-    var obj;
-    try { obj = client.getObject(ids[i], { resolveRefs: false }); } catch (e) { obj = null; }
-    if (obj) hydrated.push({ id: ids[i], obj: obj, chatId: getProp(obj, "agent_memory.chat_id") || null });
-  }
-
-  // Match by chatId (when set).
-  if (chatId) {
-    for (var mi = 0; mi < hydrated.length; mi++) {
-      if (hydrated[mi].chatId === chatId) {
-        return { id: hydrated[mi].id, markdown: hydrated[mi].obj.markdown || "" };
-      }
-    }
-    // Legacy adoption for OneToOne: if exactly one unkeyed history exists,
-    // stamp it with the current chatId and use it. Preserves 1-1 continuity.
-    if (spaceType === 4) {
-      var unkeyed = [];
-      for (var ui = 0; ui < hydrated.length; ui++) {
-        if (!hydrated[ui].chatId) unkeyed.push(hydrated[ui]);
-      }
-      if (unkeyed.length === 1) {
-        try {
-          client.updateObject(unkeyed[0].id, {
-            agent_memory: { chat_id: chatId }
-          });
-        } catch (e) {}
-        return { id: unkeyed[0].id, markdown: unkeyed[0].obj.markdown || "" };
-      }
-    }
-  } else if (hydrated.length > 0) {
-    // Legacy path (no chatId supplied): reuse the first linked history
-    // regardless of scoping, matching pre-scoping behaviour.
-    return { id: hydrated[0].id, markdown: hydrated[0].obj.markdown || "" };
-  }
-
-  // No match — create a new history object for this chat.
-  var historyName = "Agent Chat History";
-  if (chatName) historyName += " — " + chatName;
-  else if (chatId) historyName += " — " + chatId;
-
-  var createProps = {};
-  if (chatId) createProps.chat_id = chatId;
-
-  var result = client.createObject("agent_memory", {
-    name: historyName,
-    body: "",
-    agent_memory: createProps
-  });
-  if (!result || !result.ok) return null;
-  var newId = result.object.id;
-
-  // Append (don't overwrite) the anchor's chat_history list so other chats'
-  // histories stay linked.
-  var existing = ids.slice();
-  existing.push(newId);
-  try {
-    client.updateObject(anchor.id, {
-      agent_memory: { chat_history: existing }
-    });
-  } catch (e) {}
-  return { id: newId, markdown: "" };
-}
-
 // ============================================================================
 // Space Context — singleton "Main" object (type `space_context`) whose markdown
 // is injected into every system prompt. Child space_context objects hold
@@ -636,48 +521,36 @@ function getChildSpaceContexts(client) {
   return out;
 }
 
-// Turn-record format:
-//   \n\n### <ISO-ts>\nuser> <text>\n[think> <text>\n][assistant> <text>\n][effects>\n<lines>\n]
-// Each optional section is omitted if empty. We use a `### <ts>` markdown
-// heading as the turn separator rather than `---` because Anytype's markdown
-// layer rewrites horizontal rules (`---`) with a leading space on round-trip,
-// which breaks literal splitting. Headings round-trip cleanly.
-var TURN_DELIM_WRITE = "\n\n### ";     // literal used when formatting a new turn
-var TURN_DELIM_READ = /\n+### /;       // permissive regex used when splitting a stored blob
+// Render structured turn records to plain text for the compression
+// summarizer. Same surface the old markdown transcript carried — user line,
+// reply bubbles, effects one-liners — but produced from typed fields, never
+// parsed back.
+export function renderTurnsForSummary(turns) {
+  var out = [];
+  for (var i = 0; i < turns.length; i++) {
+    var t = turns[i];
+    var lines = ["### " + _unixToIso(t.createdAt)];
+    if (t.userText) {
+      lines.push(t.userName ? "user (@" + t.userName + ")> " + t.userText : "user> " + t.userText);
+    }
+    if (t.think) lines.push("think> " + t.think);
+    var replies = t.replies || [];
+    for (var ri = 0; ri < replies.length; ri++) {
+      if (replies[ri]) lines.push("assistant> " + replies[ri]);
+    }
+    if (t.effects && t.effects.length > 0) {
+      lines.push("effects>");
+      for (var ei = 0; ei < t.effects.length; ei++) lines.push(t.effects[ei]);
+    }
+    out.push(lines.join("\n"));
+  }
+  return out.join("\n\n");
+}
 
-function formatTurnRecord(record) {
-  var lines = [];
-  lines.push(TURN_DELIM_WRITE + (record.ts || new Date().toISOString()));
-  if (record.user) {
-    if (record.user_name) {
-      lines.push("user (@" + record.user_name + ")> " + record.user);
-    } else {
-      lines.push("user> " + record.user);
-    }
-  }
-  if (record.think) lines.push("think> " + record.think);
-  // Assistant: array of discrete chat replies (intermediates + final), or a
-  // single string for legacy turns. Each entry gets its own `assistant>` line
-  // so chat history mirrors what the user saw — discrete bubbles in order.
-  if (record.assistant) {
-    var entries = Array.isArray(record.assistant) ? record.assistant : [record.assistant];
-    for (var ai = 0; ai < entries.length; ai++) {
-      var entry = entries[ai];
-      if (!entry) continue;
-      if (record.assistant_name) {
-        lines.push("assistant (@" + record.assistant_name + ")> " + entry);
-      } else {
-        lines.push("assistant> " + entry);
-      }
-    }
-  }
-  if (record.effects && record.effects.length > 0) {
-    lines.push("effects>");
-    for (var i = 0; i < record.effects.length; i++) {
-      lines.push(record.effects[i]);
-    }
-  }
-  return lines.join("\n") + "\n";
+// Unix-seconds → ISO string ("" for missing/invalid).
+function _unixToIso(unix) {
+  if (!unix || typeof unix !== "number") return "";
+  try { return new Date(unix * 1000).toISOString(); } catch (e) { return ""; }
 }
 
 // Pull {id, name, typeKey} out of a trace output blob (lastOut) with
@@ -786,183 +659,99 @@ function extractEffects(traces, spaceId) {
   return lines;
 }
 
-// Parse the rolling markdown into an ordered list of turn records. Each record:
-//   { ts, user, think, assistant, effects[] }
-// Unknown / legacy lines are ignored. Used both for injecting prior turns as
-// alternating user/assistant messages AND for picking a split point during
-// compression (we only split on `### <ts>` boundaries, never mid-turn).
-function parseTurnsFromMarkdown(md) {
-  if (!md) return [];
-  var parts = md.split(TURN_DELIM_READ);
-  var turns = [];
-  for (var pi = 0; pi < parts.length; pi++) {
-    var chunk = parts[pi];
-    if (!chunk || chunk.trim() === "") continue;
-    var lines = chunk.split("\n");
-    // assistant is an array of discrete entries (intermediates + final); each
-    // `assistant>` line opens a new entry, continuation lines append to it.
-    var rec = { ts: "", user: "", user_name: "", think: "", assistant: [], assistant_name: "", effects: [] };
-    var section = null;
-    var bufs = { user: [], think: [], effects: [] };
-    var asstCurrent = null;
-    for (var li = 0; li < lines.length; li++) {
-      var line = lines[li];
-      if (li === 0 && /^\d{4}-\d{2}-\d{2}T/.test(line)) { rec.ts = line.trim(); continue; }
-      var userMatch = /^user(?: \(@([^)]+)\))?> /.exec(line);
-      if (userMatch) {
-        if (asstCurrent !== null) { rec.assistant.push(asstCurrent.join("\n").trim()); asstCurrent = null; }
-        section = "user";
-        if (userMatch[1] && !rec.user_name) rec.user_name = userMatch[1];
-        bufs.user.push(line.substring(userMatch[0].length));
-        continue;
-      }
-      if (line.indexOf("think> ") === 0) {
-        if (asstCurrent !== null) { rec.assistant.push(asstCurrent.join("\n").trim()); asstCurrent = null; }
-        section = "think";
-        bufs.think.push(line.substring(7));
-        continue;
-      }
-      var asstMatch = /^assistant(?: \(@([^)]+)\))?> /.exec(line);
-      if (asstMatch) {
-        if (asstCurrent !== null) { rec.assistant.push(asstCurrent.join("\n").trim()); asstCurrent = null; }
-        section = "assistant";
-        if (asstMatch[1] && !rec.assistant_name) rec.assistant_name = asstMatch[1];
-        asstCurrent = [line.substring(asstMatch[0].length)];
-        continue;
-      }
-      if (line.indexOf("effects>") === 0) {
-        if (asstCurrent !== null) { rec.assistant.push(asstCurrent.join("\n").trim()); asstCurrent = null; }
-        section = "effects";
-        continue;
-      }
-      if (section === "effects") {
-        if (line.trim() !== "") bufs.effects.push(line);
-        continue;
-      }
-      if (section === "assistant") {
-        if (line !== "" && asstCurrent !== null) asstCurrent.push(line);
-        continue;
-      }
-      if (section && line !== "" && bufs[section]) bufs[section].push(line);
-    }
-    if (asstCurrent !== null) rec.assistant.push(asstCurrent.join("\n").trim());
-    rec.user = bufs.user.join("\n").trim();
-    rec.think = bufs.think.join("\n").trim();
-    rec.effects = bufs.effects;
-    if (rec.user || rec.assistant.length > 0 || rec.effects.length > 0) turns.push(rec);
+// Compression: count-based. When more than TURNS_PER_CHUNK + LIVE_TAIL turns
+// have accumulated above the last chunk's toSeq, summarize the oldest
+// overflow (everything except the newest LIVE_TAIL turns) into one new chunk
+// carrying explicit fromSeq..toSeq pointers. Turns are NEVER mutated or
+// deleted — the pointers are the "compacted" marker, and the live window is
+// bounded by the boot query's limit, not by storage size.
+export function maybeCompressTurns(conv, chatObjId, newestSeq) {
+  var last = null;
+  try { last = conv.lastChunk(chatObjId); } catch (e) {}
+  var fromSeq = last ? last.toSeq + 1 : 0;
+  var uncompressed = newestSeq - fromSeq + 1;
+  if (uncompressed < TURNS_PER_CHUNK + LIVE_TAIL) {
+    return { skipped: true, uncompressed: uncompressed };
   }
-  return turns;
-}
+  var toSeq = newestSeq - LIVE_TAIL;
 
-// Compression: when markdown > CHAT_MAX_CHARS, split off the oldest
-// ~CHAT_COMPRESS_CHARS at a turn boundary, Sonnet-summarize, and persist a
-// chat_chunk memory with the span.
-//
-// Returns { compressed_turn_count, keptMarkdown } — caller is responsible
-// for writing keptMarkdown back to the history object.
-function compressOldestTurns(amem, markdown, chatId) {
-  // Ensure a leading newline so the very first `### ts` matches the split regex.
-  var normMd = markdown.charAt(0) === "\n" ? markdown : "\n" + markdown;
-  var parts = normMd.split(TURN_DELIM_READ);
-  // parts[0] is the leading prefix before the first \n---\n (normally "").
-  // parts[1..] are the turn bodies. Walk from parts[1] forward, accumulating
-  // until we'd exceed CHAT_COMPRESS_CHARS — THAT part (and everything after)
-  // stays in keptParts. This guarantees the current (newest) turn is always
-  // retained even when the rest overflows.
-  var toCompressParts = [];
-  var toKeepParts = [];
-  var compressedChars = 0;
-  var crossedThreshold = false;
-
-  if (parts.length <= 1) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, skipped: true };
+  var turns;
+  try { turns = conv.turnRange(chatObjId, fromSeq, toSeq); } catch (e) {
+    return { skipped: true, error: "turn range load failed: " + (e && e.message ? e.message : String(e)) };
   }
-
-  for (var i = 1; i < parts.length; i++) {
-    var p = parts[i];
-    // Always keep the LAST part (current turn). Never compress it — even if
-    // it alone exceeds the threshold, the goal of compression is to bound the
-    // history, not to discard the latest state.
-    var isLast = (i === parts.length - 1);
-    if (isLast) {
-      crossedThreshold = true;
-      toKeepParts.push(p);
-      continue;
-    }
-    if (!crossedThreshold && (compressedChars + p.length) <= CHAT_COMPRESS_CHARS) {
-      toCompressParts.push(p);
-      compressedChars += p.length + 5; // "\n---\n"
-    } else {
-      crossedThreshold = true;
-      toKeepParts.push(p);
-    }
-  }
-
-  if (toCompressParts.length === 0) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, skipped: true };
-  }
-
-  var toCompressMd = TURN_DELIM_WRITE + toCompressParts.join(TURN_DELIM_WRITE);
-  var turns = parseTurnsFromMarkdown(toCompressMd);
-  if (turns.length === 0) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, skipped: true, reason: "parseTurnsFromMarkdown returned 0 turns" };
-  }
-
-  var periodStart = turns[0].ts || new Date().toISOString();
-  var periodEnd = turns[turns.length - 1].ts || periodStart;
+  if (!turns || turns.length === 0) return { skipped: true };
 
   var prompt = "Summarize the following chat history slice into 5-8 sentences. " +
     "Preserve: (a) what the user asked for, (b) what objects were created/updated/deleted with their TYPES and NAMES and IDs when available, " +
     "(c) any unresolved threads or pending follow-ups, (d) any long-form artifact the assistant stashed in an Anytype object (include its name/type/id so a future turn can locate it). " +
     "Be terse but dense — this is a memory aid for a future assistant turn, not a narrative, and several of these summaries will be concatenated so each one must stand on its own. " +
     "Output plain text only, no headers, no markdown.\n\n" +
-    "CHAT HISTORY SLICE:\n" + toCompressMd;
+    "CHAT HISTORY SLICE:\n" + renderTurnsForSummary(turns);
 
   var summary = null;
   try {
-    // Compression uses the resolved tier model (no override). The prompt asks
-    // for 2-4 sentences so the model naturally returns ~200 tokens; the
-    // chat-call default max_tokens is a safe ceiling against silent truncation.
     var resp = llm.chat([{ role: "user", content: prompt }], {});
     if (resp && resp.content) {
-      var parts2 = [];
+      var parts = [];
       for (var ci = 0; ci < resp.content.length; ci++) {
-        if (resp.content[ci].type === "text") parts2.push(resp.content[ci].text);
+        if (resp.content[ci].type === "text") parts.push(resp.content[ci].text);
       }
-      summary = parts2.join("\n").trim();
+      summary = parts.join("\n").trim();
     }
   } catch (e) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, error: "compression LLM failed: " + (e && e.message ? e.message : String(e)) };
+    return { skipped: true, error: "compression LLM failed: " + (e && e.message ? e.message : String(e)) };
   }
+  if (!summary) return { skipped: true, error: "compression produced empty summary" };
 
-  if (!summary) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, error: "compression produced empty summary" };
-  }
-
-  var chunkResult = amem.createChatChunk({
-    period_start: periodStart,
-    period_end: periodEnd,
+  var realToSeq = turns[turns.length - 1].seq;
+  var res = conv.createChunk(chatObjId, {
+    seq: last ? last.seq + 1 : 0,
     summary: summary,
-    turns_covered: turns.length,
-    chatId: chatId || ""
+    periodStart: turns[0].createdAt || 1,
+    periodEnd: turns[turns.length - 1].createdAt || turns[0].createdAt || 1,
+    fromSeq: turns[0].seq,
+    toSeq: realToSeq,
+    turnsCovered: turns.length
   });
-  if (!chunkResult || !chunkResult.ok) {
-    return { compressed_turn_count: 0, keptMarkdown: markdown, error: "createChatChunk failed: " + (chunkResult && chunkResult.error) };
-  }
+  if (!res.ok) return { skipped: true, error: "createChunk failed: " + res.error };
+  return { skipped: false, chunkSeq: res.seq, fromSeq: turns[0].seq, toSeq: realToSeq, turnsCovered: turns.length };
+}
 
-  // Rejoin kept parts. Prefix with the write delimiter so each kept turn
-  // starts with `### <ts>` (matching the original format) and future parses
-  // round-trip.
-  var kept = toKeepParts.length > 0
-    ? TURN_DELIM_WRITE + toKeepParts.join(TURN_DELIM_WRITE)
-    : "";
-  return {
-    compressed_turn_count: turns.length,
-    keptMarkdown: kept,
-    chunkId: chunkResult.id,
-    periodStart: periodStart,
-    periodEnd: periodEnd
-  };
+// Persist one invocation turn: append the immutable record, then run the
+// compression check. A rejected append (seq collision with a concurrent run)
+// is retried once with a fresh probe. Best-effort throughout — history
+// persistence must never fail the user-visible turn.
+function persistTurn(conv, chatObjId, rec) {
+  var res;
+  try { res = conv.appendTurn(chatObjId, rec); } catch (e) {
+    res = { ok: false, error: (e && e.message) ? e.message : String(e) };
+  }
+  if (!res.ok) {
+    var fresh = -1;
+    try { fresh = conv.lastSeq(chatObjId) + 1; } catch (e) {}
+    if (fresh >= 0 && fresh !== rec.seq) {
+      rec.seq = fresh;
+      try { res = conv.appendTurn(chatObjId, rec); } catch (e2) {
+        res = { ok: false, error: (e2 && e2.message) ? e2.message : String(e2) };
+      }
+    }
+  }
+  if (!res.ok) {
+    console.log("[mem] appendTurn failed: " + res.error);
+    return res;
+  }
+  try {
+    var comp = maybeCompressTurns(conv, chatObjId, rec.seq);
+    if (comp && !comp.skipped) {
+      console.log("[mem] compressed turns " + comp.fromSeq + ".." + comp.toSeq +
+                  " → chunk #" + comp.chunkSeq + " (" + comp.turnsCovered + " turns)");
+    } else if (comp && comp.error) {
+      console.log("[mem] compression skipped: " + comp.error);
+    }
+  } catch (e) {
+    console.log("[mem] compression error: " + (e && e.message ? e.message : e));
+  }
+  return res;
 }
 
 // ============================================================================
@@ -1131,7 +920,7 @@ function maybeSplitSpaceContext(client, breadcrumb) {
 // Format an ISO timestamp as "[Wkd YYYY-MM-DD HH:MM UTC]" so each rendered
 // chat message carries the date+time+weekday it happened. Returns "" for
 // unparseable input — the prefix is dropped silently when ts is missing.
-function _formatHistoryTs(isoTs) {
+export function _formatHistoryTs(isoTs) {
   if (!isoTs) return "";
   var d;
   try { d = new Date(isoTs); } catch (e) { return ""; }
@@ -1143,8 +932,8 @@ function _formatHistoryTs(isoTs) {
          " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " UTC";
 }
 
-// Render prior turns from the live markdown window into an ordered list of
-// alternating {role, content} messages for the conversation. Each turn
+// Render prior turn RECORDS (structured agent_turns rows, oldest-first) into
+// an ordered list of alternating {role, content} messages. Each turn
 // becomes:
 //   { role: "user", content: "[ts] user-ask\n[effects: ...]" }
 //   { role: "assistant", content: "[think]\n...\n[/think]\n\nassistant-final-text" }
@@ -1162,16 +951,16 @@ function _formatHistoryTs(isoTs) {
 // authored. Putting it on assistant messages too caused the model to mimic
 // the pattern and emit fake `[ts]\n` prefixes in its own outputs (which then
 // leaked into chatReply).
-function renderWindowMessages(turns) {
+export function renderTurnMessages(turns) {
   var msgs = [];
   for (var i = 0; i < turns.length; i++) {
     var t = turns[i];
-    var ts = _formatHistoryTs(t.ts);
+    var ts = _formatHistoryTs(_unixToIso(t.createdAt));
     var tsPrefix = ts ? "[" + ts + "]\n" : "";
 
     var userBlocks = [];
-    if (t.user) {
-      var userLine = t.user_name ? "(@" + t.user_name + ") " + t.user : t.user;
+    if (t.userText) {
+      var userLine = t.userName ? "(@" + t.userName + ") " + t.userText : t.userText;
       userBlocks.push(tsPrefix + userLine);
     }
     if (t.effects && t.effects.length > 0) {
@@ -1183,16 +972,13 @@ function renderWindowMessages(turns) {
 
     var asstBlocks = [];
     if (t.think) asstBlocks.push("[think]\n" + t.think + "\n[/think]");
-    // assistant is an array of discrete chat replies; join them into a single
-    // assistant message to preserve Anthropic's user/assistant alternation.
-    // Legacy turns may still arrive as a string — handle both shapes.
-    // Strip any leading `[Wkd YYYY-MM-DD HH:MM UTC]\n` from each stored entry —
-    // older turns persisted before the render-side fix may carry that prefix
-    // baked into the text the model wrote.
-    var asstEntries = Array.isArray(t.assistant) ? t.assistant : (t.assistant ? [t.assistant] : []);
+    // replies = the discrete chat bubbles (intermediates + final). Join into
+    // one assistant message to preserve Anthropic's user/assistant
+    // alternation. Strip any `[Wkd …]` prefix the model may have mimicked.
+    var replies = t.replies || [];
     var cleanedAsst = [];
-    for (var ai = 0; ai < asstEntries.length; ai++) {
-      var cleaned = _stripTsPrefix(asstEntries[ai]);
+    for (var ai = 0; ai < replies.length; ai++) {
+      var cleaned = _stripTsPrefix(replies[ai]);
       if (cleaned) cleanedAsst.push(cleaned);
     }
     if (cleanedAsst.length > 0) asstBlocks.push(cleanedAsst.join("\n\n"));
@@ -1316,18 +1102,21 @@ function _loadUserSkillsSection(client) {
   return "\n\n## Available User Skills\n\n" + lines.join("\n") + "\n";
 }
 
-// Build the turn-0 "earlier context" user message from compressed chunks.
-// Rendered oldest-first (chronological). Returns null if no chunks.
-function renderChunksMessage(chunks) {
+// Build the turn-0 "earlier context" user message from compressed chunk
+// RECORDS (structured agent_chunks rows, oldest-first). Each line carries the
+// drill-down handle — `[chunk #seq, turns fromSeq..toSeq]` — so the model
+// knows it can expand any summary back to the exact raw turns via
+// `convmemory.expandChunk(seq)`. Returns null if no chunks.
+export function renderChunksMessage(chunks) {
   if (!chunks || chunks.length === 0) return null;
-  var lines = ["[Earlier context, compressed]"];
+  var lines = ["[Earlier context, compressed — expand any entry to its raw turns via convmemory.expandChunk(<chunk #>)]"];
   for (var i = 0; i < chunks.length; i++) {
     var c = chunks[i];
-    var ps = (c.period_start || "").substring(0, 16);
-    var pe = (c.period_end || "").substring(0, 16);
-    var body = c.body || c.context || "";
-    body = body.replace(/\n+/g, " ").trim();
-    lines.push("— " + ps + ".." + pe + " — " + body);
+    var ps = _unixToIso(c.periodStart).substring(0, 16);
+    var pe = _unixToIso(c.periodEnd).substring(0, 16);
+    var body = (c.summary || "").replace(/\n+/g, " ").trim();
+    lines.push("— " + ps + ".." + pe + " — " + body +
+      " [chunk #" + c.seq + ", turns " + c.fromSeq + ".." + c.toSeq + "]");
   }
   lines.push("[End of earlier context]");
   return { role: "user", content: lines.join("\n") };
@@ -1870,7 +1659,6 @@ export function main(args) {
   if (!gate.respond) {
     return "";
   }
-  var currentChatName = gate.chatName || null;
 
   var tools = bootClient.getTools();
   if (!tools || tools.length === 0) {
@@ -1977,33 +1765,31 @@ export function main(args) {
   dcLogInitialContext(fullSystemText);
 
   // --- Chat history bootstrap ------------------------------------------------
-  // Load the rolling chat-history markdown + the most recent compressed chunks.
-  // Both are rendered as prior conversation messages so the model sees its own
-  // past work when answering follow-ups.
+  // Load the boot context from the structured datasets on the chat object:
+  // the newest TURNS_TO_INJECT raw turn records plus the newest
+  // CHAT_CHUNKS_TO_INJECT compressed chunks — two bounded indexed queries,
+  // no anchor walk, no markdown parsing. Scoping is structural: the chat
+  // object hosts its own agent_turns/agent_chunks.
   //
-  // In __quiet (sub-agent) mode we deliberately skip the load — the sub-agent
-  // task is isolated, must not see chat history, and must not persist anything
-  // to it. historyId stays null so the persist block below also no-ops.
-  var amem = createAMemory(bootClient, { enableLinks: false });
-  var anchor = loadOrCreateMemoryAnchor(bootClient);
-  var history = __quiet
-    ? null
-    : loadOrCreateChatHistory(bootClient, anchor, currentChatId, currentChatName, spaceType);
-  var historyId = history ? history.id : null;
-  var historyMarkdown = history ? history.markdown : "";
-
-  // Scope the injected chunk window to the current chat when we know it.
-  // Cross-chat chunks are still reachable via amemory.search from cells.
-  // Sub-agent runs (__quiet) skip the chunk window for isolation.
+  // In __quiet (sub-agent) mode we deliberately skip load AND persist — the
+  // sub-agent task is isolated. Without a chatId (legacy caller, no
+  // middleware) there is no host object for the turn log, so history is
+  // disabled the same way.
+  var conv = createConvMemory(bootClient);
+  var historyEnabled = !__quiet && !!currentChatId;
+  var priorTurns = [];
   var priorChunks = [];
-  if (!__quiet) {
+  var nextSeq = 0;
+  if (historyEnabled) {
     try {
-      var chunkOpts = { n: CHAT_CHUNKS_TO_INJECT };
-      if (currentChatId) {
-        chunkOpts.chatId = currentChatId;
-        chunkOpts.chatIdFilter = "only";
-      }
-      priorChunks = amem.getRecentChatChunks(chunkOpts);
+      priorTurns = conv.recentTurns(currentChatId, TURNS_TO_INJECT);
+      nextSeq = priorTurns.length > 0 ? priorTurns[priorTurns.length - 1].seq + 1 : 0;
+    } catch (e) {
+      console.log("[mem] turn window load failed: " + (e && e.message ? e.message : e));
+      historyEnabled = false;
+    }
+    try {
+      priorChunks = conv.recentChunks(currentChatId, CHAT_CHUNKS_TO_INJECT);
     } catch (e) {}
   }
 
@@ -2011,8 +1797,7 @@ export function main(args) {
   var chunkMsg = renderChunksMessage(priorChunks);
   if (chunkMsg) messages.push(chunkMsg);
 
-  var priorTurns = parseTurnsFromMarkdown(historyMarkdown);
-  var windowMsgs = renderWindowMessages(priorTurns);
+  var windowMsgs = renderTurnMessages(priorTurns);
   for (var wmi = 0; wmi < windowMsgs.length; wmi++) messages.push(windowMsgs[wmi]);
 
   // Current user ask — prefix with the same `[Wkd YYYY-MM-DD HH:MM UTC]`
@@ -2026,6 +1811,28 @@ export function main(args) {
   // Per-invocation accumulators (written to history on end_turn).
   var turnThinkParts = [];
   var turnEffects = [];
+
+  // Build the immutable agent_turns record for persistTurn. `replies` is the
+  // ordered list of discrete chat bubbles the user saw (intermediates +
+  // final); heavy per-LLM-turn detail (cells, raw responses) stays in the
+  // debug log, linked via debugRef. Empty optional fields are omitted — the
+  // server rejects empty-string values for present optional fields.
+  function buildTurnRec(replies, stopReason) {
+    var rec = { seq: nextSeq, userText: args.text };
+    if (senderName) rec.userName = String(senderName);
+    rec.fromAgent = botName ? String(botName) : "bobrik";
+    if (replies && replies.length > 0) rec.replies = replies;
+    if (turnEffects.length > 0) rec.effects = turnEffects;
+    if (args.msgId) rec.messageIds = [String(args.msgId)];
+    if (_dc.pageId) rec.debugRef = _dc.pageId;
+    var llmStats = {};
+    if (stopReason) llmStats.stopReason = stopReason;
+    if (_dc.model) llmStats.model = _dc.model;
+    if (_dc.totalIn) llmStats.inTokens = _dc.totalIn;
+    if (_dc.totalOut) llmStats.outTokens = _dc.totalOut;
+    if (llmStats.stopReason || llmStats.model || llmStats.inTokens || llmStats.outTokens) rec.llm = llmStats;
+    return rec;
+  }
 
   for (var iter = 0; ; iter++) {
     var resp;
@@ -2093,29 +1900,13 @@ export function main(args) {
       chatReply("⚠ max_tokens — turn auto-closed:\n\n" + summaryText);
 
       // Persist as a normal turn so chat history shows what happened.
-      if (historyId) {
+      if (historyEnabled) {
         var assistantEntries = [];
         for (var __ti = 0; __ti < turnThinkParts.length; __ti++) {
           if (turnThinkParts[__ti]) assistantEntries.push(turnThinkParts[__ti]);
         }
         assistantEntries.push("[max_tokens auto-summary] " + summaryText);
-        var turnRec = {
-          ts: invocationStart,
-          user: args.text,
-          user_name: senderName || "",
-          assistant: assistantEntries,
-          assistant_name: botName || "",
-          effects: turnEffects
-        };
-        var entry = formatTurnRecord(turnRec);
-        var newMarkdown = (historyMarkdown || "") + entry;
-        if (newMarkdown.length > CHAT_MAX_CHARS) {
-          var comp = compressOldestTurns(amem, newMarkdown, currentChatId);
-          if (comp && comp.compressed_turn_count > 0) newMarkdown = comp.keptMarkdown;
-        }
-        try {
-          bootClient.updateObject(historyId, { markdown: newMarkdown });
-        } catch (e) {}
+        persistTurn(conv, currentChatId, buildTurnRec(assistantEntries, "max_tokens"));
       }
 
       dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
@@ -2171,48 +1962,18 @@ export function main(args) {
         chatReply("✅ " + finalText);
       }
 
-      if (historyId) {
-        // assistant is now an array — each intermediate chatReply (collected
-        // in turnThinkParts as the loop iterated) becomes its own discrete
-        // `assistant>` line, followed by the final ✅ reply. Mirrors the
-        // chat surface, where each is a separate bubble.
+      if (historyEnabled) {
+        // replies = each intermediate chatReply (collected in turnThinkParts
+        // as the loop iterated) followed by the final ✅ reply — mirrors the
+        // chat surface, where each is a separate bubble. One append-only
+        // record; compression (if due) runs inside persistTurn.
         var assistantEntries = [];
         for (var __ti = 0; __ti < turnThinkParts.length; __ti++) {
           var __t = turnThinkParts[__ti];
           if (__t) assistantEntries.push(__t);
         }
         if (finalText) assistantEntries.push(finalText);
-        var turnRec = {
-          ts: invocationStart,
-          user: args.text,
-          user_name: senderName || "",
-          assistant: assistantEntries,
-          assistant_name: botName || "",
-          effects: turnEffects
-        };
-        var entry = formatTurnRecord(turnRec);
-        var newMarkdown = (historyMarkdown || "") + entry;
-
-        // Overflow → compress oldest turns. compressOldestTurns receives the
-        // already-appended newMarkdown; its keptMarkdown contains the trailing
-        // (uncompressed) turns, including the one we just appended.
-        if (newMarkdown.length > CHAT_MAX_CHARS) {
-          console.log("[mem] chat history " + newMarkdown.length + " chars, compressing oldest...");
-          var comp = compressOldestTurns(amem, newMarkdown, currentChatId);
-          if (comp && comp.compressed_turn_count > 0) {
-            console.log("[mem] compressed " + comp.compressed_turn_count + " turns → " + comp.chunkId +
-                        " (" + comp.periodStart.substring(0, 16) + ".." + comp.periodEnd.substring(0, 16) + ")");
-            newMarkdown = comp.keptMarkdown;
-          } else if (comp && comp.error) {
-            console.log("[mem] compression skipped: " + comp.error);
-          }
-        }
-
-        try {
-          bootClient.updateObject(historyId, { markdown: newMarkdown });
-        } catch (e) {
-          console.log("[mem] failed to persist chat history: " + (e && e.message ? e.message : e));
-        }
+        persistTurn(conv, currentChatId, buildTurnRec(assistantEntries, "end_turn"));
       }
 
       // Space-context split: only runs when the `_space_context` skill is
