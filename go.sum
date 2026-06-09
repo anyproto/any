@@ -22,6 +22,8 @@ github.com/anyproto/anytype-agent-runtime v0.1.1 h1:ir01eiqLeMlNGFvJv+a7D+dV3JF5
 github.com/anyproto/anytype-agent-runtime v0.1.1/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/anytype-agent-runtime v0.1.2-0.20260609181045-a87d23c49c01 h1:8nbiQ1JH8qewHetMV/EfR7icZZcz1mBOBq4Bivj5VyE=
 github.com/anyproto/anytype-agent-runtime v0.1.2-0.20260609181045-a87d23c49c01/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
+github.com/anyproto/anytype-agent-runtime v0.1.2 h1:Pvbgkl9NrYjS4U6UDRCeSdpHdqmUhLurxBFig3HCxYk=
+github.com/anyproto/anytype-agent-runtime v0.1.2/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=
 github.com/anyproto/go-bip39 v1.0.0/go.mod h1:l0rcxmXRyiWAYzE1noMAc4qbeNrbhUwxM3rqSO9ILwo=
 github.com/anyproto/go-chash v0.1.0 h1:I9meTPjXFRfXZHRJzjOHC/XF7Q5vzysKkiT/grsogXY=
