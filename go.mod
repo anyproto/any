@@ -4,9 +4,9 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v0.4.6
-	github.com/anyproto/any-store/v2 v2.0.0-alpha.5
-	github.com/anyproto/any-sync v0.12.8
-	github.com/anyproto/any-sync-sdk v0.0.7
+	github.com/anyproto/any-store/v2 v2.0.0-alpha.10
+	github.com/anyproto/any-sync v0.12.10
+	github.com/anyproto/any-sync-sdk v0.0.8
 	github.com/anyproto/anytype-agent-runtime v0.1.1
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
@@ -63,7 +63,7 @@ require (
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/huandu/skiplist v1.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/ipfs/boxo v0.39.0 // indirect
+	github.com/ipfs/boxo v0.40.0 // indirect
 	github.com/ipfs/go-block-format v0.2.3 // indirect
 	github.com/ipfs/go-cid v0.6.1 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
@@ -75,7 +75,7 @@ require (
 	github.com/libp2p/go-libp2p v0.48.0 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect

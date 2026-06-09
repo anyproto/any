@@ -31,7 +31,7 @@
     `handlers_invites.go`; only the stdlib `errors` import needs adding there.
   - SDK source of truth is the **pinned module cache** `any-sync-sdk v0.0.4`
     (`go list -m -f '{{.Dir}}' github.com/anyproto/any-sync-sdk`), not a
-    writable `../any-sync-sdk2` sibling as CLAUDE.md's layout suggests — no
+    writable `../any-sync-sdk` sibling as CLAUDE.md's layout suggests — no
     `replace` directive is active. The `%w` wrap chain
     (`spaceimpl/service.go` → `space/invite.go` `ErrInvalidInvite`) is verified
     against that cached copy.

@@ -15,6 +15,12 @@ import (
 func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces", d.spaceCreate)
 	g.GET("/spaces", d.spaceList)
+	// Generic windowed query/subscribe over the account's space list,
+	// via Service.Query on the tech-space `spaces` dataset. Registered
+	// before the :spaceId routes so the static `query` segment isn't
+	// swallowed by the param matcher.
+	g.POST("/spaces/query", d.spaceListQuery)
+	g.POST("/spaces/query/subscribe", d.spaceListQuerySubscribe)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
@@ -27,7 +33,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
-	g.POST("/spaces/:spaceId/objects/derive", d.objectDerive)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
@@ -50,10 +55,29 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
+
+	// Agent data layer (built-in types — see internal/agentlog,
+	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
+	// reads + liveness go through /query and /query/subscribe with
+	// dataset ∈ {agent_turns, agent_chunks, agent_memory_items}.
+	// Turns/chunks attach to the chat object (multitype chat +
+	// agent_log); memory items live on the per-space brain object,
+	// which the server resolves itself (GET /agent/brain exposes the
+	// deterministic id for reads).
+	g.POST("/spaces/:spaceId/objects/:objectId/agent/turns", d.agentTurnAppend)
+	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
+	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
+	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
+	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)
+	g.DELETE("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryDelete)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
+
+	// Dataset schema discovery — JSON Schema (with per-field x-scope) for
+	// every dataset the space hosts. See Space.Datasets().
+	g.GET("/spaces/:spaceId/datasets", d.spaceDatasets)
 
 	// Types.
 	g.GET("/spaces/:spaceId/types", d.typeList)
@@ -112,7 +136,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Debug — diagnostic surface; not a stable interface. Production UI
 	// should use /sync-status (above) once the SDK lands the
 	// production-grade methods. See internal/api/debug.go and
-	// any-sync-sdk2/space/debug.go for the field-level docs.
+	// any-sync-sdk/space/debug.go for the field-level docs.
 	g.GET("/spaces/:spaceId/debug", d.debugSpace)
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }

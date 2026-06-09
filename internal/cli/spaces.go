@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
@@ -17,8 +21,130 @@ func newSpaceCmd() *cobra.Command {
 		Short: "space-level operations (metadata update, lookup)",
 	}
 
-	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSyncCmd())
+	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSyncCmd(),
+		newSpaceQueryCmd(), newSpaceSubscribeCmd())
 	return cmd
+}
+
+// newSpaceQueryCmd: `any space query` — windowed snapshot over the
+// account's space list via POST /v1/spaces/query (Service.Query on the
+// tech-space `spaces` dataset). GET /v1/spaces stays the mapped
+// convenience; this is the filterable/sortable raw-row primitive.
+func newSpaceQueryCmd() *cobra.Command {
+	var (
+		dataset    string
+		filter     string
+		sort       string
+		limit      int
+		offset     int
+		includeTot bool
+	)
+	cmd := &cobra.Command{
+		Use:   "query",
+		Short: "windowed snapshot over the account's space list (filter/sort/limit)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := buildSpaceListQueryBody(dataset, filter, sort, limit, offset, includeTot)
+			if err != nil {
+				return err
+			}
+			cl := client.New(flags.Addr, flags.Timeout)
+			out, err := cl.SpaceListQuery(cmd.Context(), body)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &limit, &offset, &includeTot)
+	return cmd
+}
+
+// newSpaceSubscribeCmd: `any space subscribe` — windowed live view over
+// the account's space list via POST /v1/spaces/query/subscribe. One JSON
+// frame per line on stdout (same shape as `any query-subscribe`).
+func newSpaceSubscribeCmd() *cobra.Command {
+	var (
+		dataset    string
+		filter     string
+		sort       string
+		limit      int
+		offset     int
+		includeTot bool
+	)
+	cmd := &cobra.Command{
+		Use:   "subscribe",
+		Short: "open a windowed space-list SSE stream (spaces added/changed/removed)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := buildSpaceListQueryBody(dataset, filter, sort, limit, offset, includeTot)
+			if err != nil {
+				return err
+			}
+			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			enc := json.NewEncoder(os.Stdout)
+			handle := func(f client.SSEFrame) error {
+				if f.Event == "" {
+					return nil
+				}
+				out := struct {
+					Event string          `json:"event"`
+					Data  json.RawMessage `json:"data,omitempty"`
+				}{Event: f.Event, Data: json.RawMessage(f.Data)}
+				return enc.Encode(out)
+			}
+			return cl.StreamSpaceListQuerySubscribe(cmd.Context(), body, handle)
+		},
+	}
+	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &limit, &offset, &includeTot)
+	return cmd
+}
+
+func addSpaceListQueryFlags(cmd *cobra.Command, dataset, filter, sort *string, limit, offset *int, includeTot *bool) {
+	cmd.Flags().StringVar(dataset, "dataset", "", "system dataset to read (default spaces; profile also available)")
+	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
+	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
+	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
+	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
+	cmd.Flags().BoolVar(includeTot, "total", false, "include the unbounded match count and hasNext flag")
+}
+
+// buildSpaceListQueryBody assembles the request body for the space-list
+// query/subscribe endpoints. All fields optional — an empty body is a
+// full snapshot. objectId is server-fixed to the tech-space index.
+func buildSpaceListQueryBody(dataset, filter, sort string, limit, offset int, includeTotal bool) ([]byte, error) {
+	body := map[string]any{}
+	if dataset != "" {
+		body["dataset"] = dataset
+	}
+	if filter != "" {
+		var f any
+		if err := json.Unmarshal([]byte(filter), &f); err != nil {
+			return nil, fmt.Errorf("--filter: %w", err)
+		}
+		body["filter"] = f
+	}
+	if sort != "" {
+		var sorts []string
+		for _, s := range splitCSV(sort) {
+			if s != "" {
+				sorts = append(sorts, s)
+			}
+		}
+		if len(sorts) > 0 {
+			body["sort"] = sorts
+		}
+	}
+	if limit > 0 {
+		body["limit"] = limit
+	}
+	if offset > 0 {
+		body["offset"] = offset
+	}
+	if includeTotal {
+		body["includeTotal"] = true
+	}
+	return json.Marshal(body)
 }
 
 // newSpaceSyncCmd: `any space sync <spaceId>` — force an immediate

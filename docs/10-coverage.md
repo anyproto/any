@@ -20,6 +20,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Members (read) | `GET /members`, `GET /members/:identity` | `listSpaceMembers`, `getSpaceMember` |
 | Spaces (list) | `GET /spaces` | `listSpaces` |
 | Programs | (via `/modify` + `/query` on `program_*` datasets) | `listPrograms`/`getProgram`/`saveProgram`/`saveTool`/`runProgram` |
+| Agent data layer | `POST …/agent/turns`, `POST …/agent/chunks`, `GET /agent/brain`, `POST`/`PATCH`/`DELETE /agent/memory[/:itemId]` | via `client.api(...)` from JS (convmemory module); reads via `getObjects({objectId, dataset})` with `agent_turns` / `agent_chunks` / `agent_memory_items` — see `docs/11-agent-memory.md` |
 
 ## Added in this pass
 
@@ -37,6 +38,8 @@ surface added.
 |-----------|--------------|
 | `GET /account`, `PUT /account/metadata` | host/account admin, not per-space content |
 | `POST /spaces`, `GET`/`DELETE`/`PATCH /spaces/:id`, `POST /spaces/join` | space lifecycle — the client binds to an existing space at `createClient` |
+| `POST /spaces/query`, `/spaces/query/subscribe` | account-wide space-list query/subscribe — host/UI concern; the JS agent operates within one bound space |
+| `GET /datasets`, `GET /spaces/:id/datasets` | dataset-schema discovery — host/tooling concern; the agent already knows the datasets it writes |
 | `POST /acl/*` (9), `…/invites` (5) | sharing/membership admin — host concern |
 | `GET /members/me`, `/members/requests`, `/members/subscribe` | membership admin/streaming |
 | `GET /sync-status*` (4), `GET /debug*` (2) | diagnostics — host/ops, not agent logic |

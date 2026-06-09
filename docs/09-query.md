@@ -113,6 +113,9 @@ Built-in datasets declare indexes for their hot paths:
 
 - `editor_blocks` → `(nav.parentId, nav.pos)` (tree listing + MaxPos)
 - `chat_messages` → `(_ver.id)` (chronological paging)
+- `agent_turns` → `(seq)`, `(createdAt)` (boot window, chunk drill-down, period queries)
+- `agent_chunks` → `(seq)`, `(periodEnd)` (recent chunks, period lookup)
+- `agent_memory_items` → `(category)`, `(createdAt)`, `(validFrom)` (category filter, recency, period recall)
 
 The per-space `objects` collection has **no per-property indexes**, so filtering
 or sorting cross-object queries on a `<typeId>.<propId>` is a scan proportional

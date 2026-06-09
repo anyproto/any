@@ -77,6 +77,19 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
+9. **External semantic-search service (TODO — agent memory recall is
+   non-functional until this exists).** The agent data layer
+   (`docs/11-agent-memory.md`) deliberately stores no vectors; a
+   separate service is planned that tails `/query/subscribe` on
+   `agent_memory_items` / `agent_chunks` / `agent_turns`, embeds
+   content, keys an ANN index by record id, and answers hybrid
+   (vector + keyword + metadata) recall with ids the caller hydrates
+   via `/query`. Until it ships: `memory.search` falls back to
+   indexed recency/category/period queries; similarity dedup,
+   link-gen, evolution/reflection/decay passes are dormant (the
+   schema keeps their fields — edges, salience, accessCount — so they
+   resume without data migration). `embeddingRef` is reserved on the
+   schema as the future external-index backref.
 
 ## SDK-side prerequisites
 
@@ -87,9 +100,13 @@ Not this repo's work; gate on the SDK:
   stays 501 until the SDK adds it. The diagnostic equivalent is
   surfaced via `Space.Debug().Space()` / `/v1/spaces/:id/debug`, but
   that surface is explicitly not stable.
-- **`PropertiesAPI.{SetAccount, SetDevice, AttachType, DetachType}`.**
-  All return errors today; routes are 501 until the rewrite-object
-  (account scope) and device-local store (device scope) ship.
+- **`PropertiesAPI.{SetAccount, SetDevice, DetachType}`.** Return
+  errors today; routes are 501 until the rewrite-object (account scope)
+  and device-local store (device scope) ship. `AttachType` now works on
+  the SDK — `editor.EnsureType` uses it to attach the `editor` type
+  before membership-gated `editor_blocks` writes — but the HTTP route
+  `/v1/spaces/:id/properties/:objectId/attach/:typeId` stays 501 (no
+  agent-facing caller yet; wire it when one appears).
 - **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
   Still "not implemented" on the SDK side; routes 501.
 - **`Types.Get` for non-object ids.** The SDK only returns
@@ -112,6 +129,17 @@ Not this repo's work; gate on the SDK:
 
 ## Done
 
+- **Agent data layer (turns / chunks / memory)** — built-in
+  `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
+  object) and `agent_memory` (`agent_memory_items` on the seed-derived
+  per-space brain object) types with validated record shapes,
+  server-stamped fields, declared indexes, append-only turn/chunk
+  semantics, and chunk→turns drill-down pointers (`fromSeq`/`toSeq`).
+  Write endpoints under `/agent/*` + `any agent` CLI; reads via the
+  query primitive. Replaces bobrik's markdown-transcript +
+  runtime-typed memory scheme. See `docs/11-agent-memory.md`; semantic
+  recall itself is gated on the external search service (Open
+  questions #9).
 - **v1 scaffolding + wallet + health slice** — `cmd/any`, `internal/{cli,server,client,config,api,version}`,
   echo v4 under `/v1`, `GET /v1/health`, `POST /v1/shutdown`, PID-lock with stale
   reclaim, loopback-only bind guard, uniform error envelope, `auth.FileProvider`
@@ -131,7 +159,7 @@ Not this repo's work; gate on the SDK:
   the data-plane (`query`/`modify`/`delete-records`).
 - **Objects + types + properties + data plane** — real handlers wired
   for the SDK surface that's shipped:
-  - `POST /v1/spaces/:id/objects`, `POST /v1/spaces/:id/objects/derive`
+  - `POST /v1/spaces/:id/objects`
   - `POST /v1/spaces/:id/modify`, `POST /v1/spaces/:id/delete-records`
     (return `{versionId, changeId, recordIds}` — the full `ModifyResult`)
   - `POST /v1/spaces/:id/types`, `POST /v1/spaces/:id/types/:typeId/properties`
@@ -257,3 +285,16 @@ Not this repo's work; gate on the SDK:
   the UI can render an editor for it. The web UI's left sidebar is now
   a lazy-loaded tree (queries `nav.parentId` per folder); the space
   picker moved to the right sidebar.
+- **Dataset schemas + space-list query/subscribe + discovery** — on the
+  SDK's unified tech-space query (`Service.Query` / `SpaceIndexObjectId`)
+  and required-schema work (`handler.Dataset.Schema`, `Space.Datasets` /
+  `Service.Datasets`). `POST /v1/spaces/query` + `/query/subscribe` wrap
+  `Service.Query(SpaceIndexObjectId(), "spaces")` — windowed snapshot +
+  SSE over the tech-space `spaces` dataset (raw rows; `GET /v1/spaces`
+  stays the mapped `SpaceInfo` convenience). `chat` / `editor` handlers
+  declare `handler.Schema` (per-field synced/derived/local).
+  `GET /v1/spaces/:id/datasets` (`Space.Datasets`) and `GET /v1/datasets`
+  (`Service.Datasets`) expose a JSON Schema per dataset with a per-field
+  `x-scope`. CLI: `any space query` / `any space subscribe` / `any
+  datasets`. Pins the SDK at the tagged `any-sync-sdk v0.0.8`
+  release (also bumps `any-store/v2` to `alpha.10`).

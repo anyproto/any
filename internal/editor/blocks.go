@@ -141,7 +141,29 @@ func NewType() handler.Type {
 			Name:        Dataset,
 			DataVersion: dataVersion,
 			Handler:     blocksHandler{},
+			Schema:      datasetSchema(),
 		}},
+	}
+}
+
+// datasetSchema declares the editor_blocks field schema for apply-time
+// enforcement and discovery (Space.Datasets / GET .../datasets).
+//
+// Dynamic so undeclared keys stay permitted (forward-compat). Every
+// block field is user/DAG-written → ScopeSynced; there are no
+// server-derived fields (block ids come from the change CID, `_ver` is
+// SDK-managed). style and nav carry small nested objects (style.level /
+// .ordered / .checked / .lang; nav.parentId / .pos) so they declare an
+// unconstrained object shape.
+func datasetSchema() handler.Schema {
+	return handler.Schema{
+		Dynamic: true,
+		Fields: []handler.Field{
+			{Id: FieldType, Name: "Type", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldStyle, Name: "Style", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldNav, Name: "Nav", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+		},
 	}
 }
 
