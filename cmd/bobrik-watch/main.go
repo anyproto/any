@@ -202,41 +202,41 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 }
 
 func ensureSpace(name string) (string, error) {
-	// Resolve via PR#29's windowed space-list query (raw tech-index rows),
-	// NOT GET /v1/spaces. GET maps status through mapStatus(local, remote),
-	// which collapses both a locally-deleted-but-remotely-active space AND a
-	// locally-active-but-remotely-deleted one into a misleading single value —
-	// so bobrik would adopt a space the UI hides. Match on the SAME raw fields
-	// the UI filters on: a space is live only when it's active locally and not
-	// deleted remotely. No existing "bobrik" space qualifies (they're all
-	// deleted on one side or the other) → createSpace mints a fresh one that's
-	// active on both sides, which the UI then shows.
-	body, _ := json.Marshal(map[string]any{"includeTotal": true})
-	resp, err := http.Post(base+"/v1/spaces/query", "application/json", bytes.NewReader(body))
+	// Resolve via GET /v1/spaces, adopting the first space named `name` whose
+	// mapped Status is "active". The mapping (mapStatus in the SDK) collapses
+	// raw (localStatus, remoteStatus) into one value and — as of SDK v0.0.9 —
+	// honors BOTH delete sides: a locally-deleted-but-remotely-active space and
+	// a locally-active-but-remotely-deleted one both map to "deleted", while an
+	// owner-created space (localStatus stamped "active" by Create) maps to
+	// "active". So "Status == active" is exactly "live and not deleted on
+	// either side" — the condition we want, without consuming the raw
+	// device-local fields directly. (Pre-v0.0.9 mapStatus was broken on both
+	// counts, which is why this used to read the raw /v1/spaces/query rows; the
+	// raw path re-minted a fresh space every restart because Create never
+	// stamped localStatus, so it never matched its own prior space.)
+	resp, err := http.Get(base + "/v1/spaces")
 	if err != nil {
-		return "", fmt.Errorf("query spaces: %w", err)
+		return "", fmt.Errorf("list spaces: %w", err)
 	}
 	defer resp.Body.Close()
 	// Fail loudly on a non-200 — otherwise a decode of the error body yields
-	// zero records, which would silently mint a fresh space on every run (e.g.
-	// against a server too old to have /spaces/query → 405).
+	// zero spaces, which would silently mint a fresh space on every run.
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("query spaces: %d %s", resp.StatusCode, msg)
+		return "", fmt.Errorf("list spaces: %d %s", resp.StatusCode, msg)
 	}
 	var out struct {
-		Records []struct {
-			Id           string `json:"id"`
-			Name         string `json:"name"`
-			LocalStatus  string `json:"localStatus"`
-			RemoteStatus string `json:"remoteStatus"`
-		} `json:"records"`
+		Spaces []struct {
+			Id     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"spaces"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode spaces: %w", err)
 	}
-	for _, s := range out.Records {
-		if s.Name == name && s.LocalStatus == "active" && s.RemoteStatus != "deleted" {
+	for _, s := range out.Spaces {
+		if s.Name == name && s.Status == "active" {
 			return s.Id, nil
 		}
 	}
