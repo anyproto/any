@@ -16,7 +16,7 @@
 
 import { createClient, getProp } from "anyHelper@v1";
 import { createLLM } from "llm@v1";
-import { displayValue, formatTraceOneLiner, summarizeTrace } from "utils@v1";
+import { displayValue, inferSchema, formatTraceOneLiner, summarizeTrace } from "utils@v1";
 import { createConvMemory } from "convmemory@v1";
 // No tracer import: Sonnet recovers from errors directly via is_error tool_result.
 // The tracer added LLM calls for marginal benefit when the model is capable
@@ -28,12 +28,16 @@ var llm = createLLM();
 // CONSTANTS
 // ============================================================================
 
-// Per-tool_result char budget. When a cell's trace one-liner would push the
-// returned tool_result content past this, we replace it with a counts+sample
-// summary and stash the full one-liner array under the tool_use_id in the
-// kernel-side `toolEffects` store. The agent fetches it next cell via
-// toolEffects.get(toolUseId).
-var MAX_TOOL_RESULT_CHARS = 16000;
+// Per-VALUE inline budget. A console.log value or the cell's Last value is
+// rendered inline (full, via displayValue) when it fits this; past it, we show
+// a `[<N> chars, schema <...> — logs.get("<id>", <sel>) to walk]` stub and stash
+// the structured value in the kernel-side `_valueStore` for a follow-up cell to
+// fetch via logs.get(toolUseId, idx). Keeps huge structures out of context
+// while leaving them queryable. ~4k chars ≈ 1k tokens: generous enough that a
+// genuinely small result (a short list, a computed aggregate) inlines and the
+// model reads it directly; past it, the size+schema stub + logs.get round-trip
+// is cheaper than dumping the structure into every turn's context.
+var MAX_VALUE_INLINE_CHARS = 4000;
 
 // Conversation-history windows. History lives in structured datasets ON THE
 // CHAT OBJECT (agent_turns / agent_chunks — docs/11-agent-memory.md): raw
@@ -78,6 +82,15 @@ var RUN_CELL_TOOL = {
     "DO NOT write `function main(args) { ... }`, DO NOT use `return`, DO NOT use `import` statements. " +
     "Use `var` for bindings you want to keep across calls. " +
     "The cell's last expression is captured as the cell result. " +
+    "READING RESULTS — the tool_result has up to three sections: **Output** (everything you " +
+    "`console.log`, in order — this is your primary way to see data, so log exactly what you want " +
+    "to inspect), **Last value** (the cell's final expression), and **Side Effects** (a one-line " +
+    "summary of API calls made). console.log freely; nothing prints to a user. A logged value or " +
+    "the Last value that is large is NOT shown in full — it collapses to " +
+    "`[<N> chars, schema <...> — logs.get(\"toolu_...\", <i>) to walk]`. To inspect it, call " +
+    "`logs.get(\"toolu_...\", i)` (numeric index from the Output line) or `logs.get(\"toolu_...\", \"last\")` " +
+    "in a later cell — it returns the real structured value; slice/filter/inferSchema it like any JS. " +
+    "For the full Side Effects trace, `toolEffects.get(\"toolu_...\")`. " +
     "When you have completed the user's request, stop calling run_cell and respond with the final answer as plain text.",
   input_schema: {
     type: "object",
@@ -130,7 +143,7 @@ function _buildToolDocs(bootClient, tools) {
       programVersion: t.programVersion || "v1",
       description: docs.description,
       createdDate: "",
-      methods: methods.map(function(m) { return { bareName: m.bareName, content: _renderMethodDoc(m) }; })
+      methods: methods.map(function(m) { return { bareName: m.bareName, signature: m.name, content: _renderMethodDoc(m) }; })
     };
   }
   if (!toolDocs["anyHelper"]) {
@@ -261,16 +274,37 @@ function _buildBootPrelude(toolDocs) {
     '};'
   );
 
-  // Per-toolUseId effect store. The host stashes a cell's full trace one-liner
-  // array here when its tool_result would exceed MAX_TOOL_RESULT_CHARS; cells
-  // fetch it back via toolEffects.get(id) (returns array of one-liner strings)
-  // or list all stashed ids via toolEffects.list(). Cleared by js.reset() at
-  // the start of each runToolcaller invocation.
+  // Per-toolUseId effect store. The host stashes a cell's full Side Effects
+  // trace one-liner array here; cells fetch it back via toolEffects.get(id)
+  // (returns array of one-liner strings) or list all stashed ids via
+  // toolEffects.list(). Cleared by js.reset() at the start of each
+  // runToolcaller invocation.
   lines.push('globalThis._toolEffectsStore = {};');
   lines.push(
     'globalThis.toolEffects = {\n' +
     '  get: function(id) { return globalThis._toolEffectsStore[id] || null; },\n' +
     '  list: function() { return Object.keys(globalThis._toolEffectsStore); }\n' +
+    '};'
+  );
+
+  // Per-toolUseId structured-value store. The host always stashes a cell's
+  // console.log values (in call order) plus its Last value here; when a value
+  // is too big to inline in the tool_result, the digest shows a size+schema
+  // stub pointing at logs.get(id, idx). Cells fetch the real structured value
+  // back via logs.get(id, i) for a numeric log index, logs.get(id, "last") for
+  // the Last value, or logs.get(id) for the whole log array — then inspect with
+  // normal JS. Cleared by js.reset() alongside _toolEffectsStore.
+  lines.push('globalThis._valueStore = {};');
+  lines.push(
+    'globalThis.logs = {\n' +
+    '  get: function(id, i) {\n' +
+    '    var e = globalThis._valueStore[id];\n' +
+    '    if (!e) return null;\n' +
+    '    if (i === undefined) return e.logs;\n' +
+    '    if (i === "last") return e.last;\n' +
+    '    return e.logs[i];\n' +
+    '  },\n' +
+    '  list: function() { return Object.keys(globalThis._valueStore); }\n' +
     '};'
   );
 
@@ -313,7 +347,7 @@ function _buildToolsPromptSection(toolDocs) {
     var t = toolDocs[n];
     out += "### " + n + "\n\n";
     out += (t.description && t.description.length > 0 ? t.description : "(no description in tool's md)") + "\n\n";
-    var methodNames = t.methods.map(function(m) { return m.bareName; });
+    var methodNames = t.methods.map(function(m) { return m.signature || m.bareName; });
     if (methodNames.length > 0) {
       out += "Methods: " + methodNames.join(", ") + "\n\n";
     } else {
@@ -322,8 +356,8 @@ function _buildToolsPromptSection(toolDocs) {
   }
   out +=
     "## Discovering method signatures — required before each call\n\n" +
-    "These modules are pre-bound as globals; do NOT import them and do NOT call them as Anthropic tools. The method NAMES for every module are already listed above — you do not need to call listMethods.\n\n" +
-    "Before calling a method you have not used yet in this session, fetch its signature, inputs, outputs, and example with describeMethod (always inside a run_cell call):\n\n" +
+    "These modules are pre-bound as globals; do NOT import them and do NOT call them as Anthropic tools. The method SIGNATURES above show argument NAMES only — not their accepted shapes, value kinds, return shape, or examples. A bare arg name like `typeOrQuery` or `opts` hides real structure (a string OR a `{filter, sort, limit}` query object, etc.); do NOT assume the simplest form. You do not need to call listMethods.\n\n" +
+    "Before calling a method you have not used yet in this session, fetch its full inputs, outputs, and example with describeMethod (always inside a run_cell call):\n\n" +
     "```\n" +
     "var doc = anyHelper.describeMethod(\"createObject\");\n" +
     "doc\n" +
@@ -1379,10 +1413,17 @@ function _findTextBlocks(content) {
 }
 
 // Format the result of a run_cell execution into the string content of a
-// tool_result block. Two sections:
-//   - Last value: displayValue of the cell's final expression (strings in full;
-//                 objects via inferSchema — see utils@v1)
-//   - Effects: trace one-liner of API calls / wrapped helpers
+// tool_result block. Up to three sections:
+//   - Output: the cell's console.log values, in call order — the model's
+//             primary channel. Each inline (full, displayValue) when it fits
+//             MAX_VALUE_INLINE_CHARS, else a size+schema stub → logs.get(id, i).
+//   - Last value: the cell's final expression, same inline-or-stub rule
+//                 (logs.get(id, "last")).
+//   - Side Effects: grouped signature counts of every OTHER traced call
+//                   (console.log excluded), full one-liner trace stashed under
+//                   toolEffects.get(id). Never dumps the full trace inline.
+// Structured values for the stubs live in the kernel _valueStore (logs.get);
+// the full effects trace lives in _toolEffectsStore (toolEffects.get).
 
 // Trace keys hidden from the LLM entirely — pure harness plumbing. The model
 // calls inferSchema() inside cells for ad-hoc shape inspection, and those
@@ -1432,67 +1473,124 @@ function _stashEffectsToKernel(toolUseId, traceLines) {
   } catch (e) {}
 }
 
-// Render the summary form of an effects block — counts grouped by signature,
-// first/last sample, plus the toolEffects.get hint. isError prefixes the
-// header with "before the error" so the cell-failed path stays distinguishable.
-function _formatEffectsSummary(summary, toolUseId, isError) {
-  var header = (isError ? "Tool Effects that ran before the error" : "Tool Effects") +
-    ": " + summary.totalCalls + " calls in this cell (" + toolUseId +
-    ", inline trace summarized — full trace stashed)";
-  var lines = [header];
-  for (var i = 0; i < summary.groupLines.length; i++) {
-    lines.push(summary.groupLines[i]);
+// Stash a cell's structured values (console.log values in call order + the Last
+// value) into the kernel's per-toolUseId value store so the next cell can fetch
+// them via logs.get(id, i) / logs.get(id, "last"). Always called, so indices in
+// the Output section stay aligned with logs.get even for inlined values.
+// Best-effort: a stash failure just means a stubbed value can't be walked.
+function _stashValuesToKernel(toolUseId, logValues, hasLast, lastValue) {
+  if (!toolUseId) return;
+  try {
+    js.eval(
+      "globalThis._valueStore[args.id] = { logs: JSON.parse(args.logsJson)," +
+        " last: args.hasLast ? JSON.parse(args.lastJson) : undefined };",
+      {
+        id: toolUseId,
+        logsJson: JSON.stringify(logValues || []),
+        hasLast: !!hasLast,
+        lastJson: JSON.stringify(hasLast ? lastValue : null)
+      },
+      { persistent: true }
+    );
+  } catch (e) {}
+}
+
+// Pull the structured console.log values (in call order) out of a prepared
+// trace map. The runtime records each log's structured arg(s) under the "value"
+// output key (single arg → the value, multi → array); the "log" string form is
+// the fallback for an older runtime without "value".
+function _consoleValues(traces) {
+  var rec = traces && traces["console.log"];
+  if (!rec) return [];
+  if (rec["value"] && rec["value"].length) return rec["value"].slice();
+  if (rec["log"] && rec["log"].length) return rec["log"].slice();
+  return [];
+}
+
+// Render one structured value inline (full, via displayValue) when it fits the
+// per-value budget, else a size+schema stub pointing the model at logs.get for
+// the real value. `selector` is the rendered second arg to logs.get — a numeric
+// index for a log, or the literal "last" for the Last value.
+function _renderValueOrStub(value, toolUseId, selector) {
+  var rendered = displayValue(value);
+  if (rendered.length <= MAX_VALUE_INLINE_CHARS) return rendered;
+  return "[" + rendered.length + " chars, schema " + inferSchema(value) +
+    " — logs.get(\"" + toolUseId + "\", " + selector + ") to walk]";
+}
+
+// Build the "Output:" section from the cell's console.log values. Each entry is
+// numbered so a stub's logs.get(id, N) maps unambiguously back to its line.
+function _buildOutputSection(logValues, toolUseId) {
+  if (!logValues || logValues.length === 0) return "";
+  var lines = ["Output:"];
+  for (var i = 0; i < logValues.length; i++) {
+    lines.push("  #" + i + " " + _renderValueOrStub(logValues[i], toolUseId, String(i)));
   }
-  lines.push("");
-  if (summary.firstLine) lines.push("First: " + summary.firstLine);
-  if (summary.lastLine && summary.lastLine !== summary.firstLine) {
-    lines.push("Last:  " + summary.lastLine);
-  }
-  lines.push("");
-  lines.push("Full trace stashed. Query in next cell:");
-  lines.push("  toolEffects.get(\"" + toolUseId + "\")  // array of one-liner strings, in call order");
-  lines.push("  toolEffects.list()                       // all stashed tool_use_ids in this session");
-  lines.push("Treat the array as plain JS data — filter / inspect with normal array methods.");
   return lines.join("\n");
 }
 
-// Build the Effects content for a tool_result. Returns the full one-liner
-// inline when it fits MAX_TOOL_RESULT_CHARS, or a counts+sample summary when
-// it doesn't (in which case the full one-liner array is stashed under the
-// tool_use_id in the kernel store).
-function _buildEffectsContent(traces, toolUseId, isError) {
-  var oneLiner = formatTraceOneLiner(traces);
-  if (!oneLiner) return "";
-  var header = isError ? "Tool Effects that ran before the error" : "Tool Effects";
-  if (oneLiner.length > MAX_TOOL_RESULT_CHARS && toolUseId) {
-    var summary = summarizeTrace(traces);
-    if (summary && summary.totalCalls > 0) {
-      _stashEffectsToKernel(toolUseId, oneLiner.split("\n"));
-      return _formatEffectsSummary(summary, toolUseId, isError);
-    }
+// Build the "Side Effects:" section — every traced call EXCEPT console.log,
+// collapsed to grouped signature counts (never the full inline dump), with the
+// full one-liner trace stashed under the tool_use_id so the model can always
+// pull it via toolEffects.get(id). isError tags the header for the failed path.
+function _buildSideEffects(traces, toolUseId, isError) {
+  var nonConsole = {};
+  var any = false;
+  for (var k in traces) {
+    if (!traces.hasOwnProperty(k)) continue;
+    if (k === "console.log") continue;
+    nonConsole[k] = traces[k];
+    any = true;
   }
-  return header + ":\n" + oneLiner;
+  if (!any) return "";
+  var oneLiner = formatTraceOneLiner(nonConsole);
+  if (!oneLiner) return "";
+  if (toolUseId) _stashEffectsToKernel(toolUseId, oneLiner.split("\n"));
+  var summary = summarizeTrace(nonConsole);
+  var total = summary ? summary.totalCalls : 0;
+  var lines = [(isError ? "Side Effects (before the error)" : "Side Effects") +
+    ": " + total + " call" + (total === 1 ? "" : "s")];
+  if (summary) {
+    for (var i = 0; i < summary.groupLines.length; i++) lines.push(summary.groupLines[i]);
+  }
+  if (toolUseId) {
+    lines.push("  full trace: toolEffects.get(\"" + toolUseId + "\")  // one-liner per call, in order");
+  }
+  return lines.join("\n");
+}
+
+// Build the tool_result content: Output (the model's console.log values) →
+// Last value → Side Effects (a summary of everything else). Console output is
+// the primary channel; big values in Output/Last value collapse to a
+// size+schema stub walkable via logs.get. Reused for both success and error
+// (errContent prepended by the caller on the error path).
+function _buildResultDigest(traces, lastValue, hasLast, toolUseId, isError) {
+  var logValues = _consoleValues(traces);
+  // Always stash so logs.get(id, i)/("last") works for any stubbed value and
+  // indices stay aligned with the Output numbering.
+  _stashValuesToKernel(toolUseId, logValues, hasLast, hasLast ? lastValue : null);
+
+  var parts = [];
+  var output = _buildOutputSection(logValues, toolUseId);
+  if (output) parts.push(output);
+  if (hasLast) {
+    parts.push("Last value: " + _renderValueOrStub(lastValue, toolUseId, "\"last\""));
+  }
+  var side = _buildSideEffects(traces, toolUseId, isError);
+  if (side) parts.push(side);
+  return parts;
 }
 
 function formatToolResult(result, toolUseId) {
   if (!result) return "(no result)";
-  var parts = [];
-
-  if (result.lastValue !== undefined && result.lastValue !== null) {
-    parts.push("Last value: " + displayValue(result.lastValue));
-  }
-
-  // result.callTrace — per-call trace scoped to THIS eval invocation
-  // (includes mock-hit calls, unlike traceDiff). result.traces is the
-  // cumulative session log and would leak prior cells' effects into
-  // this cell's Effects block. See docs/runtime-task-per-call-traces.md.
+  // result.callTrace — per-call trace scoped to THIS eval invocation (includes
+  // mock-hit calls, unlike traceDiff). result.traces is the cumulative session
+  // log and would leak prior cells' effects into this cell's Side Effects.
+  // See docs/runtime-task-per-call-traces.md.
   var traces = _prepareTracesForLLM(result.callTrace || {});
-  if (Object.keys(traces).length > 0) {
-    var effectsContent = _buildEffectsContent(traces, toolUseId, false);
-    if (effectsContent) parts.push(effectsContent);
-  }
-
-  if (parts.length === 0) parts.push("(cell completed, no return value, no effects)");
+  var hasLast = result.lastValue !== undefined && result.lastValue !== null;
+  var parts = _buildResultDigest(traces, result.lastValue, hasLast, toolUseId, false);
+  if (parts.length === 0) parts.push("(cell completed, no output, no return value, no effects)");
   return parts.join("\n\n");
 }
 
@@ -1529,14 +1627,16 @@ function executeToolUse(block, args) {
   // the caller can accumulate them across the whole invocation for persistence.
   var cellEffects = extractEffects(result && result.callTrace, args && args.spaceId);
 
-  // On any error, return is_error: true with the error message + any partial
-  // trace from before the error fired.
+  // On any error, return is_error: true with the error message + any output /
+  // partial side-effects from before the error fired (a failed cell that
+  // console.log'd before throwing still surfaces those logs, walkable via
+  // logs.get; lastValue is absent on the error path).
   if (result && result.error) {
     var errContent = "Error: " + result.error;
     if (result.callTrace && Object.keys(result.callTrace).length > 0) {
       var partialFiltered = _prepareTracesForLLM(result.callTrace);
-      var partialContent = _buildEffectsContent(partialFiltered, block.id, true);
-      if (partialContent) errContent += "\n\n" + partialContent;
+      var partialParts = _buildResultDigest(partialFiltered, null, false, block.id, true);
+      if (partialParts.length > 0) errContent += "\n\n" + partialParts.join("\n\n");
     }
     return {
       block: {
