@@ -206,9 +206,58 @@ accumulate. Treat it as one and the lifecycle stays simple.
   the wire. Client in-memory state should layer versions the way the DB does,
   so the DB is the reference when reconciling a divergence.
 
+## 6. Search: hybrid by default, read `vectorStatus` before trusting recall
+
+`POST /v1/spaces/:spaceId/search` searches the server's local index
+(BM25 full-text + semantic vectors over chats, editor blocks, and
+agent-memory objects — pipeline in `13-index.md`, wire shape in
+`03-api.md` § search).
+
+```json
+POST /v1/spaces/:spaceId/search
+{ "query": "what did we decide about the reranker?",
+  "scopes": ["chat", "agent"],     // optional: basic | chat | agent
+  "limit": 10,                     // default 10, max 100
+  "mode": "hybrid" }               // default; or "fts" / "vector"
+```
+
+Call patterns:
+
+- **Default to `hybrid`.** It fuses lexical and semantic ranking
+  (reciprocal rank) and degrades to FTS by itself when the embedder
+  can't help. Only pin `mode: "fts"` for exact-term lookups (ids,
+  names, error strings) or `mode: "vector"` when paraphrase recall
+  matters more than precision.
+- **Check `vectorStatus` in every reply** before drawing conclusions
+  from an empty/weak result set: `used` means semantic recall
+  participated; `unavailable` means the embedder is configured but
+  down — results are lexical-only *right now*, retry may differ;
+  `disabled` means this server never runs vector search — don't
+  retry, adjust your query style to lexical; `skipped` is the echo of
+  your own `mode: "fts"`.
+- **Hits carry identity, not full records.** `{scope, objectId,
+  dataset, recordId, data, score}` — `data` is the indexed text
+  (per-record, short by construction). To hydrate the full record,
+  query the dataset: `POST /query` with `dataset = chat_messages /
+  editor_blocks` filtered by `id == recordId`, or `GET
+  /properties/:objectId` for `agent`-scope hits (the recordId is the
+  objectId there).
+- **Scores compare only within one response** (BM25 vs cosine vs RRF
+  are different scales across modes). Rank, don't threshold.
+- **Freshness model**: new writes are FTS-searchable within ~the
+  debounce (250ms); the vector leg lags by one embed round. The index
+  is local and "from the next change" — content that predates indexing
+  on this server is not in it (use `/query` for exhaustive reads).
+- Errors: `409 index.disabled` (indexer off on this server), `400
+  index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
+  index.embedder_unavailable` (`mode: "vector"` during an embedder
+  outage — retryable).
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.
 - `04-events.md` — SSE frame lifecycle, `closed` reasons, capacity tuning.
 - `06-errors.md` — error envelope and code namespace
   (`dataset.validation`, `property.kind_mismatch`, …).
+- `13-index.md` — the search index: chunker contract, indexer pipeline,
+  `/search` semantics.

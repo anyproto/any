@@ -224,10 +224,15 @@ func TestIndexer_EmbedderOutage(t *testing.T) {
 	if len(res.Hits) != 1 {
 		t.Fatalf("fts must work during the outage, hits = %v", hitRecordIds(res))
 	}
-	// Hybrid degrades to fts instead of failing.
+	// Hybrid degrades to fts instead of failing, and the response tells
+	// the consumer agent the vector leg is temporarily unavailable (as
+	// opposed to disabled by config).
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "resilience"}, http.StatusOK)
 	if res.Mode != api.SearchModeFTS || len(res.Hits) != 1 {
 		t.Fatalf("hybrid should degrade to fts during the outage: mode=%s hits=%v", res.Mode, hitRecordIds(res))
+	}
+	if res.VectorStatus != api.VectorStatusUnavailable {
+		t.Errorf("outage: vectorStatus = %s, want unavailable", res.VectorStatus)
 	}
 	// Explicit vector mode reports the outage as retryable.
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/search",
@@ -245,6 +250,9 @@ func TestIndexer_EmbedderOutage(t *testing.T) {
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "resilience probe", Mode: api.SearchModeVector}, http.StatusOK)
 	if len(res.Hits) != 1 || res.Hits[0].RecordId != msg.RecordIds[0] {
 		t.Fatalf("vector search after recovery: hits = %v", hitRecordIds(res))
+	}
+	if res.VectorStatus != api.VectorStatusUsed {
+		t.Errorf("after recovery: vectorStatus = %s, want used", res.VectorStatus)
 	}
 }
 

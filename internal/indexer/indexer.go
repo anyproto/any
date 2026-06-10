@@ -258,6 +258,14 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	var ftsHits, vecHits []Hit
 	var err error
 
+	// vectorStatus tells the consumer whether semantic recall took part
+	// and, if not, why — an agent can decide to retry, warn, or trust
+	// lexical-only results accordingly.
+	vectorStatus := api.VectorStatusSkipped
+	if ix.opts.Embedder == nil {
+		vectorStatus = api.VectorStatusDisabled
+	}
+
 	if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
 		ftsHits, err = ix.store.SearchFTS(ctx, spaceId, req.Query, req.Scopes, fetch)
 		if err != nil {
@@ -278,11 +286,13 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				}
 				ix.lg.Warn("hybrid search degrades to fts: query embedding failed", zap.Error(embErr))
 				mode = api.SearchModeFTS
+				vectorStatus = api.VectorStatusUnavailable
 			} else {
 				vecHits, err = ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, fetch)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
+				vectorStatus = api.VectorStatusUsed
 			}
 		}
 	}
@@ -304,7 +314,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	}
 
-	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode}
+	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode, VectorStatus: vectorStatus}
 	for _, h := range hits {
 		out.Hits = append(out.Hits, api.SearchHit{
 			Scope:    h.Scope,

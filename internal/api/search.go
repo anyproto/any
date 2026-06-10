@@ -37,10 +37,31 @@ type SearchHit struct {
 	Score    float64 `json:"score"`
 }
 
+// VectorStatus values — the search response tells the consumer (often
+// an agent deciding how much to trust recall) what happened to the
+// vector leg, not just that it silently fell back to lexical search.
+const (
+	// VectorStatusUsed: the vector leg ran and contributed to ranking.
+	VectorStatusUsed = "used"
+	// VectorStatusUnavailable: an embedder is configured but was not
+	// reachable for this query — retry later may differ. Hybrid
+	// degraded to FTS; mode=vector would have returned 503.
+	VectorStatusUnavailable = "unavailable"
+	// VectorStatusDisabled: no embedder is configured on this server —
+	// vector search can never run until config changes.
+	VectorStatusDisabled = "disabled"
+	// VectorStatusSkipped: the caller asked for mode=fts, vector was
+	// not attempted (but is available on this server).
+	VectorStatusSkipped = "skipped"
+)
+
 // SearchResponse is the reply. Mode reports the mode that actually ran:
 // a hybrid request degrades to "fts" when no embedder is configured or
-// the query embedding failed.
+// the query embedding failed — VectorStatus says which of those it was.
 type SearchResponse struct {
 	Hits []SearchHit `json:"hits"`
 	Mode string      `json:"mode"`
+	// VectorStatus: used | unavailable | disabled | skipped — whether
+	// semantic recall participated in this response and, if not, why.
+	VectorStatus string `json:"vectorStatus"`
 }

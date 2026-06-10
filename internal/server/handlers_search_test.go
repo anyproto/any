@@ -156,6 +156,9 @@ func TestSearch_FullFlow(t *testing.T) {
 	if res.Mode != api.SearchModeFTS || len(res.Hits) != 1 || res.Hits[0].RecordId != msgId {
 		t.Fatalf("fts: mode=%s hits=%v", res.Mode, hitRecordIds(res))
 	}
+	if res.VectorStatus != api.VectorStatusSkipped {
+		t.Errorf("fts request with embedder: vectorStatus = %s, want skipped", res.VectorStatus)
+	}
 	if res.Hits[0].Scope != "chat" || res.Hits[0].ObjectId != chatObj || res.Hits[0].Data == "" {
 		t.Errorf("fts hit shape wrong: %+v", res.Hits[0])
 	}
@@ -170,6 +173,9 @@ func TestSearch_FullFlow(t *testing.T) {
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quarterly budget"}, http.StatusOK)
 	if res.Mode != api.SearchModeHybrid || len(res.Hits) == 0 || res.Hits[0].RecordId != blkId {
 		t.Fatalf("hybrid: mode=%s hits=%v", res.Mode, hitRecordIds(res))
+	}
+	if res.VectorStatus != api.VectorStatusUsed {
+		t.Errorf("hybrid with working embedder: vectorStatus = %s, want used", res.VectorStatus)
 	}
 
 	// --- Scope filter excludes the chat hit ---
@@ -239,6 +245,9 @@ func TestSearch_NoEmbedderAndDisabled(t *testing.T) {
 	}
 	if len(res.Hits) != 1 {
 		t.Errorf("degraded hybrid hits = %v", hitRecordIds(res))
+	}
+	if res.VectorStatus != api.VectorStatusDisabled {
+		t.Errorf("no embedder configured: vectorStatus = %s, want disabled", res.VectorStatus)
 	}
 }
 

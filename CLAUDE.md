@@ -312,11 +312,15 @@ Implementation slices landed:
       `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
       an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
-      `{query, scopes?, limit?, mode?}` → `{hits, mode}`; modes `hybrid`
-      (RRF k=60, default; degrades to fts without embedder — reply
-      `mode` reports what ran) / `fts` / `vector` (400
-      `index.no_embedder` without embedder). 409 `index.disabled` when
-      `index.enabled: false` (`deps.indexer == nil`). CLI: `any search`.
+      `{query, scopes?, limit?, mode?}` → `{hits, mode, vectorStatus}`;
+      modes `hybrid` (RRF k=60, default; degrades to fts without
+      embedder — reply `mode` reports what ran) / `fts` / `vector` (400
+      `index.no_embedder` without embedder). `vectorStatus`
+      (used/unavailable/disabled/skipped) tells the consumer agent
+      whether semantic recall participated and why not. 409
+      `index.disabled` when `index.enabled: false`
+      (`deps.indexer == nil`). CLI: `any search`. Client recipe:
+      `docs/08-clients.md` § 6.
       Space discovery: `Spaces().List` + `Service.Subscribe`
       (added ⇒ spawn worker, removed/deleted ⇒ stop + `DropSpace`).
     - **any-store prerequisite (branch `btree-fts`, superset of

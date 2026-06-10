@@ -181,14 +181,20 @@ corruption.
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?}` →
-`{hits: [{scope, objectId, dataset, recordId, data, score}], mode}`.
-Modes: `fts` (BM25), `vector` (cosine ANN; requires an embedder, hits
-below zero similarity are dropped as noise), `hybrid` (default — both
-legs fused by reciprocal rank, k=60; degrades to `fts` when the
-embedder is missing or the query embedding fails — `mode` in the reply
-is the mode that actually ran). Scores are comparable only within one
-response. CLI: `any search <spaceId> <query> [--scopes ...] [--limit N]
-[--mode ...]`.
+`{hits: [{scope, objectId, dataset, recordId, data, score}], mode,
+vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
+embedder, hits below zero similarity are dropped as noise), `hybrid`
+(default — both legs fused by reciprocal rank, k=60; degrades to `fts`
+when the embedder is missing or the query embedding fails — `mode` in
+the reply is the mode that actually ran). Scores are comparable only
+within one response. CLI: `any search <spaceId> <query> [--scopes ...]
+[--limit N] [--mode ...]`.
+
+`vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
+the consumer whether semantic recall took part and why not — an agent
+can distinguish "lexical-only because the embedder is momentarily down,
+retry may differ" (`unavailable`) from "this server never runs vector
+search" (`disabled`). Value table in `docs/03-api.md` § search.
 
 This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
