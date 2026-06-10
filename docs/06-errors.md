@@ -67,6 +67,7 @@ property.immutable_field         # attempt to update type-shape field
 
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
+index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
 search.bad_mode                  # 400 — mode not hybrid | fts | vector
 search.bad_scope                 # 400 — scope not basic | chat | agent
 

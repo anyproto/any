@@ -54,7 +54,7 @@ index:
     model: text-embedding-3-small     # required when embedder: openai
     apiKey: sk-...                    # sent as Bearer; never logged
   vector:
-    dim: 0                            # 0 = probe the embedder at boot
+    dim: 0                            # 0 = learned from the first successful embedding
 
 # Logger — passthrough to any-sync/app/logger.Config.
 log:

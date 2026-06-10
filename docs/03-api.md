@@ -239,9 +239,10 @@ Reply:
 ```
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
-`fts` when no embedder is configured (or the query embedding failed);
-`mode: "vector"` requests without an embedder get `400
-index.no_embedder`. Scores are comparable only within one response
+`fts` when no embedder is configured or it is unreachable; `mode:
+"vector"` requests get `400 index.no_embedder` (none configured) or
+`503 index.embedder_unavailable` (configured but down — retryable).
+Scores are comparable only within one response
 (BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
 covers content written while indexing is on — "index from the next
 change" (`docs/11-index.md`).

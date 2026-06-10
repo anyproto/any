@@ -279,9 +279,13 @@ Implementation slices landed:
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
       prompts) and `openai` (OpenAI-compatible `/embeddings`). Config
       `index.*` (`internal/config.Index`, env `ANY_INDEX_*`); no
-      embedder ⇒ FTS-only; unreachable embedder at boot ⇒ warn +
-      FTS-only. Dim probed at boot (10s timeout) unless
-      `index.vector.dim` set.
+      embedder ⇒ FTS-only. **An unavailable embedder never breaks the
+      pipeline**: no boot probe — pending is marked whenever an
+      embedder is configured, an outage freezes only the vector side
+      (FTS unaffected), and recovery resumes embedding automatically;
+      the dim is learned from the first successful batch (or
+      `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
+      an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
       `{query, scopes?, limit?, mode?}` → `{hits, mode}`; modes `hybrid`
       (RRF k=60, default; degrades to fts without embedder — reply

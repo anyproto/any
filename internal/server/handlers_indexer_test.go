@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,7 +107,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	}
 
 	// First indexer life: index the head, then shut down.
-	st1, err := indexer.OpenStore(ctx, dbPath, 0)
+	st1, err := indexer.OpenStore(ctx, dbPath, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 		`{"text":"tail message during downtime"}`, http.StatusCreated)
 
 	// Second life over the same DB.
-	st2, err := indexer.OpenStore(ctx, dbPath, 0)
+	st2, err := indexer.OpenStore(ctx, dbPath, 0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,6 +158,93 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "message", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
 	if len(res.Hits) != 1 || res.Hits[0].RecordId != tail.RecordIds[0] {
 		t.Fatalf("after catch-up want only the tail message (head was dropped below the cursor), got %v", hitRecordIds(res))
+	}
+}
+
+// flakyEmbedder is a fakeEmbedder with a kill switch — models an
+// embedding service that is down for a while and then recovers.
+type flakyEmbedder struct {
+	fakeEmbedder
+	down atomic.Bool
+}
+
+func (f *flakyEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	if f.down.Load() {
+		return nil, errors.New("embedder down")
+	}
+	return f.fakeEmbedder.EmbedDocs(ctx, texts)
+}
+
+func (f *flakyEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	if f.down.Load() {
+		return nil, errors.New("embedder down")
+	}
+	return f.fakeEmbedder.EmbedQuery(ctx, text)
+}
+
+// TestIndexer_EmbedderOutage: an unavailable embedder must never break
+// the pipeline — FTS keeps indexing and answering, the vector side
+// freezes (docs queue as pending), and once the embedder recovers,
+// embedding resumes without a restart. The store starts with dim 0:
+// there is no boot probe, the dimension is learned from the first
+// successful batch.
+func TestIndexer_EmbedderOutage(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+
+	emb := &flakyEmbedder{fakeEmbedder: fakeEmbedder{dim: 16}}
+	emb.down.Store(true) // down from the very start — boot must not care
+
+	st, err := indexer.OpenStoreInMemory(ctx, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{Embedder: emb})
+	d.indexer = ix
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "EmbedderOutage")
+	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	msg := mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+chatObj+"/chat/messages",
+		`{"text":"resilience probe message"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sync surfaces the embed failure (the async worker only logs it),
+	// but the advance — the FTS half — must have landed regardless.
+	if err := ix.SyncSpace(ctx, sdkSpace); err == nil {
+		t.Fatal("SyncSpace should surface the embed failure while the embedder is down")
+	}
+
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "resilience", Mode: api.SearchModeFTS}, http.StatusOK)
+	if len(res.Hits) != 1 {
+		t.Fatalf("fts must work during the outage, hits = %v", hitRecordIds(res))
+	}
+	// Hybrid degrades to fts instead of failing.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "resilience"}, http.StatusOK)
+	if res.Mode != api.SearchModeFTS || len(res.Hits) != 1 {
+		t.Fatalf("hybrid should degrade to fts during the outage: mode=%s hits=%v", res.Mode, hitRecordIds(res))
+	}
+	// Explicit vector mode reports the outage as retryable.
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/search",
+		`{"query":"resilience","mode":"vector"}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("vector mode during outage: status %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Recovery: no restart, the same Sync drains the queued pending
+	// docs, learns the dimension, builds the vector index.
+	emb.down.Store(false)
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatalf("sync after recovery: %v", err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "resilience probe", Mode: api.SearchModeVector}, http.StatusOK)
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != msg.RecordIds[0] {
+		t.Fatalf("vector search after recovery: hits = %v", hitRecordIds(res))
 	}
 }
 

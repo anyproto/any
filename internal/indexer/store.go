@@ -32,10 +32,16 @@ const (
 // whose text awaits embedding — the embed loop drains them; the field is
 // removed once the vector lands.
 type Store struct {
-	db  anystore.DB
-	dim int
+	db   anystore.DB
+	path string
+	// markPending: stamp text-bearing upserts as pending-embedding.
+	// True whenever an embedder is configured — even while it's
+	// unreachable or the dimension is still unknown, so an outage
+	// freezes the vector pipeline without losing work.
+	markPending bool
 
 	mu     sync.Mutex
+	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
 	hasVec map[string]bool // spaceId → vector index exists
 }
@@ -59,10 +65,12 @@ type DocUpsert struct {
 	Vector []float32
 }
 
-// OpenStore opens (or creates) the index DB at path. dim is the vector
-// dimension; 0 means no vector indexes (FTS-only). A dim change against
-// an existing DB is a hard error — the index must be rebuilt.
-func OpenStore(ctx context.Context, path string, dim int) (*Store, error) {
+// OpenStore opens (or creates) the index DB at path. dim is the
+// configured vector dimension; 0 means "unknown — learn it from the
+// first successful embedding" (EnsureDim). embedderConfigured turns on
+// pending-marking even before the dimension is known. A dim change
+// against an existing DB is a hard error — the index must be rebuilt.
+func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("indexer: create index dir: %w", err)
 	}
@@ -70,8 +78,8 @@ func OpenStore(ctx context.Context, path string, dim int) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
-	s := &Store{db: db, dim: dim, colls: map[string]anystore.Collection{}, hasVec: map[string]bool{}}
-	if err := s.checkMeta(ctx, path); err != nil {
+	s := newStore(db, path, dim, embedderConfigured)
+	if err := s.checkMeta(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -79,41 +87,100 @@ func OpenStore(ctx context.Context, path string, dim int) (*Store, error) {
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).
-func OpenStoreInMemory(ctx context.Context, dim int) (*Store, error) {
+func OpenStoreInMemory(ctx context.Context, dim int, embedderConfigured bool) (*Store, error) {
 	db, err := anystore.Open(ctx, "", &anystore.Config{InMemory: true})
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, dim: dim, colls: map[string]anystore.Collection{}, hasVec: map[string]bool{}}
-	if err := s.checkMeta(ctx, ""); err != nil {
+	s := newStore(db, "", dim, embedderConfigured)
+	if err := s.checkMeta(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-// checkMeta pins the vector dimension the DB was created with. EnsureIndex
-// would also error on a definition mismatch, but per-collection and
-// later — this surfaces the problem once, at boot, with a clear remedy.
-func (s *Store) checkMeta(ctx context.Context, path string) error {
+func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *Store {
+	return &Store{
+		db:          db,
+		path:        path,
+		dim:         dim,
+		markPending: embedderConfigured || dim > 0,
+		colls:       map[string]anystore.Collection{},
+		hasVec:      map[string]bool{},
+	}
+}
+
+// Dim returns the current vector dimension (0 = not yet known).
+func (s *Store) Dim() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dim
+}
+
+// checkMeta reconciles the configured dimension with the one the DB was
+// built with: adopt the persisted dim when none is configured, persist
+// the configured one when the DB has none, error on a real mismatch
+// (EnsureIndex would also catch it, but per-collection and later — this
+// surfaces it once, at open, with a clear remedy).
+func (s *Store) checkMeta(ctx context.Context) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
 	}
 	doc, err := coll.FindId(ctx, metaDocId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
-		arena := &anyenc.Arena{}
-		meta := arena.NewObject()
-		meta.Set("id", arena.NewString(metaDocId))
-		meta.Set("dim", arena.NewNumberInt(s.dim))
-		return coll.UpsertOne(ctx, meta)
+		return s.writeMetaDim(ctx, s.dim)
 	}
 	if err != nil {
 		return err
 	}
-	if got := doc.Value().GetInt("dim"); got != s.dim {
-		return fmt.Errorf("indexer: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", got, s.dim, filepath.Dir(path))
+	got := doc.Value().GetInt("dim")
+	switch {
+	case got == s.dim:
+		return nil
+	case s.dim == 0:
+		s.dim = got // adopt the dimension this DB was built with
+		return nil
+	case got == 0:
+		return s.writeMetaDim(ctx, s.dim) // first run with a known dim
+	default:
+		return fmt.Errorf("indexer: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", got, s.dim, filepath.Dir(s.path))
 	}
+}
+
+func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	arena := &anyenc.Arena{}
+	meta := arena.NewObject()
+	meta.Set("id", arena.NewString(metaDocId))
+	meta.Set("dim", arena.NewNumberInt(dim))
+	return coll.UpsertOne(ctx, meta)
+}
+
+// EnsureDim records the dimension learned from the first successful
+// embedding. A no-op when it matches the known dim; an error when the
+// embedder's output contradicts what this DB was built with (model
+// changed under a populated index).
+func (s *Store) EnsureDim(ctx context.Context, dim int) error {
+	if dim <= 0 {
+		return fmt.Errorf("indexer: EnsureDim: invalid dim %d", dim)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.dim == dim:
+		return nil
+	case s.dim != 0:
+		return fmt.Errorf("indexer: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", dim, s.dim, filepath.Dir(s.path))
+	}
+	if err := s.writeMetaDim(ctx, dim); err != nil {
+		return err
+	}
+	s.dim = dim
 	return nil
 }
 
@@ -166,7 +233,8 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 // CompactRatio bounds centroid drift (auto re-train as the space grows
 // past the initial training set).
 func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
-	if s.dim == 0 {
+	dim := s.Dim()
+	if dim == 0 {
 		return false, nil
 	}
 	s.mu.Lock()
@@ -200,7 +268,7 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 		Kind: anystore.IndexKindVector,
 		Vector: &anystore.VectorParams{
 			Field:        "vector",
-			Dim:          s.dim,
+			Dim:          dim,
 			Metric:       anystore.VectorCosine,
 			Mode:         anystore.VectorModeIVFSQ,
 			CompactRatio: 0.5,
@@ -281,9 +349,11 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))
-		case s.dim > 0 && e.Data != "":
-			// Awaiting embedding. Empty-text docs (blocks with no text)
-			// have nothing to embed and stay vector-less.
+		case s.markPending && e.Data != "":
+			// Awaiting embedding — marked even while the embedder is
+			// down or its dimension unknown, so outages freeze the
+			// vector pipeline without losing work. Empty-text docs have
+			// nothing to embed and stay vector-less.
 			doc.Set("pending", arena.NewNumberInt(1))
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
@@ -368,11 +438,12 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 
 // SearchVector runs the ANN leg: nearest-first by cosine distance.
 // Score is folded to similarity (1 - distance) so "higher = better"
-// holds across legs. Before the space has any embedded docs (no vector
-// index yet) it returns no hits.
+// holds across legs. While the vector pipeline is frozen (dimension
+// never learned, or no embedded docs in the space yet) it returns no
+// hits rather than erroring — search degrades, never breaks.
 func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int) ([]Hit, error) {
-	if s.dim == 0 {
-		return nil, fmt.Errorf("indexer: store has no vector index")
+	if s.Dim() == 0 {
+		return nil, nil
 	}
 	ok, err := s.EnsureVectorIndex(ctx, spaceId)
 	if err != nil {

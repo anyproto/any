@@ -7,10 +7,17 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/anyproto/any/internal/config"
 )
+
+// ErrEmbedderUnavailable wraps query-time embedding failures: the
+// embedder is configured but not currently reachable. Vector-mode
+// searches surface it as a retryable condition; hybrid degrades to FTS
+// instead.
+var ErrEmbedderUnavailable = errors.New("indexer: embedder unavailable")
 
 // Embedder turns text into vectors. A nil Embedder on the Indexer means
 // FTS-only operation: documents are stored without vectors and the

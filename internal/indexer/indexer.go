@@ -274,7 +274,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			qv, embErr := ix.opts.Embedder.EmbedQuery(ctx, req.Query)
 			if embErr != nil {
 				if mode == api.SearchModeVector {
-					return api.SearchResponse{}, fmt.Errorf("indexer: embed query: %w", embErr)
+					return api.SearchResponse{}, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, embErr)
 				}
 				ix.lg.Warn("hybrid search degrades to fts: query embedding failed", zap.Error(embErr))
 				mode = api.SearchModeFTS

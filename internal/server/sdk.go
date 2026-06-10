@@ -7,9 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anyproto/any-sync/app/logger"
-	"go.uber.org/zap"
-
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
@@ -107,32 +104,20 @@ func NewIndexRegistry() *index.Registry {
 	)
 }
 
-// embedderProbeTimeout bounds the boot-time embedding-dimension probe —
-// a down embedder must not stall server startup.
-const embedderProbeTimeout = 10 * time.Second
-
 // OpenIndexer builds the search indexer: embedder (per config), local
 // index store under <dataDir>/index, and the service over the chunker
-// registry. A configured-but-unreachable embedder degrades to FTS-only
-// with a warning rather than failing the boot — vectors start landing
-// after a restart once the embedder is back. A misconfigured one (bad
-// name, missing model) is a hard error.
-func OpenIndexer(ctx context.Context, cfg config.Index, dataDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, lg logger.CtxLogger) (*indexer.Indexer, error) {
+// registry. There is no boot-time embedder probe: an unreachable
+// embedder never blocks the boot or the FTS pipeline — text-bearing
+// docs queue as pending and the embed loop picks them up once the
+// embedder responds (the dimension is learned from the first
+// successful batch unless index.vector.dim pins it). A misconfigured
+// embedder (bad name, missing model) is still a hard error.
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
 	emb, err := indexer.NewEmbedder(cfg)
 	if err != nil {
 		return nil, err
 	}
-	dim := cfg.Vector.Dim
-	if emb != nil && dim == 0 {
-		probeCtx, cancel := context.WithTimeout(ctx, embedderProbeTimeout)
-		dim, err = emb.Dim(probeCtx)
-		cancel()
-		if err != nil {
-			lg.Warn("embedder unreachable — index runs FTS-only", zap.String("embedder", cfg.Embedder), zap.Error(err))
-			emb, dim = nil, 0
-		}
-	}
-	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), dim)
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,12 +1,14 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/index"
+	"github.com/anyproto/any/internal/indexer"
 )
 
 // maxSearchLimit caps one search response.
@@ -76,6 +78,10 @@ func (d *deps) search(c echo.Context) error {
 
 	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), req)
 	if err != nil {
+		if errors.Is(err, indexer.ErrEmbedderUnavailable) {
+			return writeError(c, http.StatusServiceUnavailable, "index.embedder_unavailable",
+				"the embedder is not reachable right now — retry, or use mode fts/hybrid", nil)
+		}
 		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
 	}
 	return c.JSON(http.StatusOK, res)

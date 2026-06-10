@@ -254,7 +254,17 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 		}
 		vecs, err := w.ix.opts.Embedder.EmbedDocs(ctx, texts)
 		if err != nil {
+			// Embedder down: docs stay pending, the ticker retries —
+			// the vector pipeline freezes, FTS is unaffected.
 			return err
+		}
+		if len(vecs) > 0 && len(vecs[0]) > 0 {
+			// First successful batch teaches the store its dimension
+			// (no boot-time probe — an embedder that was down at boot
+			// just starts working here once reachable).
+			if err := w.ix.store.EnsureDim(ctx, len(vecs[0])); err != nil {
+				return err
+			}
 		}
 		if err := w.ix.store.SetVectors(ctx, spaceId, ids, vecs); err != nil {
 			return err

@@ -17,7 +17,7 @@ import (
 
 func benchStore(b *testing.B, dim int) *Store {
 	b.Helper()
-	s, err := OpenStore(context.Background(), filepath.Join(b.TempDir(), "index.db"), dim)
+	s, err := OpenStore(context.Background(), filepath.Join(b.TempDir(), "index.db"), dim, dim > 0)
 	if err != nil {
 		b.Fatal(err)
 	}

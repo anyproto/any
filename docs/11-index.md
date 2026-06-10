@@ -165,9 +165,18 @@ is FTS-only.
 
 Embedders (`indexer.Embedder`): `ollama` (local `/api/embed`, default
 `embeddinggemma`, doc/query task prompts) or `openai` (any
-OpenAI-compatible `/embeddings` API). Selected by `index.embedder`
-config; dimension probed at boot (override: `index.vector.dim`). An
-unreachable embedder degrades the boot to FTS-only with a warning.
+OpenAI-compatible `/embeddings` API), selected by `index.embedder`.
+
+**An unavailable embedder never breaks the pipeline.** There is no
+boot-time probe: whenever an embedder is *configured*, text-bearing
+docs are marked `pending` regardless of its reachability, so an outage
+— at boot or mid-run — only freezes the vector side while FTS indexes
+and answers normally. When the embedder comes back, the next embed
+round (nudge or 1-minute tick) drains the queue; the vector dimension
+is learned from the first successful batch (or pinned via
+`index.vector.dim`) and persisted in `_meta`, so a later model/dim
+change against a populated index is a loud error rather than silent
+corruption.
 
 ### Search
 
@@ -185,7 +194,9 @@ This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
 
 Errors: `index.disabled` (409, `index.enabled: false`),
-`index.no_embedder` (400, `mode=vector` without an embedder),
+`index.no_embedder` (400, `mode=vector` with no embedder configured),
+`index.embedder_unavailable` (503, `mode=vector` while the configured
+embedder is unreachable — retryable; hybrid degrades instead),
 `search.bad_mode` / `search.bad_scope` (400).
 
 ### Tuning (measured — `internal/indexer/bench_test.go`)

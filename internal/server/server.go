@@ -86,7 +86,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	// persist per batch, so no flush is needed beyond Close.
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
-		ix, err = OpenIndexer(ctx, cfg.Index, dataDir, sdk, chunkers, lg)
+		ix, err = OpenIndexer(ctx, cfg.Index, dataDir, sdk, chunkers)
 		if err != nil {
 			return fmt.Errorf("open indexer: %w", err)
 		}
