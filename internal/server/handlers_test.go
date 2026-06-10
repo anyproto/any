@@ -202,18 +202,29 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 		t.Errorf("list = %+v", list.Spaces)
 	}
 
-	// DELETE /v1/spaces/:id → soft delete; row stays in list with status=deleted.
+	// DELETE /v1/spaces/:id → soft delete; row stays in storage with status=deleted.
 	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+created.Id, "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE /v1/spaces/:id status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
+	// Default list filters to active-only (TEMPORARY workaround), so the
+	// soft-deleted space is hidden.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("unmarshal list3: %v", err)
 	}
+	if len(list.Spaces) != 0 {
+		t.Errorf("post-delete default list should be empty (active-only), got = %+v", list.Spaces)
+	}
+
+	// ?status=all opts back into the full list, where the deleted row shows.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces?status=all", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list4: %v", err)
+	}
 	if len(list.Spaces) != 1 || list.Spaces[0].Status != api.SpaceStatusDeleted {
-		t.Errorf("post-delete list = %+v", list.Spaces)
+		t.Errorf("post-delete status=all list = %+v", list.Spaces)
 	}
 }
 

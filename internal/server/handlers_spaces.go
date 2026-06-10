@@ -171,6 +171,7 @@ func (d *deps) spaceCreate(c echo.Context) error {
 // @Summary	List spaces
 // @Tags		spaces
 // @Produce	json
+// @Param		status	query		string	false	"Filter by status; defaults to active-only. Pass 'all' to include deleted/dead rows."
 // @Success	200	{object}	api.SpaceListResponse
 // @Failure	500	{object}	api.ErrorEnvelope
 // @Router		/spaces [get]
@@ -180,8 +181,22 @@ func (d *deps) spaceList(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
+	// TEMPORARY WORKAROUND: default the list to active spaces only.
+	// Soft-deleted spaces are never offloaded yet (no proper space
+	// deletion / offloading — see docs/07-roadmap.md), so the raw list
+	// accumulates dozens of dead rows that swamp the real ones. Until
+	// that lands, hide non-active rows by default; `?status=all` (or an
+	// explicit status string) opts back into the full list. Remove this
+	// filter once deletion actually reclaims the rows.
+	statusFilter := c.QueryParam("status")
+	if statusFilter == "" {
+		statusFilter = api.SpaceStatusActive
+	}
 	out := make([]api.SpaceInfo, 0, len(infos))
 	for _, info := range infos {
+		if statusFilter != "all" && spaceStatusString(info.Status) != statusFilter {
+			continue
+		}
 		row := spaceInfoToAPI(info)
 		// Eagerly-resident spaces (post-boot) give us the
 		// deterministic spaceIndex object id without touching disk.

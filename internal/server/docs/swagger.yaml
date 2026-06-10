@@ -949,6 +949,12 @@ paths:
       - system
   /spaces:
     get:
+      parameters:
+      - description: Filter by status; defaults to active-only. Pass 'all' to include
+          deleted/dead rows.
+        in: query
+        name: status
+        type: string
       produces:
       - application/json
       responses:

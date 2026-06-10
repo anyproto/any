@@ -134,7 +134,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | Method | Path                            | Purpose                             |
 |--------|---------------------------------|-------------------------------------|
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
-| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
+| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo` (active-only by default, see note) |
 | POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
@@ -145,6 +145,16 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+
+**`GET /v1/spaces` defaults to active spaces only** (TEMPORARY
+workaround). `DELETE` is the SDK's soft-delete — the row stays in
+`Service.List` with `status:"deleted"` and is never offloaded yet (no
+proper space deletion / offloading; see `docs/07-roadmap.md`), so the
+raw list otherwise accumulates dozens of dead rows. Pass `?status=all`
+to get the full list (every status), or `?status=<value>` to filter to
+a specific status (e.g. `deleted`). Remove this default once deletion
+actually reclaims the rows. The `POST /v1/spaces/query[/subscribe]`
+primitive is unaffected — it still returns the raw tech-index rows.
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's

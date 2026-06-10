@@ -145,6 +145,14 @@ const docTemplate = `{
                     "spaces"
                 ],
                 "summary": "List spaces",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status; defaults to active-only. Pass 'all' to include deleted/dead rows.",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

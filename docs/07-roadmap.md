@@ -77,6 +77,15 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
+10. **Space deletion / offloading (TEMPORARY list filter in place).**
+    `DELETE /v1/spaces/:id` is the SDK's soft-delete only — the row
+    stays in `Service.List` forever with `status:"deleted"`, never
+    offloaded, so a dev account quickly accumulates dozens of dead
+    rows. Workaround: `GET /v1/spaces` defaults to active-only
+    (`?status=all` opts back into the full list) — see the comment in
+    `handlers_spaces.go::spaceList`. **Remove this default filter once
+    the SDK can actually reclaim/offload deleted spaces** so the raw
+    list stays small on its own.
 9. **External semantic-search service (TODO — agent memory recall is
    non-functional until this exists).** The agent data layer
    (`docs/11-agent-memory.md`) deliberately stores no vectors; a
