@@ -2,9 +2,11 @@
 
 ## Tool Description
 
-RLM-style search over this space's data — memory items, chat history, and objects — without a vector index (design: docs/12-rlm-search.md). Each call spins an **isolated** inner LLM loop (its own context — none of the scanning ever enters YOUR context) that pages the corpus through indexed reads and maps batched sub-LLM relevance calls over snippets. You get back only the ranked top-k results plus honest `stats` (time, turns, toolcalls, tokens burned).
+RLM-style **deep, EXPENSIVE** search over this space's data — memory items, chat history, and objects (design: docs/12-rlm-search.md). Each call spins an **isolated** inner LLM loop (its own context — none of the scanning ever enters YOUR context) that pages the corpus through indexed reads and maps batched sub-LLM relevance calls over snippets. You get back only the ranked top-k results plus honest `stats` (time, turns, toolcalls, tokens burned).
 
-Use it whenever you need recall by MEANING rather than by known id/category/period: "what did we decide about X", "find notes related to Y", "did the user mention Z". For lookups you can express exactly (a category, a time range, a known type+filter), call `convmemory.*` / `anyHelper.getObjects` directly — they're one indexed read instead of an LLM loop (expect a search call to take ~5-30s and burn real tokens; the `stats` field tells you exactly how much).
+**Try `semsearch` FIRST.** `semsearch` is the cheap sibling — one HTTP call to the local vector + full-text index, milliseconds, **zero tokens**. Reach for *this* tool only when `semsearch` comes back thin and you need what an LLM loop buys: recall that reasons over snippets, a synthesized grounded answer with citations (`ask`), coverage guarantees, or scanning records the index does not cover (the index only holds content written after indexing started on this server). Expect a `search` call to take ~5-30s and burn real tokens (`stats` tells you exactly how much); for lookups you can express exactly (a category, a time range, a known type+filter), call `convmemory.*` / `anyHelper.getObjects` directly instead.
+
+Cross-space: the `objects` scope honors `opts.space` (any space id on the account) so you can deep-search another space's objects; `memory` / `history` scopes always target the agent's own space (its brain + the invocation's chat). For cheap cross-space recall over chat/blocks/memory, prefer `semsearch({space})`.
 
 Results carry a `why` line per hit — the inner model's one-line match rationale — so you can trust or discard hits without re-reading the corpus. If the loop hits its caps it wraps up with best-so-far (`stats.wrappedUp: true`, `note` says what wasn't scanned); if it produces nothing, you get `mode: "fallback-recency"` instead of a failure.
 
@@ -23,6 +25,7 @@ Run an RLM search and return ranked results.
   - `categories` (string[]) — memory scope: category narrow.
   - `periodFrom` / `periodUntil` (ISO date strings) — temporal narrow hint.
   - `chatId` (string) — history scope: which chat (defaults to the invocation's chat).
+  - `space` (string) — objects scope: deep-search another space's objects by id (cross-space; defaults to the agent's own space). `memory` / `history` scopes ignore it — they are always own-space. For cheap cross-space recall use `semsearch({space})` instead.
   - `maxToolcalls` (number, default 12) / `maxRootTurns` (number, default 8) — inner-loop caps; on exhaustion the loop wraps up with best-so-far, it never truncates silently.
   - `synthesize` (bool, default false) — also produce `answer` + `citations` (or just call `ask`).
 

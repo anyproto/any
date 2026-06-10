@@ -741,6 +741,33 @@ export function createClient(params) {
     return { ok: true, id: res.data && res.data.id, space: res.data };
   }
 
+  // search runs the server's local index (BM25 full-text + semantic vectors)
+  // over this space's chats, editor blocks, and agent-memory objects — one
+  // HTTP call to POST /v1/spaces/:spaceId/search, NO inner LLM loop and no
+  // token burn (contrast the RLM `search`/`ask` program). Pass `opts.space`
+  // to search ANY space on the account — same `_resolveSpaceId` mapping as
+  // every other method, so the cross-space paradigm is in place here too.
+  //   opts: { space?, scopes?: ("basic"|"chat"|"agent")[], limit?,
+  //           mode?: "hybrid"|"fts"|"vector" } — mode defaults server-side to
+  //   hybrid, which degrades to fts when no embedder is configured/reachable.
+  // Returns { ok, hits: [{scope, objectId, dataset, recordId, data, score}],
+  //           mode, vectorStatus } — `mode` is what actually ran, `vectorStatus`
+  //   (used|unavailable|disabled|skipped) says whether semantic recall took
+  //   part. On failure: { ok:false, error, code } (e.g. index.disabled,
+  //   index.no_embedder — see docs/13-index.md § Search).
+  function search(query, opts) {
+    if (!query || typeof query !== "string") return { ok: false, error: "query (string) is required" };
+    if (!opts) opts = {};
+    var body = { query: query };
+    if (opts.scopes) body.scopes = opts.scopes;
+    if (opts.limit !== undefined && opts.limit !== null) body.limit = opts.limit;
+    if (opts.mode) body.mode = opts.mode;
+    var res = api("POST", _pathForScope(opts.space) + "/search", body);
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
+    var d = res.data || {};
+    return { ok: true, hits: d.hits || [], mode: d.mode, vectorStatus: d.vectorStatus };
+  }
+
   // getUIContext reads the `ui-context` pointer object the web UI keeps in
   // the agent's own space: what the user is currently looking at. Returns
   // { spaceId, objectId, view, updatedAt } — or null when the UI has never
@@ -1362,6 +1389,7 @@ export function createClient(params) {
     listSpaceMembers: w("listSpaceMembers", listSpaceMembers),
     listSpaces: w("listSpaces", listSpaces),
     createSpace: w("createSpace", createSpace),
+    search: w("search", search),
     getUIContext: w("getUIContext", getUIContext),
 
     getTools: w("getTools", getTools),
