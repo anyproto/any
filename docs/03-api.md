@@ -155,6 +155,14 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
+`SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
+stamped when the tech-space row is created — at create for the author,
+at join for a joiner. Immutable once stamped. Rows from before the
+stamp existed report the zero time (`0001-01-01T00:00:00Z`) — treat it
+as "unknown"; there is no backfill. The stamp is per-device, so the
+account's devices can disagree by a few seconds (or zero vs real on
+mixed SDK versions) — good for ordering, not for equality checks.
+
 #### Query / subscribe the space list
 
 `GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
@@ -175,7 +183,10 @@ same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `spaces`; `profile` is the other system dataset). `objectId` is fixed
 server-side to the tech-space index object. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. The subscribe frame set and `closed`
+you want the projected status/role. Rows carry `createdAt` as unix
+seconds (handler-derived added-to-account time, absent on pre-stamp
+rows), so newest-first creation ordering is `{"sort": ["-createdAt"]}`.
+The subscribe frame set and `closed`
 reasons are identical to the per-object `…/query/subscribe` (see the Data
 plane § Subscribe and `docs/04-events.md`); a space joined on another
 device or head-synced in arrives as an `added` change.

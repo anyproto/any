@@ -239,8 +239,15 @@ Implementation slices landed:
       schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
       it (back-compat: a zero Schema → Dynamic). The same release bumps
-      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
-      `v0.0.8` release.
+      `any-store/v2` to `v2.0.0-alpha.10`.
+13. **Space `createdAt`** — the SDK (v0.0.10) stamps a derived
+    `createdAt` (unix seconds, added-to-account time: create for the
+    author, join for a joiner) on every new tech-space `spaces` row.
+    No `any`-side code — `SpaceInfo.createdAt` (`GET /v1/spaces[/:id]`)
+    and the raw space-list rows light up via passthrough; rows sort
+    with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
+    treat zero as unknown. Semantics + caveats in `docs/03-api.md`
+    § Spaces.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -265,9 +272,10 @@ For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/C
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-The SDK is pinned at the tagged release
-`any-sync-sdk v0.0.8` (the dataset-schema + unified-query work, which
-also bumps `any-store/v2` to `alpha.10` — see status item 12).
+The SDK is pinned at
+`any-sync-sdk v0.0.10` (space createdAt stamp — status item 13;
+currently the branch pseudo-version until anyproto/any-sync-sdk#14
+merges and tags).
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
