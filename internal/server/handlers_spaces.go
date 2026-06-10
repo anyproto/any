@@ -56,6 +56,21 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
+
+	// Agent data layer (built-in types — see internal/agentlog,
+	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
+	// reads + liveness go through /query and /query/subscribe with
+	// dataset ∈ {agent_turns, agent_chunks, agent_memory_items}.
+	// Turns/chunks attach to the chat object (multitype chat +
+	// agent_log); memory items live on the per-space brain object,
+	// which the server resolves itself (GET /agent/brain exposes the
+	// deterministic id for reads).
+	g.POST("/spaces/:spaceId/objects/:objectId/agent/turns", d.agentTurnAppend)
+	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
+	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
+	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
+	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)
+	g.DELETE("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryDelete)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)

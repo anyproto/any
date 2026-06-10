@@ -176,7 +176,32 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
-11. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
+11. **Agent data layer (turns / chunks / memory)** — two new built-in
+    types replace bobrik's markdown-transcript + runtime-typed memory
+    scheme. `internal/agentlog` (type `agent_log`) puts two datasets ON
+    THE CHAT OBJECT (multitype chat + agent_log, attached on first
+    write): `agent_turns` — one append-only record per agent invocation
+    (seq, userText, think, replies[], effects[], messageIds[],
+    debugRef → agent_debug_log page, llm scalars; modify/delete
+    rejected) — and `agent_chunks` — immutable summaries carrying
+    EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
+    periodStart/periodEnd unix). `internal/agentmem` (type
+    `agent_memory`) puts `agent_memory_items` on a per-space brain
+    object derived from the fixed seed `any/agent-brain/v1`
+    (deterministic `Objects().Derive`, spaceIndex pattern): category
+    (open slug set) + context required; tags/entities/keywords real
+    arrays; confidence/importance/salience/accessCount numbers with
+    server defaults; structured `edges` array; evolve allow-list
+    (author-only, modifiedAt bumped); author-only delete. Indexes:
+    turns (seq),(createdAt); chunks (seq),(periodEnd); items
+    (category),(createdAt),(validFrom). Writes:
+    `POST …/objects/:o/agent/turns|chunks`, `GET /agent/brain`,
+    `POST/PATCH/DELETE /agent/memory[/:itemId]` (handlers_agentlog.go /
+    handlers_agentmem.go); CLI `any agent …`. Reads stay on `/query` —
+    no bespoke read endpoints. NO vectors stored — semantic search is
+    an external service (TODO, not built; recall is non-functional
+    until then; see docs/11-agent-memory.md + docs/07-roadmap.md §9).
+12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
     Full docs (storage shape, refresh mechanics, validation rules,
     flags, what's missing) in
     [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) and
@@ -220,7 +245,7 @@ Implementation slices landed:
 13. **Index chunkers (phase 1) + SDK tombstone opt-in** — the
     consumer-side search feed's contract and three chunkers, **handlers
     only (no indexer, no HTTP endpoints)**. Full contract in
-    [`docs/11-index.md`](docs/11-index.md).
+    [`docs/13-index.md`](docs/13-index.md).
     - `internal/index`: `IndexEntry` (`{Scope, ObjectId, Dataset,
       RecordId, Data, AddSeq}` — `Data == ""` ⇒ remove from index) +
       `Chunker` interface (`ChunksSince(ctx, sp, objectId, since, yield)`,
@@ -255,7 +280,7 @@ Implementation slices landed:
 
 14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
     the chunker feed. Full pipeline doc in
-    [`docs/11-index.md`](docs/11-index.md) § Phase 2.
+    [`docs/13-index.md`](docs/13-index.md) § Phase 2.
     - `internal/indexer`: per-space **worker pair** under one `Indexer`
       service (`New` / `Start` / `Close` / `Search`; `Sync`/`SyncSpace`
       are the synchronous test hooks). **Advance loop** (FTS path):
@@ -410,7 +435,7 @@ These cut across files and are easy to violate accidentally:
   endpoints that aggregate multiple SDK calls — that's a v1.x decision.
   Sole exception: `POST /v1/spaces/:id/search` — the search index is a
   consumer-side feature built on `Changes()` + the chunkers
-  (`docs/11-index.md`), not an SDK method.
+  (`docs/13-index.md`), not an SDK method.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
   no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
@@ -482,8 +507,9 @@ auto-start.
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
-| `docs/11-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
-| `docs/SDK-DRIFT.md` | where the SDK's own docs/comments disagree with observed v0.0.4 behavior |
+| `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
+| `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
+| `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

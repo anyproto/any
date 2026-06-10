@@ -21,21 +21,16 @@ import { main as assistantMain } from "private:assistant@v5";
 // deploy-assistant.sh's --migrate / --deploy-all-spaces modes.
 
 function bootstrapTypes(client) {
-  // "Agent Debug Log" is a server built-in type (internal/agentdebug) with a
-  // structured `agent_debug_log` dataset — registered at server boot, never
-  // created here. Minting a user-space copy would collide on the xKey.
+  // "Agent Debug Log", "Agent Log" (agent_turns/agent_chunks) and
+  // "Agent Memory" (agent_memory_items on the brain object) are server
+  // BUILT-IN types — registered at server boot, never created here. Minting
+  // a user-space copy would collide on the xKey. (The runtime-created
+  // "Agent Memory" property type the old amemory used is gone — see
+  // docs/11-agent-memory.md.)
   client.createType({
     name: "Agent Skill",
     properties: [
       { key: "agent_skill_name", format: "text" }
-    ]
-  });
-  client.createType({
-    name: "Agent Memory",
-    properties: [
-      { key: "agent_memory", format: "text" },
-      { key: "chat_history", format: "objects" },
-      { key: "chat_id", format: "text" }
     ]
   });
   client.createType({ name: "Pages" });
@@ -43,7 +38,7 @@ function bootstrapTypes(client) {
 }
 
 function _typesReady(client) {
-  var needed = ["Agent Skill", "Agent Memory", "Pages", "Space Context"];
+  var needed = ["Agent Skill", "Pages", "Space Context"];
   var types = client.getTypes ? client.getTypes() : [];
   var names = {};
   for (var i = 0; i < types.length; i++) names[types[i].name] = true;

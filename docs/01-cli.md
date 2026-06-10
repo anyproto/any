@@ -58,7 +58,7 @@ any search <spaceId> <query> [--scopes basic,chat,agent] [--limit N] [--mode hyb
 
 `any search` wraps `POST /v1/spaces/:spaceId/search` — the server's
 local FTS + vector index over chats, editor blocks, and agent memory
-(contract in `docs/11-index.md`). Default mode is `hybrid`; without an
+(contract in `docs/13-index.md`). Default mode is `hybrid`; without an
 embedder configured on the server it degrades to FTS (the reply's
 `mode` says which ran).
 

@@ -12,7 +12,7 @@ import (
 )
 
 // Benchmarks that informed the Options defaults (BatchLimit, EmbedBatch)
-// — see docs/11-index.md § tuning. File-backed stores: tx-size tuning on
+// — see docs/13-index.md § tuning. File-backed stores: tx-size tuning on
 // an in-memory DB would be meaningless.
 
 func benchStore(b *testing.B, dim int) *Store {

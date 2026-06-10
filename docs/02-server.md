@@ -84,7 +84,7 @@ clear message. Stale locks (PID no longer exists) are reclaimed.
 
 The SDK's `config.Storage.DataDir` points at `<data-dir>/sdk/`.
 Server-specific files live directly under `<data-dir>/`. The search
-index (`docs/11-index.md`) is derived state: removing `<data-dir>/index/`
+index (`docs/13-index.md`) is derived state: removing `<data-dir>/index/`
 is safe but re-indexes only content changed afterwards ("index from the
 next change").
 

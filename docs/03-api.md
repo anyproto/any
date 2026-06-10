@@ -1,5 +1,50 @@
 # HTTP API
 
+## Table of Contents
+
+- [Conventions](#conventions)
+  - [Write responses](#write-responses)
+- [Endpoint catalog](#endpoint-catalog)
+  - [Meta](#meta)
+  - [Account](#account)
+  - [Spaces](#spaces)
+    - [Query / subscribe the space list](#query--subscribe-the-space-list)
+    - [Dataset schema discovery](#dataset-schema-discovery)
+    - [Update space metadata](#update-space-metadata)
+    - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
+  - [Objects](#objects)
+    - [Blocks](#blocks)
+      - [Read blocks](#read-blocks)
+      - [Create](#create)
+      - [Patch](#patch)
+      - [Delete](#delete)
+      - [Subscribe](#subscribe)
+    - [`nav` auto-stamping on `Objects.Create`](#nav-auto-stamping-on-objectscreate)
+    - [Moves (drag-and-drop)](#moves-drag-and-drop)
+    - [Object deletion](#object-deletion)
+  - [Data plane](#data-plane)
+    - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
+    - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
+  - [Types](#types)
+  - [Properties (values on objects)](#properties-values-on-objects)
+  - [Chat (built-in `chat` type)](#chat-built-in-chat-type)
+    - [Message wire shape (read path)](#message-wire-shape-read-path)
+    - [Send](#send)
+    - [Read](#read)
+    - [Edit / delete (own only)](#edit--delete-own-only)
+    - [React (toggle)](#react-toggle)
+  - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
+  - [Members](#members)
+  - [Invites](#invites)
+  - [ACL operations](#acl-operations)
+    - [Permission / status strings](#permission--status-strings)
+  - [Sync status](#sync-status)
+  - [Debug (diagnostic)](#debug-diagnostic)
+- [Body shapes (examples)](#body-shapes-examples)
+- [Middleware](#middleware)
+- [Pagination](#pagination)
+- [Idempotency](#idempotency)
+
 ## Conventions
 
 - **Framework**: `github.com/labstack/echo` (v4).
@@ -211,7 +256,7 @@ writer first (push to the node) then the reader (pull back).
 The **one sanctioned endpoint that does not map 1:1 onto an SDK
 method**: it queries the server's local search index (FTS + vector over
 the chunker feed — contract, scopes, and indexing pipeline in
-`docs/11-index.md`). Requires `index.enabled` (default true); `409
+`docs/13-index.md`). Requires `index.enabled` (default true); `409
 index.disabled` otherwise.
 
 Body:
@@ -245,7 +290,7 @@ Reply:
 Scores are comparable only within one response
 (BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
 covers content written while indexing is on — "index from the next
-change" (`docs/11-index.md`).
+change" (`docs/13-index.md`).
 
 ### Objects
 
@@ -825,6 +870,32 @@ unique per (emoji, identity), two clients toggling at the same time
 can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
+
+### Agent data layer (built-in `agent_log` + `agent_memory` types)
+
+Full model, record shapes, and query recipes in
+[`docs/11-agent-memory.md`](11-agent-memory.md). Writes only here —
+reads + liveness go through `/query` and `/query/subscribe` with
+`dataset` ∈ `{agent_turns, agent_chunks, agent_memory_items}`.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/turns`  | append one immutable turn record |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/chunks` | create one immutable summary chunk |
+| GET    | `/v1/spaces/:spaceId/agent/brain`                    | deterministic brain object id |
+| POST   | `/v1/spaces/:spaceId/agent/memory`                   | create a memory item |
+| PATCH  | `/v1/spaces/:spaceId/agent/memory/:itemId`           | evolve mutable fields (author only) |
+| DELETE | `/v1/spaces/:spaceId/agent/memory/:itemId`           | delete a memory item (author only) |
+
+Turns and chunks attach to the chat object itself (the `agent_log`
+type is attached on first write, making the object multitype chat +
+agent_log); a chunk's `fromSeq`/`toSeq` are explicit pointers to the
+raw `agent_turns` range it summarizes. Memory items live on the
+per-space brain object — the server resolves it internally on writes;
+clients call `GET /agent/brain` once to learn the objectId for reads.
+All writes return the shared write result `{versionId, changeId,
+recordIds}`. Errors use the `agent.*` code namespace
+(`docs/06-errors.md`).
 
 ### Members
 

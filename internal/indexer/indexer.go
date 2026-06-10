@@ -18,7 +18,7 @@ import (
 )
 
 // Options tunes the indexer. Zero values pick the defaults noted; the
-// numeric defaults are measured (bench_test.go, docs/11-index.md §
+// numeric defaults are measured (bench_test.go, docs/13-index.md §
 // tuning), not guessed.
 type Options struct {
 	// Embedder is the vector pipeline's embedding client; nil = FTS-only.

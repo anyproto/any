@@ -72,7 +72,7 @@ func mustCreateObject(t *testing.T, e http.Handler, spaceId, body string) string
 
 // TestIndexChunkers_FullFlow drives the three chunkers in-process
 // against a live SDK: creation, cursor advance, deletion (tombstones),
-// and the non-memory negative case. See PLAN / docs/11-index.md.
+// and the non-memory negative case. See PLAN / docs/13-index.md.
 func TestIndexChunkers_FullFlow(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

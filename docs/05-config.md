@@ -41,7 +41,7 @@ sync:
   dialTimeout: 10s
   changeBatchSize: 100
 
-# Local search index (docs/11-index.md). FTS needs no external
+# Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search

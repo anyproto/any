@@ -77,6 +77,19 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
+9. **External semantic-search service (TODO — agent memory recall is
+   non-functional until this exists).** The agent data layer
+   (`docs/11-agent-memory.md`) deliberately stores no vectors; a
+   separate service is planned that tails `/query/subscribe` on
+   `agent_memory_items` / `agent_chunks` / `agent_turns`, embeds
+   content, keys an ANN index by record id, and answers hybrid
+   (vector + keyword + metadata) recall with ids the caller hydrates
+   via `/query`. Until it ships: `memory.search` falls back to
+   indexed recency/category/period queries; similarity dedup,
+   link-gen, evolution/reflection/decay passes are dormant (the
+   schema keeps their fields — edges, salience, accessCount — so they
+   resume without data migration). `embeddingRef` is reserved on the
+   schema as the future external-index backref.
 
 ## SDK-side prerequisites
 
@@ -110,7 +123,7 @@ Not this repo's work; gate on the SDK:
 
 ## Index / search (phase 3+)
 
-Phases 1–2 shipped (see Done + `docs/11-index.md`): chunker contract +
+Phases 1–2 shipped (see Done + `docs/13-index.md`): chunker contract +
 three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
 pluggable embedders, parallel batched pipelines),
 `POST /v1/spaces/:id/search` + `any search`. Still open:
@@ -141,6 +154,17 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Agent data layer (turns / chunks / memory)** — built-in
+  `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
+  object) and `agent_memory` (`agent_memory_items` on the seed-derived
+  per-space brain object) types with validated record shapes,
+  server-stamped fields, declared indexes, append-only turn/chunk
+  semantics, and chunk→turns drill-down pointers (`fromSeq`/`toSeq`).
+  Write endpoints under `/agent/*` + `any agent` CLI; reads via the
+  query primitive. Replaces bobrik's markdown-transcript +
+  runtime-typed memory scheme. See `docs/11-agent-memory.md`; semantic
+  recall itself is gated on the external search service (Open
+  questions #9).
 - **v1 scaffolding + wallet + health slice** — `cmd/any`, `internal/{cli,server,client,config,api,version}`,
   echo v4 under `/v1`, `GET /v1/health`, `POST /v1/shutdown`, PID-lock with stale
   reclaim, loopback-only bind guard, uniform error envelope, `auth.FileProvider`
@@ -311,7 +335,7 @@ pluggable embedders, parallel batched pipelines),
   `feat/addseq-change-index`): `ProjectionOpts.IncludeDeleted` makes the
   find path (Iter/All/One/Count) surface tombstones so chunkers can
   stream deletions. Pinned at the branch pseudo-version. Full contract
-  in `docs/11-index.md`.
+  in `docs/13-index.md`.
 - **Search indexer (phase 2) + search endpoint** — `internal/indexer`:
   per-space worker pair (advance loop: change feed → chunkers → FTS,
   cursor-driven, batched; embed loop: pending docs → batch embed →

@@ -11,7 +11,7 @@
 // of IndexEntry values ordered by AddSeq — the SDK's per-space,
 // peer-local, monotonic delivery counter. Deletions are first-class: a
 // deleted record yields a tombstone entry (Data == "") so the indexer
-// can evict it. See docs/11-index.md for the full contract.
+// can evict it. See docs/13-index.md for the full contract.
 package index
 
 import (

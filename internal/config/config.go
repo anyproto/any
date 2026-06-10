@@ -37,7 +37,7 @@ type Sync struct {
 }
 
 // Index configures the local search indexer (FTS + vector, see
-// docs/11-index.md). FTS needs no external dependency; the vector side
+// docs/13-index.md). FTS needs no external dependency; the vector side
 // activates only when an embedder is configured.
 type Index struct {
 	// Enabled gates the whole indexer. Default true (FTS-only with no

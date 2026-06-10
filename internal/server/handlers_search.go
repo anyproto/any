@@ -17,7 +17,7 @@ const maxSearchLimit = 100
 // search runs the local-index search (FTS / vector / hybrid). This is
 // the one sanctioned endpoint that does not map 1:1 onto an SDK method:
 // the index is a consumer-side feature built on the chunker feed (see
-// docs/11-index.md).
+// docs/13-index.md).
 //
 //	@Summary	Search the space's local index
 //	@Tags		search

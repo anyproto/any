@@ -1,5 +1,5 @@
 // Package indexer is the phase-2 consumer of the chunker contract in
-// internal/index (docs/11-index.md): a background service that keeps a
+// internal/index (docs/13-index.md): a background service that keeps a
 // local any-store database with a BM25 full-text index and an IVF-SQ
 // vector index per space, fed from the SDK's per-space change feed
 // (Space.Changes()), and a hybrid (RRF) search over both.
