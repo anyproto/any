@@ -217,6 +217,86 @@ Implementation slices landed:
       `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
       `v0.0.8` release.
 
+13. **Index chunkers (phase 1) + SDK tombstone opt-in** — the
+    consumer-side search feed's contract and three chunkers, **handlers
+    only (no indexer, no HTTP endpoints)**. Full contract in
+    [`docs/11-index.md`](docs/11-index.md).
+    - `internal/index`: `IndexEntry` (`{Scope, ObjectId, Dataset,
+      RecordId, Data, AddSeq}` — `Data == ""` ⇒ remove from index) +
+      `Chunker` interface (`ChunksSince(ctx, sp, objectId, since, yield)`,
+      ascending by `_addSeq`) + `Registry` (`NewRegistry` / `All` /
+      `ForDataset`). Shared `RecordsSince` streamer chains
+      `Projection({IncludeDeleted:true})` → `Filter {_addSeq:{$gt}}` →
+      `Sort _addSeq` → `Iter`. `AgentMemoryChunker` (scope `agent`,
+      dataset `objects`) resolves the `agent_memory` type + `context` /
+      `keywords` / `entities` props by XKey (cached per-space forever;
+      absence never cached); `Data` = `any.name` + those values,
+      newline-joined.
+    - Per-handler chunkers: `editor.NewChunker()` (scope `basic`,
+      dataset `editor_blocks`, `Data` = block `text`) and
+      `chat.NewChunker()` (scope `chat`, dataset `chat_messages`, `Data`
+      = message `text` only — creator/reactions/attachments excluded).
+    - Deletions stream as tombstone entries (`Data ""`). Agent scope
+      emits a tombstone for **any** streamed row that isn't a live
+      memory object — deleted rows *and* live rows without the type
+      (covers `DetachType`); the indexer applies entries uniformly.
+    - Excluded from indexing entirely: `agent_debug_log`, `program`,
+      `miniapp`.
+    - Wiring: `server.NewIndexRegistry()` →
+      `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
+      index.NewAgentMemoryChunker())`, stored on `deps.chunkers`.
+    - **SDK prerequisite (branch `feat/addseq-change-index`, not yet a
+      tagged release).** `ProjectionOpts.IncludeDeleted` makes the find
+      path (Iter/All/One/Count) surface tombstones (content wiped,
+      `_deletedAt` + carried `_addSeq`) so chunkers stream deletions;
+      Snapshot/Subscribe keep skipping them. Pinned at the branch
+      pseudo-version (`v0.0.9-0.…-d03270b6db49`); re-pin when the
+      branch is tagged.
+
+14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
+    the chunker feed. Full pipeline doc in
+    [`docs/11-index.md`](docs/11-index.md) § Phase 2.
+    - `internal/indexer`: per-space **worker pair** under one `Indexer`
+      service (`New` / `Start` / `Close` / `Search`; `Sync`/`SyncSpace`
+      are the synchronous test hooks). **Advance loop** (FTS path):
+      `Changes().Subscribe` → cap-1 dirty chan → debounced `advance` —
+      pages `ChangedSince(cursor, 256)`, object-deleted check first
+      (tombstoned object ⇒ `PurgeObject` — the SDK drops deleted
+      objects' datasets wholesale), else runs all chunkers; one WriteTx
+      per page; cursor persisted per page. **Embed loop** (vector path,
+      parallel): drains `pending` docs — batch `EmbedDocs` (64) → batch
+      `SetVectors` (one tx) → `EnsureVectorIndex`; 1m ticker retries.
+      Embedder latency never delays the cursor or FTS searchability.
+    - `Store`: one any-store DB at `<data-dir>/index/index.db`,
+      collection per space; doc id `dataset+"/"+recordId`; BM25 FTS on
+      `data` + ranges on `objectId`/`pending` ensured at open; **IVF-SQ
+      cosine vector index created lazily** (`EnsureVectorIndex`) once ≥1
+      embedded doc exists — IVF trains from existing docs and cannot be
+      created empty. Vector hits with similarity ≤ 0 are dropped (noise
+      floor). `cursors` collection: per-space cursor + `_meta` dim pin
+      (dim change = boot error advising `rm <data-dir>/index`).
+    - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
+      `ollama` (local `/api/embed`, default `embeddinggemma`, task
+      prompts) and `openai` (OpenAI-compatible `/embeddings`). Config
+      `index.*` (`internal/config.Index`, env `ANY_INDEX_*`); no
+      embedder ⇒ FTS-only; unreachable embedder at boot ⇒ warn +
+      FTS-only. Dim probed at boot (10s timeout) unless
+      `index.vector.dim` set.
+    - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
+      `{query, scopes?, limit?, mode?}` → `{hits, mode}`; modes `hybrid`
+      (RRF k=60, default; degrades to fts without embedder — reply
+      `mode` reports what ran) / `fts` / `vector` (400
+      `index.no_embedder` without embedder). 409 `index.disabled` when
+      `index.enabled: false` (`deps.indexer == nil`). CLI: `any search`.
+      Space discovery: `Spaces().List` + `Service.Subscribe`
+      (added ⇒ spawn worker, removed/deleted ⇒ stop + `DropSpace`).
+    - **any-store prerequisite (branch `btree-fts`, superset of
+      `alpha.10`, not yet tagged).** FTS (`$text`/BM25/`iter.Score`) +
+      vector (`iter.Distance`/`VectorEf`/IVF-SQ) indexes. Pinned at the
+      branch pseudo-version (`v2.0.0-alpha.10.0.…-c91ceb911e3b`) —
+      build-wide, so the SDK also compiles against it (its test suite
+      passes under it). Re-pin when tagged.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -240,9 +320,15 @@ For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/C
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-The SDK is pinned at the tagged release
-`any-sync-sdk v0.0.8` (the dataset-schema + unified-query work, which
-also bumps `any-store/v2` to `alpha.10` — see status item 12).
+The SDK's tagged base is `any-sync-sdk v0.0.8` (the dataset-schema +
+unified-query work — see status item 12); `go.mod` currently pins **two
+branch pseudo-versions** ahead of it: `any-sync-sdk
+v0.0.9-0.…-d03270b6db49` (branch `feat/addseq-change-index` — `_addSeq`
+change-index + tombstone `IncludeDeleted`, status items 13–14) and
+`any-store/v2 v2.0.0-alpha.10.0.…-c91ceb911e3b` (branch `btree-fts`, a
+superset of `alpha.10` — FTS + vector indexes behind the search
+indexer, status item 14). Re-pin to tagged releases once those branches
+land.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
@@ -318,6 +404,9 @@ These cut across files and are easy to violate accidentally:
 - **Endpoints map 1:1 onto SDK methods; CLI commands map 1:1 onto endpoints.** If the
   SDK has it, we expose it. If it doesn't, we don't. Don't invent convenience
   endpoints that aggregate multiple SDK calls — that's a v1.x decision.
+  Sole exception: `POST /v1/spaces/:id/search` — the search index is a
+  consumer-side feature built on `Changes()` + the chunkers
+  (`docs/11-index.md`), not an SDK method.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
   no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
@@ -389,6 +478,7 @@ auto-start.
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
+| `docs/11-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/SDK-DRIFT.md` | where the SDK's own docs/comments disagree with observed v0.0.4 behavior |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

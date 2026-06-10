@@ -78,11 +78,15 @@ clear message. Stale locks (PID no longer exists) are reclaimed.
 ├── wallet.key          # auth.FileProvider wallet (mode 0600)
 ├── server.pid          # lock file
 ├── config.yaml         # optional, if not passed via --config
-└── sdk/                # any-store DB(s) — owned by the SDK
+├── sdk/                # any-store DB(s) — owned by the SDK
+└── index/              # local search index (index.db) — owned by the indexer
 ```
 
 The SDK's `config.Storage.DataDir` points at `<data-dir>/sdk/`.
-Server-specific files live directly under `<data-dir>/`.
+Server-specific files live directly under `<data-dir>/`. The search
+index (`docs/11-index.md`) is derived state: removing `<data-dir>/index/`
+is safe but re-indexes only content changed afterwards ("index from the
+next change").
 
 ## Logging
 

@@ -99,6 +99,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+| POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
@@ -204,6 +205,46 @@ collapsing the multi-peer convergence wait in tests from "next periodic
 headsync (~30s)" to "as fast as the diff round settles." A single round
 exchanges heads with the node; for a writer→reader handoff, sync the
 writer first (push to the node) then the reader (pull back).
+
+#### POST /v1/spaces/:spaceId/search — local search index
+
+The **one sanctioned endpoint that does not map 1:1 onto an SDK
+method**: it queries the server's local search index (FTS + vector over
+the chunker feed — contract, scopes, and indexing pipeline in
+`docs/11-index.md`). Requires `index.enabled` (default true); `409
+index.disabled` otherwise.
+
+Body:
+
+```json
+{
+  "query":  "zeppelin disaster",      // required
+  "scopes": ["chat", "basic"],        // optional: basic | chat | agent; empty = all
+  "limit":  10,                       // optional: default 10, max 100
+  "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
+}
+```
+
+Reply:
+
+```json
+{
+  "hits": [
+    { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
+      "recordId": "…", "data": "the zeppelin disaster of 1937",
+      "score": 0.0328 }
+  ],
+  "mode": "hybrid"
+}
+```
+
+`mode` in the reply is the mode that actually ran: `hybrid` degrades to
+`fts` when no embedder is configured (or the query embedding failed);
+`mode: "vector"` requests without an embedder get `400
+index.no_embedder`. Scores are comparable only within one response
+(BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
+covers content written while indexing is on — "index from the next
+change" (`docs/11-index.md`).
 
 ### Objects
 

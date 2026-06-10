@@ -1,0 +1,82 @@
+package server
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
+)
+
+// maxSearchLimit caps one search response.
+const maxSearchLimit = 100
+
+// search runs the local-index search (FTS / vector / hybrid). This is
+// the one sanctioned endpoint that does not map 1:1 onto an SDK method:
+// the index is a consumer-side feature built on the chunker feed (see
+// docs/11-index.md).
+//
+//	@Summary	Search the space's local index
+//	@Tags		search
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string				true	"Space ID"
+//	@Param		body	body		api.SearchRequest	true	"Search request"
+//	@Success	200		{object}	api.SearchResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/search [post]
+func (d *deps) search(c echo.Context) error {
+	// Body validation before space resolution so 400s don't pay for a
+	// space lookup.
+	var req api.SearchRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	if req.Query == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "query required", nil)
+	}
+	switch req.Mode {
+	case "", api.SearchModeHybrid, api.SearchModeFTS, api.SearchModeVector:
+	default:
+		return writeError(c, http.StatusBadRequest, "search.bad_mode",
+			"mode must be hybrid, fts or vector", map[string]any{"mode": req.Mode})
+	}
+	for _, sc := range req.Scopes {
+		switch sc {
+		case index.ScopeBasic, index.ScopeChat, index.ScopeAgent:
+		default:
+			return writeError(c, http.StatusBadRequest, "search.bad_scope",
+				"scope must be basic, chat or agent", map[string]any{"scope": sc})
+		}
+	}
+	if req.Limit < 0 {
+		return writeError(c, http.StatusBadRequest, "request.bad", "limit must be >= 0", nil)
+	}
+	if req.Limit > maxSearchLimit {
+		req.Limit = maxSearchLimit
+	}
+
+	if d.indexer == nil {
+		return writeError(c, http.StatusConflict, "index.disabled",
+			"the search index is disabled on this server (index.enabled)", nil)
+	}
+	if req.Mode == api.SearchModeVector && !d.indexer.HasEmbedder() {
+		return writeError(c, http.StatusBadRequest, "index.no_embedder",
+			"vector search needs an embedder configured (index.embedder)", nil)
+	}
+
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+
+	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), req)
+	if err != nil {
+		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
+	}
+	return c.JSON(http.StatusOK, res)
+}

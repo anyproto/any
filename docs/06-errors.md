@@ -65,6 +65,11 @@ property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field
 
+index.disabled                   # 409 — search index turned off (index.enabled: false)
+index.no_embedder                # 400 — mode=vector without an embedder configured
+search.bad_mode                  # 400 — mode not hybrid | fts | vector
+search.bad_scope                 # 400 — scope not basic | chat | agent
+
 sdk.not_implemented              # 501 — SDK placeholder (sync-status, some Properties/Types subroutes)
 sdk.not_found                    # 404 — SDK reports the target is gone (deleted, never existed as a type, etc.)
 

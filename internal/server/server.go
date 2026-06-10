@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/indexer"
 )
 
 const gracefulShutdownDeadline = 10 * time.Second
@@ -77,11 +78,33 @@ func Run(ctx context.Context, cfg config.Config) error {
 	shutdown := make(chan struct{}, 1)
 	streamsCtx, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
+
+	chunkers := NewIndexRegistry()
+
+	// Indexer: deferred Close registered after sdk's so it runs first —
+	// workers stop reading from the SDK before the SDK closes. Cursors
+	// persist per batch, so no flush is needed beyond Close.
+	var ix *indexer.Indexer
+	if cfg.Index.Enabled {
+		ix, err = OpenIndexer(ctx, cfg.Index, dataDir, sdk, chunkers, lg)
+		if err != nil {
+			return fmt.Errorf("open indexer: %w", err)
+		}
+		defer func() {
+			if err := ix.Close(); err != nil {
+				lg.Warn("indexer close", zap.Error(err))
+			}
+		}()
+		ix.Start(streamsCtx)
+	}
+
 	deps := &deps{
 		account:        account,
 		startedAt:      time.Now().UTC(),
 		shutdown:       shutdown,
 		sdk:            sdk,
+		chunkers:       chunkers,
+		indexer:        ix,
 		shutdownCtx:    streamsCtx,
 		cancelShutdown: cancelStreams,
 		streamsWG:      &sync.WaitGroup{},

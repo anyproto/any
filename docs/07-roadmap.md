@@ -102,9 +102,34 @@ Not this repo's work; gate on the SDK:
   wrapped store error ("tree does not exist") and currently fall
   through to `500 internal`. We could widen the 404 mapping in the
   handler if/when the SDK stabilises a sentinel for this case.
-- **Query `Projection`.** Accepted in the request body but ignored —
-  the SDK's `Projection(opts)` is a no-op in MVP. Update the handler
-  once variant collapse and meta-stripping land.
+- **Query `Projection`.** Accepted in the request body but mostly
+  ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
+  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (the
+  `feat/addseq-change-index` branch — used by the index chunkers to
+  stream tombstones); variant collapse and meta-stripping still pending.
+
+## Index / search (phase 3+)
+
+Phases 1–2 shipped (see Done + `docs/11-index.md`): chunker contract +
+three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
+pluggable embedders, parallel batched pipelines),
+`POST /v1/spaces/:id/search` + `any search`. Still open:
+
+- **Re-pin both deps to tagged releases.** `go.mod` pins branch
+  pseudo-versions: `any-sync-sdk@feat/addseq-change-index` (`_addSeq`
+  change-index + tombstone `IncludeDeleted`) and
+  `any-store/v2@btree-fts` (FTS + vector indexes, superset of
+  `alpha.10`). Once those branches merge and tag, bump to the tags.
+- **Backfill / re-index.** "Index from the next change" means
+  pre-existing content stays unsearchable until rewritten. A deliberate
+  full re-index (walk all objects, not just `_addSeq > cursor`) is an
+  open design.
+- **Search quality.** Snippets/highlighting, per-scope weights,
+  cross-space search, tunable score thresholds beyond the
+  zero-similarity noise floor, query-time `VectorEf` tuning.
+- **Embedding hygiene.** Re-embed on model change (currently a dim
+  mismatch is a boot error suggesting removing `<data-dir>/index/`),
+  truncation policy for very long records.
 
 ## How to update this file
 
@@ -274,3 +299,29 @@ Not this repo's work; gate on the SDK:
   `x-scope`. CLI: `any space query` / `any space subscribe` / `any
   datasets`. Pins the SDK at the tagged `any-sync-sdk v0.0.8`
   release (also bumps `any-store/v2` to `alpha.10`).
+- **Index chunkers (phase 1) + SDK tombstone opt-in** — the
+  consumer-side search feed's contract and three chunkers, handlers
+  only (no indexer). `internal/index` defines `IndexEntry` / `Chunker` /
+  `Registry` plus the shared `RecordsSince` streamer and the
+  `AgentMemoryChunker` (scope `agent`, dataset `objects`). Per-handler
+  `editor.NewChunker()` (scope `basic`) and `chat.NewChunker()` (scope
+  `chat`). Deletions stream as tombstone entries (`Data == ""`).
+  `server.NewIndexRegistry` wires all three onto `deps.chunkers` — no
+  consumer, no HTTP endpoints yet. SDK side (branch
+  `feat/addseq-change-index`): `ProjectionOpts.IncludeDeleted` makes the
+  find path (Iter/All/One/Count) surface tombstones so chunkers can
+  stream deletions. Pinned at the branch pseudo-version. Full contract
+  in `docs/11-index.md`.
+- **Search indexer (phase 2) + search endpoint** — `internal/indexer`:
+  per-space worker pair (advance loop: change feed → chunkers → FTS,
+  cursor-driven, batched; embed loop: pending docs → batch embed →
+  batch vector insert, fully parallel so embedder latency never delays
+  FTS). One local any-store DB (`<data-dir>/index/index.db`), per-space
+  collections with BM25 FTS + lazily-created IVF-SQ cosine vector
+  index. Pluggable embedders: `ollama` / OpenAI-compatible (config
+  `index.*`); none ⇒ FTS-only. Object deletion → purge rule; agent
+  chunker amended to tombstone live non-memory rows. Surface:
+  `POST /v1/spaces/:id/search` (hybrid RRF / fts / vector) + `any
+  search` — the one sanctioned non-1:1 endpoint. Requires `any-store/v2`
+  branch `btree-fts` (FTS + vector), pinned at its branch
+  pseudo-version.

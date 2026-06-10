@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-sync/app/logger"
+	"go.uber.org/zap"
+
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
@@ -16,6 +19,8 @@ import (
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/index"
+	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/nav"
 	"github.com/anyproto/any/internal/program"
@@ -88,4 +93,48 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	}
 
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
+}
+
+// NewIndexRegistry builds the chunker registry — one chunker per
+// indexed dataset, paralleling the Types list above. The indexer
+// (internal/indexer) drives it; datasets excluded from indexing
+// entirely (agent_debug_log, program, miniapp) have no chunker here.
+func NewIndexRegistry() *index.Registry {
+	return index.NewRegistry(
+		editor.NewChunker(),
+		chat.NewChunker(),
+		index.NewAgentMemoryChunker(),
+	)
+}
+
+// embedderProbeTimeout bounds the boot-time embedding-dimension probe —
+// a down embedder must not stall server startup.
+const embedderProbeTimeout = 10 * time.Second
+
+// OpenIndexer builds the search indexer: embedder (per config), local
+// index store under <dataDir>/index, and the service over the chunker
+// registry. A configured-but-unreachable embedder degrades to FTS-only
+// with a warning rather than failing the boot — vectors start landing
+// after a restart once the embedder is back. A misconfigured one (bad
+// name, missing model) is a hard error.
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, lg logger.CtxLogger) (*indexer.Indexer, error) {
+	emb, err := indexer.NewEmbedder(cfg)
+	if err != nil {
+		return nil, err
+	}
+	dim := cfg.Vector.Dim
+	if emb != nil && dim == 0 {
+		probeCtx, cancel := context.WithTimeout(ctx, embedderProbeTimeout)
+		dim, err = emb.Dim(probeCtx)
+		cancel()
+		if err != nil {
+			lg.Warn("embedder unreachable — index runs FTS-only", zap.String("embedder", cfg.Embedder), zap.Error(err))
+			emb, dim = nil, 0
+		}
+	}
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), dim)
+	if err != nil {
+		return nil, err
+	}
+	return indexer.New(sdk, chunkers, st, indexer.Options{Embedder: emb}), nil
 }

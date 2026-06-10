@@ -1,0 +1,496 @@
+package indexer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+
+	anystore "github.com/anyproto/any-store/v2"
+	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
+
+	"github.com/anyproto/any/internal/index"
+)
+
+// cursorsCollection holds one row per space ({id: spaceId, seq}) plus
+// the metaDocId row recording the vector configuration the DB was
+// created with.
+const (
+	cursorsCollection = "cursors"
+	metaDocId         = "_meta"
+)
+
+// Store is the indexer-owned any-store database: one collection per
+// space, each carrying a BM25 full-text index on `data` and (when dim >
+// 0) an IVF-SQ cosine vector index on `vector`.
+//
+// Doc shape: {id: dataset+"/"+recordId, scope, objectId, dataset,
+// recordId, data, addSeq, vector?, pending?}. `pending: 1` marks a doc
+// whose text awaits embedding — the embed loop drains them; the field is
+// removed once the vector lands.
+type Store struct {
+	db  anystore.DB
+	dim int
+
+	mu     sync.Mutex
+	colls  map[string]anystore.Collection
+	hasVec map[string]bool // spaceId → vector index exists
+}
+
+// Hit is one search result row. Score semantics depend on the leg: BM25
+// score (higher = better) for FTS, RRF score after fusion; the vector
+// leg's raw cosine distance is folded before it reaches callers.
+type Hit struct {
+	Scope    string
+	ObjectId string
+	Dataset  string
+	RecordId string
+	Data     string
+	Score    float64
+}
+
+// DocUpsert pairs an entry with its (optional) embedding. A nil Vector
+// while the store has a vector index stores the doc as pending.
+type DocUpsert struct {
+	Entry  index.IndexEntry
+	Vector []float32
+}
+
+// OpenStore opens (or creates) the index DB at path. dim is the vector
+// dimension; 0 means no vector indexes (FTS-only). A dim change against
+// an existing DB is a hard error — the index must be rebuilt.
+func OpenStore(ctx context.Context, path string, dim int) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("indexer: create index dir: %w", err)
+	}
+	db, err := anystore.Open(ctx, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("indexer: open index db: %w", err)
+	}
+	s := &Store{db: db, dim: dim, colls: map[string]anystore.Collection{}, hasVec: map[string]bool{}}
+	if err := s.checkMeta(ctx, path); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// OpenStoreInMemory opens a throwaway in-memory store (tests).
+func OpenStoreInMemory(ctx context.Context, dim int) (*Store, error) {
+	db, err := anystore.Open(ctx, "", &anystore.Config{InMemory: true})
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{db: db, dim: dim, colls: map[string]anystore.Collection{}, hasVec: map[string]bool{}}
+	if err := s.checkMeta(ctx, ""); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// checkMeta pins the vector dimension the DB was created with. EnsureIndex
+// would also error on a definition mismatch, but per-collection and
+// later — this surfaces the problem once, at boot, with a clear remedy.
+func (s *Store) checkMeta(ctx context.Context, path string) error {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	doc, err := coll.FindId(ctx, metaDocId)
+	if errors.Is(err, anystore.ErrDocNotFound) {
+		arena := &anyenc.Arena{}
+		meta := arena.NewObject()
+		meta.Set("id", arena.NewString(metaDocId))
+		meta.Set("dim", arena.NewNumberInt(s.dim))
+		return coll.UpsertOne(ctx, meta)
+	}
+	if err != nil {
+		return err
+	}
+	if got := doc.Value().GetInt("dim"); got != s.dim {
+		return fmt.Errorf("indexer: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", got, s.dim, filepath.Dir(path))
+	}
+	return nil
+}
+
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+// spaceColl opens (or creates) the per-space collection and ensures its
+// indexes. Cached — EnsureIndex is idempotent but not free.
+func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collection, error) {
+	s.mu.Lock()
+	if coll, ok := s.colls[spaceId]; ok {
+		s.mu.Unlock()
+		return coll, nil
+	}
+	s.mu.Unlock()
+
+	coll, err := s.db.Collection(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	// The vector index is NOT ensured here: IVF trains its quantizers
+	// from existing documents, so it can only be created on a populated
+	// collection — see EnsureVectorIndex, called from the embed path.
+	indexes := []anystore.IndexInfo{
+		{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}},
+		// objectId backs PurgeObject; sparse pending backs the embed loop.
+		{Fields: []string{"objectId"}},
+		{Fields: []string{"pending"}, Sparse: true},
+	}
+	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
+		return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+	}
+
+	s.mu.Lock()
+	s.colls[spaceId] = coll
+	s.mu.Unlock()
+	return coll, nil
+}
+
+// EnsureVectorIndex creates the space's IVF-SQ vector index once at
+// least one embedded doc exists to train from (IVF builds its
+// quantizers from existing documents — creating it empty is an error).
+// Returns whether the index exists after the call. Idempotent and
+// cheap once created (cached).
+//
+// IVF-SQ over HNSW: cold sync bulk-inserts whole spaces, where IVF
+// inserts are cell-assign + code append instead of graph construction;
+// RAM stays at centroids; recall beats IVF-PQ with no PQ training.
+// CompactRatio bounds centroid drift (auto re-train as the space grows
+// past the initial training set).
+func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
+	if s.dim == 0 {
+		return false, nil
+	}
+	s.mu.Lock()
+	cached := s.hasVec[spaceId]
+	s.mu.Unlock()
+	if cached {
+		return true, nil
+	}
+
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return false, err
+	}
+	for _, ix := range coll.GetIndexes() {
+		if ix.Info().Kind == anystore.IndexKindVector {
+			s.mu.Lock()
+			s.hasVec[spaceId] = true
+			s.mu.Unlock()
+			return true, nil
+		}
+	}
+	n, err := coll.Find(map[string]any{"vector": map[string]any{"$exists": true}}).Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	if n == 0 {
+		return false, nil // nothing to train from yet
+	}
+	err = coll.EnsureIndex(ctx, anystore.IndexInfo{
+		Name: "vec",
+		Kind: anystore.IndexKindVector,
+		Vector: &anystore.VectorParams{
+			Field:        "vector",
+			Dim:          s.dim,
+			Metric:       anystore.VectorCosine,
+			Mode:         anystore.VectorModeIVFSQ,
+			CompactRatio: 0.5,
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("indexer: ensure vector index for %s: %w", spaceId, err)
+	}
+	s.mu.Lock()
+	s.hasVec[spaceId] = true
+	s.mu.Unlock()
+	return true, nil
+}
+
+// docId is the per-collection primary key: dataset + "/" + recordId.
+// Record ids are CIDs / property ids and never contain "/".
+func docId(dataset, recordId string) string {
+	return dataset + "/" + recordId
+}
+
+// Cursor returns the last indexed AddSeq for the space (0 = never).
+func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, error) {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return 0, err
+	}
+	doc, err := coll.FindId(ctx, spaceId)
+	if errors.Is(err, anystore.ErrDocNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return uint64(doc.Value().GetInt("seq")), nil
+}
+
+// SetCursor persists the space cursor.
+func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64) error {
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	arena := &anyenc.Arena{}
+	doc := arena.NewObject()
+	doc.Set("id", arena.NewString(spaceId))
+	doc.Set("seq", arena.NewNumberInt(int(seq)))
+	return coll.UpsertOne(ctx, doc)
+}
+
+// Apply lands one advance page in a single write transaction: upserts
+// (full-doc replace — a re-written record goes back to pending until
+// re-embedded) and deletions (missing ids ignored).
+func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string) error {
+	if len(ups) == 0 && len(dels) == 0 {
+		return nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return err
+	}
+	tx, err := coll.WriteTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck — no-op after Commit
+
+	arena := &anyenc.Arena{}
+	for _, up := range ups {
+		e := up.Entry
+		doc := arena.NewObject()
+		doc.Set("id", arena.NewString(docId(e.Dataset, e.RecordId)))
+		doc.Set("scope", arena.NewString(e.Scope))
+		doc.Set("objectId", arena.NewString(e.ObjectId))
+		doc.Set("dataset", arena.NewString(e.Dataset))
+		doc.Set("recordId", arena.NewString(e.RecordId))
+		doc.Set("data", arena.NewString(e.Data))
+		doc.Set("addSeq", arena.NewNumberInt(int(e.AddSeq)))
+		switch {
+		case up.Vector != nil:
+			doc.Set("vector", arena.NewVectorF32(up.Vector))
+		case s.dim > 0 && e.Data != "":
+			// Awaiting embedding. Empty-text docs (blocks with no text)
+			// have nothing to embed and stay vector-less.
+			doc.Set("pending", arena.NewNumberInt(1))
+		}
+		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
+			return err
+		}
+	}
+	for _, id := range dels {
+		if err := coll.DeleteId(tx.Context(), id); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// PurgeObject removes every doc of one object — the whole-object
+// deletion path (the SDK drops a deleted object's datasets wholesale, so
+// per-record tombstones never stream for them).
+func (s *Store) PurgeObject(ctx context.Context, spaceId, objectId string) error {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return err
+	}
+	_, err = coll.Find(map[string]any{"objectId": objectId}).Delete(ctx)
+	return err
+}
+
+// DropSpace removes the space's collection and cursor (space deleted or
+// left).
+func (s *Store) DropSpace(ctx context.Context, spaceId string) error {
+	s.mu.Lock()
+	delete(s.colls, spaceId)
+	delete(s.hasVec, spaceId)
+	s.mu.Unlock()
+
+	coll, err := s.db.Collection(ctx, spaceId)
+	if err != nil {
+		return err
+	}
+	if err := coll.Drop(ctx); err != nil {
+		return err
+	}
+	cursors, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	if err := cursors.DeleteId(ctx, spaceId); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+		return err
+	}
+	return nil
+}
+
+// scopeFilter builds the optional residual scope filter.
+func scopeFilter(scopes []string) map[string]any {
+	if len(scopes) == 0 {
+		return nil
+	}
+	in := make([]any, len(scopes))
+	for i, sc := range scopes {
+		in[i] = sc
+	}
+	return map[string]any{"$in": in}
+}
+
+// SearchFTS runs the BM25 leg. Hits come back ranked by descending
+// score; docs with empty data never match (nothing was indexed).
+func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []string, limit int) ([]Hit, error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	filter := map[string]any{"$text": map[string]any{"$search": q}}
+	if sf := scopeFilter(scopes); sf != nil {
+		filter["scope"] = sf
+	}
+	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
+}
+
+// SearchVector runs the ANN leg: nearest-first by cosine distance.
+// Score is folded to similarity (1 - distance) so "higher = better"
+// holds across legs. Before the space has any embedded docs (no vector
+// index yet) it returns no hits.
+func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int) ([]Hit, error) {
+	if s.dim == 0 {
+		return nil, fmt.Errorf("indexer: store has no vector index")
+	}
+	ok, err := s.EnsureVectorIndex(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	arena := &anyenc.Arena{}
+	arr := arena.NewArray()
+	for i, f := range vec {
+		arr.SetArrayItem(i, arena.NewNumberFloat64(float64(f)))
+	}
+	var filter query.Filter = query.Key{Path: []string{"vector"}, Filter: query.NewCompValue(query.CompOpEq, arr)}
+	if sf := scopeFilter(scopes); sf != nil {
+		residual, err := query.ParseCondition(map[string]any{"scope": sf})
+		if err != nil {
+			return nil, err
+		}
+		filter = query.And{filter, residual}
+	}
+	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	hits, err := collectHits(iter, func(it anystore.Iterator) float64 { return 1 - float64(it.Distance()) })
+	if err != nil {
+		return nil, err
+	}
+	// Noise floor: ANN always returns the k nearest, however far. Drop
+	// non-positive similarity (cosine distance >= 1 — orthogonal or
+	// worse): such hits carry no signal and only pollute fusion when
+	// nothing real matched.
+	out := hits[:0]
+	for _, h := range hits {
+		if h.Score > 0 {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) ([]Hit, error) {
+	var out []Hit
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, err
+		}
+		v := doc.Value()
+		out = append(out, Hit{
+			Scope:    string(v.GetStringBytes("scope")),
+			ObjectId: string(v.GetStringBytes("objectId")),
+			Dataset:  string(v.GetStringBytes("dataset")),
+			RecordId: string(v.GetStringBytes("recordId")),
+			Data:     string(v.GetStringBytes("data")),
+			Score:    score(iter),
+		})
+	}
+	return out, iter.Err()
+}
+
+// Pending returns up to limit docs awaiting embedding (only docs with
+// non-empty text ever carry the pending mark — see Apply).
+func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []string, texts []string, err error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, nil, err
+	}
+	iter, err := coll.Find(map[string]any{"pending": 1}).Limit(uint(limit)).Iter(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer iter.Close()
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, nil, err
+		}
+		v := doc.Value()
+		ids = append(ids, string(v.GetStringBytes("id")))
+		texts = append(texts, string(v.GetStringBytes("data")))
+	}
+	return ids, texts, iter.Err()
+}
+
+// SetVectors lands one embed batch in a single write transaction:
+// $set vector + clear pending, update-only (a doc deleted since Pending
+// is skipped, not resurrected).
+func (s *Store) SetVectors(ctx context.Context, spaceId string, ids []string, vecs [][]float32) error {
+	if len(ids) != len(vecs) {
+		return fmt.Errorf("indexer: SetVectors: %d ids, %d vectors", len(ids), len(vecs))
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return err
+	}
+	tx, err := coll.WriteTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	for i, id := range ids {
+		vec := vecs[i]
+		mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+			v.Set("vector", a.NewVectorF32(vec))
+			v.Del("pending")
+			return v, true, nil
+		})
+		if _, err := coll.UpdateId(tx.Context(), id, mod); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+			return err
+		}
+	}
+	return tx.Commit()
+}
