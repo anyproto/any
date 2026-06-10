@@ -31,7 +31,6 @@ function _delegateImpl(text, opts) {
     apiBaseUrl: env.ANYTYPE_API_URL,
     apiKey: env.ANYTYPE_API_KEY,
     spaceId: env.ANYTYPE_SPACE_ID,
-    systemSpaceId: env.ANYTYPE_PRIVATE_SPACE_ID,
     noTrace: true
   });
 

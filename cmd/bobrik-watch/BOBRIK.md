@@ -5,6 +5,15 @@ subscribes to a chat in a space and responds to human messages using
 the [anytype-agent-runtime](https://github.com/anyproto/anytype-agent-runtime)
 (Sobek JS engine).
 
+The watched space is the agent's **private home** (chat, programs,
+skills, memory, debug logs), but the agent is not confined to it: every
+anyHelper method takes a `space` option accepting any space id, plus
+`listSpaces()` / `createSpace()` / `getUIContext()` — the latter reads
+the `ui-context` pointer object the web UI keeps updated with the
+space/object the user is currently viewing, so "summarize this page"
+works from the one chat the UI surfaces everywhere. See "Cross-space
+model" in [CLAUDE.md](CLAUDE.md).
+
 ## How it works
 
 On startup bobrik-watch:
@@ -72,14 +81,14 @@ Then in another terminal:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--addr` | `127.0.0.1:7001` | `any` server address (host:port) |
-| `--space` | `bobrik` | Space name (created if missing) |
-| `--agent-name` | `bobrik` | `fromAgent` tag on replies |
+| `--space` | `bao` | Space name (created if missing) |
+| `--agent-name` | `bao` | `fromAgent` tag on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
 
 There is no `--chat` flag: the watched chat is the space's chat object named
 **`general`**, found-or-created by name + chat type. Clients (Desktop UI, etc.)
 create a `general` chat in each space by convention; bobrik watches that one,
-or mints it when it owns the space (e.g. the dev `bobrik` space has no other
+or mints it when it owns the space (e.g. the dev `bao` space has no other
 client to create it). This replaced the earlier deterministic-derive scheme
 (the `btoa('any-ui/primary-chat/v1')` seed), which coupled bobrik to a UI
 internal constant.

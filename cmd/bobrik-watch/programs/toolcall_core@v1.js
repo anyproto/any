@@ -1736,7 +1736,6 @@ export function main(args) {
     apiBaseUrl: args.apiBaseUrl,
     apiKey: args.apiKey,
     spaceId: args.spaceId,
-    systemSpaceId: args.systemSpaceId,
     debugFolderId: args.debugFolderId
   });
 
@@ -1906,6 +1905,20 @@ export function main(args) {
   var nowTs = _formatHistoryTs(invocationStart);
   var nowPrefix = nowTs ? "[" + nowTs + "]\n" : "";
   var userLineNow = senderName ? "(@" + senderName + ") " + args.text : args.text;
+
+  // Current view pointer — what the user is looking at in the UI as of this
+  // message (the `ui-context` object the web UI maintains in this space; see
+  // anyHelper.getUIContext). Attached to the user message rather than the
+  // cached system prompt because it changes per navigation. "this"/"that
+  // page" in the ask usually means this view — pass uiCtx.spaceId as the
+  // `space` option to act there. Absent until the UI first reports.
+  var uiCtx = null;
+  try { uiCtx = bootClient.getUIContext(); } catch (e) {}
+  if (uiCtx && uiCtx.spaceId) {
+    userLineNow += "\n[user's current view — space: " + uiCtx.spaceId +
+      (uiCtx.objectId ? ", object: " + uiCtx.objectId : "") +
+      (uiCtx.view ? ", view: " + uiCtx.view : "") + "]";
+  }
   messages.push({ role: "user", content: nowPrefix + userLineNow });
 
   // Per-invocation accumulators (written to history on end_turn).
@@ -1920,7 +1933,7 @@ export function main(args) {
   function buildTurnRec(replies, stopReason) {
     var rec = { seq: nextSeq, userText: args.text };
     if (senderName) rec.userName = String(senderName);
-    rec.fromAgent = botName ? String(botName) : "bobrik";
+    rec.fromAgent = botName ? String(botName) : "bao";
     if (replies && replies.length > 0) rec.replies = replies;
     if (turnEffects.length > 0) rec.effects = turnEffects;
     if (args.msgId) rec.messageIds = [String(args.msgId)];

@@ -57,8 +57,8 @@ func setDebugFolderID(id string) {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
 	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
-	flag.StringVar(&spaceName, "space", "bobrik", "space name (created if missing)")
-	flag.StringVar(&agentName, "agent-name", "bobrik", "fromAgent tag on replies")
+	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
+	flag.StringVar(&agentName, "agent-name", "bao", "fromAgent tag on replies")
 	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
 	flag.Parse()
 	base = "http://" + *addr
@@ -274,7 +274,7 @@ const chatName = "general"
 
 // ensureChat find-or-creates the space's "general" chat object, returning its
 // id. Find-or-create (not derive): it watches the chat a client already made,
-// or mints one when bobrik owns the space (the dev "bobrik" space has no other
+// or mints one when bobrik owns the space (the dev "bao" space has no other
 // client to create it). Matching on name + chat type means a re-run reuses the
 // same chat instead of minting duplicates.
 func ensureChat(spaceID string) (string, error) {
