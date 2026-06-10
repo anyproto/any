@@ -141,8 +141,17 @@ pluggable embedders, parallel batched pipelines),
   cross-space search, tunable score thresholds beyond the
   zero-similarity noise floor, query-time `VectorEf` tuning.
 - **Embedding hygiene.** Re-embed on model change (currently a dim
-  mismatch is a boot error suggesting removing `<data-dir>/index/`),
-  truncation policy for very long records.
+  mismatch is a boot error suggesting removing `<data-dir>/index/`).
+- **Long-record chunk splitting.** The local embedder truncates input
+  to `index.local.contextSize` tokens (head-only vector recall, FTS
+  unaffected — docs/13-index.md § Known limits). Splitting one record
+  into N sub-chunks is a chunker-contract change (doc-id scheme,
+  tombstones for shrinking records).
+- **Local embedder follow-ups.** Multi-sequence batched decode (texts
+  currently embed sequentially under one mutex); a packaged
+  distribution story for the llama.cpp libs (today: `make llamacpp`
+  drops them next to the binary; go:embed + extract was considered and
+  deferred — pure overhead while "distribution" means `make build`).
 
 ## How to update this file
 

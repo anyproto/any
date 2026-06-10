@@ -302,9 +302,20 @@ Implementation slices landed:
       (dim change = boot error advising `rm <data-dir>/index`).
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
-      prompts) and `openai` (OpenAI-compatible `/embeddings`). Config
-      `index.*` (`internal/config.Index`, env `ANY_INDEX_*`); no
-      embedder ⇒ FTS-only. **An unavailable embedder never breaks the
+      prompts), `openai` (OpenAI-compatible `/embeddings`), and
+      `local` (**in-process llama.cpp** via yzma purego bindings, no
+      CGO; `embed_local.go`). Local defaults to Qwen3-Embedding-0.6B
+      Q8_0 (1024-dim, last-pooling, L2-normalized, Qwen instruct query
+      prefix), auto-downloaded sha-pinned into `<data-dir>/index/models`
+      with logged progress (`embed_local_download.go`, resumable, never
+      blocks boot — "still downloading" rides the outage semantics
+      below); llama.cpp shared libs come from `make llamacpp`
+      (`bin/llamacpp/`, pin `LLAMACPP_VERSION` in Makefile); input is
+      truncated to `index.local.contextSize` tokens (default 2048, EOS
+      preserved for last-pooling — explicit decision, docs/13-index.md
+      § Known limits); Linux needs system libffi (NixOS: `nix develop`,
+      see flake.nix). Config `index.*` (`internal/config.Index`, env
+      `ANY_INDEX_*`); no embedder ⇒ FTS-only. **An unavailable embedder never breaks the
       pipeline**: no boot probe — pending is marked whenever an
       embedder is configured, an outage freezes only the vector side
       (FTS unaffected), and recovery resumes embedding automatically;
@@ -338,6 +349,8 @@ implementation diverges from a doc, update the doc in the same change.
 ```
 go build ./cmd/any                                # binary at ./any
 make build                                        # builds both any and bobrik-watch
+make llamacpp                                     # once per checkout: prebuilt llama.cpp libs
+                                                  # into bin/llamacpp (index.embedder: local)
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
@@ -349,6 +362,32 @@ ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ```
 
 For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
+
+### Running bobrik — the canonical sequence
+
+After ANY change to Go code, `anyHelper.js`, programs, skills, or
+tool-descriptions, run these three steps in order:
+
+```
+# 1. Always rebuild first — never skip this.
+make build                                        # builds any, bobrik-watch, any-agent-runtime
+
+# 2. (Re)start any and bobrik-watch (restart both so the new binaries take over).
+#    e.g. stop the running instances, then:
+./any run                                         # foreground server (or your start skill)
+./bin/bobrik-watch                                # default: space=bao, watches chat "general"
+
+# 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
+#    tool-descriptions from disk into the bao space).
+./bin/bobrik-watch --bootstrap                    # SIGHUPs the running instance
+```
+
+Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
+how new JS reaches a live agent: a binary restart alone does NOT re-sync
+the in-space programs/skills; `--bootstrap` is what wipes "System Bobrik
+Files" and re-runs the bootstrap sync. See
+[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Refresh via
+SIGHUP for the mechanics.
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are

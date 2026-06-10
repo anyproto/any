@@ -117,7 +117,7 @@ func NewIndexRegistry() *index.Registry {
 // successful batch unless index.vector.dim pins it). A misconfigured
 // embedder (bad name, missing model) is still a hard error.
 func OpenIndexer(ctx context.Context, cfg config.Index, dataDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
-	emb, err := indexer.NewEmbedder(cfg)
+	emb, err := indexer.NewEmbedder(cfg, dataDir)
 	if err != nil {
 		return nil, err
 	}

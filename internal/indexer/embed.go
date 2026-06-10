@@ -37,8 +37,9 @@ type Embedder interface {
 
 // NewEmbedder constructs the configured embedding client. Returns
 // (nil, nil) when no embedder is configured — the indexer then runs
-// FTS-only.
-func NewEmbedder(cfg config.Index) (Embedder, error) {
+// FTS-only. dataDir hosts the local embedder's downloaded model
+// (<dataDir>/index/models).
+func NewEmbedder(cfg config.Index, dataDir string) (Embedder, error) {
 	switch cfg.Embedder {
 	case "":
 		return nil, nil
@@ -49,7 +50,9 @@ func NewEmbedder(cfg config.Index) (Embedder, error) {
 			return nil, fmt.Errorf("indexer: openai embedder needs index.openai.model")
 		}
 		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
+	case "local":
+		return NewLocal(cfg.Local, dataDir)
 	default:
-		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"\", \"ollama\" or \"openai\")", cfg.Embedder)
+		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"\", \"ollama\", \"openai\" or \"local\")", cfg.Embedder)
 	}
 }
