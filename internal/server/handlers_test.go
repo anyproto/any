@@ -26,7 +26,7 @@ const stagingPath = "../../../test-etc/staging.yml"
 // can call deps.cancelShutdown directly.
 func newTestDeps(t *testing.T) (*deps, func()) {
 	t.Helper()
-	if _, _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
 		t.Skipf("staging config not available: %v", err)
 	}
 

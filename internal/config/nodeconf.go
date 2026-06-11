@@ -4,8 +4,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
 )
 
 // nodeconfStaging is the packaged fallback nodeconf, vendored from the
@@ -19,45 +17,23 @@ import (
 //go:embed nodeconf-staging.yml
 var nodeconfStaging []byte
 
-// Source tags returned by LoadNodeconf and logged at SDK boot. The
-// embedded fallback succeeds from anywhere, so a silently dropped
-// network section (typo'd key, wrong nesting — the config parse is
-// non-strict) lands the account on staging with no error; the boot log
-// of the winning source is what makes that diagnosable.
-const (
-	NodeconfSourceInline   = "inline"
-	NodeconfSourcePath     = "path"
-	NodeconfSourceEmbedded = "embedded-staging-fallback"
-)
-
-// LoadNodeconf returns the YAML bytes any-sync needs to bootstrap, plus
-// the NodeconfSource* tag they came from.
+// LoadNodeconf returns the YAML bytes any-sync needs to bootstrap.
 // Precedence: inline network.nodeconf → network.nodeconfPath → the
 // embedded staging fallback. Errors only when an explicitly configured
-// path is unreadable.
-func LoadNodeconf(cfg Network) ([]byte, string, error) {
+// path is unreadable. The SDK logs the applied networkId at boot
+// (common.nodeconf "net configuration applied"), so the chosen source
+// is diagnosable from the log stream without extra plumbing here.
+func LoadNodeconf(cfg Network) ([]byte, error) {
 	if cfg.Nodeconf != "" {
-		return []byte(cfg.Nodeconf), NodeconfSourceInline, nil
+		return []byte(cfg.Nodeconf), nil
 	}
 	if cfg.NodeconfPath != "" {
 		expanded := ExpandTilde(cfg.NodeconfPath)
 		raw, err := os.ReadFile(expanded)
 		if err != nil {
-			return nil, "", fmt.Errorf("read nodeconf %s: %w", expanded, err)
+			return nil, fmt.Errorf("read nodeconf %s: %w", expanded, err)
 		}
-		return raw, NodeconfSourcePath, nil
+		return raw, nil
 	}
-	return nodeconfStaging, NodeconfSourceEmbedded, nil
-}
-
-// NodeconfNetworkID best-effort extracts networkId for the boot log.
-// Returns "" on parse failure — the SDK's own parse surfaces the error.
-func NodeconfNetworkID(raw []byte) string {
-	var doc struct {
-		NetworkID string `yaml:"networkId"`
-	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return ""
-	}
-	return doc.NetworkID
+	return nodeconfStaging, nil
 }

@@ -11,8 +11,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/auth"
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
-	"github.com/anyproto/any-sync/app/logger"
-	"go.uber.org/zap"
 
 	"github.com/anyproto/any/internal/agentdebug"
 	"github.com/anyproto/any/internal/agentlog"
@@ -46,7 +44,7 @@ var logConfigOnce sync.Once
 // Topology defaults to Shared; only "shared" is supported in v1
 // (per-space topology is on the SDK side but not yet exercised here).
 func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider auth.Provider) (*anysyncsdk.SDK, error) {
-	nodeconfYAML, nodeconfSource, err := config.LoadNodeconf(cfg.Network)
+	nodeconfYAML, err := config.LoadNodeconf(cfg.Network)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +60,6 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	}
 
 	logConfigOnce.Do(cfg.Log.ApplyGlobal)
-
-	// Which nodeconf source won is the one boot fact that separates
-	// "configured network" from "silently on staging" (see the
-	// NodeconfSource* doc in internal/config/nodeconf.go).
-	logger.NewNamed("server").Info("nodeconf",
-		zap.String("source", nodeconfSource),
-		zap.String("networkId", config.NodeconfNetworkID(nodeconfYAML)))
 
 	sdkCfg := sdkconfig.Config{
 		Storage: sdkconfig.Storage{
