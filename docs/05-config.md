@@ -26,9 +26,11 @@ auth:
   passkeyEnv: ANY_WALLET_PASSKEY      # env var name to read passkey from
 
 # any-sync network. Path to a nodeconf YAML, or inline. When neither is
-# set, an EMBEDDED staging nodeconf ships inside the binary (vendored at
+# set, an EMBEDDED fallback ships inside the binary (vendored at
 # internal/config/nodeconf-staging.yml) so packaged installs boot from
-# any working directory.
+# any working directory. The embedded conf is the sanitized fixture
+# (staging networkId, placeholder nodes) — it works locally but joins no
+# network; configure a real nodeconf to sync.
 network:
   nodeconfPath: /etc/any/nodeconf.yaml
   # OR:

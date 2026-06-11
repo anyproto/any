@@ -8,11 +8,13 @@ import (
 
 // nodeconfStaging is the packaged fallback nodeconf, vendored from the
 // sibling test-etc/staging.yml (re-copy if that file changes — drift is
-// accepted; the staging conf rarely moves). It replaces the old
-// CWD-relative `../test-etc/staging.yml` read so packaged binaries (the
-// any-ui desktop-shell sidecar, installed CLIs) boot from any working
-// directory. The default network stays STAGING — flipping the packaged
-// default to a production network is a separate release decision.
+// accepted). It replaces the old CWD-relative `../test-etc/staging.yml`
+// read so packaged binaries (the any-ui desktop-shell sidecar, installed
+// CLIs) boot from any working directory. NOTE: the fixture is sanitized
+// — staging networkId but placeholder peer IDs/hosts — so the fallback
+// boots and works locally yet joins no network. Shipping a functional
+// default (a real staging or production conf) is a one-file swap here
+// and a separate release decision.
 //
 //go:embed nodeconf-staging.yml
 var nodeconfStaging []byte
