@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v0.4.6
-	github.com/anyproto/any-store/v2 v2.0.0-alpha.10.0.20260610113413-c91ceb911e3b
+	github.com/anyproto/any-store/v2 v2.0.0-alpha.10.0.20260610221328-b67a26e04aa7
 	github.com/anyproto/any-sync v0.12.10
 	github.com/anyproto/any-sync-sdk v0.0.9-0.20260610125617-d03270b6db49
 	github.com/anyproto/anytype-agent-runtime v0.1.1

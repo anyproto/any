@@ -216,7 +216,7 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `Debounce` (dirty → advance) | 250ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page / fuller embed batches, trading freshness. |
 | `RetryBackoff` / `PendingEvery` | 5s / 1m | Failure paths only: advance retry, embed catch-up tick. |
 
-Search at 10k docs (dim 768): FTS ≈ 3.6ms, vector ≈ 0.9ms per query.
+Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
 Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 (`ANY_BENCH_OLLAMA=1` adds the real-embedder run).
 
