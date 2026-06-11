@@ -9,7 +9,8 @@ import (
 
 // uiIndexHTML is a single-page browser harness for poking the API
 // against the same process serving it. Same-origin so we keep the
-// CORS-free localhost-only stance from CLAUDE.md / docs/00-overview.md.
+// localhost-only stance from CLAUDE.md / docs/00-overview.md (the one
+// CORS exception is the desktop-shell webview allowlist in routes.go).
 //
 //go:embed web/index.html
 var uiIndexHTML []byte

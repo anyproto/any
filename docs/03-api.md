@@ -1134,7 +1134,7 @@ Minimal in v1:
 - `middleware.BodyLimit("1M")` — reject anything larger; prevents
   accidental uploads before the file API lands.
 
-No CORS, no rate limiting, no auth middleware in v1.
+No rate limiting, no auth middleware in v1. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
 
 ## Pagination
 

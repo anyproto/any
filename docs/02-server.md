@@ -47,6 +47,11 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
 ## Listen address
 
 - **Default**: `127.0.0.1:7001`. Plain HTTP, no TLS, no auth.
+- **Ephemeral port**: `--addr 127.0.0.1:0` asks the kernel for a free port.
+  The server prints `LISTENING <resolved-addr>` as a plain stdout line
+  before serving — a machine-parseable contract the any-ui desktop shell
+  uses as its port handshake + readiness gate (it also relies on
+  `POST /v1/shutdown` for graceful quit). Do not change that line's shape.
 - **Configurable**: `listen.addr` in config or `--addr host:port` flag.
 - The server refuses to bind anything other than a loopback address in
   v1. If you pass `--addr 0.0.0.0:7001` it errors out clearly with

@@ -25,7 +25,10 @@ auth:
   walletPath: ~/.any/wallet.key       # default: <dataDir>/wallet.key
   passkeyEnv: ANY_WALLET_PASSKEY      # env var name to read passkey from
 
-# any-sync network. Path to a nodeconf YAML, or inline.
+# any-sync network. Path to a nodeconf YAML, or inline. When neither is
+# set, an EMBEDDED staging nodeconf ships inside the binary (vendored at
+# internal/config/nodeconf-staging.yml) so packaged installs boot from
+# any working directory.
 network:
   nodeconfPath: /etc/any/nodeconf.yaml
   # OR:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -88,16 +89,29 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 	e := buildEcho(deps)
 
+	// Bind explicitly so the RESOLVED address is known before serving —
+	// `--addr 127.0.0.1:0` asks the kernel for an ephemeral port, and the
+	// desktop shell needs the real one.
+	ln, err := net.Listen("tcp", cfg.Listen.Addr)
+	if err != nil {
+		return err
+	}
+	e.Listener = ln
+	boundAddr := ln.Addr().String()
+
 	serveErr := make(chan error, 1)
 	go func() {
-		if err := e.Start(cfg.Listen.Addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := e.Start(""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return
 		}
 		serveErr <- nil
 	}()
-	lg.Info("listening", zap.String("addr", cfg.Listen.Addr), zap.String("account", account))
-	lg.Info("web ui", zap.String("url", "http://"+cfg.Listen.Addr+"/ui"))
+	// Do not change this line: the desktop shell (any-ui PR-095 / PR #162)
+	// parses it as its port handshake + readiness gate.
+	fmt.Printf("LISTENING %s\n", boundAddr)
+	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", account))
+	lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
 
 	select {
 	case <-ctx.Done():

@@ -1,32 +1,37 @@
 package config
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 )
 
-// DefaultNodeconfPath is the staging-network nodeconf used when neither
-// network.nodeconfPath nor an inline network.nodeconf is configured. It
-// points at the sibling test-etc checkout that ships with the SDK; will
-// be replaced by a packaged default before v1 ships.
-const DefaultNodeconfPath = "../test-etc/staging.yml"
+// nodeconfStaging is the packaged fallback nodeconf, vendored from the
+// sibling test-etc/staging.yml (re-copy if that file changes — drift is
+// accepted; the staging conf rarely moves). It replaces the old
+// CWD-relative `../test-etc/staging.yml` read so packaged binaries (the
+// any-ui desktop-shell sidecar, installed CLIs) boot from any working
+// directory. The default network stays STAGING — flipping the packaged
+// default to a production network is a separate release decision.
+//
+//go:embed nodeconf-staging.yml
+var nodeconfStaging []byte
 
 // LoadNodeconf returns the YAML bytes any-sync needs to bootstrap.
-// Precedence: inline network.nodeconf → network.nodeconfPath → fallback
-// at DefaultNodeconfPath. Errors only when the configured/fallback path
-// is unreadable.
+// Precedence: inline network.nodeconf → network.nodeconfPath → the
+// embedded staging fallback. Errors only when an explicitly configured
+// path is unreadable.
 func LoadNodeconf(cfg Network) ([]byte, error) {
 	if cfg.Nodeconf != "" {
 		return []byte(cfg.Nodeconf), nil
 	}
-	path := cfg.NodeconfPath
-	if path == "" {
-		path = DefaultNodeconfPath
+	if cfg.NodeconfPath != "" {
+		expanded := ExpandTilde(cfg.NodeconfPath)
+		raw, err := os.ReadFile(expanded)
+		if err != nil {
+			return nil, fmt.Errorf("read nodeconf %s: %w", expanded, err)
+		}
+		return raw, nil
 	}
-	expanded := ExpandTilde(path)
-	raw, err := os.ReadFile(expanded)
-	if err != nil {
-		return nil, fmt.Errorf("read nodeconf %s: %w", expanded, err)
-	}
-	return raw, nil
+	return nodeconfStaging, nil
 }

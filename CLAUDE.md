@@ -371,7 +371,7 @@ These cut across files and are easy to violate accidentally:
   endpoints that aggregate multiple SDK calls — that's a v1.x decision.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
-  no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
+  no rate limiting in v1 — that comes with the remote-access story (v2). CORS: only the fixed desktop-shell webview allowlist (any-ui PR-095; `routes.go`), which doesn't change the loopback trust model.
 - **Output format is pretty-printed JSON.** Both the server wire format and the
   CLI's stdout. No table rendering, no `--output` flag in v1.
 - **Error response shape is uniform.** `{"error": {"code", "message", "details?"}}`
