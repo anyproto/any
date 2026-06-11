@@ -147,7 +147,8 @@ Not this repo's work; gate on the SDK:
 - **SDK boot + space lifecycle** — `server.OpenSDK` opens
   `any-sync-sdk` against the wallet provider on Run; nodeconf YAML is
   loaded via `internal/config.LoadNodeconf` (precedence: inline →
-  configured path → `../test-etc/staging.yml` fallback). Storage lives at
+  configured path → embedded `internal/config/nodeconf-staging.yml`
+  fallback). Storage lives at
   `<dataDir>/sdk/`. Real handlers wired:
   - `GET /v1/account` (Id only — Metadata reserved, SDK does not expose it yet)
   - `POST /v1/spaces`, `GET /v1/spaces`, `GET /v1/spaces/:id`, `DELETE /v1/spaces/:id`

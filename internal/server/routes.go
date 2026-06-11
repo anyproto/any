@@ -23,7 +23,7 @@ func buildEcho(d *deps) *echo.Echo {
 	// web content; RFC 6761 pins `.localhost` to loopback), and local
 	// processes were never gated by CORS, so the loopback-only listen stays
 	// the trust boundary. This is the one named exception to the "no CORS
-	// in v1" stance (docs/03-api.md § Security posture). No-op for
+	// in v1" stance (docs/03-api.md § Middleware). No-op for
 	// requests without an Origin header (curl / CLI / same-origin).
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{

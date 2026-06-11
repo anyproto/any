@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,34 @@ func TestCORS_PreflightEchoesDesktopOrigin(t *testing.T) {
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != desktopOrigin {
 		t.Fatalf("preflight ACAO = %q, want %q (status %d)", got, desktopOrigin, rec.Code)
+	}
+}
+
+// The webview's real traffic is JSON-body writes (/query, spaces, chat —
+// nearly everything is POST/PATCH/DELETE), so the preflight that matters
+// is POST + content-type. This pins AllowMethods (inherited from echo's
+// default config) and the configured AllowHeaders — dropping either
+// breaks every desktop-shell mutation while the GET-only tests stay green.
+func TestCORS_PreflightAllowsJSONPost(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/spaces", nil)
+	req.Header.Set("Origin", desktopOrigin)
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	req.Header.Set("Access-Control-Request-Headers", "content-type")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != desktopOrigin {
+		t.Fatalf("preflight ACAO = %q, want %q (status %d)", got, desktopOrigin, rec.Code)
+	}
+	if methods := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(methods, http.MethodPost) {
+		t.Fatalf("Allow-Methods %q does not include POST", methods)
+	}
+	if headers := rec.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(headers, "Content-Type") {
+		t.Fatalf("Allow-Headers %q does not include Content-Type", headers)
 	}
 }
 
