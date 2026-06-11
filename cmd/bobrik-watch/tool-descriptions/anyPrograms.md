@@ -39,17 +39,17 @@ function _c() {
   return _client;
 }
 
-export function countObjects(typeKey) {
-  var objs = _c().getObjects(typeKey);
-  return { ok: true, type: typeKey, count: objs.length };
+export function countObjects(type) {
+  var objs = _c().getObjects(type);
+  return { ok: true, type: type, count: objs.length };
 }
 
 export function main(args) {
-  return countObjects(args.typeKey || "page");
+  return countObjects(args.type || "page");
 }
 ```
 
-Saved with markdown describing `countObjects(typeKey)`, this becomes `objectCounter.countObjects("page")` from any kernel after the next boot.
+Saved with markdown describing `countObjects(type)`, this becomes `objectCounter.countObjects("page")` from any kernel after the next boot.
 
 ## Tool Schema
 

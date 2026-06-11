@@ -267,11 +267,21 @@ export function createClient(params) {
   const debugFolderId = params.debugFolderId || "";
 
   const spacePath = "/v1/spaces/" + spaceId;
-  const systemSpacePath = systemSpaceId ? "/v1/spaces/" + systemSpaceId : null;
+
+  // A `space` option is "user" (the client's own space, default), "system"
+  // (the legacy system-space alias — same space when no systemSpaceId), or
+  // ANY space id — every method that takes `space` can read/write any space
+  // on the account. _resolveSpaceId is the single mapping point; catalog
+  // caches key off its result so "user" and the explicit own-space id share
+  // one entry.
+  function _resolveSpaceId(scope) {
+    if (!scope || scope === "user") return spaceId;
+    if (scope === "system") return systemSpaceId || spaceId;
+    return scope;
+  }
 
   function _pathForScope(scope) {
-    if (scope === "system" && systemSpacePath) return systemSpacePath;
-    return spacePath;
+    return "/v1/spaces/" + _resolveSpaceId(scope);
   }
 
   const api = (method, path, body) => {
@@ -358,10 +368,10 @@ export function createClient(params) {
   // kind} where for builtins `id` is the literal key (e.g. nav→parentId) and
   // for user types `id` is the CID and `xKey` is the stable caller key.
 
-  var _catalog = {}; // scope -> { types, typeById, propsByType }
+  var _catalog = {}; // resolved spaceId -> { types, typeById, propsByType }
 
   function _cat(scope) {
-    var key = scope || "user";
+    var key = _resolveSpaceId(scope);
     if (_catalog[key]) return _catalog[key];
     var cat = { types: [], typeById: {}, propsByType: {} };
     var path = _pathForScope(scope);
@@ -377,7 +387,7 @@ export function createClient(params) {
     return cat;
   }
 
-  function _catInvalidate(scope) { delete _catalog[scope || "user"]; }
+  function _catInvalidate(scope) { delete _catalog[_resolveSpaceId(scope)]; }
 
   function _typeProps(scope, typeId) {
     var cat = _cat(scope);
@@ -612,17 +622,20 @@ export function createClient(params) {
   }
 
   function getTypes(opts) {
-    var res = api("GET", spacePath + "/types");
+    if (!opts) opts = {};
+    var res = api("GET", _pathForScope(opts.space) + "/types");
     if (!res.ok) return [];
     return (res.data && res.data.types) || [];
   }
 
-  function getProperties() {
-    var types = getTypes();
+  function getProperties(opts) {
+    if (!opts) opts = {};
+    var path = _pathForScope(opts.space);
+    var types = getTypes(opts);
     var props = [];
     var seen = {};
     for (var i = 0; i < types.length; i++) {
-      var propRes = api("GET", spacePath + "/types/" + types[i].id + "/properties");
+      var propRes = api("GET", path + "/types/" + types[i].id + "/properties");
       if (propRes.ok && propRes.data && propRes.data.properties) {
         var tProps = propRes.data.properties;
         for (var j = 0; j < tProps.length; j++) {
@@ -638,34 +651,38 @@ export function createClient(params) {
     return props;
   }
 
-  function getProperty(propKey) {
-    var all = getProperties();
+  function getProperty(propKey, opts) {
+    var all = getProperties(opts);
     for (var i = 0; i < all.length; i++) {
       if (all[i].xKey === propKey || all[i].id === propKey || all[i].name === propKey) return all[i];
     }
     return null;
   }
 
-  function describeType(typeKey) {
-    var resolvedId = _resolveTypeSeg("user", typeKey);
-    if (!resolvedId) return { error: _typeNotFoundError(typeKey) };
-    var types = getTypes();
+  function describeType(typeKey, opts) {
+    if (!opts) opts = {};
+    var scope = opts.space || "user";
+    var resolvedId = _resolveTypeSeg(scope, typeKey);
+    if (!resolvedId) return { error: _typeNotFoundError(typeKey, scope) };
+    var types = getTypes(opts);
     var typeObj = null;
     for (var i = 0; i < types.length; i++) {
       if (types[i].id === resolvedId) { typeObj = types[i]; break; }
     }
-    if (!typeObj) return { error: _typeNotFoundError(typeKey) };
-    var propRes = api("GET", spacePath + "/types/" + typeObj.id + "/properties");
+    if (!typeObj) return { error: _typeNotFoundError(typeKey, scope) };
+    var propRes = api("GET", _pathForScope(scope) + "/types/" + typeObj.id + "/properties");
     var properties = (propRes.ok && propRes.data && propRes.data.properties) || [];
     var sample = null;
-    var objects = getObjects(typeKey);
+    var objects = getObjects(typeKey, { space: scope });
     if (objects.length > 0) sample = objects[0];
     return { type: typeObj, properties: properties, object_count: objects.length, sample: sample };
   }
 
   // Collections are nav folders (nav.type=2). Children have nav.parentId = folderId.
-  function getCollectionObjects(collectionId) {
-    var res = api("POST", spacePath + "/objects/query", {
+  function getCollectionObjects(collectionId, opts) {
+    if (!opts) opts = {};
+    var scope = opts.space || "user";
+    var res = api("POST", _pathForScope(scope) + "/objects/query", {
       filter: { "nav.parentId": collectionId },
       sort: ["nav.pos"]
     });
@@ -673,22 +690,81 @@ export function createClient(params) {
     var records = (res.data && res.data.records) || [];
     var objects = [];
     for (var i = 0; i < records.length; i++) {
-      objects.push(_normalize("user", records[i]));
+      objects.push(_normalize(scope, records[i]));
     }
     return objects;
   }
 
-  function getSpaceMember(identityOrId) {
+  function getSpaceMember(identityOrId, opts) {
     if (!identityOrId) return { ok: false, error: "identityOrId is required" };
-    var res = api("GET", spacePath + "/members/" + identityOrId);
+    if (!opts) opts = {};
+    var res = api("GET", _pathForScope(opts.space) + "/members/" + identityOrId);
     if (!res.ok) return { ok: false, error: _extractError(res), status: res.status };
     return res.data;
   }
 
-  function listSpaceMembers() {
-    var res = api("GET", spacePath + "/members");
+  function listSpaceMembers(opts) {
+    if (!opts) opts = {};
+    var res = api("GET", _pathForScope(opts.space) + "/members");
     if (!res.ok) return [];
     return (res.data && res.data.members) || [];
+  }
+
+  // ==================== SPACES ====================
+  // The agent lives in its own (bobrik) space but can read/write every
+  // space on the account: pass any spaceId from listSpaces() as the
+  // `space` option of the other methods.
+
+  // listSpaces returns every space on the account as raw SpaceInfo rows
+  // ({id, name, status, type, ...}). Rows with status !== "active" are
+  // deleted/joining/leaving — operate on active spaces unless the caller
+  // asked otherwise. THROWS on server failure (an empty account is [],
+  // never an error).
+  function listSpaces() {
+    var res = api("GET", "/v1/spaces");
+    if (!res.ok) throw new Error(_extractError(res));
+    return (res.data && res.data.spaces) || [];
+  }
+
+  // createSpace mints a new space and returns { ok, id, space }. opts may
+  // carry description / iconCid / spaceType (spaceType is pinned at create
+  // — it cannot be patched later).
+  function createSpace(name, opts) {
+    if (!name) return { ok: false, error: "name is required" };
+    if (!opts) opts = {};
+    var body = { name: name };
+    if (opts.description) body.description = opts.description;
+    if (opts.iconCid) body.iconCid = opts.iconCid;
+    if (opts.spaceType) body.spaceType = opts.spaceType;
+    var res = api("POST", "/v1/spaces", body);
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
+    return { ok: true, id: res.data && res.data.id, space: res.data };
+  }
+
+  // getUIContext reads the `ui-context` pointer object the web UI keeps in
+  // the agent's own space: what the user is currently looking at. Returns
+  // { spaceId, objectId, view, updatedAt } — or null when the UI has never
+  // reported a view (type/object not created yet). The shape is a naming
+  // contract with any-ui (docs/tasks/bobrik-view-context.md there): type
+  // xKey `ui_context`, props space_id / object_id / view / updated_at.
+  // objectId is "" when the user is on a view with no open object (space
+  // home, grids). updatedAt is the client ms timestamp of the last change —
+  // check it before trusting a stale pointer.
+  function getUIContext() {
+    var recs;
+    try {
+      recs = getObjects({ type: "ui_context", sort: ["-ui_context.updated_at"], limit: 1 });
+    } catch (e) {
+      return null; // ui_context type absent — the UI hasn't reported yet
+    }
+    if (!recs || recs.length === 0) return null;
+    var p = recs[0].ui_context || {};
+    return {
+      spaceId: p.space_id || "",
+      objectId: p.object_id || "",
+      view: p.view || "",
+      updatedAt: p.updated_at || 0
+    };
   }
 
   // ==================== TOOL DISCOVERY ====================
@@ -886,8 +962,9 @@ export function createClient(params) {
     return { ok: true, id: objId, object: { id: objId } };
   }
 
-  function deleteObject(objId) {
-    var res = api("DELETE", spacePath + "/objects/" + objId);
+  function deleteObject(objId, opts) {
+    if (!opts) opts = {};
+    var res = api("DELETE", _pathForScope(opts.space) + "/objects/" + objId);
     return { ok: res.ok, id: objId, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
@@ -898,9 +975,10 @@ export function createClient(params) {
   // grow-by-append pages where the old read-modify-write-the-whole-doc path
   // made a run O(N²) in page size. (The agent debug log no longer uses this —
   // it now writes structured records to the `agent_debug_log` dataset.)
-  function appendToObject(objId, text) {
+  function appendToObject(objId, text, opts) {
+    if (!opts) opts = {};
     if (text == null || text === "") return { ok: true, id: objId, object: { id: objId } };
-    var res = api("POST", spacePath + "/objects/" + objId + "/editor/markdown/append", { content: String(text) });
+    var res = api("POST", _pathForScope(opts.space) + "/objects/" + objId + "/editor/markdown/append", { content: String(text) });
     if (!res.ok) return { ok: false, id: objId, error: _extractError(res) };
     return { ok: true, id: objId, object: { id: objId } };
   }
@@ -911,12 +989,12 @@ export function createClient(params) {
     var newStr = opts.newString || opts.new_str;
     var replAll = opts.replaceAll || opts.replace_all || false;
 
-    var obj = getObject(objId);
+    var obj = getObject(objId, { space: opts.space });
     if (!obj) return { ok: false, id: objId, error: "Object not found: " + objId };
     var oldMarkdown = obj.markdown || "";
     var r = editString(oldMarkdown, oldStr, newStr, replAll);
     if (!r.ok) return { ok: false, id: objId, error: r.error, lengthBefore: oldMarkdown.length };
-    var upd = updateObject(objId, { markdown: r.result });
+    var upd = updateObject(objId, { markdown: r.result, space: opts.space });
     if (!upd.ok) return { ok: false, id: objId, error: "updateObject failed: " + upd.error };
     return {
       ok: true, replacements: r.replacements,
@@ -980,16 +1058,18 @@ export function createClient(params) {
   // A collection is a nav folder: an object with nav.type=2. nav must be set
   // under initialProperties (the server ignores a top-level `nav` on create) —
   // the nav property group routes there like any other type group.
-  function createCollection(name) {
-    var res = createObject(null, { name: name, nav: { type: 2, parentId: "", pos: "" } });
+  function createCollection(name, opts) {
+    if (!opts) opts = {};
+    var res = createObject(null, { name: name, space: opts.space, nav: { type: 2, parentId: "", pos: "" } });
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, id: res.id, collection: { id: res.id, name: name }, object: { id: res.id, name: name } };
   }
 
-  function addToCollection(collectionId, objectIds) {
+  function addToCollection(collectionId, objectIds, opts) {
+    if (!opts) opts = {};
     var ids = Array.isArray(objectIds) ? objectIds : [objectIds];
     for (var i = 0; i < ids.length; i++) {
-      var res = api("POST", spacePath + "/properties/" + ids[i] + "/base/nav", {
+      var res = api("POST", _pathForScope(opts.space) + "/properties/" + ids[i] + "/base/nav", {
         patch: { parentId: collectionId }
       });
       if (!res.ok) return { ok: false, collectionId: collectionId, objectIds: ids, error: _extractError(res) };
@@ -997,8 +1077,9 @@ export function createClient(params) {
     return { ok: true, collectionId: collectionId, objectIds: ids };
   }
 
-  function removeFromCollection(collectionId, objectId) {
-    var res = api("POST", spacePath + "/properties/" + objectId + "/base/nav", {
+  function removeFromCollection(collectionId, objectId, opts) {
+    if (!opts) opts = {};
+    var res = api("POST", _pathForScope(opts.space) + "/properties/" + objectId + "/base/nav", {
       patch: { parentId: "" }
     });
     return { ok: res.ok, collectionId: collectionId, objectId: objectId, error: res.ok ? null : _extractError(res) };
@@ -1157,20 +1238,22 @@ export function createClient(params) {
 
     var name = opts.name;
     var xKey = opts.xKey || _slugifyXKey(name);
+    var scope = opts.space || "user";
+    var path = _pathForScope(scope);
     var created = false;
     // Idempotency keyed by the stable xKey (not the display name).
-    var typeId = _resolveTypeSeg("user", xKey);
+    var typeId = _resolveTypeSeg(scope, xKey);
     if (!typeId) {
-      var res = api("POST", spacePath + "/types", { name: name, xKey: xKey });
+      var res = api("POST", path + "/types", { name: name, xKey: xKey });
       if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
       typeId = res.data.typeId;
       created = true;
-      _catInvalidate("user");
+      _catInvalidate(scope);
     }
 
     if (opts.properties && Array.isArray(opts.properties) && opts.properties.length > 0) {
       // Existing props on the type, so we add only what's missing.
-      var existing = _typeProps("user", typeId);
+      var existing = _typeProps(scope, typeId);
       var have = {};
       for (var e = 0; e < existing.length; e++) {
         if (existing[e].xKey) have[existing[e].xKey] = true;
@@ -1180,17 +1263,17 @@ export function createClient(params) {
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
         if (have[prop.key]) continue; // already registered
-        var ar = api("POST", spacePath + "/types/" + typeId + "/properties", {
+        var ar = api("POST", path + "/types/" + typeId + "/properties", {
           xKey: prop.key, name: prop.name || prop.key,
           kind: _formatToKind[prop.format] || prop.kind || "string"
         });
         if (!ar.ok) {
-          _catInvalidate("user");
+          _catInvalidate(scope);
           return { ok: false, error: "type \"" + name + "\": property \"" + prop.key + "\" failed: " + _extractError(ar) };
         }
         addedAny = true;
       }
-      if (addedAny) _catInvalidate("user");
+      if (addedAny) _catInvalidate(scope);
     }
 
     return { ok: true, type: { id: typeId, name: name, xKey: xKey }, created: created };
@@ -1277,6 +1360,9 @@ export function createClient(params) {
     getCollectionObjects: w("getCollectionObjects", getCollectionObjects),
     getSpaceMember: w("getSpaceMember", getSpaceMember),
     listSpaceMembers: w("listSpaceMembers", listSpaceMembers),
+    listSpaces: w("listSpaces", listSpaces),
+    createSpace: w("createSpace", createSpace),
+    getUIContext: w("getUIContext", getUIContext),
 
     getTools: w("getTools", getTools),
     getToolDocs: w("getToolDocs", getToolDocs),
