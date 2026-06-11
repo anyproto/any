@@ -463,6 +463,14 @@ These cut across files and are easy to violate accidentally:
   /editor/markdown` is a render transform, not a dataset read.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
+- **any-store filters are built with the typed `any-store/v2/query` package**
+  (`query.Key` / `NewComp` / `NewCompValue` / `NewInValue` / `Text` /
+  `Exists` / `And` / `Or`) — never as `map[string]any` or JSON-string
+  literals. Typed filters are compile-checked, skip parsing, and are
+  immutable once built; **static filters (constant paths/values) are built
+  once at package level and reused** — only dynamic parts are built per
+  call. Client-supplied filters arriving over HTTP are the sole place raw
+  shapes enter (parsed by `query.ParseCondition` at the boundary).
 
 ## Config and lifecycle
 

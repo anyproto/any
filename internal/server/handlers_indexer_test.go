@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/indexer"
 )
 
@@ -123,7 +124,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	// Simulate divergence below the cursor: drop the head doc from the
 	// index. A correct tail catch-up must NOT resurrect it — its records
 	// sit below the persisted cursor and never re-stream.
-	if err := st1.Apply(ctx, spaceId, nil, []string{"chat_messages/" + head.RecordIds[0]}); err != nil {
+	if err := st1.Apply(ctx, spaceId, nil, []string{chatObj + ":chat_messages:" + head.RecordIds[0]}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix1.Close(); err != nil { // closes st1, cursor persisted
@@ -158,6 +159,61 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "message", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
 	if len(res.Hits) != 1 || res.Hits[0].RecordId != tail.RecordIds[0] {
 		t.Fatalf("after catch-up want only the tail message (head was dropped below the cursor), got %v", hitRecordIds(res))
+	}
+}
+
+// TestIndexer_TypeDetachEviction: detaching a chunker's gating type
+// evicts the object's dataset docs via an id-prefix delete inside the
+// same advance page — addSeq-consistent with the change feed. The
+// detach itself goes through the SDK handle (the HTTP route is 501).
+func TestIndexer_TypeDetachEviction(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough for eviction
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "DetachEviction")
+	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
+	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable alpha"}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable bravo"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 2 {
+		t.Fatalf("pre-detach hits = %v, want 2", hitRecordIds(res))
+	}
+
+	// Detach the chat type: the row re-streams with a bumped _addSeq and
+	// the next advance prefix-evicts objectId:chat_messages:.
+	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chat.TypeId); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Fatalf("post-detach hits = %v, want none", hitRecordIds(res))
+	}
+
+	// Re-attach (a new send re-attaches the type) — only the new message
+	// indexes; rows below the cursor do not resurrect.
+	msg3 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable charlie"}`, http.StatusCreated)
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != msg3.RecordIds[0] {
+		t.Fatalf("post-reattach hits = %v, want only the new message", hitRecordIds(res))
 	}
 }
 

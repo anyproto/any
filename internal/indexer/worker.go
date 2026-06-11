@@ -7,6 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
+
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/index"
@@ -150,26 +153,25 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 		// Dedup object ids; ChangedSince is ascending, so the last
 		// element carries the page's max AddSeq.
 		seen := map[string]bool{}
-		var ups []DocUpsert
-		var dels []string
+		var page pageOps
 		for _, ch := range changes {
 			if seen[ch.ObjectId] {
 				continue
 			}
 			seen[ch.ObjectId] = true
-			if err := w.collectObject(ctx, ch.ObjectId, cursor, &ups, &dels); err != nil {
+			if err := w.collectObject(ctx, ch.ObjectId, cursor, &page); err != nil {
 				return err
 			}
 		}
 
-		if err := w.ix.store.Apply(ctx, spaceId, ups, dels); err != nil {
+		if err := w.ix.store.Apply(ctx, spaceId, page.ups, page.dels, page.prefixDels); err != nil {
 			return err
 		}
 		cursor = changes[len(changes)-1].AddSeq
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor); err != nil {
 			return err
 		}
-		if w.ix.HasEmbedder() && hasIndexableText(ups) {
+		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
 			select {
 			case w.embedCh <- struct{}{}:
 			default:
@@ -190,31 +192,54 @@ func hasIndexableText(ups []DocUpsert) bool {
 	return false
 }
 
-// collectObject gathers one dirty object's entries. Object-deleted
-// check first: the SDK drops a deleted object's datasets wholesale
-// (per-record tombstones never stream), so the whole object purges.
-func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor uint64, ups *[]DocUpsert, dels *[]string) error {
-	deleted, err := w.objectDeleted(ctx, objectId)
+// pageOps accumulates one advance page: upserts, record-level deletes
+// (full doc ids), and structural prefix deletes (':'-terminated id
+// prefixes — whole object or whole objectId+dataset). All applied in
+// one transaction, so eviction rides the same addSeq window as content.
+type pageOps struct {
+	ups        []DocUpsert
+	dels       []string
+	prefixDels []string
+}
+
+// collectObject gathers one dirty object's page ops, derived from the
+// shared objects row inside the same ChangedSince window:
+//   - tombstoned row → whole-object prefix delete (the SDK drops a
+//     deleted object's datasets wholesale; per-record removals never
+//     stream for them);
+//   - gated chunkers whose type is not in any.types → dataset prefix
+//     delete (covers DetachType; idempotent — one btree seek when
+//     already empty);
+//   - everything else → the chunkers' entries.
+func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor uint64, page *pageOps) error {
+	row, err := w.objectRow(ctx, objectId)
 	if err != nil {
 		return err
 	}
-	if deleted {
-		return w.ix.store.PurgeObject(ctx, w.sp.Id(), objectId)
+	if row != nil && index.IsDeleted(row) {
+		page.prefixDels = append(page.prefixDels, objectId+":")
+		return nil
 	}
+	attached := typeSet(row)
 	for _, ch := range w.ix.reg.All() {
+		if tid := ch.TypeId(); tid != "" && !attached[tid] {
+			page.prefixDels = append(page.prefixDels, objectId+":"+ch.Dataset()+":")
+			continue
+		}
 		err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
 			if e.Data == "" {
-				*dels = append(*dels, docId(e.Dataset, e.RecordId))
+				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
 			} else {
-				*ups = append(*ups, DocUpsert{Entry: e})
+				page.ups = append(page.ups, DocUpsert{Entry: e})
 			}
 			return nil
 		})
 		if err != nil {
-			// The object may have been deleted between the check above
-			// and the dataset read (tree gone). Re-check before failing.
-			if del, derr := w.objectDeleted(ctx, objectId); derr == nil && del {
-				return w.ix.store.PurgeObject(ctx, w.sp.Id(), objectId)
+			// The object may have been deleted between the row read and
+			// the dataset read (tree gone). Re-check before failing.
+			if row2, derr := w.objectRow(ctx, objectId); derr == nil && row2 != nil && index.IsDeleted(row2) {
+				page.prefixDels = append(page.prefixDels, objectId+":")
+				return nil
 			}
 			return err
 		}
@@ -222,21 +247,37 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 	return nil
 }
 
-// objectDeleted reports whether the object's shared-objects row is a
-// tombstone. A missing row is not deleted — some objects only ever see
-// dataset writes.
-func (w *spaceWorker) objectDeleted(ctx context.Context, objectId string) (bool, error) {
+// objectRow returns the object's shared-objects row, tombstones
+// included, or nil when the object has no row (some objects only ever
+// see dataset writes).
+func (w *spaceWorker) objectRow(ctx context.Context, objectId string) (*anyenc.Value, error) {
 	row, err := w.sp.QueryObjects().
 		Projection(space.ProjectionOpts{IncludeDeleted: true}).
-		Filter(map[string]any{"id": objectId}).
+		Filter(query.Key{Path: idPath, Filter: query.NewComp(query.CompOpEq, objectId)}).
 		One(ctx)
 	if errors.Is(err, space.ErrNotFound) {
-		return false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return index.IsDeleted(row), nil
+	return row, nil
+}
+
+// typeSet extracts any.types into a membership set. Empty for nil rows.
+func typeSet(row *anyenc.Value) map[string]bool {
+	if row == nil {
+		return nil
+	}
+	types := row.GetArray("any", "types")
+	if len(types) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(types))
+	for _, v := range types {
+		out[string(v.GetStringBytes())] = true
+	}
+	return out
 }
 
 // drainPending embeds and lands pending docs batch by batch until the

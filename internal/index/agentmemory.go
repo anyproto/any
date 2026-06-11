@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -45,8 +46,8 @@ func NewAgentMemoryChunker() *AgentMemoryChunker {
 	return &AgentMemoryChunker{cache: map[string]*resolved{}}
 }
 
-func (c *AgentMemoryChunker) Scope() string   { return ScopeAgent }
 func (c *AgentMemoryChunker) Dataset() string { return DatasetObjects }
+func (c *AgentMemoryChunker) TypeId() string  { return "" } // ungated — does its own type check
 
 // resolved holds the per-space ids the chunker resolves once. props maps
 // each wanted XKey to its propId; only resolved props are present.
@@ -143,7 +144,7 @@ func (c *AgentMemoryChunker) ChunksSince(ctx context.Context, sp space.Space, ob
 		return err
 	}
 
-	q := sp.QueryObjects().Filter(map[string]any{"id": objectId})
+	q := sp.QueryObjects().Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, objectId)})
 	return RecordsSince(ctx, q, since, func(rec *anyenc.Value, seq uint64) error {
 		entry := IndexEntry{
 			Scope:    ScopeAgent,

@@ -68,7 +68,7 @@ func BenchmarkApplyTxSize(b *testing.B) {
 			ctx := context.Background()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if err := s.Apply(ctx, "sp", benchUpserts(rng, i*batch, batch), nil); err != nil {
+				if err := s.Apply(ctx, "sp", benchUpserts(rng, i*batch, batch), nil, nil); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -103,7 +103,7 @@ func BenchmarkSetVectorsBatch(b *testing.B) {
 				if total-off < n {
 					n = total - off
 				}
-				if err := s.Apply(ctx, "sp", benchUpserts(rng, off, n), nil); err != nil {
+				if err := s.Apply(ctx, "sp", benchUpserts(rng, off, n), nil, nil); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -151,7 +151,7 @@ func BenchmarkSearch(b *testing.B) {
 		if docs-off < n {
 			n = docs - off
 		}
-		if err := s.Apply(ctx, "sp", benchUpserts(rng, off, n), nil); err != nil {
+		if err := s.Apply(ctx, "sp", benchUpserts(rng, off, n), nil, nil); err != nil {
 			b.Fatal(err)
 		}
 	}
