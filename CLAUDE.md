@@ -242,41 +242,50 @@ Implementation slices landed:
       `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
       `v0.0.8` release.
 
-13. **Index chunkers (phase 1) + SDK tombstone opt-in** — the
-    consumer-side search feed's contract and three chunkers, **handlers
-    only (no indexer, no HTTP endpoints)**. Full contract in
+13. **Index chunkers + SDK tombstone opt-in** — the consumer-side
+    search feed's contract. Full contract in
     [`docs/13-index.md`](docs/13-index.md).
     - `internal/index`: `IndexEntry` (`{Scope, ObjectId, Dataset,
-      RecordId, Data, AddSeq}` — `Data == ""` ⇒ remove from index) +
-      `Chunker` interface (`ChunksSince(ctx, sp, objectId, since, yield)`,
-      ascending by `_addSeq`) + `Registry` (`NewRegistry` / `All` /
-      `ForDataset`). Shared `RecordsSince` streamer chains
-      `Projection({IncludeDeleted:true})` → `Filter {_addSeq:{$gt}}` →
-      `Sort _addSeq` → `Iter`. `AgentMemoryChunker` (scope `agent`,
-      dataset `objects`) resolves the `agent_memory` type + `context` /
-      `keywords` / `entities` props by XKey (cached per-space forever;
-      absence never cached); `Data` = `any.name` + those values,
-      newline-joined.
-    - Per-handler chunkers: `editor.NewChunker()` (scope `basic`,
-      dataset `editor_blocks`, `Data` = block `text`) and
-      `chat.NewChunker()` (scope `chat`, dataset `chat_messages`, `Data`
-      = message `text` only — creator/reactions/attachments excluded).
-    - Deletions stream as tombstone entries (`Data ""`). Agent scope
-      emits a tombstone for **any** streamed row that isn't a live
-      memory object — deleted rows *and* live rows without the type
-      (covers `DetachType`); the indexer applies entries uniformly.
+      RecordId, Data, AddSeq}` — `Data == ""` ⇒ record-level removal) +
+      `Chunker` interface (`Dataset()` / `TypeId()` — the `any.types`
+      gate, "" = ungated / `ChunksSince(ctx, sp, objectId, since,
+      yield)`, ascending by `_addSeq`) + `Registry`. Shared
+      `RecordsSince` streamer chains `Projection({IncludeDeleted:true})`
+      → typed `_addSeq > since` filter → `Sort _addSeq` → `Iter`.
+      Scopes are an **open slug set** (`index.ValidScope`); `basic` /
+      `chat` / `agent` are the vocabulary.
+    - Per-handler chunkers: `editor.NewChunker()` (dataset
+      `editor_blocks`, gate `editor`, scope `basic`, `Data` = block
+      `text`) and `chat.NewChunker()` (dataset `chat_messages`, gate
+      `chat`, scope `chat`, `Data` = message `text` only).
+    - `index.NewPropChunker()` (dataset `prop` — VIRTUAL, ungated):
+      indexes property VALUES from the shared `objects` collection, one
+      entry per (object, indexed property), recordId = propId. Which
+      props index is declared on the property definitions via
+      `meta["index"] = "<scope>"` (SDK `PropertyDraft.Meta`, HTTP `meta`
+      field; string/array kinds only; arrays newline-join). Built-ins
+      `any.name` + `any.description` always index under `basic`
+      (recordIds `name` / `description`). Per live row it emits entries
+      for every catalog prop unconditionally — value text when the type
+      is attached, `Data ""` otherwise (record-level eviction of
+      cleared values / detached types). Catalog = per-space TTL
+      snapshot (30s; `Invalidate` for tests).
     - Excluded from indexing entirely: `agent_debug_log`, `program`,
-      `miniapp`.
+      `miniapp`, and the agent-data datasets (`agent_turns` /
+      `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
+      a roadmap item).
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
-      index.NewAgentMemoryChunker())`, stored on `deps.chunkers`.
-    - **SDK prerequisite (branch `feat/addseq-change-index`, not yet a
+      index.NewPropChunker())`, stored on `deps.chunkers`.
+    - **SDK prerequisites (branch `feat/addseq-change-index`, not yet a
       tagged release).** `ProjectionOpts.IncludeDeleted` makes the find
       path (Iter/All/One/Count) surface tombstones (content wiped,
       `_deletedAt` + carried `_addSeq`) so chunkers stream deletions;
-      Snapshot/Subscribe keep skipping them. Pinned at the branch
-      pseudo-version (`v0.0.9-0.…-d03270b6db49`); re-pin when the
-      branch is tagged.
+      Snapshot/Subscribe keep skipping them. Property definitions carry
+      an opaque consumer `Meta map[string]string` (`PropertyDraft` /
+      `PropertyDef`; not schema-bearing, so mutable once
+      `UpdatePropertyMeta` lands). Pinned at the branch pseudo-version
+      (`v0.0.9-0.…-943c3d09b276`); re-pin when tagged.
 
 14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
     the chunker feed. Full pipeline doc in
@@ -285,21 +294,28 @@ Implementation slices landed:
       service (`New` / `Start` / `Close` / `Search`; `Sync`/`SyncSpace`
       are the synchronous test hooks). **Advance loop** (FTS path):
       `Changes().Subscribe` → cap-1 dirty chan → debounced `advance` —
-      pages `ChangedSince(cursor, 256)`, object-deleted check first
-      (tombstoned object ⇒ `PurgeObject` — the SDK drops deleted
-      objects' datasets wholesale), else runs all chunkers; one WriteTx
-      per page; cursor persisted per page. **Embed loop** (vector path,
-      parallel): drains `pending` docs — batch `EmbedDocs` (64) → batch
-      `SetVectors` (one tx) → `EnsureVectorIndex`; 1m ticker retries.
-      Embedder latency never delays the cursor or FTS searchability.
+      pages `ChangedSince(cursor, 256)`; per dirty object it reads the
+      shared objects row once (IncludeDeleted): tombstoned ⇒ prefix
+      delete `objectId:`; gated chunker whose `TypeId()` ∉ `any.types` ⇒
+      prefix delete `objectId:<dataset>:` (DetachType bumps `_addSeq`,
+      so detach rides the same window); else `ChunksSince`. One WriteTx
+      per page (prefix deletes → record deletes → upserts) — eviction is
+      addSeq-consistent, never racing the cursor; cursor persisted per
+      page. **Embed loop** (vector path, parallel): drains `pending`
+      docs — batch `EmbedDocs` (64) → batch `SetVectors` (one tx) →
+      `EnsureVectorIndex`; 1m ticker retries. Embedder latency never
+      delays the cursor or FTS searchability.
     - `Store`: one any-store DB at `<data-dir>/index/index.db`,
-      collection per space; doc id `dataset+"/"+recordId`; BM25 FTS on
-      `data` + ranges on `objectId`/`pending` ensured at open; **IVF-SQ
-      cosine vector index created lazily** (`EnsureVectorIndex`) once ≥1
-      embedded doc exists — IVF trains from existing docs and cannot be
-      created empty. Vector hits with similarity ≤ 0 are dropped (noise
-      floor). `cursors` collection: per-space cursor + `_meta` dim pin
-      (dim change = boot error advising `rm <data-dir>/index`).
+      collection per space; doc id **`objectId:dataset:recordId`** —
+      every removal is a primary-key op (prefix ranges with bytewise
+      upper bound `prefix[:len-1]+";"`); BM25 FTS on `data` + sparse
+      range on `pending` ensured at open; **IVF-SQ cosine vector index
+      created lazily** (`EnsureVectorIndex`) once ≥1 embedded doc
+      exists — IVF trains from existing docs and cannot be created
+      empty. Vector hits with similarity ≤ 0 are dropped (noise floor).
+      `cursors` collection: per-space cursor + `_meta` schema-version
+      (v2) & dim pin (mismatch = boot error advising
+      `rm <data-dir>/index`).
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
       prompts) and `openai` (OpenAI-compatible `/embeddings`). Config

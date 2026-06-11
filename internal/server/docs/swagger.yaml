@@ -88,6 +88,14 @@ definitions:
         type: string
       kind:
         type: string
+      meta:
+        additionalProperties:
+          type: string
+        description: |-
+          Meta is an opaque consumer flag map, stored verbatim on the
+          property definition. meta["index"] = "<scope>" marks the property
+          for the search indexer (docs/13-index.md).
+        type: object
       name:
         type: string
       xKey:
@@ -600,6 +608,13 @@ definitions:
         $ref: '#/definitions/api.PropertyDef'
       kind:
         type: string
+      meta:
+        additionalProperties:
+          type: string
+        description: |-
+          Meta is the opaque consumer flag map set at AddProperty time
+          (e.g. meta["index"] = "<scope>" for the search indexer).
+        type: object
       name:
         type: string
       properties:
@@ -638,6 +653,56 @@ definitions:
         type: array
       upsert:
         type: boolean
+    type: object
+  api.SearchHit:
+    properties:
+      data:
+        type: string
+      dataset:
+        type: string
+      objectId:
+        type: string
+      recordId:
+        type: string
+      scope:
+        type: string
+      score:
+        type: number
+    type: object
+  api.SearchRequest:
+    properties:
+      limit:
+        description: Limit caps returned hits. Default 10, max 100.
+        type: integer
+      mode:
+        description: |-
+          Mode is hybrid (default), fts, or vector. Vector requires an
+          embedder configured on the server.
+        type: string
+      query:
+        description: Query is the search text. Required.
+        type: string
+      scopes:
+        description: |-
+          Scopes restricts results to the given index scopes (basic, chat,
+          agent). Empty = all scopes.
+        items:
+          type: string
+        type: array
+    type: object
+  api.SearchResponse:
+    properties:
+      hits:
+        items:
+          $ref: '#/definitions/api.SearchHit'
+        type: array
+      mode:
+        type: string
+      vectorStatus:
+        description: |-
+          VectorStatus: used | unavailable | disabled | skipped — whether
+          semantic recall participated in this response and, if not, why.
+        type: string
     type: object
   api.SpaceCreateRequest:
     properties:
@@ -2528,6 +2593,48 @@ paths:
       summary: Subscribe to a windowed per-object query (SSE)
       tags:
       - data
+  /spaces/{spaceId}/search:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Search request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Search the space's local index
+      tags:
+      - search
   /spaces/{spaceId}/sync:
     post:
       parameters:

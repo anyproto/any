@@ -143,6 +143,14 @@ pluggable embedders, parallel batched pipelines),
 - **Embedding hygiene.** Re-embed on model change (currently a dim
   mismatch is a boot error suggesting removing `<data-dir>/index/`),
   truncation policy for very long records.
+- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
+  `index: "<scope>"`) are create-time-only until the SDK implements
+  property-meta updates — existing properties can't be re-flagged.
+- **`agent_memory_items` chunker.** Agent memory now lives in the
+  built-in `agent_memory` type's dataset (docs/11-agent-memory.md); a
+  dedicated gated chunker (`TypeId() == "agent_memory"`, dataset
+  `agent_memory_items`) is the real path to agent-scope recall — the
+  prop chunker only covers property values on objects.
 
 ## How to update this file
 

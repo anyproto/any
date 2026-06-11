@@ -264,7 +264,7 @@ Body:
 ```json
 {
   "query":  "zeppelin disaster",      // required
-  "scopes": ["chat", "basic"],        // optional: basic | chat | agent; empty = all
+  "scopes": ["chat", "basic"],        // optional scope slugs (open set — see docs/13-index.md); empty = all
   "limit":  10,                       // optional: default 10, max 100
   "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
 }
@@ -710,6 +710,18 @@ they want at-least-once semantics across reconnects.
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+
+`POST …/properties` accepts an optional **`meta`** object (string →
+string) stored verbatim on the property definition and returned by
+`GET …/properties`. It is opaque consumer metadata; the one convention
+today is `meta.index = "<scope>"`, which marks the property for the
+search indexer (its value is indexed under that scope — see
+`docs/13-index.md` § prop chunker). Only string / array kinds index.
+
+```json
+{ "name": "context", "kind": "string", "xKey": "context",
+  "meta": { "index": "agent" } }
+```
 
 ### Properties (values on objects)
 
