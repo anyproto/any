@@ -24,6 +24,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 const stagingFixture = "../../../test-etc/staging.yml"
@@ -475,6 +477,77 @@ func TestE2E_AnyStatus(t *testing.T) {
 	}
 }
 
+// TestE2E_AuthFlow exercises the deferred-boot onboarding path end to
+// end at the binary level: an account-less `run` starts unauthorized,
+// `any auth login` (POST /v1/auth) generates the account and boots the
+// SDK in place, and a restart auto-selects the created identity.
+func TestE2E_AuthFlow(t *testing.T) {
+	if _, err := os.Stat(stagingFixture); err != nil {
+		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
+	}
+
+	bin := buildBinary(t)
+	dataDir := t.TempDir()
+	addr := freeLoopbackAddr(t)
+	srv := startServerInit(t, bin, addr, dataDir, false)
+	defer srv.stop(t)
+	waitForReady(t, addr, 30*time.Second)
+	base := "http://" + addr
+
+	// Unauthorized: SDK routes are guarded, auth status is open.
+	resp, raw := doRequest(t, http.MethodGet, base+"/v1/spaces", "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("pre-auth GET /v1/spaces: want 401, got %d %s", resp.StatusCode, raw)
+	}
+	var st api.AuthStatusResponse
+	mustJSON(t, http.MethodGet, base+"/v1/auth", "", http.StatusOK, &st)
+	if st.Authorized || len(st.Accounts) != 0 {
+		t.Fatalf("pre-auth status: %+v", st)
+	}
+
+	// `any auth login` with no flags generates an account and boots.
+	out, err := exec.Command(bin, "--addr", addr, "auth", "login").Output()
+	if err != nil {
+		t.Fatalf("any auth login: %v\n%s", err, out)
+	}
+	var login api.AuthResponse
+	if err := json.Unmarshal(out, &login); err != nil {
+		t.Fatalf("decode auth login output: %v\nraw:\n%s", err, out)
+	}
+	if login.AccountId == "" || !login.Created {
+		t.Fatalf("auth login reply: %+v", login)
+	}
+
+	var acct map[string]any
+	mustJSON(t, http.MethodGet, base+"/v1/account", "", http.StatusOK, &acct)
+	if acct["id"] != login.AccountId {
+		t.Fatalf("account id %v != login reply %s", acct["id"], login.AccountId)
+	}
+
+	// Double-auth → 409.
+	resp, _ = doRequest(t, http.MethodPost, base+"/v1/auth", `{}`)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("second POST /v1/auth: want 409, got %d", resp.StatusCode)
+	}
+
+	// Restart: the created identity is the sole account and is
+	// auto-selected — server boots authorized.
+	stopOut, err := exec.Command(bin, "--addr", addr, "stop").CombinedOutput()
+	if err != nil {
+		t.Fatalf("any stop: %v\n%s", err, stopOut)
+	}
+	if err := srv.waitExit(15 * time.Second); err != nil {
+		t.Fatalf("server didn't exit: %v\n%s", err, srv.output())
+	}
+	srv2 := startServerInit(t, bin, addr, dataDir, false)
+	defer srv2.stop(t)
+	waitForReady(t, addr, 30*time.Second)
+	mustJSON(t, http.MethodGet, base+"/v1/auth", "", http.StatusOK, &st)
+	if !st.Authorized || st.AccountId != login.AccountId {
+		t.Fatalf("post-restart status: %+v", st)
+	}
+}
+
 // --- helpers --------------------------------------------------------------
 
 type runningServer struct {
@@ -485,6 +558,13 @@ type runningServer struct {
 }
 
 func startServer(t *testing.T, bin, addr, dataDir string) *runningServer {
+	return startServerInit(t, bin, addr, dataDir, true)
+}
+
+// startServerInit is startServer with the account-init step optional:
+// withInit=false boots an UNAUTHORIZED server (fresh root, no wallet)
+// for tests exercising the POST /v1/auth onboarding path.
+func startServerInit(t *testing.T, bin, addr, dataDir string, withInit bool) *runningServer {
 	t.Helper()
 	// Drop a config.yaml that pins network.nodeconfPath to an absolute
 	// path. The binary's compile-time default is CWD-relative, which
@@ -497,6 +577,17 @@ func startServer(t *testing.T, bin, addr, dataDir string) *runningServer {
 	}
 	if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
+	}
+
+	// `run` no longer auto-creates a wallet (it would start unauthorized
+	// and wait for POST /v1/auth) — init the account first. A no-op when
+	// the test pre-seeded a root wallet.key.
+	if withInit {
+		initCmd := exec.Command(bin, "init", "--config", cfgPath, "--data-dir", dataDir)
+		initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
+		if out, err := initCmd.CombinedOutput(); err != nil {
+			t.Fatalf("any init: %v\n%s", err, out)
+		}
 	}
 
 	cmd := exec.Command(bin, "run", "--config", cfgPath, "--data-dir", dataDir, "--addr", addr)

@@ -103,6 +103,7 @@ func TestServer_SpaceJoin_InvalidToken(t *testing.T) {
 // suffices and the test never skips.
 func TestServer_SpaceJoin_MissingToken(t *testing.T) {
 	d := &deps{}
+	d.ready.Store(true) // skip the unauthorized guard; validation runs pre-SDK
 	e := buildEcho(d)
 
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/join", `{"inviteToken":""}`)

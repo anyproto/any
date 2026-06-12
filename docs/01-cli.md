@@ -24,18 +24,35 @@
 ### Meta
 
 ```
-any init                         # create data dir + wallet, exit
-any run [--config PATH]          # start the server (foreground)
+any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
+                                 # create data dir + account wallet, exit
+any run [--config PATH] [--account ID]   # start the server (foreground)
+any auth login [--mnemonic ...|--mnemonic-stdin|--account ID]  # POST /v1/auth
+any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
 any stop                         # POST /v1/shutdown
 any version                      # print binary + server versions
 ```
 
-`any init` is the explicit first-run flow — prints the generated
-mnemonic to stderr and exits. If you skip it and go straight to
-`any run`, the server does the same wallet creation on startup and
-prints the mnemonic once; `any init` just gives you a moment to copy
-it before the server binds anything.
+`any init` is the explicit first-run flow. Bare `init` generates a
+fresh account under `<root>/<accountId>/` and prints the BIP-39
+mnemonic to stderr once; when any account already exists it is a no-op
+that lists them. `--mnemonic` / `--mnemonic-stdin` authorize an
+EXISTING account: the same phrase always derives the same account id
+while the device key is freshly generated — the supported way to add a
+second device (never copy `wallet.key`: that clones the device key and
+the two peers fight over one network identity). Prefer
+`--mnemonic-stdin`; a `--mnemonic` flag value leaks into shell
+history. `--new` forces an additional fresh account; `--index` selects
+the derivation index for `--mnemonic`.
+
+`any run` does NOT create wallets. With no account resolvable (fresh
+root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)
+the server starts unauthorized and waits; `any auth login` (or any
+client POSTing `/v1/auth`) generates (`no flags`), restores
+(`--mnemonic*`) or selects (`--account`) the account and boots the SDK
+in place. `any auth status` shows the authorization state plus every
+account found in the data dir.
 
 ### Account
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -11,6 +12,7 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/version"
@@ -52,6 +54,38 @@ type deps struct {
 	shutdownCtx    context.Context
 	cancelShutdown context.CancelFunc
 	streamsWG      *sync.WaitGroup
+
+	// ready flips to true once an engine (wallet + SDK + indexer) is
+	// live. Until then the /v1 guard middleware rejects every route
+	// except health/shutdown/auth with 401 auth.required, so handlers
+	// never observe a nil sdk. The store happens after the engine
+	// fields above are populated; the middleware's atomic load is the
+	// acquire edge that makes them visible. Tests building deps by
+	// hand must set it (newTestDeps does).
+	ready atomic.Bool
+
+	// authMu serializes engine boot (POST /v1/auth vs. server.Run vs.
+	// shutdown). eng tracks the live engine for teardown.
+	authMu sync.Mutex
+	eng    *engine
+
+	// Boot inputs for the deferred-auth path: the resolved root data
+	// dir, the effective config and the server's run context (engine
+	// lifetime exceeds any single request, so boots don't run on
+	// request contexts).
+	root   string
+	cfg    config.Config
+	runCtx context.Context
+}
+
+// accountID returns the booted account id, or "" while unauthorized.
+// The ready gate doubles as the memory barrier for the plain field
+// read (health runs outside the guard middleware).
+func (d *deps) accountID() string {
+	if !d.ready.Load() {
+		return ""
+	}
+	return d.account
 }
 
 // @Summary	Health check
@@ -64,7 +98,7 @@ func (d *deps) health(c echo.Context) error {
 		Status:    "ok",
 		Version:   version.String(),
 		StartedAt: d.startedAt,
-		Account:   d.account,
+		Account:   d.accountID(),
 	})
 }
 
