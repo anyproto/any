@@ -285,7 +285,7 @@ Implementation slices landed:
       an opaque consumer `Meta map[string]string` (`PropertyDraft` /
       `PropertyDef`; not schema-bearing, so mutable once
       `UpdatePropertyMeta` lands). Pinned at the branch pseudo-version
-      (`v0.0.9-0.…-943c3d09b276`); re-pin when tagged.
+      (`v0.0.9-0.…-65089ac6ec25`); re-pin when tagged.
 
 14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
     the chunker feed. Full pipeline doc in
@@ -339,12 +339,10 @@ Implementation slices landed:
       `docs/08-clients.md` § 6.
       Space discovery: `Spaces().List` + `Service.Subscribe`
       (added ⇒ spawn worker, removed/deleted ⇒ stop + `DropSpace`).
-    - **any-store prerequisite (branch `btree-fts`, superset of
-      `alpha.10`, not yet tagged).** FTS (`$text`/BM25/`iter.Score`) +
-      vector (`iter.Distance`/`VectorEf`/IVF-SQ) indexes. Pinned at the
-      branch pseudo-version (`v2.0.0-alpha.10.0.…-c91ceb911e3b`) —
-      build-wide, so the SDK also compiles against it (its test suite
-      passes under it). Re-pin when tagged.
+    - **any-store prerequisite (`v2.0.0-alpha.11`).** FTS
+      (`$text`/BM25/`iter.Score`) + vector
+      (`iter.Distance`/`VectorEf`/IVF-SQ) indexes — the `btree-fts`
+      branch, tagged as `alpha.11`. The SDK pins the same version.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -370,14 +368,14 @@ Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
 The SDK's tagged base is `any-sync-sdk v0.0.8` (the dataset-schema +
-unified-query work — see status item 12); `go.mod` currently pins **two
-branch pseudo-versions** ahead of it: `any-sync-sdk
-v0.0.9-0.…-d03270b6db49` (branch `feat/addseq-change-index` — `_addSeq`
-change-index + tombstone `IncludeDeleted`, status items 13–14) and
-`any-store/v2 v2.0.0-alpha.10.0.…-c91ceb911e3b` (branch `btree-fts`, a
-superset of `alpha.10` — FTS + vector indexes behind the search
-indexer, status item 14). Re-pin to tagged releases once those branches
-land.
+unified-query work — see status item 12); `go.mod` currently pins **one
+branch pseudo-version** ahead of it: `any-sync-sdk
+v0.0.9-0.…-65089ac6ec25` (branch `feat/addseq-change-index` — `_addSeq`
+change-index + tombstone `IncludeDeleted`, status items 13–14). Re-pin
+to a tagged release once that branch lands. `any-store/v2` is at the
+tagged `v2.0.0-alpha.11` (former `btree-fts` branch — FTS + vector
+indexes behind the search indexer, status item 14); `any-sync` at
+`v0.12.11`.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache

@@ -146,11 +146,11 @@ three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
 pluggable embedders, parallel batched pipelines),
 `POST /v1/spaces/:id/search` + `any search`. Still open:
 
-- **Re-pin both deps to tagged releases.** `go.mod` pins branch
-  pseudo-versions: `any-sync-sdk@feat/addseq-change-index` (`_addSeq`
-  change-index + tombstone `IncludeDeleted`) and
-  `any-store/v2@btree-fts` (FTS + vector indexes, superset of
-  `alpha.10`). Once those branches merge and tag, bump to the tags.
+- **Re-pin the SDK to a tagged release.** `go.mod` still pins the
+  branch pseudo-version `any-sync-sdk@feat/addseq-change-index`
+  (`_addSeq` change-index + tombstone `IncludeDeleted`). Once that
+  branch merges and tags, bump to the tag. (`any-store/v2` re-pinned:
+  the `btree-fts` branch tagged as `v2.0.0-alpha.11`.)
 - **Backfill / re-index.** "Index from the next change" means
   pre-existing content stays unsearchable until rewritten. A deliberate
   full re-index (walk all objects, not just `_addSeq > cursor`) is an
@@ -373,5 +373,4 @@ pluggable embedders, parallel batched pipelines),
   chunker amended to tombstone live non-memory rows. Surface:
   `POST /v1/spaces/:id/search` (hybrid RRF / fts / vector) + `any
   search` — the one sanctioned non-1:1 endpoint. Requires `any-store/v2`
-  branch `btree-fts` (FTS + vector), pinned at its branch
-  pseudo-version.
+  `v2.0.0-alpha.11` (FTS + vector; former `btree-fts` branch).
