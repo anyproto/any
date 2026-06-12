@@ -378,8 +378,10 @@ implementation diverges from a doc, update the doc in the same change.
 ```
 go build ./cmd/any                                # binary at ./any
 make build                                        # builds both any and bobrik-watch
-make llamacpp                                     # once per checkout: prebuilt llama.cpp libs
-                                                  # into bin/llamacpp (index.embedder: local)
+make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
+                                                  # (index.embedder: local) — also runs as
+                                                  # part of `make build`; fetch failure there
+                                                  # warns instead of failing the build
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
