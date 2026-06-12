@@ -26,6 +26,10 @@ type AddPropertyRequest struct {
 	Description string `json:"description,omitempty"`
 	XKey        string `json:"xKey,omitempty"`
 	Kind        string `json:"kind"`
+	// Meta is an opaque consumer flag map, stored verbatim on the
+	// property definition. meta["index"] = "<scope>" marks the property
+	// for the search indexer (docs/13-index.md).
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // AddPropertyResponse is the body returned by AddProperty.
@@ -72,9 +76,12 @@ type PropertyDef struct {
 	XKey        string        `json:"xKey,omitempty"`
 	XKind       string        `json:"xKind,omitempty"`
 	Kind        string        `json:"kind"`
-	Items       *PropertyDef  `json:"items,omitempty"`
-	Properties  []PropertyDef `json:"properties,omitempty"`
-	Required    []string      `json:"required,omitempty"`
+	// Meta is the opaque consumer flag map set at AddProperty time
+	// (e.g. meta["index"] = "<scope>" for the search indexer).
+	Meta       map[string]string `json:"meta,omitempty"`
+	Items      *PropertyDef      `json:"items,omitempty"`
+	Properties []PropertyDef     `json:"properties,omitempty"`
+	Required   []string          `json:"required,omitempty"`
 }
 
 // PropertiesListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/properties.

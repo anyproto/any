@@ -166,6 +166,14 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
+`SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
+stamped when the tech-space row is created — at create for the author,
+at join for a joiner. Immutable once stamped. Rows from before the
+stamp existed report the zero time (`0001-01-01T00:00:00Z`) — treat it
+as "unknown"; there is no backfill. The stamp is per-device, so the
+account's devices can disagree by a few seconds (or zero vs real on
+mixed SDK versions) — good for ordering, not for equality checks.
+
 #### Query / subscribe the space list
 
 `GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
@@ -186,7 +194,10 @@ same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `spaces`; `profile` is the other system dataset). `objectId` is fixed
 server-side to the tech-space index object. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. The subscribe frame set and `closed`
+you want the projected status/role. Rows carry `createdAt` as unix
+seconds (handler-derived added-to-account time, absent on pre-stamp
+rows), so newest-first creation ordering is `{"sort": ["-createdAt"]}`.
+The subscribe frame set and `closed`
 reasons are identical to the per-object `…/query/subscribe` (see the Data
 plane § Subscribe and `docs/04-events.md`); a space joined on another
 device or head-synced in arrives as an `added` change.
@@ -274,7 +285,7 @@ Body:
 ```json
 {
   "query":  "zeppelin disaster",      // required
-  "scopes": ["chat", "basic"],        // optional: basic | chat | agent; empty = all
+  "scopes": ["chat", "basic"],        // optional scope slugs (open set — see docs/13-index.md); empty = all
   "limit":  10,                       // optional: default 10, max 100
   "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
 }
@@ -720,6 +731,18 @@ they want at-least-once semantics across reconnects.
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+
+`POST …/properties` accepts an optional **`meta`** object (string →
+string) stored verbatim on the property definition and returned by
+`GET …/properties`. It is opaque consumer metadata; the one convention
+today is `meta.index = "<scope>"`, which marks the property for the
+search indexer (its value is indexed under that scope — see
+`docs/13-index.md` § prop chunker). Only string / array kinds index.
+
+```json
+{ "name": "context", "kind": "string", "xKey": "context",
+  "meta": { "index": "agent" } }
+```
 
 ### Properties (values on objects)
 
@@ -1215,7 +1238,7 @@ Minimal in v1:
 - `middleware.BodyLimit("1M")` — reject anything larger; prevents
   accidental uploads before the file API lands.
 
-No CORS, no rate limiting, no auth middleware in v1.
+No rate limiting, no auth middleware in v1. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
 
 ## Pagination
 

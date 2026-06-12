@@ -48,11 +48,12 @@ func (d *deps) search(c echo.Context) error {
 			"mode must be hybrid, fts or vector", map[string]any{"mode": req.Mode})
 	}
 	for _, sc := range req.Scopes {
-		switch sc {
-		case index.ScopeBasic, index.ScopeChat, index.ScopeAgent:
-		default:
+		// Scopes are an open set (property meta flags mint new ones);
+		// only the slug shape is validated. Unknown scopes return no
+		// hits rather than erroring.
+		if !index.ValidScope(sc) {
 			return writeError(c, http.StatusBadRequest, "search.bad_scope",
-				"scope must be basic, chat or agent", map[string]any{"scope": sc})
+				"scope must be a short slug ([a-z0-9_-], max 64)", map[string]any{"scope": sc})
 		}
 	}
 	if req.Limit < 0 {

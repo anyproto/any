@@ -99,6 +99,24 @@ becomes useful. Needs:
    schema keeps their fields — edges, salience, accessCount — so they
    resume without data migration). `embeddingRef` is reserved on the
    schema as the future external-index backref.
+10. **Second-device provisioning (account restore).** There is no
+    supported way to bring an existing account up on a second machine:
+    `any init` always generates a fresh mnemonic and cannot accept one.
+    The workaround users reach for — copying `wallet.key` — is broken
+    in a subtle way: the file holds the mnemonic AND the device key, so
+    both servers present the same network peerId. any-sync nodes key
+    streams/subscriptions per peer, the two devices fight over one
+    identity, and pushed HeadUpdates reach only one of them — the other
+    converges via the ~30s periodic headsync diff only. Symptom:
+    "realtime sync doesn't work, changes take ~30s" on the copied
+    device (tech space AND regular spaces). Verified e2e: with a fresh
+    device key (same mnemonic) every tech-space op propagates in
+    <250ms; with a copied device key, 28–31s
+    (`internal/e2e/multidevice_techspace_test.go::sameAccountWallet`
+    documents the correct provisioning). Fix: `any init --mnemonic`
+    (read from stdin) that keeps the account but generates a fresh
+    device key — the SDK side already supports this
+    (`auth.MnemonicConfig` + `GenerateDeviceKey`).
 
 ## SDK-side prerequisites
 
@@ -126,9 +144,9 @@ Not this repo's work; gate on the SDK:
   handler if/when the SDK stabilises a sentinel for this case.
 - **Query `Projection`.** Accepted in the request body but mostly
   ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
-  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (the
-  `feat/addseq-change-index` branch — used by the index chunkers to
-  stream tombstones); variant collapse and meta-stripping still pending.
+  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (SDK `v0.0.10` —
+  used by the index chunkers to stream tombstones); variant collapse
+  and meta-stripping still pending.
 
 ## Index / search (phase 3+)
 
@@ -137,11 +155,9 @@ three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
 pluggable embedders, parallel batched pipelines),
 `POST /v1/spaces/:id/search` + `any search`. Still open:
 
-- **Re-pin both deps to tagged releases.** `go.mod` pins branch
-  pseudo-versions: `any-sync-sdk@feat/addseq-change-index` (`_addSeq`
-  change-index + tombstone `IncludeDeleted`) and
-  `any-store/v2@btree-fts` (FTS + vector indexes, superset of
-  `alpha.10`). Once those branches merge and tag, bump to the tags.
+- ~~**Re-pin both deps to tagged releases.**~~ Done: `any-sync-sdk
+  v0.0.10` (`feat/addseq-change-index` merged) and `any-store/v2
+  v2.0.0-alpha.11` (the `btree-fts` branch tagged).
 - **Backfill / re-index.** "Index from the next change" means
   pre-existing content stays unsearchable until rewritten. A deliberate
   full re-index (walk all objects, not just `_addSeq > cursor`) is an
@@ -161,6 +177,14 @@ pluggable embedders, parallel batched pipelines),
   distribution story for the llama.cpp libs (today: `make llamacpp`
   drops them next to the binary; go:embed + extract was considered and
   deferred — pure overhead while "distribution" means `make build`).
+- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
+  `index: "<scope>"`) are create-time-only until the SDK implements
+  property-meta updates — existing properties can't be re-flagged.
+- **`agent_memory_items` chunker.** Agent memory now lives in the
+  built-in `agent_memory` type's dataset (docs/11-agent-memory.md); a
+  dedicated gated chunker (`TypeId() == "agent_memory"`, dataset
+  `agent_memory_items`) is the real path to agent-scope recall — the
+  prop chunker only covers property values on objects.
 
 ## How to update this file
 
@@ -190,7 +214,8 @@ pluggable embedders, parallel batched pipelines),
 - **SDK boot + space lifecycle** — `server.OpenSDK` opens
   `any-sync-sdk` against the wallet provider on Run; nodeconf YAML is
   loaded via `internal/config.LoadNodeconf` (precedence: inline →
-  configured path → `../test-etc/staging.yml` fallback). Storage lives at
+  configured path → embedded `internal/config/nodeconf-staging.yml`
+  fallback). Storage lives at
   `<dataDir>/sdk/`. Real handlers wired:
   - `GET /v1/account` (Id only — Metadata reserved, SDK does not expose it yet)
   - `POST /v1/spaces`, `GET /v1/spaces`, `GET /v1/spaces/:id`, `DELETE /v1/spaces/:id`
@@ -350,10 +375,10 @@ pluggable embedders, parallel batched pipelines),
   `chat`). Deletions stream as tombstone entries (`Data == ""`).
   `server.NewIndexRegistry` wires all three onto `deps.chunkers` — no
   consumer, no HTTP endpoints yet. SDK side (branch
-  `feat/addseq-change-index`): `ProjectionOpts.IncludeDeleted` makes the
-  find path (Iter/All/One/Count) surface tombstones so chunkers can
-  stream deletions. Pinned at the branch pseudo-version. Full contract
-  in `docs/13-index.md`.
+  `feat/addseq-change-index`, tagged as `v0.0.10`):
+  `ProjectionOpts.IncludeDeleted` makes the find path
+  (Iter/All/One/Count) surface tombstones so chunkers can stream
+  deletions. Full contract in `docs/13-index.md`.
 - **Search indexer (phase 2) + search endpoint** — `internal/indexer`:
   per-space worker pair (advance loop: change feed → chunkers → FTS,
   cursor-driven, batched; embed loop: pending docs → batch embed →
@@ -365,5 +390,4 @@ pluggable embedders, parallel batched pipelines),
   chunker amended to tombstone live non-memory rows. Surface:
   `POST /v1/spaces/:id/search` (hybrid RRF / fts / vector) + `any
   search` — the one sanctioned non-1:1 endpoint. Requires `any-store/v2`
-  branch `btree-fts` (FTS + vector), pinned at its branch
-  pseudo-version.
+  `v2.0.0-alpha.11` (FTS + vector; former `btree-fts` branch).

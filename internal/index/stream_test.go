@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -92,12 +93,12 @@ func TestRecordsSince_ChainsOptionsAndParsesSeq(t *testing.T) {
 	if !q.projection.IncludeDeleted {
 		t.Errorf("IncludeDeleted projection not applied")
 	}
-	// Window filter on _addSeq applied.
+	// Window filter on _addSeq applied (typed any-store/query filter).
 	if len(q.filters) != 1 {
 		t.Fatalf("want 1 filter, got %d", len(q.filters))
 	}
-	fm, ok := q.filters[0].(map[string]any)
-	if !ok || fm[AddSeqField] == nil {
+	fk, ok := q.filters[0].(query.Key)
+	if !ok || len(fk.Path) != 1 || fk.Path[0] != AddSeqField {
 		t.Errorf("filter %#v does not window on %s", q.filters[0], AddSeqField)
 	}
 	// Sort on _addSeq applied.

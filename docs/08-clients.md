@@ -216,7 +216,7 @@ agent-memory objects — pipeline in `13-index.md`, wire shape in
 ```json
 POST /v1/spaces/:spaceId/search
 { "query": "what did we decide about the reranker?",
-  "scopes": ["chat", "agent"],     // optional: basic | chat | agent
+  "scopes": ["chat", "agent"],     // optional scope slugs (open set)
   "limit": 10,                     // default 10, max 100
   "mode": "hybrid" }               // default; or "fts" / "vector"
 ```
@@ -239,9 +239,14 @@ Call patterns:
   dataset, recordId, data, score}` — `data` is the indexed text
   (per-record, short by construction). To hydrate the full record,
   query the dataset: `POST /query` with `dataset = chat_messages /
-  editor_blocks` filtered by `id == recordId`, or `GET
-  /properties/:objectId` for `agent`-scope hits (the recordId is the
-  objectId there).
+  editor_blocks` filtered by `id == recordId`. For `dataset == "prop"`
+  hits (property values), `recordId` is the propId — or the reserved
+  `name` / `description` for the built-ins — and the value lives on
+  the object: `GET /properties/:objectId`.
+- **Scopes are an open set** of slugs: `basic` (blocks, object
+  names/descriptions), `chat`, and whatever scopes property `meta`
+  flags mint (e.g. `agent`). An unknown-but-valid scope returns no
+  hits; a malformed one is `400 search.bad_scope`.
 - **Scores compare only within one response** (BM25 vs cosine vs RRF
   are different scales across modes). Rank, don't threshold.
 - **Freshness model**: new writes are FTS-searchable within ~the

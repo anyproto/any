@@ -21,6 +21,10 @@ import (
 const (
 	cursorsCollection = "cursors"
 	metaDocId         = "_meta"
+	// indexSchemaVersion is bumped on incompatible store-layout changes
+	// (v2: objectId:dataset:recordId primary keys). Mismatch = boot
+	// error advising removal; no migration — the index is derived state.
+	indexSchemaVersion = 2
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -135,6 +139,9 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if got := doc.Value().GetInt("schema"); got != indexSchemaVersion {
+		return fmt.Errorf("indexer: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", got, indexSchemaVersion, filepath.Dir(s.path))
+	}
 	got := doc.Value().GetInt("dim")
 	switch {
 	case got == s.dim:
@@ -157,6 +164,7 @@ func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
 	arena := &anyenc.Arena{}
 	meta := arena.NewObject()
 	meta.Set("id", arena.NewString(metaDocId))
+	meta.Set("schema", arena.NewNumberInt(indexSchemaVersion))
 	meta.Set("dim", arena.NewNumberInt(dim))
 	return coll.UpsertOne(ctx, meta)
 }
@@ -205,10 +213,11 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// The vector index is NOT ensured here: IVF trains its quantizers
 	// from existing documents, so it can only be created on a populated
 	// collection — see EnsureVectorIndex, called from the embed path.
+	// No objectId index: structural deletes are primary-key prefix
+	// ranges on the objectId:dataset:recordId id shape.
 	indexes := []anystore.IndexInfo{
 		{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}},
-		// objectId backs PurgeObject; sparse pending backs the embed loop.
-		{Fields: []string{"objectId"}},
+		// sparse pending backs the embed loop.
 		{Fields: []string{"pending"}, Sparse: true},
 	}
 	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
@@ -256,7 +265,7 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 			return true, nil
 		}
 	}
-	n, err := coll.Find(map[string]any{"vector": map[string]any{"$exists": true}}).Count(ctx)
+	n, err := coll.Find(vectorPresent).Count(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -283,10 +292,23 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	return true, nil
 }
 
-// docId is the per-collection primary key: dataset + "/" + recordId.
-// Record ids are CIDs / property ids and never contain "/".
-func docId(dataset, recordId string) string {
-	return dataset + "/" + recordId
+// docId is the per-collection primary key: objectId:dataset:recordId.
+// The shape makes removal a primary-key prefix delete at every
+// granularity — `objectId:` (object deleted), `objectId:dataset:`
+// (type detached), exact id (record deleted) — and keeps ids unique
+// even though recordIds repeat across objects (propIds do). Components
+// are colon-free by construction: object ids are CIDs, dataset names
+// are slugs, record ids are base58 change-derived ids / propIds /
+// reserved literals.
+func docId(objectId, dataset, recordId string) string {
+	return objectId + ":" + dataset + ":" + recordId
+}
+
+// prefixUpper is the exclusive upper bound for a ':'-terminated id
+// prefix: ids are compared bytewise and ';' is ':'+1, so
+// [P, P[:len-1]+";") covers exactly the keys starting with P.
+func prefixUpper(prefix string) string {
+	return prefix[:len(prefix)-1] + ";"
 }
 
 // Cursor returns the last indexed AddSeq for the space (0 = never).
@@ -318,11 +340,14 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64) error
 	return coll.UpsertOne(ctx, doc)
 }
 
-// Apply lands one advance page in a single write transaction: upserts
-// (full-doc replace — a re-written record goes back to pending until
-// re-embedded) and deletions (missing ids ignored).
-func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string) error {
-	if len(ups) == 0 && len(dels) == 0 {
+// Apply lands one advance page in a single write transaction:
+// structural prefix deletes first (object deletions / type-detach
+// evictions — ':'-terminated id prefixes), then record deletions
+// (missing ids ignored), then upserts (full-doc replace — a re-written
+// record goes back to pending until re-embedded). Atomic with the page,
+// so eviction can never race the cursor.
+func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
+	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
 		return nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
@@ -335,11 +360,24 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 	}
 	defer tx.Rollback() //nolint:errcheck — no-op after Commit
 
+	for _, p := range prefixDels {
+		// Find joins the open tx via tx.Context(); the id range drives
+		// the primary btree directly, and Delete cleans FTS + vector
+		// entries per doc. Empty range = one seek, idempotent.
+		idRange := query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, p)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(p))},
+		}
+		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
+			return err
+		}
+	}
+
 	arena := &anyenc.Arena{}
 	for _, up := range ups {
 		e := up.Entry
 		doc := arena.NewObject()
-		doc.Set("id", arena.NewString(docId(e.Dataset, e.RecordId)))
+		doc.Set("id", arena.NewString(docId(e.ObjectId, e.Dataset, e.RecordId)))
 		doc.Set("scope", arena.NewString(e.Scope))
 		doc.Set("objectId", arena.NewString(e.ObjectId))
 		doc.Set("dataset", arena.NewString(e.Dataset))
@@ -368,18 +406,6 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 	return tx.Commit()
 }
 
-// PurgeObject removes every doc of one object — the whole-object
-// deletion path (the SDK drops a deleted object's datasets wholesale, so
-// per-record tombstones never stream for them).
-func (s *Store) PurgeObject(ctx context.Context, spaceId, objectId string) error {
-	coll, err := s.spaceColl(ctx, spaceId)
-	if err != nil {
-		return err
-	}
-	_, err = coll.Find(map[string]any{"objectId": objectId}).Delete(ctx)
-	return err
-}
-
 // DropSpace removes the space's collection and cursor (space deleted or
 // left).
 func (s *Store) DropSpace(ctx context.Context, spaceId string) error {
@@ -405,16 +431,27 @@ func (s *Store) DropSpace(ctx context.Context, spaceId string) error {
 	return nil
 }
 
-// scopeFilter builds the optional residual scope filter.
-func scopeFilter(scopes []string) map[string]any {
+// Static filter pieces — query filters are immutable once built and
+// safe for concurrent use, so the constant ones are built exactly once.
+var (
+	idPath        = []string{"id"}
+	scopePath     = []string{"scope"}
+	pendingEqOne  = query.Key{Path: []string{"pending"}, Filter: query.NewComp(query.CompOpEq, 1)}
+	vectorPresent = query.Key{Path: []string{"vector"}, Filter: query.Exists{}}
+)
+
+// scopeKey builds the optional residual scope filter ($in over the
+// scope field). Nil when no scopes are requested.
+func scopeKey(scopes []string) query.Filter {
 	if len(scopes) == 0 {
 		return nil
 	}
-	in := make([]any, len(scopes))
+	arena := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(scopes))
 	for i, sc := range scopes {
-		in[i] = sc
+		vals[i] = arena.NewString(sc)
 	}
-	return map[string]any{"$in": in}
+	return query.Key{Path: scopePath, Filter: query.NewInValue(vals...)}
 }
 
 // SearchFTS runs the BM25 leg. Hits come back ranked by descending
@@ -424,9 +461,9 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 	if err != nil {
 		return nil, err
 	}
-	filter := map[string]any{"$text": map[string]any{"$search": q}}
-	if sf := scopeFilter(scopes); sf != nil {
-		filter["scope"] = sf
+	var filter query.Filter = query.Text{Search: q}
+	if sk := scopeKey(scopes); sk != nil {
+		filter = query.And{filter, sk}
 	}
 	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
 	if err != nil {
@@ -462,12 +499,8 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 		arr.SetArrayItem(i, arena.NewNumberFloat64(float64(f)))
 	}
 	var filter query.Filter = query.Key{Path: []string{"vector"}, Filter: query.NewCompValue(query.CompOpEq, arr)}
-	if sf := scopeFilter(scopes); sf != nil {
-		residual, err := query.ParseCondition(map[string]any{"scope": sf})
-		if err != nil {
-			return nil, err
-		}
-		filter = query.And{filter, residual}
+	if sk := scopeKey(scopes); sk != nil {
+		filter = query.And{filter, sk}
 	}
 	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
 	if err != nil {
@@ -518,7 +551,7 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 	if err != nil {
 		return nil, nil, err
 	}
-	iter, err := coll.Find(map[string]any{"pending": 1}).Limit(uint(limit)).Iter(ctx)
+	iter, err := coll.Find(pendingEqOne).Limit(uint(limit)).Iter(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

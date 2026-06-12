@@ -3368,6 +3368,13 @@ const docTemplate = `{
                 "kind": {
                     "type": "string"
                 },
+                "meta": {
+                    "description": "Meta is an opaque consumer flag map, stored verbatim on the\nproperty definition. meta[\"index\"] = \"\u003cscope\u003e\" marks the property\nfor the search indexer (docs/13-index.md).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4136,6 +4143,13 @@ const docTemplate = `{
                 },
                 "kind": {
                     "type": "string"
+                },
+                "meta": {
+                    "description": "Meta is the opaque consumer flag map set at AddProperty time\n(e.g. meta[\"index\"] = \"\u003cscope\u003e\" for the search indexer).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
                 },
                 "name": {
                     "type": "string"

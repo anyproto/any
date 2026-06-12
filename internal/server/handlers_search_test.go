@@ -197,7 +197,13 @@ func TestSearch_FullFlow(t *testing.T) {
 	// --- Validation ---
 	doSearch(t, e, spaceId, api.SearchRequest{}, http.StatusBadRequest)
 	doSearch(t, e, spaceId, api.SearchRequest{Query: "x", Mode: "fuzzy"}, http.StatusBadRequest)
-	doSearch(t, e, spaceId, api.SearchRequest{Query: "x", Scopes: []string{"everything"}}, http.StatusBadRequest)
+	// Scopes are an open set: an unknown-but-valid slug is fine (no
+	// hits), only a malformed slug is a 400.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin", Scopes: []string{"everything"}}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Errorf("unknown scope should return no hits: %v", hitRecordIds(res))
+	}
+	doSearch(t, e, spaceId, api.SearchRequest{Query: "x", Scopes: []string{"bad scope!"}}, http.StatusBadRequest)
 }
 
 func TestSearch_NoEmbedderAndDisabled(t *testing.T) {

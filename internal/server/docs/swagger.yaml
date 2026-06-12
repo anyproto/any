@@ -88,6 +88,14 @@ definitions:
         type: string
       kind:
         type: string
+      meta:
+        additionalProperties:
+          type: string
+        description: |-
+          Meta is an opaque consumer flag map, stored verbatim on the
+          property definition. meta["index"] = "<scope>" marks the property
+          for the search indexer (docs/13-index.md).
+        type: object
       name:
         type: string
       xKey:
@@ -609,6 +617,13 @@ definitions:
         $ref: '#/definitions/api.PropertyDef'
       kind:
         type: string
+      meta:
+        additionalProperties:
+          type: string
+        description: |-
+          Meta is the opaque consumer flag map set at AddProperty time
+          (e.g. meta["index"] = "<scope>" for the search indexer).
+        type: object
       name:
         type: string
       properties:

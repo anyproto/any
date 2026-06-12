@@ -107,7 +107,10 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
-	var spaceID string
+	var (
+		spaceID        string
+		spaceCreatedAt time.Time
+	)
 	t.Run("POST /v1/spaces creates", func(t *testing.T) {
 		var created map[string]any
 		body := `{"name":"E2E","description":"e2e-smoke"}`
@@ -117,6 +120,7 @@ func TestE2E_FullFlow(t *testing.T) {
 			t.Fatalf("no id in %+v", created)
 		}
 		spaceID = id
+		spaceCreatedAt = time.Now()
 		if got := created["name"]; got != "E2E" {
 			t.Errorf("name = %v, want E2E", got)
 		}
@@ -192,6 +196,16 @@ func TestE2E_FullFlow(t *testing.T) {
 		// carry it.
 		if id, _ := got["spaceIndexObjectId"].(string); id == "" {
 			t.Errorf("spaceIndexObjectId missing: %+v", got)
+		}
+		// createdAt is stamped on the tech-space row at create time
+		// (added-to-account semantics) — must be a real, recent RFC3339
+		// time, not the zero value pre-stamp rows report.
+		ts, err := time.Parse(time.RFC3339, fmt.Sprint(got["createdAt"]))
+		if err != nil {
+			t.Fatalf("createdAt not RFC3339: %v (%v)", got["createdAt"], err)
+		}
+		if time.Since(ts) > time.Hour {
+			t.Errorf("createdAt = %v, want recent (zero means the stamp is missing)", ts)
 		}
 	})
 
@@ -278,6 +292,10 @@ func TestE2E_FullFlow(t *testing.T) {
 		if rec["id"] != spaceID {
 			t.Errorf("record id = %v, want %v", rec["id"], spaceID)
 		}
+		// Raw rows carry the handler-derived createdAt as unix seconds.
+		if ts, _ := rec["createdAt"].(float64); ts <= 0 {
+			t.Errorf("createdAt = %v, want positive unix seconds: %+v", rec["createdAt"], rec)
+		}
 	})
 
 	t.Run("POST /v1/spaces/query/subscribe streams live changes", func(t *testing.T) {
@@ -336,8 +354,10 @@ func TestE2E_FullFlow(t *testing.T) {
 	t.Run("DELETE /v1/spaces/:id soft-deletes", func(t *testing.T) {
 		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+spaceID, "", http.StatusNoContent)
 
+		// Default list hides non-active rows (temporary workaround in
+		// listSpaces) — ask for all statuses to see the deleted row.
 		var list map[string]any
-		mustJSON(t, http.MethodGet, base+"/v1/spaces", "", http.StatusOK, &list)
+		mustJSON(t, http.MethodGet, base+"/v1/spaces?status=all", "", http.StatusOK, &list)
 		spaces, _ := list["spaces"].([]any)
 		if len(spaces) != 1 {
 			t.Fatalf("want 1 (deleted) row in list, got %d", len(spaces))
@@ -345,6 +365,36 @@ func TestE2E_FullFlow(t *testing.T) {
 		entry, _ := spaces[0].(map[string]any)
 		if entry["status"] != "deleted" {
 			t.Errorf("status = %v, want deleted", entry["status"])
+		}
+	})
+
+	t.Run("POST /v1/spaces/query sorts by -createdAt", func(t *testing.T) {
+		// Second space (the soft-deleted first one stays in the index),
+		// so the newest-first sort has two rows to order. createdAt has
+		// one-second resolution — top up to >1s since the first create
+		// so the two stamps can't tie (in practice the subtests in
+		// between already took far longer and this never sleeps).
+		if d := 1100*time.Millisecond - time.Since(spaceCreatedAt); d > 0 {
+			time.Sleep(d)
+		}
+		var created map[string]any
+		mustJSON(t, http.MethodPost, base+"/v1/spaces", `{"name":"E2E-second"}`, http.StatusCreated, &created)
+		secondID, _ := created["id"].(string)
+		if secondID == "" {
+			t.Fatalf("no id in %+v", created)
+		}
+
+		var resp map[string]any
+		mustJSON(t, http.MethodPost, base+"/v1/spaces/query", `{"sort":["-createdAt"]}`, http.StatusOK, &resp)
+		records, _ := resp["records"].([]any)
+		if len(records) != 2 {
+			t.Fatalf("want 2 space records, got %d: %+v", len(records), records)
+		}
+		first, _ := records[0].(map[string]any)
+		second, _ := records[1].(map[string]any)
+		if first["id"] != secondID || second["id"] != spaceID {
+			t.Errorf("-createdAt order = [%v %v], want [%v %v]",
+				first["id"], second["id"], secondID, spaceID)
 		}
 	})
 

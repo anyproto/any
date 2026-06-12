@@ -104,7 +104,7 @@ func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
-		index.NewAgentMemoryChunker(),
+		index.NewPropChunker(),
 	)
 }
 

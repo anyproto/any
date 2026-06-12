@@ -8,7 +8,8 @@ Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
-   `config.LoadNodeconf`, default fallback `../test-etc/staging.yml`).
+   `config.LoadNodeconf`, default fallback: the embedded
+   `internal/config/nodeconf-staging.yml`).
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
@@ -246,44 +247,50 @@ Implementation slices landed:
       schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
       it (back-compat: a zero Schema → Dynamic). The same release bumps
-      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
-      `v0.0.8` release.
-
-13. **Index chunkers (phase 1) + SDK tombstone opt-in** — the
-    consumer-side search feed's contract and three chunkers, **handlers
-    only (no indexer, no HTTP endpoints)**. Full contract in
+      `any-store/v2` to `v2.0.0-alpha.10`.
+13. **Index chunkers + SDK tombstone opt-in** — the consumer-side
+    search feed's contract. Full contract in
     [`docs/13-index.md`](docs/13-index.md).
     - `internal/index`: `IndexEntry` (`{Scope, ObjectId, Dataset,
-      RecordId, Data, AddSeq}` — `Data == ""` ⇒ remove from index) +
-      `Chunker` interface (`ChunksSince(ctx, sp, objectId, since, yield)`,
-      ascending by `_addSeq`) + `Registry` (`NewRegistry` / `All` /
-      `ForDataset`). Shared `RecordsSince` streamer chains
-      `Projection({IncludeDeleted:true})` → `Filter {_addSeq:{$gt}}` →
-      `Sort _addSeq` → `Iter`. `AgentMemoryChunker` (scope `agent`,
-      dataset `objects`) resolves the `agent_memory` type + `context` /
-      `keywords` / `entities` props by XKey (cached per-space forever;
-      absence never cached); `Data` = `any.name` + those values,
-      newline-joined.
-    - Per-handler chunkers: `editor.NewChunker()` (scope `basic`,
-      dataset `editor_blocks`, `Data` = block `text`) and
-      `chat.NewChunker()` (scope `chat`, dataset `chat_messages`, `Data`
-      = message `text` only — creator/reactions/attachments excluded).
-    - Deletions stream as tombstone entries (`Data ""`). Agent scope
-      emits a tombstone for **any** streamed row that isn't a live
-      memory object — deleted rows *and* live rows without the type
-      (covers `DetachType`); the indexer applies entries uniformly.
+      RecordId, Data, AddSeq}` — `Data == ""` ⇒ record-level removal) +
+      `Chunker` interface (`Dataset()` / `TypeId()` — the `any.types`
+      gate, "" = ungated / `ChunksSince(ctx, sp, objectId, since,
+      yield)`, ascending by `_addSeq`) + `Registry`. Shared
+      `RecordsSince` streamer chains `Projection({IncludeDeleted:true})`
+      → typed `_addSeq > since` filter → `Sort _addSeq` → `Iter`.
+      Scopes are an **open slug set** (`index.ValidScope`); `basic` /
+      `chat` / `agent` are the vocabulary.
+    - Per-handler chunkers: `editor.NewChunker()` (dataset
+      `editor_blocks`, gate `editor`, scope `basic`, `Data` = block
+      `text`) and `chat.NewChunker()` (dataset `chat_messages`, gate
+      `chat`, scope `chat`, `Data` = message `text` only).
+    - `index.NewPropChunker()` (dataset `prop` — VIRTUAL, ungated):
+      indexes property VALUES from the shared `objects` collection, one
+      entry per (object, indexed property), recordId = propId. Which
+      props index is declared on the property definitions via
+      `meta["index"] = "<scope>"` (SDK `PropertyDraft.Meta`, HTTP `meta`
+      field; string/array kinds only; arrays newline-join). Built-ins
+      `any.name` + `any.description` always index under `basic`
+      (recordIds `name` / `description`). Per live row it emits entries
+      for every catalog prop unconditionally — value text when the type
+      is attached, `Data ""` otherwise (record-level eviction of
+      cleared values / detached types). Catalog = per-space TTL
+      snapshot (30s; `Invalidate` for tests).
     - Excluded from indexing entirely: `agent_debug_log`, `program`,
-      `miniapp`.
+      `miniapp`, and the agent-data datasets (`agent_turns` /
+      `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
+      a roadmap item).
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
-      index.NewAgentMemoryChunker())`, stored on `deps.chunkers`.
-    - **SDK prerequisite (branch `feat/addseq-change-index`, not yet a
-      tagged release).** `ProjectionOpts.IncludeDeleted` makes the find
-      path (Iter/All/One/Count) surface tombstones (content wiped,
+      index.NewPropChunker())`, stored on `deps.chunkers`.
+    - **SDK prerequisites (`any-sync-sdk v0.0.10`).**
+      `ProjectionOpts.IncludeDeleted` makes the find path
+      (Iter/All/One/Count) surface tombstones (content wiped,
       `_deletedAt` + carried `_addSeq`) so chunkers stream deletions;
-      Snapshot/Subscribe keep skipping them. Pinned at the branch
-      pseudo-version (`v0.0.9-0.…-d03270b6db49`); re-pin when the
-      branch is tagged.
+      Snapshot/Subscribe keep skipping them. Property definitions carry
+      an opaque consumer `Meta map[string]string` (`PropertyDraft` /
+      `PropertyDef`; not schema-bearing, so mutable once
+      `UpdatePropertyMeta` lands).
 
 14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
     the chunker feed. Full pipeline doc in
@@ -292,21 +299,28 @@ Implementation slices landed:
       service (`New` / `Start` / `Close` / `Search`; `Sync`/`SyncSpace`
       are the synchronous test hooks). **Advance loop** (FTS path):
       `Changes().Subscribe` → cap-1 dirty chan → debounced `advance` —
-      pages `ChangedSince(cursor, 256)`, object-deleted check first
-      (tombstoned object ⇒ `PurgeObject` — the SDK drops deleted
-      objects' datasets wholesale), else runs all chunkers; one WriteTx
-      per page; cursor persisted per page. **Embed loop** (vector path,
-      parallel): drains `pending` docs — batch `EmbedDocs` (64) → batch
-      `SetVectors` (one tx) → `EnsureVectorIndex`; 1m ticker retries.
-      Embedder latency never delays the cursor or FTS searchability.
+      pages `ChangedSince(cursor, 256)`; per dirty object it reads the
+      shared objects row once (IncludeDeleted): tombstoned ⇒ prefix
+      delete `objectId:`; gated chunker whose `TypeId()` ∉ `any.types` ⇒
+      prefix delete `objectId:<dataset>:` (DetachType bumps `_addSeq`,
+      so detach rides the same window); else `ChunksSince`. One WriteTx
+      per page (prefix deletes → record deletes → upserts) — eviction is
+      addSeq-consistent, never racing the cursor; cursor persisted per
+      page. **Embed loop** (vector path, parallel): drains `pending`
+      docs — batch `EmbedDocs` (64) → batch `SetVectors` (one tx) →
+      `EnsureVectorIndex`; 1m ticker retries. Embedder latency never
+      delays the cursor or FTS searchability.
     - `Store`: one any-store DB at `<data-dir>/index/index.db`,
-      collection per space; doc id `dataset+"/"+recordId`; BM25 FTS on
-      `data` + ranges on `objectId`/`pending` ensured at open; **IVF-SQ
-      cosine vector index created lazily** (`EnsureVectorIndex`) once ≥1
-      embedded doc exists — IVF trains from existing docs and cannot be
-      created empty. Vector hits with similarity ≤ 0 are dropped (noise
-      floor). `cursors` collection: per-space cursor + `_meta` dim pin
-      (dim change = boot error advising `rm <data-dir>/index`).
+      collection per space; doc id **`objectId:dataset:recordId`** —
+      every removal is a primary-key op (prefix ranges with bytewise
+      upper bound `prefix[:len-1]+";"`); BM25 FTS on `data` + sparse
+      range on `pending` ensured at open; **IVF-SQ cosine vector index
+      created lazily** (`EnsureVectorIndex`) once ≥1 embedded doc
+      exists — IVF trains from existing docs and cannot be created
+      empty. Vector hits with similarity ≤ 0 are dropped (noise floor).
+      `cursors` collection: per-space cursor + `_meta` schema-version
+      (v2) & dim pin (mismatch = boot error advising
+      `rm <data-dir>/index`).
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
       prompts), `openai` (OpenAI-compatible `/embeddings`), and
@@ -341,12 +355,19 @@ Implementation slices landed:
       `docs/08-clients.md` § 6.
       Space discovery: `Spaces().List` + `Service.Subscribe`
       (added ⇒ spawn worker, removed/deleted ⇒ stop + `DropSpace`).
-    - **any-store prerequisite (branch `btree-fts`, superset of
-      `alpha.10`, not yet tagged).** FTS (`$text`/BM25/`iter.Score`) +
-      vector (`iter.Distance`/`VectorEf`/IVF-SQ) indexes. Pinned at the
-      branch pseudo-version (`v2.0.0-alpha.10.0.…-c91ceb911e3b`) —
-      build-wide, so the SDK also compiles against it (its test suite
-      passes under it). Re-pin when tagged.
+    - **any-store prerequisite (`v2.0.0-alpha.11`).** FTS
+      (`$text`/BM25/`iter.Score`) + vector
+      (`iter.Distance`/`VectorEf`/IVF-SQ) indexes — the `btree-fts`
+      branch, tagged as `alpha.11`. The SDK pins the same version.
+
+15. **Space `createdAt`** — the SDK (v0.0.10) stamps a derived
+    `createdAt` (unix seconds, added-to-account time: create for the
+    author, join for a joiner) on every new tech-space `spaces` row.
+    No `any`-side code — `SpaceInfo.createdAt` (`GET /v1/spaces[/:id]`)
+    and the raw space-list rows light up via passthrough; rows sort
+    with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
+    treat zero as unknown. Semantics + caveats in `docs/03-api.md`
+    § Spaces.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -399,15 +420,13 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-The SDK's tagged base is `any-sync-sdk v0.0.8` (the dataset-schema +
-unified-query work — see status item 12); `go.mod` currently pins **two
-branch pseudo-versions** ahead of it: `any-sync-sdk
-v0.0.9-0.…-d03270b6db49` (branch `feat/addseq-change-index` — `_addSeq`
-change-index + tombstone `IncludeDeleted`, status items 13–14) and
-`any-store/v2 v2.0.0-alpha.10.0.…-c91ceb911e3b` (branch `btree-fts`, a
-superset of `alpha.10` — FTS + vector indexes behind the search
-indexer, status item 14). Re-pin to tagged releases once those branches
-land.
+All pins are tagged releases: `any-sync-sdk v0.0.10` (the `_addSeq`
+change-index + tombstone `IncludeDeleted` work — status items 13–14 —
+plus the space `createdAt` stamp, status item 15 — on top of the
+dataset-schema + unified-query base from `v0.0.8`),
+`any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
+vector indexes behind the search indexer, status item 14), `any-sync
+v0.12.11`.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
@@ -488,7 +507,7 @@ These cut across files and are easy to violate accidentally:
   (`docs/13-index.md`), not an SDK method.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
-  no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
+  no rate limiting in v1 — that comes with the remote-access story (v2). CORS: only the fixed desktop-shell webview allowlist (any-ui PR-095; `routes.go`), which doesn't change the loopback trust model.
 - **Output format is pretty-printed JSON.** Both the server wire format and the
   CLI's stdout. No table rendering, no `--output` flag in v1.
 - **Error response shape is uniform.** `{"error": {"code", "message", "details?"}}`
@@ -509,6 +528,14 @@ These cut across files and are easy to violate accidentally:
   /editor/markdown` is a render transform, not a dataset read.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
+- **any-store filters are built with the typed `any-store/v2/query` package**
+  (`query.Key` / `NewComp` / `NewCompValue` / `NewInValue` / `Text` /
+  `Exists` / `And` / `Or`) — never as `map[string]any` or JSON-string
+  literals. Typed filters are compile-checked, skip parsing, and are
+  immutable once built; **static filters (constant paths/values) are built
+  once at package level and reused** — only dynamic parts are built per
+  call. Client-supplied filters arriving over HTTP are the sole place raw
+  shapes enter (parsed by `query.ParseCondition` at the boundary).
 
 ## Config and lifecycle
 

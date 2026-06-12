@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/anyproto/any-store/v2/anyenc"
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -12,6 +13,11 @@ import (
 // deletedAtField is the SDK's tombstone marker (crdt.DeletedAtField).
 // Duplicated here for the same reason AddSeqField is.
 const deletedAtField = "_deletedAt"
+
+// addSeqPath is the static path of the cursor-window filter (filters
+// are built with the typed any-store query package — never with
+// map/JSON literals — and static pieces are built once).
+var addSeqPath = []string{AddSeqField}
 
 // RecordsSince is the shared windowed streamer every chunker uses. It
 // chains the deletion opt-in (Projection{IncludeDeleted: true}), the
@@ -31,7 +37,7 @@ const deletedAtField = "_deletedAt"
 func RecordsSince(ctx context.Context, q space.Query, since uint64, yield func(rec *anyenc.Value, addSeq uint64) error) error {
 	it, err := q.
 		Projection(space.ProjectionOpts{IncludeDeleted: true}).
-		Filter(map[string]any{AddSeqField: map[string]any{"$gt": int64(since)}}).
+		Filter(query.Key{Path: addSeqPath, Filter: query.NewComp(query.CompOpGt, since)}).
 		Sort(AddSeqField).
 		Iter(ctx)
 	if err != nil {

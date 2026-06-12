@@ -104,7 +104,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	mustModify(t, e, http.MethodPost, edBase+"/editor/blocks", `{"type":"paragraph","text":"block two"}`, http.StatusCreated)
 	blk1Id := blk1.RecordIds[0]
 
-	// --- Agent memory: type + props + object ---
+	// --- Indexed properties: type with meta {"index":"agent"} flags ---
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
 		`{"name":"Memory","xKey":"agent_memory"}`)
 	if rec.Code != http.StatusCreated {
@@ -120,7 +120,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	for _, xkey := range []string{"context", "keywords", "entities"} {
 		rec = doJSON(t, e, http.MethodPost,
 			"/v1/spaces/"+spaceId+"/types/"+memTypeId+"/properties",
-			fmt.Sprintf(`{"name":%q,"kind":"string","xKey":%q}`, xkey, xkey))
+			fmt.Sprintf(`{"name":%q,"kind":"string","xKey":%q,"meta":{"index":"agent"}}`, xkey, xkey))
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create prop %s: %d %s", xkey, rec.Code, rec.Body.String())
 		}
@@ -150,7 +150,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	}
 	chatCh := mustOneChunker(t, d, chat.Dataset)
 	edCh := mustOneChunker(t, d, editor.Dataset)
-	memCh := mustOneChunker(t, d, index.DatasetObjects)
+	propCh := mustOneChunker(t, d, index.DatasetProp)
 
 	// --- ChunksSince(0): full content ---
 	chatEntries, chatMax := collectChunks(t, ctx, chatCh, sdkSpace, chatObj, 0)
@@ -169,16 +169,35 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		}
 	}
 
-	memEntries, memMax := collectChunks(t, ctx, memCh, sdkSpace, memObj, 0)
-	if len(memEntries) != 1 {
-		t.Fatalf("memory entries = %d, want 1: %+v", len(memEntries), memEntries)
+	// Prop chunker: name + description built-ins (scope basic) plus one
+	// entry per meta-flagged property (scope agent), recordId = propId.
+	memEntries, memMax := collectChunks(t, ctx, propCh, sdkSpace, memObj, 0)
+	if len(memEntries) != 5 {
+		t.Fatalf("prop entries = %d, want 5 (name+description+3 flagged): %+v", len(memEntries), memEntries)
 	}
-	me := memEntries[0]
-	if me.Scope != index.ScopeAgent || me.Dataset != index.DatasetObjects || me.RecordId != memObj {
-		t.Errorf("memory entry tags wrong: %+v", me)
+	byRecord := map[string]index.IndexEntry{}
+	for _, en := range memEntries {
+		if en.Dataset != index.DatasetProp || en.ObjectId != memObj {
+			t.Errorf("prop entry tags wrong: %+v", en)
+		}
+		byRecord[en.RecordId] = en
 	}
-	if me.Data != "My Memory\nctx body\nkw1 kw2\nAlice Bob" {
-		t.Errorf("memory Data = %q", me.Data)
+	if en := byRecord[index.NamePropRecordId]; en.Scope != index.ScopeBasic || en.Data != "My Memory" {
+		t.Errorf("name entry wrong: %+v", en)
+	}
+	if en := byRecord[index.DescriptionPropRecordId]; en.Scope != index.ScopeBasic || en.Data != "" {
+		t.Errorf("description entry wrong (unset ⇒ removal): %+v", en)
+	}
+	wantProps := map[string]string{
+		propId["context"]:  "ctx body",
+		propId["keywords"]: "kw1 kw2",
+		propId["entities"]: "Alice Bob",
+	}
+	for pid, want := range wantProps {
+		en, ok := byRecord[pid]
+		if !ok || en.Scope != index.ScopeAgent || en.Data != want {
+			t.Errorf("prop %s entry = %+v, want Data %q scope agent", pid, en, want)
+		}
 	}
 
 	// --- Cursor: ChunksSince(max) empty, then one more message ---
@@ -201,10 +220,15 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	edDel, _ := collectChunks(t, ctx, edCh, sdkSpace, edObj, edMax)
 	assertTombstone(t, edDel, blk1Id, edMax)
 
-	// --- Deletion: memory object → agent tombstone ---
+	// --- Deletion: memory object → no entries from the prop chunker ---
+	// (structural eviction is the indexer's job — the advance loop
+	// prefix-deletes objectId: for tombstoned rows and never calls
+	// chunkers; called directly, the chunker skips the tombstone.)
 	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+memObj, http.StatusNoContent)
-	memDel, _ := collectChunks(t, ctx, memCh, sdkSpace, memObj, memMax)
-	assertTombstone(t, memDel, memObj, memMax)
+	memDel, _ := collectChunks(t, ctx, propCh, sdkSpace, memObj, memMax)
+	if len(memDel) != 0 {
+		t.Fatalf("prop chunker on tombstoned object = %+v, want nothing", memDel)
+	}
 
 	// --- Cursor sanity via Changes() ---
 	maxSeq, err := sdkSpace.Changes().MaxAddSeq(ctx)
@@ -231,22 +255,19 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		}
 	}
 
-	// --- Non-memory object yields a tombstone for its live row ---
-	// chatObj is a regular (chat) object, not agent_memory-typed. The agent
-	// chunker still emits an idempotent removal entry (Data "") for it: the
-	// indexer can't distinguish "row didn't stream" from "streamed but not
-	// a memory", so removal is signalled explicitly per streamed row.
-	liveNonMem, _ := collectChunks(t, ctx, memCh, sdkSpace, chatObj, 0)
-	assertTombstone(t, liveNonMem, chatObj, 0)
-	// ...but its delete still produces a tombstone (idempotent removal —
-	// the indexer no-ops on a never-indexed id).
-	beforeDel, err := sdkSpace.Changes().MaxAddSeq(ctx)
-	if err != nil {
-		t.Fatalf("MaxAddSeq before del: %v", err)
+	// --- Non-memory object: every prop entry is a removal (Data "") ---
+	// chatObj has no name/description and doesn't carry the flagged
+	// type, so the prop chunker emits idempotent removals for all five
+	// records — cleared values and detached types evict record-level.
+	liveNonMem, _ := collectChunks(t, ctx, propCh, sdkSpace, chatObj, 0)
+	if len(liveNonMem) != 5 {
+		t.Fatalf("non-memory prop entries = %d, want 5 removals: %+v", len(liveNonMem), liveNonMem)
 	}
-	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+chatObj, http.StatusNoContent)
-	nonMemDel, _ := collectChunks(t, ctx, memCh, sdkSpace, chatObj, beforeDel)
-	assertTombstone(t, nonMemDel, chatObj, beforeDel)
+	for _, en := range liveNonMem {
+		if en.Data != "" {
+			t.Errorf("non-memory entry should be a removal: %+v", en)
+		}
+	}
 }
 
 func mustOneChunker(t *testing.T, d *deps, dataset string) index.Chunker {

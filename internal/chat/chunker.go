@@ -19,8 +19,11 @@ type Chunker struct{}
 // NewChunker constructs the chat messages chunker.
 func NewChunker() *Chunker { return &Chunker{} }
 
-func (Chunker) Scope() string   { return index.ScopeChat }
 func (Chunker) Dataset() string { return Dataset }
+
+// TypeId gates the chunker on chat-type membership: the indexer evicts
+// objectId:chat_messages: when the type is detached.
+func (Chunker) TypeId() string { return TypeId }
 
 // ChunksSince streams the object's messages past the cursor, ascending
 // by AddSeq. Deleted rows yield a tombstone (Data ""); live rows yield

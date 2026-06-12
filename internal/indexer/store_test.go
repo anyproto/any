@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/anyproto/any-store/v2/anyenc"
+
 	"github.com/anyproto/any/internal/index"
 )
 
@@ -30,7 +32,7 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 		{Entry: entry("chat", "obj1", "chat_messages", "m1", "the zeppelin disaster of 1937", 1)},
 		{Entry: entry("chat", "obj1", "chat_messages", "m2", "lunch plans for tomorrow", 2)},
 		{Entry: entry("basic", "obj2", "editor_blocks", "b1", "zeppelin engineering notes", 3)},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 	// Replace m1's text, delete m2; search reflects both.
 	err = s.Apply(ctx, sp,
 		[]DocUpsert{{Entry: entry("chat", "obj1", "chat_messages", "m1", "quiet afternoon", 4)}},
-		[]string{"chat_messages/m2", "chat_messages/never-existed"})
+		[]string{"obj1:chat_messages:m2", "obj1:chat_messages:never-existed"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +75,7 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 	}
 }
 
-func TestStore_PurgeObjectAndDropSpace(t *testing.T) {
+func TestStore_PrefixDeleteAndDropSpace(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 0)
 	const sp = "space1"
@@ -81,21 +83,46 @@ func TestStore_PurgeObjectAndDropSpace(t *testing.T) {
 	err := s.Apply(ctx, sp, []DocUpsert{
 		{Entry: entry("chat", "obj1", "chat_messages", "m1", "alpha bravo", 1)},
 		{Entry: entry("chat", "obj1", "chat_messages", "m2", "alpha charlie", 2)},
-		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha delta", 3)},
-	}, nil)
+		{Entry: entry("basic", "obj1", "editor_blocks", "b1", "alpha echo", 3)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha delta", 4)},
+		{Entry: entry("basic", "obj2", "editor_blocks", "b2", "alpha foxtrot", 5)},
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.PurgeObject(ctx, sp, "obj1"); err != nil {
+	// Dataset-level prefix (type detach): obj2 loses its chat docs only.
+	if err := s.Apply(ctx, sp, nil, nil, []string{"obj2:chat_messages:"}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := s.SearchFTS(ctx, sp, "alpha", nil, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 1 || hits[0].ObjectId != "obj2" {
-		t.Fatalf("after purge, hits = %+v, want only obj2", hits)
+	if len(hits) != 4 {
+		t.Fatalf("after dataset prefix delete, hits = %+v, want 4", hits)
+	}
+	for _, h := range hits {
+		if h.ObjectId == "obj2" && h.Dataset == "chat_messages" {
+			t.Fatalf("obj2 chat doc survived the prefix delete: %+v", h)
+		}
+	}
+
+	// Object-level prefix (object deletion): all of obj1 goes, across
+	// datasets, and FTS no longer matches its text (locks in in-tx
+	// index cleanup).
+	if err := s.Apply(ctx, sp, nil, nil, []string{"obj1:"}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].ObjectId != "obj2" || hits[0].RecordId != "b2" {
+		t.Fatalf("after object prefix delete, hits = %+v, want only obj2/b2", hits)
+	}
+	if h, err := s.SearchFTS(ctx, sp, "bravo", nil, 10); err != nil || len(h) != 0 {
+		t.Fatalf("deleted text still matches: %+v, %v", h, err)
 	}
 
 	if err := s.SetCursor(ctx, sp, 42); err != nil {
@@ -151,7 +178,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 		{Entry: entry("basic", "obj2", "editor_blocks", "b1", "far away", 2), Vector: []float32{0, 1, 0, 0}},
 		{Entry: entry("chat", "obj1", "chat_messages", "m2", "awaiting embedding", 3)}, // pending
 		{Entry: entry("basic", "obj2", "editor_blocks", "b2", "", 4)},                  // empty text — never pending
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,8 +187,8 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != "chat_messages/m2" || texts[0] != "awaiting embedding" {
-		t.Fatalf("pending = %v / %v, want only chat_messages/m2", ids, texts)
+	if len(ids) != 1 || ids[0] != "obj1:chat_messages:m2" || texts[0] != "awaiting embedding" {
+		t.Fatalf("pending = %v / %v, want only obj1:chat_messages:m2", ids, texts)
 	}
 
 	query := []float32{0.9, 0.1, 0, 0}
@@ -177,7 +204,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	}
 
 	// Embed the pending doc near the query; it should now win searches.
-	if err := s.SetVectors(ctx, sp, []string{"chat_messages/m2", "chat_messages/gone"}, [][]float32{{1, 0, 0, 0}, {0, 0, 1, 0}}); err != nil {
+	if err := s.SetVectors(ctx, sp, []string{"obj1:chat_messages:m2", "obj1:chat_messages:gone"}, [][]float32{{1, 0, 0, 0}, {0, 0, 1, 0}}); err != nil {
 		t.Fatal(err)
 	}
 	ids, _, err = s.Pending(ctx, sp, 10)
@@ -201,7 +228,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	}
 
 	// A re-upsert of an embedded doc goes back to pending (text changed).
-	err = s.Apply(ctx, sp, []DocUpsert{{Entry: entry("chat", "obj1", "chat_messages", "m1", "rewritten", 5)}}, nil)
+	err = s.Apply(ctx, sp, []DocUpsert{{Entry: entry("chat", "obj1", "chat_messages", "m1", "rewritten", 5)}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,8 +236,8 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != "chat_messages/m1" {
-		t.Fatalf("pending after re-upsert = %v, want chat_messages/m1", ids)
+	if len(ids) != 1 || ids[0] != "obj1:chat_messages:m1" {
+		t.Fatalf("pending after re-upsert = %v, want obj1:chat_messages:m1", ids)
 	}
 }
 
@@ -239,7 +266,7 @@ func TestStore_LazyDim(t *testing.T) {
 	const sp = "space1"
 	if err := s.Apply(ctx, sp, []DocUpsert{
 		{Entry: entry("chat", "obj1", "chat_messages", "m1", "waiting for the embedder", 1)},
-	}, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	ids, _, err := s.Pending(ctx, sp, 10)
@@ -270,5 +297,30 @@ func TestStore_LazyDim(t *testing.T) {
 	// A contradicting dimension (model swapped) is an error.
 	if err := s.EnsureDim(ctx, 8); err == nil {
 		t.Fatal("EnsureDim with a different dim should error")
+	}
+}
+
+func TestStore_SchemaVersionMismatch(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 0)
+	// Rewrite _meta as an older schema, then re-run the open check —
+	// the store must refuse with an actionable message.
+	if err := s.writeMetaDim(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	arena := &anyenc.Arena{}
+	meta := arena.NewObject()
+	meta.Set("id", arena.NewString(metaDocId))
+	meta.Set("schema", arena.NewNumberInt(1))
+	meta.Set("dim", arena.NewNumberInt(0))
+	if err := coll.UpsertOne(ctx, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkMeta(ctx); err == nil {
+		t.Fatal("old schema version should refuse to open")
 	}
 }

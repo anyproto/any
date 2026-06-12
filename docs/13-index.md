@@ -1,10 +1,10 @@
-# 11 — Index chunkers (consumer-side search feed)
+# 13 — Search index (consumer-side)
 
 This governs the search-index pipeline: the chunker contract
 (`internal/index`, `internal/editor/chunker.go`,
-`internal/chat/chunker.go` — phase 1) and the indexer that consumes it
-(`internal/indexer` — phase 2): a local BM25 + vector index per space
-behind `POST /v1/spaces/:spaceId/search` / `any search`.
+`internal/chat/chunker.go`, `internal/index/prop.go`) and the indexer
+that consumes it (`internal/indexer`): a local BM25 + vector index per
+space behind `POST /v1/spaces/:spaceId/search` / `any search`.
 
 The chunkers are wired into the process via `server.NewIndexRegistry`
 (stored on `deps.chunkers`); the indexer is built in `server.Run` when
@@ -15,7 +15,7 @@ The chunkers are wired into the process via `server.NewIndexRegistry`
 
 ```go
 type IndexEntry struct {
-    Scope    string // "basic" | "chat" | "agent"
+    Scope    string // open slug set; "basic" / "chat" / "agent" are the vocabulary
     ObjectId string
     Dataset  string
     RecordId string
@@ -24,10 +24,10 @@ type IndexEntry struct {
 }
 
 type Chunker interface {
-    Scope() string
-    Dataset() string
+    Dataset() string // doc-id middle segment; may be virtual ("prop")
+    TypeId() string  // any.types gate; "" = ungated (see eviction below)
     // Streams every entry of objectId with AddSeq > since, ascending.
-    // Deleted records yield a tombstone entry (Data == "").
+    // Cleared/deleted records yield removal entries (Data == "").
     ChunksSince(ctx, sp space.Space, objectId string, since uint64, yield func(IndexEntry) error) error
 }
 ```
@@ -37,57 +37,72 @@ A chunker turns one object's records (for one dataset) into a stream of
 (its last-seen `AddSeq`) and calls `ChunksSince(cursor)` to pull only
 what changed.
 
-## Scopes and what each chunker indexes
+## Chunkers, scopes, gating
 
-| Scope   | Chunker                          | Dataset         | `Data` composition                                            |
-|---------|----------------------------------|-----------------|---------------------------------------------------------------|
-| `basic` | `editor.NewChunker()`            | `editor_blocks` | the block's `text` (inline markdown)                          |
-| `chat`  | `chat.NewChunker()`              | `chat_messages` | the message's `text` only                                     |
-| `agent` | `index.NewAgentMemoryChunker()`  | `objects`       | `any.name` + `context` + `keywords` + `entities`, newline-joined |
+| Chunker                 | Dataset (doc-id segment) | `TypeId()` gate | Scope of entries | `Data` |
+|-------------------------|--------------------------|-----------------|------------------|--------|
+| `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | the block's `text` (inline markdown) |
+| `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
+| `index.NewPropChunker()`| `prop` (virtual)         | — (ungated)     | per property     | property values (see below) |
 
 - **One record = one chunk.** Editor blocks and chat messages are
-  per-object datasets — one row per block / message, so a chunker emits
-  one entry per row. Agent memory objects live in the shared `objects`
-  dataset as a single row each, so the agent chunker emits one entry per
-  object.
-- **Chat excludes** creator / reactions / attachments in phase 1 — text
-  only. **Editor excludes** block type / style — text only.
-- **Agent memory** resolves the `agent_memory` type and its
-  `context` / `keywords` / `entities` string properties by their stable
-  client `XKey` (via `Types().List` / `Types().Properties`). Property and
-  type ids are content-addressed and immutable, so a resolved tuple is
-  cached per space forever; absence is never cached, so a late-defined
-  type or property is picked up on the next call. Empty fields are
-  skipped in the join; an object with only a name indexes just the name.
+  per-object datasets — one row per block / message, one entry per row.
+- **Chat excludes** creator / reactions / attachments — text only.
+  **Editor excludes** block type / style — text only.
+- **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
+  of `[a-z0-9_-]`); `basic` / `chat` / `agent` are the established
+  vocabulary, and property meta flags can mint new ones.
+- **`TypeId()` gating**: the indexer runs a gated chunker only while the
+  type literal is in the object's `any.types`; when it is not, it
+  prefix-evicts `objectId:<dataset>:` instead (see eviction below).
+
+### The prop chunker (`internal/index/prop.go`)
+
+Indexes property VALUES from the shared `objects` collection under the
+virtual dataset `prop` — one entry per (object, indexed property), doc
+id `objectId:prop:<propId>`:
+
+- **Which properties index is declared on the property definitions**:
+  `meta["index"] = "<scope>"` (set at `AddProperty` time — SDK
+  `PropertyDraft.Meta`, HTTP `meta` field). Only string / array kinds
+  index; arrays render as a newline join of their string elements.
+- **Built-ins `any.name` and `any.description` are always indexed**
+  under scope `basic`, reserved recordIds `name` / `description`.
+- Per streamed live row the chunker emits entries for the built-ins and
+  for EVERY catalog property, unconditionally: value present and type
+  attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
+  detached-type properties evict record-level, idempotently.
+- The per-space catalog (flagged props across all non-builtin types) is
+  a TTL snapshot (30s): newly flagged properties are picked up within
+  the TTL — and only affect rows written afterwards anyway ("index from
+  the next change"). `Invalidate(spaceId)` drops it (tests/ops).
 
 ### Excluded from indexing entirely
 
-`agent_debug_log`, `program`, and `miniapp` datasets have **no chunker**
-(user decision — agent debug never enters the index). `Registry.ForDataset`
-returns nothing for them.
+`agent_debug_log`, `program`, `miniapp`, and the agent-data datasets
+(`agent_turns` / `agent_chunks` / `agent_memory_items` — a dedicated
+gated chunker is a roadmap item) have **no chunker**;
+`Registry.ForDataset` returns nothing for them.
 
-## Tombstone semantics (`Data == ""` ⇒ remove)
+## Removal semantics
 
-`Space.Delete` leaves a sticky tombstone: content fields wiped,
-`_deletedAt` set, `_ver` / `_traces` preserved, and the delete's
-`_addSeq` carried onto the row so it surfaces in a changed-since scan.
-The SDK's find path normally **skips** tombstones; chunkers opt in to
-seeing them via `Projection({IncludeDeleted: true})` (see `RecordsSince`
-in `internal/index/stream.go`).
+Three granularities, all addSeq-consistent (discovered through the same
+`ChangedSince` window, applied in the same page transaction):
 
-- A deleted record yields an `IndexEntry` with **`Data == ""`** — the
-  indexer's signal to evict that `RecordId`. Removing a never-indexed id
-  is a no-op, so tombstones are safe to emit unconditionally.
-- An **empty live record** (a block / message with no text) also yields
-  `Data == ""`. The indexer treats both the same: "nothing to index here."
-- The **agent chunker emits a tombstone for any streamed row that isn't
-  a live memory object** — deleted rows (the tombstone's `any.types` is
-  wiped, so memory-ness is unknowable) *and* live rows missing the
-  `agent_memory` type. The latter covers `DetachType`: detaching the
-  type is a property write that bumps `_addSeq` and re-streams the row;
-  the explicit removal entry evicts the stale index entry. The indexer
-  applies all entries uniformly — no scope-specific eviction rules —
-  and idempotent removal makes over-emitting harmless.
+| What happened | Who detects it | Index operation |
+|---------------|----------------|-----------------|
+| record deleted / value cleared | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
+| type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`) | prefix delete `objectId:dataset:` |
+| object deleted (`Space.Delete` — datasets dropped wholesale) | the indexer (shared objects row tombstoned) | prefix delete `objectId:` |
+
+`Space.Delete` leaves a sticky tombstone: content wiped, `_deletedAt`
+set, the delete's `_addSeq` carried onto the row. The SDK's find path
+normally **skips** tombstones; the chunkers' `RecordsSince` and the
+indexer's objects-row read opt in via `Projection({IncludeDeleted:
+true})`. Removing what was never indexed is a no-op everywhere, so all
+three operations are safe to apply unconditionally. Re-attach after a
+detach does NOT resurrect rows below the cursor — they index on their
+next write ("index from the next change").
 
 ## AddSeq semantics
 
@@ -102,9 +117,11 @@ peer's value for the same change.
   any `since >= 0`, so they're excluded by the `$gt` window — same
   contract as the SDK's own `Changes().ChangedSince`. Pre-existing data
   is indexed only after its next write.
-- `RecordsSince` chains `Projection({IncludeDeleted: true})` →
-  `Filter {"_addSeq": {"$gt": since}}` → `Sort "_addSeq"` → `Iter`, so
-  every chunker streams ascending by `AddSeq` past the cursor.
+- `RecordsSince` chains `Projection({IncludeDeleted: true})` → a typed
+  `_addSeq > since` filter → `Sort "_addSeq"` → `Iter`, so every chunker
+  streams ascending by `AddSeq` past the cursor. (All any-store filters
+  are built with the typed `any-store/v2/query` package — never map/JSON
+  literals; static filters are built once and reused.)
 
 ## Phase 2 — the indexer (`internal/indexer`)
 
@@ -116,35 +133,47 @@ any-store database at `<data-dir>/index/index.db`, plus the
 ### Store layout
 
 - **One collection per space** (named by spaceId). Doc shape:
-  `{id: dataset+"/"+recordId, scope, objectId, dataset, recordId, data,
-  addSeq, vector?, pending?}`.
+  `{id: objectId+":"+dataset+":"+recordId, scope, objectId, dataset,
+  recordId, data, addSeq, vector?, pending?}`. The id shape makes every
+  removal a primary-key operation — `objectId:` prefix (object
+  deleted), `objectId:dataset:` prefix (type detached), exact id
+  (record deleted) — and keeps ids unique even though recordIds repeat
+  across objects (propIds do). Prefix ranges use bytewise bounds
+  `[P, P[:len-1]+";")` (`;` = `:`+1) and drive the primary btree
+  directly; per-doc deletion cleans FTS and vector entries in the same
+  transaction.
 - Indexes per collection: BM25 **full-text** on `data`
-  (`IndexKindFulltext`); range on `objectId` (purges); sparse range on
-  `pending` (embed queue); and — once at least one embedded doc exists —
-  an **IVF-SQ cosine vector index** on `vector`. The vector index is
-  created lazily because IVF trains its quantizers from existing
-  documents (`Store.EnsureVectorIndex`); `CompactRatio: 0.5` re-trains
-  as the space outgrows the initial training set.
+  (`IndexKindFulltext`); sparse range on `pending` (embed queue); and —
+  once at least one embedded doc exists — an **IVF-SQ cosine vector
+  index** on `vector`. The vector index is created lazily because IVF
+  trains its quantizers from existing documents
+  (`Store.EnsureVectorIndex`); `CompactRatio: 0.5` re-trains as the
+  space outgrows the initial training set.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the vector dimension — changing the
-  embedder dimension is a boot error telling you to remove
-  `<data-dir>/index/` and re-index.
+  plus a `_meta` row pinning the **schema version** (v2 — the id shape;
+  an old DB errors at boot with a remove-to-rebuild message, no
+  migration: the index is derived state) and the vector dimension —
+  changing the embedder dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
 The single operation is `advance`: page through
 `Changes().ChangedSince(cursor, batch)`, and per dirty object:
 
-1. **Object-deleted check first**: one `QueryObjects` lookup with
-   `IncludeDeleted`. A tombstoned object **purges every doc with its
-   objectId** — the SDK drops a deleted object's datasets wholesale, so
-   per-record tombstones never stream for them.
-2. Otherwise run every registered chunker's `ChunksSince(cursor)`:
-   `Data == ""` → delete the doc, else upsert it (one write tx per
-   page). Text-bearing upserts land marked `pending` — **FTS is
-   searchable immediately**, never waiting on the embedder.
-3. Persist the cursor (the page's max `AddSeq`) and loop. Crash-safe:
-   re-applying a page is idempotent.
+1. **Read the shared objects row once** (`QueryObjects`,
+   `IncludeDeleted`). Tombstoned ⇒ prefix-delete `objectId:` and skip
+   the chunkers (the SDK drops a deleted object's datasets wholesale,
+   so per-record removals never stream for them).
+2. Otherwise, per registered chunker: a non-empty `TypeId()` not in the
+   row's `any.types` ⇒ prefix-delete `objectId:<dataset>:` (type
+   detached — idempotent, one btree seek when already empty); else run
+   `ChunksSince(cursor)` — `Data == ""` → delete the doc, else upsert.
+3. **One write transaction per page** (prefix deletes → record deletes
+   → upserts), then persist the cursor (the page's max `AddSeq`) and
+   loop. Eviction rides the same addSeq window as content — no
+   out-of-band purge can race the cursor. Crash-safe: re-applying a
+   page is idempotent. Text-bearing upserts land marked `pending` —
+   **FTS is searchable immediately**, never waiting on the embedder.
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker
@@ -247,7 +276,7 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `Debounce` (dirty → advance) | 250ms | A no-op advance is sub-ms; the dial only coalesces write bursts into one page / fuller embed batches, trading freshness. |
 | `RetryBackoff` / `PendingEvery` | 5s / 1m | Failure paths only: advance retry, embed catch-up tick. |
 
-Search at 10k docs (dim 768): FTS ≈ 3.6ms, vector ≈ 0.9ms per query.
+Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
 Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 (`ANY_BENCH_OLLAMA=1` adds the real-embedder run).
 

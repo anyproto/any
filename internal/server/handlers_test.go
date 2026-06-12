@@ -179,6 +179,11 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	if created.Status != api.SpaceStatusActive {
 		t.Errorf("status = %q, want active", created.Status)
 	}
+	// createdAt is stamped on the tech-space row at create time
+	// (added-to-account semantics) — only pre-stamp rows are zero.
+	if created.CreatedAt.IsZero() {
+		t.Error("created.CreatedAt is zero, want stamped time")
+	}
 
 	// GET /v1/spaces/:id → same row.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+created.Id, "")
@@ -192,6 +197,9 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	if got.Id != created.Id {
 		t.Errorf("got.Id = %q, want %q", got.Id, created.Id)
 	}
+	if got.CreatedAt.IsZero() {
+		t.Error("got.CreatedAt is zero, want stamped time")
+	}
 
 	// GET /v1/spaces → list now contains the space.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces", "")
@@ -200,6 +208,8 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	}
 	if len(list.Spaces) != 1 || list.Spaces[0].Id != created.Id {
 		t.Errorf("list = %+v", list.Spaces)
+	} else if list.Spaces[0].CreatedAt.IsZero() {
+		t.Error("list row CreatedAt is zero, want stamped time")
 	}
 
 	// DELETE /v1/spaces/:id → soft delete; row stays in storage with status=deleted.
