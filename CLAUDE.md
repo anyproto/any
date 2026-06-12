@@ -239,9 +239,7 @@ Implementation slices landed:
       schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
       it (back-compat: a zero Schema → Dynamic). The same release bumps
-      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
-      `v0.0.8` release.
-
+      `any-store/v2` to `v2.0.0-alpha.10`.
 13. **Index chunkers + SDK tombstone opt-in** — the consumer-side
     search feed's contract. Full contract in
     [`docs/13-index.md`](docs/13-index.md).
@@ -343,6 +341,15 @@ Implementation slices landed:
       (`iter.Distance`/`VectorEf`/IVF-SQ) indexes — the `btree-fts`
       branch, tagged as `alpha.11`. The SDK pins the same version.
 
+15. **Space `createdAt`** — the SDK (v0.0.10) stamps a derived
+    `createdAt` (unix seconds, added-to-account time: create for the
+    author, join for a joiner) on every new tech-space `spaces` row.
+    No `any`-side code — `SpaceInfo.createdAt` (`GET /v1/spaces[/:id]`)
+    and the raw space-list rows light up via passthrough; rows sort
+    with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
+    treat zero as unknown. Semantics + caveats in `docs/03-api.md`
+    § Spaces.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -394,7 +401,8 @@ Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 **published modules**, not sibling checkouts — `go.mod` pins versions.
 All pins are tagged releases: `any-sync-sdk v0.0.10` (the `_addSeq`
 change-index + tombstone `IncludeDeleted` work — status items 13–14 —
-on top of the dataset-schema + unified-query base from `v0.0.8`),
+plus the space `createdAt` stamp, status item 15 — on top of the
+dataset-schema + unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync
 v0.12.11`.
