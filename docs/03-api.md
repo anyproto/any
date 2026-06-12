@@ -782,7 +782,9 @@ body is always read back through the query path.
   "createdAt":        1714597200,
   "modifiedAt":       1714597200,
   "replyToMessageId": "<msgId>",
-  "fromAgent":        "<opaque identity>",
+  "agent": {
+    "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
+  },
   "text":             "**hi** _there_",
   "attachments": {
     "a1": { "type": "link",  "link": "any://abc/def" },
@@ -797,13 +799,26 @@ are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
 
-`fromAgent` is an optional, opaque, create-only tag the sender sets to
-mark the message as written by an agent acting on the signer's behalf
-(vs typed by the signer directly). It is NOT cryptographically
-verified — `creator` is still the change signer; `fromAgent` is a UI
-hint. Typical use: an agent subscribed to `chat_messages` ignores its
-own messages (`fromAgent` non-empty) and only responds to human ones
-(`fromAgent` empty). Omitted from responses when unset.
+`agent` is an optional, create-only group the sender sets to mark the
+message as written by an agent acting on the signer's behalf (vs typed
+by the signer directly). It is NOT cryptographically verified —
+`creator` is still the change signer; the group is a UI hint. Fields:
+
+- `name` — required, non-empty, ≤ 256 bytes. Display label.
+- `debugLink` — optional, non-empty when present, ≤ 2 KiB. Opaque to
+  the server; by convention `any://<spaceId>/<debugLogObjectId>` with
+  an optional `#turn_<n>` fragment (1-based LLM-turn ordinal) so a UI
+  can deep-link "go to debug" from the message to the turn that
+  produced it.
+- `done` — required boolean. Liveness: `false` means the run that
+  produced this message is still going; clients cycle a typing
+  indicator while the *last* message in a chat is an agent message
+  with `done: false`. Every run must end with a `done: true` message.
+
+No unknown sub-fields. Immutable post-create as a group. Typical use:
+an agent subscribed to `chat_messages` ignores its own messages
+(`agent` present) and only responds to human ones (`agent` absent).
+Omitted from responses when unset.
 
 `attachments` is an optional, create-only map keyed by short opaque
 ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`.
@@ -830,13 +845,15 @@ See `internal/chat/handler.go`.
 `POST /v1/spaces/:spaceId/objects/:objectId/chat/messages`
 
 ```json
-{ "text": "hello", "replyToMessageId": "abc", "fromAgent": "agent-alice" }
+{ "text": "hello", "replyToMessageId": "abc",
+  "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
 ```
 
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
-present; immutable post-create. Returns 201 with the shared write
+target exists. `agent` is optional (see § Message wire shape for the
+sub-field rules; 400 `chat.agent_invalid` on violations); immutable
+post-create. Returns 201 with the shared write
 result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
 server-derived message id. Read the message back via the query path
 above.

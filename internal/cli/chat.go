@@ -35,10 +35,12 @@ func newChatCmd() *cobra.Command {
 
 func newChatSendCmd() *cobra.Command {
 	var (
-		text      string
-		file      string
-		replyTo   string
-		fromAgent string
+		text           string
+		file           string
+		replyTo        string
+		agentName      string
+		agentDebugLink string
+		agentDone      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "send <spaceId> <objectId>",
@@ -49,11 +51,17 @@ func newChatSendCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var agent *api.ChatAgentMeta
+			if agentName != "" {
+				agent = &api.ChatAgentMeta{Name: agentName, DebugLink: agentDebugLink, Done: agentDone}
+			} else if agentDebugLink != "" || cmd.Flags().Changed("agent-done") {
+				return fmt.Errorf("--agent-debug-link / --agent-done require --agent-name")
+			}
 			cl := client.New(flags.Addr, flags.Timeout)
 			out, err := cl.ChatSend(cmd.Context(), args[0], args[1], api.ChatSendRequest{
 				Text:             body,
 				ReplyToMessageId: replyTo,
-				FromAgent:        fromAgent,
+				Agent:            agent,
 			})
 			if err != nil {
 				return err
@@ -64,7 +72,9 @@ func newChatSendCmd() *cobra.Command {
 	cmd.Flags().StringVar(&text, "text", "", "message text (markdown). Mutually exclusive with --file")
 	cmd.Flags().StringVar(&file, "file", "", "read message text from FILE (use - for stdin)")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "id of a message this reply targets")
-	cmd.Flags().StringVar(&fromAgent, "from-agent", "", "opaque tag marking this message as written by an agent")
+	cmd.Flags().StringVar(&agentName, "agent-name", "", "mark this message as agent-authored under this display name")
+	cmd.Flags().StringVar(&agentDebugLink, "agent-debug-link", "", "debug drill-down link (any://spaceId/objectId#turn_N); requires --agent-name")
+	cmd.Flags().BoolVar(&agentDone, "agent-done", true, "agent run liveness: false while the run is still going; requires --agent-name")
 	return cmd
 }
 

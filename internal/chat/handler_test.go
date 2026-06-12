@@ -176,24 +176,50 @@ func TestBeforeCreate_AttachmentRejects(t *testing.T) {
 	}
 }
 
-func TestBeforeCreate_AcceptsFromAgent(t *testing.T) {
-	arena := &anyenc.Arena{}
-	payload := arena.NewObject()
-	payload.Set(FieldText, arena.NewString("hello"))
-	payload.Set(FieldFromAgent, arena.NewString("agent-alice"))
-
-	rec := &handler.RecordChange{
-		Id:     "",
-		Upsert: true,
-		Ops: []handler.Op{{
-			Type:    handler.OpSet,
-			Path:    nil,
-			Payload: payload,
-		}},
+func TestBeforeCreate_AcceptsAgent(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func(a *anyenc.Arena, agent *anyenc.Value)
+	}{
+		{
+			name: "full group",
+			build: func(a *anyenc.Arena, agent *anyenc.Value) {
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDebugLink, a.NewString("any://sp/obj#turn_3"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+			},
+		},
+		{
+			name: "minimal — name + done only",
+			build: func(a *anyenc.Arena, agent *anyenc.Value) {
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewFalse())
+			},
+		},
 	}
-	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
-	if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
-		t.Fatalf("BeforeCreate with fromAgent: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			arena := &anyenc.Arena{}
+			payload := arena.NewObject()
+			payload.Set(FieldText, arena.NewString("hello"))
+			agent := arena.NewObject()
+			tc.build(arena, agent)
+			payload.Set(FieldAgent, agent)
+
+			rec := &handler.RecordChange{
+				Id:     "",
+				Upsert: true,
+				Ops: []handler.Op{{
+					Type:    handler.OpSet,
+					Path:    nil,
+					Payload: payload,
+				}},
+			}
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
+				t.Fatalf("BeforeCreate with agent: %v", err)
+			}
+		})
 	}
 }
 
@@ -274,34 +300,129 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 			wantIn: "field_not_allowed: reactions",
 		},
 		{
-			name: "fromAgent empty string",
+			name: "fromAgent removed — unknown field",
 			build: func(a *anyenc.Arena) *handler.RecordChange {
 				p := a.NewObject()
 				p.Set(FieldText, a.NewString("hi"))
-				p.Set(FieldFromAgent, a.NewString(""))
+				p.Set("fromAgent", a.NewString("bao"))
 				return setRoot(a, p)
 			},
-			wantIn: "fromAgent must be non-empty",
+			wantIn: "field_not_allowed: fromAgent",
 		},
 		{
-			name: "fromAgent not a string",
+			name: "agent not an object",
 			build: func(a *anyenc.Arena) *handler.RecordChange {
 				p := a.NewObject()
 				p.Set(FieldText, a.NewString("hi"))
-				p.Set(FieldFromAgent, a.NewNumberInt(1))
+				p.Set(FieldAgent, a.NewString("bao"))
 				return setRoot(a, p)
 			},
-			wantIn: "fromAgent must be a string",
+			wantIn: "agent must be an object",
 		},
 		{
-			name: "fromAgent too long",
+			name: "agent missing name",
 			build: func(a *anyenc.Arena) *handler.RecordChange {
 				p := a.NewObject()
 				p.Set(FieldText, a.NewString("hi"))
-				p.Set(FieldFromAgent, a.NewString(strings.Repeat("x", MaxFromAgentBytes+1)))
+				agent := a.NewObject()
+				agent.Set(FieldAgentDone, a.NewTrue())
+				p.Set(FieldAgent, agent)
 				return setRoot(a, p)
 			},
-			wantIn: "fromAgent too long",
+			wantIn: "agent.name required",
+		},
+		{
+			name: "agent name empty",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString(""))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.name required",
+		},
+		{
+			name: "agent name too long",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString(strings.Repeat("x", MaxAgentNameBytes+1)))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.name too long",
+		},
+		{
+			name: "agent missing done",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.done required",
+		},
+		{
+			name: "agent done not a boolean",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewNumberInt(1))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.done must be a boolean",
+		},
+		{
+			name: "agent debugLink empty",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set(FieldAgentDebugLink, a.NewString(""))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.debugLink must be non-empty",
+		},
+		{
+			name: "agent debugLink too long",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set(FieldAgentDebugLink, a.NewString(strings.Repeat("x", MaxDebugLinkBytes+1)))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.debugLink too long",
+		},
+		{
+			name: "agent unknown sub-field",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set("ghost", a.NewString("hi"))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent: field_not_allowed: ghost",
 		},
 		{
 			name: "non-set op",
@@ -579,7 +700,8 @@ func TestBeforeModify_DisallowedPath(t *testing.T) {
 		{FieldCreatedAt},
 		{FieldModifiedAt},
 		{FieldReplyToMessageId},
-		{FieldFromAgent},
+		{FieldAgent},
+		{FieldAgent, FieldAgentDone},
 		{"_ver", "id"},
 		{"_deletedAt"},
 		{"unknown"},

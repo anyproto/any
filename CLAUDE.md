@@ -86,11 +86,18 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
-   Optional opaque `fromAgent` tag on create marks the message as
+   Optional create-only `agent` group (`{name, debugLink?, done}` —
+   replaced the old `fromAgent` string) marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
-   post-create. Lets an agent subscribed to `chat_messages` filter to
-   human-typed messages (fromAgent empty) when deciding what to
-   respond to. `any chat send --from-agent <id>`.
+   post-create. `name` is the display label, `debugLink` an
+   `any://<spaceId>/<debugObjId>#turn_<n>` drill-down into the run's
+   debug page, `done` the liveness bool clients key a typing indicator
+   on (false while the run is going; every run ends with done:true).
+   Lets an agent subscribed to `chat_messages` filter to human-typed
+   messages (`agent` absent) when deciding what to respond to.
+   `any chat send --agent-name <name> [--agent-debug-link L]
+   [--agent-done=false]`. Contract spec: task-agent-message-field.md +
+   ../any-ui/docs/tasks/agent-message-field.md.
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /

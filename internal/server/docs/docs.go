@@ -3605,6 +3605,20 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ChatAgentMeta": {
+            "type": "object",
+            "properties": {
+                "debugLink": {
+                    "type": "string"
+                },
+                "done": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChatAttachment": {
             "type": "object",
             "properties": {
@@ -3627,14 +3641,14 @@ const docTemplate = `{
         "api.ChatSendRequest": {
             "type": "object",
             "properties": {
+                "agent": {
+                    "$ref": "#/definitions/api.ChatAgentMeta"
+                },
                 "attachments": {
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/api.ChatAttachment"
                     }
-                },
-                "fromAgent": {
-                    "type": "string"
                 },
                 "replyToMessageId": {
                     "type": "string"

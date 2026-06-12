@@ -53,7 +53,7 @@ Every hop is an indexed range query; nothing is ever bulk-loaded.
   "seq":       7,                   // per-chat monotonic, caller-assigned (last+1)
   "creator":   "<accountId>",       // server-stamped
   "createdAt": 1700000000,          // server-stamped (unix seconds)
-  "fromAgent": "bobrik",            // optional, opaque (like chat's fromAgent)
+  "fromAgent": "bobrik",            // optional, opaque agent name tag
   "userName":  "alice",             // optional
   "userText":  "what's the status?",
   "think":     "<model narration>",

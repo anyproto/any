@@ -12,7 +12,9 @@
 //	  "createdAt":        <unix-seconds>,                    // server-stamped
 //	  "modifiedAt":       <unix-seconds>,                    // bumped on edit
 //	  "replyToMessageId": "<msgId>",                         // optional
-//	  "fromAgent":        "<opaque identity>",               // optional, create-only
+//	  "agent": {                                             // optional, create-only
+//	    "name": "<display label>", "debugLink": "<any://…>", "done": <bool>
+//	  },
 //	  "text":             "<markdown>",                      // ≤ MaxTextBytes
 //	  "attachments":      {                                  // optional, create-only
 //	    "<id>": { "type": "<link|image|…>", "link": "<url>" }
@@ -27,12 +29,18 @@
 // immutable (matches reactions' append-only stance, simpler to reason
 // about across peers).
 //
-// `fromAgent` is an opaque tag the client supplies on create to mark
-// the message as authored by an agent acting on the signer's behalf
-// (vs the signer typing it directly). It is NOT cryptographically
-// verified — `creator` is still the change signer; `fromAgent` is a
-// UI hint, useful e.g. as a "human said this, please respond" trigger
-// for an agent subscribed to fromAgent-empty messages.
+// `agent` marks the message as authored by an agent acting on the
+// signer's behalf (vs the signer typing it directly). It is NOT
+// cryptographically verified — `creator` is still the change signer;
+// the group is a UI hint, useful e.g. as a "human said this, please
+// respond" trigger for an agent subscribed to agent-less messages.
+// Fields: `name` (required display label), `debugLink` (optional
+// drill-down into the run's debug page, by convention
+// `any://<spaceId>/<objectId>[#turn_<n>]` — opaque to the server) and
+// `done` (required liveness bool: false while the producing run is
+// still going, true on terminal messages; clients key their typing
+// indicator on it). Create-only and immutable as a group, like
+// attachments.
 //
 // Chronological order is `_ver.id` — the SDK's creation-version
 // marker, set once when the record is created (newRecord) and never
@@ -88,12 +96,13 @@ const Dataset = "chat_messages"
 // content-addressable propIds — to keep the registration
 // hand-readable, matching nav and blocks.
 //
-// FieldFromAgent is an optional, opaque, create-only tag clients use to
-// mark a message as "written by an agent acting on behalf of the
-// signer" rather than the signer typing it themselves. The handler
-// does NOT verify the identity (signature still comes from the signer
-// wallet); it's a UI-only hint, useful e.g. to subscribe to messages
-// where fromAgent is empty and have an agent respond.
+// FieldAgent is an optional, create-only group clients use to mark a
+// message as "written by an agent acting on behalf of the signer"
+// rather than the signer typing it themselves. The handler does NOT
+// verify the identity (signature still comes from the signer wallet);
+// it's a UI-only hint, useful e.g. to subscribe to messages without
+// `agent` and have an agent respond. See the package doc for the
+// {name, debugLink, done} sub-fields.
 const (
 	FieldCreator          = "creator"
 	FieldCreatedAt        = "createdAt"
@@ -101,8 +110,15 @@ const (
 	FieldReplyToMessageId = "replyToMessageId"
 	FieldText             = "text"
 	FieldReactions        = "reactions"
-	FieldFromAgent        = "fromAgent"
+	FieldAgent            = "agent"
 	FieldAttachments      = "attachments"
+)
+
+// Agent sub-record keys.
+const (
+	FieldAgentName      = "name"
+	FieldAgentDebugLink = "debugLink"
+	FieldAgentDone      = "done"
 )
 
 // Attachment sub-record keys. Each attachment in the attachments map
@@ -115,15 +131,17 @@ const (
 
 // dataVersion is the on-the-wire stamp pinned to writes on this
 // dataset. Bump only when validation logic changes in a way that must
-// reject older writers.
-const dataVersion = "chat_messages-v1"
+// reject older writers. v2: `fromAgent` (string) replaced by the
+// `agent` {name, debugLink, done} group.
+const dataVersion = "chat_messages-v2"
 
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
 	MaxTextBytes      = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
 	MaxReplyIdBytes   = 256
 	MaxEmojiBytes     = 64
-	MaxFromAgentBytes = 256
+	MaxAgentNameBytes = 256
+	MaxDebugLinkBytes = 2 * 1024
 
 	MaxAttachments         = 32
 	MaxAttachmentIdBytes   = 64
@@ -159,11 +177,12 @@ func NewType() handler.Type {
 // that grow the record), but every known field is declared with its
 // class: creator / createdAt / modifiedAt are server-stamped via
 // sink.Derive → ScopeDerived (handler-only, rejected from client ops);
-// text / replyToMessageId / fromAgent / reactions / attachments are
+// text / replyToMessageId / agent / reactions / attachments are
 // user/DAG-written → ScopeSynced. nav.* lives in the shared `objects`
-// namespace, not here. reactions / attachments carry free-form nested
-// keyspaces (emoji→accountId→ts, attachmentId→{type,link}) so they
-// declare an unconstrained object shape.
+// namespace, not here. reactions / attachments / agent carry nested
+// keyspaces (emoji→accountId→ts, attachmentId→{type,link},
+// {name,debugLink,done}) so they declare an unconstrained object
+// shape.
 func datasetSchema() handler.Schema {
 	return handler.Schema{
 		Dynamic: true,
@@ -173,7 +192,7 @@ func datasetSchema() handler.Schema {
 			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
 			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
-			{Id: FieldFromAgent, Name: "From Agent", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 		},

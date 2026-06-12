@@ -58,7 +58,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
 	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
 	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
-	flag.StringVar(&agentName, "agent-name", "bao", "fromAgent tag on replies")
+	flag.StringVar(&agentName, "agent-name", "bao", "agent display name on replies (agent.name)")
 	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
 	flag.Parse()
 	base = "http://" + *addr
@@ -435,21 +435,30 @@ func handleChanges(spaceID, objectID string, data []byte) {
 	for _, ev := range events {
 		for _, rec := range ev.Added {
 			var doc struct {
-				Text      string `json:"text"`
-				Creator   string `json:"creator"`
-				FromAgent string `json:"fromAgent"`
+				Text    string          `json:"text"`
+				Creator string          `json:"creator"`
+				Agent   json.RawMessage `json:"agent"`
 			}
 			if err := json.Unmarshal(rec.Doc, &doc); err != nil {
 				fmt.Fprintf(os.Stderr, "decode chat doc %s: %v\n", rec.Id, err)
 				continue
 			}
-			if doc.FromAgent != "" {
+			if len(doc.Agent) > 0 {
 				continue
 			}
 			fmt.Printf("new human message [%s] from %s: %s\n", rec.Id, doc.Creator, doc.Text)
 
 			if err := runAgent(spaceID, objectID, rec.Id, doc.Text); err != nil {
 				fmt.Fprintf(os.Stderr, "agent error: %v\n", err)
+				// Terminal message so a client's typing indicator (keyed
+				// on the last agent message's `done`) always resolves.
+				// Best-effort — the error is already on stderr.
+				if serr := chatSend(spaceID, objectID, chatReplyArgs{
+					text: "⚠ agent run failed: " + err.Error(),
+					done: true,
+				}); serr != nil {
+					fmt.Fprintf(os.Stderr, "post agent-error message: %v\n", serr)
+				}
 			}
 		}
 	}
@@ -474,18 +483,21 @@ func runAgent(spaceID, objectID, msgID, text string) error {
 		if len(args) == 0 {
 			return nil
 		}
-		text, attachments := parseChatReplyArg(args[0])
+		reply := parseChatReplyArg(args[0])
 		// Record what we actually sent to the server, not just the
 		// stringified first arg — makes traces useful when the agent
 		// is sending structured replies with attachments.
-		traceInput := text
-		if len(attachments) > 0 {
-			b, _ := json.Marshal(map[string]any{"text": text, "attachments": attachments})
+		traceInput := reply.text
+		if len(reply.attachments) > 0 || reply.debugLink != "" || !reply.done {
+			b, _ := json.Marshal(map[string]any{
+				"text": reply.text, "attachments": reply.attachments,
+				"debugLink": reply.debugLink, "done": reply.done,
+			})
 			traceInput = string(b)
 		}
 		tr.SetInput(traceInput)
-		fmt.Fprintf(os.Stderr, "chatReply: %s (attachments=%d)\n", text, len(attachments))
-		if err := chatSend(spaceID, objectID, text, attachments); err != nil {
+		fmt.Fprintf(os.Stderr, "chatReply: %s (attachments=%d done=%v)\n", reply.text, len(reply.attachments), reply.done)
+		if err := chatSend(spaceID, objectID, reply); err != nil {
 			fmt.Fprintf(os.Stderr, "chatReply error: %v\n", err)
 			return map[string]any{"error": err.Error()}
 		}
@@ -528,15 +540,24 @@ export function main() {
 	return nil
 }
 
-// chatSend posts a chat message. `attachments` may be nil; entries
-// must already be in the wire shape (map[id]{type,link}).
-func chatSend(spaceID, objectID, text string, attachments map[string]any) error {
-	body := map[string]any{
-		"text":      text,
-		"fromAgent": agentName,
+// chatSend posts a chat message. Every bobrik message is
+// agent-authored: the `agent` group carries the Go-owned display name
+// plus the kernel-supplied debugLink / done. `args.attachments`
+// entries must already be in the wire shape (map[id]{type,link}).
+func chatSend(spaceID, objectID string, args chatReplyArgs) error {
+	agent := map[string]any{
+		"name": agentName,
+		"done": args.done,
 	}
-	if len(attachments) > 0 {
-		body["attachments"] = attachments
+	if args.debugLink != "" {
+		agent["debugLink"] = args.debugLink
+	}
+	body := map[string]any{
+		"text":  args.text,
+		"agent": agent,
+	}
+	if len(args.attachments) > 0 {
+		body["attachments"] = args.attachments
 	}
 	raw, _ := json.Marshal(body)
 	resp, err := http.Post(
@@ -555,14 +576,27 @@ func chatSend(spaceID, objectID, text string, attachments map[string]any) error 
 	return nil
 }
 
-// parseChatReplyArg normalizes the JS chatReply argument into the
-// pieces chatSend needs.
+// chatReplyArgs is the normalized chatReply payload — what the JS side
+// asked to send, in the pieces chatSend needs.
+type chatReplyArgs struct {
+	text        string
+	attachments map[string]any
+	debugLink   string
+	done        bool
+}
+
+// parseChatReplyArg normalizes the JS chatReply argument.
 //
 // Accepted shapes:
 //
-//   - string (legacy)                        → {text: arg}
-//   - {text, attachments?}                   → as-is, plus normalization
+//   - string (legacy)                        → {text: arg, done: true}
+//   - {text, attachments?, debugLink?, done?} → as-is, plus normalization
 //   - anything else                          → fmt-stringified into text
+//
+// `done` defaults to true when absent or non-bool: a mistakenly-true
+// intermediate just stops the UI typing animation early, while a
+// mistakenly-false terminal would spin it forever. `debugLink` is the
+// kernel-composed `any://<spaceId>/<debugPageId>[#turn_<n>]` drill-down.
 //
 // Attachments are accepted as either:
 //
@@ -574,22 +608,29 @@ func chatSend(spaceID, objectID, text string, attachments map[string]any) error 
 // Anything that doesn't normalize into the {type, link} shape is
 // dropped silently — the server would reject it anyway, and the
 // agent's main signal is "I got my text out" not "every key landed".
-func parseChatReplyArg(arg any) (text string, attachments map[string]any) {
+func parseChatReplyArg(arg any) chatReplyArgs {
 	switch v := arg.(type) {
 	case string:
-		return v, nil
+		return chatReplyArgs{text: v, done: true}
 	case map[string]any:
+		out := chatReplyArgs{done: true}
 		if t, ok := v["text"].(string); ok {
-			text = t
+			out.text = t
 		} else {
-			text = fmt.Sprintf("%v", v["text"])
+			out.text = fmt.Sprintf("%v", v["text"])
 		}
 		if raw, ok := v["attachments"].(map[string]any); ok && len(raw) > 0 {
-			attachments = normalizeAttachments(raw)
+			out.attachments = normalizeAttachments(raw)
 		}
-		return text, attachments
+		if l, ok := v["debugLink"].(string); ok {
+			out.debugLink = l
+		}
+		if d, ok := v["done"].(bool); ok {
+			out.done = d
+		}
+		return out
 	default:
-		return fmt.Sprintf("%v", arg), nil
+		return chatReplyArgs{text: fmt.Sprintf("%v", arg), done: true}
 	}
 }
 
