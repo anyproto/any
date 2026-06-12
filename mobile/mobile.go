@@ -46,6 +46,11 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 	cfg.DataDir = dataDir
 	cfg.Listen.Addr = listenAddr
 	cfg.Network.Nodeconf = nodeconfYAML
+	// No indexer on mobile (yet): Defaults() enables it with the local
+	// llama.cpp embedder, which would kick off a ~600MB model download
+	// on device. Pre-auth-merge mobile builds never wired the indexer;
+	// keep that behavior until a deliberate mobile indexing decision.
+	cfg.Index.Enabled = false
 
 	ctx, c := context.WithCancel(context.Background())
 	ch := make(chan error, 1)
