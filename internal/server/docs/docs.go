@@ -145,6 +145,14 @@ const docTemplate = `{
                     "spaces"
                 ],
                 "summary": "List spaces",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status; defaults to active-only. Pass 'all' to include deleted/dead rows.",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3604,6 +3612,20 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ChatAgentMeta": {
+            "type": "object",
+            "properties": {
+                "debugLink": {
+                    "type": "string"
+                },
+                "done": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChatAttachment": {
             "type": "object",
             "properties": {
@@ -3626,14 +3648,14 @@ const docTemplate = `{
         "api.ChatSendRequest": {
             "type": "object",
             "properties": {
+                "agent": {
+                    "$ref": "#/definitions/api.ChatAgentMeta"
+                },
                 "attachments": {
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/api.ChatAttachment"
                     }
-                },
-                "fromAgent": {
-                    "type": "string"
                 },
                 "replyToMessageId": {
                     "type": "string"

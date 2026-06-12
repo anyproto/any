@@ -354,8 +354,10 @@ func TestE2E_FullFlow(t *testing.T) {
 	t.Run("DELETE /v1/spaces/:id soft-deletes", func(t *testing.T) {
 		mustStatus(t, http.MethodDelete, base+"/v1/spaces/"+spaceID, "", http.StatusNoContent)
 
+		// Default list hides non-active rows (temporary workaround in
+		// listSpaces) — ask for all statuses to see the deleted row.
 		var list map[string]any
-		mustJSON(t, http.MethodGet, base+"/v1/spaces", "", http.StatusOK, &list)
+		mustJSON(t, http.MethodGet, base+"/v1/spaces?status=all", "", http.StatusOK, &list)
 		spaces, _ := list["spaces"].([]any)
 		if len(spaces) != 1 {
 			t.Fatalf("want 1 (deleted) row in list, got %d", len(spaces))

@@ -158,18 +158,29 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
   per-space brain object with a real `category` field (the old
   category-in-`tags[0]` convention is gone, as are the hex vector
   properties, the `_main` anchor object, and the rolling-markdown
-  transcript). amemory@v2 and memory-bootstrap are DELETED. Semantic
-  recall is a non-functional TODO until the external vector-search
-  service lands; `convmemory.search` falls back to indexed
-  period/category/recency reads. **Semantic-ish recall DOES exist now**
-  via the RLM-style `search@v1` program (`programs/search@v1.js` +
-  `tool-descriptions/search.md`): an isolated inner LLM loop pages the
-  datasets and maps batched classify sub-calls over snippets — kernel
-  global `search`, methods `search(query, opts)` / `ask(question,
-  opts)`, returns ranked results + `stats` (turns/toolcalls/tokens/ms).
-  Cells run via `new Function` (containment by function scope — NOT
-  js.eval, NOT js.reset). Read docs/12-rlm-search.md before changing
-  the loop. Tests: `tests/js/search_test.js` (mocked LLM).
+  transcript). amemory@v2 and memory-bootstrap are DELETED.
+  `convmemory.search` falls back to indexed period/category/recency
+  reads. **Two semantic-recall search tools exist, paired by cost** —
+  the agent is told to try the cheap one first and escalate:
+    - **`semsearch`** (CHEAP) — `programs/semsearch@v1.js` +
+      `tool-descriptions/semsearch.md`, a thin wrapper over
+      `anyHelper.search` → `POST /v1/spaces/:spaceId/search` (the server's
+      local BM25 + vector index, status item 14 / docs/13-index.md). One
+      HTTP call, zero tokens, milliseconds. Method `search(query, opts)`,
+      opts `{space?, scopes?, limit?, mode?}` (hybrid default), returns
+      `{ok, hits, mode, vectorStatus}`.
+    - **`search`/`ask`** (EXPENSIVE) — the RLM-style `search@v1` program
+      (`programs/search@v1.js` + `tool-descriptions/search.md`): an
+      isolated inner LLM loop pages the datasets and maps batched classify
+      sub-calls over snippets — kernel global `search`, methods
+      `search(query, opts)` / `ask(question, opts)`, returns ranked
+      results + `stats` (turns/toolcalls/tokens/ms). Cells run via
+      `new Function` (containment by function scope — NOT js.eval, NOT
+      js.reset). Read docs/12-rlm-search.md before changing the loop.
+      Tests: `tests/js/search_test.js` (mocked LLM).
+  Both accept `{space}` for cross-space recall (`semsearch` across all
+  scopes; RLM for its `objects` scope — memory/history stay own-space).
+  The two tool descriptions cross-reference each other.
 - Env vars in JS programs (`env.ANYTYPE_API_URL`, etc.) keep their
   original names — they come from the runtime's `args` injection.
 

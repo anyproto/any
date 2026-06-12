@@ -49,10 +49,9 @@ func (d *deps) chatSend(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrChatReplyIdInvalid,
 			"replyToMessageId too long", nil)
 	}
-	if req.FromAgent != "" && len(req.FromAgent) > chat.MaxFromAgentBytes {
-		return writeError(c, http.StatusBadRequest, api.ErrChatFromAgentInvalid,
-			"fromAgent too long",
-			map[string]any{"max_bytes": chat.MaxFromAgentBytes, "got_bytes": len(req.FromAgent)})
+	if err := validateAgentRequest(req.Agent); err != nil {
+		return writeError(c, http.StatusBadRequest, api.ErrChatAgentInvalid,
+			err.Error(), nil)
 	}
 	if err := validateAttachmentsRequest(req.Attachments); err != nil {
 		return writeError(c, http.StatusBadRequest, api.ErrChatAttachmentsInvalid,
@@ -62,7 +61,7 @@ func (d *deps) chatSend(c echo.Context) error {
 	res, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
 		ReplyToMessageId: req.ReplyToMessageId,
-		FromAgent:        req.FromAgent,
+		Agent:            req.Agent,
 		Attachments:      req.Attachments,
 	})
 	if err != nil {
@@ -182,6 +181,28 @@ func (d *deps) chatReact(c echo.Context) error {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
+}
+
+// validateAgentRequest runs the HTTP-layer shape checks on the agent
+// group (name presence + lengths). The request struct is closed so
+// unknown sub-fields can't arrive here; `done` is a plain bool with no
+// shape to check. Deeper validation also runs handler-side; this
+// version exists so the server returns a clean 400 with a specific
+// error code instead of burning an SDK round-trip.
+func validateAgentRequest(a *api.ChatAgentMeta) error {
+	if a == nil {
+		return nil
+	}
+	if a.Name == "" {
+		return fmt.Errorf("agent.name required")
+	}
+	if len(a.Name) > chat.MaxAgentNameBytes {
+		return fmt.Errorf("agent.name too long (%d > %d bytes)", len(a.Name), chat.MaxAgentNameBytes)
+	}
+	if len(a.DebugLink) > chat.MaxDebugLinkBytes {
+		return fmt.Errorf("agent.debugLink too long (%d > %d bytes)", len(a.DebugLink), chat.MaxDebugLinkBytes)
+	}
+	return nil
 }
 
 // validateAttachmentsRequest runs the HTTP-layer shape checks on the

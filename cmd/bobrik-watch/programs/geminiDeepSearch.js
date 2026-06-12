@@ -14,7 +14,9 @@ var MAX_FOLLOW_UPS = 7;
 // ── Guarded chatReply — works inside assistant runtime, no-ops standalone ──
 
 function reply(msg) {
-  if (typeof chatReply === "function") chatReply(msg);
+  // done:false — these are mid-turn progress updates; the run's terminal
+  // chatReply (with done:true) comes from the kernel loop, not from here.
+  if (typeof chatReply === "function") chatReply({ text: msg, done: false });
 }
 
 // ── Gemini API helpers ──────────────────────────────────────────────────────

@@ -134,7 +134,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | Method | Path                            | Purpose                             |
 |--------|---------------------------------|-------------------------------------|
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
-| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
+| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo` (active-only by default, see note) |
 | POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
@@ -145,6 +145,16 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+
+**`GET /v1/spaces` defaults to active spaces only** (TEMPORARY
+workaround). `DELETE` is the SDK's soft-delete — the row stays in
+`Service.List` with `status:"deleted"` and is never offloaded yet (no
+proper space deletion / offloading; see `docs/07-roadmap.md`), so the
+raw list otherwise accumulates dozens of dead rows. Pass `?status=all`
+to get the full list (every status), or `?status=<value>` to filter to
+a specific status (e.g. `deleted`). Remove this default once deletion
+actually reclaims the rows. The `POST /v1/spaces/query[/subscribe]`
+primitive is unaffected — it still returns the raw tech-index rows.
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
@@ -795,7 +805,9 @@ body is always read back through the query path.
   "createdAt":        1714597200,
   "modifiedAt":       1714597200,
   "replyToMessageId": "<msgId>",
-  "fromAgent":        "<opaque identity>",
+  "agent": {
+    "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
+  },
   "text":             "**hi** _there_",
   "attachments": {
     "a1": { "type": "link",  "link": "any://abc/def" },
@@ -810,13 +822,26 @@ are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
 
-`fromAgent` is an optional, opaque, create-only tag the sender sets to
-mark the message as written by an agent acting on the signer's behalf
-(vs typed by the signer directly). It is NOT cryptographically
-verified — `creator` is still the change signer; `fromAgent` is a UI
-hint. Typical use: an agent subscribed to `chat_messages` ignores its
-own messages (`fromAgent` non-empty) and only responds to human ones
-(`fromAgent` empty). Omitted from responses when unset.
+`agent` is an optional, create-only group the sender sets to mark the
+message as written by an agent acting on the signer's behalf (vs typed
+by the signer directly). It is NOT cryptographically verified —
+`creator` is still the change signer; the group is a UI hint. Fields:
+
+- `name` — required, non-empty, ≤ 256 bytes. Display label.
+- `debugLink` — optional, non-empty when present, ≤ 2 KiB. Opaque to
+  the server; by convention `any://<spaceId>/<debugLogObjectId>` with
+  an optional `#turn_<n>` fragment (1-based LLM-turn ordinal) so a UI
+  can deep-link "go to debug" from the message to the turn that
+  produced it.
+- `done` — required boolean. Liveness: `false` means the run that
+  produced this message is still going; clients cycle a typing
+  indicator while the *last* message in a chat is an agent message
+  with `done: false`. Every run must end with a `done: true` message.
+
+No unknown sub-fields. Immutable post-create as a group. Typical use:
+an agent subscribed to `chat_messages` ignores its own messages
+(`agent` present) and only responds to human ones (`agent` absent).
+Omitted from responses when unset.
 
 `attachments` is an optional, create-only map keyed by short opaque
 ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`.
@@ -843,13 +868,15 @@ See `internal/chat/handler.go`.
 `POST /v1/spaces/:spaceId/objects/:objectId/chat/messages`
 
 ```json
-{ "text": "hello", "replyToMessageId": "abc", "fromAgent": "agent-alice" }
+{ "text": "hello", "replyToMessageId": "abc",
+  "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
 ```
 
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
-present; immutable post-create. Returns 201 with the shared write
+target exists. `agent` is optional (see § Message wire shape for the
+sub-field rules; 400 `chat.agent_invalid` on violations); immutable
+post-create. Returns 201 with the shared write
 result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
 server-derived message id. Read the message back via the query path
 above.

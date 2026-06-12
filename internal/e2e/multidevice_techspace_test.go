@@ -96,12 +96,15 @@ func startPeerWithWallet(t *testing.T, bin, name, walletSrc string) *peer {
 }
 
 // spaceRow returns the row for id from base's GET /v1/spaces, or nil.
+// Asks for all statuses — the default list hides non-active rows
+// (temporary workaround in listSpaces), and the delete step polls for
+// status=deleted.
 func spaceRow(t *testing.T, base, id string) map[string]any {
 	t.Helper()
 	var list struct {
 		Spaces []map[string]any `json:"spaces"`
 	}
-	resp, raw := doRequest(t, http.MethodGet, base+"/v1/spaces", "")
+	resp, raw := doRequest(t, http.MethodGet, base+"/v1/spaces?status=all", "")
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}

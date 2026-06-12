@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -156,6 +157,11 @@ func (ix *Indexer) Close() error {
 		ix.cancel()
 	}
 	ix.wg.Wait()
+	// The local embedder owns OS resources (background download, loaded
+	// model); the HTTP embedders don't implement Closer.
+	if c, ok := ix.opts.Embedder.(io.Closer); ok {
+		_ = c.Close()
+	}
 	return ix.store.Close()
 }
 

@@ -77,6 +77,15 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
+10. **Space deletion / offloading (TEMPORARY list filter in place).**
+    `DELETE /v1/spaces/:id` is the SDK's soft-delete only — the row
+    stays in `Service.List` forever with `status:"deleted"`, never
+    offloaded, so a dev account quickly accumulates dozens of dead
+    rows. Workaround: `GET /v1/spaces` defaults to active-only
+    (`?status=all` opts back into the full list) — see the comment in
+    `handlers_spaces.go::spaceList`. **Remove this default filter once
+    the SDK can actually reclaim/offload deleted spaces** so the raw
+    list stays small on its own.
 9. **External semantic-search service (TODO — agent memory recall is
    non-functional until this exists).** The agent data layer
    (`docs/11-agent-memory.md`) deliberately stores no vectors; a
@@ -157,8 +166,17 @@ pluggable embedders, parallel batched pipelines),
   cross-space search, tunable score thresholds beyond the
   zero-similarity noise floor, query-time `VectorEf` tuning.
 - **Embedding hygiene.** Re-embed on model change (currently a dim
-  mismatch is a boot error suggesting removing `<data-dir>/index/`),
-  truncation policy for very long records.
+  mismatch is a boot error suggesting removing `<data-dir>/index/`).
+- **Long-record chunk splitting.** The local embedder truncates input
+  to `index.local.contextSize` tokens (head-only vector recall, FTS
+  unaffected — docs/13-index.md § Known limits). Splitting one record
+  into N sub-chunks is a chunker-contract change (doc-id scheme,
+  tombstones for shrinking records).
+- **Local embedder follow-ups.** Multi-sequence batched decode (texts
+  currently embed sequentially under one mutex); a packaged
+  distribution story for the llama.cpp libs (today: `make llamacpp`
+  drops them next to the binary; go:embed + extract was considered and
+  deferred — pure overhead while "distribution" means `make build`).
 - **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
   `index: "<scope>"`) are create-time-only until the SDK implements
   property-meta updates — existing properties can't be re-flagged.

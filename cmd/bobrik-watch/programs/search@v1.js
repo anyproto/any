@@ -208,6 +208,10 @@ function _makeRLM(ctx) {
       var q = { type: o.type, limit: limit, offset: offset };
       if (o.filter) q.filter = o.filter;
       if (o.sort) q.sort = o.sort;
+      // Cross-space objects search: opts.space (per-call override o.space)
+      // targets another space on the account; memory/history stay own-space.
+      var objSpace = o.space || (ctx.opts && ctx.opts.space);
+      if (objSpace) q.space = objSpace;
       var rows = ctx.client.getObjects(q);
       var oOut = [];
       for (var ri = 0; ri < rows.length; ri++) {
@@ -330,7 +334,8 @@ function _makeRLM(ctx) {
           var turns = ctx.conv.turnRange(ctx.chatId, tseq, tseq);
           out.push(turns.length > 0 ? turns[0] : null);
         } else {
-          out.push(ctx.client.getObject(ref.id));
+          var hSpace = ctx.opts && ctx.opts.space;
+          out.push(ctx.client.getObject(ref.id, hSpace ? { space: hSpace } : undefined));
         }
       } catch (e) {
         out.push({ id: ref.id, error: String((e && e.message) || e) });
@@ -398,7 +403,7 @@ function _corpusMeta(ctx, scope) {
 
   if (scope === "objects" || scope === "auto") {
     try {
-      var types = ctx.client.getTypes();
+      var types = ctx.client.getTypes(ctx.opts && ctx.opts.space ? { space: ctx.opts.space } : undefined);
       var names = [];
       for (var ti = 0; ti < types.length; ti++) {
         names.push(types[ti].xKey || types[ti].name || types[ti].id);
@@ -724,6 +729,7 @@ function _runRoot(query, opts, deps) {
 
   var askLine = (opts.synthesize ? "Question" : "Search request") + ": " + query;
   if (scope !== "auto") askLine += "\nScope: " + scope;
+  if (opts.space) askLine += "\nTarget space: " + opts.space + " — objects-scope candidates/hydrate already read it; pass {space:'" + opts.space + "'} on any direct anyHelper read.";
   if (opts.type) askLine += "\nNarrow to type: " + opts.type;
   if (opts.categories) askLine += "\nCategories: " + JSON.stringify(opts.categories);
   if (opts.periodFrom || opts.periodUntil) askLine += "\nPeriod: " + (opts.periodFrom || "…") + " → " + (opts.periodUntil || "…");

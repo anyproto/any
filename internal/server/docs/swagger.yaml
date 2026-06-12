@@ -251,6 +251,15 @@ definitions:
           type: string
         type: array
     type: object
+  api.ChatAgentMeta:
+    properties:
+      debugLink:
+        type: string
+      done:
+        type: boolean
+      name:
+        type: string
+    type: object
   api.ChatAttachment:
     properties:
       link:
@@ -265,12 +274,12 @@ definitions:
     type: object
   api.ChatSendRequest:
     properties:
+      agent:
+        $ref: '#/definitions/api.ChatAgentMeta'
       attachments:
         additionalProperties:
           $ref: '#/definitions/api.ChatAttachment'
         type: object
-      fromAgent:
-        type: string
       replyToMessageId:
         type: string
       text:
@@ -964,6 +973,12 @@ paths:
       - system
   /spaces:
     get:
+      parameters:
+      - description: Filter by status; defaults to active-only. Pass 'all' to include
+          deleted/dead rows.
+        in: query
+        name: status
+        type: string
       produces:
       - application/json
       responses:

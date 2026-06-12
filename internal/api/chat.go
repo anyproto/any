@@ -18,21 +18,33 @@ type ChatAttachment struct {
 // /query/subscribe) with dataset=chat_messages; there is no curated
 // per-message wire struct. See docs/03-api.md § Chat.
 
+// ChatAgentMeta marks a message as agent-authored. `Name` is the
+// display label; like the old fromAgent tag it is NOT verified against
+// any identity / signature — `creator` stays the change signer.
+// `DebugLink` is an opaque drill-down link into the run's debug page,
+// by convention `any://<spaceId>/<debugLogObjectId>[#turn_<n>]`.
+// `Done` is liveness: false means the run that produced this message
+// is still going (clients show a typing indicator until a done:true
+// message lands). The whole group is create-only and immutable.
+type ChatAgentMeta struct {
+	Name      string `json:"name"`
+	DebugLink string `json:"debugLink,omitempty"`
+	Done      bool   `json:"done"`
+}
+
 // ChatSendRequest is the body of POST /v1/spaces/:spaceId/objects/:objectId/messages.
 // `text` is a markdown-formatted string; rendering is the client's
 // problem. Server stamps creator, createdAt, modifiedAt.
 //
-// `fromAgent` is an optional opaque identity string the client sets
-// to mark the message as written by an agent acting on behalf of the
-// signer (vs typed by the signer directly). The server does not
-// validate it against any identity / signature — it's a UI hint.
+// `agent` is optional and marks the message as written by an agent
+// acting on behalf of the signer (vs typed by the signer directly).
 //
 // `attachments` is a map keyed by short opaque ids (≤ 64 chars,
 // [A-Za-z0-9_-]+) carrying {type, link, order?}. Create-only.
 type ChatSendRequest struct {
 	Text             string                    `json:"text"`
 	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
-	FromAgent        string                    `json:"fromAgent,omitempty"`
+	Agent            *ChatAgentMeta            `json:"agent,omitempty"`
 	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
 }
 
@@ -49,7 +61,7 @@ const (
 	ErrChatTextRequired       = "chat.text_required"
 	ErrChatTextTooLong        = "chat.text_too_long"
 	ErrChatReplyIdInvalid     = "chat.reply_id_invalid"
-	ErrChatFromAgentInvalid   = "chat.from_agent_invalid"
+	ErrChatAgentInvalid       = "chat.agent_invalid"
 	ErrChatEmojiInvalid       = "chat.emoji_invalid"
 	ErrChatUnknownField       = "chat.unknown_field"
 	ErrChatNotAuthor          = "chat.not_author"

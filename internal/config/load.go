@@ -97,6 +97,31 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_OPENAI_API_KEY"); v != "" {
 		cfg.Index.OpenAI.ApiKey = v
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_PATH"); v != "" {
+		cfg.Index.Local.ModelPath = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_URL"); v != "" {
+		cfg.Index.Local.ModelUrl = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_SHA256"); v != "" {
+		cfg.Index.Local.ModelSha256 = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_LIB_DIR"); v != "" {
+		cfg.Index.Local.LibDir = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_QUERY_PREFIX"); v != "" {
+		cfg.Index.Local.QueryPrefix = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_CONTEXT_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.Local.ContextSize = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_DIM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Local.Dim = n
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Vector.Dim = n

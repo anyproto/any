@@ -189,12 +189,35 @@ A second per-space goroutine drains `pending` docs: batch `EmbedDocs`
 docs deleted meanwhile are skipped) → `EnsureVectorIndex`. Nudged by
 advance after each page with new text; a 1-minute ticker retries after
 embedder failures. A re-written record goes back to `pending` (its text
-changed). No embedder configured ⇒ the loop doesn't run and the index
+changed). `index.embedder: none` ⇒ the loop doesn't run and the index
 is FTS-only.
 
-Embedders (`indexer.Embedder`): `ollama` (local `/api/embed`, default
-`embeddinggemma`, doc/query task prompts) or `openai` (any
-OpenAI-compatible `/embeddings` API), selected by `index.embedder`.
+Embedders (`indexer.Embedder`), selected by `index.embedder`
+(default `local`; `none` opts out — FTS-only):
+- `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
+  task prompts.
+- `openai` — any OpenAI-compatible `/embeddings` API.
+- `local` — **default**: **in-process llama.cpp**, no external service. yzma purego
+  bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
+  `index.local.libDir` (default: `llamacpp/` next to the binary —
+  populate with `make llamacpp`; macOS arm64 gets Metal, Linux amd64
+  picks the best CPU backend variant). Default model:
+  **Qwen3-Embedding-0.6B Q8_0** (Apache-2.0, 1024-dim Matryoshka,
+  last-token pooling, L2-normalized; queries carry the Qwen retrieval
+  instruction, docs embed bare). The GGUF (639 MB, sha256-pinned) is
+  auto-downloaded into `<data-dir>/index/models/` on first boot with
+  progress in the server log; the download is resumable and never
+  blocks boot. Until it completes the embedder reports unavailable,
+  which rides the standard outage semantics below — FTS works
+  immediately, vectors flow once the model lands. Air-gapped:
+  set `index.local.modelPath` (no download is attempted).
+  `index.local.dim` truncates output vectors (Matryoshka) to shrink
+  the IVF index. One llama context per process, mutex-serialized;
+  texts embed sequentially within a batch (multi-sequence batching is
+  a known follow-up). Loaded cost ≈ 640 MB mmap + ~200 MB context;
+  nothing is loaded until the first embed call. Linux needs a system
+  `libffi.so.8` (ubiquitous on mainstream distros; NixOS: `nix develop`
+  — the flake's dev shell provides it).
 
 **An unavailable embedder never breaks the pipeline.** There is no
 boot-time probe: whenever an embedder is *configured*, text-bearing
@@ -228,6 +251,15 @@ search" (`disabled`). Value table in `docs/03-api.md` § search.
 This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
 
+**Agent-facing tool.** bobrik-watch wraps this endpoint as the `semsearch`
+tool (`cmd/bobrik-watch/programs/semsearch@v1.js` +
+`tool-descriptions/semsearch.md`, over `anyHelper.search`) — the **cheap**
+recall tool the agent reaches for first, in contrast to the **expensive**
+RLM `search`/`ask` loop (`docs/12-rlm-search.md`). The two tool descriptions
+cross-reference each other so the agent picks by cost. `semsearch` passes
+`opts.space` straight through to `:spaceId`, so the cross-space paradigm
+(any space on the account) holds here too.
+
 Errors: `index.disabled` (409, `index.enabled: false`),
 `index.no_embedder` (400, `mode=vector` with no embedder configured),
 `index.embedder_unavailable` (503, `mode=vector` while the configured
@@ -256,6 +288,15 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   whose `_addSeq` moves afterwards get (re-)indexed.
 - Embedder latency only delays the vector leg: fresh writes are FTS-
   searchable immediately and gain vector recall once embedded.
+- **Long records are truncated for embedding** (explicit decision, not
+  an accident): the `local` embedder clamps input to
+  `index.local.contextSize` tokens (default 2048, EOS preserved for
+  last-token pooling), so only the head of a very long record carries
+  vector recall — FTS still covers the full text, and editor blocks /
+  chat messages are naturally far smaller than the bound. The chunker
+  contract stays one record = one doc = one vector. TODO: split long
+  records into multiple chunks chunker-side (changes the doc-id scheme
+  and tombstone handling) if head-only vector recall proves limiting.
 
 ## Tests
 
@@ -271,7 +312,17 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   (tombstones), and the non-memory tombstone case.
 - `internal/indexer` unit tests — store round-trips (FTS + vector +
   pending lifecycle + purge/drop, in-memory any-store), RRF fusion,
-  both embedder clients against `httptest` servers.
+  the HTTP embedder clients against `httptest` servers.
+- `internal/indexer/embed_local_test.go` — local embedder factory and
+  pre-ready errors (no libs/model needed), `truncateTokens` (EOS
+  preservation), `l2Normalize`, Matryoshka dim; plus a gated
+  integration test (`ANY_TEST_LOCAL_EMBEDDER=1` +
+  `ANY_INDEX_LOCAL_MODEL_PATH`) running the real model: dims, unit
+  norms, relevance ordering, truncation path, concurrency under
+  `-race`.
+- `internal/indexer/embed_local_download_test.go` — download manager
+  against `httptest`: happy path, sha256 mismatch, Range resume,
+  progress strings.
 - `internal/server/handlers_search_test.go` — in-process SDK + in-memory
   store + deterministic fake embedder: all three modes end to end,
   scope filtering, deletion purge, degraded/disabled errors, and the

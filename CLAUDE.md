@@ -87,11 +87,18 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
-   Optional opaque `fromAgent` tag on create marks the message as
+   Optional create-only `agent` group (`{name, debugLink?, done}` —
+   replaced the old `fromAgent` string) marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
-   post-create. Lets an agent subscribed to `chat_messages` filter to
-   human-typed messages (fromAgent empty) when deciding what to
-   respond to. `any chat send --from-agent <id>`.
+   post-create. `name` is the display label, `debugLink` an
+   `any://<spaceId>/<debugObjId>#turn_<n>` drill-down into the run's
+   debug page, `done` the liveness bool clients key a typing indicator
+   on (false while the run is going; every run ends with done:true).
+   Lets an agent subscribed to `chat_messages` filter to human-typed
+   messages (`agent` absent) when deciding what to respond to.
+   `any chat send --agent-name <name> [--agent-debug-link L]
+   [--agent-done=false]`. Contract spec: task-agent-message-field.md +
+   ../any-ui/docs/tasks/agent-message-field.md.
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
@@ -316,9 +323,21 @@ Implementation slices landed:
       `rm <data-dir>/index`).
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
-      prompts) and `openai` (OpenAI-compatible `/embeddings`). Config
-      `index.*` (`internal/config.Index`, env `ANY_INDEX_*`); no
-      embedder ⇒ FTS-only. **An unavailable embedder never breaks the
+      prompts), `openai` (OpenAI-compatible `/embeddings`), and
+      `local` (**in-process llama.cpp** via yzma purego bindings, no
+      CGO; `embed_local.go`). Local defaults to Qwen3-Embedding-0.6B
+      Q8_0 (1024-dim, last-pooling, L2-normalized, Qwen instruct query
+      prefix), auto-downloaded sha-pinned into `<data-dir>/index/models`
+      with logged progress (`embed_local_download.go`, resumable, never
+      blocks boot — "still downloading" rides the outage semantics
+      below); llama.cpp shared libs come from `make llamacpp`
+      (`bin/llamacpp/`, pin `LLAMACPP_VERSION` in Makefile); input is
+      truncated to `index.local.contextSize` tokens (default 2048, EOS
+      preserved for last-pooling — explicit decision, docs/13-index.md
+      § Known limits); Linux needs system libffi (NixOS: `nix develop`,
+      see flake.nix). Config `index.*` (`internal/config.Index`, env
+      `ANY_INDEX_*`); `embedder` defaults to `local`, `none` opts out
+      (FTS-only). **An unavailable embedder never breaks the
       pipeline**: no boot probe — pending is marked whenever an
       embedder is configured, an outage freezes only the vector side
       (FTS unaffected), and recovery resumes embedding automatically;
@@ -359,6 +378,8 @@ implementation diverges from a doc, update the doc in the same change.
 ```
 go build ./cmd/any                                # binary at ./any
 make build                                        # builds both any and bobrik-watch
+make llamacpp                                     # once per checkout: prebuilt llama.cpp libs
+                                                  # into bin/llamacpp (index.embedder: local)
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 

@@ -50,7 +50,7 @@ sync:
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search
-  embedder: ""                        # "" (FTS-only) | ollama | openai
+  embedder: local                     # local (default) | ollama | openai | none (FTS-only)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
@@ -58,6 +58,15 @@ index:
     baseUrl: https://api.openai.com/v1
     model: text-embedding-3-small     # required when embedder: openai
     apiKey: sk-...                    # sent as Bearer; never logged
+  local:                              # in-process llama.cpp — all fields optional;
+                                      # the default embedder needs no config at all
+    modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
+    modelUrl: ""                      # download-source override for the default path
+    modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
+    libDir: ""                        # llama.cpp shared libs; default <exe-dir>/llamacpp
+    contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
+    queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
+    dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
 
@@ -88,7 +97,32 @@ ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
 ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
 ANY_INDEX_OPENAI_API_KEY=sk-...
 ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
+ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
+ANY_INDEX_LOCAL_MODEL_URL=https://...
+ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
+ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
+ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
+ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
+ANY_INDEX_LOCAL_DIM=512
 ```
+
+### `index.embedder: local` prerequisites
+
+The local embedder is the **default** (set `index.embedder: none` for
+FTS-only). It runs llama.cpp in-process (no CGO — yzma dlopens the
+shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
+Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
+vector side just reports `unavailable` until they're met.
+
+- **llama.cpp libs**: `make llamacpp` fetches the pinned prebuilt
+  release into `bin/llamacpp/` next to the binary (override with
+  `index.local.libDir`).
+- **Model**: downloaded automatically into `<data-dir>/index/models/`
+  on first boot (639 MB, progress in the server log; resumable, never
+  blocks boot — vector search reports `unavailable` until it lands).
+- **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
+  mainstream distros; on NixOS use `nix develop` — the repo flake's
+  dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
 
 The passkey is the one secret the server may need at boot. Accepted
 sources:

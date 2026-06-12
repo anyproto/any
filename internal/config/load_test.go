@@ -106,8 +106,8 @@ func TestLoad_IndexDefaults(t *testing.T) {
 	if !cfg.Index.Enabled {
 		t.Error("index.enabled should default true")
 	}
-	if cfg.Index.Embedder != "" {
-		t.Errorf("index.embedder should default empty, got %q", cfg.Index.Embedder)
+	if cfg.Index.Embedder != "local" {
+		t.Errorf("index.embedder should default to local, got %q", cfg.Index.Embedder)
 	}
 }
 
@@ -155,6 +155,43 @@ index:
 	}
 }
 
+func TestLoad_IndexLocalFileAndEnv(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+index:
+  embedder: local
+  local:
+    modelPath: /models/custom.gguf
+    contextSize: 4096
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Index.Embedder != "local" || cfg.Index.Local.ModelPath != "/models/custom.gguf" || cfg.Index.Local.ContextSize != 4096 {
+		t.Errorf("file values not applied: %+v", cfg.Index)
+	}
+
+	// Env wins over file.
+	t.Setenv("ANY_INDEX_LOCAL_MODEL_PATH", "/models/other.gguf")
+	t.Setenv("ANY_INDEX_LOCAL_LIB_DIR", "/opt/llamacpp")
+	t.Setenv("ANY_INDEX_LOCAL_CONTEXT_SIZE", "1024")
+	t.Setenv("ANY_INDEX_LOCAL_DIM", "512")
+	cfg, err = Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Index.Local.ModelPath != "/models/other.gguf" || cfg.Index.Local.LibDir != "/opt/llamacpp" ||
+		cfg.Index.Local.ContextSize != 1024 || cfg.Index.Local.Dim != 512 {
+		t.Errorf("env values not applied: %+v", cfg.Index.Local)
+	}
+}
+
 func isolateEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
@@ -164,6 +201,10 @@ func isolateEnv(t *testing.T) {
 		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",
 		"ANY_INDEX_OPENAI_BASE_URL", "ANY_INDEX_OPENAI_MODEL",
 		"ANY_INDEX_OPENAI_API_KEY", "ANY_INDEX_VECTOR_DIM",
+		"ANY_INDEX_LOCAL_MODEL_PATH", "ANY_INDEX_LOCAL_MODEL_URL",
+		"ANY_INDEX_LOCAL_MODEL_SHA256", "ANY_INDEX_LOCAL_LIB_DIR",
+		"ANY_INDEX_LOCAL_CONTEXT_SIZE", "ANY_INDEX_LOCAL_DIM",
+		"ANY_INDEX_LOCAL_QUERY_PREFIX",
 	} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
