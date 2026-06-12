@@ -1795,13 +1795,11 @@ export function main(args) {
     rawArgs: args
   });
 
-  // Run-start ack: a presence marker (text "…", done:false) so clients
-  // can key a typing indicator on the trailing agent message before the
-  // first LLM turn lands. The UI never renders "…" agent messages as
-  // bubbles. Skipped in __quiet — captured replies never reach chat.
-  if (!__quiet) {
-    chatReply({ text: "…", done: false, debugLink: dcDebugLink(0) });
-  }
+  // No run-start ack message: the UI starts its thinking indicator
+  // locally when the user sends a message to the bao chat (see
+  // ../any-ui/docs/tasks/agent-thinking-on-send.md); the indicator
+  // resolves on the first agent reply (done:true terminal, done:false
+  // keeps it going).
 
   // Resolve sender display name once per invocation so turn records can
   // distinguish users in group chats. Falls back to the raw identity and

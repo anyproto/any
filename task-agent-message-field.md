@@ -122,11 +122,12 @@ Every bobrik message is agent-authored; the Go side owns `name`
   stderr-only, so the UI indicator always resolves. Best-effort.
 - `programs/toolcall_core@v1.js` — audit EVERY `chatReply` call site
   and tag it explicitly:
-  - immediately after `dcInit` (non-`__quiet` runs only): post an ack
-    `chatReply({text: "…", done: false, debugLink: "any://<spaceId>/<pageId>"})`
-    so the indicator starts before the first LLM turn. The UI never
-    renders agent messages whose text is exactly `"…"` as bubbles —
-    they exist only to drive the indicator (see the UI task).
+  - ~~run-start ack (`text: "…"`, `done: false`) right after `dcInit`~~
+    — **removed (2026-06)**. A chat message existing only to drive a
+    typing indicator was the wrong layer; the UI now starts the
+    indicator locally when the user sends a message to the bao chat
+    (`../any-ui/docs/tasks/agent-thinking-on-send.md`). The UI keeps
+    hiding legacy stored `"…"` agent messages.
   - intermediate per-turn narration / skill-miss notes
     (`missA`/`missT`, per-turn text parts): `done: false`,
     `debugLink: any://<spaceId>/<pageId>#turn_<n>`.
@@ -144,9 +145,4 @@ Every bobrik message is agent-authored; the Go side owns `name`
 
 ## Open questions
 
-- Should the `"…"` ack message be deleted at end of run (author-only
-  delete exists) instead of relying on the UI to hide it? Leaning no —
-  delete adds a failure mode on every run; hidden-forever is fine for
-  a prototype.
-- `#turn_<n>` for the ack has no turn yet — link is anchor-less there.
-  Fine: the debug page top is the boot record.
+(The `"…"` ack questions are moot — the ack was removed, see above.)
