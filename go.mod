@@ -6,7 +6,7 @@ require (
 	github.com/anyproto/any-store v0.4.6
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.11
 	github.com/anyproto/any-sync v0.12.11
-	github.com/anyproto/any-sync-sdk v0.0.10
+	github.com/anyproto/any-sync-sdk v0.0.11-0.20260612102508-ca176b413c1b
 	github.com/anyproto/anytype-agent-runtime v0.1.2
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
@@ -132,7 +132,3 @@ require (
 )
 
 tool github.com/swaggo/swag/cmd/swag
-
-// DEV ONLY — drop before merge: pin any-sync-sdk v0.0.11 once the
-// feat/aggregate SDK branch (space.Agg) is merged and tagged.
-replace github.com/anyproto/any-sync-sdk => /home/che/projects/any-sync-sdk2

@@ -424,11 +424,12 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-All pins are tagged releases: `any-sync-sdk v0.0.11` (the `space.Agg`
-aggregation surface, status item 16, on top of `v0.0.10`'s `_addSeq`
-change-index + tombstone `IncludeDeleted` work — status items 13–14 —
-plus the space `createdAt` stamp, status item 15, and the
-dataset-schema + unified-query base from `v0.0.8`),
+Pins: `any-sync-sdk v0.0.11` (the `space.Agg` aggregation surface,
+status item 16 — currently a pseudo-version of the SDK's
+`feat/aggregate` PR commit; re-pin the tag once it lands — on top of
+`v0.0.10`'s `_addSeq` change-index + tombstone `IncludeDeleted` work,
+status items 13–14, plus the space `createdAt` stamp, status item 15,
+and the dataset-schema + unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync
 v0.12.11`.
