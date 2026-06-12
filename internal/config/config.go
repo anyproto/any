@@ -40,12 +40,12 @@ type Sync struct {
 // docs/13-index.md). FTS needs no external dependency; the vector side
 // activates only when an embedder is configured.
 type Index struct {
-	// Enabled gates the whole indexer. Default true (FTS-only with no
-	// embedder configured).
+	// Enabled gates the whole indexer. Default true.
 	Enabled bool `yaml:"enabled"`
-	// Embedder selects the embedding provider: "" (none — FTS-only),
-	// "ollama", "openai" (any OpenAI-compatible /embeddings API), or
-	// "local" (in-process llama.cpp, no external service).
+	// Embedder selects the embedding provider: "local" (default —
+	// in-process llama.cpp, no external service), "ollama", "openai"
+	// (any OpenAI-compatible /embeddings API), or "none" (FTS-only).
+	// Empty means unset and resolves to the default.
 	Embedder string      `yaml:"embedder"`
 	Ollama   IndexOllama `yaml:"ollama"`
 	OpenAI   IndexOpenAI `yaml:"openai"`
@@ -106,7 +106,7 @@ func Defaults() Config {
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
-		Index:   Index{Enabled: true},
+		Index:   Index{Enabled: true, Embedder: "local"},
 		Log: logger.Config{
 			DefaultLevel: "info",
 			Format:       logger.ColorizedOutput,

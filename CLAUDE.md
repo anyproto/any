@@ -336,7 +336,8 @@ Implementation slices landed:
       preserved for last-pooling — explicit decision, docs/13-index.md
       § Known limits); Linux needs system libffi (NixOS: `nix develop`,
       see flake.nix). Config `index.*` (`internal/config.Index`, env
-      `ANY_INDEX_*`); no embedder ⇒ FTS-only. **An unavailable embedder never breaks the
+      `ANY_INDEX_*`); `embedder` defaults to `local`, `none` opts out
+      (FTS-only). **An unavailable embedder never breaks the
       pipeline**: no boot probe — pending is marked whenever an
       embedder is configured, an outage freezes only the vector side
       (FTS unaffected), and recovery resumes embedding automatically;

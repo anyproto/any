@@ -189,14 +189,15 @@ A second per-space goroutine drains `pending` docs: batch `EmbedDocs`
 docs deleted meanwhile are skipped) → `EnsureVectorIndex`. Nudged by
 advance after each page with new text; a 1-minute ticker retries after
 embedder failures. A re-written record goes back to `pending` (its text
-changed). No embedder configured ⇒ the loop doesn't run and the index
+changed). `index.embedder: none` ⇒ the loop doesn't run and the index
 is FTS-only.
 
-Embedders (`indexer.Embedder`), selected by `index.embedder`:
+Embedders (`indexer.Embedder`), selected by `index.embedder`
+(default `local`; `none` opts out — FTS-only):
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
 - `openai` — any OpenAI-compatible `/embeddings` API.
-- `local` — **in-process llama.cpp**, no external service. yzma purego
+- `local` — **default**: **in-process llama.cpp**, no external service. yzma purego
   bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
   `index.local.libDir` (default: `llamacpp/` next to the binary —
   populate with `make llamacpp`; macOS arm64 gets Metal, Linux amd64

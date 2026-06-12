@@ -36,12 +36,14 @@ type Embedder interface {
 }
 
 // NewEmbedder constructs the configured embedding client. Returns
-// (nil, nil) when no embedder is configured — the indexer then runs
-// FTS-only. dataDir hosts the local embedder's downloaded model
-// (<dataDir>/index/models).
+// (nil, nil) for "none" — the indexer then runs FTS-only. A bare ""
+// also maps to FTS-only: config.Load defaults it to "local", so ""
+// only survives when a config file sets it explicitly (the pre-"none"
+// opt-out syntax). dataDir hosts the local embedder's downloaded
+// model (<dataDir>/index/models).
 func NewEmbedder(cfg config.Index, dataDir string) (Embedder, error) {
 	switch cfg.Embedder {
-	case "":
+	case "", "none":
 		return nil, nil
 	case "ollama":
 		return NewOllama(cfg.Ollama.Url, cfg.Ollama.Model), nil
@@ -53,6 +55,6 @@ func NewEmbedder(cfg config.Index, dataDir string) (Embedder, error) {
 	case "local":
 		return NewLocal(cfg.Local, dataDir)
 	default:
-		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"\", \"ollama\", \"openai\" or \"local\")", cfg.Embedder)
+		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"local\", \"ollama\", \"openai\" or \"none\")", cfg.Embedder)
 	}
 }

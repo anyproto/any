@@ -50,7 +50,7 @@ sync:
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search
-  embedder: ""                        # "" (FTS-only) | ollama | openai | local
+  embedder: local                     # local (default) | ollama | openai | none (FTS-only)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
@@ -59,7 +59,7 @@ index:
     model: text-embedding-3-small     # required when embedder: openai
     apiKey: sk-...                    # sent as Bearer; never logged
   local:                              # in-process llama.cpp — all fields optional;
-                                      # `embedder: local` alone is the zero-config path
+                                      # the default embedder needs no config at all
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
     modelUrl: ""                      # download-source override for the default path
     modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
@@ -108,9 +108,11 @@ ANY_INDEX_LOCAL_DIM=512
 
 ### `index.embedder: local` prerequisites
 
-The local embedder runs llama.cpp in-process (no CGO — yzma dlopens the
+The local embedder is the **default** (set `index.embedder: none` for
+FTS-only). It runs llama.cpp in-process (no CGO — yzma dlopens the
 shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
-Linux amd64 (CPU).
+Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
+vector side just reports `unavailable` until they're met.
 
 - **llama.cpp libs**: `make llamacpp` fetches the pinned prebuilt
   release into `bin/llamacpp/` next to the binary (override with
