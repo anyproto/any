@@ -114,9 +114,10 @@ shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
 Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
 vector side just reports `unavailable` until they're met.
 
-- **llama.cpp libs**: `make llamacpp` fetches the pinned prebuilt
-  release into `bin/llamacpp/` next to the binary (override with
-  `index.local.libDir`).
+- **llama.cpp libs**: `make llamacpp` (also run as part of
+  `make build`; a fetch failure there only warns) downloads the pinned
+  prebuilt release into `bin/llamacpp/` next to the binary (override
+  with `index.local.libDir`).
 - **Model**: downloaded automatically into `<data-dir>/index/models/`
   on first boot (639 MB, progress in the server log; resumable, never
   blocks boot — vector search reports `unavailable` until it lands).
