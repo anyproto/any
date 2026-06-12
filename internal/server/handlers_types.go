@@ -87,6 +87,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		Description: req.Description,
 		XKey:        req.XKey,
 		Kind:        kind,
+		Meta:        req.Meta,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
@@ -220,6 +221,7 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 		XKey:        p.XKey,
 		XKind:       p.XKind,
 		Kind:        propertyKindToString(p.Kind),
+		Meta:        p.Meta,
 	}
 	if p.Items != nil {
 		nested := propertyDefToAPI(*p.Items)

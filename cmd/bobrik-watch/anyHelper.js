@@ -1263,10 +1263,14 @@ export function createClient(params) {
       for (var j = 0; j < opts.properties.length; j++) {
         var prop = opts.properties[j];
         if (have[prop.key]) continue; // already registered
-        var ar = api("POST", path + "/types/" + typeId + "/properties", {
+        var pbody = {
           xKey: prop.key, name: prop.name || prop.key,
           kind: _formatToKind[prop.format] || prop.kind || "string"
-        });
+        };
+        // Opaque consumer flags on the property definition — e.g.
+        // {index: "agent"} marks it for the server's search indexer.
+        if (prop.meta && typeof prop.meta === "object") pbody.meta = prop.meta;
+        var ar = api("POST", path + "/types/" + typeId + "/properties", pbody);
         if (!ar.ok) {
           _catInvalidate(scope);
           return { ok: false, error: "type \"" + name + "\": property \"" + prop.key + "\" failed: " + _extractError(ar) };

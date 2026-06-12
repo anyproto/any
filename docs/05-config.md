@@ -41,6 +41,21 @@ sync:
   dialTimeout: 10s
   changeBatchSize: 100
 
+# Local search index (docs/13-index.md). FTS needs no external
+# dependency; vector search activates when an embedder is configured.
+index:
+  enabled: true                       # default true; false disables the indexer + /search
+  embedder: ""                        # "" (FTS-only) | ollama | openai
+  ollama:
+    url: http://localhost:11434       # default
+    model: embeddinggemma             # default
+  openai:                             # any OpenAI-compatible /embeddings API
+    baseUrl: https://api.openai.com/v1
+    model: text-embedding-3-small     # required when embedder: openai
+    apiKey: sk-...                    # sent as Bearer; never logged
+  vector:
+    dim: 0                            # 0 = learned from the first successful embedding
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -59,6 +74,15 @@ ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
+
+ANY_INDEX_ENABLED=false               # index.enabled
+ANY_INDEX_EMBEDDER=ollama             # index.embedder
+ANY_INDEX_OLLAMA_URL=http://localhost:11434
+ANY_INDEX_OLLAMA_MODEL=embeddinggemma
+ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
+ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
+ANY_INDEX_OPENAI_API_KEY=sk-...
+ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
 ```
 
 The passkey is the one secret the server may need at boot. Accepted
