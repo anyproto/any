@@ -135,9 +135,9 @@ Not this repo's work; gate on the SDK:
   handler if/when the SDK stabilises a sentinel for this case.
 - **Query `Projection`.** Accepted in the request body but mostly
   ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
-  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (the
-  `feat/addseq-change-index` branch — used by the index chunkers to
-  stream tombstones); variant collapse and meta-stripping still pending.
+  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (SDK `v0.0.10` —
+  used by the index chunkers to stream tombstones); variant collapse
+  and meta-stripping still pending.
 
 ## Index / search (phase 3+)
 
@@ -146,11 +146,9 @@ three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
 pluggable embedders, parallel batched pipelines),
 `POST /v1/spaces/:id/search` + `any search`. Still open:
 
-- **Re-pin the SDK to a tagged release.** `go.mod` still pins the
-  branch pseudo-version `any-sync-sdk@feat/addseq-change-index`
-  (`_addSeq` change-index + tombstone `IncludeDeleted`). Once that
-  branch merges and tags, bump to the tag. (`any-store/v2` re-pinned:
-  the `btree-fts` branch tagged as `v2.0.0-alpha.11`.)
+- ~~**Re-pin both deps to tagged releases.**~~ Done: `any-sync-sdk
+  v0.0.10` (`feat/addseq-change-index` merged) and `any-store/v2
+  v2.0.0-alpha.11` (the `btree-fts` branch tagged).
 - **Backfill / re-index.** "Index from the next change" means
   pre-existing content stays unsearchable until rewritten. A deliberate
   full re-index (walk all objects, not just `_addSeq > cursor`) is an
@@ -358,10 +356,10 @@ pluggable embedders, parallel batched pipelines),
   `chat`). Deletions stream as tombstone entries (`Data == ""`).
   `server.NewIndexRegistry` wires all three onto `deps.chunkers` — no
   consumer, no HTTP endpoints yet. SDK side (branch
-  `feat/addseq-change-index`): `ProjectionOpts.IncludeDeleted` makes the
-  find path (Iter/All/One/Count) surface tombstones so chunkers can
-  stream deletions. Pinned at the branch pseudo-version. Full contract
-  in `docs/13-index.md`.
+  `feat/addseq-change-index`, tagged as `v0.0.10`):
+  `ProjectionOpts.IncludeDeleted` makes the find path
+  (Iter/All/One/Count) surface tombstones so chunkers can stream
+  deletions. Full contract in `docs/13-index.md`.
 - **Search indexer (phase 2) + search endpoint** — `internal/indexer`:
   per-space worker pair (advance loop: change feed → chunkers → FTS,
   cursor-driven, batched; embed loop: pending docs → batch embed →
