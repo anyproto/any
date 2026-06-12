@@ -32,7 +32,7 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 
 	dataDir := t.TempDir()
 	walletPath := filepath.Join(dataDir, "wallet.key")
-	provider, _, err := OpenWallet(walletPath, "")
+	provider, _, err := OpenWallet(walletPath, "", "")
 	if err != nil {
 		t.Fatalf("OpenWallet: %v", err)
 	}
@@ -61,10 +61,17 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 		startedAt:      time.Now().UTC(),
 		shutdown:       make(chan struct{}, 1),
 		sdk:            sdk,
+		chunkers:       NewIndexRegistry(),
 		shutdownCtx:    shutdownCtx,
 		cancelShutdown: cancelShutdown,
 		streamsWG:      &sync.WaitGroup{},
+		root:           dataDir,
+		cfg:            cfg,
+		runCtx:         context.Background(),
 	}
+	// Hand-built deps bypass bootAccount; mark the engine live so the
+	// /v1 unauthorized guard lets requests through.
+	d.ready.Store(true)
 	return d, func() {
 		cancelShutdown()
 		d.streamsWG.Wait()
@@ -178,6 +185,11 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	if created.Status != api.SpaceStatusActive {
 		t.Errorf("status = %q, want active", created.Status)
 	}
+	// createdAt is stamped on the tech-space row at create time
+	// (added-to-account semantics) — only pre-stamp rows are zero.
+	if created.CreatedAt.IsZero() {
+		t.Error("created.CreatedAt is zero, want stamped time")
+	}
 
 	// GET /v1/spaces/:id → same row.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+created.Id, "")
@@ -191,6 +203,9 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	if got.Id != created.Id {
 		t.Errorf("got.Id = %q, want %q", got.Id, created.Id)
 	}
+	if got.CreatedAt.IsZero() {
+		t.Error("got.CreatedAt is zero, want stamped time")
+	}
 
 	// GET /v1/spaces → list now contains the space.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces", "")
@@ -199,20 +214,33 @@ func TestServer_AccountAndSpaceLifecycle(t *testing.T) {
 	}
 	if len(list.Spaces) != 1 || list.Spaces[0].Id != created.Id {
 		t.Errorf("list = %+v", list.Spaces)
+	} else if list.Spaces[0].CreatedAt.IsZero() {
+		t.Error("list row CreatedAt is zero, want stamped time")
 	}
 
-	// DELETE /v1/spaces/:id → soft delete; row stays in list with status=deleted.
+	// DELETE /v1/spaces/:id → soft delete; row stays in storage with status=deleted.
 	rec = doJSON(t, e, http.MethodDelete, "/v1/spaces/"+created.Id, "")
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("DELETE /v1/spaces/:id status = %d body=%s", rec.Code, rec.Body.String())
 	}
 
+	// Default list filters to active-only (TEMPORARY workaround), so the
+	// soft-deleted space is hidden.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces", "")
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("unmarshal list3: %v", err)
 	}
+	if len(list.Spaces) != 0 {
+		t.Errorf("post-delete default list should be empty (active-only), got = %+v", list.Spaces)
+	}
+
+	// ?status=all opts back into the full list, where the deleted row shows.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces?status=all", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal list4: %v", err)
+	}
 	if len(list.Spaces) != 1 || list.Spaces[0].Status != api.SpaceStatusDeleted {
-		t.Errorf("post-delete list = %+v", list.Spaces)
+		t.Errorf("post-delete status=all list = %+v", list.Spaces)
 	}
 }
 
@@ -282,8 +310,10 @@ func TestServer_AccountUpdateMetadata(t *testing.T) {
 func TestServer_NotImplementedRoutes(t *testing.T) {
 	// This test runs without booting the SDK — the 501 handlers don't
 	// touch deps.sdk. Skipping the staging precondition lets this run on
-	// machines without the test-etc fixture.
+	// machines without the test-etc fixture. ready is set by hand so
+	// the unauthorized guard doesn't shadow the 501s.
 	d := &deps{startedAt: time.Now().UTC(), shutdown: make(chan struct{}, 1)}
+	d.ready.Store(true)
 	e := buildEcho(d)
 
 	cases := []struct{ method, path string }{

@@ -33,9 +33,13 @@ type RunOptions struct {
 // POST /v1/shutdown is called. Caller is responsible for installing
 // signal handlers and cancelling ctx accordingly.
 //
-// The wallet is opened before the listener binds so the mnemonic can be
-// printed to stderr before any request is accepted. The SDK is opened
-// next; failures here surface before the server starts accepting traffic.
+// When the data dir resolves to an account (root wallet, sole
+// per-account dir, or an explicit selector) its engine — wallet, SDK,
+// indexer — boots before the listener binds, so failures surface
+// before any request is accepted. With no account to boot the server
+// starts UNAUTHORIZED: every /v1 route except health/shutdown/auth
+// returns 401 auth.required until POST /v1/auth creates or selects an
+// account and boots the engine in place.
 func Run(ctx context.Context, cfg config.Config) error {
 	return RunWith(ctx, cfg, RunOptions{})
 }
@@ -51,70 +55,53 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		return err
 	}
 
-	dataDir, err := config.EnsureDataDir(cfg.DataDir)
+	root, err := config.EnsureDataDir(cfg.DataDir)
 	if err != nil {
 		return err
 	}
 
-	lock, err := Acquire(config.PIDPath(dataDir))
-	if err != nil {
+	identity, err := ResolveIdentity(cfg, root)
+	var noIdentity *ErrNoIdentity
+	if errors.As(err, &noIdentity) {
+		identity = nil
+	} else if err != nil {
 		return err
 	}
-	defer func() {
-		if err := lock.Release(); err != nil {
-			lg.Warn("release pid lock", zap.Error(err))
-		}
-	}()
-
-	passkey, err := config.ResolvePasskey(cfg, false)
-	if err != nil {
-		return err
-	}
-	walletPath := config.WalletPath(cfg, dataDir)
-	provider, firstRun, err := OpenWallet(walletPath, passkey)
-	if err != nil {
-		return err
-	}
-	if firstRun {
-		PrintMnemonic(provider.Mnemonic())
-	}
-
-	account, err := AccountID(ctx, provider)
-	if err != nil {
-		return fmt.Errorf("derive account id: %w", err)
-	}
-
-	sdk, err := OpenSDK(ctx, cfg, dataDir, provider)
-	if err != nil {
-		return fmt.Errorf("open sdk: %w", err)
-	}
-	defer func() {
-		if err := sdk.Close(); err != nil {
-			lg.Warn("sdk close", zap.Error(err))
-		}
-	}()
 
 	shutdown := make(chan struct{}, 1)
 	streamsCtx, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
+
 	deps := &deps{
-		account:        account,
 		startedAt:      time.Now().UTC(),
 		shutdown:       shutdown,
-		sdk:            sdk,
+		chunkers:       NewIndexRegistry(),
 		shutdownCtx:    streamsCtx,
 		cancelShutdown: cancelStreams,
 		streamsWG:      &sync.WaitGroup{},
+		root:           root,
+		cfg:            cfg,
+		runCtx:         ctx,
 	}
+	defer deps.closeEngine(lg)
+
+	if identity != nil {
+		if _, err := deps.bootAccount(identity, ""); err != nil {
+			return err
+		}
+	} else {
+		lg.Info("no account selected — starting unauthorized, waiting for POST /v1/auth",
+			zap.Strings("available", noIdentity.Accounts))
+	}
+
 	e := buildEcho(deps)
 
-	// Pre-bind the listener so listen errors (port in use, EACCES,
-	// non-loopback after validation slipped) surface synchronously to
-	// the caller, and so embedders can read back the real port when
-	// cfg.Listen.Addr asked for ":0".
+	// Bind explicitly so the RESOLVED address is known before serving —
+	// `--addr 127.0.0.1:0` asks the kernel for an ephemeral port, and the
+	// desktop shell needs the real one.
 	ln, err := net.Listen("tcp", cfg.Listen.Addr)
 	if err != nil {
-		return fmt.Errorf("listen: %w", err)
+		return err
 	}
 	e.Listener = ln
 	boundAddr := ln.Addr().String()
@@ -130,7 +117,10 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		}
 		serveErr <- nil
 	}()
-	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", account))
+	// Do not change this line: the desktop shell (any-ui PR-095 / PR #162)
+	// parses it as its port handshake + readiness gate.
+	fmt.Printf("LISTENING %s\n", boundAddr)
+	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()))
 	lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
 
 	select {

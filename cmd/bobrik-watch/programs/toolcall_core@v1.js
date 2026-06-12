@@ -1177,6 +1177,7 @@ var DC_DATASET = "agent_debug_log";
 var _dc = {
   client: null,
   pageId: null,
+  spaceId: "",
   userText: "",
   startMs: 0,
   model: "",
@@ -1188,9 +1189,21 @@ var _dc = {
 };
 
 function _dcReset() {
-  _dc.client = null; _dc.pageId = null; _dc.userText = "";
+  _dc.client = null; _dc.pageId = null; _dc.spaceId = ""; _dc.userText = "";
   _dc.startMs = 0; _dc.model = ""; _dc.turnCount = 0; _dc.seq = 0;
   _dc.totalIn = 0; _dc.totalOut = 0; _dc.totalCost = 0;
+}
+
+// dcDebugLink composes the agent.debugLink drill-down chatReply attaches
+// to every reply: any://<spaceId>/<debugPageId>[#turn_<n>] — the UI
+// resolves the fragment to the matching turn card on the debug page.
+// Empty string when the debug page failed to create (the host omits the
+// field then); pass turnN 0 for pre-turn replies (ack, boot failures).
+function dcDebugLink(turnN) {
+  if (!_dc.pageId || !_dc.spaceId) return "";
+  var link = "any://" + _dc.spaceId + "/" + _dc.pageId;
+  if (turnN) link += "#turn_" + turnN;
+  return link;
 }
 
 // Zero-pad a sequence number so lexical record-id order matches insertion order.
@@ -1218,9 +1231,10 @@ function _dcWriteEntry(kind, fields) {
   try { _dc.client.setRecord(_dc.pageId, DC_DATASET, recordId, rec); } catch (e) {}
 }
 
-function dcInit(client, _spaceId, userText, bootMeta) {
+function dcInit(client, spaceId, userText, bootMeta) {
   _dcReset();
   _dc.client = client;
+  _dc.spaceId = spaceId || "";
   _dc.userText = userText || "";
   _dc.startMs = Date.now();
   var name = _dc.userText || "(no prompt)";
@@ -1781,6 +1795,12 @@ export function main(args) {
     rawArgs: args
   });
 
+  // No run-start ack message: the UI starts its thinking indicator
+  // locally when the user sends a message to the bao chat (see
+  // ../any-ui/docs/tasks/agent-thinking-on-send.md); the indicator
+  // resolves on the first agent reply (done:true terminal, done:false
+  // keeps it going).
+
   // Resolve sender display name once per invocation so turn records can
   // distinguish users in group chats. Falls back to the raw identity and
   // finally to no-name (pre-scoping behaviour).
@@ -1805,6 +1825,9 @@ export function main(args) {
   var bootResult = js.eval(prelude.code, args, { persistent: true });
   if (bootResult && bootResult.error) {
     var bootMsg = "Bootstrap failed: " + bootResult.error;
+    // Terminal reply (not just a return) — the ack already opened a
+    // typing indicator that only a done:true message closes.
+    chatReply({ text: bootMsg, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "bootstrap_failed", finalText: bootMsg });
     return bootMsg;
   }
@@ -1817,14 +1840,14 @@ export function main(args) {
   var anytypeSkill = _loadAnytypeSkill(bootClient);
   if (!anytypeSkill) {
     var missA = "System skill `_anytype` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
-    chatReply(missA);
+    chatReply({ text: missA, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
   }
   var toolcallerSkill = _loadToolcallerSkill(bootClient);
   if (!toolcallerSkill) {
     var missT = "System skill `_toolcaller` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
-    chatReply(missT);
+    chatReply({ text: missT, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missT });
     return "";
   }
@@ -1956,7 +1979,7 @@ export function main(args) {
         tools: [RUN_CELL_TOOL]
       });
     } catch (e) {
-      chatReply("LLM error on turn " + (iter + 1) + ": " + (e.message || e));
+      chatReply({ text: "LLM error on turn " + (iter + 1) + ": " + (e.message || e), done: true, debugLink: dcDebugLink(iter + 1) });
       var failMsg = "FAILED at turn " + (iter + 1) + ": " + (e.message || e);
       dcFlush({ status: "llm_error", finalText: failMsg });
       return failMsg;
@@ -1999,7 +2022,7 @@ export function main(args) {
         summaryResp = llm.chat(messages, { system: systemBlocks });
       } catch (e) {
         var sumErr = "FAILED at turn " + (iter + 1) + ": max_tokens recovery LLM error: " + (e.message || e);
-        chatReply("⚠ max_tokens — recovery summary failed: " + (e.message || e));
+        chatReply({ text: "⚠ max_tokens — recovery summary failed: " + (e.message || e), done: true, debugLink: dcDebugLink(iter + 1) });
         dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: maxTokenResults });
         dcFlush({ status: "max_tokens_summary_failed", finalText: sumErr });
         return sumErr;
@@ -2010,7 +2033,7 @@ export function main(args) {
         summaryText = _findTextBlocks(summaryResp.content).join("\n").trim();
       }
       if (!summaryText) summaryText = "(turn cut off by max_tokens; no summary produced)";
-      chatReply("⚠ max_tokens — turn auto-closed:\n\n" + summaryText);
+      chatReply({ text: "⚠ max_tokens — turn auto-closed:\n\n" + summaryText, done: true, debugLink: dcDebugLink(iter + 1) });
 
       // Persist as a normal turn so chat history shows what happened.
       if (historyEnabled) {
@@ -2028,7 +2051,7 @@ export function main(args) {
     }
 
     if (!resp || !resp.content) {
-      chatReply("Empty LLM response on turn " + (iter + 1));
+      chatReply({ text: "Empty LLM response on turn " + (iter + 1), done: true, debugLink: dcDebugLink(iter + 1) });
       var emptyMsg = "FAILED at turn " + (iter + 1) + ": empty response";
       dcLogTurn({ n: iter + 1, resp: resp || {}, durationMs: _turnMs });
       dcFlush({ status: "empty_response", finalText: emptyMsg });
@@ -2070,9 +2093,9 @@ export function main(args) {
         if (attachCount >= 5) break;
       }
       if (attachCount > 0) {
-        chatReply({ text: "✅ " + finalText, attachments: attachments });
+        chatReply({ text: "✅ " + finalText, attachments: attachments, done: true, debugLink: dcDebugLink(iter + 1) });
       } else {
-        chatReply("✅ " + finalText);
+        chatReply({ text: "✅ " + finalText, done: true, debugLink: dcDebugLink(iter + 1) });
       }
 
       if (historyEnabled) {
@@ -2110,7 +2133,7 @@ export function main(args) {
     // "I see that..."). The final-turn text is handled above with the ✅
     // prefix, so this only fires on turns that still have tool_use to run.
     if (textParts.length > 0) {
-      chatReply(textParts.join("\n"));
+      chatReply({ text: textParts.join("\n"), done: false, debugLink: dcDebugLink(iter + 1) });
       turnThinkParts.push(textParts.join("\n").trim());
     }
 
@@ -2118,7 +2141,7 @@ export function main(args) {
     var toolBlocks = _findToolUseBlocks(resp.content);
     if (toolBlocks.length === 0) {
       // No text and no tool_use? Treat as termination with whatever we have.
-      chatReply("(no tool_use and no text — terminating)");
+      chatReply({ text: "(no tool_use and no text — terminating)", done: true, debugLink: dcDebugLink(iter + 1) });
       var fallbackText = textParts.join("\n") || "(no content)";
       dcLogTurn({ n: iter + 1, resp: resp, durationMs: _turnMs, toolResults: [] });
       dcFlush({ status: "no_content", finalText: fallbackText });

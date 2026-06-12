@@ -13,8 +13,18 @@ A missing config file is not an error: defaults are used.
 ## File shape
 
 ```yaml
-# Data root. Contains wallet.key, server.pid, storage/.
+# Data ROOT. Each account lives in <dataDir>/<accountId>/ (wallet.key,
+# server.pid, sdk/, index/); a wallet.key directly at the root is the
+# legacy flat layout and acts as the default account with its data at
+# the root. config.yaml and the shared models/ cache sit at the root.
+# Layout details: 02-server.md § Data dir layout.
 dataDir: ~/.any
+
+# Account to boot when the root holds more than one. Empty = the
+# default (root wallet.key, or the sole per-account dir); with several
+# accounts and no selector the server starts unauthorized and waits
+# for POST /v1/auth.
+account: ""
 
 # HTTP server listen address. Loopback only in v1.
 listen:
@@ -22,10 +32,17 @@ listen:
 
 # Auth — wallet location, optional passkey env var name.
 auth:
-  walletPath: ~/.any/wallet.key       # default: <dataDir>/wallet.key
+  walletPath: ""                      # explicit wallet file = manual mode
+                                      # (no per-account nesting); default:
+                                      # resolved per account
   passkeyEnv: ANY_WALLET_PASSKEY      # env var name to read passkey from
 
-# any-sync network. Path to a nodeconf YAML, or inline.
+# any-sync network. Path to a nodeconf YAML, or inline. When neither is
+# set, an EMBEDDED fallback ships inside the binary (vendored at
+# internal/config/nodeconf-staging.yml) so packaged installs boot from
+# any working directory. The embedded conf is the sanitized fixture
+# (staging networkId, placeholder nodes) — it works locally but joins no
+# network; configure a real nodeconf to sync.
 network:
   nodeconfPath: /etc/any/nodeconf.yaml
   # OR:
@@ -41,6 +58,30 @@ sync:
   dialTimeout: 10s
   changeBatchSize: 100
 
+# Local search index (docs/13-index.md). FTS needs no external
+# dependency; vector search activates when an embedder is configured.
+index:
+  enabled: true                       # default true; false disables the indexer + /search
+  embedder: local                     # local (default) | ollama | openai | none (FTS-only)
+  ollama:
+    url: http://localhost:11434       # default
+    model: embeddinggemma             # default
+  openai:                             # any OpenAI-compatible /embeddings API
+    baseUrl: https://api.openai.com/v1
+    model: text-embedding-3-small     # required when embedder: openai
+    apiKey: sk-...                    # sent as Bearer; never logged
+  local:                              # in-process llama.cpp — all fields optional;
+                                      # the default embedder needs no config at all
+    modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
+    modelUrl: ""                      # download-source override for the default path
+    modelSha256: ""                   # checksum override; "" with modelUrl ⇒ skip verify
+    libDir: ""                        # llama.cpp shared libs; default <exe-dir>/llamacpp
+    contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
+    queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
+    dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
+  vector:
+    dim: 0                            # 0 = learned from the first successful embedding
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -55,11 +96,46 @@ Prefix `ANY_`, underscores map to nested fields. Examples:
 
 ```
 ANY_DATA_DIR=/var/lib/any
+ANY_ACCOUNT=A8tR...                   # account selector (config: account)
 ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
+
+ANY_INDEX_ENABLED=false               # index.enabled
+ANY_INDEX_EMBEDDER=ollama             # index.embedder
+ANY_INDEX_OLLAMA_URL=http://localhost:11434
+ANY_INDEX_OLLAMA_MODEL=embeddinggemma
+ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
+ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
+ANY_INDEX_OPENAI_API_KEY=sk-...
+ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
+ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
+ANY_INDEX_LOCAL_MODEL_URL=https://...
+ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
+ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
+ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
+ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
+ANY_INDEX_LOCAL_DIM=512
 ```
+
+### `index.embedder: local` prerequisites
+
+The local embedder is the **default** (set `index.embedder: none` for
+FTS-only). It runs llama.cpp in-process (no CGO — yzma dlopens the
+shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
+Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
+vector side just reports `unavailable` until they're met.
+
+- **llama.cpp libs**: `make llamacpp` fetches the pinned prebuilt
+  release into `bin/llamacpp/` next to the binary (override with
+  `index.local.libDir`).
+- **Model**: downloaded automatically into `<data-dir>/index/models/`
+  on first boot (639 MB, progress in the server log; resumable, never
+  blocks boot — vector search reports `unavailable` until it lands).
+- **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
+  mainstream distros; on NixOS use `nix develop` — the repo flake's
+  dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
 
 The passkey is the one secret the server may need at boot. Accepted
 sources:
@@ -77,6 +153,7 @@ server can run under a supervisor / shell pipeline.
 ```
 --config <path>
 --data-dir <path>
+--account <accountId>        # selector when the root holds several
 --addr <host:port>           # must be loopback in v1
 --wallet <path>
 --passkey-stdin
@@ -93,13 +170,18 @@ server can run under a supervisor / shell pipeline.
 
 ## First run
 
-With no config file and no data dir, `any run` does:
+With no config file and no data dir, `any init` does:
 
 1. Create `~/.any/` (mode 0700).
-2. Generate a wallet.key — plain unless `ANY_WALLET_PASSKEY` is set.
-3. Print the mnemonic to stderr, with a prominent warning to back it
-   up.
-4. Start serving on `127.0.0.1:7001`.
+2. Generate an account and write
+   `~/.any/<accountId>/wallet.key` — plain unless
+   `ANY_WALLET_PASSKEY` is set. With `--mnemonic`/`--mnemonic-stdin`
+   the account is derived from the supplied phrase instead (restore /
+   second device; fresh device key either way).
+3. Print the mnemonic to stderr (generation only), with a prominent
+   warning to back it up.
 
-`any init` runs steps 1–3 and exits — gives the operator a moment to
-copy the mnemonic before the server binds.
+`any run` does NOT create wallets: on a fresh root it starts
+unauthorized and waits for `POST /v1/auth` (which can also generate or
+restore the account — the HTTP flavor of init for UI onboarding). See
+`02-server.md` § Startup and `03-api.md` § Auth.

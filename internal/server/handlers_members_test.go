@@ -147,6 +147,7 @@ func TestServer_MembersInvites_Owner(t *testing.T) {
 // no SDK round-trip needed, so this test runs without staging.
 func TestServer_MembersInvites_BadInputs(t *testing.T) {
 	d := &deps{}
+	d.ready.Store(true) // skip the unauthorized guard; validation runs pre-SDK
 	e := buildEcho(d)
 
 	cases := []struct {

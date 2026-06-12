@@ -6,6 +6,7 @@
   - [Write responses](#write-responses)
 - [Endpoint catalog](#endpoint-catalog)
   - [Meta](#meta)
+  - [Auth](#auth)
   - [Account](#account)
   - [Spaces](#spaces)
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
@@ -107,6 +108,52 @@ live via `/query/subscribe`). One write shape across the whole API.
 | GET    | `/v1/health`    | server health, version, account id     |
 | POST   | `/v1/shutdown`  | graceful shutdown                      |
 
+`/v1/health` works on an unauthorized server too — `account` is then
+`""`.
+
+### Auth
+
+| Method | Path        | Purpose                                          |
+|--------|-------------|--------------------------------------------------|
+| GET    | `/v1/auth`  | authorization state + locally available accounts |
+| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK |
+
+A server started without a resolvable account (fresh data dir, or
+several accounts and no selector — see `02-server.md` § Startup) is
+**unauthorized**: every `/v1` route except `/v1/health`,
+`/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns
+`401 auth.required`. `POST /v1/auth` boots the account in place; no
+restart, and the server stays on that account for its lifetime
+(switching = restart, a second POST returns
+`409 auth.already_authorized`).
+
+```json
+// GET /v1/auth
+{ "authorized": false,
+  "accounts": [
+    {"id":"A8tR…","default":true},   // legacy root wallet.key
+    {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
+
+// POST /v1/auth — body fields are mutually exclusive:
+{}                                    // generate a fresh account
+{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
+                                      // device key freshly generated
+{ "accountId":"A8g1…" }               // select an existing local wallet
+
+// → 200
+{ "accountId":"A8g1…",
+  "created": true,        // a new wallet file was written
+  "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
+```
+
+Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
+`404 auth.account_not_found` (accountId without a local wallet),
+`409 auth.account_in_use` (another process holds that account's pid
+lock), `409 auth.mnemonic_mismatch` (existing wallet file disagrees
+with the supplied phrase/index), `400 auth.passkey_required`
+(encrypted wallet — the passkey still comes from the configured env
+var, never the request body).
+
 ### Account
 
 | Method | Path                         | Purpose                                |
@@ -134,7 +181,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | Method | Path                            | Purpose                             |
 |--------|---------------------------------|-------------------------------------|
 | POST   | `/v1/spaces`                    | `Service.Create`                    |
-| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo`      |
+| GET    | `/v1/spaces`                    | `Service.List` → `[]SpaceInfo` (active-only by default, see note) |
 | POST   | `/v1/spaces/query`              | `Service.Query` (spaces dataset) snapshot |
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
@@ -144,6 +191,17 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+| POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+
+**`GET /v1/spaces` defaults to active spaces only** (TEMPORARY
+workaround). `DELETE` is the SDK's soft-delete — the row stays in
+`Service.List` with `status:"deleted"` and is never offloaded yet (no
+proper space deletion / offloading; see `docs/07-roadmap.md`), so the
+raw list otherwise accumulates dozens of dead rows. Pass `?status=all`
+to get the full list (every status), or `?status=<value>` to filter to
+a specific status (e.g. `deleted`). Remove this default once deletion
+actually reclaims the rows. The `POST /v1/spaces/query[/subscribe]`
+primitive is unaffected — it still returns the raw tech-index rows.
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
@@ -154,6 +212,14 @@ on this id to live-update name / description / icon. Single-space responses
 always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
+
+`SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
+stamped when the tech-space row is created — at create for the author,
+at join for a joiner. Immutable once stamped. Rows from before the
+stamp existed report the zero time (`0001-01-01T00:00:00Z`) — treat it
+as "unknown"; there is no backfill. The stamp is per-device, so the
+account's devices can disagree by a few seconds (or zero vs real on
+mixed SDK versions) — good for ordering, not for equality checks.
 
 #### Query / subscribe the space list
 
@@ -175,7 +241,10 @@ same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `spaces`; `profile` is the other system dataset). `objectId` is fixed
 server-side to the tech-space index object. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. The subscribe frame set and `closed`
+you want the projected status/role. Rows carry `createdAt` as unix
+seconds (handler-derived added-to-account time, absent on pre-stamp
+rows), so newest-first creation ordering is `{"sort": ["-createdAt"]}`.
+The subscribe frame set and `closed`
 reasons are identical to the per-object `…/query/subscribe` (see the Data
 plane § Subscribe and `docs/04-events.md`); a space joined on another
 device or head-synced in arrives as an `added` change.
@@ -249,6 +318,59 @@ collapsing the multi-peer convergence wait in tests from "next periodic
 headsync (~30s)" to "as fast as the diff round settles." A single round
 exchanges heads with the node; for a writer→reader handoff, sync the
 writer first (push to the node) then the reader (pull back).
+
+#### POST /v1/spaces/:spaceId/search — local search index
+
+The **one sanctioned endpoint that does not map 1:1 onto an SDK
+method**: it queries the server's local search index (FTS + vector over
+the chunker feed — contract, scopes, and indexing pipeline in
+`docs/13-index.md`). Requires `index.enabled` (default true); `409
+index.disabled` otherwise.
+
+Body:
+
+```json
+{
+  "query":  "zeppelin disaster",      // required
+  "scopes": ["chat", "basic"],        // optional scope slugs (open set — see docs/13-index.md); empty = all
+  "limit":  10,                       // optional: default 10, max 100
+  "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
+}
+```
+
+Reply:
+
+```json
+{
+  "hits": [
+    { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
+      "recordId": "…", "data": "the zeppelin disaster of 1937",
+      "score": 0.0328 }
+  ],
+  "mode": "hybrid",
+  "vectorStatus": "used"
+}
+```
+
+`mode` in the reply is the mode that actually ran: `hybrid` degrades to
+`fts` when no embedder is configured or it is unreachable; `mode:
+"vector"` requests get `400 index.no_embedder` (none configured) or
+`503 index.embedder_unavailable` (configured but down — retryable).
+
+`vectorStatus` tells the consumer — typically an agent deciding how
+much to trust recall — whether semantic search took part, and why not:
+
+| Value | Meaning |
+|-------|---------|
+| `used` | the vector leg ran and contributed to ranking |
+| `unavailable` | embedder configured but unreachable for this query — results are lexical-only; retrying later may differ |
+| `disabled` | no embedder configured on this server — vector can never run until config changes |
+| `skipped` | the caller asked for `mode: "fts"`; vector was not attempted |
+
+Scores are comparable only within one response
+(BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
+covers content written while indexing is on — "index from the next
+change" (`docs/13-index.md`).
 
 ### Objects
 
@@ -657,6 +779,18 @@ they want at-least-once semantics across reconnects.
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
 
+`POST …/properties` accepts an optional **`meta`** object (string →
+string) stored verbatim on the property definition and returned by
+`GET …/properties`. It is opaque consumer metadata; the one convention
+today is `meta.index = "<scope>"`, which marks the property for the
+search indexer (its value is indexed under that scope — see
+`docs/13-index.md` § prop chunker). Only string / array kinds index.
+
+```json
+{ "name": "context", "kind": "string", "xKey": "context",
+  "meta": { "index": "agent" } }
+```
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
@@ -718,7 +852,9 @@ body is always read back through the query path.
   "createdAt":        1714597200,
   "modifiedAt":       1714597200,
   "replyToMessageId": "<msgId>",
-  "fromAgent":        "<opaque identity>",
+  "agent": {
+    "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
+  },
   "text":             "**hi** _there_",
   "attachments": {
     "a1": { "type": "link",  "link": "any://abc/def" },
@@ -733,13 +869,26 @@ are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
 
-`fromAgent` is an optional, opaque, create-only tag the sender sets to
-mark the message as written by an agent acting on the signer's behalf
-(vs typed by the signer directly). It is NOT cryptographically
-verified — `creator` is still the change signer; `fromAgent` is a UI
-hint. Typical use: an agent subscribed to `chat_messages` ignores its
-own messages (`fromAgent` non-empty) and only responds to human ones
-(`fromAgent` empty). Omitted from responses when unset.
+`agent` is an optional, create-only group the sender sets to mark the
+message as written by an agent acting on the signer's behalf (vs typed
+by the signer directly). It is NOT cryptographically verified —
+`creator` is still the change signer; the group is a UI hint. Fields:
+
+- `name` — required, non-empty, ≤ 256 bytes. Display label.
+- `debugLink` — optional, non-empty when present, ≤ 2 KiB. Opaque to
+  the server; by convention `any://<spaceId>/<debugLogObjectId>` with
+  an optional `#turn_<n>` fragment (1-based LLM-turn ordinal) so a UI
+  can deep-link "go to debug" from the message to the turn that
+  produced it.
+- `done` — required boolean. Liveness: `false` means the run that
+  produced this message is still going; clients cycle a typing
+  indicator while the *last* message in a chat is an agent message
+  with `done: false`. Every run must end with a `done: true` message.
+
+No unknown sub-fields. Immutable post-create as a group. Typical use:
+an agent subscribed to `chat_messages` ignores its own messages
+(`agent` present) and only responds to human ones (`agent` absent).
+Omitted from responses when unset.
 
 `attachments` is an optional, create-only map keyed by short opaque
 ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`.
@@ -766,13 +915,15 @@ See `internal/chat/handler.go`.
 `POST /v1/spaces/:spaceId/objects/:objectId/chat/messages`
 
 ```json
-{ "text": "hello", "replyToMessageId": "abc", "fromAgent": "agent-alice" }
+{ "text": "hello", "replyToMessageId": "abc",
+  "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
 ```
 
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. `fromAgent` is optional, ≤ 256 bytes, non-empty when
-present; immutable post-create. Returns 201 with the shared write
+target exists. `agent` is optional (see § Message wire shape for the
+sub-field rules; 400 `chat.agent_invalid` on violations); immutable
+post-create. Returns 201 with the shared write
 result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
 server-derived message id. Read the message back via the query path
 above.
@@ -1134,7 +1285,10 @@ Minimal in v1:
 - `middleware.BodyLimit("1M")` — reject anything larger; prevents
   accidental uploads before the file API lands.
 
-No CORS, no rate limiting, no auth middleware in v1.
+No rate limiting in v1, and no caller authentication (loopback is the
+trust boundary). The only auth-shaped middleware is the unauthorized
+guard (§ Auth): `401 auth.required` on SDK-backed routes until an
+account is booted — it gates server STATE, not the caller. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
 
 ## Pagination
 

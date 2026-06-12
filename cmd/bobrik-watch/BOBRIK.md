@@ -40,7 +40,7 @@ On startup bobrik-watch:
 7. Writes its PID to `./.bobrik-pid` and subscribes to the chat's
    `chat_messages` SSE stream.
 
-On each human message (no `fromAgent` field):
+On each human message (no `agent` field):
 
 1. Creates a fresh Sobek JS runtime with `SetupAnySDKDirtyRuntime`.
 2. Registers a `chatReply` effect that posts replies back to the chat.
@@ -82,7 +82,7 @@ Then in another terminal:
 |------|---------|-------------|
 | `--addr` | `127.0.0.1:7001` | `any` server address (host:port) |
 | `--space` | `bao` | Space name (created if missing) |
-| `--agent-name` | `bao` | `fromAgent` tag on replies |
+| `--agent-name` | `bao` | `agent.name` display label on replies |
 | `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
 
 There is no `--chat` flag: the watched chat is the space's chat object named

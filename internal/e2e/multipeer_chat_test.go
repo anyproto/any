@@ -26,7 +26,7 @@ type chatMsg struct {
 	CreatedAt        int64
 	ModifiedAt       int64
 	ReplyToMessageId string
-	FromAgent        string
+	Agent            *api.ChatAgentMeta
 	Text             string
 	Reactions        map[string]map[string]int64
 }
@@ -133,7 +133,7 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		CreatedAt        float64                       `json:"createdAt"`
 		ModifiedAt       float64                       `json:"modifiedAt"`
 		ReplyToMessageId string                        `json:"replyToMessageId"`
-		FromAgent        string                        `json:"fromAgent"`
+		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
 		Reactions        map[string]map[string]float64 `json:"reactions"`
 	}
@@ -159,7 +159,7 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		CreatedAt:        int64(f.CreatedAt),
 		ModifiedAt:       int64(f.ModifiedAt),
 		ReplyToMessageId: f.ReplyToMessageId,
-		FromAgent:        f.FromAgent,
+		Agent:            f.Agent,
 		Text:             f.Text,
 		Reactions:        reactions,
 	}

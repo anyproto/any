@@ -50,10 +50,10 @@ becomes useful. Needs:
 
 1. **Port default.** Picked 7001 arbitrarily. If it collides with
    anything real, change before first ship.
-2. **`any init` vs first-`any run` auto-create.** We document both; in
-   practice only one needs to exist in v1. Keeping `init` is cheap and
-   gives operators a quiet moment to copy the mnemonic — probably keep
-   both but revisit if the code grows.
+2. ~~**`any init` vs first-`any run` auto-create.**~~ Resolved: `run`
+   no longer auto-creates. Accounts come from `any init` (CLI) or
+   `POST /v1/auth` (HTTP onboarding); an account-less `run` starts
+   unauthorized and waits.
 3. **Config file location precedence.** Documented in `05-config.md`.
    Verify `$XDG_CONFIG_HOME/any/config.yaml` is what Linux users
    expect; macOS users might prefer `~/Library/Application Support/any/`.
@@ -77,6 +77,15 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
+10. **Space deletion / offloading (TEMPORARY list filter in place).**
+    `DELETE /v1/spaces/:id` is the SDK's soft-delete only — the row
+    stays in `Service.List` forever with `status:"deleted"`, never
+    offloaded, so a dev account quickly accumulates dozens of dead
+    rows. Workaround: `GET /v1/spaces` defaults to active-only
+    (`?status=all` opts back into the full list) — see the comment in
+    `handlers_spaces.go::spaceList`. **Remove this default filter once
+    the SDK can actually reclaim/offload deleted spaces** so the raw
+    list stays small on its own.
 9. **External semantic-search service (TODO — agent memory recall is
    non-functional until this exists).** The agent data layer
    (`docs/11-agent-memory.md`) deliberately stores no vectors; a
@@ -90,6 +99,12 @@ becomes useful. Needs:
    schema keeps their fields — edges, salience, accessCount — so they
    resume without data migration). `embeddingRef` is reserved on the
    schema as the future external-index backref.
+10. **Account switching on a running server.** `POST /v1/auth` boots
+    exactly one engine per process lifetime; switching accounts means
+    restarting with `--account <id>`. A logout/switch endpoint (tear
+    the engine down, return to the unauthorized state) is plausible
+    but needs every handler and SSE stream to tolerate the SDK going
+    away mid-flight — not worth it until a real client asks.
 
 ## SDK-side prerequisites
 
@@ -115,9 +130,49 @@ Not this repo's work; gate on the SDK:
   wrapped store error ("tree does not exist") and currently fall
   through to `500 internal`. We could widen the 404 mapping in the
   handler if/when the SDK stabilises a sentinel for this case.
-- **Query `Projection`.** Accepted in the request body but ignored —
-  the SDK's `Projection(opts)` is a no-op in MVP. Update the handler
-  once variant collapse and meta-stripping land.
+- **Query `Projection`.** Accepted in the request body but mostly
+  ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
+  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (SDK `v0.0.10` —
+  used by the index chunkers to stream tombstones); variant collapse
+  and meta-stripping still pending.
+
+## Index / search (phase 3+)
+
+Phases 1–2 shipped (see Done + `docs/13-index.md`): chunker contract +
+three chunkers, the indexer (per-space BM25 FTS + IVF-SQ vector index,
+pluggable embedders, parallel batched pipelines),
+`POST /v1/spaces/:id/search` + `any search`. Still open:
+
+- ~~**Re-pin both deps to tagged releases.**~~ Done: `any-sync-sdk
+  v0.0.10` (`feat/addseq-change-index` merged) and `any-store/v2
+  v2.0.0-alpha.11` (the `btree-fts` branch tagged).
+- **Backfill / re-index.** "Index from the next change" means
+  pre-existing content stays unsearchable until rewritten. A deliberate
+  full re-index (walk all objects, not just `_addSeq > cursor`) is an
+  open design.
+- **Search quality.** Snippets/highlighting, per-scope weights,
+  cross-space search, tunable score thresholds beyond the
+  zero-similarity noise floor, query-time `VectorEf` tuning.
+- **Embedding hygiene.** Re-embed on model change (currently a dim
+  mismatch is a boot error suggesting removing `<data-dir>/index/`).
+- **Long-record chunk splitting.** The local embedder truncates input
+  to `index.local.contextSize` tokens (head-only vector recall, FTS
+  unaffected — docs/13-index.md § Known limits). Splitting one record
+  into N sub-chunks is a chunker-contract change (doc-id scheme,
+  tombstones for shrinking records).
+- **Local embedder follow-ups.** Multi-sequence batched decode (texts
+  currently embed sequentially under one mutex); a packaged
+  distribution story for the llama.cpp libs (today: `make llamacpp`
+  drops them next to the binary; go:embed + extract was considered and
+  deferred — pure overhead while "distribution" means `make build`).
+- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
+  `index: "<scope>"`) are create-time-only until the SDK implements
+  property-meta updates — existing properties can't be re-flagged.
+- **`agent_memory_items` chunker.** Agent memory now lives in the
+  built-in `agent_memory` type's dataset (docs/11-agent-memory.md); a
+  dedicated gated chunker (`TypeId() == "agent_memory"`, dataset
+  `agent_memory_items`) is the real path to agent-scope recall — the
+  prop chunker only covers property values on objects.
 
 ## How to update this file
 
@@ -129,6 +184,21 @@ Not this repo's work; gate on the SDK:
 
 ## Done
 
+- **Mnemonic authorization + per-account data dirs** — `any init
+  --mnemonic[-stdin]` restores an account from its BIP-39 phrase with
+  a FRESH device key (the supported second-device flow; verbatim
+  `wallet.key` copies clone the device key, collide peerIds, and
+  degrade realtime sync to the ~30s headsync timer — verified e2e in
+  `internal/e2e/multidevice_techspace_test.go`). The data dir became a
+  multi-account ROOT: new accounts at `<root>/<accountId>/`, a legacy
+  root `wallet.key` stays the default account with flat data (no
+  migration), embedder models shared at `<root>/models/`. `run` no
+  longer auto-generates wallets — without a resolvable account the
+  server starts unauthorized (`401 auth.required` guard) and
+  `POST /v1/auth` generates/restores/selects + boots the engine in
+  place (UI onboarding path); `GET /v1/auth` lists local accounts.
+  Selector: `--account` / `ANY_ACCOUNT` / `account:`. SDK side:
+  `FileProviderConfig.Mnemonic/Index` seeding + `auth.AccountId`.
 - **Agent data layer (turns / chunks / memory)** — built-in
   `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
   object) and `agent_memory` (`agent_memory_items` on the seed-derived
@@ -147,7 +217,8 @@ Not this repo's work; gate on the SDK:
 - **SDK boot + space lifecycle** — `server.OpenSDK` opens
   `any-sync-sdk` against the wallet provider on Run; nodeconf YAML is
   loaded via `internal/config.LoadNodeconf` (precedence: inline →
-  configured path → `../test-etc/staging.yml` fallback). Storage lives at
+  configured path → embedded `internal/config/nodeconf-staging.yml`
+  fallback). Storage lives at
   `<dataDir>/sdk/`. Real handlers wired:
   - `GET /v1/account` (Id only — Metadata reserved, SDK does not expose it yet)
   - `POST /v1/spaces`, `GET /v1/spaces`, `GET /v1/spaces/:id`, `DELETE /v1/spaces/:id`
@@ -298,3 +369,28 @@ Not this repo's work; gate on the SDK:
   `x-scope`. CLI: `any space query` / `any space subscribe` / `any
   datasets`. Pins the SDK at the tagged `any-sync-sdk v0.0.8`
   release (also bumps `any-store/v2` to `alpha.10`).
+- **Index chunkers (phase 1) + SDK tombstone opt-in** — the
+  consumer-side search feed's contract and three chunkers, handlers
+  only (no indexer). `internal/index` defines `IndexEntry` / `Chunker` /
+  `Registry` plus the shared `RecordsSince` streamer and the
+  `AgentMemoryChunker` (scope `agent`, dataset `objects`). Per-handler
+  `editor.NewChunker()` (scope `basic`) and `chat.NewChunker()` (scope
+  `chat`). Deletions stream as tombstone entries (`Data == ""`).
+  `server.NewIndexRegistry` wires all three onto `deps.chunkers` — no
+  consumer, no HTTP endpoints yet. SDK side (branch
+  `feat/addseq-change-index`, tagged as `v0.0.10`):
+  `ProjectionOpts.IncludeDeleted` makes the find path
+  (Iter/All/One/Count) surface tombstones so chunkers can stream
+  deletions. Full contract in `docs/13-index.md`.
+- **Search indexer (phase 2) + search endpoint** — `internal/indexer`:
+  per-space worker pair (advance loop: change feed → chunkers → FTS,
+  cursor-driven, batched; embed loop: pending docs → batch embed →
+  batch vector insert, fully parallel so embedder latency never delays
+  FTS). One local any-store DB (`<data-dir>/index/index.db`), per-space
+  collections with BM25 FTS + lazily-created IVF-SQ cosine vector
+  index. Pluggable embedders: `ollama` / OpenAI-compatible (config
+  `index.*`); none ⇒ FTS-only. Object deletion → purge rule; agent
+  chunker amended to tombstone live non-memory rows. Surface:
+  `POST /v1/spaces/:id/search` (hybrid RRF / fts / vector) + `any
+  search` — the one sanctioned non-1:1 endpoint. Requires `any-store/v2`
+  `v2.0.0-alpha.11` (FTS + vector; former `btree-fts` branch).

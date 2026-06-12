@@ -38,8 +38,8 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 //
 // Allowed payload keys: text (required, non-empty, ≤ MaxTextBytes),
 // replyToMessageId (optional, non-empty, ≤ MaxReplyIdBytes),
-// fromAgent (optional, non-empty, ≤ MaxFromAgentBytes — opaque UI
-// tag, not verified), attachments (optional). Any other key rejects:
+// agent (optional {name, debugLink?, done} group — UI hint, not
+// verified), attachments (optional). Any other key rejects:
 //   - server-stamped fields (creator, createdAt, modifiedAt, _co) —
 //     defends against spoofing authorship via the create payload.
 //   - reactions — a message is always born with zero reactions; the
@@ -146,18 +146,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 				visitErr = rejectCreate(fmt.Sprintf("replyToMessageId too long (%d > %d bytes)", len(id), MaxReplyIdBytes))
 				return
 			}
-		case FieldFromAgent:
-			if v.Type() != anyenc.TypeString {
-				visitErr = rejectCreate("fromAgent must be a string")
-				return
-			}
-			fa := v.GetStringBytes()
-			if len(fa) == 0 {
-				visitErr = rejectCreate("fromAgent must be non-empty when present")
-				return
-			}
-			if len(fa) > MaxFromAgentBytes {
-				visitErr = rejectCreate(fmt.Sprintf("fromAgent too long (%d > %d bytes)", len(fa), MaxFromAgentBytes))
+		case FieldAgent:
+			if err := validateAgent(v); err != nil {
+				visitErr = err
 				return
 			}
 		case FieldAttachments:
@@ -175,6 +166,84 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	}
 	if !hasText {
 		return rejectCreate("text required")
+	}
+	return nil
+}
+
+// validateAgent enforces the structure of the agent group:
+//
+//   - must be an object
+//   - `name` — required, non-empty string, ≤ MaxAgentNameBytes
+//   - `debugLink` — optional, non-empty string when present,
+//     ≤ MaxDebugLinkBytes; opaque to the server (no URL parsing)
+//   - `done` — required boolean
+//   - no unknown sub-fields (bump dataVersion when adding any)
+func validateAgent(v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeObject {
+		return rejectCreate("agent must be an object")
+	}
+	obj, err := v.Object()
+	if err != nil || obj == nil {
+		return rejectCreate("agent must be an object")
+	}
+	var (
+		visitErr         error
+		hasName, hasDone bool
+	)
+	obj.Visit(func(rawKey []byte, val *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		key := string(rawKey)
+		switch key {
+		case FieldAgentName:
+			hasName = true
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("agent.name must be a string")
+				return
+			}
+			n := val.GetStringBytes()
+			if len(n) == 0 {
+				visitErr = rejectCreate("agent.name required")
+				return
+			}
+			if len(n) > MaxAgentNameBytes {
+				visitErr = rejectCreate(fmt.Sprintf("agent.name too long (%d > %d bytes)", len(n), MaxAgentNameBytes))
+				return
+			}
+		case FieldAgentDebugLink:
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("agent.debugLink must be a string")
+				return
+			}
+			l := val.GetStringBytes()
+			if len(l) == 0 {
+				visitErr = rejectCreate("agent.debugLink must be non-empty when present")
+				return
+			}
+			if len(l) > MaxDebugLinkBytes {
+				visitErr = rejectCreate(fmt.Sprintf("agent.debugLink too long (%d > %d bytes)", len(l), MaxDebugLinkBytes))
+				return
+			}
+		case FieldAgentDone:
+			hasDone = true
+			if val.Type() != anyenc.TypeTrue && val.Type() != anyenc.TypeFalse {
+				visitErr = rejectCreate("agent.done must be a boolean")
+				return
+			}
+		default:
+			visitErr = rejectCreate("agent: field_not_allowed: " + key)
+			return
+		}
+	})
+	if visitErr != nil {
+		return visitErr
+	}
+	if !hasName {
+		return rejectCreate("agent.name required")
+	}
+	if !hasDone {
+		return rejectCreate("agent.done required")
 	}
 	return nil
 }

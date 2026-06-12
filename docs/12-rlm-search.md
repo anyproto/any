@@ -8,6 +8,19 @@ design: cell containment uses `new Function` parameter scoping instead
 of the IIFE-over-`js.eval` sketch — see §5, which describes what was
 actually built. §9 lists the still-open questions.
 
+> **Two search tools, pick by cost.** Since this doc was first written, a
+> real local search index landed (BM25 full-text + semantic vectors —
+> `docs/13-index.md`), exposed to the agent as the **cheap** `semsearch`
+> tool (`programs/semsearch@v1.js`, one HTTP call, zero tokens). The RLM
+> `search`/`ask` tool described here is the **expensive** sibling: an
+> isolated inner LLM loop that reasons over snippets, synthesizes grounded
+> answers, and scans records the index does not cover (the index only holds
+> content written after indexing started on this server). The agent is told
+> to try `semsearch` first and escalate to RLM `search`/`ask` only on a
+> thin result or when it needs synthesis/coverage. Both tools accept a
+> `space` option for the cross-space paradigm (`semsearch` across all
+> scopes; RLM for its `objects` scope — memory/history stay own-space).
+
 The approach is taken from *Recursive Language Models* (arXiv
 2512.24601, local copy in `rlm.md`): treat a corpus too large for a
 context window as part of an **external environment** the model

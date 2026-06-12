@@ -227,6 +227,72 @@ func TestServer_Chat_Attachments(t *testing.T) {
 	}
 }
 
+// TestServer_Chat_Agent rounds the agent group through send → list,
+// verifying it is returned as-stored, plus the 400 fast-path on a
+// nameless group.
+func TestServer_Chat_Agent(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	body := `{
+		"text":"working on it",
+		"agent":{"name":"bao","debugLink":"any://sp/dbg#turn_2","done":false}
+	}`
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if len(res.RecordIds) == 0 {
+		t.Fatalf("send: no recordIds in %+v", res)
+	}
+	msg := getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Agent == nil {
+		t.Fatalf("agent missing on read-back: %+v", msg)
+	}
+	if msg.Agent.Name != "bao" || msg.Agent.DebugLink != "any://sp/dbg#turn_2" || msg.Agent.Done {
+		t.Errorf("agent = %+v, want {bao any://sp/dbg#turn_2 false}", msg.Agent)
+	}
+
+	// Minimal group — debugLink omitted.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"done","agent":{"name":"bao","done":true}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send minimal: %d %s", rec.Code, rec.Body.String())
+	}
+	res = decodeModifyResult(t, rec.Body.Bytes())
+	msg = getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Agent == nil || msg.Agent.Name != "bao" || msg.Agent.DebugLink != "" || !msg.Agent.Done {
+		t.Errorf("minimal agent = %+v, want {bao  true}", msg.Agent)
+	}
+
+	// Human message — no agent on read-back.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"hi"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send human: %d %s", rec.Code, rec.Body.String())
+	}
+	res = decodeModifyResult(t, rec.Body.Bytes())
+	if msg = getChatMsg(t, e, base, res.RecordIds[0]); msg.Agent != nil {
+		t.Errorf("human message carries agent: %+v", msg.Agent)
+	}
+
+	// 400 on a nameless group.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"x","agent":{"done":true}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("nameless agent: expected 400, got %d %s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode err: %v", err)
+	}
+	if env.Error.Code != api.ErrChatAgentInvalid {
+		t.Errorf("err code = %q, want %q", env.Error.Code, api.ErrChatAgentInvalid)
+	}
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // setupChatFixture creates a space and an object on it. The object is
@@ -271,7 +337,7 @@ type chatMsg struct {
 	CreatedAt        int64
 	ModifiedAt       int64
 	ReplyToMessageId string
-	FromAgent        string
+	Agent            *api.ChatAgentMeta
 	Text             string
 	Attachments      map[string]api.ChatAttachment
 	Reactions        map[string]map[string]int64
@@ -372,7 +438,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		CreatedAt        float64                       `json:"createdAt"`
 		ModifiedAt       float64                       `json:"modifiedAt"`
 		ReplyToMessageId string                        `json:"replyToMessageId"`
-		FromAgent        string                        `json:"fromAgent"`
+		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
 		Reactions        map[string]map[string]float64 `json:"reactions"`
@@ -397,7 +463,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		CreatedAt:        int64(f.CreatedAt),
 		ModifiedAt:       int64(f.ModifiedAt),
 		ReplyToMessageId: f.ReplyToMessageId,
-		FromAgent:        f.FromAgent,
+		Agent:            f.Agent,
 		Text:             f.Text,
 		Attachments:      f.Attachments,
 		Reactions:        reactions,

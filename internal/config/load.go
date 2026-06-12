@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,6 +13,7 @@ import (
 type Flags struct {
 	ConfigPath string
 	DataDir    string
+	Account    string
 	Addr       string
 	WalletPath string
 	LogLevel   string
@@ -64,6 +66,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
+	if v := os.Getenv("ANY_ACCOUNT"); v != "" {
+		cfg.Account = v
+	}
 	if v := os.Getenv("ANY_LISTEN_ADDR"); v != "" {
 		cfg.Listen.Addr = v
 	}
@@ -73,11 +78,67 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_LOG_LEVEL"); v != "" {
 		cfg.Log.DefaultLevel = v
 	}
+	if v := os.Getenv("ANY_INDEX_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Index.Enabled = b
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_EMBEDDER"); v != "" {
+		cfg.Index.Embedder = v
+	}
+	if v := os.Getenv("ANY_INDEX_OLLAMA_URL"); v != "" {
+		cfg.Index.Ollama.Url = v
+	}
+	if v := os.Getenv("ANY_INDEX_OLLAMA_MODEL"); v != "" {
+		cfg.Index.Ollama.Model = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_BASE_URL"); v != "" {
+		cfg.Index.OpenAI.BaseUrl = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_MODEL"); v != "" {
+		cfg.Index.OpenAI.Model = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_API_KEY"); v != "" {
+		cfg.Index.OpenAI.ApiKey = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_PATH"); v != "" {
+		cfg.Index.Local.ModelPath = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_URL"); v != "" {
+		cfg.Index.Local.ModelUrl = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_MODEL_SHA256"); v != "" {
+		cfg.Index.Local.ModelSha256 = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_LIB_DIR"); v != "" {
+		cfg.Index.Local.LibDir = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_QUERY_PREFIX"); v != "" {
+		cfg.Index.Local.QueryPrefix = v
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_CONTEXT_SIZE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.Local.ContextSize = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_DIM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Local.Dim = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Vector.Dim = n
+		}
+	}
 }
 
 func applyFlags(cfg *Config, f Flags) {
 	if f.DataDir != "" {
 		cfg.DataDir = f.DataDir
+	}
+	if f.Account != "" {
+		cfg.Account = f.Account
 	}
 	if f.Addr != "" {
 		cfg.Listen.Addr = f.Addr

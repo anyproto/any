@@ -40,16 +40,16 @@ func ensureType(ctx context.Context, sp space.Space, objectId string) error {
 }
 
 // SendOpts is the input to Send. Text is required and validated by
-// the handler; ReplyToMessageId is an opaque soft reference;
-// FromAgent is an optional opaque tag marking the message as
-// agent-authored (UI hint, not verified — see chat.go package doc).
+// the handler; ReplyToMessageId is an opaque soft reference; Agent is
+// an optional group marking the message as agent-authored (UI hint,
+// not verified — see chat.go package doc).
 //
 // Attachments is an optional create-only client hint; each entry is
 // {type, link}.
 type SendOpts struct {
 	Text             string
 	ReplyToMessageId string
-	FromAgent        string
+	Agent            *api.ChatAgentMeta
 	Attachments      map[string]api.ChatAttachment
 }
 
@@ -69,8 +69,15 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 	if opts.ReplyToMessageId != "" {
 		payload[FieldReplyToMessageId] = opts.ReplyToMessageId
 	}
-	if opts.FromAgent != "" {
-		payload[FieldFromAgent] = opts.FromAgent
+	if opts.Agent != nil {
+		agent := map[string]any{
+			FieldAgentName: opts.Agent.Name,
+			FieldAgentDone: opts.Agent.Done,
+		}
+		if opts.Agent.DebugLink != "" {
+			agent[FieldAgentDebugLink] = opts.Agent.DebugLink
+		}
+		payload[FieldAgent] = agent
 	}
 	if len(opts.Attachments) > 0 {
 		atts := make(map[string]any, len(opts.Attachments))

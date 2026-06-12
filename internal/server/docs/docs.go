@@ -145,6 +145,14 @@ const docTemplate = `{
                     "spaces"
                 ],
                 "summary": "List spaces",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status; defaults to active-only. Pass 'all' to include deleted/dead rows.",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2753,6 +2761,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/search": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search the space's local index",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Search request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SearchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/sync": {
             "post": {
                 "tags": [
@@ -3296,6 +3368,13 @@ const docTemplate = `{
                 "kind": {
                     "type": "string"
                 },
+                "meta": {
+                    "description": "Meta is an opaque consumer flag map, stored verbatim on the\nproperty definition. meta[\"index\"] = \"\u003cscope\u003e\" marks the property\nfor the search indexer (docs/13-index.md).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
@@ -3533,6 +3612,20 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ChatAgentMeta": {
+            "type": "object",
+            "properties": {
+                "debugLink": {
+                    "type": "string"
+                },
+                "done": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "api.ChatAttachment": {
             "type": "object",
             "properties": {
@@ -3555,14 +3648,14 @@ const docTemplate = `{
         "api.ChatSendRequest": {
             "type": "object",
             "properties": {
+                "agent": {
+                    "$ref": "#/definitions/api.ChatAgentMeta"
+                },
                 "attachments": {
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/api.ChatAttachment"
                     }
-                },
-                "fromAgent": {
-                    "type": "string"
                 },
                 "replyToMessageId": {
                     "type": "string"
@@ -4051,6 +4144,13 @@ const docTemplate = `{
                 "kind": {
                     "type": "string"
                 },
+                "meta": {
+                    "description": "Meta is the opaque consumer flag map set at AddProperty time\n(e.g. meta[\"index\"] = \"\u003cscope\u003e\" for the search indexer).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
@@ -4108,6 +4208,71 @@ const docTemplate = `{
                 },
                 "upsert": {
                     "type": "boolean"
+                }
+            }
+        },
+        "api.SearchHit": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "string"
+                },
+                "dataset": {
+                    "type": "string"
+                },
+                "objectId": {
+                    "type": "string"
+                },
+                "recordId": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                }
+            }
+        },
+        "api.SearchRequest": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "description": "Limit caps returned hits. Default 10, max 100.",
+                    "type": "integer"
+                },
+                "mode": {
+                    "description": "Mode is hybrid (default), fts, or vector. Vector requires an\nembedder configured on the server.",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Query is the search text. Required.",
+                    "type": "string"
+                },
+                "scopes": {
+                    "description": "Scopes restricts results to the given index scopes (basic, chat,\nagent). Empty = all scopes.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.SearchResponse": {
+            "type": "object",
+            "properties": {
+                "hits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.SearchHit"
+                    }
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "vectorStatus": {
+                    "description": "VectorStatus: used | unavailable | disabled | skipped — whether\nsemantic recall participated in this response and, if not, why.",
+                    "type": "string"
                 }
             }
         },

@@ -8,7 +8,8 @@ Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
-   `config.LoadNodeconf`, default fallback `../test-etc/staging.yml`).
+   `config.LoadNodeconf`, default fallback: the embedded
+   `internal/config/nodeconf-staging.yml`).
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
@@ -86,11 +87,18 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
-   Optional opaque `fromAgent` tag on create marks the message as
+   Optional create-only `agent` group (`{name, debugLink?, done}` —
+   replaced the old `fromAgent` string) marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
-   post-create. Lets an agent subscribed to `chat_messages` filter to
-   human-typed messages (fromAgent empty) when deciding what to
-   respond to. `any chat send --from-agent <id>`.
+   post-create. `name` is the display label, `debugLink` an
+   `any://<spaceId>/<debugObjId>#turn_<n>` drill-down into the run's
+   debug page, `done` the liveness bool clients key a typing indicator
+   on (false while the run is going; every run ends with done:true).
+   Lets an agent subscribed to `chat_messages` filter to human-typed
+   messages (`agent` absent) when deciding what to respond to.
+   `any chat send --agent-name <name> [--agent-debug-link L]
+   [--agent-done=false]`. Contract spec: task-agent-message-field.md +
+   ../any-ui/docs/tasks/agent-message-field.md.
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
@@ -239,8 +247,155 @@ Implementation slices landed:
       schema primitives (`handler.Field` / `Scope` /
       `ScopeSynced|Derived|Local` / `Leaf`); `spaceobjects.Store` honors
       it (back-compat: a zero Schema → Dynamic). The same release bumps
-      `any-store/v2` to `v2.0.0-alpha.10`. `any` pins the tagged
-      `v0.0.8` release.
+      `any-store/v2` to `v2.0.0-alpha.10`.
+13. **Index chunkers + SDK tombstone opt-in** — the consumer-side
+    search feed's contract. Full contract in
+    [`docs/13-index.md`](docs/13-index.md).
+    - `internal/index`: `IndexEntry` (`{Scope, ObjectId, Dataset,
+      RecordId, Data, AddSeq}` — `Data == ""` ⇒ record-level removal) +
+      `Chunker` interface (`Dataset()` / `TypeId()` — the `any.types`
+      gate, "" = ungated / `ChunksSince(ctx, sp, objectId, since,
+      yield)`, ascending by `_addSeq`) + `Registry`. Shared
+      `RecordsSince` streamer chains `Projection({IncludeDeleted:true})`
+      → typed `_addSeq > since` filter → `Sort _addSeq` → `Iter`.
+      Scopes are an **open slug set** (`index.ValidScope`); `basic` /
+      `chat` / `agent` are the vocabulary.
+    - Per-handler chunkers: `editor.NewChunker()` (dataset
+      `editor_blocks`, gate `editor`, scope `basic`, `Data` = block
+      `text`) and `chat.NewChunker()` (dataset `chat_messages`, gate
+      `chat`, scope `chat`, `Data` = message `text` only).
+    - `index.NewPropChunker()` (dataset `prop` — VIRTUAL, ungated):
+      indexes property VALUES from the shared `objects` collection, one
+      entry per (object, indexed property), recordId = propId. Which
+      props index is declared on the property definitions via
+      `meta["index"] = "<scope>"` (SDK `PropertyDraft.Meta`, HTTP `meta`
+      field; string/array kinds only; arrays newline-join). Built-ins
+      `any.name` + `any.description` always index under `basic`
+      (recordIds `name` / `description`). Per live row it emits entries
+      for every catalog prop unconditionally — value text when the type
+      is attached, `Data ""` otherwise (record-level eviction of
+      cleared values / detached types). Catalog = per-space TTL
+      snapshot (30s; `Invalidate` for tests).
+    - Excluded from indexing entirely: `agent_debug_log`, `program`,
+      `miniapp`, and the agent-data datasets (`agent_turns` /
+      `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
+      a roadmap item).
+    - Wiring: `server.NewIndexRegistry()` →
+      `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
+      index.NewPropChunker())`, stored on `deps.chunkers`.
+    - **SDK prerequisites (`any-sync-sdk v0.0.10`).**
+      `ProjectionOpts.IncludeDeleted` makes the find path
+      (Iter/All/One/Count) surface tombstones (content wiped,
+      `_deletedAt` + carried `_addSeq`) so chunkers stream deletions;
+      Snapshot/Subscribe keep skipping them. Property definitions carry
+      an opaque consumer `Meta map[string]string` (`PropertyDraft` /
+      `PropertyDef`; not schema-bearing, so mutable once
+      `UpdatePropertyMeta` lands).
+
+14. **Search indexer (phase 2) + `/search` endpoint** — the consumer of
+    the chunker feed. Full pipeline doc in
+    [`docs/13-index.md`](docs/13-index.md) § Phase 2.
+    - `internal/indexer`: per-space **worker pair** under one `Indexer`
+      service (`New` / `Start` / `Close` / `Search`; `Sync`/`SyncSpace`
+      are the synchronous test hooks). **Advance loop** (FTS path):
+      `Changes().Subscribe` → cap-1 dirty chan → debounced `advance` —
+      pages `ChangedSince(cursor, 256)`; per dirty object it reads the
+      shared objects row once (IncludeDeleted): tombstoned ⇒ prefix
+      delete `objectId:`; gated chunker whose `TypeId()` ∉ `any.types` ⇒
+      prefix delete `objectId:<dataset>:` (DetachType bumps `_addSeq`,
+      so detach rides the same window); else `ChunksSince`. One WriteTx
+      per page (prefix deletes → record deletes → upserts) — eviction is
+      addSeq-consistent, never racing the cursor; cursor persisted per
+      page. **Embed loop** (vector path, parallel): drains `pending`
+      docs — batch `EmbedDocs` (64) → batch `SetVectors` (one tx) →
+      `EnsureVectorIndex`; 1m ticker retries. Embedder latency never
+      delays the cursor or FTS searchability.
+    - `Store`: one any-store DB at `<data-dir>/index/index.db`,
+      collection per space; doc id **`objectId:dataset:recordId`** —
+      every removal is a primary-key op (prefix ranges with bytewise
+      upper bound `prefix[:len-1]+";"`); BM25 FTS on `data` + sparse
+      range on `pending` ensured at open; **IVF-SQ cosine vector index
+      created lazily** (`EnsureVectorIndex`) once ≥1 embedded doc
+      exists — IVF trains from existing docs and cannot be created
+      empty. Vector hits with similarity ≤ 0 are dropped (noise floor).
+      `cursors` collection: per-space cursor + `_meta` schema-version
+      (v2) & dim pin (mismatch = boot error advising
+      `rm <data-dir>/index`).
+    - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
+      `ollama` (local `/api/embed`, default `embeddinggemma`, task
+      prompts), `openai` (OpenAI-compatible `/embeddings`), and
+      `local` (**in-process llama.cpp** via yzma purego bindings, no
+      CGO; `embed_local.go`). Local defaults to Qwen3-Embedding-0.6B
+      Q8_0 (1024-dim, last-pooling, L2-normalized, Qwen instruct query
+      prefix), auto-downloaded sha-pinned into `<data-dir>/index/models`
+      with logged progress (`embed_local_download.go`, resumable, never
+      blocks boot — "still downloading" rides the outage semantics
+      below); llama.cpp shared libs come from `make llamacpp`
+      (`bin/llamacpp/`, pin `LLAMACPP_VERSION` in Makefile); input is
+      truncated to `index.local.contextSize` tokens (default 2048, EOS
+      preserved for last-pooling — explicit decision, docs/13-index.md
+      § Known limits); Linux needs system libffi (NixOS: `nix develop`,
+      see flake.nix). Config `index.*` (`internal/config.Index`, env
+      `ANY_INDEX_*`); `embedder` defaults to `local`, `none` opts out
+      (FTS-only). **An unavailable embedder never breaks the
+      pipeline**: no boot probe — pending is marked whenever an
+      embedder is configured, an outage freezes only the vector side
+      (FTS unaffected), and recovery resumes embedding automatically;
+      the dim is learned from the first successful batch (or
+      `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
+      an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
+    - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
+      `{query, scopes?, limit?, mode?}` → `{hits, mode, vectorStatus}`;
+      modes `hybrid` (RRF k=60, default; degrades to fts without
+      embedder — reply `mode` reports what ran) / `fts` / `vector` (400
+      `index.no_embedder` without embedder). `vectorStatus`
+      (used/unavailable/disabled/skipped) tells the consumer agent
+      whether semantic recall participated and why not. 409
+      `index.disabled` when `index.enabled: false`
+      (`deps.indexer == nil`). CLI: `any search`. Client recipe:
+      `docs/08-clients.md` § 6.
+      Space discovery: `Spaces().List` + `Service.Subscribe`
+      (added ⇒ spawn worker, removed/deleted ⇒ stop + `DropSpace`).
+    - **any-store prerequisite (`v2.0.0-alpha.11`).** FTS
+      (`$text`/BM25/`iter.Score`) + vector
+      (`iter.Distance`/`VectorEf`/IVF-SQ) indexes — the `btree-fts`
+      branch, tagged as `alpha.11`. The SDK pins the same version.
+
+15. **Space `createdAt`** — the SDK (v0.0.10) stamps a derived
+    `createdAt` (unix seconds, added-to-account time: create for the
+    author, join for a joiner) on every new tech-space `spaces` row.
+    No `any`-side code — `SpaceInfo.createdAt` (`GET /v1/spaces[/:id]`)
+    and the raw space-list rows light up via passthrough; rows sort
+    with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
+    treat zero as unknown. Semantics + caveats in `docs/03-api.md`
+    § Spaces.
+16. **Mnemonic authorization + per-account data dirs** — the data dir
+    is now a multi-account ROOT: new accounts live at
+    `<root>/<accountId>/` (wallet.key, server.pid, sdk/, index/), a
+    legacy root `wallet.key` is the DEFAULT account with its data flat
+    at the root (no migration code), embedder models shared at
+    `<root>/models/` (a model already in the legacy
+    `<dir>/index/models` keeps being used). Account selection:
+    `--account` / `ANY_ACCOUNT` / `account:` → root wallet → sole
+    nested dir (`internal/server/identity.go::ResolveIdentity`).
+    `any init [--mnemonic|--mnemonic-stdin|--index N|--new]` creates or
+    RESTORES an account — same phrase ⇒ same account id, always a
+    fresh device key (the supported second-device flow; wallet.key
+    copies collide peerIds and break realtime sync). `any run` no
+    longer auto-creates wallets: with no resolvable account the server
+    starts UNAUTHORIZED — a /v1 guard middleware returns
+    `401 auth.required` everywhere except health/shutdown/openapi/auth
+    — and `POST /v1/auth` (`{mnemonic?|accountId?|index?}`, neither =
+    generate; generated mnemonic returned once) boots the engine (pid
+    lock → wallet → SDK → indexer, `internal/server/engine.go`) in
+    place; `GET /v1/auth` lists local accounts. One engine per process
+    lifetime; switching = restart with `--account`. CLI: `any auth
+    login/status`. SDK prerequisite: `FileProviderConfig.Mnemonic/
+    Index` seeding, `auth.AccountId(mnemonic, index)`, exported
+    `ErrInvalidMnemonic` / `ErrMnemonicMismatch` / `ErrPasskeyRequired`
+    / `ErrWrongPasskey` (any-sync-sdk `feat/auth-mnemonic`). Contract:
+    docs/02-server.md § Startup + Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -250,6 +405,8 @@ implementation diverges from a doc, update the doc in the same change.
 ```
 go build ./cmd/any                                # binary at ./any
 make build                                        # builds both any and bobrik-watch
+make llamacpp                                     # once per checkout: prebuilt llama.cpp libs
+                                                  # into bin/llamacpp (index.embedder: local)
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
@@ -291,9 +448,16 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-The SDK is pinned at the tagged release
-`any-sync-sdk v0.0.8` (the dataset-schema + unified-query work, which
-also bumps `any-store/v2` to `alpha.10` — see status item 12).
+Pins: `any-sync-sdk v0.0.11-0.20260612…-957f84af13f6` (a pseudo-version
+of the SDK's `feat/auth-mnemonic` branch — `FileProviderConfig`
+mnemonic seeding + `auth.AccountId`, status item 16; re-pin the tag
+once it lands — on top of `v0.0.10`'s `_addSeq` change-index +
+tombstone `IncludeDeleted` work — status items 13–14 — plus the space
+`createdAt` stamp, status item 15, and the dataset-schema +
+unified-query base from `v0.0.8`),
+`any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
+vector indexes behind the search indexer, status item 14), `any-sync
+v0.12.11`.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
@@ -369,9 +533,12 @@ These cut across files and are easy to violate accidentally:
 - **Endpoints map 1:1 onto SDK methods; CLI commands map 1:1 onto endpoints.** If the
   SDK has it, we expose it. If it doesn't, we don't. Don't invent convenience
   endpoints that aggregate multiple SDK calls — that's a v1.x decision.
+  Sole exception: `POST /v1/spaces/:id/search` — the search index is a
+  consumer-side feature built on `Changes()` + the chunkers
+  (`docs/13-index.md`), not an SDK method.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
-  no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
+  no rate limiting in v1 — that comes with the remote-access story (v2). CORS: only the fixed desktop-shell webview allowlist (any-ui PR-095; `routes.go`), which doesn't change the loopback trust model.
 - **Output format is pretty-printed JSON.** Both the server wire format and the
   CLI's stdout. No table rendering, no `--output` flag in v1.
 - **Error response shape is uniform.** `{"error": {"code", "message", "details?"}}`
@@ -392,6 +559,14 @@ These cut across files and are easy to violate accidentally:
   /editor/markdown` is a render transform, not a dataset read.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
+- **any-store filters are built with the typed `any-store/v2/query` package**
+  (`query.Key` / `NewComp` / `NewCompValue` / `NewInValue` / `Text` /
+  `Exists` / `And` / `Or`) — never as `map[string]any` or JSON-string
+  literals. Typed filters are compile-checked, skip parsing, and are
+  immutable once built; **static filters (constant paths/values) are built
+  once at package level and reused** — only dynamic parts are built per
+  call. Client-supplied filters arriving over HTTP are the sole place raw
+  shapes enter (parsed by `query.ParseCondition` at the boundary).
 
 ## Config and lifecycle
 
@@ -442,6 +617,7 @@ auto-start.
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
 | `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
+| `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

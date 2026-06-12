@@ -13,7 +13,12 @@ LDFLAGS := -s -w \
 
 SWAG := go tool swag
 
-.PHONY: build test vet tidy clean swagger
+# llama.cpp release pin for the local embedder's shared libs
+# (docs/13-index.md § local embedder). Bump together with the yzma
+# dependency — yzma tracks llama.cpp releases.
+LLAMACPP_VERSION := b9590
+
+.PHONY: build test vet tidy clean swagger llamacpp
 
 swagger:
 	$(SWAG) init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
@@ -23,6 +28,12 @@ build: swagger
 	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 	go build -v -o $(OUT)/bobrik-watch $(PKG)/cmd/bobrik-watch
 	go build -v -o $(OUT)/any-agent-runtime $(PKG)/cmd/any-agent-runtime
+
+# Prebuilt llama.cpp shared libs for `index.embedder: local` — fetched
+# once into bin/llamacpp/ (cached tarball under third_party/llamacpp/).
+# Not a `build` dependency: plain builds stay network-free.
+llamacpp:
+	./scripts/fetch-llamacpp.sh $(LLAMACPP_VERSION) $(OUT)/llamacpp
 
 test:
 	go test ./...

@@ -18,6 +18,8 @@ import (
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/index"
+	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/nav"
 	"github.com/anyproto/any/internal/program"
@@ -92,4 +94,38 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	}
 
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
+}
+
+// NewIndexRegistry builds the chunker registry — one chunker per
+// indexed dataset, paralleling the Types list above. The indexer
+// (internal/indexer) drives it; datasets excluded from indexing
+// entirely (agent_debug_log, program, miniapp) have no chunker here.
+func NewIndexRegistry() *index.Registry {
+	return index.NewRegistry(
+		editor.NewChunker(),
+		chat.NewChunker(),
+		index.NewPropChunker(),
+	)
+}
+
+// OpenIndexer builds the search indexer: embedder (per config), local
+// index store under <dataDir>/index, and the service over the chunker
+// registry. modelsDir is the shared (cross-account) model cache; a
+// model already downloaded to the legacy <dataDir>/index/models keeps
+// being used from there. There is no boot-time embedder probe: an
+// unreachable embedder never blocks the boot or the FTS pipeline —
+// text-bearing docs queue as pending and the embed loop picks them up
+// once the embedder responds (the dimension is learned from the first
+// successful batch unless index.vector.dim pins it). A misconfigured
+// embedder (bad name, missing model) is still a hard error.
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
+	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"))
+	if err != nil {
+		return nil, err
+	}
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
+	if err != nil {
+		return nil, err
+	}
+	return indexer.New(sdk, chunkers, st, indexer.Options{Embedder: emb}), nil
 }

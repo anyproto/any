@@ -955,9 +955,9 @@
             // Strip caches and live-runtime fields — persisted state
             // is just identity + types + lastRecord. markdownContent /
             // chatMessages get re-fetched on navigation;
-            // chatComposing / chatFromAgent / chatLoading are session-local.
+            // chatComposing / chatAgentName / chatLoading are session-local.
             const { markdownContent, chatMessages, chatLoading,
-                    chatComposing, chatFromAgent, ...rest } = o;
+                    chatComposing, chatAgentName, ...rest } = o;
             objs[oid] = rest;
           }
           snap.spaces[id] = {
@@ -1364,10 +1364,10 @@
     }
     return out;
   }
-  async function sendChatMessage(spaceId, objectId, text, replyTo, fromAgent) {
+  async function sendChatMessage(spaceId, objectId, text, replyTo, agentName) {
     const body = { text };
     if (replyTo) body.replyToMessageId = replyTo;
-    if (fromAgent) body.fromAgent = fromAgent;
+    if (agentName) body.agent = { name: agentName, done: true };
     const r = await api.post(objectMessagesPath(spaceId, objectId), body);
     if (!r.ok) { toast('err', 'send failed', r.body); return null; }
     return r.json;
@@ -1882,9 +1882,9 @@
     }
     const agentEl = document.getElementById('chat-agent-' + cssEsc(oid));
     if (agentEl) {
-      if (o.chatFromAgent) agentEl.value = o.chatFromAgent;
+      if (o.chatAgentName) agentEl.value = o.chatAgentName;
       agentEl.addEventListener('input', () => {
-        o.chatFromAgent = agentEl.value;
+        o.chatAgentName = agentEl.value;
       });
     }
 
@@ -2007,11 +2007,11 @@
             '<button data-act="chat-send" data-id="' + escapeHTML(o.id) + '">send</button>' +
           '</div>' +
           '<div class="compose-agent">' +
-            '<label for="chat-agent-' + escapeHTML(o.id) + '">fromAgent</label>' +
+            '<label for="chat-agent-' + escapeHTML(o.id) + '">agent name</label>' +
             '<input id="chat-agent-' + escapeHTML(o.id) + '" type="text" ' +
               'placeholder="empty = send as human; set to mark as agent-authored" ' +
               'data-input="chat-agent" data-id="' + escapeHTML(o.id) + '" ' +
-              'value="' + escapeHTML(o.chatFromAgent || '') + '">' +
+              'value="' + escapeHTML(o.chatAgentName || '') + '">' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -2035,7 +2035,7 @@
     const ts = m.createdAt ? new Date(m.createdAt * 1000) : null;
     const tsLabel = ts ? ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     const edited = m.modifiedAt && m.modifiedAt > m.createdAt;
-    const fromAgent = (m.fromAgent || '').trim();
+    const agent = (m.agent && m.agent.name) ? m.agent : null;
 
     const reactions = m.reactions || {};
     const reactionEntries = Object.entries(reactions);
@@ -2078,10 +2078,10 @@
       ? '<pre class="attachments-dump">' + escapeHTML(JSON.stringify(m.attachments, null, 2)) + '</pre>'
       : '';
 
-    return '<div class="chat-msg' + (own ? ' own' : '') + (fromAgent ? ' from-agent' : '') + '">' +
+    return '<div class="chat-msg' + (own ? ' own' : '') + (agent ? ' from-agent' : '') + '">' +
       '<div class="meta">' +
         '<span class="author">' + escapeHTML(author) + '</span>' +
-        (fromAgent ? '<span class="agent-tag" title="' + escapeHTML('via agent: ' + fromAgent) + '">🤖 ' + escapeHTML(fromAgent) + '</span>' : '') +
+        (agent ? '<span class="agent-tag" title="' + escapeHTML('via agent: ' + agent.name + (agent.debugLink ? ' · ' + agent.debugLink : '')) + '">🤖 ' + escapeHTML(agent.name) + (agent.done === false ? ' ⏳' : '') + '</span>' : '') +
         '<span class="ts" title="' + escapeHTML(ts ? ts.toISOString() : '') + '">' +
           escapeHTML(tsLabel) +
         '</span>' +
@@ -3524,16 +3524,16 @@
           const text = (ta?.value || '').trim();
           if (!text) return;
           const agentEl = document.getElementById('chat-agent-' + cssEsc(id));
-          const fromAgent = (agentEl?.value || '').trim();
+          const agentName = (agentEl?.value || '').trim();
           const sp = App.spaces[spaceId];
           const o4 = sp && sp.objects[id];
           if (ta) ta.value = '';
           if (o4) {
             o4.chatComposing = '';
-            o4.chatFromAgent = fromAgent;
+            o4.chatAgentName = agentName;
           }
           if (ta) autosizeTextarea(ta);
-          const sent = await sendChatMessage(spaceId, id, text, '', fromAgent);
+          const sent = await sendChatMessage(spaceId, id, text, '', agentName);
           if (!sent) {
             // Restore the draft so the user doesn't lose what they
             // typed when the server rejected the write.
