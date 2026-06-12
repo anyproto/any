@@ -61,6 +61,7 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 		startedAt:      time.Now().UTC(),
 		shutdown:       make(chan struct{}, 1),
 		sdk:            sdk,
+		chunkers:       NewIndexRegistry(),
 		shutdownCtx:    shutdownCtx,
 		cancelShutdown: cancelShutdown,
 		streamsWG:      &sync.WaitGroup{},

@@ -97,11 +97,73 @@ func TestLoad_MissingConfigIsNotError(t *testing.T) {
 // isolateEnv unsets every ANY_* variable and XDG_CONFIG_HOME/HOME for the
 // duration of the test so file-search and env-override paths don't pick up
 // the developer's real environment.
+func TestLoad_IndexDefaults(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Index.Enabled {
+		t.Error("index.enabled should default true")
+	}
+	if cfg.Index.Embedder != "" {
+		t.Errorf("index.embedder should default empty, got %q", cfg.Index.Embedder)
+	}
+}
+
+func TestLoad_IndexFileAndEnv(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+index:
+  embedder: ollama
+  ollama:
+    model: nomic-embed-text
+  vector:
+    dim: 768
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// File populates; enabled stays at its true default when absent.
+	if !cfg.Index.Enabled {
+		t.Error("index.enabled should stay true when the file omits it")
+	}
+	if cfg.Index.Embedder != "ollama" || cfg.Index.Ollama.Model != "nomic-embed-text" || cfg.Index.Vector.Dim != 768 {
+		t.Errorf("file values not applied: %+v", cfg.Index)
+	}
+
+	// Env wins over file.
+	t.Setenv("ANY_INDEX_ENABLED", "false")
+	t.Setenv("ANY_INDEX_EMBEDDER", "openai")
+	t.Setenv("ANY_INDEX_OPENAI_API_KEY", "sk-test")
+	t.Setenv("ANY_INDEX_VECTOR_DIM", "1536")
+	cfg, err = Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Index.Enabled {
+		t.Error("ANY_INDEX_ENABLED=false should win")
+	}
+	if cfg.Index.Embedder != "openai" || cfg.Index.OpenAI.ApiKey != "sk-test" || cfg.Index.Vector.Dim != 1536 {
+		t.Errorf("env values not applied: %+v", cfg.Index)
+	}
+}
+
 func isolateEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
 		"ANY_DATA_DIR", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
 		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME",
+		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",
+		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",
+		"ANY_INDEX_OPENAI_BASE_URL", "ANY_INDEX_OPENAI_MODEL",
+		"ANY_INDEX_OPENAI_API_KEY", "ANY_INDEX_VECTOR_DIM",
 	} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)

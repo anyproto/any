@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -72,6 +73,34 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ANY_LOG_LEVEL"); v != "" {
 		cfg.Log.DefaultLevel = v
+	}
+	if v := os.Getenv("ANY_INDEX_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Index.Enabled = b
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_EMBEDDER"); v != "" {
+		cfg.Index.Embedder = v
+	}
+	if v := os.Getenv("ANY_INDEX_OLLAMA_URL"); v != "" {
+		cfg.Index.Ollama.Url = v
+	}
+	if v := os.Getenv("ANY_INDEX_OLLAMA_MODEL"); v != "" {
+		cfg.Index.Ollama.Model = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_BASE_URL"); v != "" {
+		cfg.Index.OpenAI.BaseUrl = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_MODEL"); v != "" {
+		cfg.Index.OpenAI.Model = v
+	}
+	if v := os.Getenv("ANY_INDEX_OPENAI_API_KEY"); v != "" {
+		cfg.Index.OpenAI.ApiKey = v
+	}
+	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Vector.Dim = n
+		}
 	}
 }
 

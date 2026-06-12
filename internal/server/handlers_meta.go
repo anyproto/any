@@ -11,6 +11,8 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
+	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/version"
 )
 
@@ -30,6 +32,15 @@ type deps struct {
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
 	sdk      *anysyncsdk.SDK
+
+	// chunkers is the index chunker registry, built once at boot via
+	// NewIndexRegistry and driven by the indexer.
+	chunkers *index.Registry
+
+	// indexer is the search indexer (FTS + vector over the chunker
+	// feed). Nil when index.enabled is false — the search endpoint then
+	// returns index.disabled.
+	indexer *indexer.Indexer
 
 	// shutdownCtx cancels when graceful teardown begins. Streaming
 	// handlers select on Done to write their final `closed` frame and

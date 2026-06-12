@@ -144,6 +144,7 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+| POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
@@ -260,6 +261,59 @@ collapsing the multi-peer convergence wait in tests from "next periodic
 headsync (~30s)" to "as fast as the diff round settles." A single round
 exchanges heads with the node; for a writer→reader handoff, sync the
 writer first (push to the node) then the reader (pull back).
+
+#### POST /v1/spaces/:spaceId/search — local search index
+
+The **one sanctioned endpoint that does not map 1:1 onto an SDK
+method**: it queries the server's local search index (FTS + vector over
+the chunker feed — contract, scopes, and indexing pipeline in
+`docs/13-index.md`). Requires `index.enabled` (default true); `409
+index.disabled` otherwise.
+
+Body:
+
+```json
+{
+  "query":  "zeppelin disaster",      // required
+  "scopes": ["chat", "basic"],        // optional scope slugs (open set — see docs/13-index.md); empty = all
+  "limit":  10,                       // optional: default 10, max 100
+  "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
+}
+```
+
+Reply:
+
+```json
+{
+  "hits": [
+    { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
+      "recordId": "…", "data": "the zeppelin disaster of 1937",
+      "score": 0.0328 }
+  ],
+  "mode": "hybrid",
+  "vectorStatus": "used"
+}
+```
+
+`mode` in the reply is the mode that actually ran: `hybrid` degrades to
+`fts` when no embedder is configured or it is unreachable; `mode:
+"vector"` requests get `400 index.no_embedder` (none configured) or
+`503 index.embedder_unavailable` (configured but down — retryable).
+
+`vectorStatus` tells the consumer — typically an agent deciding how
+much to trust recall — whether semantic search took part, and why not:
+
+| Value | Meaning |
+|-------|---------|
+| `used` | the vector leg ran and contributed to ranking |
+| `unavailable` | embedder configured but unreachable for this query — results are lexical-only; retrying later may differ |
+| `disabled` | no embedder configured on this server — vector can never run until config changes |
+| `skipped` | the caller asked for `mode: "fts"`; vector was not attempted |
+
+Scores are comparable only within one response
+(BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
+covers content written while indexing is on — "index from the next
+change" (`docs/13-index.md`).
 
 ### Objects
 
@@ -667,6 +721,18 @@ they want at-least-once semantics across reconnects.
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+
+`POST …/properties` accepts an optional **`meta`** object (string →
+string) stored verbatim on the property definition and returned by
+`GET …/properties`. It is opaque consumer metadata; the one convention
+today is `meta.index = "<scope>"`, which marks the property for the
+search indexer (its value is indexed under that scope — see
+`docs/13-index.md` § prop chunker). Only string / array kinds index.
+
+```json
+{ "name": "context", "kind": "string", "xKey": "context",
+  "meta": { "index": "agent" } }
+```
 
 ### Properties (values on objects)
 

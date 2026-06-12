@@ -25,6 +25,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
+	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
 	// Space lifecycle the SDK exposes but doesn't implement yet.
