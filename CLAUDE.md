@@ -8,7 +8,8 @@ Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
-   `config.LoadNodeconf`, default fallback `../test-etc/staging.yml`).
+   `config.LoadNodeconf`, default fallback: the embedded
+   `internal/config/nodeconf-staging.yml`).
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
@@ -486,7 +487,7 @@ These cut across files and are easy to violate accidentally:
   (`docs/13-index.md`), not an SDK method.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
-  no CORS, no rate limiting in v1 — those come with the remote-access story (v2).
+  no rate limiting in v1 — that comes with the remote-access story (v2). CORS: only the fixed desktop-shell webview allowlist (any-ui PR-095; `routes.go`), which doesn't change the loopback trust model.
 - **Output format is pretty-printed JSON.** Both the server wire format and the
   CLI's stdout. No table rendering, no `--output` flag in v1.
 - **Error response shape is uniform.** `{"error": {"code", "message", "details?"}}`
