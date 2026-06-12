@@ -18,8 +18,8 @@ github.com/anyproto/any-sync v0.12.11 h1:lIgPpcmz4V7CdsRAAwUYrwRfhGispdrK9h9Ke8w
 github.com/anyproto/any-sync v0.12.11/go.mod h1:9VnpglCLxt/HYphr22BE97+kviDrgrOinnqmVn4I450=
 github.com/anyproto/any-sync-sdk v0.0.10 h1:6KfEYXSxbgGaNoJnUCbxf+zfM0/6+jD87W2ksT846FA=
 github.com/anyproto/any-sync-sdk v0.0.10/go.mod h1:slAwdkZ90RF87OMwnT4ozKvhEgtx1cjXVUvf28k2ve0=
-github.com/anyproto/anytype-agent-runtime v0.1.1 h1:ir01eiqLeMlNGFvJv+a7D+dV3JF5IFSVRocvLIKKRjs=
-github.com/anyproto/anytype-agent-runtime v0.1.1/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
+github.com/anyproto/anytype-agent-runtime v0.1.2 h1:Pvbgkl9NrYjS4U6UDRCeSdpHdqmUhLurxBFig3HCxYk=
+github.com/anyproto/anytype-agent-runtime v0.1.2/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=
 github.com/anyproto/go-bip39 v1.0.0/go.mod h1:l0rcxmXRyiWAYzE1noMAc4qbeNrbhUwxM3rqSO9ILwo=
 github.com/anyproto/go-chash v0.1.0 h1:I9meTPjXFRfXZHRJzjOHC/XF7Q5vzysKkiT/grsogXY=

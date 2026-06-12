@@ -363,6 +363,32 @@ ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 
 For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
 
+### Running bobrik — the canonical sequence
+
+After ANY change to Go code, `anyHelper.js`, programs, skills, or
+tool-descriptions, run these three steps in order:
+
+```
+# 1. Always rebuild first — never skip this.
+make build                                        # builds any, bobrik-watch, any-agent-runtime
+
+# 2. (Re)start any and bobrik-watch (restart both so the new binaries take over).
+#    e.g. stop the running instances, then:
+./any run                                         # foreground server (or your start skill)
+./bin/bobrik-watch                                # default: space=bao, watches chat "general"
+
+# 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
+#    tool-descriptions from disk into the bao space).
+./bin/bobrik-watch --bootstrap                    # SIGHUPs the running instance
+```
+
+Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
+how new JS reaches a live agent: a binary restart alone does NOT re-sync
+the in-space programs/skills; `--bootstrap` is what wipes "System Bobrik
+Files" and re-runs the bootstrap sync. See
+[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Refresh via
+SIGHUP for the mechanics.
+
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.

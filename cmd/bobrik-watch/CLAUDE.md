@@ -103,6 +103,45 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   reads). Folder find/create is shared via `ensureNavFolder` /
   `findNavFolder`.
 
+## Cross-space model
+
+The agent runs in ONE space: its own private agent space (the `bao`
+space — chat, programs, skills, memory brain, and debug logs all live
+there). The web UI surfaces that one chat everywhere; the watcher still
+subscribes to exactly one chat. Other spaces are reached **per call**:
+
+- anyHelper's `space` option (`data.space` on createObject/updateObject,
+  `opts.space` elsewhere) accepts **any space id** — `_resolveSpaceId`
+  in `createClient` is the single mapping point ("user" → own space,
+  "system" → legacy alias, anything else → that space). Type/property
+  catalogs are cached per **resolved space id**, so xKey resolution and
+  read normalization are per-space and "user" + the literal own-space id
+  share one cache entry.
+- Client surface: `listSpaces()` (raw SpaceInfo rows — only
+  `status === "active"` is live), `createSpace(name, opts)`,
+  `getUIContext()`.
+- **ui-context contract** (cross-repo with
+  `../any-ui/docs/tasks/bobrik-view-context.md` — change both or
+  neither): the web UI maintains an object named `ui-context` of type
+  `UI Context` (xKey `ui_context`, props `space_id` / `object_id` /
+  `view` / `updated_at`) in the bao space, PATCHed on every
+  navigation. `getUIContext()` reads the newest row by `updated_at` and
+  returns `{spaceId, objectId, view, updatedAt}` (null until the UI
+  first reports). `toolcall_core` appends a `[user's current view — …]`
+  line to each incoming user message (user message, not the cached
+  system prompt) so "this page" resolves; the `_anytype` skill teaches
+  the spaceId-as-`space:` recipe.
+- The old "user space" concept is GONE from `init_agent` (it modeled
+  the separate-account bobrik that bootstrapped into foreign spaces via
+  1-1 chat): no `sourceSpaceId`/`systemSpaceId` forwarding, no
+  cross-space credential split — `bootstrapTypes` now bootstraps the
+  agent's own space (the `Pages` / `Space Context` / `Agent Skill`
+  types the system skills reference). `createClient` still accepts
+  `systemSpaceId` + the `"system"` scope for back-compat, but nothing
+  in the bobrik flow passes it anymore.
+- Tests: `tests/js/anyhelper_crossspace_test.js` (adopts-or-creates a
+  `crossspace_test` space — reused across runs, never proliferates).
+
 ## Naming
 
 - `anyHelper.js` replaces `anytypeHelper.js`, same method surface.
@@ -169,7 +208,7 @@ write, so the bad name never reaches storage from inside the agent.
 
 ```
 make build                                        # builds any, bobrik-watch, any-agent-runtime
-./bin/bobrik-watch                                # default: space=bobrik; watches the chat named
+./bin/bobrik-watch                                # default: space=bao; watches the chat named
                                                   # "general" (found-or-created by name + chat type;
                                                   #  clients create "general" by convention)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
