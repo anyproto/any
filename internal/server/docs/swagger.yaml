@@ -219,6 +219,17 @@ definitions:
       userText:
         type: string
     type: object
+  api.AggregateResponse:
+    properties:
+      plan:
+        type: string
+      records:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+    type: object
   api.BlockCreateRequest:
     properties:
       nav:
@@ -703,6 +714,42 @@ definitions:
           VectorStatus: used | unavailable | disabled | skipped — whether
           semantic recall participated in this response and, if not, why.
         type: string
+    type: object
+  api.SpaceAggregateObjectsRequest:
+    properties:
+      accumArrayLimit:
+        type: integer
+      explain:
+        type: boolean
+      groupLimit:
+        type: integer
+      memoryLimitBytes:
+        type: integer
+      pipeline:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+    type: object
+  api.SpaceAggregateRequest:
+    properties:
+      accumArrayLimit:
+        type: integer
+      dataset:
+        type: string
+      explain:
+        type: boolean
+      groupLimit:
+        type: integer
+      memoryLimitBytes:
+        type: integer
+      objectId:
+        type: string
+      pipeline:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
     type: object
   api.SpaceCreateRequest:
     properties:
@@ -1445,6 +1492,40 @@ paths:
       summary: Evolve a memory item's mutable fields (author only)
       tags:
       - agent
+  /spaces/{spaceId}/aggregate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Aggregation params (objectId+dataset required)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceAggregateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AggregateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Aggregate over a per-object dataset
+      tags:
+      - data
   /spaces/{spaceId}/datasets:
     get:
       parameters:
@@ -2378,6 +2459,40 @@ paths:
       summary: Append markdown content (append-only fast path)
       tags:
       - editor
+  /spaces/{spaceId}/objects/aggregate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Aggregation params
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceAggregateObjectsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AggregateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Aggregate over the objects in a space
+      tags:
+      - objects
   /spaces/{spaceId}/objects/query:
     post:
       consumes:

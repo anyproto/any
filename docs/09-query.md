@@ -8,6 +8,10 @@ windowed subscriptions — so it's worth learning.
 
 There are two endpoints; both POST (the filter/sort body doesn't fit a query
 string) and both have a `/subscribe` SSE twin (see `docs/04-events.md`).
+When one query isn't enough — counts per group, rollups, tag
+distributions — both scopes also take MongoDB-style aggregation
+pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
+[`docs/14-aggregation.md`](14-aggregation.md).
 
 | Endpoint | Scope | Reads |
 |----------|-------|-------|

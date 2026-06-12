@@ -99,6 +99,13 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
   `sort` is required when `limit > 0`.
 
+- **Aggregate server-side instead of reducing client-side.** Counts per
+  group, top-N rollups, tag distributions: don't page the whole dataset
+  over HTTP — POST a pipeline to the sibling `…/aggregate` endpoints
+  (same two scopes, snapshot-only). Put `$match` first so it runs on an
+  index, and mind the deliberate MongoDB divergences (group key comes
+  back as `id`, no compute operators). See `14-aggregation.md`.
+
 ## 4. Chat: newest-first reads and backward pagination
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
@@ -266,3 +273,5 @@ Call patterns:
   (`dataset.validation`, `property.kind_mismatch`, …).
 - `13-index.md` — the search index: chunker contract, indexer pipeline,
   `/search` semantics.
+- `14-aggregation.md` — aggregation pipelines: stage set, examples,
+  limits, MongoDB divergences.

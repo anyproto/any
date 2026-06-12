@@ -132,3 +132,7 @@ require (
 )
 
 tool github.com/swaggo/swag/cmd/swag
+
+// DEV ONLY — drop before merge: pin any-sync-sdk v0.0.11 once the
+// feat/aggregate SDK branch (space.Agg) is merged and tagged.
+replace github.com/anyproto/any-sync-sdk => /home/che/projects/any-sync-sdk2

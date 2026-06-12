@@ -1012,6 +1012,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/aggregate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "data"
+                ],
+                "summary": "Aggregate over a per-object dataset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Aggregation params (objectId+dataset required)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceAggregateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AggregateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/datasets": {
             "get": {
                 "produces": [
@@ -1636,6 +1688,58 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/api.ObjectsCreateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/objects/aggregate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "objects"
+                ],
+                "summary": "Aggregate over the objects in a space",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Aggregation params",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceAggregateObjectsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AggregateResponse"
                         }
                     },
                     "400": {
@@ -3555,6 +3659,23 @@ const docTemplate = `{
                 }
             }
         },
+        "api.AggregateResponse": {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string"
+                },
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
         "api.BlockCreateRequest": {
             "type": "object",
             "properties": {
@@ -4251,6 +4372,60 @@ const docTemplate = `{
                 "vectorStatus": {
                     "description": "VectorStatus: used | unavailable | disabled | skipped — whether\nsemantic recall participated in this response and, if not, why.",
                     "type": "string"
+                }
+            }
+        },
+        "api.SpaceAggregateObjectsRequest": {
+            "type": "object",
+            "properties": {
+                "accumArrayLimit": {
+                    "type": "integer"
+                },
+                "explain": {
+                    "type": "boolean"
+                },
+                "groupLimit": {
+                    "type": "integer"
+                },
+                "memoryLimitBytes": {
+                    "type": "integer"
+                },
+                "pipeline": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            }
+        },
+        "api.SpaceAggregateRequest": {
+            "type": "object",
+            "properties": {
+                "accumArrayLimit": {
+                    "type": "integer"
+                },
+                "dataset": {
+                    "type": "string"
+                },
+                "explain": {
+                    "type": "boolean"
+                },
+                "groupLimit": {
+                    "type": "integer"
+                },
+                "memoryLimitBytes": {
+                    "type": "integer"
+                },
+                "objectId": {
+                    "type": "string"
+                },
+                "pipeline": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
                 }
             }
         },
