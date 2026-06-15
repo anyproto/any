@@ -12,7 +12,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Area | Endpoints | anyHelper |
 |------|-----------|-----------|
 | Objects | `POST /objects`, `DELETE /objects/:id` | `createObject` / `createCollection`, `deleteObject` |
-| Properties | `GET /properties/:o`, `POST /properties/:o/base/:typeId` | `getObject`, `createObject`/`updateObject` (nested type groups: `{ book: { author } }`) |
+| Properties | `GET /properties/:o`, `POST /properties/:o/set/:typeId` | `getObject`, `createObject`/`updateObject` (nested type groups: `{ book: { author } }`) |
 | Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes) |
 | Datasets | `POST /modify`, `POST /delete-records` | `setRecord`, `deleteRecord` |
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |

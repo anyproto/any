@@ -650,7 +650,7 @@ definitions:
           $ref: '#/definitions/api.PropertyDef'
         type: array
     type: object
-  api.PropertiesSetBaseRequest:
+  api.PropertiesSetRequest:
     properties:
       patch:
         additionalProperties: {}
@@ -2680,7 +2680,7 @@ paths:
       summary: Get properties of an object
       tags:
       - properties
-  /spaces/{spaceId}/properties/{objectId}/base/{typeId}:
+  /spaces/{spaceId}/properties/{objectId}/set/{typeId}:
     post:
       consumes:
       - application/json
@@ -2705,7 +2705,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.PropertiesSetBaseRequest'
+          $ref: '#/definitions/api.PropertiesSetRequest'
       produces:
       - application/json
       responses:

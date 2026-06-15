@@ -206,10 +206,8 @@ any type add-property    <spaceId> <typeId> --name ... --xkey ... --kind string|
 any type remove-property <spaceId> <typeId> <propId>
 any type update-property <spaceId> <typeId> <propId> [--name ...] [--description ...] [--xkey ...] [--xkind ...]
 
-any properties get         <spaceId> <objectId> [--include-variants]
-any properties set-base    <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-account <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-device  <spaceId> <objectId> <typeId> --patch FILE|-
+any properties get         <spaceId> <objectId>
+any properties set         <spaceId> <objectId> <typeId> --patch FILE|-
 any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```

@@ -2737,7 +2737,7 @@
                 }
             }
         },
-        "/spaces/{spaceId}/properties/{objectId}/base/{typeId}": {
+        "/spaces/{spaceId}/properties/{objectId}/set/{typeId}": {
             "post": {
                 "consumes": [
                     "application/json"
@@ -2777,7 +2777,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.PropertiesSetBaseRequest"
+                            "$ref": "#/definitions/api.PropertiesSetRequest"
                         }
                     }
                 ],
@@ -4326,7 +4326,7 @@
                 }
             }
         },
-        "api.PropertiesSetBaseRequest": {
+        "api.PropertiesSetRequest": {
             "type": "object",
             "properties": {
                 "patch": {

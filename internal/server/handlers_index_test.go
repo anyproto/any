@@ -134,13 +134,13 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	memObj := mustCreateObject(t, e, spaceId, fmt.Sprintf(`{"types":[%q]}`, memTypeId))
 	// Set the three property values (keyed by propId, as the wire demands).
 	mustModify(t, e, http.MethodPost,
-		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/base/"+memTypeId,
+		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/"+memTypeId,
 		fmt.Sprintf(`{"patch":{%q:"ctx body",%q:"kw1 kw2",%q:"Alice Bob"}}`,
 			propId["context"], propId["keywords"], propId["entities"]),
 		http.StatusOK)
 	// Set the object name on the built-in `any` type.
 	mustModify(t, e, http.MethodPost,
-		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/base/any",
+		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/any",
 		`{"patch":{"name":"My Memory"}}`, http.StatusOK)
 
 	// --- Resolve SDK space + chunkers (exercise the registry wiring) ---

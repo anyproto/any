@@ -49,11 +49,11 @@ func (d *deps) propertiesGet(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.PropertiesGetResponse{Record: raw})
 }
 
-// propertiesSetBase handles POST /v1/spaces/:spaceId/properties/:objectId/base/:typeId.
+// propertiesSet handles POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId.
 // Wraps the scope-aware Properties().Set: every propId in the patch must
 // resolve to the SAME declared scope (the SDK rejects mixed-scope or
-// unknown-key patches). The route keeps its legacy `/base` segment for
-// wire compatibility.
+// unknown-key patches). Renamed from the former `/base/:typeId` +
+// SetBase surface when scoped properties landed (v0.0.11).
 //
 //	@Summary	Set properties on an object (single declared scope)
 //	@Tags		properties
@@ -62,12 +62,12 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Param		spaceId		path		string							true	"Space ID"
 //	@Param		objectId	path		string							true	"Object ID"
 //	@Param		typeId		path		string							true	"Type ID"
-//	@Param		body		body		api.PropertiesSetBaseRequest	true	"Patch map"
+//	@Param		body		body		api.PropertiesSetRequest	true	"Patch map"
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/properties/{objectId}/base/{typeId} [post]
-func (d *deps) propertiesSetBase(c echo.Context) error {
+//	@Router		/spaces/{spaceId}/properties/{objectId}/set/{typeId} [post]
+func (d *deps) propertiesSet(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp

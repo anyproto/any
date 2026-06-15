@@ -263,7 +263,7 @@ func setupAggMovies(t *testing.T, e http.Handler, movies map[string]int) (string
 			t.Fatalf("decode object: %v", err)
 		}
 		rec = doJSON(t, e, http.MethodPost,
-			fmt.Sprintf("/v1/spaces/%s/properties/%s/base/%s", sp.Id, obj.ObjectId, typeResp.TypeId),
+			fmt.Sprintf("/v1/spaces/%s/properties/%s/set/%s", sp.Id, obj.ObjectId, typeResp.TypeId),
 			fmt.Sprintf(`{"patch":{%q:%d}}`, propResp.PropId, year))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("set base %s: %d %s", title, rec.Code, rec.Body.String())

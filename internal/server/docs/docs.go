@@ -2743,7 +2743,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/spaces/{spaceId}/properties/{objectId}/base/{typeId}": {
+        "/spaces/{spaceId}/properties/{objectId}/set/{typeId}": {
             "post": {
                 "consumes": [
                     "application/json"
@@ -2783,7 +2783,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.PropertiesSetBaseRequest"
+                            "$ref": "#/definitions/api.PropertiesSetRequest"
                         }
                     }
                 ],
@@ -4332,7 +4332,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.PropertiesSetBaseRequest": {
+        "api.PropertiesSetRequest": {
             "type": "object",
             "properties": {
                 "patch": {
