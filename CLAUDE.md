@@ -369,6 +369,31 @@ Implementation slices landed:
     with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
     treat zero as unknown. Semantics + caveats in `docs/03-api.md`
     § Spaces.
+16. **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
+    over both query scopes, the aggregation siblings of `/query`:
+    `POST /v1/spaces/:id/objects/aggregate` (per-space objects
+    collection → `Space.AggregateObjects`) and
+    `POST /v1/spaces/:id/aggregate` (per-object dataset, objectId +
+    dataset in body → `Space.Aggregate`). Snapshot-only — no subscribe
+    variant (any-store aggregation has no live path; re-run to
+    refresh). Body: `pipeline` (required JSON array of stages:
+    $match/$sort/$skip/$limit/$count/$project/$addFields/$unwind/
+    $group) + optional `groupLimit`/`accumArrayLimit`/
+    `memoryLimitBytes` (blocking-stage bounds, negative = unlimited)
+    and `explain: true` (returns `{plan}` instead of `{records}`,
+    diagnostic-only). Records are pipeline RESULT docs — group key
+    comes back as `id`, never `_id`. Tombstones excluded server-side
+    (SDK prepends a `_deletedAt` $match that folds into the pushdown
+    prefix, so it stays index-planned). Errors:
+    `400 aggregate.bad_pipeline` (parse/stage/prefix violations,
+    `space.ErrBadPipeline`) and `400 aggregate.limit_exceeded`
+    (`details.limit`: group/accumArray/memory, SDK limit sentinels).
+    CLI: `any aggregate SPACE [OBJ] [--dataset NAME | --properties]
+    --pipeline '<json>'|@FILE|-`. Client doc with examples + the
+    MongoDB-divergence catalog: `docs/14-aggregation.md`.
+    **SDK prerequisite (`any-sync-sdk v0.0.11`)**: the `space.Agg`
+    builder (`Space.Aggregate`/`AggregateObjects`) wrapping any-store
+    alpha.11's `Collection.Aggregate`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -423,10 +448,12 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-All pins are tagged releases: `any-sync-sdk v0.0.10` (the `_addSeq`
-change-index + tombstone `IncludeDeleted` work — status items 13–14 —
-plus the space `createdAt` stamp, status item 15 — on top of the
-dataset-schema + unified-query base from `v0.0.8`),
+Pins: `any-sync-sdk v0.0.11` (the `space.Agg` aggregation surface,
+status item 16 — currently a pseudo-version of the SDK's
+`feat/aggregate` PR commit; re-pin the tag once it lands — on top of
+`v0.0.10`'s `_addSeq` change-index + tombstone `IncludeDeleted` work,
+status items 13–14, plus the space `createdAt` stamp, status item 15,
+and the dataset-schema + unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync
 v0.12.11`.
@@ -590,6 +617,7 @@ auto-start.
 | `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
+| `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.
