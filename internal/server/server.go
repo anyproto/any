@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	defer deps.closeEngine(lg)
 
 	if identity != nil {
-		if _, err := deps.bootAccount(identity, ""); err != nil {
+		if _, err := deps.bootAccount(identity, walletSeed{}); err != nil {
 			return err
 		}
 	} else {

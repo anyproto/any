@@ -58,11 +58,14 @@ forces an additional fresh account.`,
 					return fmt.Errorf("read mnemonic: %w", err)
 				}
 			}
+			if index != 0 && mnemonic == "" {
+				return errors.New("--index applies only to --mnemonic / --mnemonic-stdin")
+			}
 
 			// Explicit wallet override: single-wallet manual mode, no
 			// per-account nesting.
 			if cfg.Auth.WalletPath != "" {
-				return initWallet(cmd, config.WalletPath(cfg, root), passkey, mnemonic, mnemonic == "")
+				return initWallet(cmd, config.WalletPath(cfg, root), passkey, mnemonic, index, mnemonic == "")
 			}
 
 			if mnemonic != "" {
@@ -74,7 +77,7 @@ forces an additional fresh account.`,
 					fmt.Fprintf(cmd.ErrOrStderr(), "already authorized as %s (default wallet)\n", id)
 					return printInitResult(cmd, id, false)
 				}
-				return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, mnemonic, false)
+				return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, mnemonic, index, false)
 			}
 
 			accounts, err := config.ListAccounts(root)
@@ -98,7 +101,7 @@ forces an additional fresh account.`,
 			if err != nil {
 				return err
 			}
-			return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, fresh, true)
+			return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, fresh, 0, true)
 		},
 	}
 	addServerFlags(c)
@@ -110,11 +113,12 @@ forces an additional fresh account.`,
 }
 
 // initWallet opens-or-creates the wallet and reports
-// {accountId, created} on stdout. printPhrase is set when the phrase
-// is news to the user (fresh generation, not a restore) so the backup
+// {accountId, created} on stdout. index is the derivation index used
+// with mnemonic on creation. printPhrase is set when the phrase is
+// news to the user (fresh generation, not a restore) so the backup
 // warning prints to stderr on first creation.
-func initWallet(cmd *cobra.Command, walletPath, passkey, mnemonic string, printPhrase bool) error {
-	provider, firstRun, err := server.OpenWallet(walletPath, passkey, mnemonic)
+func initWallet(cmd *cobra.Command, walletPath, passkey, mnemonic string, index uint32, printPhrase bool) error {
+	provider, firstRun, err := server.OpenWallet(walletPath, passkey, mnemonic, index)
 	if err != nil {
 		return err
 	}
@@ -140,7 +144,7 @@ func printInitResult(cmd *cobra.Command, accountId string, created bool) error {
 // rootWalletID best-effort derives the root (default) wallet's account
 // id; empty when it can't be opened (e.g. encrypted, wrong passkey).
 func rootWalletID(cmd *cobra.Command, root, passkey string) string {
-	provider, _, err := server.OpenWallet(config.WalletPath(config.Config{}, root), passkey, "")
+	provider, _, err := server.OpenWallet(config.WalletPath(config.Config{}, root), passkey, "", 0)
 	if err != nil {
 		return ""
 	}

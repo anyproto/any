@@ -135,7 +135,7 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8tR…","default":true},   // legacy root wallet.key
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
-// POST /v1/auth — body fields are mutually exclusive:
+// POST /v1/auth — mnemonic and accountId are mutually exclusive:
 {}                                    // generate a fresh account
 { "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
                                       // device key freshly generated
@@ -147,11 +147,20 @@ restart, and the server stays on that account for its lifetime
   "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
 ```
 
+`index` is the account-derivation index and is valid **only with
+`mnemonic`** (a selected account's index is baked into its wallet; a
+generated one is always 0) — a non-zero `index` without `mnemonic` is
+`400 request.invalid_field`. If the engine fails to boot after a fresh
+wallet was created this call (e.g. SDK init error), the half-created
+per-account dir is removed, so a retry — or `generate` getting a new
+phrase — starts clean rather than auto-selecting an un-backed account.
+
 Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
-`404 auth.account_not_found` (accountId without a local wallet),
-`409 auth.account_in_use` (another process holds that account's pid
-lock), `409 auth.mnemonic_mismatch` (existing wallet file disagrees
-with the supplied phrase/index), `400 auth.passkey_required`
+`400 request.invalid_field` (mnemonic+accountId together, or index
+without mnemonic), `404 auth.account_not_found` (accountId without a
+local wallet), `409 auth.account_in_use` (another process holds that
+account's pid lock), `409 auth.mnemonic_mismatch` (existing wallet file
+disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
 var, never the request body).
 

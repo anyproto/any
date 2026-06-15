@@ -32,7 +32,7 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 
 	dataDir := t.TempDir()
 	walletPath := filepath.Join(dataDir, "wallet.key")
-	provider, _, err := OpenWallet(walletPath, "", "")
+	provider, _, err := OpenWallet(walletPath, "", "", 0)
 	if err != nil {
 		t.Fatalf("OpenWallet: %v", err)
 	}
