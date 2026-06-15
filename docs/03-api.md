@@ -24,6 +24,7 @@
     - [Object deletion](#object-deletion)
   - [Data plane](#data-plane)
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
+    - [Aggregate](#aggregate)
     - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
   - [Types](#types)
   - [Properties (values on objects)](#properties-values-on-objects)
@@ -332,6 +333,7 @@ change" (`docs/13-index.md`).
 | POST   | `/v1/spaces/:spaceId/objects`                             | `Objects.Create`                   |
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.Snapshot`      |
 | POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
+| POST   | `/v1/spaces/:spaceId/objects/aggregate`                   | `Space.AggregateObjects` (pipeline) |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
@@ -574,6 +576,7 @@ from local state. See `04-events.md`.
 |--------|-----------------------------------------------------------|--------------------------------------|
 | POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.Snapshot`               |
 | POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
+| POST   | `/v1/spaces/:spaceId/aggregate`                           | `Space.Aggregate` (pipeline)         |
 | POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
 | POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
@@ -628,6 +631,27 @@ Snapshot response (bare `…/query`):
   "total":   17,                      // omitted when includeTotal=false
   "hasNext": true }                   // more matches past this page; omitted when includeTotal=false
 ```
+
+#### Aggregate
+
+The same two scopes take MongoDB-style aggregation pipelines — the
+aggregation siblings of the query endpoints, snapshot-only (no
+subscribe variant):
+
+```
+POST /v1/spaces/:spaceId/objects/aggregate     Space.AggregateObjects
+POST /v1/spaces/:spaceId/aggregate             Space.Aggregate (objectId + dataset required)
+```
+
+Body: `{objectId?, dataset?, pipeline: [...], groupLimit?,
+accumArrayLimit?, memoryLimitBytes?, explain?}`. Response
+`{records: [...]}` — pipeline result documents (a `$group` doc carries
+the group key as `id`, never `_id`) — or `{plan: "..."}` with
+`explain: true`. Tombstones are excluded server-side, same as `/query`.
+Stage set, examples, limits, and the catalog of deliberate MongoDB
+divergences live in [`docs/14-aggregation.md`](14-aggregation.md).
+Errors: `aggregate.bad_pipeline` / `aggregate.limit_exceeded`
+(`docs/06-errors.md`).
 
 #### Subscribe (Server-Sent Events)
 

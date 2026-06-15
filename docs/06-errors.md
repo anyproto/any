@@ -72,6 +72,9 @@ property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field
 
+aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
+aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
+
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
 index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
