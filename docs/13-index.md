@@ -200,7 +200,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
 - `local` — **default**: **in-process llama.cpp**, no external service. yzma purego
   bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
   `index.local.libDir` (default: `llamacpp/` next to the binary —
-  populate with `make llamacpp`; macOS arm64 gets Metal, Linux amd64
+  populated by `make llamacpp`, which also runs as a failure-tolerant
+  step of `make build`; macOS arm64 gets Metal, Linux amd64
   picks the best CPU backend variant). Default model:
   **Qwen3-Embedding-0.6B Q8_0** (Apache-2.0, 1024-dim Matryoshka,
   last-token pooling, L2-normalized; queries carry the Qwen retrieval
