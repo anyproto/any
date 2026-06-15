@@ -18,7 +18,7 @@ SWAG := go tool swag
 # dependency — yzma tracks llama.cpp releases.
 LLAMACPP_VERSION := b9590
 
-.PHONY: build test vet tidy clean swagger llamacpp
+.PHONY: build test vet tidy clean swagger llamacpp sdk
 
 swagger:
 	$(SWAG) init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
@@ -46,3 +46,8 @@ tidy:
 
 clean:
 	rm -rf $(OUT)
+
+# Build one any-sdk payload (host platform by default) into dist/.
+# Override with PLATFORM=darwin-arm64|darwin-x64|linux-x86_64|windows-x86_64.
+sdk:
+	scripts/build-sdk.sh $${PLATFORM:-host} dist
