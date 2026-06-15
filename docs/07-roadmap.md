@@ -199,6 +199,18 @@ pluggable embedders, parallel batched pipelines),
   place (UI onboarding path); `GET /v1/auth` lists local accounts.
   Selector: `--account` / `ANY_ACCOUNT` / `account:`. SDK side:
   `FileProviderConfig.Mnemonic/Index` seeding + `auth.AccountId`.
+- **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
+  over both query scopes: `POST /v1/spaces/:id/objects/aggregate`
+  (objects collection) and `POST /v1/spaces/:id/aggregate` (per-object
+  dataset), wrapping the SDK's `Space.AggregateObjects` /
+  `Space.Aggregate` (SDK prerequisite landed as `any-sync-sdk v0.0.11`:
+  the `space.Agg` builder over any-store alpha.11's aggregation
+  framework, tombstone-skip `$match` prepended into the pushdown
+  prefix, `ErrBadPipeline` + limit sentinels). Snapshot-only — no
+  subscribe variant by design (any-store aggregation has no live
+  path). `explain: true` body flag wraps `Agg.Explain`. CLI
+  `any aggregate`. Client doc with examples + MongoDB-divergence
+  catalog in `docs/14-aggregation.md`.
 - **Agent data layer (turns / chunks / memory)** — built-in
   `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
   object) and `agent_memory` (`agent_memory_items` on the seed-derived

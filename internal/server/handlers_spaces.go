@@ -36,6 +36,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
+	g.POST("/spaces/:spaceId/objects/aggregate", d.spaceAggregateObjects)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
 
 	// Editor (built-in type — see internal/editor). Atomic blocks +
@@ -73,6 +74,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryDelete)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
+	g.POST("/spaces/:spaceId/aggregate", d.spaceAggregate)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
 
