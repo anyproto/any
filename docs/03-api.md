@@ -6,6 +6,7 @@
   - [Write responses](#write-responses)
 - [Endpoint catalog](#endpoint-catalog)
   - [Meta](#meta)
+  - [Auth](#auth)
   - [Account](#account)
   - [Spaces](#spaces)
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
@@ -107,6 +108,52 @@ live via `/query/subscribe`). One write shape across the whole API.
 |--------|-----------------|----------------------------------------|
 | GET    | `/v1/health`    | server health, version, account id     |
 | POST   | `/v1/shutdown`  | graceful shutdown                      |
+
+`/v1/health` works on an unauthorized server too — `account` is then
+`""`.
+
+### Auth
+
+| Method | Path        | Purpose                                          |
+|--------|-------------|--------------------------------------------------|
+| GET    | `/v1/auth`  | authorization state + locally available accounts |
+| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK |
+
+A server started without a resolvable account (fresh data dir, or
+several accounts and no selector — see `02-server.md` § Startup) is
+**unauthorized**: every `/v1` route except `/v1/health`,
+`/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns
+`401 auth.required`. `POST /v1/auth` boots the account in place; no
+restart, and the server stays on that account for its lifetime
+(switching = restart, a second POST returns
+`409 auth.already_authorized`).
+
+```json
+// GET /v1/auth
+{ "authorized": false,
+  "accounts": [
+    {"id":"A8tR…","default":true},   // legacy root wallet.key
+    {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
+
+// POST /v1/auth — body fields are mutually exclusive:
+{}                                    // generate a fresh account
+{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
+                                      // device key freshly generated
+{ "accountId":"A8g1…" }               // select an existing local wallet
+
+// → 200
+{ "accountId":"A8g1…",
+  "created": true,        // a new wallet file was written
+  "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
+```
+
+Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
+`404 auth.account_not_found` (accountId without a local wallet),
+`409 auth.account_in_use` (another process holds that account's pid
+lock), `409 auth.mnemonic_mismatch` (existing wallet file disagrees
+with the supplied phrase/index), `400 auth.passkey_required`
+(encrypted wallet — the passkey still comes from the configured env
+var, never the request body).
 
 ### Account
 
@@ -1262,7 +1309,10 @@ Minimal in v1:
 - `middleware.BodyLimit("1M")` — reject anything larger; prevents
   accidental uploads before the file API lands.
 
-No rate limiting, no auth middleware in v1. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
+No rate limiting in v1, and no caller authentication (loopback is the
+trust boundary). The only auth-shaped middleware is the unauthorized
+guard (§ Auth): `401 auth.required` on SDK-backed routes until an
+account is booted — it gates server STATE, not the caller. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
 
 ## Pagination
 

@@ -38,6 +38,14 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	}
 	defer stderrFile.Close()
 
+	// The embedded-nodeconf regression only triggers when the SDK boots,
+	// which needs an account — init one (no nodeconf required for init).
+	initCmd := exec.Command(bin, "init", "--data-dir", dataDir)
+	initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("any init: %v\n%s", err, out)
+	}
+
 	cmd := exec.Command(bin, "run", "--addr", "127.0.0.1:0", "--data-dir", dataDir)
 	// A CWD that has no ../test-etc sibling — this is what a packaged
 	// install looks like, and what used to fail before the embed.

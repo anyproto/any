@@ -394,6 +394,33 @@ Implementation slices landed:
     **SDK prerequisite (`any-sync-sdk v0.0.11`)**: the `space.Agg`
     builder (`Space.Aggregate`/`AggregateObjects`) wrapping any-store
     alpha.11's `Collection.Aggregate`.
+17. **Mnemonic authorization + per-account data dirs** — the data dir
+    is now a multi-account ROOT: new accounts live at
+    `<root>/<accountId>/` (wallet.key, server.pid, sdk/, index/), a
+    legacy root `wallet.key` is the DEFAULT account with its data flat
+    at the root (no migration code), embedder models shared at
+    `<root>/models/` (a model already in the legacy
+    `<dir>/index/models` keeps being used). Account selection:
+    `--account` / `ANY_ACCOUNT` / `account:` → root wallet → sole
+    nested dir (`internal/server/identity.go::ResolveIdentity`).
+    `any init [--mnemonic|--mnemonic-stdin|--index N|--new]` creates or
+    RESTORES an account — same phrase ⇒ same account id, always a
+    fresh device key (the supported second-device flow; wallet.key
+    copies collide peerIds and break realtime sync). `any run` no
+    longer auto-creates wallets: with no resolvable account the server
+    starts UNAUTHORIZED — a /v1 guard middleware returns
+    `401 auth.required` everywhere except health/shutdown/openapi/auth
+    — and `POST /v1/auth` (`{mnemonic?|accountId?|index?}`, neither =
+    generate; generated mnemonic returned once) boots the engine (pid
+    lock → wallet → SDK → indexer, `internal/server/engine.go`) in
+    place; `GET /v1/auth` lists local accounts. One engine per process
+    lifetime; switching = restart with `--account`. CLI: `any auth
+    login/status`. SDK prerequisite: `FileProviderConfig.Mnemonic/
+    Index` seeding, `auth.AccountId(mnemonic, index)`, exported
+    `ErrInvalidMnemonic` / `ErrMnemonicMismatch` / `ErrPasskeyRequired`
+    / `ErrWrongPasskey` (any-sync-sdk `feat/auth-mnemonic`). Contract:
+    docs/02-server.md § Startup + Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -448,12 +475,15 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-Pins: `any-sync-sdk v0.0.11` (the `space.Agg` aggregation surface,
-status item 16 — currently a pseudo-version of the SDK's
-`feat/aggregate` PR commit; re-pin the tag once it lands — on top of
-`v0.0.10`'s `_addSeq` change-index + tombstone `IncludeDeleted` work,
-status items 13–14, plus the space `createdAt` stamp, status item 15,
-and the dataset-schema + unified-query base from `v0.0.8`),
+Pins: `any-sync-sdk v0.0.11` (the tagged main release bundling the
+`space.Agg` aggregation surface (status item 16), `FileProviderConfig`
+mnemonic seeding + `auth.AccountId` (status item 17), and the
+scoped-properties API — per-record `_applySeq` change-index +
+scope-aware `Properties.Set`/`Get`, which superseded `_addSeq` ordering
+and the old `SetBase`/`PropertyReadOpts` surface — on top of `v0.0.10`'s
+change-index + tombstone `IncludeDeleted` work (status items 13–14), the
+space `createdAt` stamp (status item 15), and the dataset-schema +
+unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync
 v0.12.11`.
