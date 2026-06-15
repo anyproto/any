@@ -1,0 +1,81 @@
+name: _build-sdk
+
+# Reusable workflow (called by release-sdk + nightly-sdk): build any-sdk for
+# every platform, publish a GitHub Release for the given channel, then trigger
+# the any-ui desktop build. All build logic lives in scripts/build-sdk.sh; this
+# is the shared orchestration the two callers used to duplicate.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag/name — a v* tag for release, "nightly" for the rolling prerelease.'
+        type: string
+        required: true
+      channel:
+        description: 'release | prerelease — drives the dispatch payload + whether it is a prerelease.'
+        type: string
+        required: true
+    secrets:
+      ANY_UI_DISPATCH_TOKEN:
+        description: 'Token to dispatch the any-ui build. If unset, the trigger step warns and skips.'
+        required: false
+
+permissions:
+  contents: write # create the Release
+
+jobs:
+  build-and-publish:
+    # Never run from a fork; secrets must not be exposed.
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe needs tags
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: go.sum
+      - name: Install jq + unzip
+        run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Build any-sdk for all platforms
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for p in darwin-arm64 darwin-x64 linux-x86_64 windows-x86_64; do
+            scripts/build-sdk.sh "$p" dist
+          done
+          ls -la dist
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = prerelease ]; then
+            # Rolling prerelease: replace the previous release + its tag.
+            gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+            gh release create "$TAG" dist/any-sdk-*.tar.gz --prerelease \
+              --target "$GITHUB_SHA" --title "any-sdk $TAG" \
+              --notes "Rolling $TAG build ($(git rev-parse --short HEAD))."
+          else
+            gh release create "$TAG" dist/any-sdk-*.tar.gz --title "any-sdk $TAG" \
+              --notes "any-sdk release $TAG (llama.cpp $(sed -n 's/^LLAMACPP_VERSION := //p' Makefile))."
+          fi
+      - name: Trigger any-ui desktop build
+        env:
+          GH_TOKEN: ${{ secrets.ANY_UI_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::ANY_UI_DISPATCH_TOKEN not set — skipping the any-ui trigger."
+            exit 0
+          fi
+          gh api repos/anyproto/any-ui/dispatches \
+            -f event_type=any-sdk-published \
+            -f "client_payload[version]=$TAG" \
+            -f "client_payload[channel]=$CHANNEL"
