@@ -106,10 +106,13 @@ func OpenStoreInMemory(ctx context.Context, dim int, embedderConfigured bool) (*
 
 func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *Store {
 	return &Store{
-		db:          db,
-		path:        path,
-		dim:         dim,
-		markPending: embedderConfigured || dim > 0,
+		db:   db,
+		path: path,
+		dim:  dim,
+		// capVector gates the whole vector pipeline at build time: without
+		// it, nothing is ever marked pending so the embed loop and vector
+		// index stay dormant even if a dim is configured.
+		markPending: capVector && (embedderConfigured || dim > 0),
 		colls:       map[string]anystore.Collection{},
 		hasVec:      map[string]bool{},
 	}
@@ -215,13 +218,21 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// collection — see EnsureVectorIndex, called from the embed path.
 	// No objectId index: structural deletes are primary-key prefix
 	// ranges on the objectId:dataset:recordId id shape.
-	indexes := []anystore.IndexInfo{
-		{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}},
-		// sparse pending backs the embed loop.
-		{Fields: []string{"pending"}, Sparse: true},
+	//
+	// Each leg's index is created only when its build tag compiled it in
+	// (docs/13-index.md § build tags): the fulltext index under `fts`, the
+	// sparse pending index (which backs the embed loop) under `vector`.
+	var indexes []anystore.IndexInfo
+	if capFTS {
+		indexes = append(indexes, anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}})
 	}
-	if err := coll.EnsureIndex(ctx, indexes...); err != nil {
-		return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+	if capVector {
+		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
+	}
+	if len(indexes) > 0 {
+		if err := coll.EnsureIndex(ctx, indexes...); err != nil {
+			return nil, fmt.Errorf("indexer: ensure indexes for %s: %w", spaceId, err)
+		}
 	}
 
 	s.mu.Lock()
@@ -242,6 +253,9 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 // CompactRatio bounds centroid drift (auto re-train as the space grows
 // past the initial training set).
 func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
+	if !capVector {
+		return false, nil
+	}
 	dim := s.Dim()
 	if dim == 0 {
 		return false, nil
@@ -457,6 +471,11 @@ func scopeKey(scopes []string) query.Filter {
 // SearchFTS runs the BM25 leg. Hits come back ranked by descending
 // score; docs with empty data never match (nothing was indexed).
 func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []string, limit int) ([]Hit, error) {
+	if !capFTS {
+		// FTS compiled out (no fulltext index exists) — no hits rather
+		// than a query error against a missing index.
+		return nil, nil
+	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, err
@@ -479,7 +498,7 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 // never learned, or no embedded docs in the space yet) it returns no
 // hits rather than erroring — search degrades, never breaks.
 func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int) ([]Hit, error) {
-	if s.Dim() == 0 {
+	if !capVector || s.Dim() == 0 {
 		return nil, nil
 	}
 	ok, err := s.EnsureVectorIndex(ctx, spaceId)

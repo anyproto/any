@@ -8,9 +8,6 @@ package indexer
 import (
 	"context"
 	"errors"
-	"fmt"
-
-	"github.com/anyproto/any/internal/config"
 )
 
 // ErrEmbedderUnavailable wraps query-time embedding failures: the
@@ -35,26 +32,8 @@ type Embedder interface {
 	Dim(ctx context.Context) (int, error)
 }
 
-// NewEmbedder constructs the configured embedding client. Returns
-// (nil, nil) for "none" — the indexer then runs FTS-only. A bare ""
-// also maps to FTS-only: config.Load defaults it to "local", so ""
-// only survives when a config file sets it explicitly (the pre-"none"
-// opt-out syntax). dataDir hosts the local embedder's downloaded
-// model (<dataDir>/index/models).
-func NewEmbedder(cfg config.Index, dataDir string) (Embedder, error) {
-	switch cfg.Embedder {
-	case "", "none":
-		return nil, nil
-	case "ollama":
-		return NewOllama(cfg.Ollama.Url, cfg.Ollama.Model), nil
-	case "openai":
-		if cfg.OpenAI.Model == "" {
-			return nil, fmt.Errorf("indexer: openai embedder needs index.openai.model")
-		}
-		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
-	case "local":
-		return NewLocal(cfg.Local, dataDir)
-	default:
-		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"local\", \"ollama\", \"openai\" or \"none\")", cfg.Embedder)
-	}
-}
+// NewEmbedder constructs the configured embedding client. Its two
+// build-tagged variants live in embed_factory_vector.go (the real
+// switch) and embed_factory_novector.go (a no-op returning nil, so the
+// indexer runs FTS-only when the `vector` build tag is absent). See
+// docs/13-index.md § build tags.

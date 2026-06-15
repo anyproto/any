@@ -231,6 +231,44 @@ is learned from the first successful batch (or pinned via
 change against a populated index is a loud error rather than silent
 corruption.
 
+### Build tags — `fts` and `vector` (selecting the legs at compile time)
+
+The two search legs are **independently selectable at build time** via
+positive build tags, so a build can ship both, one, or neither:
+
+| Build | Tags | Result |
+|-------|------|--------|
+| Desktop / server (`make build`) | `fts vector` | Full index — BM25 + embedding/ANN. |
+| FTS-only | `fts` | Full-text search; no embedder, no vector index. |
+| Vector-only | `vector` | Embedding/ANN only; FTS search returns nothing. |
+| None (default `go build`, gomobile) | *(none)* | Search index compiled out — both legs inert. |
+
+Mechanics (`internal/indexer`):
+- `capFTS` / `capVector` are build-tagged constants
+  (`caps_fts_*.go`, `caps_vector_*.go`). When false, the store creates no
+  index for that leg (`spaceColl`) and the leg's search method short-
+  circuits to no hits (`SearchFTS` / `SearchVector` / `EnsureVectorIndex`).
+- `NewEmbedder` has two variants: the real switch under `vector`
+  (`embed_factory_vector.go`) and a no-op returning `nil` under `!vector`
+  (`embed_factory_novector.go`). Without `vector` **no embedder is ever
+  constructed** (FTS-only), and the embedder implementations — ollama,
+  openai, and the in-process llama.cpp `local` — are **not linked into
+  the binary at all**.
+- The `local` embedder additionally carries `!gomobile` (it links the
+  yzma / jupiterrider-ffi llama.cpp bindings, whose libffi CIF
+  descriptors resolve `ffi_prep_cif` at package load — a symbol Android
+  doesn't provide, which panics the Go runtime at startup). Excluding the
+  whole `vector` leg from the gomobile bind is the durable fix; a runtime
+  toggle can't prevent a load-time crash.
+
+Mobile (gomobile/Android) builds with **neither** tag: no embedder
+(no model download, no llama link) and no FTS index. To later enable
+full-text search on mobile without the vector pipeline, add `fts` alone.
+The runtime `index.enabled` / `index.embedder` config still applies on
+top — tags decide what is *compiled*, config decides what *runs*. Tests
+covering either leg are tagged to match (`go test` without tags compiles
+but skips them; `make test` runs the full `fts vector` suite).
+
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?}` →

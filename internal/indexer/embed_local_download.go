@@ -1,3 +1,5 @@
+//go:build vector && !gomobile
+
 package indexer
 
 import (

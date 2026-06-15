@@ -1,3 +1,5 @@
+//go:build fts && vector
+
 package indexer
 
 import (
