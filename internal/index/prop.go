@@ -144,7 +144,7 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		if IsDeleted(rec) {
 			return nil
 		}
-		entry := IndexEntry{Scope: ScopeBasic, ObjectId: objectId, Dataset: DatasetProp, AddSeq: seq}
+		entry := IndexEntry{Scope: ScopeBasic, ObjectId: objectId, Dataset: DatasetProp, ApplySeq: seq}
 
 		entry.RecordId = NamePropRecordId
 		entry.Data = string(rec.GetStringBytes("any", "name"))
@@ -162,7 +162,7 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 			attached[string(v.GetStringBytes())] = true
 		}
 		for _, p := range props {
-			e := IndexEntry{Scope: p.scope, ObjectId: objectId, Dataset: DatasetProp, RecordId: p.propId, AddSeq: seq}
+			e := IndexEntry{Scope: p.scope, ObjectId: objectId, Dataset: DatasetProp, RecordId: p.propId, ApplySeq: seq}
 			if attached[p.typeId] {
 				e.Data = renderPropValue(rec.Get(p.typeId, p.propId), p.kind)
 			}

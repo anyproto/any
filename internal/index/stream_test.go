@@ -65,7 +65,7 @@ func (it *fakeIterator) Close() error                { it.closed = true; return 
 func recWithSeq(arena *anyenc.Arena, id string, seq int) *anyenc.Value {
 	r := arena.NewObject()
 	r.Set("id", arena.NewString(id))
-	r.Set(AddSeqField, arena.NewNumberInt(seq))
+	r.Set(ApplySeqField, arena.NewNumberInt(seq))
 	return r
 }
 
@@ -93,17 +93,17 @@ func TestRecordsSince_ChainsOptionsAndParsesSeq(t *testing.T) {
 	if !q.projection.IncludeDeleted {
 		t.Errorf("IncludeDeleted projection not applied")
 	}
-	// Window filter on _addSeq applied (typed any-store/query filter).
+	// Window filter on _applySeq applied (typed any-store/query filter).
 	if len(q.filters) != 1 {
 		t.Fatalf("want 1 filter, got %d", len(q.filters))
 	}
 	fk, ok := q.filters[0].(query.Key)
-	if !ok || len(fk.Path) != 1 || fk.Path[0] != AddSeqField {
-		t.Errorf("filter %#v does not window on %s", q.filters[0], AddSeqField)
+	if !ok || len(fk.Path) != 1 || fk.Path[0] != ApplySeqField {
+		t.Errorf("filter %#v does not window on %s", q.filters[0], ApplySeqField)
 	}
-	// Sort on _addSeq applied.
-	if len(q.sorts) != 1 || q.sorts[0] != AddSeqField {
-		t.Errorf("want sort on %s, got %#v", AddSeqField, q.sorts)
+	// Sort on _applySeq applied.
+	if len(q.sorts) != 1 || q.sorts[0] != ApplySeqField {
+		t.Errorf("want sort on %s, got %#v", ApplySeqField, q.sorts)
 	}
 	// Seq parsed from records.
 	if len(seen) != 2 || seen[0].seq != 5 || seen[1].seq != 9 {
