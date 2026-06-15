@@ -1,6 +1,7 @@
 # llama.cpp prebuilt libraries
 
-`make llamacpp` downloads the official prebuilt
+`make llamacpp` (also run as a failure-tolerant step of `make build`)
+downloads the official prebuilt
 [llama.cpp](https://github.com/ggml-org/llama.cpp) release tarball for
 the host platform into `cache/` here and extracts the shared libraries
 into `bin/llamacpp/`, where the built-in local embedder
