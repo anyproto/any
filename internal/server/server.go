@@ -87,6 +87,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 	// persist per batch, so no flush is needed beyond Close.
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
+		if fts, vec := indexer.CompiledCaps(); !fts && !vec {
+			lg.Warn("search index enabled (index.enabled) but built without the fts/vector tags — search returns no results; rebuild with -tags 'fts vector' (docs/13-index.md)")
+		}
 		ix, err = OpenIndexer(ctx, cfg.Index, dataDir, sdk, chunkers)
 		if err != nil {
 			return fmt.Errorf("open indexer: %w", err)

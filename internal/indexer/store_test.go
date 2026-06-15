@@ -1,4 +1,4 @@
-//go:build fts && vector
+//go:build fts && vector && !gomobile
 
 package indexer
 

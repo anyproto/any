@@ -1,8 +1,9 @@
-//go:build !vector
+//go:build !vector || gomobile
 
 package indexer
 
-// capVector is false unless the `vector` build tag is set — the
-// embedding/ANN leg is compiled out (mobile/default builds). See
-// caps_vector_on.go.
+// capVector is false without the `vector` build tag, and is
+// force-false on every gomobile build regardless of tags — vector /
+// embedding is always off on mobile (see caps_vector_on.go and
+// docs/13-index.md § build tags).
 const capVector = false

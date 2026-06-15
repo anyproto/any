@@ -236,38 +236,54 @@ corruption.
 The two search legs are **independently selectable at build time** via
 positive build tags, so a build can ship both, one, or neither:
 
-| Build | Tags | Result |
-|-------|------|--------|
-| Desktop / server (`make build`) | `fts vector` | Full index — BM25 + embedding/ANN. |
-| FTS-only | `fts` | Full-text search; no embedder, no vector index. |
-| Vector-only | `vector` | Embedding/ANN only; FTS search returns nothing. |
-| None (default `go build`, gomobile) | *(none)* | Search index compiled out — both legs inert. |
+| Build | Tags | FTS | Vector / embeds |
+|-------|------|-----|------|
+| Desktop / server (`make build`) | `fts vector` | on | on |
+| FTS-only | `fts` | on | off |
+| Vector-only | `vector` | off | on |
+| None (default `go build`) | *(none)* | off | off |
+| Mobile (gomobile) | *(none)* | off | **off (forced)** |
+| Mobile + FTS | `fts` | on | **off (forced)** |
+
+The two legs are **separate, positive build flags** — a build opts each
+in. `make build` ships both; the default `go build` ships neither. The
+rule for `vector` is stronger than for `fts`:
+
+- **`vector` / embeds are *always* off on mobile, regardless of tags.**
+  `capVector` is `vector && !gomobile`, so even `gomobile bind -tags
+  vector` keeps the whole embedding/ANN leg out — no embedder is
+  constructed, no model is downloaded, and the embedder implementations
+  (ollama, openai, and the in-process llama.cpp `local`) are not linked
+  at all. This is deliberate: the `local` embedder links the yzma /
+  jupiterrider-ffi llama.cpp bindings, whose libffi CIF descriptors
+  resolve `ffi_prep_cif` at package load — a symbol Android doesn't
+  provide, which panics the Go runtime at startup. A runtime toggle
+  can't prevent a load-time crash, so gomobile force-disables the leg at
+  compile time. Embedding has no place in the mobile runtime anyway.
+- **`fts` is a plain opt-in flag**, available everywhere including
+  mobile (`gomobile bind -tags fts` gives full-text search with no
+  embedder). It is off on mobile only because the mobile bind doesn't
+  pass the tag.
 
 Mechanics (`internal/indexer`):
-- `capFTS` / `capVector` are build-tagged constants
-  (`caps_fts_*.go`, `caps_vector_*.go`). When false, the store creates no
-  index for that leg (`spaceColl`) and the leg's search method short-
-  circuits to no hits (`SearchFTS` / `SearchVector` / `EnsureVectorIndex`).
-- `NewEmbedder` has two variants: the real switch under `vector`
-  (`embed_factory_vector.go`) and a no-op returning `nil` under `!vector`
-  (`embed_factory_novector.go`). Without `vector` **no embedder is ever
-  constructed** (FTS-only), and the embedder implementations — ollama,
-  openai, and the in-process llama.cpp `local` — are **not linked into
-  the binary at all**.
-- The `local` embedder additionally carries `!gomobile` (it links the
-  yzma / jupiterrider-ffi llama.cpp bindings, whose libffi CIF
-  descriptors resolve `ffi_prep_cif` at package load — a symbol Android
-  doesn't provide, which panics the Go runtime at startup). Excluding the
-  whole `vector` leg from the gomobile bind is the durable fix; a runtime
-  toggle can't prevent a load-time crash.
+- `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
+  build-tagged constants (`caps_fts_*.go`, `caps_vector_*.go`). When
+  false the store creates no index for that leg (`spaceColl`) and the
+  leg's search method short-circuits to no hits (`SearchFTS` /
+  `SearchVector` / `EnsureVectorIndex`); `capVector` false also stops
+  docs being marked `pending`, so the embed loop never runs.
+- `NewEmbedder` has two build-tagged variants: the real switch under
+  `vector && !gomobile` (`embed_factory_vector.go`) and a no-op
+  returning `nil` under `!vector || gomobile` (`embed_factory_novector.go`).
 
-Mobile (gomobile/Android) builds with **neither** tag: no embedder
-(no model download, no llama link) and no FTS index. To later enable
-full-text search on mobile without the vector pipeline, add `fts` alone.
-The runtime `index.enabled` / `index.embedder` config still applies on
-top — tags decide what is *compiled*, config decides what *runs*. Tests
-covering either leg are tagged to match (`go test` without tags compiles
-but skips them; `make test` runs the full `fts vector` suite).
+Tags decide what is *compiled*; the runtime `index.enabled` /
+`index.embedder` config decides what *runs* on top (there is no per-leg
+runtime flag — per-leg selection is the build tag). If `index.enabled`
+is set but the binary was built with neither leg, the server logs a
+warning at startup (`indexer.CompiledCaps`) so the empty-result state is
+observable, not silent. Tests covering either leg are tagged to match
+(`go test` without tags compiles but skips them; `make test` runs the
+full `fts vector` suite).
 
 ### Search
 
