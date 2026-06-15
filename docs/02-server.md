@@ -36,11 +36,26 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
 ## Startup
 
 1. Load config (file → env var overrides → flags). See `05-config.md`.
-2. Resolve the data dir (default `~/.any/`).
-3. Open the wallet (`auth.FileProvider`) at `<data-dir>/wallet.key`.
-   - If absent: generate, write, print the mnemonic to stderr with a
-     "back this up" warning.
-4. Open the SDK (`anysyncsdk.Open(ctx, cfg, provider)`).
+2. Resolve the data-dir ROOT (default `~/.any/`) and pick the account
+   to boot (`internal/server/identity.go`):
+   - `auth.walletPath` / `--wallet` set → that wallet, data flat at the
+     root (manual mode).
+   - `account:` / `ANY_ACCOUNT` / `--account` set → `<root>/<id>/` if
+     present, else the root `wallet.key` (the derived id must match,
+     verified after opening).
+   - No selector: a root `wallet.key` (legacy flat layout) is the
+     default account; else a sole `<root>/<id>/` dir; else **no
+     account**.
+3. With an account: boot its engine — pid lock in the account dir, open
+   the wallet, derive the account id, open the SDK and the indexer —
+   before the listener binds, so boot failures surface immediately.
+   `run` does NOT auto-generate a wallet anymore; create accounts with
+   `any init` or over HTTP.
+4. Without an account: start **unauthorized**. Every `/v1` route except
+   `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
+   returns `401 auth.required` until `POST /v1/auth` creates / restores
+   / selects an account and boots the engine in place (no restart).
+   See `03-api.md` § Auth.
 5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`).
 6. Serve.
 
@@ -72,26 +87,40 @@ process exits with 0.
 
 ## Single-instance lock
 
-The server writes a PID lock file at `<data-dir>/server.pid` on
-startup. If the lock is held by a live PID, startup fails with a
-clear message. Stale locks (PID no longer exists) are reclaimed.
+The server writes a PID lock file at `<account-dir>/server.pid` when
+the account's engine boots (the root itself for the legacy flat
+layout). If the lock is held by a live PID, the boot fails with a
+clear message — `409 auth.account_in_use` when it happens via
+`POST /v1/auth`. Stale locks (PID no longer exists) are reclaimed.
+One lock per ACCOUNT: two servers may share a root as long as they
+serve different accounts (on different ports). An unauthorized server
+holds no lock until it boots an account.
 
 ## Data dir layout
 
+`dataDir` is a ROOT that can hold several accounts:
+
 ```
-<data-dir>/
-├── wallet.key          # auth.FileProvider wallet (mode 0600)
-├── server.pid          # lock file
-├── config.yaml         # optional, if not passed via --config
-├── sdk/                # any-store DB(s) — owned by the SDK
-└── index/              # local search index (index.db) — owned by the indexer
+<root>/                          # dataDir, default ~/.any
+├── config.yaml                  # optional, if not passed via --config
+├── models/                      # shared embedder model cache (all accounts)
+├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
+├── server.pid                   #   its data stays directly at the root
+├── sdk/  index/                 #   exactly as before (no migration)
+└── <accountId>/                 # every account created since
+    ├── wallet.key               # auth.FileProvider wallet (mode 0600)
+    ├── server.pid               # per-account lock file
+    ├── sdk/                     # any-store DB(s) — owned by the SDK
+    └── index/                   # local search index (index.db) — owned by the indexer
 ```
 
-The SDK's `config.Storage.DataDir` points at `<data-dir>/sdk/`.
-Server-specific files live directly under `<data-dir>/`. The search
-index (`docs/13-index.md`) is derived state: removing `<data-dir>/index/`
-is safe but re-indexes only content changed afterwards ("index from the
-next change").
+The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`.
+The search index (`docs/13-index.md`) is derived state: removing
+`<account-dir>/index/` is safe but re-indexes only content changed
+afterwards ("index from the next change"). The embedder model cache is
+shared at `<root>/models/` — one ~600MB download per root, not per
+account (a model already sitting in a legacy `<account-dir>/index/models/`
+keeps being used from there).
 
 ## Logging
 
@@ -115,12 +144,15 @@ the whole process.
 }
 ```
 
-Does not require SDK state beyond the server being up and the wallet
-loaded. Used by `any status` and by supervisors once we add
-install/service files.
+Does not require SDK state — on an unauthorized server `account` is
+`""` and everything else is live. Used by `any status` and by
+supervisors once we add install/service files.
 
 ## One server = one account
 
 v1 is deliberately single-account per process. Two accounts → two
-data dirs, two `any run` processes on different ports. Multi-account
-is deferred.
+`any run` processes on different ports (they may share one data-dir
+root — each account dir carries its own pid lock). Switching the
+account of a RUNNING server is not supported: stop it and start with
+`--account <id>` (or let `POST /v1/auth` pick on an unauthorized
+server). Multi-account per process is deferred.

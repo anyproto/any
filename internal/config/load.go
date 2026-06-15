@@ -13,6 +13,7 @@ import (
 type Flags struct {
 	ConfigPath string
 	DataDir    string
+	Account    string
 	Addr       string
 	WalletPath string
 	LogLevel   string
@@ -64,6 +65,9 @@ func Load(flags Flags) (Config, error) {
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_DATA_DIR"); v != "" {
 		cfg.DataDir = v
+	}
+	if v := os.Getenv("ANY_ACCOUNT"); v != "" {
+		cfg.Account = v
 	}
 	if v := os.Getenv("ANY_LISTEN_ADDR"); v != "" {
 		cfg.Listen.Addr = v
@@ -132,6 +136,9 @@ func applyEnv(cfg *Config) {
 func applyFlags(cfg *Config, f Flags) {
 	if f.DataDir != "" {
 		cfg.DataDir = f.DataDir
+	}
+	if f.Account != "" {
+		cfg.Account = f.Account
 	}
 	if f.Addr != "" {
 		cfg.Listen.Addr = f.Addr

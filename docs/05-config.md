@@ -13,8 +13,18 @@ A missing config file is not an error: defaults are used.
 ## File shape
 
 ```yaml
-# Data root. Contains wallet.key, server.pid, storage/.
+# Data ROOT. Each account lives in <dataDir>/<accountId>/ (wallet.key,
+# server.pid, sdk/, index/); a wallet.key directly at the root is the
+# legacy flat layout and acts as the default account with its data at
+# the root. config.yaml and the shared models/ cache sit at the root.
+# Layout details: 02-server.md § Data dir layout.
 dataDir: ~/.any
+
+# Account to boot when the root holds more than one. Empty = the
+# default (root wallet.key, or the sole per-account dir); with several
+# accounts and no selector the server starts unauthorized and waits
+# for POST /v1/auth.
+account: ""
 
 # HTTP server listen address. Loopback only in v1.
 listen:
@@ -22,7 +32,9 @@ listen:
 
 # Auth — wallet location, optional passkey env var name.
 auth:
-  walletPath: ~/.any/wallet.key       # default: <dataDir>/wallet.key
+  walletPath: ""                      # explicit wallet file = manual mode
+                                      # (no per-account nesting); default:
+                                      # resolved per account
   passkeyEnv: ANY_WALLET_PASSKEY      # env var name to read passkey from
 
 # any-sync network. Path to a nodeconf YAML, or inline. When neither is
@@ -84,6 +96,7 @@ Prefix `ANY_`, underscores map to nested fields. Examples:
 
 ```
 ANY_DATA_DIR=/var/lib/any
+ANY_ACCOUNT=A8tR...                   # account selector (config: account)
 ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
@@ -141,6 +154,7 @@ server can run under a supervisor / shell pipeline.
 ```
 --config <path>
 --data-dir <path>
+--account <accountId>        # selector when the root holds several
 --addr <host:port>           # must be loopback in v1
 --wallet <path>
 --passkey-stdin
@@ -157,13 +171,18 @@ server can run under a supervisor / shell pipeline.
 
 ## First run
 
-With no config file and no data dir, `any run` does:
+With no config file and no data dir, `any init` does:
 
 1. Create `~/.any/` (mode 0700).
-2. Generate a wallet.key — plain unless `ANY_WALLET_PASSKEY` is set.
-3. Print the mnemonic to stderr, with a prominent warning to back it
-   up.
-4. Start serving on `127.0.0.1:7001`.
+2. Generate an account and write
+   `~/.any/<accountId>/wallet.key` — plain unless
+   `ANY_WALLET_PASSKEY` is set. With `--mnemonic`/`--mnemonic-stdin`
+   the account is derived from the supplied phrase instead (restore /
+   second device; fresh device key either way).
+3. Print the mnemonic to stderr (generation only), with a prominent
+   warning to back it up.
 
-`any init` runs steps 1–3 and exits — gives the operator a moment to
-copy the mnemonic before the server binds.
+`any run` does NOT create wallets: on a fresh root it starts
+unauthorized and waits for `POST /v1/auth` (which can also generate or
+restore the account — the HTTP flavor of init for UI onboarding). See
+`02-server.md` § Startup and `03-api.md` § Auth.

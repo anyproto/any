@@ -38,10 +38,34 @@ func buildEcho(d *deps) *echo.Echo {
 	e.Use(httpLogMiddleware())
 
 	v1 := e.Group("/v1")
+	// Unauthorized guard: until an engine is live (deps.ready) every
+	// /v1 route except the meta set and /v1/auth itself rejects with
+	// 401 auth.required, so SDK-backed handlers never observe a nil
+	// sdk. Group middleware applies to routes registered after Use —
+	// keep this above the route registrations.
+	v1.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if d.ready.Load() {
+				return next(c)
+			}
+			switch c.Path() {
+			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth":
+				return next(c)
+			case "/v1/*":
+				// Unmatched route — echo's not-found pattern. Pass it
+				// through so it renders a 404 rather than masking
+				// unknown paths as auth.required.
+				return next(c)
+			}
+			return writeError(c, http.StatusUnauthorized, "auth.required",
+				"no account authorized — POST /v1/auth first", nil)
+		}
+	})
 	v1.GET("/health", d.health)
 	v1.POST("/shutdown", d.shutdownHandler)
 	v1.GET("/openapi.json", serveOpenAPI)
 
+	registerAuthRoutes(v1, d)
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)
 

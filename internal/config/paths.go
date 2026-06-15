@@ -54,6 +54,47 @@ func PIDPath(dataDir string) string {
 	return filepath.Join(dataDir, "server.pid")
 }
 
+// AccountDir returns the per-account data dir <root>/<accountId>.
+func AccountDir(root, accountId string) string {
+	return filepath.Join(root, accountId)
+}
+
+// ModelsDir returns the shared embedder model cache <root>/models —
+// one download per root, shared by every account under it.
+func ModelsDir(root string) string {
+	return filepath.Join(root, "models")
+}
+
+// HasRootWallet reports whether the root carries a legacy flat-layout
+// wallet.key — the default account, whose data stays at the root.
+func HasRootWallet(root string) bool {
+	st, err := os.Stat(filepath.Join(root, "wallet.key"))
+	return err == nil && st.Mode().IsRegular()
+}
+
+// ListAccounts returns the account ids that have a per-account dir
+// (<root>/<id>/wallet.key) under the root, lexically sorted. The
+// legacy root wallet is not included — probe it with HasRootWallet.
+func ListAccounts(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read data dir %s: %w", root, err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if st, err := os.Stat(filepath.Join(root, e.Name(), "wallet.key")); err == nil && st.Mode().IsRegular() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
 // ConfigSearchPaths lists the files to probe when --config is not
 // specified, in priority order.
 func ConfigSearchPaths(dataDir string) []string {

@@ -8,11 +8,15 @@ import (
 	"github.com/anyproto/any-sync/util/crypto"
 )
 
-// OpenWallet loads or creates the file-backed wallet at path. On first
+// OpenWallet loads or creates the file-backed wallet at path. A
+// non-empty mnemonic seeds creation (restore / second-device path; the
+// device key is always fresh) and must match an already-existing
+// wallet; index is the matching account-derivation index, applied only
+// on creation (the SDK reads it back from the file otherwise). On first
 // generation the returned firstRun flag is true, and the caller is
 // expected to display Mnemonic() once.
-func OpenWallet(path, passkey string) (provider *auth.FileProvider, firstRun bool, err error) {
-	p, err := auth.NewFileProvider(auth.FileProviderConfig{Path: path, Passkey: passkey})
+func OpenWallet(path, passkey, mnemonic string, index uint32) (provider *auth.FileProvider, firstRun bool, err error) {
+	p, err := auth.NewFileProvider(auth.FileProviderConfig{Path: path, Passkey: passkey, Mnemonic: mnemonic, Index: index})
 	if err != nil {
 		return nil, false, fmt.Errorf("open wallet: %w", err)
 	}

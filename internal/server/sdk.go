@@ -110,14 +110,16 @@ func NewIndexRegistry() *index.Registry {
 
 // OpenIndexer builds the search indexer: embedder (per config), local
 // index store under <dataDir>/index, and the service over the chunker
-// registry. There is no boot-time embedder probe: an unreachable
-// embedder never blocks the boot or the FTS pipeline — text-bearing
-// docs queue as pending and the embed loop picks them up once the
-// embedder responds (the dimension is learned from the first
+// registry. modelsDir is the shared (cross-account) model cache; a
+// model already downloaded to the legacy <dataDir>/index/models keeps
+// being used from there. There is no boot-time embedder probe: an
+// unreachable embedder never blocks the boot or the FTS pipeline —
+// text-bearing docs queue as pending and the embed loop picks them up
+// once the embedder responds (the dimension is learned from the first
 // successful batch unless index.vector.dim pins it). A misconfigured
 // embedder (bad name, missing model) is still a hard error.
-func OpenIndexer(ctx context.Context, cfg config.Index, dataDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
-	emb, err := indexer.NewEmbedder(cfg, dataDir)
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
+	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"))
 	if err != nil {
 		return nil, err
 	}

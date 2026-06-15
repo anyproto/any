@@ -3,7 +3,17 @@ package config
 import "github.com/anyproto/any-sync/app/logger"
 
 type Config struct {
-	DataDir string  `yaml:"dataDir"`
+	// DataDir is the ROOT directory (default ~/.any). Each account
+	// lives in <dataDir>/<accountId>/ (wallet.key, sdk/, index/,
+	// server.pid); a wallet.key directly at the root is the legacy
+	// flat layout and acts as the default account, keeping its data at
+	// the root. config.yaml and the shared models/ cache stay at the
+	// root.
+	DataDir string `yaml:"dataDir"`
+	// Account selects which account to boot when the root holds more
+	// than one. Empty = the default (root wallet.key, or the sole
+	// per-account dir).
+	Account string  `yaml:"account"`
 	Listen  Listen  `yaml:"listen"`
 	Auth    Auth    `yaml:"auth"`
 	Network Network `yaml:"network"`
