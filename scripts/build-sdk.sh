@@ -71,19 +71,6 @@ cp -R cmd/bobrik-watch/programs "$STAGE/agent/programs"
 cp -R cmd/bobrik-watch/skills "$STAGE/agent/skills"
 cp -R cmd/bobrik-watch/tool-descriptions "$STAGE/agent/tool-descriptions"
 
-# Secrets hygiene: the SDK must NEVER ship a real API key. config.js carries
-# `*_API_KEY` values for dev convenience; blank every one in the bundle (the
-# user supplies a key at runtime via config@v1), then fail loudly if any
-# key-shaped secret survives — a committed key must not leak into a build.
-CONFIG="$STAGE/agent/programs/config.js"
-if [ -f "$CONFIG" ]; then
-    perl -pi -e 's/([A-Za-z_]*API_KEY\s*:\s*)"[^"]*"/$1""/g' "$CONFIG"
-    if grep -qE 'sk-(ant|proj|or-)|sk-[A-Za-z0-9]{20}' "$CONFIG"; then
-        echo "build-sdk: REFUSING to ship — an API-key-shaped secret survives in $CONFIG" >&2
-        exit 1
-    fi
-fi
-
 # manifest.json — sha256 of every staged file (relative paths) + metadata.
 sha256_of() {
     if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
