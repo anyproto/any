@@ -1,0 +1,58 @@
+name: nightly-sdk
+
+# Dogfood channel: build any-sdk from main nightly, publish a rolling
+# `nightly` prerelease, trigger the any-ui nightly desktop build.
+on:
+  schedule:
+    - cron: '0 3 * * *' # ~03:00 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-sdk
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: go.sum
+      - name: Install jq + unzip
+        run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Build any-sdk (nightly, all platforms)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for p in darwin-arm64 darwin-x64 linux-x86_64 windows-x86_64; do
+            scripts/build-sdk.sh "$p" dist
+          done
+      - name: Publish rolling nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Replace the previous rolling nightly (release + its tag), then recreate.
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh release create nightly dist/any-sdk-*.tar.gz \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "any-sdk nightly" \
+            --notes "Rolling nightly any-sdk ($(git rev-parse --short HEAD))."
+      - name: Trigger any-ui nightly build
+        env:
+          GH_TOKEN: ${{ secrets.ANY_UI_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/anyproto/any-ui/dispatches \
+            -f event_type=any-sdk-published \
+            -f "client_payload[version]=nightly" \
+            -f "client_payload[channel]=prerelease"
