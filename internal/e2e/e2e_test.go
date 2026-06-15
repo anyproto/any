@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/auth"
+
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -474,6 +476,61 @@ func TestE2E_AnyStatus(t *testing.T) {
 	}
 	if err := srv.waitExit(15 * time.Second); err != nil {
 		t.Fatalf("server didn't exit after `any stop`: %v\n%s", err, srv.output())
+	}
+}
+
+// TestE2E_InitMnemonicIndex is the F1 round-trip: `init --mnemonic
+// --index N` must create the wallet at index N (so its dir name and
+// reported id are the index-N account), and a subsequent `run` must
+// then boot authorized as that same account — the account-id
+// verification in bootEngine fails loudly if the wallet was seeded at
+// the wrong index.
+func TestE2E_InitMnemonicIndex(t *testing.T) {
+	if _, err := os.Stat(stagingFixture); err != nil {
+		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
+	}
+
+	bin := buildBinary(t)
+	dataDir := t.TempDir()
+
+	m, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID, err := auth.AccountId(m, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id0, _ := auth.AccountId(m, 0); id0 == wantID {
+		t.Fatal("index 0 and 2 collided — pick a real index for the test")
+	}
+
+	out, err := exec.Command(bin, "init", "--data-dir", dataDir, "--mnemonic", m, "--index", "2").Output()
+	if err != nil {
+		t.Fatalf("any init --mnemonic --index 2: %v", err)
+	}
+	var initResp struct {
+		AccountId string `json:"accountId"`
+		Created   bool   `json:"created"`
+	}
+	if err := json.Unmarshal(out, &initResp); err != nil {
+		t.Fatalf("decode init output: %v\nraw:\n%s", err, out)
+	}
+	if initResp.AccountId != wantID || !initResp.Created {
+		t.Fatalf("init reply %+v, want accountId %s created true", initResp, wantID)
+	}
+
+	// run auto-selects the sole account and boots authorized as it —
+	// proves the on-disk wallet really derives the index-2 id.
+	addr := freeLoopbackAddr(t)
+	srv := startServerInit(t, bin, addr, dataDir, false)
+	defer srv.stop(t)
+	waitForReady(t, addr, 30*time.Second)
+
+	var acct map[string]any
+	mustJSON(t, http.MethodGet, "http://"+addr+"/v1/account", "", http.StatusOK, &acct)
+	if acct["id"] != wantID {
+		t.Fatalf("booted account %v, want %s", acct["id"], wantID)
 	}
 }
 
