@@ -7,8 +7,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
-	"github.com/anyproto/any-sync-sdk/space"
-
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -19,8 +17,6 @@ import (
 //	@Produce	json
 //	@Param		spaceId			path		string	true	"Space ID"
 //	@Param		objectId		path		string	true	"Object ID"
-//	@Param		includeVariants	query		bool	false	"Include account/device variants"
-//	@Param		includeMeta		query		bool	false	"Include property metadata"
 //	@Success	200				{object}	api.PropertiesGetResponse
 //	@Failure	400				{object}	api.ErrorEnvelope
 //	@Failure	500				{object}	api.ErrorEnvelope
@@ -35,12 +31,9 @@ func (d *deps) propertiesGet(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 
-	opts := space.PropertyReadOpts{
-		IncludeVariants: queryBool(c, "includeVariants"),
-		IncludeMeta:     queryBool(c, "includeMeta"),
-	}
-
-	rec, err := sp.Properties().Get(c.Request().Context(), objectId, opts)
+	// Get returns the full property record including meta (_ver etc.) —
+	// the SDK dropped its read-opts arg, meta is always present now.
+	rec, err := sp.Properties().Get(c.Request().Context(), objectId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -57,8 +50,12 @@ func (d *deps) propertiesGet(c echo.Context) error {
 }
 
 // propertiesSetBase handles POST /v1/spaces/:spaceId/properties/:objectId/base/:typeId.
+// Wraps the scope-aware Properties().Set: every propId in the patch must
+// resolve to the SAME declared scope (the SDK rejects mixed-scope or
+// unknown-key patches). The route keeps its legacy `/base` segment for
+// wire compatibility.
 //
-//	@Summary	Set base properties on an object
+//	@Summary	Set properties on an object (single declared scope)
 //	@Tags		properties
 //	@Accept		json
 //	@Produce	json
@@ -102,7 +99,7 @@ func (d *deps) propertiesSetBase(c echo.Context) error {
 		patch[string(propId)] = v
 	})
 
-	res, err := sp.Properties().SetBase(c.Request().Context(), objectId, typeId, patch)
+	res, err := sp.Properties().Set(c.Request().Context(), objectId, typeId, patch)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
 			"spaceId":  sp.Id(),
@@ -111,16 +108,4 @@ func (d *deps) propertiesSetBase(c echo.Context) error {
 		})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
-}
-
-// queryBool returns true if the named query param is "1", "true", or
-// "yes" (case-insensitive). Empty / absent / anything else → false.
-func queryBool(c echo.Context, name string) bool {
-	v := c.QueryParam(name)
-	switch v {
-	case "1", "true", "TRUE", "True", "yes", "YES", "Yes":
-		return true
-	default:
-		return false
-	}
 }
