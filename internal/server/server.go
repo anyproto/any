@@ -18,101 +18,93 @@ import (
 
 const gracefulShutdownDeadline = 10 * time.Second
 
+// RunOptions tweaks server.Run behaviour without bloating its signature.
+// All fields are optional and zero-valued by default.
+type RunOptions struct {
+	// Ready, if non-nil, is invoked once the TCP listener has bound but
+	// before Echo starts serving. It receives the actually-bound address
+	// (resolving "127.0.0.1:0" to the OS-picked host:port) so embedders
+	// like the gomobile wrapper can hand the real port back to the
+	// caller. The hook runs on the goroutine that called Run, so keep it
+	// quick — long work blocks server startup.
+	Ready func(addr string)
+}
+
 // Run starts the HTTP server and blocks until ctx is cancelled or
 // POST /v1/shutdown is called. Caller is responsible for installing
 // signal handlers and cancelling ctx accordingly.
 //
-// The wallet is opened before the listener binds so the mnemonic can be
-// printed to stderr before any request is accepted. The SDK is opened
-// next; failures here surface before the server starts accepting traffic.
+// When the data dir resolves to an account (root wallet, sole
+// per-account dir, or an explicit selector) its engine — wallet, SDK,
+// indexer — boots before the listener binds, so failures surface
+// before any request is accepted. With no account to boot the server
+// starts UNAUTHORIZED: every /v1 route except health/shutdown/auth
+// returns 401 auth.required until POST /v1/auth creates or selects an
+// account and boots the engine in place.
 func Run(ctx context.Context, cfg config.Config) error {
+	return RunWith(ctx, cfg, RunOptions{})
+}
+
+// RunWith is Run plus a hook surface. Embedders (gomobile) use this to
+// learn the bound address synchronously and surface bind / wallet / SDK
+// errors before returning.
+func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 	lg := logger.NewNamed("server")
+
+	// The search index is gated twice: build tags decide what is compiled
+	// (fts / vector — vector is always off on gomobile), config decides
+	// what runs. Warn once if the index is enabled but neither leg was
+	// compiled in, so the empty-result state is observable, not silent.
+	if cfg.Index.Enabled {
+		if fts, vec := indexer.CompiledCaps(); !fts && !vec {
+			lg.Warn("search index enabled (index.enabled) but built without the fts/vector tags — search returns no results; rebuild with -tags 'fts vector' (docs/13-index.md)")
+		}
+	}
 
 	if err := ValidateLoopback(cfg.Listen.Addr); err != nil {
 		return err
 	}
 
-	dataDir, err := config.EnsureDataDir(cfg.DataDir)
+	root, err := config.EnsureDataDir(cfg.DataDir)
 	if err != nil {
 		return err
 	}
 
-	lock, err := Acquire(config.PIDPath(dataDir))
-	if err != nil {
+	identity, err := ResolveIdentity(cfg, root)
+	var noIdentity *ErrNoIdentity
+	if errors.As(err, &noIdentity) {
+		identity = nil
+	} else if err != nil {
 		return err
 	}
-	defer func() {
-		if err := lock.Release(); err != nil {
-			lg.Warn("release pid lock", zap.Error(err))
-		}
-	}()
-
-	passkey, err := config.ResolvePasskey(cfg, false)
-	if err != nil {
-		return err
-	}
-	walletPath := config.WalletPath(cfg, dataDir)
-	provider, firstRun, err := OpenWallet(walletPath, passkey)
-	if err != nil {
-		return err
-	}
-	if firstRun {
-		PrintMnemonic(provider.Mnemonic())
-	}
-
-	account, err := AccountID(ctx, provider)
-	if err != nil {
-		return fmt.Errorf("derive account id: %w", err)
-	}
-
-	sdk, err := OpenSDK(ctx, cfg, dataDir, provider)
-	if err != nil {
-		return fmt.Errorf("open sdk: %w", err)
-	}
-	defer func() {
-		if err := sdk.Close(); err != nil {
-			lg.Warn("sdk close", zap.Error(err))
-		}
-	}()
 
 	shutdown := make(chan struct{}, 1)
 	streamsCtx, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
 
-	chunkers := NewIndexRegistry()
-
-	// Indexer: deferred Close registered after sdk's so it runs first —
-	// workers stop reading from the SDK before the SDK closes. Cursors
-	// persist per batch, so no flush is needed beyond Close.
-	var ix *indexer.Indexer
-	if cfg.Index.Enabled {
-		if fts, vec := indexer.CompiledCaps(); !fts && !vec {
-			lg.Warn("search index enabled (index.enabled) but built without the fts/vector tags — search returns no results; rebuild with -tags 'fts vector' (docs/13-index.md)")
-		}
-		ix, err = OpenIndexer(ctx, cfg.Index, dataDir, sdk, chunkers)
-		if err != nil {
-			return fmt.Errorf("open indexer: %w", err)
-		}
-		defer func() {
-			if err := ix.Close(); err != nil {
-				lg.Warn("indexer close", zap.Error(err))
-			}
-		}()
-		ix.Start(streamsCtx)
-	}
-
 	deps := &deps{
-		account:        account,
 		startedAt:      time.Now().UTC(),
 		shutdown:       shutdown,
-		sdk:            sdk,
-		chunkers:       chunkers,
-		indexer:        ix,
+		chunkers:       NewIndexRegistry(),
 		shutdownCtx:    streamsCtx,
 		cancelShutdown: cancelStreams,
 		streamsWG:      &sync.WaitGroup{},
+		root:           root,
+		cfg:            cfg,
+		runCtx:         ctx,
 	}
+	defer deps.closeEngine(lg)
+
+	if identity != nil {
+		if _, err := deps.bootAccount(identity, ""); err != nil {
+			return err
+		}
+	} else {
+		lg.Info("no account selected — starting unauthorized, waiting for POST /v1/auth",
+			zap.Strings("available", noIdentity.Accounts))
+	}
+
 	e := buildEcho(deps)
 
 	// Bind explicitly so the RESOLVED address is known before serving —
@@ -124,6 +116,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 	}
 	e.Listener = ln
 	boundAddr := ln.Addr().String()
+	if opts.Ready != nil {
+		opts.Ready(boundAddr)
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -136,7 +131,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 	// Do not change this line: the desktop shell (any-ui PR-095 / PR #162)
 	// parses it as its port handshake + readiness gate.
 	fmt.Printf("LISTENING %s\n", boundAddr)
-	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", account))
+	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()))
 	lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
 
 	select {

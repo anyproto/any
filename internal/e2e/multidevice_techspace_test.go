@@ -7,24 +7,19 @@
 // headsync (diff) timer is converging the tech space.
 //
 // IMPORTANT: the second device gets the same mnemonic but a FRESH
-// device key (see sameAccountWallet). Copying wallet.key verbatim
-// clones the device key too, which makes both servers present the same
-// network peerId — any-sync nodes then key streams/subscriptions per
-// peer, the two devices fight over one identity, and pushed HeadUpdates
-// reach only one of them (the other converges via the ~30s diff timer
-// only). `any` currently has no user-facing restore flow that does this
-// correctly (`any init` can't take an existing mnemonic), so a verbatim
-// wallet.key copy is exactly what a real user would do today — see
-// docs/07-roadmap.md.
+// device key — `any init --mnemonic` (startPeerWithMnemonic) is that
+// restore flow. Copying wallet.key verbatim clones the device key too,
+// which makes both servers present the same network peerId — any-sync
+// nodes then key streams/subscriptions per peer, the two devices fight
+// over one identity, and pushed HeadUpdates reach only one of them
+// (the other converges via the ~30s diff timer only).
 package e2e
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,64 +27,50 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// sameAccountWallet reads a plain (unencrypted) wallet.key, keeps the
-// mnemonic — same account — and swaps in a freshly generated device
-// key, mirroring what a proper second-device restore flow would do.
-// The envelope/payload shapes mirror any-sync-sdk/auth/file.go.
-func sameAccountWallet(t *testing.T, walletSrc string) []byte {
+// walletMnemonic extracts the BIP-39 phrase from a peer's plain wallet
+// — the per-account dir (<dataDir>/<id>/wallet.key) or the legacy root
+// wallet.key. The envelope/payload shapes mirror
+// any-sync-sdk/auth/file.go.
+func walletMnemonic(t *testing.T, dataDir string) string {
 	t.Helper()
-	raw, err := os.ReadFile(walletSrc)
-	if err != nil {
-		t.Fatalf("read wallet %s: %v", walletSrc, err)
+	nested, _ := filepath.Glob(filepath.Join(dataDir, "*", "wallet.key"))
+	for _, path := range append(nested, filepath.Join(dataDir, "wallet.key")) {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var env struct {
+			Payload json.RawMessage `json:"payload,omitempty"`
+		}
+		if err := json.Unmarshal(raw, &env); err != nil || len(env.Payload) == 0 {
+			t.Fatalf("wallet %s is encrypted or malformed; test needs a plain wallet", path)
+		}
+		var p struct {
+			Mnemonic string `json:"mnemonic"`
+		}
+		if err := json.Unmarshal(env.Payload, &p); err != nil || p.Mnemonic == "" {
+			t.Fatalf("wallet %s has no mnemonic", path)
+		}
+		return p.Mnemonic
 	}
-	var env struct {
-		Version int             `json:"version"`
-		Payload json.RawMessage `json:"payload,omitempty"`
-	}
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatalf("parse wallet envelope: %v", err)
-	}
-	if len(env.Payload) == 0 {
-		t.Fatalf("wallet %s is encrypted; test needs a plain wallet", walletSrc)
-	}
-	var p struct {
-		Mnemonic  string `json:"mnemonic"`
-		DeviceKey string `json:"deviceKey"`
-		Index     uint32 `json:"index,omitempty"`
-	}
-	if err := json.Unmarshal(env.Payload, &p); err != nil {
-		t.Fatalf("parse wallet payload: %v", err)
-	}
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate device key: %v", err)
-	}
-	p.DeviceKey = base64.StdEncoding.EncodeToString(priv)
-	body, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-	out, err := json.Marshal(struct {
-		Version int             `json:"version"`
-		Payload json.RawMessage `json:"payload"`
-	}{Version: env.Version, Payload: body})
-	if err != nil {
-		t.Fatalf("marshal envelope: %v", err)
-	}
-	return out
+	t.Fatalf("no wallet found under %s", dataDir)
+	return ""
 }
 
-// startPeerWithWallet is startPeer booting as the same ACCOUNT as the
-// wallet at walletSrc but as a distinct DEVICE (fresh device key).
-func startPeerWithWallet(t *testing.T, bin, name, walletSrc string) *peer {
+// startPeerWithMnemonic is startPeer authorizing as the same ACCOUNT
+// via `any init --mnemonic` — the real second-device restore flow:
+// same phrase derives the same account, the device key is freshly
+// generated.
+func startPeerWithMnemonic(t *testing.T, bin, name, mnemonic string) *peer {
 	t.Helper()
 	dataDir := t.TempDir()
-	wallet := sameAccountWallet(t, walletSrc)
-	if err := os.WriteFile(filepath.Join(dataDir, "wallet.key"), wallet, 0o600); err != nil {
-		t.Fatalf("seed wallet: %v", err)
+	initCmd := exec.Command(bin, "init", "--data-dir", dataDir, "--mnemonic", mnemonic)
+	initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("any init --mnemonic: %v\n%s", err, out)
 	}
 	addr := freeLoopbackAddr(t)
-	t.Logf("peer %s: addr=%s data=%s (account from %s, fresh device key)", name, addr, dataDir, walletSrc)
+	t.Logf("peer %s: addr=%s data=%s (same account, fresh device key)", name, addr, dataDir)
 	srv := startServer(t, bin, addr, dataDir)
 	waitForReady(t, addr, 60*time.Second)
 	return &peer{name: name, addr: addr, dataDir: dataDir, base: "http://" + addr, srv: srv}
@@ -138,7 +119,7 @@ func TestE2E_MultideviceTechSpaceRealtime(t *testing.T) {
 	mustJSON(t, http.MethodPost, devA.base+"/v1/spaces",
 		`{"name":"pre-existing"}`, http.StatusCreated, &pre)
 
-	devB := startPeerWithWallet(t, bin, "devB", filepath.Join(devA.dataDir, "wallet.key"))
+	devB := startPeerWithMnemonic(t, bin, "devB", walletMnemonic(t, devA.dataDir))
 	defer devB.stop(t)
 
 	// Sanity: same account on both devices.

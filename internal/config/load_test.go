@@ -74,6 +74,32 @@ func TestLoad_FlagOverridesEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_AccountPrecedence(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("account: AFromFile\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Account != "AFromFile" {
+		t.Errorf("file account: got %q", cfg.Account)
+	}
+
+	t.Setenv("ANY_ACCOUNT", "AFromEnv")
+	if cfg, _ = Load(Flags{ConfigPath: path}); cfg.Account != "AFromEnv" {
+		t.Errorf("env should win over file: got %q", cfg.Account)
+	}
+
+	if cfg, _ = Load(Flags{ConfigPath: path, Account: "AFromFlag"}); cfg.Account != "AFromFlag" {
+		t.Errorf("flag should win over env: got %q", cfg.Account)
+	}
+}
+
 func TestLoad_EnvLogLevel(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("ANY_LOG_LEVEL", "debug")

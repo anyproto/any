@@ -13,6 +13,6 @@ import "github.com/anyproto/any/internal/config"
 // don't want them (notably gomobile/Android, whose missing libffi
 // otherwise panics at startup). See docs/13-index.md § build tags and
 // the `vector && !gomobile` variant in embed_factory_vector.go.
-func NewEmbedder(cfg config.Index, dataDir string) (Embedder, error) {
+func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder, error) {
 	return nil, nil
 }

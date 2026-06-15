@@ -18,11 +18,12 @@ type globalFlags struct {
 	Verbose bool
 
 	// Server (used by `run` and `init`)
-	ConfigPath    string
-	DataDir       string
-	WalletPath    string
-	LogLevel      string
-	PasskeyStdin  bool
+	ConfigPath   string
+	DataDir      string
+	Account      string
+	WalletPath   string
+	LogLevel     string
+	PasskeyStdin bool
 }
 
 var flags globalFlags
@@ -45,6 +46,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 	root.AddCommand(
 		newRunCmd(),
 		newInitCmd(),
+		newAuthCmd(),
 		newStatusCmd(),
 		newStopCmd(),
 		newQuerySubscribeCmd(),

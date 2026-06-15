@@ -35,5 +35,5 @@ type Embedder interface {
 // NewEmbedder constructs the configured embedding client. Its two
 // build-tagged variants live in embed_factory_vector.go (the real
 // switch) and embed_factory_novector.go (a no-op returning nil, so the
-// indexer runs FTS-only when the `vector` build tag is absent). See
-// docs/13-index.md § build tags.
+// indexer runs FTS-only when the `vector` tag is absent or the build is
+// gomobile). See docs/13-index.md § build tags.
