@@ -1,8 +1,0 @@
-// module.modulemap — exposes the libany c-archive's C header to Swift as
-// the `AnyServer` module. The module is named AnyServer (not `any`,
-// which is a contextual keyword in Swift) while the xcframework FILE
-// stays any.xcframework. SPIKE 0.5 (IOS-6169).
-module AnyServer {
-    header "libany.h"
-    export *
-}
