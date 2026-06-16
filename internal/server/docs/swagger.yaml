@@ -230,6 +230,44 @@ definitions:
           type: array
         type: array
     type: object
+  api.AuthAccount:
+    properties:
+      default:
+        description: Default marks the legacy flat-layout wallet at the data-dir root.
+        type: boolean
+      id:
+        description: |-
+          Id is the StrKey account address ("A…"). Empty for a default
+          root wallet whose id can't be derived without a passkey.
+        type: string
+    type: object
+  api.AuthResponse:
+    properties:
+      accountId:
+        type: string
+      created:
+        description: |-
+          Created is true when a new wallet file was written (fresh
+          generation or first restore on this machine).
+        type: boolean
+      mnemonic:
+        description: |-
+          Mnemonic is returned exactly once: when the server generated a
+          fresh account (no mnemonic/accountId in the request). The caller
+          must surface it to the user for backup.
+        type: string
+    type: object
+  api.AuthStatusResponse:
+    properties:
+      accountId:
+        type: string
+      accounts:
+        items:
+          $ref: '#/definitions/api.AuthAccount'
+        type: array
+      authorized:
+        type: boolean
+    type: object
   api.BlockCreateRequest:
     properties:
       nav:
@@ -612,7 +650,7 @@ definitions:
           $ref: '#/definitions/api.PropertyDef'
         type: array
     type: object
-  api.PropertiesSetBaseRequest:
+  api.PropertiesSetRequest:
     properties:
       patch:
         additionalProperties: {}
@@ -982,6 +1020,43 @@ paths:
       summary: Update account metadata
       tags:
       - account
+  /auth:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AuthStatusResponse'
+      summary: Authorization state + locally available accounts
+      tags:
+      - auth
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: 'Authorize: generate, restore (mnemonic) or select an account'
+      tags:
+      - auth
   /datasets:
     get:
       produces:
@@ -2587,14 +2662,6 @@ paths:
         name: objectId
         required: true
         type: string
-      - description: Include account/device variants
-        in: query
-        name: includeVariants
-        type: boolean
-      - description: Include property metadata
-        in: query
-        name: includeMeta
-        type: boolean
       produces:
       - application/json
       responses:
@@ -2613,7 +2680,7 @@ paths:
       summary: Get properties of an object
       tags:
       - properties
-  /spaces/{spaceId}/properties/{objectId}/base/{typeId}:
+  /spaces/{spaceId}/properties/{objectId}/set/{typeId}:
     post:
       consumes:
       - application/json
@@ -2638,7 +2705,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/api.PropertiesSetBaseRequest'
+          $ref: '#/definitions/api.PropertiesSetRequest'
       produces:
       - application/json
       responses:
@@ -2654,7 +2721,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
-      summary: Set base properties on an object
+      summary: Set properties on an object (single declared scope)
       tags:
       - properties
   /spaces/{spaceId}/query:

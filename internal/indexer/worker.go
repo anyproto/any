@@ -151,7 +151,7 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 		}
 
 		// Dedup object ids; ChangedSince is ascending, so the last
-		// element carries the page's max AddSeq.
+		// element carries the page's max ApplySeq.
 		seen := map[string]bool{}
 		var page pageOps
 		for _, ch := range changes {
@@ -167,7 +167,7 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 		if err := w.ix.store.Apply(ctx, spaceId, page.ups, page.dels, page.prefixDels); err != nil {
 			return err
 		}
-		cursor = changes[len(changes)-1].AddSeq
+		cursor = changes[len(changes)-1].ApplySeq
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor); err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func hasIndexableText(ups []DocUpsert) bool {
 // pageOps accumulates one advance page: upserts, record-level deletes
 // (full doc ids), and structural prefix deletes (':'-terminated id
 // prefixes — whole object or whole objectId+dataset). All applied in
-// one transaction, so eviction rides the same addSeq window as content.
+// one transaction, so eviction rides the same applySeq window as content.
 type pageOps struct {
 	ups        []DocUpsert
 	dels       []string

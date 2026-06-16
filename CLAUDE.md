@@ -475,14 +475,14 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-Pins: `any-sync-sdk v0.0.11-0.20260612…-957f84af13f6` (a pseudo-version
-of the SDK's `feat/auth-mnemonic` branch — `FileProviderConfig`
-mnemonic seeding + `auth.AccountId`, status item 17; re-pin the tag
-once it lands — built on top of the `space.Agg` aggregation surface,
-status item 16, itself a pseudo-version of the SDK's `feat/aggregate`
-PR commit; both ride `v0.0.10`'s `_addSeq` change-index + tombstone
-`IncludeDeleted` work — status items 13–14 — plus the space
-`createdAt` stamp, status item 15, and the dataset-schema +
+Pins: `any-sync-sdk v0.0.11` (the tagged main release bundling the
+`space.Agg` aggregation surface (status item 16), `FileProviderConfig`
+mnemonic seeding + `auth.AccountId` (status item 17), and the
+scoped-properties API — per-record `_applySeq` change-index +
+scope-aware `Properties.Set`/`Get`, which superseded `_addSeq` ordering
+and the old `SetBase`/`PropertyReadOpts` surface — on top of `v0.0.10`'s
+change-index + tombstone `IncludeDeleted` work (status items 13–14), the
+space `createdAt` stamp (status item 15), and the dataset-schema +
 unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync

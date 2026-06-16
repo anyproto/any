@@ -164,7 +164,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 
 // TestIndexer_TypeDetachEviction: detaching a chunker's gating type
 // evicts the object's dataset docs via an id-prefix delete inside the
-// same advance page — addSeq-consistent with the change feed. The
+// same advance page — applySeq-consistent with the change feed. The
 // detach itself goes through the SDK handle (the HTTP route is 501).
 func TestIndexer_TypeDetachEviction(t *testing.T) {
 	d, teardown := newTestDeps(t)
@@ -192,7 +192,7 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 		t.Fatalf("pre-detach hits = %v, want 2", hitRecordIds(res))
 	}
 
-	// Detach the chat type: the row re-streams with a bumped _addSeq and
+	// Detach the chat type: the row re-streams with a bumped _applySeq and
 	// the next advance prefix-evicts objectId:chat_messages:.
 	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chat.TypeId); err != nil {
 		t.Fatal(err)

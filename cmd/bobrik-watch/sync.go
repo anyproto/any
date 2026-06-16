@@ -546,11 +546,11 @@ func createProgramObject(baseURL, spaceID, programTypeID, name, version, source 
 }
 
 // setProgramProps patches properties on an existing program object —
-// same properties/:objId/base/:typeId endpoint setNavParent uses.
+// same properties/:objId/set/:typeId endpoint setNavParent uses.
 func setProgramProps(baseURL, spaceID, programTypeID, objectID string, patch map[string]any) error {
 	body, _ := json.Marshal(map[string]any{"patch": patch})
 	req, err := http.NewRequest(http.MethodPost,
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/base/"+url.PathEscape(programTypeID),
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/set/"+url.PathEscape(programTypeID),
 		bytes.NewReader(body),
 	)
 	if err != nil {
@@ -827,7 +827,7 @@ func setNavParent(baseURL, spaceID, objectID, parentID string) error {
 		"patch": map[string]any{"parentId": parentID},
 	})
 	req, err := http.NewRequest(http.MethodPost,
-		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/base/nav",
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/properties/"+url.PathEscape(objectID)+"/set/nav",
 		bytes.NewReader(body),
 	)
 	if err != nil {

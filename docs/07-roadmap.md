@@ -184,6 +184,18 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
+  over both query scopes: `POST /v1/spaces/:id/objects/aggregate`
+  (objects collection) and `POST /v1/spaces/:id/aggregate` (per-object
+  dataset), wrapping the SDK's `Space.AggregateObjects` /
+  `Space.Aggregate` (SDK prerequisite landed as `any-sync-sdk v0.0.11`:
+  the `space.Agg` builder over any-store alpha.11's aggregation
+  framework, tombstone-skip `$match` prepended into the pushdown
+  prefix, `ErrBadPipeline` + limit sentinels). Snapshot-only — no
+  subscribe variant by design (any-store aggregation has no live
+  path). `explain: true` body flag wraps `Agg.Explain`. CLI
+  `any aggregate`. Client doc with examples + MongoDB-divergence
+  catalog in `docs/14-aggregation.md`.
 - **Mnemonic authorization + per-account data dirs** — `any init
   --mnemonic[-stdin]` restores an account from its BIP-39 phrase with
   a FRESH device key (the supported second-device flow; verbatim
@@ -199,18 +211,6 @@ pluggable embedders, parallel batched pipelines),
   place (UI onboarding path); `GET /v1/auth` lists local accounts.
   Selector: `--account` / `ANY_ACCOUNT` / `account:`. SDK side:
   `FileProviderConfig.Mnemonic/Index` seeding + `auth.AccountId`.
-- **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
-  over both query scopes: `POST /v1/spaces/:id/objects/aggregate`
-  (objects collection) and `POST /v1/spaces/:id/aggregate` (per-object
-  dataset), wrapping the SDK's `Space.AggregateObjects` /
-  `Space.Aggregate` (SDK prerequisite landed as `any-sync-sdk v0.0.11`:
-  the `space.Agg` builder over any-store alpha.11's aggregation
-  framework, tombstone-skip `$match` prepended into the pushdown
-  prefix, `ErrBadPipeline` + limit sentinels). Snapshot-only — no
-  subscribe variant by design (any-store aggregation has no live
-  path). `explain: true` body flag wraps `Agg.Explain`. CLI
-  `any aggregate`. Client doc with examples + MongoDB-divergence
-  catalog in `docs/14-aggregation.md`.
 - **Agent data layer (turns / chunks / memory)** — built-in
   `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
   object) and `agent_memory` (`agent_memory_items` on the seed-derived
@@ -249,18 +249,18 @@ pluggable embedders, parallel batched pipelines),
     (PropertyKind allowlist enforced at the boundary: `string` /
     `number` / `boolean` / `null` / `array` / `object` — anything else
     is rejected with 400 `request.schema`)
-  - `GET /v1/spaces/:id/properties/:objectId` (with
-    `?includeVariants=&includeMeta=` — record rendered via
+  - `GET /v1/spaces/:id/properties/:objectId` (record rendered via
     `*anyenc.Value.FastJson(arena).MarshalTo` and wrapped in
     `{"record": ...}` as `json.RawMessage`)
-  - `POST /v1/spaces/:id/properties/:objectId/base/:typeId`
-  Modify / Objects.Create.InitialProperties / Properties.SetBase parse
+  - `POST /v1/spaces/:id/properties/:objectId/set/:typeId`
+  Modify / Objects.Create.InitialProperties / Properties.Set parse
   request bodies once with a pooled `*fastjson.Parser` and pass
   `*fastjson.Value` directly into the SDK — anyenc converts in one
   walk via `Arena.NewFromFastJson`, no `map[string]any` intermediate.
   Still 501: Objects.Delete, Query, Types.{List,Get,Delete,Properties,
-  Remove/UpdateProperty}, Properties.{SetAccount, SetDevice, AttachType,
-  DetachType}, all `/members`, `/acl/**`, `/sync-status/**`, and the
+  Remove/UpdateProperty}, Properties.{AttachType, DetachType} (the former
+  per-scope SetAccount/SetDevice endpoints were removed — scoped `Set`
+  subsumes them), all `/members`, `/acl/**`, `/sync-status/**`, and the
   Spaces lifecycle surface that's still SDK-blocked
   (`/spaces/{join,derive,one-to-one}`).
 - **Phase 2 endpoints (Objects.Delete, Types read surface, Query)** —

@@ -322,7 +322,6 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1/properties/p1"},
 		{http.MethodPatch, "/v1/spaces/spc/types/t1/properties/p1"},
-		{http.MethodPost, "/v1/spaces/spc/properties/o1/account/t1"},
 		{http.MethodGet, "/v1/spaces/spc/sync-status/peers"},
 	}
 	for _, tc := range cases {

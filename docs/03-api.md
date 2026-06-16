@@ -603,11 +603,11 @@ custom validator). Property paths use literal string keys
 
 #### Moves (drag-and-drop)
 
-Tree moves use the existing `setBase` endpoint — no dedicated move
+Tree moves use the existing property `set` endpoint — no dedicated move
 route. To relocate object `oid` under `newParent` at lexid pos `p`:
 
 ```
-POST /v1/spaces/:spaceId/properties/:oid/base/nav
+POST /v1/spaces/:spaceId/properties/:oid/set/nav
 { "patch": { "parentId": "<newParent>", "pos": "<p>" } }
 ```
 
@@ -829,11 +829,15 @@ search indexer (its value is indexed under that scope — see
 | Method | Path                                                          | Purpose                          |
 |--------|---------------------------------------------------------------|----------------------------------|
 | GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`              |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/base/:typeId`       | `PropertiesAPI.SetBase`          |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/account/:typeId`    | `PropertiesAPI.SetAccount`       |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/device/:typeId`     | `PropertiesAPI.SetDevice`        |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/set/:typeId`        | `PropertiesAPI.Set`              |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
+
+Scoped properties (v0.0.11) replaced the former per-scope set endpoints
+(`/base`, `/account`, `/device` → `SetBase`/`SetAccount`/`SetDevice`) with
+a single scope-aware `/set/:typeId` → `PropertiesAPI.Set`: every propId in
+the patch must resolve to the SAME declared scope (the SDK rejects
+mixed-scope or unknown-key patches; scope is inferred from the props).
 
 Runtime type binding (`attach` / `detach`) is still `501
 sdk.not_implemented` — bind types at object-create time via the `types`

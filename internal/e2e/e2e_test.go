@@ -170,7 +170,7 @@ func TestE2E_FullFlow(t *testing.T) {
 
 		var modify map[string]any
 		mustJSON(t, http.MethodPost,
-			base+"/v1/spaces/"+spaceID+"/properties/"+objectID+"/base/"+typeID,
+			base+"/v1/spaces/"+spaceID+"/properties/"+objectID+"/set/"+typeID,
 			fmt.Sprintf(`{"patch":{%q:"Casablanca"}}`, propID),
 			http.StatusOK, &modify)
 		if modify["versionId"] == "" || modify["changeId"] == "" {

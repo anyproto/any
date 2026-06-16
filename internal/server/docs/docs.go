@@ -79,6 +79,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Authorization state + locally available accounts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AuthStatusResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Authorize: generate, restore (mnemonic) or select an account",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.AuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/datasets": {
             "get": {
                 "produces": [
@@ -2662,18 +2719,6 @@ const docTemplate = `{
                         "name": "objectId",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "Include account/device variants",
-                        "name": "includeVariants",
-                        "in": "query"
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "Include property metadata",
-                        "name": "includeMeta",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2698,7 +2743,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/spaces/{spaceId}/properties/{objectId}/base/{typeId}": {
+        "/spaces/{spaceId}/properties/{objectId}/set/{typeId}": {
             "post": {
                 "consumes": [
                     "application/json"
@@ -2709,7 +2754,7 @@ const docTemplate = `{
                 "tags": [
                     "properties"
                 ],
-                "summary": "Set base properties on an object",
+                "summary": "Set properties on an object (single declared scope)",
                 "parameters": [
                     {
                         "type": "string",
@@ -2738,7 +2783,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.PropertiesSetBaseRequest"
+                            "$ref": "#/definitions/api.PropertiesSetRequest"
                         }
                     }
                 ],
@@ -3684,6 +3729,52 @@ const docTemplate = `{
                 }
             }
         },
+        "api.AuthAccount": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "description": "Default marks the legacy flat-layout wallet at the data-dir root.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "Id is the StrKey account address (\"A…\"). Empty for a default\nroot wallet whose id can't be derived without a passkey.",
+                    "type": "string"
+                }
+            }
+        },
+        "api.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "accountId": {
+                    "type": "string"
+                },
+                "created": {
+                    "description": "Created is true when a new wallet file was written (fresh\ngeneration or first restore on this machine).",
+                    "type": "boolean"
+                },
+                "mnemonic": {
+                    "description": "Mnemonic is returned exactly once: when the server generated a\nfresh account (no mnemonic/accountId in the request). The caller\nmust surface it to the user for backup.",
+                    "type": "string"
+                }
+            }
+        },
+        "api.AuthStatusResponse": {
+            "type": "object",
+            "properties": {
+                "accountId": {
+                    "type": "string"
+                },
+                "accounts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.AuthAccount"
+                    }
+                },
+                "authorized": {
+                    "type": "boolean"
+                }
+            }
+        },
         "api.BlockCreateRequest": {
             "type": "object",
             "properties": {
@@ -4241,7 +4332,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.PropertiesSetBaseRequest": {
+        "api.PropertiesSetRequest": {
             "type": "object",
             "properties": {
                 "patch": {

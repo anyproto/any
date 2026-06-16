@@ -76,7 +76,7 @@ func TestE2E_MultipeerRealtimeSync(t *testing.T) {
 		fmt.Sprintf(`{"types":[%q]}`, typeID), http.StatusCreated, &objResp)
 	objectID, _ := objResp["objectId"].(string)
 	mustStatus(t, http.MethodPost,
-		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/base/"+typeID,
+		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/set/"+typeID,
 		fmt.Sprintf(`{"patch":{%q:"v0"}}`, propID), http.StatusOK)
 
 	// Chat object + seed message, also pre-join.
@@ -149,7 +149,7 @@ func TestE2E_MultipeerRealtimeSync(t *testing.T) {
 
 	// Phase C: shared objects collection — property value update.
 	mustStatus(t, http.MethodPost,
-		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/base/"+typeID,
+		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/set/"+typeID,
 		fmt.Sprintf(`{"patch":{%q:"v1"}}`, propID), http.StatusOK)
 	d, ok = measureConvergence(realtimeBudget, func() bool { return readTitle() == "v1" })
 	record("property owner→joiner", d, ok)

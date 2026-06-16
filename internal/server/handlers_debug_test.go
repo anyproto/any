@@ -62,13 +62,13 @@ func TestServer_DebugFlow(t *testing.T) {
 	}
 
 	// Two writes on top of the root change.
-	setBaseURL := fmt.Sprintf("/v1/spaces/%s/properties/%s/base/%s",
+	setBaseURL := fmt.Sprintf("/v1/spaces/%s/properties/%s/set/%s",
 		sp.Id, objResp.ObjectId, typeResp.TypeId)
 	for _, val := range []string{"first", "second"} {
 		body := fmt.Sprintf(`{"patch":{%q:%q}}`, propResp.PropId, val)
 		rec = doJSON(t, e, http.MethodPost, setBaseURL, body)
 		if rec.Code != http.StatusOK {
-			t.Fatalf("SetBase %s: status=%d body=%s", val, rec.Code, rec.Body.String())
+			t.Fatalf("Set %s: status=%d body=%s", val, rec.Code, rec.Body.String())
 		}
 	}
 

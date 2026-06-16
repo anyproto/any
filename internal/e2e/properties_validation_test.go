@@ -50,7 +50,7 @@ func TestE2E_PropertyValidation(t *testing.T) {
 	// registration accepts a valid default write rather than rejecting it.
 	objectID := createObject(t, base, spaceID, movieType)
 
-	setBase := base + "/v1/spaces/" + spaceID + "/properties/" + objectID + "/base/"
+	setBase := base + "/v1/spaces/" + spaceID + "/properties/" + objectID + "/set/"
 
 	t.Run("valid string write lands", func(t *testing.T) {
 		var res map[string]any

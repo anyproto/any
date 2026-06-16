@@ -32,7 +32,7 @@ const (
 // 0) an IVF-SQ cosine vector index on `vector`.
 //
 // Doc shape: {id: dataset+"/"+recordId, scope, objectId, dataset,
-// recordId, data, addSeq, vector?, pending?}. `pending: 1` marks a doc
+// recordId, data, applySeq, vector?, pending?}. `pending: 1` marks a doc
 // whose text awaits embedding — the embed loop drains them; the field is
 // removed once the vector lands.
 type Store struct {
@@ -311,7 +311,7 @@ func prefixUpper(prefix string) string {
 	return prefix[:len(prefix)-1] + ";"
 }
 
-// Cursor returns the last indexed AddSeq for the space (0 = never).
+// Cursor returns the last indexed ApplySeq for the space (0 = never).
 func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, error) {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -383,7 +383,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
 		doc.Set("data", arena.NewString(e.Data))
-		doc.Set("addSeq", arena.NewNumberInt(int(e.AddSeq)))
+		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))

@@ -56,14 +56,14 @@ type PatchInput struct {
 
 // List returns every block on the object's editor_blocks dataset in
 // document order — depth-first, siblings sorted by nav.pos ascending.
-// IncludeMeta is on so callers receive `_ver` alongside payload
-// fields (needed for the wire response and for client-side dedup).
+// Meta fields (`_ver` etc.) are always present in query results, so
+// callers receive `_ver` alongside payload fields (needed for the wire
+// response and for client-side dedup).
 //
 // Empty result for objects with no body blocks yet (the dataset is
 // empty until the first create).
 func List(ctx context.Context, sp space.Space, objectId string) ([]Block, error) {
 	docs, err := sp.Query(objectId, Dataset).
-		Projection(space.ProjectionOpts{IncludeMeta: true}).
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("blocks: List: query: %w", err)
@@ -85,7 +85,6 @@ func List(ctx context.Context, sp space.Space, objectId string) ([]Block, error)
 func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, error) {
 	doc, err := sp.Query(objectId, Dataset).
 		Filter(map[string]any{"id": blockId}).
-		Projection(space.ProjectionOpts{IncludeMeta: true}).
 		One(ctx)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {
@@ -115,7 +114,7 @@ func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, 
 // admitted by the SDK. Idempotent and cheap: a local read, then
 // AttachType only on first use. Shared by Create and markdown.Set.
 func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId, space.PropertyReadOpts{}); err == nil && rec != nil {
+	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
 		for _, v := range rec.GetArray("any", "types") {
 			if string(v.GetStringBytes()) == TypeId {
 				return nil

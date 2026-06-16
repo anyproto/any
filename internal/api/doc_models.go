@@ -89,8 +89,8 @@ type DeleteRecordsRequest struct {
 	TraceIds  []string `json:"traceIds,omitempty"`
 }
 
-// PropertiesSetBaseRequest documents the body of POST /v1/spaces/:spaceId/properties/:objectId/base/:typeId.
-type PropertiesSetBaseRequest struct {
+// PropertiesSetRequest documents the body of POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId.
+type PropertiesSetRequest struct {
 	Patch map[string]any `json:"patch"`
 }
 
