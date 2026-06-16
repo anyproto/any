@@ -30,7 +30,7 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   gone; a silently-dropped misplaced key once lost a whole batch). Builtin
   namespaces stay literal (`obj.name`, `obj.any.types`, `obj.nav.parentId`,
   `obj.program.name`); `nav` writes are just the `nav` group. Writes go one
-  `properties/:objId/base/:typeId` PATCH per type; unknown-prop / wrong-kind
+  `properties/:objId/set/:typeId` POST per type; unknown-prop / wrong-kind
   writes fail loudly (client resolver + server validation). No
   flatten-to-top-level, no first-type guessing (both were legacy
   anytypeHelper hacks).

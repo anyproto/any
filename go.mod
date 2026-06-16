@@ -6,7 +6,7 @@ require (
 	github.com/anyproto/any-store v0.4.6
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.11
 	github.com/anyproto/any-sync v0.12.11
-	github.com/anyproto/any-sync-sdk v0.0.11-0.20260612131218-957f84af13f6
+	github.com/anyproto/any-sync-sdk v0.0.11
 	github.com/anyproto/anytype-agent-runtime v0.1.2
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2

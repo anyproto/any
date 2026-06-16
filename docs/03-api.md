@@ -25,6 +25,7 @@
     - [Object deletion](#object-deletion)
   - [Data plane](#data-plane)
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
+    - [Aggregate](#aggregate)
     - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
   - [Types](#types)
   - [Properties (values on objects)](#properties-values-on-objects)
@@ -134,7 +135,7 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8tR…","default":true},   // legacy root wallet.key
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
-// POST /v1/auth — body fields are mutually exclusive:
+// POST /v1/auth — mnemonic and accountId are mutually exclusive:
 {}                                    // generate a fresh account
 { "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
                                       // device key freshly generated
@@ -146,11 +147,20 @@ restart, and the server stays on that account for its lifetime
   "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
 ```
 
+`index` is the account-derivation index and is valid **only with
+`mnemonic`** (a selected account's index is baked into its wallet; a
+generated one is always 0) — a non-zero `index` without `mnemonic` is
+`400 request.invalid_field`. If the engine fails to boot after a fresh
+wallet was created this call (e.g. SDK init error), the half-created
+per-account dir is removed, so a retry — or `generate` getting a new
+phrase — starts clean rather than auto-selecting an un-backed account.
+
 Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
-`404 auth.account_not_found` (accountId without a local wallet),
-`409 auth.account_in_use` (another process holds that account's pid
-lock), `409 auth.mnemonic_mismatch` (existing wallet file disagrees
-with the supplied phrase/index), `400 auth.passkey_required`
+`400 request.invalid_field` (mnemonic+accountId together, or index
+without mnemonic), `404 auth.account_not_found` (accountId without a
+local wallet), `409 auth.account_in_use` (another process holds that
+account's pid lock), `409 auth.mnemonic_mismatch` (existing wallet file
+disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
 var, never the request body).
 
@@ -379,6 +389,7 @@ change" (`docs/13-index.md`).
 | POST   | `/v1/spaces/:spaceId/objects`                             | `Objects.Create`                   |
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.Snapshot`      |
 | POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
+| POST   | `/v1/spaces/:spaceId/objects/aggregate`                   | `Space.AggregateObjects` (pipeline) |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
@@ -592,11 +603,11 @@ custom validator). Property paths use literal string keys
 
 #### Moves (drag-and-drop)
 
-Tree moves use the existing `setBase` endpoint — no dedicated move
+Tree moves use the existing property `set` endpoint — no dedicated move
 route. To relocate object `oid` under `newParent` at lexid pos `p`:
 
 ```
-POST /v1/spaces/:spaceId/properties/:oid/base/nav
+POST /v1/spaces/:spaceId/properties/:oid/set/nav
 { "patch": { "parentId": "<newParent>", "pos": "<p>" } }
 ```
 
@@ -621,6 +632,7 @@ from local state. See `04-events.md`.
 |--------|-----------------------------------------------------------|--------------------------------------|
 | POST   | `/v1/spaces/:spaceId/query`                               | `Space.Query.Snapshot`               |
 | POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
+| POST   | `/v1/spaces/:spaceId/aggregate`                           | `Space.Aggregate` (pipeline)         |
 | POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
 | POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
@@ -675,6 +687,27 @@ Snapshot response (bare `…/query`):
   "total":   17,                      // omitted when includeTotal=false
   "hasNext": true }                   // more matches past this page; omitted when includeTotal=false
 ```
+
+#### Aggregate
+
+The same two scopes take MongoDB-style aggregation pipelines — the
+aggregation siblings of the query endpoints, snapshot-only (no
+subscribe variant):
+
+```
+POST /v1/spaces/:spaceId/objects/aggregate     Space.AggregateObjects
+POST /v1/spaces/:spaceId/aggregate             Space.Aggregate (objectId + dataset required)
+```
+
+Body: `{objectId?, dataset?, pipeline: [...], groupLimit?,
+accumArrayLimit?, memoryLimitBytes?, explain?}`. Response
+`{records: [...]}` — pipeline result documents (a `$group` doc carries
+the group key as `id`, never `_id`) — or `{plan: "..."}` with
+`explain: true`. Tombstones are excluded server-side, same as `/query`.
+Stage set, examples, limits, and the catalog of deliberate MongoDB
+divergences live in [`docs/14-aggregation.md`](14-aggregation.md).
+Errors: `aggregate.bad_pipeline` / `aggregate.limit_exceeded`
+(`docs/06-errors.md`).
 
 #### Subscribe (Server-Sent Events)
 
@@ -796,11 +829,15 @@ search indexer (its value is indexed under that scope — see
 | Method | Path                                                          | Purpose                          |
 |--------|---------------------------------------------------------------|----------------------------------|
 | GET    | `/v1/spaces/:spaceId/properties/:objectId`                    | `PropertiesAPI.Get`              |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/base/:typeId`       | `PropertiesAPI.SetBase`          |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/account/:typeId`    | `PropertiesAPI.SetAccount`       |
-| POST   | `/v1/spaces/:spaceId/properties/:objectId/device/:typeId`     | `PropertiesAPI.SetDevice`        |
+| POST   | `/v1/spaces/:spaceId/properties/:objectId/set/:typeId`        | `PropertiesAPI.Set`              |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/attach/:typeId`     | `PropertiesAPI.AttachType`       |
 | POST   | `/v1/spaces/:spaceId/properties/:objectId/detach/:typeId`     | `PropertiesAPI.DetachType`       |
+
+Scoped properties (v0.0.11) replaced the former per-scope set endpoints
+(`/base`, `/account`, `/device` → `SetBase`/`SetAccount`/`SetDevice`) with
+a single scope-aware `/set/:typeId` → `PropertiesAPI.Set`: every propId in
+the patch must resolve to the SAME declared scope (the SDK rejects
+mixed-scope or unknown-key patches; scope is inferred from the props).
 
 Runtime type binding (`attach` / `detach`) is still `501
 sdk.not_implemented` — bind types at object-create time via the `types`

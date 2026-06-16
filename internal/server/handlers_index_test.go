@@ -17,25 +17,25 @@ import (
 )
 
 // collectChunks drains a chunker over objectId past `since`, returning
-// the entries in yield order and the max AddSeq seen (0 if none).
+// the entries in yield order and the max ApplySeq seen (0 if none).
 func collectChunks(t *testing.T, ctx context.Context, ch index.Chunker, sp space.Space, objectId string, since uint64) ([]index.IndexEntry, uint64) {
 	t.Helper()
 	var out []index.IndexEntry
 	var max uint64
 	err := ch.ChunksSince(ctx, sp, objectId, since, func(e index.IndexEntry) error {
 		out = append(out, e)
-		if e.AddSeq > max {
-			max = e.AddSeq
+		if e.ApplySeq > max {
+			max = e.ApplySeq
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("ChunksSince(%d) on %s: %v", since, objectId, err)
 	}
-	// Entries must arrive ascending by AddSeq.
+	// Entries must arrive ascending by ApplySeq.
 	for i := 1; i < len(out); i++ {
-		if out[i-1].AddSeq > out[i].AddSeq {
-			t.Errorf("entries not ascending by AddSeq: %d then %d", out[i-1].AddSeq, out[i].AddSeq)
+		if out[i-1].ApplySeq > out[i].ApplySeq {
+			t.Errorf("entries not ascending by ApplySeq: %d then %d", out[i-1].ApplySeq, out[i].ApplySeq)
 		}
 	}
 	return out, max
@@ -134,13 +134,13 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	memObj := mustCreateObject(t, e, spaceId, fmt.Sprintf(`{"types":[%q]}`, memTypeId))
 	// Set the three property values (keyed by propId, as the wire demands).
 	mustModify(t, e, http.MethodPost,
-		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/base/"+memTypeId,
+		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/"+memTypeId,
 		fmt.Sprintf(`{"patch":{%q:"ctx body",%q:"kw1 kw2",%q:"Alice Bob"}}`,
 			propId["context"], propId["keywords"], propId["entities"]),
 		http.StatusOK)
 	// Set the object name on the built-in `any` type.
 	mustModify(t, e, http.MethodPost,
-		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/base/any",
+		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/any",
 		`{"patch":{"name":"My Memory"}}`, http.StatusOK)
 
 	// --- Resolve SDK space + chunkers (exercise the registry wiring) ---
@@ -231,18 +231,18 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	}
 
 	// --- Cursor sanity via Changes() ---
-	maxSeq, err := sdkSpace.Changes().MaxAddSeq(ctx)
+	maxSeq, err := sdkSpace.Changes().MaxApplySeq(ctx)
 	if err != nil {
-		t.Fatalf("MaxAddSeq: %v", err)
+		t.Fatalf("MaxApplySeq: %v", err)
 	}
 	if maxSeq == 0 {
-		t.Errorf("MaxAddSeq = 0")
+		t.Errorf("MaxApplySeq = 0")
 	}
 	changed, err := sdkSpace.Changes().ChangedSince(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("ChangedSince: %v", err)
 	}
-	if !sort.SliceIsSorted(changed, func(i, j int) bool { return changed[i].AddSeq < changed[j].AddSeq }) {
+	if !sort.SliceIsSorted(changed, func(i, j int) bool { return changed[i].ApplySeq < changed[j].ApplySeq }) {
 		t.Errorf("ChangedSince not ascending")
 	}
 	ids := map[string]bool{}
@@ -319,7 +319,7 @@ func assertTombstone(t *testing.T, entries []index.IndexEntry, recordId string, 
 	if en.Data != "" {
 		t.Errorf("tombstone Data = %q, want empty", en.Data)
 	}
-	if en.AddSeq <= sinceSeq {
-		t.Errorf("tombstone AddSeq %d not past cursor %d", en.AddSeq, sinceSeq)
+	if en.ApplySeq <= sinceSeq {
+		t.Errorf("tombstone ApplySeq %d not past cursor %d", en.ApplySeq, sinceSeq)
 	}
 }

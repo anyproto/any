@@ -51,6 +51,11 @@ func buildEcho(d *deps) *echo.Echo {
 			switch c.Path() {
 			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth":
 				return next(c)
+			case "/v1/*":
+				// Unmatched route — echo's not-found pattern. Pass it
+				// through so it renders a 404 rather than masking
+				// unknown paths as auth.required.
+				return next(c)
 			}
 			return writeError(c, http.StatusUnauthorized, "auth.required",
 				"no account authorized — POST /v1/auth first", nil)

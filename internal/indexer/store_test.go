@@ -12,7 +12,7 @@ import (
 )
 
 func entry(scope, objectId, dataset, recordId, data string, seq uint64) index.IndexEntry {
-	return index.IndexEntry{Scope: scope, ObjectId: objectId, Dataset: dataset, RecordId: recordId, Data: data, AddSeq: seq}
+	return index.IndexEntry{Scope: scope, ObjectId: objectId, Dataset: dataset, RecordId: recordId, Data: data, ApplySeq: seq}
 }
 
 func mustStore(t *testing.T, dim int) *Store {

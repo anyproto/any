@@ -30,32 +30,61 @@ type engine struct {
 // errAlreadyAuthorized guards double-boot via POST /v1/auth.
 var errAlreadyAuthorized = errors.New("already authorized")
 
+// walletSeed carries the inputs for CREATING a wallet from a known
+// phrase: the BIP-39 mnemonic and its account-derivation index. Both
+// zero for the load-an-existing-wallet path and for fresh generation
+// (the SDK then generates the phrase at index 0). The index is paired
+// with the mnemonic here because the two are meaningless apart and the
+// Identity (which/where) deliberately doesn't carry derivation inputs.
+type walletSeed struct {
+	mnemonic string
+	index    uint32
+}
+
 // bootEngine opens the identity's wallet and brings up the SDK and the
-// indexer for it. mnemonic, when non-empty, seeds wallet creation
-// (restore path). On any failure everything already opened is torn
-// back down.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, mnemonic string, streamsCtx context.Context, chunkers *index.Registry) (eng *engine, err error) {
+// indexer for it. A non-zero seed.mnemonic seeds wallet creation
+// (restore path) at seed.index. On any failure everything already
+// opened is torn back down; if THIS call freshly created a per-account
+// wallet, the orphaned account dir is removed too — otherwise a
+// half-initialized account (especially a generated one whose phrase
+// was never surfaced to the caller) would linger and be auto-selected
+// on the next start.
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry) (eng *engine, err error) {
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create account dir %s: %w", id.Dir, err)
 	}
+	// A held lock means another process owns this account dir — bail
+	// before touching the wallet, and never clean up on this path.
 	lock, err := Acquire(config.PIDPath(id.Dir))
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			_ = lock.Release()
-		}
-	}()
 
 	passkey, err := config.ResolvePasskey(cfg, false)
 	if err != nil {
+		_ = lock.Release()
 		return nil, err
 	}
-	provider, _, err := OpenWallet(id.WalletPath, passkey, mnemonic)
+	provider, createdWallet, err := OpenWallet(id.WalletPath, passkey, seed.mnemonic, seed.index)
 	if err != nil {
+		_ = lock.Release()
 		return nil, err
 	}
+	// Hold the lock from here. On failure release it, and if we just
+	// created a per-account wallet, remove the orphan dir. Registered
+	// before the sdk-close defer so (LIFO) sdk.Close runs first, then
+	// release, then the dir removal — the pid file is gone cleanly
+	// before RemoveAll. Scoped to per-account dirs: never the legacy
+	// flat root or an explicit --wallet path.
+	defer func() {
+		if err != nil {
+			_ = lock.Release()
+			if createdWallet && id.Dir != root {
+				_ = os.RemoveAll(id.Dir)
+			}
+		}
+	}()
+
 	account, err := AccountID(ctx, provider)
 	if err != nil {
 		return nil, fmt.Errorf("derive account id: %w", err)
@@ -88,13 +117,13 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 
 // bootAccount boots an engine and publishes it on d. Serialized by
 // authMu; exactly one engine per process lifetime.
-func (d *deps) bootAccount(id *Identity, mnemonic string) (*engine, error) {
+func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
 	if d.ready.Load() {
 		return nil, errAlreadyAuthorized
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, mnemonic, d.shutdownCtx, d.chunkers)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers)
 	if err != nil {
 		return nil, err
 	}

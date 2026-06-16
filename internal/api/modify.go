@@ -1,7 +1,7 @@
 package api
 
 // ModifyResult is the response shape for Space.Modify, Space.Delete,
-// and PropertiesAPI.SetBase. Always includes versionId/changeId/recordIds
+// and PropertiesAPI.Set. Always includes versionId/changeId/recordIds
 // — clients use RecordIds[0] to read auto-derived ids when they
 // submitted a record with empty Id.
 //

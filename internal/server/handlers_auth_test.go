@@ -75,6 +75,12 @@ func TestAuth_UnauthorizedGuard(t *testing.T) {
 			t.Errorf("%s %s: code = %q", probe.method, probe.path, env.Error.Code)
 		}
 	}
+
+	// Unknown /v1 paths still 404 while unauthorized — the guard must
+	// not mask them as auth.required.
+	if rec := doJSON(t, e, http.MethodGet, "/v1/does-not-exist", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown path: want 404, got %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestAuth_StatusAndValidation(t *testing.T) {
@@ -99,6 +105,8 @@ func TestAuth_StatusAndValidation(t *testing.T) {
 	}{
 		{`{"mnemonic":"definitely not a valid phrase"}`, "auth.bad_mnemonic", http.StatusBadRequest},
 		{`{"mnemonic":"x y","accountId":"Azz"}`, "request.invalid_field", http.StatusBadRequest},
+		{`{"accountId":"Azz","index":1}`, "request.invalid_field", http.StatusBadRequest},
+		{`{"index":1}`, "request.invalid_field", http.StatusBadRequest},
 		{`{"accountId":"Azz"}`, "auth.account_not_found", http.StatusNotFound},
 	} {
 		rec := doJSON(t, e, http.MethodPost, "/v1/auth", tc.body)

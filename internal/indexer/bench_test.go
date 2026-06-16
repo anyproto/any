@@ -53,7 +53,7 @@ func benchUpserts(rng *rand.Rand, start, n int) []DocUpsert {
 			Dataset:  "chat_messages",
 			RecordId: fmt.Sprintf("r%08d", start+i),
 			Data:     benchText(rng, 12),
-			AddSeq:   uint64(start + i + 1),
+			ApplySeq:   uint64(start + i + 1),
 		}}
 	}
 	return ups

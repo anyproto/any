@@ -14,9 +14,9 @@
 
 ## Command surface
 
-> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Members,
-> Invites, Join, ACL, Debug, Sync-status, and `any space {get,update}`
-> are wired in `internal/cli/`. Everything else in this doc is the
+> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Aggregate,
+> Members, Invites, Join, ACL, Debug, Sync-status, and
+> `any space {get,update}` are wired in `internal/cli/`. Everything else in this doc is the
 > planned 1:1 mirror of the HTTP surface — already callable via
 > `curl`, but no CLI subcommand yet. Sections that are not yet
 > implemented are marked **(planned)** in their headers.
@@ -129,6 +129,27 @@ any modify <spaceId> <objectId> <dataset> --file FILE|-
 any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
 ```
 
+### Aggregate
+
+```
+any aggregate <spaceId> <objectId> --dataset <name> --pipeline JSON|@FILE|-
+any aggregate <spaceId> --properties --pipeline JSON|@FILE|-
+```
+
+Runs a MongoDB-style aggregation pipeline (snapshot, no subscribe
+variant) — `POST …/aggregate` over a per-object dataset, or
+`POST …/objects/aggregate` over the per-space objects collection with
+`--properties`. The pipeline is a JSON array of stages. Optional:
+`--group-limit` / `--accum-limit` / `--memory-limit` (blocking-stage
+bounds; negative = unlimited) and `--explain` (print the access plan
+instead of results). Stage set, examples, and MongoDB divergences in
+`14-aggregation.md`.
+
+```bash
+any aggregate $SPID $OBJID --dataset chat_messages \
+  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
+```
+
 ### Chat
 
 ```
@@ -185,10 +206,8 @@ any type add-property    <spaceId> <typeId> --name ... --xkey ... --kind string|
 any type remove-property <spaceId> <typeId> <propId>
 any type update-property <spaceId> <typeId> <propId> [--name ...] [--description ...] [--xkey ...] [--xkind ...]
 
-any properties get         <spaceId> <objectId> [--include-variants]
-any properties set-base    <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-account <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-device  <spaceId> <objectId> <typeId> --patch FILE|-
+any properties get         <spaceId> <objectId>
+any properties set         <spaceId> <objectId> <typeId> --patch FILE|-
 any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```

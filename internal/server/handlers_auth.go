@@ -66,7 +66,7 @@ func (d *deps) rootWalletID(c echo.Context) string {
 	if err != nil {
 		return ""
 	}
-	provider, _, err := OpenWallet(config.WalletPath(config.Config{}, d.root), passkey, "")
+	provider, _, err := OpenWallet(config.WalletPath(config.Config{}, d.root), passkey, "", 0)
 	if err != nil {
 		return ""
 	}
@@ -98,6 +98,13 @@ func (d *deps) authorize(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"mnemonic and accountId are mutually exclusive", nil)
 	}
+	if req.Index != 0 && req.Mnemonic == "" {
+		// index is the derivation index for a restored mnemonic; it is
+		// meaningless when selecting an existing account (the index is
+		// baked into its wallet) or generating a fresh one (always 0).
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"index applies only to mnemonic", nil)
+	}
 	if d.ready.Load() {
 		return writeError(c, http.StatusConflict, "auth.already_authorized",
 			"server already runs account "+d.accountID(), nil)
@@ -105,8 +112,8 @@ func (d *deps) authorize(c echo.Context) error {
 
 	var (
 		identity  *Identity
-		seed      string // mnemonic passed through to wallet creation
-		generated string // fresh mnemonic to return once
+		seed      walletSeed // mnemonic + index passed through to wallet creation
+		generated string     // fresh mnemonic to return once
 	)
 	switch {
 	case req.Mnemonic != "":
@@ -114,7 +121,7 @@ func (d *deps) authorize(c echo.Context) error {
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
 		}
-		identity, seed = d.identityForAccount(c, id), req.Mnemonic
+		identity, seed = d.identityForAccount(c, id), walletSeed{mnemonic: req.Mnemonic, index: req.Index}
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -136,7 +143,7 @@ func (d *deps) authorize(c echo.Context) error {
 		}
 		dir := config.AccountDir(d.root, id)
 		identity = &Identity{Account: id, Dir: dir, WalletPath: config.WalletPath(config.Config{}, dir)}
-		seed, generated = m, m
+		seed, generated = walletSeed{mnemonic: m}, m
 	}
 
 	_, statErr := os.Stat(identity.WalletPath)
