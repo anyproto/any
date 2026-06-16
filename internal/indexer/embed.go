@@ -55,7 +55,16 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder,
 		}
 		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
 	case "local":
-		return NewLocal(cfg.Local, modelsDir, legacyModelsDir)
+		// Return the error path explicitly so a (nil, err) from NewLocal
+		// never boxes a typed-nil *Local into the Embedder interface (Go's
+		// typed-nil trap: such an interface is non-nil, so the `emb != nil`
+		// checks downstream would wrongly activate the vector pipeline).
+		// Matters most on the mobile build, where NewLocal always errors.
+		l, err := NewLocal(cfg.Local, modelsDir, legacyModelsDir)
+		if err != nil {
+			return nil, err
+		}
+		return l, nil
 	default:
 		return nil, fmt.Errorf("indexer: unknown embedder %q (want \"local\", \"ollama\", \"openai\" or \"none\")", cfg.Embedder)
 	}
