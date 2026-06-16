@@ -8,7 +8,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Release tag/name — a v* tag for release, "nightly" for the rolling prerelease.'
+        description: 'Release tag for the release channel (a v* tag); ignored for prerelease, which computes a dated v<base>-nightly.<YYYYMMDD>.<n> tag.'
         type: string
         required: true
       channel:
