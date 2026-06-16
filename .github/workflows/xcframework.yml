@@ -1,13 +1,17 @@
 name: Build & release libany xcframework
 
 # Builds the `any` server into an iOS xcframework (AnyServer) and publishes it
-# as a SemVer GitHub Release that SwiftPM resolves against (IOS-6169, Phase 2).
+# as a SemVer GitHub Release (IOS-6169, Phase 2). The Swift app consumes the
+# release via tools/fetch-anyserver-xcframework.sh — bump ANYSERVER_VERSION +
+# ANYSERVER_SHA256 there to adopt a new release.
 #
-# Trigger: manual dispatch with a SemVer `version`. The build happens BEFORE
-# the tag is finalized — CI rewrites Package.swift with the release zip URL +
-# checksum, commits it, then tags that commit and publishes the release. This
-# Firebase/akaffenberger ordering guarantees the tagged commit's Package.swift
-# carries the values SwiftPM needs (the "Resolution guard" in the plan).
+# SwiftPM consumption was removed: a binaryTarget(url:) cannot download from a
+# PRIVATE GitHub Release, so there is no Package.swift and no url/checksum pin
+# step. To restore SPM if this repo ever goes public, see git history for the
+# old Package.swift + the "Pin url + checksum into Package.swift" step.
+#
+# Trigger: manual dispatch with a SemVer `version`. The build runs, the source
+# commit is tagged with that version, and the release is published.
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +21,7 @@ on:
         type: string
 
 permissions:
-  contents: write # commit Package.swift, push the tag, create the release
+  contents: write # push the tag, create the release
 
 jobs:
   xcframework:
@@ -112,34 +116,19 @@ jobs:
         id: package
         run: |
           ditto -c -k --keepParent any.xcframework any.xcframework.zip
-          CHECKSUM=$(swift package compute-checksum any.xcframework.zip)
+          # sha256, identical to how the app's fetch script verifies the asset
+          # (tools/fetch-anyserver-xcframework.sh). No Swift toolchain needed.
+          CHECKSUM=$(shasum -a 256 any.xcframework.zip | cut -d' ' -f1)
           echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
           echo "Computed checksum: $CHECKSUM"
 
-      - name: Pin url + checksum into Package.swift
-        env:
-          VERSION: ${{ inputs.version }}
-          CHECKSUM: ${{ steps.package.outputs.checksum }}
-        run: |
-          URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/any.xcframework.zip"
-          perl -0pi -e "s|url: \"[^\"]*any\\.xcframework\\.zip\"|url: \"$URL\"|" Package.swift
-          perl -0pi -e "s|checksum: \"[a-f0-9]*\"|checksum: \"$CHECKSUM\"|" Package.swift
-          echo "--- Package.swift binaryTarget ---"
-          grep -nE 'url:|checksum:' Package.swift
-
-      - name: Commit, tag, push
+      - name: Tag and push
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- Package.swift; then
-            echo "Package.swift unchanged (re-release of same version?) — committing nothing."
-          else
-            git add Package.swift
-            git commit -m "release(libany): pin AnyServer xcframework ${VERSION}"
-            git push origin "HEAD:${{ github.ref_name }}"
-          fi
+          # Tag the dispatched commit directly — no commit-back now that there
+          # is no Package.swift to pin. The global insteadOf auth (above) covers
+          # the push to this repo.
           git tag "${VERSION}"
           git push origin "${VERSION}"
 
@@ -152,8 +141,7 @@ jobs:
           body: |
             `AnyServer` iOS xcframework — libany ${{ inputs.version }} (IOS-6169).
 
-            SwiftPM:
-            ```swift
-            .package(url: "https://github.com/${{ github.repository }}.git", exact: "${{ inputs.version }}")
-            ```
             checksum (sha256): `${{ steps.package.outputs.checksum }}`
+
+            App consumption: bump `ANYSERVER_VERSION` + `ANYSERVER_SHA256` in
+            `tools/fetch-anyserver-xcframework.sh` to adopt this release.
