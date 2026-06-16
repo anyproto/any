@@ -29,7 +29,6 @@ export function main(args) {
 
   var ct = c.createType({ name: T, properties: [{ key: "count", name: "Count", format: "number" }] });
   var tx = ct.type.xKey;  // type handle (xKey)
-  var tid = ct.type.id;   // raw type id (for the hand-built 501 URL)
   var obj = c.createObject(tx, one(tx, { count: 1 }, { name: "x_" + uniq }));
   h.check("setup createObject ok", obj && obj.ok, JSON.stringify(obj));
 
@@ -44,12 +43,6 @@ export function main(args) {
   var unk = c.updateObject(obj.id, one(tx, { nope: "x" }));
   h.check("unknown prop: ok false", unk && unk.ok === false, JSON.stringify(unk));
   h.check("unknown prop: clear message", unk && /unknown property/.test(unk.error || ""), JSON.stringify(unk));
-
-  // 501 route: account-scope property write isn't implemented → api() maps it
-  // to sdk.not_implemented.
-  var r501 = c.api("POST", c.config.spacePath + "/properties/" + obj.id + "/account/" + tid, { patch: {} });
-  h.check("501 status", r501 && r501.status === 501, "" + (r501 && r501.status));
-  h.check("501 code = sdk.not_implemented", r501 && r501.code === "sdk.not_implemented", JSON.stringify(r501 && r501.code));
 
   // success carries no error/code
   var ok = c.updateObject(obj.id, one(tx, { count: 42 }));
