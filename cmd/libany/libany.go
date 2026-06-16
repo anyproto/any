@@ -64,12 +64,17 @@ const gomemlimitBytes = 256 << 20 // 256 MiB
 var (
 	handleMu sync.Mutex
 	handle   *serverHandle
+	// stopping is the done channel of a hard-stopped server whose run
+	// goroutine may still be tearing down. AnyServerStopNow returns before
+	// the drain completes, so the next startServer waits on this before
+	// booting — otherwise a fast background->foreground restart could run
+	// two engines against one data dir.
+	stopping chan struct{}
 )
 
 type serverHandle struct {
 	cancel context.CancelFunc // cancels the RunWithListener ctx
 	done   chan struct{}      // closed when RunWithListener returns
-	port   int                // the bound port
 }
 
 // startServer boots the embedded server on a background goroutine and
@@ -80,10 +85,19 @@ func startServer(dataDir string, requestedPort int) int {
 	debug.SetMemoryLimit(gomemlimitBytes)
 
 	handleMu.Lock()
-	defer handleMu.Unlock()
-
 	if handle != nil {
+		handleMu.Unlock()
 		return errAlreadyRunning
+	}
+	prev := stopping
+	handleMu.Unlock()
+
+	// A prior hard stop (AnyServerStopNow) returns before its run goroutine
+	// has finished tearing down — the engine and SQLite still hold the data
+	// dir. Wait for that teardown to complete before booting a new engine on
+	// the same dir, so a fast restart can't run two engines on one data dir.
+	if prev != nil {
+		<-prev
 	}
 
 	if code := validateDataDir(dataDir); code != 0 {
@@ -93,10 +107,10 @@ func startServer(dataDir string, requestedPort int) int {
 	cfg := config.Defaults()
 	cfg.DataDir = dataDir
 	cfg.Listen.Addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(requestedPort))
-	cfg.Index.Enabled = true
 	// FTS-only: the local llama.cpp embedder is compiled out under
-	// -tags mobile, and "none" makes NewEmbedder return a true-nil so
-	// the compiled-out NewLocal is never reached.
+	// -tags mobile, and "none" makes NewEmbedder return a true-nil so the
+	// compiled-out NewLocal is never reached. Index stays enabled —
+	// config.Defaults() already sets Index.Enabled true.
 	cfg.Index.Embedder = "none"
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -116,7 +130,9 @@ func startServer(dataDir string, requestedPort int) int {
 	// binding.
 	select {
 	case port := <-listened:
-		handle = &serverHandle{cancel: cancel, done: done, port: port}
+		handleMu.Lock()
+		handle = &serverHandle{cancel: cancel, done: done}
+		handleMu.Unlock()
 		return port
 	case <-runErr:
 		// RunWithListener returned before onListen fired: boot failed
@@ -135,15 +151,30 @@ func startServer(dataDir string, requestedPort int) int {
 // cancels the ctx and returns without waiting for a clean drain, so the
 // hard-stop path stays bounded for the iOS background-task expiration
 // handler. Either way the handle is cleared so a subsequent start is clean.
+//
+// The non-graceful path returns while the run goroutine is still draining,
+// so it records that teardown in `stopping`; the next startServer waits on
+// it before booting to avoid running two engines against one data dir.
 func stopServer(graceful bool) {
 	handleMu.Lock()
 	h := handle
 	handle = nil
-	handleMu.Unlock()
-
 	if h == nil {
+		handleMu.Unlock()
 		return
 	}
+	if !graceful {
+		stopping = h.done
+		go func() {
+			<-h.done
+			handleMu.Lock()
+			if stopping == h.done {
+				stopping = nil
+			}
+			handleMu.Unlock()
+		}()
+	}
+	handleMu.Unlock()
 
 	h.cancel()
 	if graceful {
@@ -153,7 +184,8 @@ func stopServer(graceful bool) {
 	}
 	// Non-graceful: ctx is cancelled (which unblocks RunWithListener's
 	// select and triggers e.Shutdown); we return immediately without
-	// waiting on h.done so the caller's deadline is never at our mercy.
+	// waiting on h.done so the caller's deadline is never at our mercy. The
+	// teardown continues in the background and is tracked via `stopping`.
 }
 
 // validateDataDir returns 0 if the data dir is usable, or errBadDataDir

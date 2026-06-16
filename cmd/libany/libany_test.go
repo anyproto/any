@@ -35,7 +35,7 @@ func TestStartServer_BadDataDir(t *testing.T) {
 	// A regular file, then a path UNDER it — MkdirAll must fail because a
 	// file is in the way.
 	file := filepath.Join(t.TempDir(), "not-a-dir")
-	if err := writeFile(file); err != nil {
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	under := filepath.Join(file, "child")
@@ -67,14 +67,6 @@ func TestStartServer_PortDelivered(t *testing.T) {
 	port := startServer(t.TempDir(), 0)
 	if port <= 0 {
 		t.Fatalf("start: got %d, want a positive port", port)
-	}
-
-	// The handle records the same port the function returned.
-	handleMu.Lock()
-	hp := handle.port
-	handleMu.Unlock()
-	if hp != port {
-		t.Fatalf("handle.port = %d, returned port = %d; want equal", hp, port)
 	}
 
 	// The port is bound: a dial succeeds.
@@ -181,6 +173,37 @@ func TestStartStopRestart(t *testing.T) {
 	}
 }
 
+// TestHardStopRestart exercises the iOS hot path that TestStartStopRestart's
+// graceful stop does not: a hard stop (AnyServerStopNow) returns before the
+// run goroutine has finished tearing down, then the app foregrounds and
+// starts again on the SAME data dir. startServer must wait for the prior
+// teardown (via `stopping`) before booting, so the dir is never run by two
+// engines at once and the restart succeeds rather than colliding. Reusing
+// one dir across the cycle is what makes this a real test of the wait.
+func TestHardStopRestart(t *testing.T) {
+	resetHandle(t)
+
+	dir := t.TempDir()
+	baseline := runtime.NumGoroutine()
+
+	const cycles = 3
+	for i := 0; i < cycles; i++ {
+		port := startServer(dir, 0)
+		if port <= 0 {
+			t.Fatalf("cycle %d start after hard stop: got %d, want a positive port", i, port)
+		}
+		// Hard stop: returns promptly; teardown continues in the background.
+		stopServer(false)
+	}
+
+	// Teardown is asynchronous after a hard stop; wait for it to converge,
+	// then assert no goroutine leak across the hard-stop/restart cycles.
+	const slack = 2
+	if final := waitGoroutines(t, baseline+slack); final > baseline+slack {
+		t.Errorf("goroutine leak across hard-stop restarts: baseline %d, ended %d", baseline, final)
+	}
+}
+
 // assertPortRebindable asserts that, within a bounded retry window, the
 // given TCP port on 127.0.0.1 can be bound again — proving the prior
 // server's listener was fully released.
@@ -221,13 +244,4 @@ func waitGoroutines(t *testing.T, want int) int {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-}
-
-// writeFile creates an empty regular file at path.
-func writeFile(path string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	return f.Close()
 }
