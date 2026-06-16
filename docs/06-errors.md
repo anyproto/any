@@ -77,6 +77,8 @@ agent.memory_not_found           # 404 — unknown itemId on evolve/delete
 agent.not_author                 # 403 — evolve/delete by non-creator
 
 type.not_found
+type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
+type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field

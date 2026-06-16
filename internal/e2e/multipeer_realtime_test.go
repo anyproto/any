@@ -64,7 +64,7 @@ func TestE2E_MultipeerRealtimeSync(t *testing.T) {
 	// the joiner ingests it with the space.
 	var typeResp map[string]any
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/types",
-		`{"name":"Doc"}`, http.StatusCreated, &typeResp)
+		`{"name":"Doc","xKey":"doc"}`, http.StatusCreated, &typeResp)
 	typeID, _ := typeResp["typeId"].(string)
 	var propResp map[string]any
 	mustJSON(t, http.MethodPost,

@@ -232,7 +232,7 @@ func setupAggMovies(t *testing.T, e http.Handler, movies map[string]int) (string
 		t.Fatalf("decode space: %v", err)
 	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Movie"}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Movie","xKey":"movie"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}

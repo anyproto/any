@@ -32,7 +32,7 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 
 	// 2. Create a type.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types",
-		`{"name":"Movie","description":"A film"}`)
+		`{"name":"Movie","description":"A film","xKey":"movie"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST .../types: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -263,7 +263,7 @@ func TestServer_CrossObjectQueryFlow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
 
 	// Type.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Movie"}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Movie","xKey":"movie"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}
@@ -459,7 +459,7 @@ func TestServer_AddProperty_BadKind(t *testing.T) {
 	var sp api.SpaceInfo
 	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"T"}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"T","xKey":"t"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}

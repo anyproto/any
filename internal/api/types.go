@@ -6,9 +6,12 @@ type TypesCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
-	// XKey is an optional stable, caller-side programmatic key for the type
-	// (e.g. "agent_memory"). Display-metadata, like Name — not enforced unique.
-	// When omitted, clients typically derive one from Name.
+	// XKey is the stable, caller-side programmatic key for the type
+	// (e.g. "agent_memory"). REQUIRED on create and unique per space: the
+	// server rejects an empty xKey (type.xkey_required) and one that
+	// collides with an existing type's xKey or id (type.xkey_conflict).
+	// Clients derive it as a slug of Name. It's the only human handle a
+	// type resolves by — the display Name is not a resolution key.
 	XKey string `json:"xKey,omitempty"`
 }
 
@@ -70,12 +73,12 @@ type TypesListResponse struct {
 // PropertyDef mirrors space.PropertyDef on the wire. Recursive Items /
 // Properties fields and Required are emitted only when populated.
 type PropertyDef struct {
-	Id          string        `json:"id"`
-	Name        string        `json:"name,omitempty"`
-	Description string        `json:"description,omitempty"`
-	XKey        string        `json:"xKey,omitempty"`
-	XKind       string        `json:"xKind,omitempty"`
-	Kind        string        `json:"kind"`
+	Id          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	XKey        string `json:"xKey,omitempty"`
+	XKind       string `json:"xKind,omitempty"`
+	Kind        string `json:"kind"`
 	// Meta is the opaque consumer flag map set at AddProperty time
 	// (e.g. meta["index"] = "<scope>" for the search indexer).
 	Meta       map[string]string `json:"meta,omitempty"`

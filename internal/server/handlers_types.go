@@ -22,17 +22,43 @@ import (
 //	@Param		body	body		api.TypesCreateRequest	true	"Type params"
 //	@Success	201		{object}	api.TypesCreateResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types [post]
 func (d *deps) typeCreate(c echo.Context) error {
+	var req api.TypesCreateRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+
+	// xKey is the only human-supplied handle a type can be resolved by
+	// (besides its CID) — the display name is NOT a resolution key. The SDK
+	// treats xKey as non-unique display metadata, so uniqueness is enforced
+	// here. Reject name-only creates and same-space collisions; otherwise a
+	// type is reachable only by its content-addressed id (see docs/03-api.md
+	// § Types).
+	if req.XKey == "" {
+		return writeError(c, http.StatusBadRequest, "type.xkey_required",
+			"xKey is required: a type needs a stable programmatic handle (derive a slug from the name)", nil)
+	}
+
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
 	}
 
-	var req api.TypesCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	existing, err := sp.Types().List(c.Request().Context())
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	}
+	for _, t := range existing {
+		// Built-in types carry xKey "" but resolve by their literal Id
+		// ("chat", "nav", …), so a new xKey must dodge both namespaces.
+		if t.XKey == req.XKey || t.Id == req.XKey {
+			return writeError(c, http.StatusConflict, "type.xkey_conflict",
+				"xKey already in use by another type in this space",
+				map[string]any{"xKey": req.XKey, "existingTypeId": t.Id})
+		}
 	}
 
 	typeId, err := sp.Types().Create(c.Request().Context(), space.TypeCreateParams{

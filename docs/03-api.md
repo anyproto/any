@@ -812,6 +812,17 @@ they want at-least-once semantics across reconnects.
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
 
+`POST …/types` **requires** a non-empty **`xKey`** — the stable
+programmatic handle a type is resolved by (the display `name` is not a
+resolution key; a type without an xKey is reachable only by its CID).
+The SDK treats xKey as non-unique display metadata, so the server
+enforces it: empty → `400 type.xkey_required`; collision with an
+existing type's `xKey` **or** id in the same space → `409
+type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
+the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
+display-name renames. Built-in types (`chat`, `nav`, …) are registered,
+not created here, and resolve by their literal id.
+
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
 `GET …/properties`. It is opaque consumer metadata; the one convention
