@@ -1,0 +1,14 @@
+// module.modulemap — exposes the libany c-archive's generated C header to
+// Swift as the `AnyServer` module (IOS-6169).
+//
+// The module is named AnyServer (not `any`, which is a contextual keyword
+// in Swift) while the packaged xcframework FILE stays any.xcframework. The
+// referenced header is the one `go build -buildmode=c-archive` emits
+// alongside the archive — for an output of `libany.a` that header is
+// `libany.h`, declaring AnyServerStart / AnyServerStop / AnyServerStopNow.
+// The packaging step places this modulemap next to that header in each
+// xcframework slice.
+module AnyServer {
+    header "libany.h"
+    export *
+}
