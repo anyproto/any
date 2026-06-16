@@ -47,7 +47,7 @@ jobs:
           # fetch the private dep — that is what failed the first run's test
           # gate. checkout persists this token, so `go` (module fetch) and the
           # later `git push` both use it.
-          token: ${{ secrets.ANYPROTO_MODULES_TOKEN }}
+          token: ${{ secrets.ANY_CI_TOKEN }}
 
       - uses: actions/setup-go@v5
         with:
