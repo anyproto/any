@@ -421,6 +421,28 @@ Implementation slices landed:
     / `ErrWrongPasskey` (any-sync-sdk `feat/auth-mnemonic`). Contract:
     docs/02-server.md § Startup + Data dir layout, docs/03-api.md
     § Auth, docs/05-config.md, docs/06-errors.md.
+18. **Real space deletion** — `any-sync-sdk v0.0.12` turned
+    `Service.Delete` from a local-only soft-delete into an offline-first
+    real deletion: it writes the synced `remoteStatus=deleted` tombstone,
+    **offloads all local state immediately** (closes watchers + Store,
+    evicts the any-sync space, drops the per-space CRDT collections and
+    DB file, reclaims disk even offline), and kicks a background
+    reconciler that sends the signed `coordinator.SpaceDelete` (owner-only;
+    a non-owned space offloads locally and the reconciler no-ops) and
+    also offloads spaces the coordinator reports gone (deleted on another
+    device / owner deleted a joined space). The wire surface is unchanged
+    — `DELETE /v1/spaces/:spaceId` (`d.sdk.Spaces().Delete`) still returns
+    204 — and no `any`-side reaction code changed: the search indexer
+    already wipes a space's index on the `Spaces().Subscribe` `Removed`
+    stream (`DropSpace`, status item 14), and both delete paths set
+    `remoteStatus=deleted`, which the subscription classifies as
+    `Removed`. The tech-space row stays in `Service.List` with
+    `status:"deleted"` as a sticky tombstone, so the `GET /v1/spaces`
+    active-only default filter is kept by design. This slice was a
+    dependency bump (`v0.0.11` → `v0.0.12`, any-store/v2 alpha.11 →
+    alpha.14) plus the `any space delete <id> --yes` CLI command and doc
+    alignment (docs/01-cli.md, docs/03-api.md § Spaces). SDK contract:
+    its `docs/03-space.md` § Space Lifecycle.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -475,18 +497,23 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-Pins: `any-sync-sdk v0.0.11` (the tagged main release bundling the
-`space.Agg` aggregation surface (status item 16), `FileProviderConfig`
-mnemonic seeding + `auth.AccountId` (status item 17), and the
-scoped-properties API — per-record `_applySeq` change-index +
-scope-aware `Properties.Set`/`Get`, which superseded `_addSeq` ordering
-and the old `SetBase`/`PropertyReadOpts` surface — on top of `v0.0.10`'s
-change-index + tombstone `IncludeDeleted` work (status items 13–14), the
-space `createdAt` stamp (status item 15), and the dataset-schema +
-unified-query base from `v0.0.8`),
-`any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
-vector indexes behind the search indexer, status item 14), `any-sync
-v0.12.11`.
+Pins: `any-sync-sdk v0.0.12` (adds **real offline-first space deletion**
+— `Service.Delete` writes the synced `remoteStatus=deleted` tombstone,
+offloads all local state immediately, and drives the signed
+`coordinator.SpaceDelete` via a background reconciler (status item 18);
+needs no `any`-side code — the handler already called `Service.Delete`
+and the indexer already wipes on the `Subscribe` `Removed` stream — on
+top of `v0.0.11`'s `space.Agg` aggregation surface (status item 16),
+`FileProviderConfig` mnemonic seeding + `auth.AccountId` (status item
+17), and the scoped-properties API — per-record `_applySeq` change-index
++ scope-aware `Properties.Set`/`Get`, which superseded `_addSeq`
+ordering and the old `SetBase`/`PropertyReadOpts` surface — plus
+`v0.0.10`'s change-index + tombstone `IncludeDeleted` work (status items
+13–14), the space `createdAt` stamp (status item 15), and the
+dataset-schema + unified-query base from `v0.0.8`),
+`any-store/v2 v2.0.0-alpha.14` (former `btree-fts` branch — FTS +
+vector indexes behind the search indexer, status item 14; pulled in by
+the v0.0.12 SDK bump), `any-sync v0.12.11`.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache

@@ -12,8 +12,9 @@ import (
 )
 
 // `any space ...` — space-level operations that don't fit chat /
-// editor / members / acl. v1 surface is just `update` (rename /
-// description / icon) — list / create / delete still go through
+// editor / members / acl. v1 surface covers metadata `update` (rename /
+// description / icon), `delete`, lookup, sync, and the space-list
+// query/subscribe primitives — `create` / `join` still go through
 // direct HTTP or the web UI.
 func newSpaceCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -22,7 +23,29 @@ func newSpaceCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSyncCmd(),
-		newSpaceQueryCmd(), newSpaceSubscribeCmd())
+		newSpaceDeleteCmd(), newSpaceQueryCmd(), newSpaceSubscribeCmd())
+	return cmd
+}
+
+// newSpaceDeleteCmd: `any space delete <spaceId> --yes` — DELETE
+// /v1/spaces/:id (Service.Delete). Destructive and irreversible — the
+// space is offloaded locally and the row becomes a sticky `deleted`
+// tombstone — so it refuses to run without the explicit --yes flag.
+func newSpaceDeleteCmd() *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "delete <spaceId>",
+		Short: "delete a space (irreversible; requires --yes)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible)", args[0])
+			}
+			cl := client.New(flags.Addr, flags.Timeout)
+			return cl.SpaceDelete(cmd.Context(), args[0])
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the irreversible delete")
 	return cmd
 }
 

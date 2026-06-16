@@ -29,6 +29,17 @@ func (c *Client) SpaceSync(ctx context.Context, spaceId string) error {
 	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
+// SpaceDelete deletes a space (DELETE /v1/spaces/:id → Service.Delete).
+// Offline-first: the server writes the synced `deleted` tombstone and
+// offloads local state immediately, while the signed coordinator delete
+// is driven in the background. The tech-space row stays in
+// `Service.List` with `status:"deleted"` (sticky tombstone). Returns 204
+// on success.
+func (c *Client) SpaceDelete(ctx context.Context, spaceId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s", url.PathEscape(spaceId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // SpaceGet fetches one space's wire-shape info (including
 // spaceIndexObjectId).
 func (c *Client) SpaceGet(ctx context.Context, spaceId string) (*api.SpaceInfo, error) {
