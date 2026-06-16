@@ -29,6 +29,20 @@ const gracefulShutdownDeadline = 10 * time.Second
 // returns 401 auth.required until POST /v1/auth creates or selects an
 // account and boots the engine in place.
 func Run(ctx context.Context, cfg config.Config) error {
+	return RunWithListener(ctx, cfg, nil)
+}
+
+// RunWithListener is Run with an optional onListen callback invoked once
+// with the RESOLVED bound address (host:port) the instant the listener
+// is up, before the serve loop accepts traffic. It exists for in-process
+// embedders (the iOS c-archive, IOS-6169) that ask for an ephemeral port
+// via `Listen.Addr = "127.0.0.1:0"` and need the real port handed back
+// WITHOUT scraping stdout — the `LISTENING %s` print is a desktop-shell
+// contract, not a programmatic API. onListen runs on Run's goroutine
+// (synchronously, before select); a nil onListen is the desktop/cobra
+// path and changes nothing. Keep onListen cheap and non-blocking: it
+// runs before the server starts serving.
+func RunWithListener(ctx context.Context, cfg config.Config, onListen func(addr string)) error {
 	logConfigOnce.Do(cfg.Log.ApplyGlobal)
 	lg := logger.NewNamed("server")
 
@@ -98,6 +112,11 @@ func Run(ctx context.Context, cfg config.Config) error {
 	// Do not change this line: the desktop shell (any-ui PR-095 / PR #162)
 	// parses it as its port handshake + readiness gate.
 	fmt.Printf("LISTENING %s\n", boundAddr)
+	// Hand the resolved address to an in-process caller (iOS c-archive)
+	// without it having to parse the print above. Nil on the desktop path.
+	if onListen != nil {
+		onListen(boundAddr)
+	}
 	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()))
 	lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
 

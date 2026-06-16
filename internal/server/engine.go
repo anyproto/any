@@ -54,8 +54,10 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, fmt.Errorf("create account dir %s: %w", id.Dir, err)
 	}
 	// A held lock means another process owns this account dir — bail
-	// before touching the wallet, and never clean up on this path.
-	lock, err := Acquire(config.PIDPath(id.Dir))
+	// before touching the wallet, and never clean up on this path. Goes
+	// through acquirePIDLock so the mobile build (one in-process instance)
+	// can no-op it at both bootAccount sites; see pidlock_acquire*.go.
+	lock, err := acquirePIDLock(config.PIDPath(id.Dir))
 	if err != nil {
 		return nil, err
 	}
