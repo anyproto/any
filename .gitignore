@@ -3,6 +3,7 @@
 /any.mac
 /bin/
 /deps/
+/dist/
 
 # Cached llama.cpp release tarballs (make llamacpp)
 /third_party/llamacpp/cache/
