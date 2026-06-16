@@ -28,7 +28,7 @@ var ErrNotAuthor = errors.New("chat: not the message author")
 // admitted by the SDK. Idempotent and cheap: a local read, then
 // AttachType only on first use (subsequent sends find it present).
 func ensureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId, space.PropertyReadOpts{}); err == nil && rec != nil {
+	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
 		for _, v := range rec.GetArray("any", "types") {
 			if string(v.GetStringBytes()) == TypeId {
 				return nil
@@ -225,7 +225,6 @@ func getRaw(ctx context.Context, sp space.Space, objectId, msgId string) (*anyen
 			Path:   []string{"id"},
 			Filter: query.NewComp(query.CompOpEq, msgId),
 		}).
-		Projection(space.ProjectionOpts{IncludeMeta: true}).
 		One(ctx)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {

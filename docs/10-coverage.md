@@ -1,6 +1,6 @@
 # 10 — anyHelper ↔ server endpoint coverage
 
-Maps the server's 61 HTTP endpoints (`internal/server/docs/swagger.json`) to the
+Maps the server's 74 HTTP endpoints (`internal/server/docs/swagger.json`) to the
 JS client surface (`cmd/bobrik-watch/anyHelper.js`). anyHelper is the agent's
 window onto the server, scoped to **one space, content operations** — so
 space/account lifecycle, sharing (ACL/invites), and diagnostics are
@@ -12,7 +12,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Area | Endpoints | anyHelper |
 |------|-----------|-----------|
 | Objects | `POST /objects`, `DELETE /objects/:id` | `createObject` / `createCollection`, `deleteObject` |
-| Properties | `GET /properties/:o`, `POST /properties/:o/base/:typeId` | `getObject`, `createObject`/`updateObject` (nested type groups: `{ book: { author } }`) |
+| Properties | `GET /properties/:o`, `POST /properties/:o/set/:typeId` | `getObject`, `createObject`/`updateObject` (nested type groups: `{ book: { author } }`) |
 | Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes) |
 | Datasets | `POST /modify`, `POST /delete-records` | `setRecord`, `deleteRecord` |
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |
@@ -44,6 +44,7 @@ surface added.
 | `GET /members/me`, `/members/requests`, `/members/subscribe` | membership admin/streaming |
 | `GET /sync-status*` (4), `GET /debug*` (2) | diagnostics — host/ops, not agent logic |
 | `POST /objects/derive` | deterministic-id creation — niche; no caller |
+| `POST /objects/aggregate`, `POST /aggregate` | aggregation pipelines (`docs/14-aggregation.md`) — reachable via `client.api(...)`; add a `getAggregate` wrapper when an agent program actually needs server-side rollups |
 | `POST`/`PATCH`/`DELETE …/editor/blocks` | atomic block writes — the markdown bridge (`append`/`edit`/`PUT`) covers agent needs; blocks reachable via `api()` and read via `getObjects(null,{objectId:o,dataset:"editor_blocks"})` |
 | chat `POST/PATCH/DELETE …/chat/messages[...]`, reactions | the agent's reply is posted host-side (bobrik-watch), not from JS; no in-JS caller yet |
 | `*/subscribe` (SSE) | live streams are a host/Go concern; the JS client is request/response |

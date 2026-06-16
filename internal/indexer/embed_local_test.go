@@ -1,3 +1,5 @@
+//go:build vector && !gomobile
+
 package indexer
 
 import (
@@ -22,7 +24,7 @@ func TestNewEmbedder_Local(t *testing.T) {
 	e, err := NewEmbedder(config.Index{
 		Embedder: "local",
 		Local:    config.IndexLocal{ModelPath: filepath.Join(dir, "absent.gguf")},
-	}, dir)
+	}, filepath.Join(dir, "models"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,22 +54,26 @@ func TestNewEmbedder_Local(t *testing.T) {
 
 func TestLocal_DefaultsAndDim(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create the default model path so NewLocal skips the download.
-	modelPath := filepath.Join(dir, "index", "models", localModelName)
-	if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+	// Pre-create the model in the shared dir so NewLocal skips the download.
+	modelsDir := filepath.Join(dir, "models")
+	modelPath := filepath.Join(modelsDir, localModelName)
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(modelPath, []byte("stub"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	l, err := NewLocal(config.IndexLocal{}, dir)
+	l, err := NewLocal(config.IndexLocal{}, modelsDir, filepath.Join(dir, "index", "models"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l.Close()
 	if l.dl != nil {
 		t.Error("present model file must not start a download")
+	}
+	if l.modelPath != modelPath {
+		t.Errorf("model path: want %s got %s", modelPath, l.modelPath)
 	}
 	if l.nCtx != localDefaultCtx {
 		t.Errorf("nCtx default: want %d got %d", localDefaultCtx, l.nCtx)
@@ -81,13 +87,38 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 	}
 
 	// Matryoshka dim caps the reported dimension.
-	l2, err := NewLocal(config.IndexLocal{Dim: 256}, dir)
+	l2, err := NewLocal(config.IndexLocal{Dim: 256}, modelsDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l2.Close()
 	if d, _ := l2.Dim(context.Background()); d != 256 {
 		t.Errorf("Dim with Matryoshka truncation: want 256 got %d", d)
+	}
+}
+
+func TestLocal_LegacyModelDirFallback(t *testing.T) {
+	dir := t.TempDir()
+	// Model exists only at the pre-per-account location — keep using it.
+	legacyDir := filepath.Join(dir, "index", "models")
+	legacyPath := filepath.Join(legacyDir, localModelName)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := NewLocal(config.IndexLocal{}, filepath.Join(dir, "models"), legacyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if l.dl != nil {
+		t.Error("legacy model file must not start a download")
+	}
+	if l.modelPath != legacyPath {
+		t.Errorf("model path: want legacy %s got %s", legacyPath, l.modelPath)
 	}
 }
 
@@ -158,7 +189,7 @@ func TestLocal_Integration(t *testing.T) {
 	// A ModelPath override disables the implicit Qwen prefix; this test
 	// runs the pinned model, so restore it.
 	cfg.QueryPrefix = localQueryPrefix
-	l, err := NewLocal(cfg, t.TempDir())
+	l, err := NewLocal(cfg, t.TempDir(), "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,5 @@
+//go:build vector && !gomobile
+
 package indexer
 
 import (
@@ -83,19 +85,19 @@ func TestOpenAI_EmbedDocs(t *testing.T) {
 
 func TestNewEmbedder(t *testing.T) {
 	dir := t.TempDir()
-	if e, err := NewEmbedder(config.Index{}, dir); e != nil || err != nil {
+	if e, err := NewEmbedder(config.Index{}, dir, ""); e != nil || err != nil {
 		t.Errorf("empty embedder should be nil,nil; got %v, %v", e, err)
 	}
-	if e, err := NewEmbedder(config.Index{Embedder: "ollama"}, dir); err != nil || e == nil {
+	if e, err := NewEmbedder(config.Index{Embedder: "ollama"}, dir, ""); err != nil || e == nil {
 		t.Errorf("ollama: %v, %v", e, err)
 	}
-	if _, err := NewEmbedder(config.Index{Embedder: "openai"}, dir); err == nil {
+	if _, err := NewEmbedder(config.Index{Embedder: "openai"}, dir, ""); err == nil {
 		t.Error("openai without model should error")
 	}
-	if _, err := NewEmbedder(config.Index{Embedder: "openai", OpenAI: config.IndexOpenAI{Model: "m"}}, dir); err != nil {
+	if _, err := NewEmbedder(config.Index{Embedder: "openai", OpenAI: config.IndexOpenAI{Model: "m"}}, dir, ""); err != nil {
 		t.Errorf("openai with model: %v", err)
 	}
-	if _, err := NewEmbedder(config.Index{Embedder: "bogus"}, dir); err == nil {
+	if _, err := NewEmbedder(config.Index{Embedder: "bogus"}, dir, ""); err == nil {
 		t.Error("unknown embedder should error")
 	}
 }

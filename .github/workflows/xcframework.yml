@@ -1,0 +1,159 @@
+name: Build & release libany xcframework
+
+# Builds the `any` server into an iOS xcframework (AnyServer) and publishes it
+# as a SemVer GitHub Release that SwiftPM resolves against (IOS-6169, Phase 2).
+#
+# Trigger: manual dispatch with a SemVer `version`. The build happens BEFORE
+# the tag is finalized — CI rewrites Package.swift with the release zip URL +
+# checksum, commits it, then tags that commit and publishes the release. This
+# Firebase/akaffenberger ordering guarantees the tagged commit's Package.swift
+# carries the values SwiftPM needs (the "Resolution guard" in the plan).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SemVer release tag, e.g. 0.1.0 (no leading v)"
+        required: true
+        type: string
+
+permissions:
+  contents: write # commit Package.swift, push the tag, create the release
+
+jobs:
+  xcframework:
+    # NOTE: requires the iOS 26 SDK (deployment target 26.0), which ships with
+    # Xcode 26. The runner image must provide it — the SDK-verify step below
+    # fails loudly if it doesn't. Bump this image (e.g. to macos-26) if needed.
+    runs-on: macos-15
+    env:
+      # any-sync-sdk is the one private Go dependency. GOPRIVATE makes `go`
+      # fetch it directly over git (using the checkout token's credentials)
+      # instead of the public module proxy + checksum DB, which can't serve a
+      # private repo. All other anyproto deps are public and use the proxy.
+      GOPRIVATE: github.com/anyproto/any-sync-sdk
+    steps:
+      - name: Validate version is SemVer
+        run: |
+          if ! printf '%s' "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "::error::version '${{ inputs.version }}' is not SemVer (expected e.g. 0.1.0)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          # Don't persist a repo-local git credential: checkout's token only
+          # authenticates git inside THIS checkout dir, but `go` fetches the
+          # private any-sync-sdk module with git in the module cache (a
+          # different dir) — that is why the run failed with "could not read
+          # Username". Global auth is configured in the next step instead.
+          persist-credentials: false
+
+      - name: Configure git auth for private anyproto Go modules
+        env:
+          ANY_CI_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+        run: |
+          # Global insteadOf so EVERY git invocation under anyproto/ carries the
+          # token — `go`'s ls-remote in the module cache (private any-sync-sdk
+          # fetch) AND the release `git push origin` to this repo. ANY_CI_TOKEN
+          # therefore needs read on any-sync-sdk + write on this repo.
+          git config --global \
+            url."https://x-access-token:${ANY_CI_TOKEN}@github.com/anyproto/".insteadOf \
+            "https://github.com/anyproto/"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Select latest Xcode and verify iOS 26 SDK
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iphoneos SDK version: $SDK"
+          case "$SDK" in
+            26.*) echo "iOS 26 SDK present." ;;
+            *) echo "::error::iOS 26 SDK required (deployment target 26.0); runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
+          esac
+
+      - name: Gate on libany tests
+        run: go test -count=1 ./cmd/libany/
+
+      - name: Build c-archive slices (device + simulator)
+        # Both iOS slices use the identical go build — only the cgo CC wrapper
+        # differs (device sysroot/triple vs the simulator's -simulator triple,
+        # golang/go#57442). One function keeps the build flags in a single
+        # place so the two slices can't drift apart.
+        run: |
+          build_slice() {
+            name="$1"; cc="$2"
+            echo "== building $name slice (CC=$cc) =="
+            mkdir -p "build/$name/headers"
+            CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/$cc" \
+              go build -tags mobile -buildmode=c-archive -ldflags "-s -w" \
+              -o "build/$name/libany.a" ./cmd/libany
+            cp "build/$name/libany.h" "build/$name/headers/libany.h"
+            cp cmd/libany/module.modulemap "build/$name/headers/module.modulemap"
+          }
+          build_slice device clangwrap-ios.sh
+          build_slice sim    clangwrap-iossim.sh
+
+      - name: Assemble any.xcframework
+        run: |
+          rm -rf any.xcframework
+          xcodebuild -create-xcframework \
+            -library build/device/libany.a -headers build/device/headers \
+            -library build/sim/libany.a -headers build/sim/headers \
+            -output any.xcframework
+          # Keep the per-slice Info.plist (do not strip — spike 0.5).
+          cat any.xcframework/Info.plist
+
+      - name: Zip + checksum
+        id: package
+        run: |
+          ditto -c -k --keepParent any.xcframework any.xcframework.zip
+          CHECKSUM=$(swift package compute-checksum any.xcframework.zip)
+          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+          echo "Computed checksum: $CHECKSUM"
+
+      - name: Pin url + checksum into Package.swift
+        env:
+          VERSION: ${{ inputs.version }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/any.xcframework.zip"
+          perl -0pi -e "s|url: \"[^\"]*any\\.xcframework\\.zip\"|url: \"$URL\"|" Package.swift
+          perl -0pi -e "s|checksum: \"[a-f0-9]*\"|checksum: \"$CHECKSUM\"|" Package.swift
+          echo "--- Package.swift binaryTarget ---"
+          grep -nE 'url:|checksum:' Package.swift
+
+      - name: Commit, tag, push
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Package.swift; then
+            echo "Package.swift unchanged (re-release of same version?) — committing nothing."
+          else
+            git add Package.swift
+            git commit -m "release(libany): pin AnyServer xcframework ${VERSION}"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+          git tag "${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          files: any.xcframework.zip
+          fail_on_unmatched_files: true
+          body: |
+            `AnyServer` iOS xcframework — libany ${{ inputs.version }} (IOS-6169).
+
+            SwiftPM:
+            ```swift
+            .package(url: "https://github.com/${{ github.repository }}.git", exact: "${{ inputs.version }}")
+            ```
+            checksum (sha256): `${{ steps.package.outputs.checksum }}`

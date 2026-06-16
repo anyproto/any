@@ -976,13 +976,13 @@ export function createClient(params) {
     }
 
     if (data.name !== undefined) {
-      var nr = api("POST", path + "/properties/" + objId + "/base/any", { patch: { name: data.name } });
+      var nr = api("POST", path + "/properties/" + objId + "/set/any", { patch: { name: data.name } });
       if (!nr.ok) return { ok: false, id: objId, error: _extractError(nr), code: nr.code };
     }
 
     for (var gk2 in resolvedU.groups) {
       if (!Object.prototype.hasOwnProperty.call(resolvedU.groups, gk2)) continue;
-      var pr = api("POST", path + "/properties/" + objId + "/base/" + gk2, { patch: resolvedU.groups[gk2] });
+      var pr = api("POST", path + "/properties/" + objId + "/set/" + gk2, { patch: resolvedU.groups[gk2] });
       if (!pr.ok) return { ok: false, id: objId, error: _extractError(pr), code: pr.code };
     }
 
@@ -1096,7 +1096,7 @@ export function createClient(params) {
     if (!opts) opts = {};
     var ids = Array.isArray(objectIds) ? objectIds : [objectIds];
     for (var i = 0; i < ids.length; i++) {
-      var res = api("POST", _pathForScope(opts.space) + "/properties/" + ids[i] + "/base/nav", {
+      var res = api("POST", _pathForScope(opts.space) + "/properties/" + ids[i] + "/set/nav", {
         patch: { parentId: collectionId }
       });
       if (!res.ok) return { ok: false, collectionId: collectionId, objectIds: ids, error: _extractError(res) };
@@ -1106,7 +1106,7 @@ export function createClient(params) {
 
   function removeFromCollection(collectionId, objectId, opts) {
     if (!opts) opts = {};
-    var res = api("POST", _pathForScope(opts.space) + "/properties/" + objectId + "/base/nav", {
+    var res = api("POST", _pathForScope(opts.space) + "/properties/" + objectId + "/set/nav", {
       patch: { parentId: "" }
     });
     return { ok: res.ok, collectionId: collectionId, objectId: objectId, error: res.ok ? null : _extractError(res) };

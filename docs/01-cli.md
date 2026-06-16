@@ -14,9 +14,9 @@
 
 ## Command surface
 
-> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Members,
-> Invites, Join, ACL, Debug, Sync-status, and `any space {get,update}`
-> are wired in `internal/cli/`. Everything else in this doc is the
+> **v1 status:** Meta, Account, Chat, Editor, Subscribe, Aggregate,
+> Members, Invites, Join, ACL, Debug, Sync-status, and
+> `any space {get,update}` are wired in `internal/cli/`. Everything else in this doc is the
 > planned 1:1 mirror of the HTTP surface — already callable via
 > `curl`, but no CLI subcommand yet. Sections that are not yet
 > implemented are marked **(planned)** in their headers.
@@ -24,18 +24,35 @@
 ### Meta
 
 ```
-any init                         # create data dir + wallet, exit
-any run [--config PATH]          # start the server (foreground)
+any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
+                                 # create data dir + account wallet, exit
+any run [--config PATH] [--account ID]   # start the server (foreground)
+any auth login [--mnemonic ...|--mnemonic-stdin|--account ID]  # POST /v1/auth
+any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
 any stop                         # POST /v1/shutdown
 any version                      # print binary + server versions
 ```
 
-`any init` is the explicit first-run flow — prints the generated
-mnemonic to stderr and exits. If you skip it and go straight to
-`any run`, the server does the same wallet creation on startup and
-prints the mnemonic once; `any init` just gives you a moment to copy
-it before the server binds anything.
+`any init` is the explicit first-run flow. Bare `init` generates a
+fresh account under `<root>/<accountId>/` and prints the BIP-39
+mnemonic to stderr once; when any account already exists it is a no-op
+that lists them. `--mnemonic` / `--mnemonic-stdin` authorize an
+EXISTING account: the same phrase always derives the same account id
+while the device key is freshly generated — the supported way to add a
+second device (never copy `wallet.key`: that clones the device key and
+the two peers fight over one network identity). Prefer
+`--mnemonic-stdin`; a `--mnemonic` flag value leaks into shell
+history. `--new` forces an additional fresh account; `--index` selects
+the derivation index for `--mnemonic`.
+
+`any run` does NOT create wallets. With no account resolvable (fresh
+root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)
+the server starts unauthorized and waits; `any auth login` (or any
+client POSTing `/v1/auth`) generates (`no flags`), restores
+(`--mnemonic*`) or selects (`--account`) the account and boots the SDK
+in place. `any auth status` shows the authorization state plus every
+account found in the data dir.
 
 ### Account
 
@@ -112,6 +129,27 @@ any modify <spaceId> <objectId> <dataset> --file FILE|-
 any delete <spaceId> <objectId> <dataset> <recordId> [<recordId>...]
 ```
 
+### Aggregate
+
+```
+any aggregate <spaceId> <objectId> --dataset <name> --pipeline JSON|@FILE|-
+any aggregate <spaceId> --properties --pipeline JSON|@FILE|-
+```
+
+Runs a MongoDB-style aggregation pipeline (snapshot, no subscribe
+variant) — `POST …/aggregate` over a per-object dataset, or
+`POST …/objects/aggregate` over the per-space objects collection with
+`--properties`. The pipeline is a JSON array of stages. Optional:
+`--group-limit` / `--accum-limit` / `--memory-limit` (blocking-stage
+bounds; negative = unlimited) and `--explain` (print the access plan
+instead of results). Stage set, examples, and MongoDB divergences in
+`14-aggregation.md`.
+
+```bash
+any aggregate $SPID $OBJID --dataset chat_messages \
+  --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
+```
+
 ### Chat
 
 ```
@@ -168,10 +206,8 @@ any type add-property    <spaceId> <typeId> --name ... --xkey ... --kind string|
 any type remove-property <spaceId> <typeId> <propId>
 any type update-property <spaceId> <typeId> <propId> [--name ...] [--description ...] [--xkey ...] [--xkind ...]
 
-any properties get         <spaceId> <objectId> [--include-variants]
-any properties set-base    <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-account <spaceId> <objectId> <typeId> --patch FILE|-
-any properties set-device  <spaceId> <objectId> <typeId> --patch FILE|-
+any properties get         <spaceId> <objectId>
+any properties set         <spaceId> <objectId> <typeId> --patch FILE|-
 any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```

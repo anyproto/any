@@ -3,7 +3,7 @@
 // Integration test: pin the server-side storage contract for SPLIT tool docs —
 // program_description holds the description body, program_methods holds one
 // record per method ({name, kind, text, pos}, id = bareName), and the
-// program.any_tool boolean is patchable via properties/:objId/base/program.
+// program.any_tool boolean is patchable via properties/:objId/set/program.
 // The split/write logic itself lives in the writers (bobrik-watch sync.go,
 // anyPrograms.saveProgram) and is covered by toolmd_test.go (Go splitter unit
 // tests) and tests/js/programs_test.js (JS writer); this file proves the
@@ -20,11 +20,11 @@ import (
 	"time"
 )
 
-// patchProgramProps POSTs {patch} to properties/:objId/base/program.
+// patchProgramProps POSTs {patch} to properties/:objId/set/program.
 func patchProgramProps(t *testing.T, spaceID, objectID string, patch map[string]any) {
 	t.Helper()
 	st, body := doJSON(t, http.MethodPost,
-		"/v1/spaces/"+spaceID+"/properties/"+objectID+"/base/program",
+		"/v1/spaces/"+spaceID+"/properties/"+objectID+"/set/program",
 		map[string]any{"patch": patch})
 	if st != http.StatusOK && st != http.StatusNoContent {
 		t.Fatalf("patch program props: %d %s", st, body)

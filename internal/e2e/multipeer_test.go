@@ -305,7 +305,7 @@ func TestE2E_MultipeerCRDTConvergence(t *testing.T) {
 	}
 
 	mustStatus(t, http.MethodPost,
-		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/base/"+typeID,
+		owner.base+"/v1/spaces/"+sp.Id+"/properties/"+objectID+"/set/"+typeID,
 		fmt.Sprintf(`{"patch":{%q:"Casablanca"}}`, propID),
 		http.StatusOK)
 

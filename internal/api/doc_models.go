@@ -37,6 +37,28 @@ type SpaceQueryRequest struct {
 	Offset   int            `json:"offset,omitempty"`
 }
 
+// SpaceAggregateObjectsRequest documents the body of
+// POST /v1/spaces/:spaceId/objects/aggregate.
+type SpaceAggregateObjectsRequest struct {
+	Pipeline         []map[string]any `json:"pipeline"`
+	GroupLimit       *int             `json:"groupLimit,omitempty"`
+	AccumArrayLimit  *int             `json:"accumArrayLimit,omitempty"`
+	MemoryLimitBytes *int             `json:"memoryLimitBytes,omitempty"`
+	Explain          bool             `json:"explain,omitempty"`
+}
+
+// SpaceAggregateRequest documents the body of
+// POST /v1/spaces/:spaceId/aggregate.
+type SpaceAggregateRequest struct {
+	ObjectId         string           `json:"objectId"`
+	Dataset          string           `json:"dataset"`
+	Pipeline         []map[string]any `json:"pipeline"`
+	GroupLimit       *int             `json:"groupLimit,omitempty"`
+	AccumArrayLimit  *int             `json:"accumArrayLimit,omitempty"`
+	MemoryLimitBytes *int             `json:"memoryLimitBytes,omitempty"`
+	Explain          bool             `json:"explain,omitempty"`
+}
+
 // SpaceModifyRequest documents the body of POST /v1/spaces/:spaceId/modify.
 type SpaceModifyRequest struct {
 	ObjectId string         `json:"objectId"`
@@ -67,8 +89,8 @@ type DeleteRecordsRequest struct {
 	TraceIds  []string `json:"traceIds,omitempty"`
 }
 
-// PropertiesSetBaseRequest documents the body of POST /v1/spaces/:spaceId/properties/:objectId/base/:typeId.
-type PropertiesSetBaseRequest struct {
+// PropertiesSetRequest documents the body of POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId.
+type PropertiesSetRequest struct {
 	Patch map[string]any `json:"patch"`
 }
 

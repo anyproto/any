@@ -369,6 +369,58 @@ Implementation slices landed:
     with `{"sort":["-createdAt"]}`. Pre-stamp rows stay zero — clients
     treat zero as unknown. Semantics + caveats in `docs/03-api.md`
     § Spaces.
+16. **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
+    over both query scopes, the aggregation siblings of `/query`:
+    `POST /v1/spaces/:id/objects/aggregate` (per-space objects
+    collection → `Space.AggregateObjects`) and
+    `POST /v1/spaces/:id/aggregate` (per-object dataset, objectId +
+    dataset in body → `Space.Aggregate`). Snapshot-only — no subscribe
+    variant (any-store aggregation has no live path; re-run to
+    refresh). Body: `pipeline` (required JSON array of stages:
+    $match/$sort/$skip/$limit/$count/$project/$addFields/$unwind/
+    $group) + optional `groupLimit`/`accumArrayLimit`/
+    `memoryLimitBytes` (blocking-stage bounds, negative = unlimited)
+    and `explain: true` (returns `{plan}` instead of `{records}`,
+    diagnostic-only). Records are pipeline RESULT docs — group key
+    comes back as `id`, never `_id`. Tombstones excluded server-side
+    (SDK prepends a `_deletedAt` $match that folds into the pushdown
+    prefix, so it stays index-planned). Errors:
+    `400 aggregate.bad_pipeline` (parse/stage/prefix violations,
+    `space.ErrBadPipeline`) and `400 aggregate.limit_exceeded`
+    (`details.limit`: group/accumArray/memory, SDK limit sentinels).
+    CLI: `any aggregate SPACE [OBJ] [--dataset NAME | --properties]
+    --pipeline '<json>'|@FILE|-`. Client doc with examples + the
+    MongoDB-divergence catalog: `docs/14-aggregation.md`.
+    **SDK prerequisite (`any-sync-sdk v0.0.11`)**: the `space.Agg`
+    builder (`Space.Aggregate`/`AggregateObjects`) wrapping any-store
+    alpha.11's `Collection.Aggregate`.
+17. **Mnemonic authorization + per-account data dirs** — the data dir
+    is now a multi-account ROOT: new accounts live at
+    `<root>/<accountId>/` (wallet.key, server.pid, sdk/, index/), a
+    legacy root `wallet.key` is the DEFAULT account with its data flat
+    at the root (no migration code), embedder models shared at
+    `<root>/models/` (a model already in the legacy
+    `<dir>/index/models` keeps being used). Account selection:
+    `--account` / `ANY_ACCOUNT` / `account:` → root wallet → sole
+    nested dir (`internal/server/identity.go::ResolveIdentity`).
+    `any init [--mnemonic|--mnemonic-stdin|--index N|--new]` creates or
+    RESTORES an account — same phrase ⇒ same account id, always a
+    fresh device key (the supported second-device flow; wallet.key
+    copies collide peerIds and break realtime sync). `any run` no
+    longer auto-creates wallets: with no resolvable account the server
+    starts UNAUTHORIZED — a /v1 guard middleware returns
+    `401 auth.required` everywhere except health/shutdown/openapi/auth
+    — and `POST /v1/auth` (`{mnemonic?|accountId?|index?}`, neither =
+    generate; generated mnemonic returned once) boots the engine (pid
+    lock → wallet → SDK → indexer, `internal/server/engine.go`) in
+    place; `GET /v1/auth` lists local accounts. One engine per process
+    lifetime; switching = restart with `--account`. CLI: `any auth
+    login/status`. SDK prerequisite: `FileProviderConfig.Mnemonic/
+    Index` seeding, `auth.AccountId(mnemonic, index)`, exported
+    `ErrInvalidMnemonic` / `ErrMnemonicMismatch` / `ErrPasskeyRequired`
+    / `ErrWrongPasskey` (any-sync-sdk `feat/auth-mnemonic`). Contract:
+    docs/02-server.md § Startup + Data dir layout, docs/03-api.md
+    § Auth, docs/05-config.md, docs/06-errors.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -423,10 +475,15 @@ SIGHUP for the mechanics.
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
 **published modules**, not sibling checkouts — `go.mod` pins versions.
-All pins are tagged releases: `any-sync-sdk v0.0.10` (the `_addSeq`
-change-index + tombstone `IncludeDeleted` work — status items 13–14 —
-plus the space `createdAt` stamp, status item 15 — on top of the
-dataset-schema + unified-query base from `v0.0.8`),
+Pins: `any-sync-sdk v0.0.11` (the tagged main release bundling the
+`space.Agg` aggregation surface (status item 16), `FileProviderConfig`
+mnemonic seeding + `auth.AccountId` (status item 17), and the
+scoped-properties API — per-record `_applySeq` change-index +
+scope-aware `Properties.Set`/`Get`, which superseded `_addSeq` ordering
+and the old `SetBase`/`PropertyReadOpts` surface — on top of `v0.0.10`'s
+change-index + tombstone `IncludeDeleted` work (status items 13–14), the
+space `createdAt` stamp (status item 15), and the dataset-schema +
+unified-query base from `v0.0.8`),
 `any-store/v2 v2.0.0-alpha.11` (former `btree-fts` branch — FTS +
 vector indexes behind the search indexer, status item 14), `any-sync
 v0.12.11`.
@@ -590,6 +647,7 @@ auto-start.
 | `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
+| `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

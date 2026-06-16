@@ -6,7 +6,7 @@ require (
 	github.com/anyproto/any-store v0.4.6
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.11
 	github.com/anyproto/any-sync v0.12.11
-	github.com/anyproto/any-sync-sdk v0.0.10
+	github.com/anyproto/any-sync-sdk v0.0.11
 	github.com/anyproto/anytype-agent-runtime v0.1.2
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
@@ -19,6 +19,7 @@ require (
 	github.com/valyala/fastjson v1.6.10
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/zap v1.28.0
+	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -116,7 +117,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
-	golang.org/x/image v0.21.0 // indirect
+	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect

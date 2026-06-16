@@ -13,6 +13,14 @@ LDFLAGS := -s -w \
 
 SWAG := go tool swag
 
+# Search-index build tags (docs/13-index.md § build tags). The desktop
+# binary ships both legs; each is independently selectable so other
+# builds (e.g. gomobile) can drop one or both — `fts` compiles in the
+# BM25 full-text leg, `vector` the embedding + IVF-SQ ANN leg (and the
+# embedder implementations, including the llama.cpp bindings). Build/test
+# with neither to exclude the whole search index from compilation.
+INDEX_TAGS := fts vector
+
 # llama.cpp release pin for the local embedder's shared libs
 # (docs/13-index.md § local embedder). Bump together with the yzma
 # dependency — yzma tracks llama.cpp releases.
@@ -25,7 +33,7 @@ swagger:
 
 build: swagger llamacpp-soft
 	@mkdir -p $(OUT)
-	go build -v -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
+	go build -v -tags '$(INDEX_TAGS)' -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
 	go build -v -o $(OUT)/bobrik-watch $(PKG)/cmd/bobrik-watch
 	go build -v -o $(OUT)/any-agent-runtime $(PKG)/cmd/any-agent-runtime
 
@@ -44,18 +52,20 @@ llamacpp-soft:
 		|| echo "make: llamacpp libs unavailable — 'index.embedder: local' won't work until 'make llamacpp' succeeds or index.local.libDir is set" >&2
 
 test:
-	go test ./...
+	go test -tags '$(INDEX_TAGS)' ./...
 
 vet:
-	go vet ./...
+	go vet -tags '$(INDEX_TAGS)' ./...
 
 tidy:
 	go mod tidy
 
 clean:
-	rm -rf $(OUT)
+	rm -rf $(OUT) dist
 
 # Build one any-sdk payload (host platform by default) into dist/.
 # Override with PLATFORM=darwin-arm64|darwin-x64|linux-x86_64|windows-x86_64.
 sdk:
 	scripts/build-sdk.sh $${PLATFORM:-host} dist
+
+include makefiles/android.mk

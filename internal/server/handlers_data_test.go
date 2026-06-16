@@ -77,11 +77,11 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	}
 
 	// 5. Set a base-scope property value.
-	setBaseURL := fmt.Sprintf("/v1/spaces/%s/properties/%s/base/%s", sp.Id, objectId, typeId)
+	setBaseURL := fmt.Sprintf("/v1/spaces/%s/properties/%s/set/%s", sp.Id, objectId, typeId)
 	rec = doJSON(t, e, http.MethodPost, setBaseURL,
 		fmt.Sprintf(`{"patch":{%q:"Casablanca"}}`, propId))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST .../base/:typeId: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("POST .../set/:typeId: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var modify api.ModifyResult
 	if err := json.Unmarshal(rec.Body.Bytes(), &modify); err != nil {
@@ -291,7 +291,7 @@ func TestServer_CrossObjectQueryFlow(t *testing.T) {
 		var o api.ObjectsCreateResponse
 		_ = json.Unmarshal(rec.Body.Bytes(), &o)
 		rec = doJSON(t, e, http.MethodPost,
-			fmt.Sprintf("/v1/spaces/%s/properties/%s/base/%s", sp.Id, o.ObjectId, typeId),
+			fmt.Sprintf("/v1/spaces/%s/properties/%s/set/%s", sp.Id, o.ObjectId, typeId),
 			fmt.Sprintf(`{"patch":{%q:%q}}`, propId, title))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("set base: %d %s", rec.Code, rec.Body.String())

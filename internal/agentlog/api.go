@@ -13,7 +13,7 @@ import (
 // not already present (making the chat object multitype: chat +
 // agent_log). Idempotent and cheap — same pattern as chat.ensureType.
 func ensureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId, space.PropertyReadOpts{}); err == nil && rec != nil {
+	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
 		for _, v := range rec.GetArray("any", "types") {
 			if string(v.GetStringBytes()) == TypeId {
 				return nil

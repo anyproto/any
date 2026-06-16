@@ -30,7 +30,10 @@ Every error response — regardless of status code — has the same body:
 | 501    | Not implemented — routes for SDK placeholder APIs (sync-status, some Properties/Types subroutes) return this in v1 |
 | 503    | Server not ready (shutdown, reindex in progress)               |
 
-No 401/403 in v1 — there is no auth layer.
+No caller authentication in v1 (loopback is the trust boundary). The
+single 401 is `auth.required` — the server itself has no account
+booted yet (see `03-api.md` § Auth); 403 appears only for author-only
+data rules (`chat.not_author`, `agent.not_author`).
 
 5xx responses log at `error` level on the server with the full stack.
 Clients receive the sanitized body only.
@@ -45,6 +48,12 @@ request.bad_json                 # request body is not valid JSON
 request.schema                   # JSON shape doesn't match endpoint schema
 request.missing_field            # required field absent
 
+auth.required                    # 401 — server unauthorized; POST /v1/auth first
+auth.already_authorized          # 409 — engine already booted; restart to switch
+auth.bad_mnemonic                # 400 — BIP-39 validation failed
+auth.mnemonic_mismatch           # 409 — wallet on disk disagrees with the phrase/index
+auth.account_not_found           # 404 — accountId has no local wallet
+auth.account_in_use              # 409 — another process holds the account's pid lock
 auth.passkey_required            # wallet encrypted, no passkey provided
 auth.passkey_wrong
 
@@ -71,6 +80,9 @@ type.not_found
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field
+
+aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
+aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured

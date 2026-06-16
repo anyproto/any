@@ -26,7 +26,7 @@ func (Chunker) Dataset() string { return Dataset }
 func (Chunker) TypeId() string { return TypeId }
 
 // ChunksSince streams the object's messages past the cursor, ascending
-// by AddSeq. Deleted rows yield a tombstone (Data ""); live rows yield
+// by ApplySeq. Deleted rows yield a tombstone (Data ""); live rows yield
 // their text.
 func (Chunker) ChunksSince(ctx context.Context, sp space.Space, objectId string, since uint64, yield func(index.IndexEntry) error) error {
 	q := sp.Query(objectId, Dataset)
@@ -36,7 +36,7 @@ func (Chunker) ChunksSince(ctx context.Context, sp space.Space, objectId string,
 			ObjectId: objectId,
 			Dataset:  Dataset,
 			RecordId: string(rec.GetStringBytes("id")),
-			AddSeq:   seq,
+			ApplySeq: seq,
 		}
 		if !index.IsDeleted(rec) {
 			entry.Data = messageData(rec)

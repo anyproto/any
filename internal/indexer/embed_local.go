@@ -1,3 +1,5 @@
+//go:build vector && !gomobile
+
 package indexer
 
 import (
@@ -64,8 +66,11 @@ type Local struct {
 }
 
 // NewLocal resolves paths and kicks off the background model download
-// when the default model isn't on disk yet. It does not touch llama.cpp.
-func NewLocal(cfg config.IndexLocal, dataDir string) (*Local, error) {
+// when the default model isn't on disk yet. It does not touch
+// llama.cpp. The model lives in modelsDir (shared across accounts); a
+// copy already present in legacyModelsDir (the old per-data-dir
+// location) is used as-is so existing downloads aren't repeated.
+func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string) (*Local, error) {
 	l := &Local{
 		nCtx:         cfg.ContextSize,
 		outDim:       cfg.Dim,
@@ -92,7 +97,12 @@ func NewLocal(cfg config.IndexLocal, dataDir string) (*Local, error) {
 		// Air-gapped: the file is the user's responsibility, no download.
 		l.modelPath = cfg.ModelPath
 	} else {
-		l.modelPath = filepath.Join(dataDir, "index", "models", localModelName)
+		l.modelPath = filepath.Join(modelsDir, localModelName)
+		if legacy := filepath.Join(legacyModelsDir, localModelName); legacyModelsDir != "" {
+			if _, err := os.Stat(legacy); err == nil {
+				l.modelPath = legacy
+			}
+		}
 		if _, err := os.Stat(l.modelPath); err != nil {
 			url, sha := localModelURL, localModelSHA256
 			if cfg.ModelUrl != "" {

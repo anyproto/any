@@ -32,7 +32,7 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 
 	dataDir := t.TempDir()
 	walletPath := filepath.Join(dataDir, "wallet.key")
-	provider, _, err := OpenWallet(walletPath, "")
+	provider, _, err := OpenWallet(walletPath, "", "", 0)
 	if err != nil {
 		t.Fatalf("OpenWallet: %v", err)
 	}
@@ -65,7 +65,13 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 		shutdownCtx:    shutdownCtx,
 		cancelShutdown: cancelShutdown,
 		streamsWG:      &sync.WaitGroup{},
+		root:           dataDir,
+		cfg:            cfg,
+		runCtx:         context.Background(),
 	}
+	// Hand-built deps bypass bootAccount; mark the engine live so the
+	// /v1 unauthorized guard lets requests through.
+	d.ready.Store(true)
 	return d, func() {
 		cancelShutdown()
 		d.streamsWG.Wait()
@@ -304,8 +310,10 @@ func TestServer_AccountUpdateMetadata(t *testing.T) {
 func TestServer_NotImplementedRoutes(t *testing.T) {
 	// This test runs without booting the SDK — the 501 handlers don't
 	// touch deps.sdk. Skipping the staging precondition lets this run on
-	// machines without the test-etc fixture.
+	// machines without the test-etc fixture. ready is set by hand so
+	// the unauthorized guard doesn't shadow the 501s.
 	d := &deps{startedAt: time.Now().UTC(), shutdown: make(chan struct{}, 1)}
+	d.ready.Store(true)
 	e := buildEcho(d)
 
 	cases := []struct{ method, path string }{
@@ -314,7 +322,6 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1/properties/p1"},
 		{http.MethodPatch, "/v1/spaces/spc/types/t1/properties/p1"},
-		{http.MethodPost, "/v1/spaces/spc/properties/o1/account/t1"},
 		{http.MethodGet, "/v1/spaces/spc/sync-status/peers"},
 	}
 	for _, tc := range cases {

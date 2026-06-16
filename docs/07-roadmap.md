@@ -50,10 +50,10 @@ becomes useful. Needs:
 
 1. **Port default.** Picked 7001 arbitrarily. If it collides with
    anything real, change before first ship.
-2. **`any init` vs first-`any run` auto-create.** We document both; in
-   practice only one needs to exist in v1. Keeping `init` is cheap and
-   gives operators a quiet moment to copy the mnemonic — probably keep
-   both but revisit if the code grows.
+2. ~~**`any init` vs first-`any run` auto-create.**~~ Resolved: `run`
+   no longer auto-creates. Accounts come from `any init` (CLI) or
+   `POST /v1/auth` (HTTP onboarding); an account-less `run` starts
+   unauthorized and waits.
 3. **Config file location precedence.** Documented in `05-config.md`.
    Verify `$XDG_CONFIG_HOME/any/config.yaml` is what Linux users
    expect; macOS users might prefer `~/Library/Application Support/any/`.
@@ -99,24 +99,12 @@ becomes useful. Needs:
    schema keeps their fields — edges, salience, accessCount — so they
    resume without data migration). `embeddingRef` is reserved on the
    schema as the future external-index backref.
-10. **Second-device provisioning (account restore).** There is no
-    supported way to bring an existing account up on a second machine:
-    `any init` always generates a fresh mnemonic and cannot accept one.
-    The workaround users reach for — copying `wallet.key` — is broken
-    in a subtle way: the file holds the mnemonic AND the device key, so
-    both servers present the same network peerId. any-sync nodes key
-    streams/subscriptions per peer, the two devices fight over one
-    identity, and pushed HeadUpdates reach only one of them — the other
-    converges via the ~30s periodic headsync diff only. Symptom:
-    "realtime sync doesn't work, changes take ~30s" on the copied
-    device (tech space AND regular spaces). Verified e2e: with a fresh
-    device key (same mnemonic) every tech-space op propagates in
-    <250ms; with a copied device key, 28–31s
-    (`internal/e2e/multidevice_techspace_test.go::sameAccountWallet`
-    documents the correct provisioning). Fix: `any init --mnemonic`
-    (read from stdin) that keeps the account but generates a fresh
-    device key — the SDK side already supports this
-    (`auth.MnemonicConfig` + `GenerateDeviceKey`).
+10. **Account switching on a running server.** `POST /v1/auth` boots
+    exactly one engine per process lifetime; switching accounts means
+    restarting with `--account <id>`. A logout/switch endpoint (tear
+    the engine down, return to the unauthorized state) is plausible
+    but needs every handler and SSE stream to tolerate the SDK going
+    away mid-flight — not worth it until a real client asks.
 
 ## SDK-side prerequisites
 
@@ -196,6 +184,33 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
+  over both query scopes: `POST /v1/spaces/:id/objects/aggregate`
+  (objects collection) and `POST /v1/spaces/:id/aggregate` (per-object
+  dataset), wrapping the SDK's `Space.AggregateObjects` /
+  `Space.Aggregate` (SDK prerequisite landed as `any-sync-sdk v0.0.11`:
+  the `space.Agg` builder over any-store alpha.11's aggregation
+  framework, tombstone-skip `$match` prepended into the pushdown
+  prefix, `ErrBadPipeline` + limit sentinels). Snapshot-only — no
+  subscribe variant by design (any-store aggregation has no live
+  path). `explain: true` body flag wraps `Agg.Explain`. CLI
+  `any aggregate`. Client doc with examples + MongoDB-divergence
+  catalog in `docs/14-aggregation.md`.
+- **Mnemonic authorization + per-account data dirs** — `any init
+  --mnemonic[-stdin]` restores an account from its BIP-39 phrase with
+  a FRESH device key (the supported second-device flow; verbatim
+  `wallet.key` copies clone the device key, collide peerIds, and
+  degrade realtime sync to the ~30s headsync timer — verified e2e in
+  `internal/e2e/multidevice_techspace_test.go`). The data dir became a
+  multi-account ROOT: new accounts at `<root>/<accountId>/`, a legacy
+  root `wallet.key` stays the default account with flat data (no
+  migration), embedder models shared at `<root>/models/`. `run` no
+  longer auto-generates wallets — without a resolvable account the
+  server starts unauthorized (`401 auth.required` guard) and
+  `POST /v1/auth` generates/restores/selects + boots the engine in
+  place (UI onboarding path); `GET /v1/auth` lists local accounts.
+  Selector: `--account` / `ANY_ACCOUNT` / `account:`. SDK side:
+  `FileProviderConfig.Mnemonic/Index` seeding + `auth.AccountId`.
 - **Agent data layer (turns / chunks / memory)** — built-in
   `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
   object) and `agent_memory` (`agent_memory_items` on the seed-derived
@@ -234,18 +249,18 @@ pluggable embedders, parallel batched pipelines),
     (PropertyKind allowlist enforced at the boundary: `string` /
     `number` / `boolean` / `null` / `array` / `object` — anything else
     is rejected with 400 `request.schema`)
-  - `GET /v1/spaces/:id/properties/:objectId` (with
-    `?includeVariants=&includeMeta=` — record rendered via
+  - `GET /v1/spaces/:id/properties/:objectId` (record rendered via
     `*anyenc.Value.FastJson(arena).MarshalTo` and wrapped in
     `{"record": ...}` as `json.RawMessage`)
-  - `POST /v1/spaces/:id/properties/:objectId/base/:typeId`
-  Modify / Objects.Create.InitialProperties / Properties.SetBase parse
+  - `POST /v1/spaces/:id/properties/:objectId/set/:typeId`
+  Modify / Objects.Create.InitialProperties / Properties.Set parse
   request bodies once with a pooled `*fastjson.Parser` and pass
   `*fastjson.Value` directly into the SDK — anyenc converts in one
   walk via `Arena.NewFromFastJson`, no `map[string]any` intermediate.
   Still 501: Objects.Delete, Query, Types.{List,Get,Delete,Properties,
-  Remove/UpdateProperty}, Properties.{SetAccount, SetDevice, AttachType,
-  DetachType}, all `/members`, `/acl/**`, `/sync-status/**`, and the
+  Remove/UpdateProperty}, Properties.{AttachType, DetachType} (the former
+  per-scope SetAccount/SetDevice endpoints were removed — scoped `Set`
+  subsumes them), all `/members`, `/acl/**`, `/sync-status/**`, and the
   Spaces lifecycle surface that's still SDK-blocked
   (`/spaces/{join,derive,one-to-one}`).
 - **Phase 2 endpoints (Objects.Delete, Types read surface, Query)** —
