@@ -39,7 +39,10 @@ windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-cpu-x64 EXE=".exe" OS=window
 esac
 
 LLAMACPP_VERSION="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
-VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+# The workflow passes the resolved release version (a real tag, or a
+# v<base>-nightly.<date>.<n> prerelease) so the asset name + embedded version
+# match the release; standalone runs fall back to git describe.
+VERSION="${ANY_SDK_BUILD_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
 PKG="github.com/anyproto/any"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
