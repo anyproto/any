@@ -19,4 +19,4 @@ jobs:
       tag: ${{ github.ref_name }}
       channel: release
     secrets:
-      ANY_UI_DISPATCH_TOKEN: ${{ secrets.ANY_UI_DISPATCH_TOKEN }}
+      ANY_CI_TOKEN: ${{ secrets.ANY_CI_TOKEN }}

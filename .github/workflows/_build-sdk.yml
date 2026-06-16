@@ -16,9 +16,9 @@ on:
         type: string
         required: true
     secrets:
-      ANY_UI_DISPATCH_TOKEN:
-        description: 'Token to dispatch the any-ui build. If unset, the trigger step warns and skips.'
-        required: false
+      ANY_CI_TOKEN:
+        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the any-ui desktop build.'
+        required: true
 
 permissions:
   contents: write # create the Release
@@ -43,6 +43,16 @@ jobs:
           cache-dependency-path: go.sum
       - name: Install jq + unzip
         run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Authenticate private Go modules
+        env:
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+        run: |
+          # any-sync-sdk (+ its transitive deps) are PRIVATE anyproto repos.
+          # GOPRIVATE skips the public proxy + checksum DB for them; the git
+          # rewrite supplies the token so `go build` / `go tool swag` can fetch
+          # them in CI. Public deps still go through the proxy untouched.
+          echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Build any-sdk for all platforms
         run: |
           set -euo pipefail
@@ -68,11 +78,11 @@ jobs:
           fi
       - name: Trigger any-ui desktop build
         env:
-          GH_TOKEN: ${{ secrets.ANY_UI_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::ANY_UI_DISPATCH_TOKEN not set — skipping the any-ui trigger."
+            echo "::warning::ANY_CI_TOKEN not set — skipping the any-ui trigger."
             exit 0
           fi
           gh api repos/anyproto/any-ui/dispatches \
