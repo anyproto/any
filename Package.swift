@@ -23,8 +23,8 @@ let package = Package(
         // works at a release tag, whose commit carries the real values.
         .binaryTarget(
             name: "AnyServer",
-            url: "https://github.com/anyproto/any/releases/download/0.0.0/any.xcframework.zip",
-            checksum: "0000000000000000000000000000000000000000000000000000000000000000"
+            url: "https://github.com/anyproto/any/releases/download/0.1.0/any.xcframework.zip",
+            checksum: "0e617633e93fa6e7bbbf583eb995ad357e963c82016c62bf6b754796c6a32e82"
         ),
     ]
 )
