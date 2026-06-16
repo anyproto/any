@@ -25,6 +25,12 @@ jobs:
     # Xcode 26. The runner image must provide it — the SDK-verify step below
     # fails loudly if it doesn't. Bump this image (e.g. to macos-26) if needed.
     runs-on: macos-15
+    env:
+      # any-sync-sdk is the one private Go dependency. GOPRIVATE makes `go`
+      # fetch it directly over git (using the checkout token's credentials)
+      # instead of the public module proxy + checksum DB, which can't serve a
+      # private repo. All other anyproto deps are public and use the proxy.
+      GOPRIVATE: github.com/anyproto/any-sync-sdk
     steps:
       - name: Validate version is SemVer
         run: |
@@ -34,6 +40,25 @@ jobs:
           fi
 
       - uses: actions/checkout@v4
+        with:
+          # Don't persist a repo-local git credential: checkout's token only
+          # authenticates git inside THIS checkout dir, but `go` fetches the
+          # private any-sync-sdk module with git in the module cache (a
+          # different dir) — that is why the run failed with "could not read
+          # Username". Global auth is configured in the next step instead.
+          persist-credentials: false
+
+      - name: Configure git auth for private anyproto Go modules
+        env:
+          ANY_CI_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+        run: |
+          # Global insteadOf so EVERY git invocation under anyproto/ carries the
+          # token — `go`'s ls-remote in the module cache (private any-sync-sdk
+          # fetch) AND the release `git push origin` to this repo. ANY_CI_TOKEN
+          # therefore needs read on any-sync-sdk + write on this repo.
+          git config --global \
+            url."https://x-access-token:${ANY_CI_TOKEN}@github.com/anyproto/".insteadOf \
+            "https://github.com/anyproto/"
 
       - uses: actions/setup-go@v5
         with:
