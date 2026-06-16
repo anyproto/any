@@ -1,6 +1,6 @@
-name: release-sdk
+name: release-any
 
-# Tag-driven release channel → the shared _build-sdk reusable workflow.
+# Tag-driven release channel → the shared _build-any reusable workflow.
 on:
   push:
     tags: ['v*']
@@ -9,12 +9,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-sdk-${{ github.ref }}
+  group: release-any-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   call:
-    uses: ./.github/workflows/_build-sdk.yml
+    uses: ./.github/workflows/_build-any.yml
     with:
       tag: ${{ github.ref_name }}
       channel: release

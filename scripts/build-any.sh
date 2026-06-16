@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Build one any-sdk payload for a target platform.
+# Build one any payload for a target platform.
 #
-# Usage: scripts/build-sdk.sh <platform> <outdir>
+# Usage: scripts/build-any.sh <platform> <outdir>
 #   platform ∈ darwin-arm64 | darwin-x64 | linux-x86_64 | windows-x86_64 | host
 #   (the any backend + bobrik-watch are CGO-free, so every target cross-builds
 #    from any host; only the prebuilt llama.cpp libs are platform-specific.)
 #
-# Produces: <outdir>/any-sdk-<version>-<os>-<arch>.tar.gz
+# Produces: <outdir>/any-<version>-<os>-<arch>.tar.gz
 set -euo pipefail
 
-PLATFORM="${1:?usage: build-sdk.sh <platform> <outdir>}"
-OUTDIR="${2:?usage: build-sdk.sh <platform> <outdir>}"
+PLATFORM="${1:?usage: build-any.sh <platform> <outdir>}"
+OUTDIR="${2:?usage: build-any.sh <platform> <outdir>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -20,7 +20,7 @@ if [ "$PLATFORM" = host ]; then
     Darwin-x86_64) PLATFORM=darwin-x64 ;;
     Linux-x86_64) PLATFORM=linux-x86_64 ;;
     *)
-        echo "build-sdk: cannot detect host; pass an explicit platform" >&2
+        echo "build-any: cannot detect host; pass an explicit platform" >&2
         exit 1
         ;;
     esac
@@ -33,7 +33,7 @@ darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_6
 linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-x64 EXE="" OS=linux ARCH=x86_64 ;;
 windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-cpu-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
 *)
-    echo "build-sdk: unknown platform '$PLATFORM'" >&2
+    echo "build-any: unknown platform '$PLATFORM'" >&2
     exit 1
     ;;
 esac
@@ -42,12 +42,12 @@ LLAMACPP_VERSION="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
 # The workflow passes the resolved release version (a real tag, or a
 # v<base>-nightly.<date>.<n> prerelease) so the asset name + embedded version
 # match the release; standalone runs fall back to git describe.
-VERSION="${ANY_SDK_BUILD_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+VERSION="${ANY_BUILD_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo none)"
 PKG="github.com/anyproto/any"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-echo "build-sdk: $PLATFORM  (any $VERSION, llama.cpp $LLAMACPP_VERSION)"
+echo "build-any: $PLATFORM  (any $VERSION, llama.cpp $LLAMACPP_VERSION)"
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE" "${SUMS:-}"' EXIT
@@ -96,6 +96,6 @@ jq -n \
 rm -f "$SUMS"
 
 mkdir -p "$OUTDIR"
-TARBALL="$OUTDIR/any-sdk-$VERSION-$OS-$ARCH.tar.gz"
+TARBALL="$OUTDIR/any-$VERSION-$OS-$ARCH.tar.gz"
 tar -czf "$TARBALL" -C "$STAGE" .
-echo "build-sdk: → $TARBALL"
+echo "build-any: → $TARBALL"

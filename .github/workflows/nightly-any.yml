@@ -1,6 +1,6 @@
-name: nightly-sdk
+name: nightly-any
 
-# Dogfood channel (cron + manual) → the shared _build-sdk reusable workflow,
+# Dogfood channel (cron + manual) → the shared _build-any reusable workflow,
 # publishing a rolling `nightly` prerelease.
 on:
   schedule:
@@ -11,12 +11,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: nightly-sdk
+  group: nightly-any
   cancel-in-progress: true
 
 jobs:
   call:
-    uses: ./.github/workflows/_build-sdk.yml
+    uses: ./.github/workflows/_build-any.yml
     with:
       tag: nightly
       channel: prerelease

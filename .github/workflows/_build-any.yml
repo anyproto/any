@@ -1,8 +1,8 @@
-name: _build-sdk
+name: _build-any
 
-# Reusable workflow (called by release-sdk + nightly-sdk): build any-sdk for
+# Reusable workflow (called by release-any + nightly-any): build any for
 # every platform, publish a GitHub Release for the given channel, then trigger
-# the any-ui desktop build. All build logic lives in scripts/build-sdk.sh; this
+# the any-ui desktop build. All build logic lives in scripts/build-any.sh; this
 # is the shared orchestration the two callers used to duplicate.
 on:
   workflow_call:
@@ -71,14 +71,14 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Resolved release version: $version"
-      - name: Build any-sdk for all platforms
+      - name: Build any for all platforms
         env:
-          ANY_SDK_BUILD_VERSION: ${{ steps.ver.outputs.version }}
+          ANY_BUILD_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
           for p in darwin-arm64 darwin-x64 linux-x86_64 windows-x86_64; do
-            scripts/build-sdk.sh "$p" dist
+            scripts/build-any.sh "$p" dist
           done
           ls -la dist
       - name: Publish GitHub Release
@@ -90,12 +90,12 @@ jobs:
           if [ "$CHANNEL" = prerelease ]; then
             # Each nightly is a unique, sortable prerelease tag — they accumulate
             # as history; we do NOT delete the previous one.
-            gh release create "$VERSION" dist/any-sdk-*.tar.gz --prerelease \
-              --target "$GITHUB_SHA" --title "any-sdk $VERSION" \
+            gh release create "$VERSION" dist/any-*.tar.gz --prerelease \
+              --target "$GITHUB_SHA" --title "any $VERSION" \
               --notes "Nightly build ($(git rev-parse --short HEAD))."
           else
-            gh release create "$VERSION" dist/any-sdk-*.tar.gz --title "any-sdk $VERSION" \
-              --notes "any-sdk release $VERSION (llama.cpp $(sed -n 's/^LLAMACPP_VERSION := //p' Makefile))."
+            gh release create "$VERSION" dist/any-*.tar.gz --title "any $VERSION" \
+              --notes "any release $VERSION (llama.cpp $(sed -n 's/^LLAMACPP_VERSION := //p' Makefile))."
           fi
       - name: Trigger any-ui desktop build
         env:
@@ -107,9 +107,9 @@ jobs:
             echo "::warning::ANY_CI_TOKEN not set — skipping the any-ui trigger."
             exit 0
           fi
-          # any-ui builds against this exact SDK version; it computes its OWN
+          # any-ui builds against this exact published version; it computes its OWN
           # desktop release version (independent per repo).
           gh api repos/anyproto/any-ui/dispatches \
-            -f event_type=any-sdk-published \
+            -f event_type=any-published \
             -f "client_payload[version]=$VERSION" \
             -f "client_payload[channel]=$CHANNEL"

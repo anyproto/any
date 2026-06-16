@@ -1,14 +1,14 @@
-# any-sdk — the embeddable `any` backend artifact
+# any — the embeddable `any` backend artifact
 
-`any-sdk` is the versioned, per-platform artifact the **Any** desktop app
+`any` is the versioned, per-platform artifact the **Any** desktop app
 (`anyproto/any-ui`) embeds. CI builds it on tag (release) + nightly
 (prerelease); the publish fires a `repository_dispatch` that triggers the
-`any-ui` build. Build it locally with `make sdk` (or `scripts/build-sdk.sh`).
+`any-ui` build. Build it locally with `make any` (or `scripts/build-any.sh`).
 
-## Tarball layout (`any-sdk-<version>-<os>-<arch>.tar.gz`)
+## Tarball layout (`any-<version>-<os>-<arch>.tar.gz`)
 
 - `any[.exe]` — the backend (built from `cmd/any`). The binary is `any`;
-  `any-sdk` is the _artifact_ name.
+  `any` is the _artifact_ name.
 - `bobrik-watch[.exe]` — the bao agent (`cmd/bobrik-watch`).
 - `llamacpp/` — prebuilt llama.cpp shared libs for this `(os,arch)`
   (`fetch-llamacpp.sh`). `internal/indexer/embed_local.go` looks for them at

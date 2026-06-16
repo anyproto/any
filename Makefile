@@ -26,7 +26,7 @@ INDEX_TAGS := fts vector
 # dependency — yzma tracks llama.cpp releases.
 LLAMACPP_VERSION := b9590
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft sdk
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any
 
 swagger:
 	$(SWAG) init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
@@ -63,9 +63,9 @@ tidy:
 clean:
 	rm -rf $(OUT) dist
 
-# Build one any-sdk payload (host platform by default) into dist/.
+# Build one any payload (host platform by default) into dist/.
 # Override with PLATFORM=darwin-arm64|darwin-x64|linux-x86_64|windows-x86_64.
-sdk:
-	scripts/build-sdk.sh $${PLATFORM:-host} dist
+any:
+	scripts/build-any.sh $${PLATFORM:-host} dist
 
 include makefiles/android.mk
