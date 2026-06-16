@@ -25,6 +25,12 @@ jobs:
     # Xcode 26. The runner image must provide it — the SDK-verify step below
     # fails loudly if it doesn't. Bump this image (e.g. to macos-26) if needed.
     runs-on: macos-15
+    env:
+      # any-sync-sdk is the one private Go dependency. GOPRIVATE makes `go`
+      # fetch it directly over git (using the checkout token's credentials)
+      # instead of the public module proxy + checksum DB, which can't serve a
+      # private repo. All other anyproto deps are public and use the proxy.
+      GOPRIVATE: github.com/anyproto/any-sync-sdk
     steps:
       - name: Validate version is SemVer
         run: |
@@ -34,6 +40,14 @@ jobs:
           fi
 
       - uses: actions/checkout@v4
+        with:
+          # A token with READ on the private any-sync-sdk module AND WRITE on
+          # this repo (the release step commits Package.swift + pushes a tag).
+          # The default GITHUB_TOKEN is scoped to this repo only, so it can't
+          # fetch the private dep — that is what failed the first run's test
+          # gate. checkout persists this token, so `go` (module fetch) and the
+          # later `git push` both use it.
+          token: ${{ secrets.ANYPROTO_MODULES_TOKEN }}
 
       - uses: actions/setup-go@v5
         with:
