@@ -54,23 +54,24 @@ jobs:
       - name: Gate on libany tests
         run: go test -count=1 ./cmd/libany/
 
-      - name: Build device slice (ios/arm64)
+      - name: Build c-archive slices (device + simulator)
+        # Both iOS slices use the identical go build — only the cgo CC wrapper
+        # differs (device sysroot/triple vs the simulator's -simulator triple,
+        # golang/go#57442). One function keeps the build flags in a single
+        # place so the two slices can't drift apart.
         run: |
-          mkdir -p build/device/headers
-          CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/clangwrap-ios.sh" \
-            go build -tags mobile -buildmode=c-archive -ldflags "-s -w" \
-            -o build/device/libany.a ./cmd/libany
-          cp build/device/libany.h build/device/headers/libany.h
-          cp cmd/libany/module.modulemap build/device/headers/module.modulemap
-
-      - name: Build simulator slice (ios/arm64-simulator)
-        run: |
-          mkdir -p build/sim/headers
-          CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/clangwrap-iossim.sh" \
-            go build -tags mobile -buildmode=c-archive -ldflags "-s -w" \
-            -o build/sim/libany.a ./cmd/libany
-          cp build/sim/libany.h build/sim/headers/libany.h
-          cp cmd/libany/module.modulemap build/sim/headers/module.modulemap
+          build_slice() {
+            name="$1"; cc="$2"
+            echo "== building $name slice (CC=$cc) =="
+            mkdir -p "build/$name/headers"
+            CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/$cc" \
+              go build -tags mobile -buildmode=c-archive -ldflags "-s -w" \
+              -o "build/$name/libany.a" ./cmd/libany
+            cp "build/$name/libany.h" "build/$name/headers/libany.h"
+            cp cmd/libany/module.modulemap "build/$name/headers/module.modulemap"
+          }
+          build_slice device clangwrap-ios.sh
+          build_slice sim    clangwrap-iossim.sh
 
       - name: Assemble any.xcframework
         run: |
