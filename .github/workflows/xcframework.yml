@@ -1,4 +1,4 @@
-name: Build & release libany xcframework
+name: Build & release anyserver xcframework
 
 # Builds the `any` server into an iOS xcframework (AnyServer) and publishes it
 # as a SemVer GitHub Release (IOS-6169, Phase 2). The Swift app consumes the
@@ -80,24 +80,30 @@ jobs:
             *) echo "::error::iOS 26 SDK required (deployment target 26.0); runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
           esac
 
-      - name: Gate on libany tests
-        run: go test -count=1 ./cmd/libany/
+      - name: Gate on anyserver tests
+        run: go test -count=1 ./cmd/anyserver/
 
       - name: Build c-archive slices (device + simulator)
         # Both iOS slices use the identical go build — only the cgo CC wrapper
         # differs (device sysroot/triple vs the simulator's -simulator triple,
         # golang/go#57442). One function keeps the build flags in a single
         # place so the two slices can't drift apart.
+        #
+        # Tags `mobile fts`: `mobile` selects the iOS embedded build (pidlock
+        # no-op, swaggo-free openapi stub, vector/embedding off); `fts` turns
+        # on the BM25 full-text leg (capFTS=true) — see IOS-6169 tag
+        # reconciliation. Building without `fts` would ship an FTS-disabled
+        # archive, contradicting the Phase B caps contract.
         run: |
           build_slice() {
             name="$1"; cc="$2"
             echo "== building $name slice (CC=$cc) =="
             mkdir -p "build/$name/headers"
             CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/$cc" \
-              go build -tags mobile -buildmode=c-archive -ldflags "-s -w" \
-              -o "build/$name/libany.a" ./cmd/libany
-            cp "build/$name/libany.h" "build/$name/headers/libany.h"
-            cp cmd/libany/module.modulemap "build/$name/headers/module.modulemap"
+              go build -tags 'mobile fts' -buildmode=c-archive -ldflags "-s -w" \
+              -o "build/$name/anyserver.a" ./cmd/anyserver
+            cp "build/$name/anyserver.h" "build/$name/headers/anyserver.h"
+            cp cmd/anyserver/module.modulemap "build/$name/headers/module.modulemap"
           }
           build_slice device clangwrap-ios.sh
           build_slice sim    clangwrap-iossim.sh
@@ -106,8 +112,8 @@ jobs:
         run: |
           rm -rf any.xcframework
           xcodebuild -create-xcframework \
-            -library build/device/libany.a -headers build/device/headers \
-            -library build/sim/libany.a -headers build/sim/headers \
+            -library build/device/anyserver.a -headers build/device/headers \
+            -library build/sim/anyserver.a -headers build/sim/headers \
             -output any.xcframework
           # Keep the per-slice Info.plist (do not strip — spike 0.5).
           cat any.xcframework/Info.plist
@@ -139,7 +145,7 @@ jobs:
           files: any.xcframework.zip
           fail_on_unmatched_files: true
           body: |
-            `AnyServer` iOS xcframework — libany ${{ inputs.version }} (IOS-6169).
+            `AnyServer` iOS xcframework — anyserver ${{ inputs.version }} (IOS-6169).
 
             checksum (sha256): `${{ steps.package.outputs.checksum }}`
 

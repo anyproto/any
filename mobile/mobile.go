@@ -2,24 +2,14 @@
 
 // Package mobile is the gomobile bind surface for embedding the any HTTP
 // server inside an Android (or, in principle, iOS) process. Only basic
-// types cross the bridge — keep the surface flat.
+// types cross the bridge — keep the surface flat (top-level funcs,
+// string/error only). All lifecycle logic lives in internal/embedded; this
+// package is a thin host-idiom adapter over it so both mobile shims (this
+// gomobile one and the iOS c-archive) share one tested core (IOS-6169).
 package mobile
 
 import (
-	"context"
-	"errors"
-	"sync"
-
-	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/server"
-	"github.com/anyproto/any/internal/version"
-)
-
-var (
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan error
-	addr   string
+	"github.com/anyproto/any/internal/embedded"
 )
 
 // Start boots the any server. dataDir maps to Context.getFilesDir() on Android.
@@ -32,80 +22,39 @@ var (
 // wallet / SDK / listener setup (error). The error string is suitable for
 // surfacing to the host app — it carries the underlying Go error message.
 // Subsequent calls while a server is running return an error.
+//
+// The gomobile bind surface keeps the bound address out of the return tuple
+// (a flat `error`-only signature); read it back with Address(). The core's
+// index policy ("none" embedder, FTS off under gomobile) reduces to the same
+// runtime as before — no embedder is linked on the gomobile bind.
 func Start(dataDir, listenAddr, nodeconfYAML string) error {
-	mu.Lock()
-	defer mu.Unlock()
-	if cancel != nil {
-		return errors.New("any: server already running")
-	}
-	if nodeconfYAML == "" {
-		return errors.New("any: nodeconfYAML is required")
-	}
-
-	cfg := config.Defaults()
-	cfg.DataDir = dataDir
-	cfg.Listen.Addr = listenAddr
-	cfg.Network.Nodeconf = nodeconfYAML
-	// No search index on mobile: the bind compiles with neither the `fts`
-	// nor `vector` tag (makefiles/android.mk), so vector/embeds are
-	// force-off (no llama.cpp linked, no model download possible) and FTS
-	// isn't compiled in either. Disable it at runtime too so the dormant
-	// indexer never even starts. To turn on full-text search later: add
-	// `fts` to ANY_TAGS and flip this to true (docs/13-index.md § build
-	// tags).
-	cfg.Index.Enabled = false
-
-	ctx, c := context.WithCancel(context.Background())
-	ch := make(chan error, 1)
-	ready := make(chan string, 1)
-	go func() {
-		ch <- server.RunWith(ctx, cfg, server.RunOptions{
-			Ready: func(boundAddr string) { ready <- boundAddr },
-		})
-	}()
-
-	select {
-	case boundAddr := <-ready:
-		cancel = c
-		done = ch
-		addr = boundAddr
-		return nil
-	case err := <-ch:
-		c()
-		if err == nil {
-			err = errors.New("any: server exited without binding")
-		}
-		return err
-	}
+	_, err := embedded.Start(dataDir, listenAddr, nodeconfYAML)
+	return err
 }
 
 // Stop signals graceful shutdown and waits for the server goroutine to exit.
 // Safe to call when the server is not running.
 func Stop() error {
-	mu.Lock()
-	c, ch := cancel, done
-	cancel, done = nil, nil
-	addr = ""
-	mu.Unlock()
+	embedded.Stop(true)
+	return nil
+}
 
-	if c == nil {
-		return nil
-	}
-	c()
-	return <-ch
+// StopNow hard-stops the server and returns promptly without waiting for a
+// clean drain. Use it from a deadline-bounded teardown (e.g. an OS-imposed
+// background-task expiration). Safe to call when the server is not running.
+func StopNow() {
+	embedded.StopNow()
 }
 
 // Address returns the actually-bound listen address (host:port). Differs
 // from the listenAddr passed to Start when ":0" was used and the OS picked
 // a port. Empty when the server is not running.
 func Address() string {
-	mu.Lock()
-	defer mu.Unlock()
-	return addr
+	return embedded.Address()
 }
 
 // Version returns the build-stamped version string ("any <version> (commit
 // <sha>, built <ts>)").
 func Version() string {
-	return version.String()
+	return embedded.Version()
 }
