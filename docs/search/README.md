@@ -136,10 +136,41 @@ plus an in-test exact brute force) isolated the cause:
 - **HNSW ≈ exact**, at log(N) search cost (vs brute force's O(N)) — it
   recovers essentially all the loss. Exact vector (0.70) ≈ the model
   card modulo fp16/Q8 + formatting, so the model was never the problem.
-- **Decision: default `index.vector.mode` = HNSW (`btree`).** IVF-SQ stays
-  available for very large spaces (cheapest build / lowest RAM);
+- **Decision: default `index.vector.mode` = HNSW (`btree`).**
   `bruteforce` is exact for small spaces; `hybrid` adds a RAM cache for
-  latency. Existing indexes keep their mode until rebuilt.
+  latency; IVF-SQ stays available for very large spaces (see cost below).
+  Existing indexes keep their mode until rebuilt.
+
+### Index mode: cost at scale (build / search / disk)
+
+Profiled with random dim-1024 vectors (`TestVectorModeProfile`,
+`ANY_VEC_BENCH=1`). Random vectors are geometry-valid for build/latency/
+disk but a **worst case for recall** (nearly equidistant in high dim — see
+the ~5% column), so real recall comes from BEIR (above / FiQA).
+
+| N | mode | build | search/query | disk | recall* |
+|---|---|---|---|---|---|
+| 50k | ivfsq | 12.2s | 1.9ms | — | — |
+| 50k | btree | 24.1s | 6.1ms | — | — |
+| 100k | ivfsq | 33s | 2.6ms | 1362 MB | 0.06* |
+| 100k | btree | 64s | 6.8ms | 1378 MB | 0.06* |
+| 100k | bruteforce | 0.2s | 237ms | 479 MB | 1.00 |
+| 200k | ivfsq | 91s | 3.8ms | 2716 MB | 0.04* |
+| 200k | btree | 152s | 7.4ms | 2756 MB | 0.04* |
+| 200k | bruteforce | 0.3s | 472ms | 918 MB | 1.00 |
+
+- **IVF-SQ's only real edge is speed: ~2× faster build and ~2× faster
+  search** — but both ANN modes search in <10ms; brute force (237–472ms)
+  is unusable past a few thousand docs.
+- **IVF-SQ gives ~no disk advantage** (1362 vs 1378 MB): the base
+  collection stores full float32 vectors regardless of mode; SQ only
+  compresses the index portion, which is small next to the vectors.
+  (Brute force is ~half the size — it stores no index.)
+- **Build is super-linear** for both (HNSW 64s→152s for 2× data). At our
+  scale (≤ low tens of thousands) the HNSW build penalty is seconds and
+  hides behind embedding; IVF only becomes worth its lower recall at
+  *very* large N (hundreds of thousands–millions) where HNSW build time
+  dominates. Disk/RAM is not a deciding factor either way here.
 
 ### Vector similarity floor — measured, kept at 0
 
@@ -157,23 +188,50 @@ absolute cosine cutoff separates signal from noise. `minVectorSim`
 defaults to **0**; rely on RRF + FTS for discrimination. The lever
 remains for better-calibrated embedders.
 
+### Embedder availability & throughput
+
+The local CPU model embeds at ~76 texts/s — the pipeline's bottleneck by
+orders of magnitude (any vector index inserts at thousands/s). Two
+mechanisms address this (`docs/05-config.md`):
+
+- **`embedder: auto`** — prefer an online OpenAI-compatible API (fast),
+  fall back to the always-downloaded local model on an outage, via a
+  circuit breaker (skip the primary for a cooldown after repeated
+  failures). So vector search stays fresh during an outage instead of
+  pausing on `pending`. **Hard constraint:** primary and fallback must be
+  the *same model* (one vector space / dim) — e.g. Qwen3-Embedding-0.6B
+  online (fp16) + local (Q8); quantization drift is negligible.
+- **Parallel embed loop** (`index.embedConcurrency`) — embed several
+  batches per round in parallel. The win is online (parallel HTTP
+  requests); the local model serializes internally on its mutex, so
+  concurrency is safe regardless of backend. Default 1 for local, 4 for
+  online (`openai`/`auto`). In the BEIR harness this took SciFact (5183
+  docs) from ~35 min (serial local) to ~30s embedding.
+
 ## Decisions / defaults
 
 | Knob | Default | Why |
 |---|---|---|
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
-| `vector.mode` | HNSW (`btree`) | recall ≈ exact; +3 recall@10 vs IVF-SQ |
+| `vector.mode` | HNSW (`btree`) | recall ≈ exact; +3 recall@10 vs IVF-SQ; cost edge of IVF is only ~2× build/search, no disk win |
 | memory indexing | per-record, scope `agent` | independently filterable; cheap incremental |
 | `ftsWeight` / `vectorWeight` | 1 / 1 | optimal on BEIR; tilting hurts |
 | `stopWords` | on | helps conversational, neutral on BEIR |
 | `minVectorSim` | 0 | static floor can't separate signal/noise for the local model |
+| `embedConcurrency` | 1 local / 4 online | parallel batches are the online throughput win; local serializes |
+| `embedder: auto` | (opt-in) | online speed + local fallback, same model |
 
 ## Open items / follow-ups
 
 - ~~Vector under-performs the model card~~ **RESOLVED** — was the IVF-SQ
   approximate index; switched the default to HNSW (recall ≈ exact, see
-  above). Possible follow-up: an HNSW build-time/RAM check on a very large
-  space to confirm IVF-SQ stays the right opt-in there.
+  above). At-scale cost profiled (100k/200k): HNSW build is ~2× IVF and
+  super-linear, with ~no disk difference — IVF only pays off at very large
+  N where build time dominates.
+- **Large real-data recall (in progress)** — confirming HNSW keeps its
+  recall edge over IVF on a bigger real corpus (BEIR FiQA, 57k); SciFact
+  (5k) showed +3 recall@10, random-vector recall is a worst case. Results
+  to be folded in here.
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them
