@@ -3202,6 +3202,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorEnvelope"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -4772,7 +4778,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "xKey": {
-                    "description": "XKey is an optional stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). Display-metadata, like Name — not enforced unique.\nWhen omitted, clients typically derive one from Name.",
+                    "description": "XKey is the stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). REQUIRED on create and unique per space: the\nserver rejects an empty xKey (type.xkey_required) and one that\ncollides with an existing type's xKey or id (type.xkey_conflict).\nClients derive it as a slug of Name. It's the only human handle a\ntype resolves by — the display Name is not a resolution key.",
                     "type": "string"
                 }
             }

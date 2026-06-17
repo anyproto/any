@@ -954,9 +954,12 @@ definitions:
         type: string
       xKey:
         description: |-
-          XKey is an optional stable, caller-side programmatic key for the type
-          (e.g. "agent_memory"). Display-metadata, like Name — not enforced unique.
-          When omitted, clients typically derive one from Name.
+          XKey is the stable, caller-side programmatic key for the type
+          (e.g. "agent_memory"). REQUIRED on create and unique per space: the
+          server rejects an empty xKey (type.xkey_required) and one that
+          collides with an existing type's xKey or id (type.xkey_conflict).
+          Clients derive it as a slug of Name. It's the only human handle a
+          type resolves by — the display Name is not a resolution key.
         type: string
     type: object
   api.TypesCreateResponse:
@@ -2978,6 +2981,10 @@ paths:
             $ref: '#/definitions/api.TypesCreateResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
         "500":
