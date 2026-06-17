@@ -65,6 +65,9 @@ index:
   embedder: local                     # local (default) | ollama | openai |
                                       # auto (online openai primary + local fallback,
                                       #   SAME model both sides) | none (FTS-only)
+  embedBatch: 64                      # docs per embed request (0 = default 64)
+  embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
+                                      # 4 for online openai/auto (parallel = the API win)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
@@ -114,7 +117,9 @@ ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
 
 ANY_INDEX_ENABLED=false               # index.enabled
-ANY_INDEX_EMBEDDER=ollama             # index.embedder
+ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)
+ANY_INDEX_EMBED_BATCH=64              # index.embedBatch
+ANY_INDEX_EMBED_CONCURRENCY=8        # index.embedConcurrency (parallel batches; online)
 ANY_INDEX_OLLAMA_URL=http://localhost:11434
 ANY_INDEX_OLLAMA_MODEL=embeddinggemma
 ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1

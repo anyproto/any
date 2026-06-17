@@ -34,6 +34,11 @@ type Options struct {
 	// throughput there (76.5 texts/s vs 78.6 at 128) at half the
 	// per-call latency; vector insert (~30k vecs/s) never bottlenecks.
 	EmbedBatch int
+	// EmbedConcurrency is how many EmbedBatch chunks the embed loop embeds
+	// in parallel per round. Default 1 (sequential — right for the local
+	// model, which serializes internally). Raise it for an online API
+	// (openai/auto) where parallel requests are the throughput win.
+	EmbedConcurrency int
 	// Debounce delays an advance after a dirty signal so write bursts
 	// coalesce into one page (and fuller embed batches). Default 250ms —
 	// a no-op advance is sub-ms, so this dial trades only freshness.
@@ -65,6 +70,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.EmbedBatch <= 0 {
 		o.EmbedBatch = 64
+	}
+	if o.EmbedConcurrency <= 0 {
+		o.EmbedConcurrency = 1
 	}
 	if o.Debounce <= 0 {
 		o.Debounce = 250 * time.Millisecond

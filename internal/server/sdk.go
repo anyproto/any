@@ -145,11 +145,20 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if cfg.Search.StopWords != nil {
 		stopWords = *cfg.Search.StopWords
 	}
+	// Default embed concurrency: parallelize for an online API (the
+	// throughput win), stay sequential for the local model (it serializes
+	// internally, so parallelism only adds goroutines).
+	embedConc := cfg.EmbedConcurrency
+	if embedConc == 0 && (cfg.Embedder == "openai" || cfg.Embedder == "auto") {
+		embedConc = 4
+	}
 	return indexer.New(sdk, chunkers, st, indexer.Options{
-		Embedder:     emb,
-		FtsWeight:    cfg.Search.FtsWeight,
-		VectorWeight: cfg.Search.VectorWeight,
-		MinVectorSim: cfg.Search.MinVectorSim,
-		StopWords:    stopWords,
+		Embedder:         emb,
+		EmbedBatch:       cfg.EmbedBatch,
+		EmbedConcurrency: embedConc,
+		FtsWeight:        cfg.Search.FtsWeight,
+		VectorWeight:     cfg.Search.VectorWeight,
+		MinVectorSim:     cfg.Search.MinVectorSim,
+		StopWords:        stopWords,
 	}), nil
 }

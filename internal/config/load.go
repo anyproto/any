@@ -86,6 +86,16 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_EMBEDDER"); v != "" {
 		cfg.Index.Embedder = v
 	}
+	if v := os.Getenv("ANY_INDEX_EMBED_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.EmbedBatch = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_EMBED_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.EmbedConcurrency = n
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_OLLAMA_URL"); v != "" {
 		cfg.Index.Ollama.Url = v
 	}

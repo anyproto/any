@@ -13,13 +13,13 @@ type Config struct {
 	// Account selects which account to boot when the root holds more
 	// than one. Empty = the default (root wallet.key, or the sole
 	// per-account dir).
-	Account string  `yaml:"account"`
-	Listen  Listen  `yaml:"listen"`
-	Auth    Auth    `yaml:"auth"`
-	Network Network `yaml:"network"`
-	Storage Storage `yaml:"storage"`
-	Sync    Sync    `yaml:"sync"`
-	Index   Index   `yaml:"index"`
+	Account string        `yaml:"account"`
+	Listen  Listen        `yaml:"listen"`
+	Auth    Auth          `yaml:"auth"`
+	Network Network       `yaml:"network"`
+	Storage Storage       `yaml:"storage"`
+	Sync    Sync          `yaml:"sync"`
+	Index   Index         `yaml:"index"`
 	Log     logger.Config `yaml:"log"`
 }
 
@@ -57,12 +57,20 @@ type Index struct {
 	// (any OpenAI-compatible /embeddings API), "auto" (online openai
 	// primary with local fallback — both must be the SAME model), or
 	// "none" (FTS-only). Empty means unset and resolves to the default.
-	Embedder string      `yaml:"embedder"`
-	Ollama   IndexOllama `yaml:"ollama"`
-	OpenAI   IndexOpenAI `yaml:"openai"`
-	Local    IndexLocal  `yaml:"local"`
-	Vector   IndexVector `yaml:"vector"`
-	Search   IndexSearch `yaml:"search"`
+	Embedder string `yaml:"embedder"`
+	// EmbedBatch / EmbedConcurrency tune the embed loop. EmbedBatch is
+	// docs per EmbedDocs call (0 = default 64). EmbedConcurrency is how
+	// many batches embed in parallel (0 = default: 1 for local, a few for
+	// online openai/auto — parallel requests are the online throughput
+	// win; the local model serializes internally so concurrency is safe
+	// but pointless). See docs/13-index.md.
+	EmbedBatch       int         `yaml:"embedBatch"`
+	EmbedConcurrency int         `yaml:"embedConcurrency"`
+	Ollama           IndexOllama `yaml:"ollama"`
+	OpenAI           IndexOpenAI `yaml:"openai"`
+	Local            IndexLocal  `yaml:"local"`
+	Vector           IndexVector `yaml:"vector"`
+	Search           IndexSearch `yaml:"search"`
 }
 
 // IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
