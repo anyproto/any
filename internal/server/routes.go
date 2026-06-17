@@ -80,6 +80,14 @@ func buildEcho(d *deps) *echo.Echo {
 	// per-space group.
 	v1.GET("/datasets", d.systemDatasets)
 
+	// Account-wide UI command channel: an in-memory broadcast from the
+	// agent to connected UI windows ("open this space/object"). Not
+	// space data — no :spaceId scope, no SDK/dataset backing, nothing
+	// stored. Sits outside the space group like sync-status/subscribe.
+	// See docs/15-ui-commands.md.
+	v1.POST("/ui/commands", d.uiCommandPublish)
+	v1.GET("/ui/commands/subscribe", d.uiCommandSubscribe)
+
 	registerUIRoutes(e)
 
 	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
