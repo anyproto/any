@@ -142,7 +142,7 @@ func TestE2E_FullFlow(t *testing.T) {
 		// against the real binary over loopback HTTP.
 		var typeResp map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types",
-			`{"name":"Movie","description":"A film"}`,
+			`{"name":"Movie","description":"A film","xKey":"movie"}`,
 			http.StatusCreated, &typeResp)
 		typeID, _ := typeResp["typeId"].(string)
 		if typeID == "" {

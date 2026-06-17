@@ -106,7 +106,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 
 	// --- Indexed properties: type with meta {"index":"agent"} flags ---
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
-		`{"name":"Memory","xKey":"agent_memory"}`)
+		`{"name":"Memory","xKey":"memory"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create memory type: %d %s", rec.Code, rec.Body.String())
 	}

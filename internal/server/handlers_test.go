@@ -98,7 +98,7 @@ func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objec
 	spaceId = sp.Id
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
-		`{"name":"Movie","description":"film"}`)
+		`{"name":"Movie","description":"film","xKey":"movie"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
 	}

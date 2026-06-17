@@ -280,7 +280,7 @@ func TestE2E_MultipeerCRDTConvergence(t *testing.T) {
 
 	var typeResp map[string]any
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/types",
-		`{"name":"Movie"}`, http.StatusCreated, &typeResp)
+		`{"name":"Movie","xKey":"movie"}`, http.StatusCreated, &typeResp)
 	typeID, _ := typeResp["typeId"].(string)
 	if typeID == "" {
 		t.Fatalf("typeId empty: %+v", typeResp)

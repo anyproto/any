@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -176,12 +177,30 @@ func createType(t *testing.T, base, spaceID, name string) string {
 	t.Helper()
 	var resp map[string]any
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types",
-		fmt.Sprintf(`{"name":%q}`, name), http.StatusCreated, &resp)
+		fmt.Sprintf(`{"name":%q,"xKey":%q}`, name, slugXKey(name)), http.StatusCreated, &resp)
 	id, _ := resp["typeId"].(string)
 	if id == "" {
 		t.Fatalf("createType %q: typeId empty: %+v", name, resp)
 	}
 	return id
+}
+
+// slugXKey lowercases a type name into a snake_case xKey — enough for
+// tests to satisfy the server's required-xKey rule (handlers_types.go).
+func slugXKey(name string) string {
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevUnderscore = false
+		case !prevUnderscore && b.Len() > 0:
+			b.WriteByte('_')
+			prevUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func addProperty(t *testing.T, base, spaceID, typeID, name, kind string) string {
