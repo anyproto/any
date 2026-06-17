@@ -137,6 +137,12 @@ type IndexLocal struct {
 type IndexVector struct {
 	// Dim is the embedding dimension; 0 = probe the embedder at boot.
 	Dim int `yaml:"dim"`
+	// Mode selects the ANN index strategy: "" / "btree" / "hnsw"
+	// (default — HNSW, recall ≈ exact), "hybrid" (HNSW + RAM cache),
+	// "bruteforce" (exact, O(N) per query), or "ivfsq" (approximate,
+	// cheapest build / lowest RAM — for very large spaces).
+	// docs/search/README.md § index mode.
+	Mode string `yaml:"mode"`
 }
 
 // Defaults returns a Config populated with v1 defaults. Paths here are

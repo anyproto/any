@@ -117,8 +117,29 @@ Hybrid knob sweep: no-stopwords `0.6944` ≈ stopwords `0.6945`; fts×1.5
   conversational queries and don't hurt here, so they stay on.
 - **FTS ≈ reference BM25** (published SciFact BM25 ~0.665) — the lexical
   leg is implemented correctly.
-- **Vector 0.677 < the model card's ~0.74** — likely IVF-SQ approximate
-  ANN (vs exact), fp16/Q8, and doc-side formatting. See Open items.
+- **The vector gap was the approximate index, not the model** — see below.
+
+### Index mode: HNSW vs IVF-SQ vs exact (the vector-recall fix)
+
+The vector leg first measured below the model card (~0.74). Comparing ANN
+strategies on the same SciFact set + vectors (`ANY_INDEX_VECTOR_MODE`,
+plus an in-test exact brute force) isolated the cause:
+
+| index mode | vector nDCG@10 | vector recall@10 | hybrid nDCG@10 | hybrid recall@10 |
+|---|---|---|---|---|
+| IVF-SQ (old default) | 0.681 | 0.801 | 0.700 | 0.834 |
+| **HNSW / btree (new default)** | **0.703** | **0.837** | **0.724** | **0.855** |
+| brute force (exact) | 0.701 | 0.831 | 0.723 | 0.855 |
+
+- **IVF-SQ was leaving ~3 recall@10 points (and ~2 nDCG) on the table** —
+  its default NProbe (16) scans only ~12% of cells on this corpus.
+- **HNSW ≈ exact**, at log(N) search cost (vs brute force's O(N)) — it
+  recovers essentially all the loss. Exact vector (0.70) ≈ the model
+  card modulo fp16/Q8 + formatting, so the model was never the problem.
+- **Decision: default `index.vector.mode` = HNSW (`btree`).** IVF-SQ stays
+  available for very large spaces (cheapest build / lowest RAM);
+  `bruteforce` is exact for small spaces; `hybrid` adds a RAM cache for
+  latency. Existing indexes keep their mode until rebuilt.
 
 ### Vector similarity floor — measured, kept at 0
 
@@ -141,6 +162,7 @@ remains for better-calibrated embedders.
 | Knob | Default | Why |
 |---|---|---|
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
+| `vector.mode` | HNSW (`btree`) | recall ≈ exact; +3 recall@10 vs IVF-SQ |
 | memory indexing | per-record, scope `agent` | independently filterable; cheap incremental |
 | `ftsWeight` / `vectorWeight` | 1 / 1 | optimal on BEIR; tilting hurts |
 | `stopWords` | on | helps conversational, neutral on BEIR |
@@ -148,10 +170,10 @@ remains for better-calibrated embedders.
 
 ## Open items / follow-ups
 
-- **Vector under-performs the model card** — compare exact vs IVF-SQ
-  recall on the same BEIR set and revisit query-time `nProbe`
-  (`../13-index.md` § upstream asks). Highest-leverage retrieval-quality
-  lead.
+- ~~Vector under-performs the model card~~ **RESOLVED** — was the IVF-SQ
+  approximate index; switched the default to HNSW (recall ≈ exact, see
+  above). Possible follow-up: an HNSW build-time/RAM check on a very large
+  space to confirm IVF-SQ stays the right opt-in there.
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them

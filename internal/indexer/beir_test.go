@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"math"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,14 +104,63 @@ func TestSearchEvalBEIR(t *testing.T) {
 
 	// Ingest once (doc embeds are the bulk cost); reuse the store across
 	// the per-mode and knob runs (only Options differ, not the data).
+	// docVecs are the full-precision (L2-normalized) doc vectors, kept for
+	// the exact-vs-IVF comparison below.
 	ix := newEvalIndexer(t, emb, Options{StopWords: true})
-	ingestBEIR(t, ix, emb, corpus)
+	docVecs := ingestBEIR(t, ix, emb, corpus)
 
 	t.Logf("=== %s: production knobs (stopwords on, RRF 1/1, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
 	t.Logf("%-8s  %7s  %7s  %7s", "mode", "ndcg", "recall", "mrr")
 	for _, mode := range []string{api.SearchModeFTS, api.SearchModeVector, api.SearchModeHybrid} {
 		m := eval(ix, mode)
 		t.Logf("%-8s  %7.4f  %7.4f  %7.4f", mode, m.ndcgAtK, m.recallAtK, m.mrr)
+	}
+
+	// Exact (brute-force cosine over full-precision vectors) vs the IVF-SQ
+	// approximate index — isolates how much recall the index costs. Gated
+	// (extra pass): ANY_BEIR_EXACT=1.
+	if envInt("ANY_BEIR_EXACT", 0) != 0 {
+		ix.opts = Options{StopWords: true}.withDefaults() // production knobs
+		ix.opts.Embedder = emb
+		const fetch = 30 // matches Search's over-fetch for limit=10
+		var sumV, sumH metrics
+		for _, qq := range qs {
+			qv, err := emb.EmbedQuery(ctx, qq.text)
+			if err != nil {
+				t.Fatalf("embed query %q: %v", qq.id, err)
+			}
+			exact := cosineTopK(l2norm(qv), docVecs, fetch)
+			mv := evalOne(exact[:min(k, len(exact))], qq.rel, k)
+			// Exact-hybrid: fuse the FTS leg with the exact vector leg.
+			ftsResp, err := ix.Search(ctx, beirSpace, api.SearchRequest{Query: qq.text, Mode: api.SearchModeFTS, Limit: fetch})
+			if err != nil {
+				t.Fatalf("fts %q: %v", qq.id, err)
+			}
+			var ftsIDs []string
+			seen := map[string]bool{}
+			for _, h := range ftsResp.Hits {
+				if !seen[h.RecordId] {
+					seen[h.RecordId] = true
+					ftsIDs = append(ftsIDs, h.RecordId)
+				}
+			}
+			fused := fuseRRF([][]Hit{beirHits(ftsIDs), beirHits(exact)}, nil, k)
+			var hIDs []string
+			for _, h := range fused {
+				hIDs = append(hIDs, h.RecordId)
+			}
+			mh := evalOne(hIDs, qq.rel, k)
+			sumV.recallAtK += mv.recallAtK
+			sumV.mrr += mv.mrr
+			sumV.ndcgAtK += mv.ndcgAtK
+			sumH.recallAtK += mh.recallAtK
+			sumH.mrr += mh.mrr
+			sumH.ndcgAtK += mh.ndcgAtK
+		}
+		n := float64(len(qs))
+		t.Logf("=== %s: EXACT (brute-force) vs IVF — nDCG@%d / recall@%d / MRR ===", name, k, k)
+		t.Logf("%-16s  %7.4f  %7.4f  %7.4f", "exact vector", sumV.ndcgAtK/n, sumV.recallAtK/n, sumV.mrr/n)
+		t.Logf("%-16s  %7.4f  %7.4f  %7.4f", "exact hybrid", sumH.ndcgAtK/n, sumH.recallAtK/n, sumH.mrr/n)
 	}
 
 	// Knob sweep (hybrid). Rebuild the indexer per knob set so Options
@@ -142,7 +193,14 @@ type beirDoc struct {
 	text string
 }
 
-func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) {
+type vecDoc struct {
+	id  string
+	vec []float32 // L2-normalized
+}
+
+// ingestBEIR embeds + indexes the corpus and returns the full-precision
+// (L2-normalized) doc vectors for the exact-vs-IVF comparison.
+func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) []vecDoc {
 	t.Helper()
 	ctx := context.Background()
 	batchSize := envInt("ANY_BEIR_EMBED_BATCH", 64)
@@ -197,17 +255,20 @@ func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) {
 
 	// Apply sequentially (store writes are serial); order is irrelevant to
 	// correctness since ids are unique per doc.
+	out := make([]vecDoc, len(corpus))
 	for bi, b := range batches {
 		vecs := vecsByBatch[bi]
 		ups := make([]DocUpsert, len(b.texts))
 		for j := range b.texts {
+			idx := b.start + j
 			ups[j] = DocUpsert{
 				Entry: index.IndexEntry{
 					Scope: index.ScopeBasic, ObjectId: beirSpace, Dataset: beirSpace,
-					RecordId: corpus[b.start+j].id, Data: corpus[b.start+j].text,
+					RecordId: corpus[idx].id, Data: corpus[idx].text,
 				},
-				Vector: vecs[j],
+				Vector: vecs[j], // store normalizes internally for cosine
 			}
+			out[idx] = vecDoc{id: corpus[idx].id, vec: l2norm(vecs[j])}
 		}
 		if err := ix.store.Apply(ctx, beirSpace, ups, nil, nil); err != nil {
 			t.Fatalf("apply [%d:]: %v", b.start, err)
@@ -216,6 +277,56 @@ func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) {
 	if ok, err := ix.store.EnsureVectorIndex(ctx, beirSpace); err != nil || !ok {
 		t.Fatalf("ensure vector index: %v (ok=%v)", err, ok)
 	}
+	return out
+}
+
+// l2norm returns a unit-length copy of v (cosine == dot of normalized).
+func l2norm(v []float32) []float32 {
+	var s float64
+	for _, x := range v {
+		s += float64(x) * float64(x)
+	}
+	if s == 0 {
+		return v
+	}
+	inv := float32(1 / math.Sqrt(s))
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = x * inv
+	}
+	return out
+}
+
+// cosineTopK returns the top-n doc ids by cosine to the (normalized) query
+// — exact brute force, the ground truth the IVF index approximates.
+func cosineTopK(qn []float32, docs []vecDoc, n int) []string {
+	type sc struct {
+		id string
+		s  float32
+	}
+	scored := make([]sc, len(docs))
+	for i, d := range docs {
+		var dot float32
+		for k := range qn {
+			dot += qn[k] * d.vec[k]
+		}
+		scored[i] = sc{d.id, dot}
+	}
+	sort.Slice(scored, func(i, j int) bool { return scored[i].s > scored[j].s })
+	m := min(n, len(scored))
+	out := make([]string, m)
+	for i := 0; i < m; i++ {
+		out[i] = scored[i].id
+	}
+	return out
+}
+
+func beirHits(ids []string) []Hit {
+	h := make([]Hit, len(ids))
+	for i, id := range ids {
+		h[i] = Hit{Dataset: beirSpace, RecordId: id}
+	}
+	return h
 }
 
 // cachingEmbedder memoizes EmbedQuery (queries repeat across modes/knobs);

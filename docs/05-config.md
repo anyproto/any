@@ -82,6 +82,9 @@ index:
     threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
+    mode: btree                       # ANN index: btree/hnsw (default, recall≈exact) |
+                                      # hybrid (HNSW+RAM) | bruteforce (exact, O(N)) |
+                                      # ivfsq (approximate, cheapest build — large spaces)
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
     ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
@@ -116,6 +119,7 @@ ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
 ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
 ANY_INDEX_OPENAI_API_KEY=sk-...
 ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
+ANY_INDEX_VECTOR_MODE=btree           # index.vector.mode (btree|hybrid|bruteforce|ivfsq)
 ANY_INDEX_SEARCH_STOP_WORDS=true      # index.search.stopWords
 ANY_INDEX_SEARCH_FTS_WEIGHT=1.0       # index.search.ftsWeight
 ANY_INDEX_SEARCH_VECTOR_WEIGHT=0.5    # index.search.vectorWeight

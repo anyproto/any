@@ -136,6 +136,9 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Vector.Dim = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_VECTOR_MODE"); v != "" {
+		cfg.Index.Vector.Mode = v
+	}
 	if v := os.Getenv("ANY_INDEX_SEARCH_FTS_WEIGHT"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Index.Search.FtsWeight = f

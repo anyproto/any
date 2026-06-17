@@ -48,11 +48,19 @@ type Store struct {
 	// freezes the vector pipeline without losing work.
 	markPending bool
 
+	// vectorMode selects the ANN index strategy (see vectorIndexParams);
+	// "" resolves to the default. Set once at boot, before any search.
+	vectorMode string
+
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
 	hasVec map[string]bool // spaceId → vector index exists
 }
+
+// SetVectorMode picks the ANN index strategy for indexes created after the
+// call (existing indexes keep their mode until rebuilt). Empty = default.
+func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
 
 // Hit is one search result row. Score semantics depend on the leg: BM25
 // score (higher = better) for FTS, RRF score after fusion; the vector
@@ -245,17 +253,52 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	return coll, nil
 }
 
-// EnsureVectorIndex creates the space's IVF-SQ vector index once at
-// least one embedded doc exists to train from (IVF builds its
-// quantizers from existing documents — creating it empty is an error).
-// Returns whether the index exists after the call. Idempotent and
-// cheap once created (cached).
-//
-// IVF-SQ over HNSW: cold sync bulk-inserts whole spaces, where IVF
-// inserts are cell-assign + code append instead of graph construction;
-// RAM stays at centroids; recall beats IVF-PQ with no PQ training.
-// CompactRatio bounds centroid drift (auto re-train as the space grows
-// past the initial training set).
+// vectorIndexParams resolves the ANN index strategy. The mode comes from
+// ANY_INDEX_VECTOR_MODE (test/ops override) else the configured
+// s.vectorMode else the default "btree":
+//   - "btree"/"hnsw" (DEFAULT) — HNSW graph in the btree; recall ≈ exact,
+//     log(N) search, query-time ef tunable. Measured on BEIR SciFact it
+//     recovers ~3 pts recall@10 the old IVF-SQ default lost
+//     (docs/search/README.md).
+//   - "hybrid" — HNSW + a RAM layer-0 cache (faster search, more RAM).
+//   - "bruteforce"/"exact" — no index, exact scan; best recall but O(N)
+//     per query (fine for small spaces).
+//   - "ivfsq" — IVF + scalar quant; cheapest bulk build / lowest RAM, but
+//     approximate (lower recall). Prefer for very large spaces.
+func (s *Store) vectorIndexParams(dim int) *anystore.VectorParams {
+	mode := os.Getenv("ANY_INDEX_VECTOR_MODE")
+	if mode == "" {
+		mode = s.vectorMode
+	}
+	p := &anystore.VectorParams{
+		Field:        "vector",
+		Dim:          dim,
+		Metric:       anystore.VectorCosine,
+		CompactRatio: 0.5,
+	}
+	switch mode {
+	case "hybrid":
+		p.Mode = anystore.VectorModeHybrid
+		p.HybridCacheVectors = true
+	case "bruteforce", "exact":
+		p.Mode = anystore.VectorModeBruteForce
+		p.CompactRatio = 0 // ignored for brute force
+	case "ivfsq":
+		p.Mode = anystore.VectorModeIVFSQ
+	default: // "", "btree", "hnsw"
+		p.Mode = anystore.VectorModeBTree
+	}
+	return p
+}
+
+// EnsureVectorIndex creates the space's vector index once at least one
+// embedded doc exists (the IVF-SQ mode trains quantizers from existing
+// docs, so it can't be created empty; the default HNSW mode also waits so
+// the first build sees real data). Returns whether the index exists after
+// the call. Idempotent and cheap once created (cached). The strategy is
+// chosen by vectorIndexParams — default HNSW (recall ≈ exact); IVF-SQ is
+// opt-in for very large spaces where bulk-build cost / RAM dominate
+// (docs/search/README.md § index mode).
 func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
 	if !capVector {
 		return false, nil
@@ -291,15 +334,9 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 		return false, nil // nothing to train from yet
 	}
 	err = coll.EnsureIndex(ctx, anystore.IndexInfo{
-		Name: "vec",
-		Kind: anystore.IndexKindVector,
-		Vector: &anystore.VectorParams{
-			Field:        "vector",
-			Dim:          dim,
-			Metric:       anystore.VectorCosine,
-			Mode:         anystore.VectorModeIVFSQ,
-			CompactRatio: 0.5,
-		},
+		Name:   "vec",
+		Kind:   anystore.IndexKindVector,
+		Vector: s.vectorIndexParams(dim),
 	})
 	if err != nil {
 		return false, fmt.Errorf("indexer: ensure vector index for %s: %w", spaceId, err)
