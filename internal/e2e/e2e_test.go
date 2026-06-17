@@ -187,6 +187,36 @@ func TestE2E_FullFlow(t *testing.T) {
 			t.Errorf("record[%s][%s] = %v, want Casablanca; full=%+v",
 				typeID, propID, typeNode[propID], record)
 		}
+
+		// Regression: nav is registered with the SDK (property-only type),
+		// so Types().List already surfaces it. The handler must NOT inject
+		// it a second time — clients reported getting "nav" twice. Assert
+		// generally that no type id appears more than once, and that nav
+		// (plus the just-created type) is present.
+		var typesList map[string]any
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID+"/types", "",
+			http.StatusOK, &typesList)
+		types, _ := typesList["types"].([]any)
+		counts := map[string]int{}
+		for _, ti := range types {
+			if m, ok := ti.(map[string]any); ok {
+				if id, _ := m["id"].(string); id != "" {
+					counts[id]++
+				}
+			}
+		}
+		for id, n := range counts {
+			if n != 1 {
+				t.Errorf("type %q appears %d times in /types, want exactly 1; full=%+v",
+					id, n, types)
+			}
+		}
+		if counts["nav"] == 0 {
+			t.Errorf("nav type missing from /types; full=%+v", types)
+		}
+		if counts[typeID] == 0 {
+			t.Errorf("created type %q missing from /types; full=%+v", typeID, types)
+		}
 	})
 
 	t.Run("GET /v1/spaces/:id", func(t *testing.T) {
