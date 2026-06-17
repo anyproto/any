@@ -77,15 +77,6 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
-10. **Space deletion / offloading (TEMPORARY list filter in place).**
-    `DELETE /v1/spaces/:id` is the SDK's soft-delete only — the row
-    stays in `Service.List` forever with `status:"deleted"`, never
-    offloaded, so a dev account quickly accumulates dozens of dead
-    rows. Workaround: `GET /v1/spaces` defaults to active-only
-    (`?status=all` opts back into the full list) — see the comment in
-    `handlers_spaces.go::spaceList`. **Remove this default filter once
-    the SDK can actually reclaim/offload deleted spaces** so the raw
-    list stays small on its own.
 9. **External semantic-search service (TODO — agent memory recall is
    non-functional until this exists).** The agent data layer
    (`docs/11-agent-memory.md`) deliberately stores no vectors; a
@@ -184,6 +175,22 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Real space deletion + local offload (`any-sync-sdk v0.0.12`)** —
+  `DELETE /v1/spaces/:id` (`Service.Delete`) replaced the old local-only
+  soft-delete with an offline-first deletion: synchronous local half
+  (synced `remoteStatus=deleted` tombstone + immediate offload — closes
+  watchers/Store, evicts the any-sync space, drops the per-space CRDT
+  collections and DB file, reclaims disk even offline) plus a deferred
+  network half (a background reconciler sends the signed
+  `coordinator.SpaceDelete`, owner-only, and offloads spaces the
+  coordinator reports gone). No `any`-side code change was needed — the
+  handler already called `Service.Delete` and the search indexer already
+  wipes per-space data on the `Subscribe` `Removed` stream
+  (`DropSpace`); this was a dependency bump (`v0.0.11` → `v0.0.12`,
+  any-store/v2 alpha.11 → alpha.14) plus the new `any space delete
+  <id> --yes` CLI and doc alignment. The tech-space row stays in
+  `Service.List` with `status:"deleted"` as a sticky tombstone, so the
+  `GET /v1/spaces` active-only default filter is retained by design.
 - **Aggregation pipelines (`/aggregate`)** — MongoDB-style pipelines
   over both query scopes: `POST /v1/spaces/:id/objects/aggregate`
   (objects collection) and `POST /v1/spaces/:id/aggregate` (per-object
@@ -234,7 +241,9 @@ pluggable embedders, parallel batched pipelines),
   `<dataDir>/sdk/`. Real handlers wired:
   - `GET /v1/account` (Id only — Metadata reserved, SDK does not expose it yet)
   - `POST /v1/spaces`, `GET /v1/spaces`, `GET /v1/spaces/:id`, `DELETE /v1/spaces/:id`
-    (delete is the SDK's soft-delete — row stays in List with `status:"deleted"`)
+    (real offline-first deletion as of `any-sync-sdk v0.0.12` — see the
+    Done entry; the row stays in List with `status:"deleted"` as a
+    sticky tombstone)
   All other `/v1/spaces/**` endpoints from `docs/03-api.md` are
   registered and short-circuit with `501 sdk.not_implemented`, including
   `PUT /v1/account/metadata`, `POST /v1/spaces/{join,derive,one-to-one}`,

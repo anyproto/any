@@ -66,6 +66,7 @@ any account set-metadata --name "..." [--description "..."] [--icon CID]
 ```
 any space get    <spaceId>                          # shipped
 any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
+any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
@@ -104,7 +105,6 @@ Planned (HTTP surface ships; no CLI subcommand yet):
 ```
 any space create --name "..."
 any space list
-any space delete <spaceId>
 any space join <invite>
 any space derive [--seed <hex>]
 any space one-to-one <otherIdentity>
@@ -112,6 +112,14 @@ any space one-to-one <otherIdentity>
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.
+
+`any space delete` wraps `DELETE /v1/spaces/:id` (`Service.Delete`). It
+is irreversible, so it refuses to run without `--yes`. Deletion is
+offline-first: the server writes the synced `deleted` tombstone and
+reclaims local storage immediately, then drives the signed coordinator
+delete in the background. The row stays in the space list with
+`status:"deleted"` (sticky tombstone), so a subsequent `any space query`
+still shows it.
 
 ### Objects (planned)
 
