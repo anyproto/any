@@ -155,14 +155,13 @@ func TestStartStopRestartNoLeak(t *testing.T) {
 	// Allow the runtime a moment to reap finished goroutines, then assert
 	// we did not accumulate per-cycle leaks. A small constant slack
 	// absorbs runtime/GC bookkeeping goroutines.
-	leaked := -1
+	var leaked int
 	for attempt := 0; attempt < 20; attempt++ {
 		time.Sleep(100 * time.Millisecond)
-		if n := runtime.NumGoroutine(); n <= baseline+2 {
+		leaked = runtime.NumGoroutine() - baseline
+		if leaked <= 2 {
 			leaked = 0
 			break
-		} else {
-			leaked = n - baseline
 		}
 	}
 	if leaked != 0 {
