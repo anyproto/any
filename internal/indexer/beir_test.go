@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -144,29 +145,72 @@ type beirDoc struct {
 func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) {
 	t.Helper()
 	ctx := context.Background()
-	const batch = 64
-	for i := 0; i < len(corpus); i += batch {
-		end := min(i+batch, len(corpus))
+	batchSize := envInt("ANY_BEIR_EMBED_BATCH", 64)
+	// Concurrency 1 (default) keeps the local llama path safe (one context,
+	// not thread-safe); set ANY_BEIR_EMBED_CONCURRENCY>1 for a remote
+	// OpenAI-compatible API (HTTP client is concurrency-safe) to fire many
+	// batches in parallel — the real speedup for a network embedder.
+	conc := max(1, envInt("ANY_BEIR_EMBED_CONCURRENCY", 1))
+
+	type batch struct {
+		start int
+		texts []string
+	}
+	var batches []batch
+	for i := 0; i < len(corpus); i += batchSize {
+		end := min(i+batchSize, len(corpus))
 		texts := make([]string, end-i)
 		for j := i; j < end; j++ {
 			texts[j-i] = corpus[j].text
 		}
-		vecs, err := emb.EmbedDocs(ctx, texts)
-		if err != nil {
-			t.Fatalf("embed docs [%d:%d]: %v", i, end, err)
-		}
-		ups := make([]DocUpsert, end-i)
-		for j := i; j < end; j++ {
-			ups[j-i] = DocUpsert{
+		batches = append(batches, batch{start: i, texts: texts})
+	}
+
+	vecsByBatch := make([][][]float32, len(batches))
+	var mu sync.Mutex
+	var firstErr error
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < conc; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for bi := range jobs {
+				v, err := emb.EmbedDocs(ctx, batches[bi].texts)
+				mu.Lock()
+				if err != nil && firstErr == nil {
+					firstErr = err
+				}
+				vecsByBatch[bi] = v
+				mu.Unlock()
+			}
+		}()
+	}
+	for bi := range batches {
+		jobs <- bi
+	}
+	close(jobs)
+	wg.Wait()
+	if firstErr != nil {
+		t.Fatalf("embed docs: %v", firstErr)
+	}
+
+	// Apply sequentially (store writes are serial); order is irrelevant to
+	// correctness since ids are unique per doc.
+	for bi, b := range batches {
+		vecs := vecsByBatch[bi]
+		ups := make([]DocUpsert, len(b.texts))
+		for j := range b.texts {
+			ups[j] = DocUpsert{
 				Entry: index.IndexEntry{
 					Scope: index.ScopeBasic, ObjectId: beirSpace, Dataset: beirSpace,
-					RecordId: corpus[j].id, Data: corpus[j].text,
+					RecordId: corpus[b.start+j].id, Data: corpus[b.start+j].text,
 				},
-				Vector: vecs[j-i],
+				Vector: vecs[j],
 			}
 		}
 		if err := ix.store.Apply(ctx, beirSpace, ups, nil, nil); err != nil {
-			t.Fatalf("apply [%d:%d]: %v", i, end, err)
+			t.Fatalf("apply [%d:]: %v", b.start, err)
 		}
 	}
 	if ok, err := ix.store.EnsureVectorIndex(ctx, beirSpace); err != nil || !ok {

@@ -398,7 +398,11 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 	}
 	cfg := config.Index{
 		Embedder: name,
-		OpenAI:   config.IndexOpenAI{Model: os.Getenv("ANY_EVAL_OPENAI_MODEL")},
+		OpenAI: config.IndexOpenAI{
+			BaseUrl: os.Getenv("ANY_EVAL_OPENAI_BASE_URL"), // e.g. https://api.deepinfra.com/v1/openai
+			Model:   os.Getenv("ANY_EVAL_OPENAI_MODEL"),    // e.g. Qwen/Qwen3-Embedding-0.6B
+			ApiKey:  os.Getenv("ANY_EVAL_OPENAI_API_KEY"),
+		},
 		Local: config.IndexLocal{
 			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
 			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
@@ -408,7 +412,23 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 	if err != nil || e == nil {
 		t.Fatalf("real embedder %q: %v", name, err)
 	}
+	// Instruction-tuned models (e5-instruct, bge) need a query-side
+	// instruction prefix to retrieve well; the OpenAI client sends raw
+	// text, so apply it here for the query leg only (docs stay raw).
+	if p := os.Getenv("ANY_EVAL_QUERY_PREFIX"); p != "" {
+		e = prefixQueryEmbedder{Embedder: e, prefix: p}
+	}
 	return name, e
+}
+
+// prefixQueryEmbedder prepends an instruction to EmbedQuery inputs only.
+type prefixQueryEmbedder struct {
+	Embedder
+	prefix string
+}
+
+func (p prefixQueryEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return p.Embedder.EmbedQuery(ctx, p.prefix+text)
 }
 
 func TestSearchEval(t *testing.T) {
