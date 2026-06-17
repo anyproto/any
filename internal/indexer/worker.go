@@ -226,14 +226,12 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			page.prefixDels = append(page.prefixDels, objectId+":"+ch.Dataset()+":")
 			continue
 		}
-		err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
-			if e.Data == "" {
-				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
-			} else {
-				page.ups = append(page.ups, DocUpsert{Entry: e})
-			}
-			return nil
-		})
+		var err error
+		if rc, ok := ch.(index.Reconciler); ok {
+			err = w.reconcile(ctx, rc, objectId, cursor, page)
+		} else {
+			err = w.streamChunks(ctx, ch, objectId, cursor, page)
+		}
 		if err != nil {
 			// The object may have been deleted between the row read and
 			// the dataset read (tree gone). Re-check before failing.
@@ -243,6 +241,89 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			}
 			return err
 		}
+	}
+	return nil
+}
+
+// reconcile runs a coalescing chunker (multi-record index unit, e.g.
+// editor windows) and diffs its full doc set against what is stored, by
+// content hash: vanished docs are deleted, new/changed docs upserted,
+// unchanged docs left alone — so their vectors survive and are not
+// re-embedded. This is what keeps an edit/append from re-embedding the
+// whole object (chunker-hybrid-search-report § 9.5).
+func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, objectId string, cursor uint64, page *pageOps) error {
+	entries, err := rc.Reconcile(ctx, w.sp, objectId, cursor)
+	if err != nil {
+		return err
+	}
+	stored, err := w.ix.store.DocHashes(ctx, w.sp.Id(), objectId+":"+rc.Dataset()+":")
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		id := docId(e.ObjectId, e.Dataset, e.RecordId)
+		seen[id] = true
+		if e.Data == "" {
+			page.dels = append(page.dels, id)
+			continue
+		}
+		if h, ok := stored[id]; ok && h == docHash(e.Data) {
+			continue // unchanged — keep the stored doc and its vector
+		}
+		page.ups = append(page.ups, DocUpsert{Entry: e})
+	}
+	for id := range stored {
+		if !seen[id] {
+			page.dels = append(page.dels, id) // vanished
+		}
+	}
+	return nil
+}
+
+// streamChunks runs a per-record chunker. On the cold cursor (0) nothing
+// is stored, so it applies entries blind. On an incremental advance it
+// hash-checks each re-streamed record and skips re-embedding ones whose
+// indexed text is unchanged — e.g. a memory item bumped only on
+// accessCount, or a chat message that got a reaction.
+func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, objectId string, cursor uint64, page *pageOps) error {
+	var entries []index.IndexEntry
+	if err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
+		entries = append(entries, e)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if cursor == 0 {
+		for _, e := range entries {
+			if e.Data == "" {
+				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
+			} else {
+				page.ups = append(page.ups, DocUpsert{Entry: e})
+			}
+		}
+		return nil
+	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Data != "" {
+			ids = append(ids, docId(e.ObjectId, e.Dataset, e.RecordId))
+		}
+	}
+	stored, err := w.ix.store.DocHashesByIds(ctx, w.sp.Id(), ids)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		id := docId(e.ObjectId, e.Dataset, e.RecordId)
+		if e.Data == "" {
+			page.dels = append(page.dels, id)
+			continue
+		}
+		if h, ok := stored[id]; ok && h == docHash(e.Data) {
+			continue // re-streamed but indexed text unchanged — keep vector
+		}
+		page.ups = append(page.ups, DocUpsert{Entry: e})
 	}
 	return nil
 }

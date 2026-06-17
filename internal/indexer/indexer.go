@@ -43,6 +43,20 @@ type Options struct {
 	// PendingEvery is the embed loop's catch-up/retry tick (the nudge
 	// channel covers the normal path). Default 1m.
 	PendingEvery time.Duration
+
+	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
+
+	// FtsWeight / VectorWeight scale each leg's RRF contribution in
+	// hybrid mode. Default 1 each (plain RRF).
+	FtsWeight    float64
+	VectorWeight float64
+	// MinVectorSim drops vector hits below this cosine similarity before
+	// fusion. Default 0 = the legacy "> 0" floor.
+	MinVectorSim float64
+	// StopWords strips a built-in stop list from the FTS-leg query (the
+	// vector leg always gets the full query). Default off in the zero
+	// Options; OpenIndexer turns it on unless config disables it.
+	StopWords bool
 }
 
 func (o Options) withDefaults() Options {
@@ -60,6 +74,12 @@ func (o Options) withDefaults() Options {
 	}
 	if o.PendingEvery <= 0 {
 		o.PendingEvery = time.Minute
+	}
+	if o.FtsWeight <= 0 {
+		o.FtsWeight = 1
+	}
+	if o.VectorWeight <= 0 {
+		o.VectorWeight = 1
 	}
 	return o
 }
@@ -280,7 +300,15 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	}
 
 	if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
-		ftsHits, err = ix.store.SearchFTS(ctx, spaceId, req.Query, req.Scopes, fetch)
+		// Stop-word stripping is FTS-only: on a bag-of-words OR engine a
+		// common word matches a huge fraction of docs and drags BM25
+		// toward length/frequency noise. The vector leg keeps the full
+		// query (below). chunker-hybrid-search-report § 5.6 / § 6.2.
+		ftsQuery := req.Query
+		if ix.opts.StopWords {
+			ftsQuery = stripStopWords(ftsQuery)
+		}
+		ftsHits, err = ix.store.SearchFTS(ctx, spaceId, ftsQuery, req.Scopes, fetch)
 		if err != nil {
 			return api.SearchResponse{}, err
 		}
@@ -301,7 +329,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				mode = api.SearchModeFTS
 				vectorStatus = api.VectorStatusUnavailable
 			} else {
-				vecHits, err = ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, fetch)
+				vecHits, err = ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, fetch, ix.opts.MinVectorSim)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
@@ -313,7 +341,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	var hits []Hit
 	switch mode {
 	case api.SearchModeHybrid:
-		hits = fuseRRF([][]Hit{ftsHits, vecHits}, limit)
+		hits = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ix.opts.FtsWeight, ix.opts.VectorWeight}, limit)
 	case api.SearchModeFTS:
 		hits = ftsHits
 	case api.SearchModeVector:

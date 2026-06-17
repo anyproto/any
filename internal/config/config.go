@@ -61,6 +61,29 @@ type Index struct {
 	OpenAI   IndexOpenAI `yaml:"openai"`
 	Local    IndexLocal  `yaml:"local"`
 	Vector   IndexVector `yaml:"vector"`
+	Search   IndexSearch `yaml:"search"`
+}
+
+// IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
+// § 5). All zero values pick safe defaults that reproduce pre-tuning
+// behavior, so an absent `index.search` block changes nothing.
+type IndexSearch struct {
+	// FtsWeight / VectorWeight scale each leg's reciprocal-rank-fusion
+	// contribution in hybrid mode. Default 1 each (plain RRF). Lowering
+	// VectorWeight trusts the lexical leg more — useful while the dense
+	// leg is noisy (short chunks, weak embedder).
+	FtsWeight    float64 `yaml:"ftsWeight"`
+	VectorWeight float64 `yaml:"vectorWeight"`
+	// MinVectorSim drops vector hits below this cosine similarity before
+	// fusion. Default 0 keeps the legacy floor (similarity must be > 0);
+	// raise it (e.g. 0.25–0.35, measured) to cut weak-but-positive
+	// neighbours that only pollute fusion when nothing real matched.
+	MinVectorSim float64 `yaml:"minVectorSim"`
+	// StopWords toggles query-side stop-word stripping for the FTS leg
+	// only (the vector leg always sees the full query). nil/absent = on
+	// (a precision win on a bag-of-words OR engine); set false to keep
+	// the raw query.
+	StopWords *bool `yaml:"stopWords"`
 }
 
 type IndexOllama struct {

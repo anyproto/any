@@ -81,6 +81,11 @@ index:
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
+  search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
+    stopWords: true                   # strip stop words from the FTS-leg query (default on)
+    ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
+    vectorWeight: 1                   # RRF weight for the dense leg (default 1)
+    minVectorSim: 0                   # cosine floor for vector hits; 0 = legacy ">0"
 
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
@@ -110,6 +115,10 @@ ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
 ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
 ANY_INDEX_OPENAI_API_KEY=sk-...
 ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
+ANY_INDEX_SEARCH_STOP_WORDS=true      # index.search.stopWords
+ANY_INDEX_SEARCH_FTS_WEIGHT=1.0       # index.search.ftsWeight
+ANY_INDEX_SEARCH_VECTOR_WEIGHT=0.5    # index.search.vectorWeight
+ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0.3   # index.search.minVectorSim
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
 ANY_INDEX_LOCAL_MODEL_SHA256=06507c...

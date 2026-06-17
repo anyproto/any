@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -21,10 +23,12 @@ import (
 const (
 	cursorsCollection = "cursors"
 	metaDocId         = "_meta"
-	// indexSchemaVersion is bumped on incompatible store-layout changes
-	// (v2: objectId:dataset:recordId primary keys). Mismatch = boot
-	// error advising removal; no migration — the index is derived state.
-	indexSchemaVersion = 2
+	// indexSchemaVersion is bumped on incompatible store-layout changes:
+	// v2 = objectId:dataset:recordId primary keys; v3 = editor_blocks
+	// indexed as coalesced windows (win_<anchor>) instead of one doc per
+	// block. Mismatch = boot error advising removal; no migration — the
+	// index is derived state (re-indexes on the next change).
+	indexSchemaVersion = 3
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -397,6 +401,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
 		doc.Set("data", arena.NewString(e.Data))
+		doc.Set("hash", arena.NewString(docHash(e.Data)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {
 		case up.Vector != nil:
@@ -418,6 +423,73 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 	return tx.Commit()
+}
+
+// docHash is the content hash stored alongside each index doc. The
+// indexer uses it to (a) diff a reconciled doc set against what is stored
+// — deleting vanished docs, upserting changed ones, leaving unchanged
+// ones (and their vectors) untouched — and (b) skip re-embedding a
+// per-record doc that re-streamed without its indexed text changing
+// (e.g. a memory item whose accessCount bumped, a chat message that got a
+// reaction). 64-bit FNV-1a, hex-encoded so it round-trips through
+// any-store as an exact string (no float-precision risk of a numeric).
+func docHash(data string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(data))
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+// DocHashes returns id→hash for every stored doc under the id prefix
+// (objectId:dataset:). The reconcile diff uses it to find vanished and
+// changed docs without trusting the chunker to enumerate deletions.
+func (s *Store) DocHashes(ctx context.Context, spaceId, idPrefix string) (map[string]string, error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	idRange := query.And{
+		query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, idPrefix)},
+		query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, prefixUpper(idPrefix))},
+	}
+	return collectHashes(ctx, coll, idRange)
+}
+
+// DocHashesByIds returns id→hash for the stored docs among the given ids
+// (missing ids are simply absent from the map). The per-record
+// incremental path uses it to detect records that re-streamed without an
+// indexed-text change.
+func (s *Store) DocHashesByIds(ctx context.Context, spaceId string, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	arena := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(ids))
+	for i, id := range ids {
+		vals[i] = arena.NewString(id)
+	}
+	return collectHashes(ctx, coll, query.Key{Path: idPath, Filter: query.NewInValue(vals...)})
+}
+
+func collectHashes(ctx context.Context, coll anystore.Collection, filter query.Filter) (map[string]string, error) {
+	iter, err := coll.Find(filter).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	out := map[string]string{}
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, err
+		}
+		v := doc.Value()
+		out[string(v.GetStringBytes("id"))] = string(v.GetStringBytes("hash"))
+	}
+	return out, iter.Err()
 }
 
 // DropSpace removes the space's collection and cursor (space deleted or
@@ -497,7 +569,11 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 // holds across legs. While the vector pipeline is frozen (dimension
 // never learned, or no embedded docs in the space yet) it returns no
 // hits rather than erroring — search degrades, never breaks.
-func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int) ([]Hit, error) {
+//
+// minSim is the cosine-similarity floor: hits at or below it are dropped.
+// The effective floor is max(minSim, smallest-positive) — a similarity
+// must always be > 0 (cosine distance < 1) to carry any signal.
+func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) ([]Hit, error) {
 	if !capVector || s.Dim() == 0 {
 		return nil, nil
 	}
@@ -533,10 +609,12 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 	// Noise floor: ANN always returns the k nearest, however far. Drop
 	// non-positive similarity (cosine distance >= 1 — orthogonal or
 	// worse): such hits carry no signal and only pollute fusion when
-	// nothing real matched.
+	// nothing real matched. minSim raises the floor above 0 when
+	// configured (chunker-hybrid-search-report § 5.3).
+	floor := max(0.0, minSim)
 	out := hits[:0]
 	for _, h := range hits {
-		if h.Score > 0 {
+		if h.Score > floor {
 			out = append(out, h)
 		}
 	}

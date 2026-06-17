@@ -98,13 +98,23 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 
 // NewIndexRegistry builds the chunker registry — one chunker per
 // indexed dataset, paralleling the Types list above. The indexer
-// (internal/indexer) drives it; datasets excluded from indexing
-// entirely (agent_debug_log, program, miniapp) have no chunker here.
+// (internal/indexer) drives it.
+//
+// Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
+// items, object properties (name / description / flagged values), and
+// PROGRAM DOCS (description + per-method docs). Deliberately NOT indexed:
+// program SOURCE (code, not knowledge), miniapp content, agent turns /
+// chunks, and agent_debug_log (diagnostic data) — none has a chunker.
+// agent_debug_log pages are further excluded from the property chunker so
+// their prompt-derived names never leak into search.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
-		index.NewPropChunker(),
+		agentmem.NewChunker(),
+		program.NewDescriptionChunker(),
+		program.NewMethodsChunker(),
+		index.NewPropChunker(agentdebug.TypeId),
 	)
 }
 
@@ -127,5 +137,18 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	return indexer.New(sdk, chunkers, st, indexer.Options{Embedder: emb}), nil
+	// Stop-word stripping defaults on (a precision win on the bag-of-words
+	// FTS engine); config may disable it. Weights/floor default to
+	// pre-tuning behavior via Options.withDefaults.
+	stopWords := true
+	if cfg.Search.StopWords != nil {
+		stopWords = *cfg.Search.StopWords
+	}
+	return indexer.New(sdk, chunkers, st, indexer.Options{
+		Embedder:     emb,
+		FtsWeight:    cfg.Search.FtsWeight,
+		VectorWeight: cfg.Search.VectorWeight,
+		MinVectorSim: cfg.Search.MinVectorSim,
+		StopWords:    stopWords,
+	}), nil
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -216,6 +217,133 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "detachable", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
 	if len(res.Hits) != 1 || res.Hits[0].RecordId != msg3.RecordIds[0] {
 		t.Fatalf("post-reattach hits = %v, want only the new message", hitRecordIds(res))
+	}
+}
+
+// TestIndexer_EditorCoalescing: a multi-block editor doc indexes as ONE
+// coalesced window (not one doc per block), so a query spanning terms from
+// different blocks returns a single window hit; deleting the anchor block
+// re-anchors the window without leaving an orphan.
+func TestIndexer_EditorCoalescing(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "EditorCoalescing")
+	edObj := mustCreateObject(t, e, spaceId, `{}`)
+	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/blocks"
+
+	head := mustModify(t, e, http.MethodPost, base,
+		`{"type":"heading","text":"sourdough guide","style":{"level":1}}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"paragraph","text":"feed the starter daily"}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"paragraph","text":"it should double in size"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	// Terms from the heading AND both paragraphs resolve to ONE window —
+	// per-block indexing would have returned up to three separate docs.
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "sourdough starter double", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 1 {
+		t.Fatalf("coalesced window: hits = %v, want exactly 1", hitRecordIds(res))
+	}
+	h := res.Hits[0]
+	if h.ObjectId != edObj || h.Scope != "basic" || h.RecordId != "win_"+head.RecordIds[0] {
+		t.Fatalf("window hit shape wrong: %+v", h)
+	}
+	if h.Data == "" || !contains(h.Data, "feed the starter") || !contains(h.Data, "double in size") {
+		t.Fatalf("window data should concatenate member blocks: %q", h.Data)
+	}
+
+	// Delete the anchor (heading) block: the window re-anchors on the next
+	// block and the old win_<heading> doc is gone (no orphan).
+	doJSONExpect(t, e, http.MethodDelete,
+		"/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/blocks/"+head.RecordIds[0], http.StatusOK)
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "starter double", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 1 {
+		t.Fatalf("after anchor delete: hits = %v, want 1 re-anchored window", hitRecordIds(res))
+	}
+	if res.Hits[0].RecordId == "win_"+head.RecordIds[0] {
+		t.Errorf("stale anchor window survived: %+v", res.Hits[0])
+	}
+	// The deleted heading text no longer matches.
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "guide", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Fatalf("deleted heading text still matches: %v", hitRecordIds(res))
+	}
+}
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+// TestIndexer_EditorReconcileEmbedReuse: appending a new section to an
+// editor doc re-embeds only the NEW window — the reconcile diff keeps the
+// unchanged windows (and their vectors) instead of re-embedding the whole
+// document (the embed-preserving reconcile, chunker-hybrid-search-report
+// § 9.5 follow-up).
+func TestIndexer_EditorReconcileEmbedReuse(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+
+	emb := &countingEmbedder{fakeEmbedder: fakeEmbedder{dim: 16}}
+	st, err := indexer.OpenStoreInMemory(ctx, emb.dim, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{Embedder: emb})
+	d.indexer = ix
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "EditorEmbedReuse")
+	edObj := mustCreateObject(t, e, spaceId, `{}`)
+	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/blocks"
+
+	// Two heading sections → two windows.
+	mustModify(t, e, http.MethodPost, base, `{"type":"heading","text":"alpha","style":{"level":1}}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"paragraph","text":"first section body"}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"heading","text":"beta","style":{"level":1}}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"paragraph","text":"second section body"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	afterTwo := emb.docs.Load()
+	if afterTwo != 2 {
+		t.Fatalf("expected 2 windows embedded, got %d", afterTwo)
+	}
+
+	// Append a third section → exactly ONE new window embedded; the two
+	// existing windows keep their vectors (not re-embedded).
+	mustModify(t, e, http.MethodPost, base, `{"type":"heading","text":"gamma","style":{"level":1}}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, base, `{"type":"paragraph","text":"third section body"}`, http.StatusCreated)
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	if got := emb.docs.Load(); got != afterTwo+1 {
+		t.Errorf("append re-embedded too much: %d → %d (want +1 for the new window only)", afterTwo, got)
+	}
+	// All three sections are searchable (unique per-section words; "section"
+	// is shared so it would match all — that's BM25 OR, not a bug).
+	for _, q := range []string{"first", "second", "third"} {
+		if res := doSearch(t, e, spaceId, api.SearchRequest{Query: q, Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK); len(res.Hits) != 1 {
+			t.Errorf("query %q: hits = %v, want 1", q, hitRecordIds(res))
+		}
 	}
 }
 

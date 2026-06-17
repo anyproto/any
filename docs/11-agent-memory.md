@@ -192,32 +192,34 @@ POST /v1/spaces/:s/query
 Liveness: the same bodies against `/query/subscribe` stream
 added/updated/removed events (see `docs/04-events.md`).
 
-## Semantic search — externalized (TODO: not functional yet)
+## Semantic search — the built-in index (now live for memory items)
 
-The datasets store **no vectors** — the old hex-string-embeddings-in-
-text-properties scheme is gone, and with it the full-load-all-memories
-cosine loop in JS.
+Memory **items** (`agent_memory_items`) are indexed by the built-in
+search index (`docs/13-index.md`) and are hybrid-searchable via `POST
+/v1/spaces/:id/search` under scope **`agent`**. The datasets store no
+vectors themselves — the old hex-string-embeddings-in-text-properties
+scheme and the full-load cosine loop in JS are gone; the indexer keeps
+the vectors in its own store.
 
-Semantic indexing is a separate service (planned, not built):
+What's indexed per item: `context` + `body` + `category` +
+`keywords`/`entities`/`tags` (the memory chunker, `internal/agentmem/
+chunker.go`). Numeric/structural fields (`confidence`, `salience`,
+`accessCount`, `edges`, timestamps) are **not** in the indexed text, so a
+metadata-only bump (e.g. `accessCount` on recall) does not re-embed the
+item — the indexer skips it via a content hash (`docs/13-index.md` §
+content hashes). This is what makes the planned **evolution / reindex**
+cheap: only items whose text actually changed re-embed.
 
-| The external indexer needs | Source |
-|---|---|
-| stable record ids | record `id` (derived, immutable) |
-| content to embed | `context`+`body` (items), `summary` (chunks), `think`+`replies` (turns, optional) |
-| metadata filters | `category`, `tags`, `entities`, `chatId`, `createdAt` |
-| mutation feed | `POST /v1/spaces/:id/query/subscribe` on the three datasets |
+Recall: `/search` returns hits as `{scope, objectId, dataset, recordId,
+…}`; the caller hydrates full items via `/query
+{"filter":{"id":{"$in":[recordId,…]}}}` on the brain object. The indexed
+fallback paths (recency, category, period) above remain available for
+non-semantic queries.
 
-On recall it returns record ids; the caller hydrates via `/query
-{"filter":{"id":{"$in":[...]}}}`. An `embeddingRef` backref field is
-reserved on the schema but rejected on writes in v1.
-
-**Until that service exists, semantic search — and therefore real
-memory recall — does not work.** What does work: the indexed fallback
-paths (recency, category, period) above. Similarity dedup, link
-generation, memory evolution / reflection / decay passes are dormant
-for the same reason; the data model retains every field they need
-(edges, mutable salience/accessCount, confidence/importance), so they
-resume as consumers of the external service with no data migration.
+**Not yet indexed:** `agent_turns` / `agent_chunks` (conversation
+history) — a dedicated gated chunker is a roadmap item; until then they
+use the indexed recency/period reads. Similarity dedup, link generation,
+and decay passes can now build on `/search` for the item layer.
 
 ## Migration from the legacy scheme
 

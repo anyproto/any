@@ -131,6 +131,26 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Vector.Dim = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_FTS_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.FtsWeight = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_VECTOR_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.VectorWeight = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_MIN_VECTOR_SIM"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.MinVectorSim = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_STOP_WORDS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Index.Search.StopWords = &b
+		}
+	}
 }
 
 func applyFlags(cfg *Config, f Flags) {

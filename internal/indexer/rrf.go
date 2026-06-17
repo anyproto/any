@@ -11,13 +11,21 @@ const rrfK = 60
 // (dataset, recordId). The fused Score replaces the per-leg scores —
 // BM25 and cosine similarity aren't comparable, ranks are. Ties break by
 // doc key for determinism.
-func fuseRRF(lists [][]Hit, limit int) []Hit {
+//
+// weights scales each list's contribution (per-leg trust). A nil/short
+// weights slice defaults missing entries to 1, so fuseRRF(lists, nil,
+// limit) is plain unweighted RRF.
+func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 	type acc struct {
 		hit   Hit
 		score float64
 	}
 	byKey := map[string]*acc{}
-	for _, list := range lists {
+	for li, list := range lists {
+		w := 1.0
+		if li < len(weights) && weights[li] > 0 {
+			w = weights[li]
+		}
 		for rank, h := range list {
 			key := h.Dataset + "/" + h.RecordId
 			a, ok := byKey[key]
@@ -25,7 +33,7 @@ func fuseRRF(lists [][]Hit, limit int) []Hit {
 				a = &acc{hit: h}
 				byKey[key] = a
 			}
-			a.score += 1.0 / float64(rrfK+rank+1)
+			a.score += w / float64(rrfK+rank+1)
 		}
 	}
 	out := make([]Hit, 0, len(byKey))
