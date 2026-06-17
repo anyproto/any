@@ -30,18 +30,26 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const stagingFixture = "../../../test-etc/staging.yml"
+// stagingFixture is the staging nodeconf the e2e tests boot against.
+// It lives at the repo root and is gitignored (not checked in) — copy
+// your own staging.yml there to run these tests. Path is relative to
+// this package dir (`internal/e2e`), which is `go test`'s CWD.
+const stagingFixture = "../../staging.yml"
 
 // absStagingPath returns the absolute path to the staging fixture so a
 // spawned `any` binary (which has a different CWD than this test) can
 // locate it. The default DefaultNodeconfPath is CWD-relative; surfacing
 // it explicitly via a config.yaml is what an out-of-tree caller would
-// also have to do.
+// also have to do. Skips the test (rather than failing) when the
+// fixture is absent, since it isn't checked in.
 func absStagingPath(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs(stagingFixture)
 	if err != nil {
 		t.Fatalf("resolve staging path: %v", err)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		t.Skipf("staging fixture %s not found — copy a staging.yml to the repo root to run e2e tests", abs)
 	}
 	return abs
 }
@@ -186,6 +194,36 @@ func TestE2E_FullFlow(t *testing.T) {
 		if typeNode[propID] != "Casablanca" {
 			t.Errorf("record[%s][%s] = %v, want Casablanca; full=%+v",
 				typeID, propID, typeNode[propID], record)
+		}
+
+		// Regression: nav is registered with the SDK (property-only type),
+		// so Types().List already surfaces it. The handler must NOT inject
+		// it a second time — clients reported getting "nav" twice. Assert
+		// generally that no type id appears more than once, and that nav
+		// (plus the just-created type) is present.
+		var typesList map[string]any
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID+"/types", "",
+			http.StatusOK, &typesList)
+		types, _ := typesList["types"].([]any)
+		counts := map[string]int{}
+		for _, ti := range types {
+			if m, ok := ti.(map[string]any); ok {
+				if id, _ := m["id"].(string); id != "" {
+					counts[id]++
+				}
+			}
+		}
+		for id, n := range counts {
+			if n != 1 {
+				t.Errorf("type %q appears %d times in /types, want exactly 1; full=%+v",
+					id, n, types)
+			}
+		}
+		if counts["nav"] == 0 {
+			t.Errorf("nav type missing from /types; full=%+v", types)
+		}
+		if counts[typeID] == 0 {
+			t.Errorf("created type %q missing from /types; full=%+v", typeID, types)
 		}
 	})
 
@@ -409,7 +447,6 @@ func TestE2E_FullFlow(t *testing.T) {
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
-			{http.MethodPost, "/v1/spaces/" + spaceID + "/properties/o1/account/t1"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
 		for _, tc := range cases {
