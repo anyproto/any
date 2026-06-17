@@ -62,7 +62,9 @@ sync:
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search
-  embedder: local                     # local (default) | ollama | openai | none (FTS-only)
+  embedder: local                     # local (default) | ollama | openai |
+                                      # auto (online openai primary + local fallback,
+                                      #   SAME model both sides) | none (FTS-only)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
@@ -152,6 +154,22 @@ vector side just reports `unavailable` until they're met.
 - **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
   mainstream distros; on NixOS use `nix develop` — the repo flake's
   dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
+
+### `index.embedder: auto` (online primary + local fallback)
+
+Prefers an online OpenAI-compatible API for speed and falls back to the
+in-process local model during an outage, so vector search stays fresh
+instead of pausing. The online primary is configured by the `openai`
+block (`baseUrl` / `model` / `apiKey`); the fallback by the `local` block
+(auto-downloaded at boot regardless, so it's ready). A circuit breaker
+skips the primary for a cooldown after repeated failures, then re-probes.
+
+**Both sides must be the SAME embedding model** — the index stores one
+vector space and one dimension; mixing models yields incoherent
+similarity. The supported pairing is one model served two ways, e.g.
+`index.openai.model: Qwen/Qwen3-Embedding-0.6B` (a host that serves it,
+e.g. DeepInfra) with the default local Qwen3-Embedding-0.6B. fp16-vs-Q8
+drift is negligible.
 
 The passkey is the one secret the server may need at boot. Accepted
 sources:

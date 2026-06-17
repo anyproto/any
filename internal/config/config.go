@@ -54,8 +54,9 @@ type Index struct {
 	Enabled bool `yaml:"enabled"`
 	// Embedder selects the embedding provider: "local" (default —
 	// in-process llama.cpp, no external service), "ollama", "openai"
-	// (any OpenAI-compatible /embeddings API), or "none" (FTS-only).
-	// Empty means unset and resolves to the default.
+	// (any OpenAI-compatible /embeddings API), "auto" (online openai
+	// primary with local fallback — both must be the SAME model), or
+	// "none" (FTS-only). Empty means unset and resolves to the default.
 	Embedder string      `yaml:"embedder"`
 	Ollama   IndexOllama `yaml:"ollama"`
 	OpenAI   IndexOpenAI `yaml:"openai"`
