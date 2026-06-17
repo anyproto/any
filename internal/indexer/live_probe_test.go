@@ -5,6 +5,7 @@ package indexer
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anyproto/any/internal/config"
@@ -46,21 +47,33 @@ func TestLiveVectorScoreProbe(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
+	// On/off-topic query sets are overridable per space via env
+	// (comma-separated) so the probe is reusable across spaces.
+	splitEnv := func(k string, def []string) []string {
+		if v := os.Getenv(k); v != "" {
+			parts := strings.Split(v, ",")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			return parts
+		}
+		return def
+	}
 	groups := []struct {
 		label   string
 		queries []string
 	}{
-		{"on-topic", []string{
+		{"on-topic", splitEnv("ANY_LIVE_ONTOPIC", []string{
 			"binary search algorithm",
 			"clean architecture principles",
 			"how does SEO ranking work",
 			"graph database neo4j",
-		}},
-		{"off-topic", []string{
+		})},
+		{"off-topic", splitEnv("ANY_LIVE_OFFTOPIC", []string{
 			"risotto recipe with saffron",
 			"olympic swimming world records",
 			"how to knit a wool sweater",
-		}},
+		})},
 		{"nonsense", []string{
 			"xyzzy plugh frobnitz wibble",
 			"asdf qwer zxcv hjkl",
