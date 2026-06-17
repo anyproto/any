@@ -47,6 +47,7 @@ type Local struct {
 	modelPath   string
 	libDir      string
 	nCtx        int
+	threads     int    // 0 = runtime.NumCPU()-1
 	outDim      int    // 0 = model dim; >0 = Matryoshka truncate + renormalize
 	queryPrefix string
 	defaultModel bool // pinned Qwen3 (possibly via mirror URL), not a custom GGUF
@@ -73,6 +74,7 @@ type Local struct {
 func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string) (*Local, error) {
 	l := &Local{
 		nCtx:         cfg.ContextSize,
+		threads:      cfg.Threads,
 		outDim:       cfg.Dim,
 		queryPrefix:  cfg.QueryPrefix,
 		defaultModel: cfg.ModelPath == "",
@@ -172,7 +174,7 @@ func (l *Local) ensureLoaded() error {
 		return fmt.Errorf("indexer: local embedder: load model %s: not a usable GGUF", l.modelPath)
 	}
 
-	threads := int32(min(runtime.NumCPU(), 8))
+	threads := int32(l.threadCount())
 	cp := llama.ContextDefaultParams()
 	cp.NCtx = uint32(l.nCtx)
 	// Embeddings need the whole input in one logical/physical batch.
@@ -194,6 +196,16 @@ func (l *Local) ensureLoaded() error {
 	l.nEmbd = llama.ModelNEmbd(model)
 	l.loaded = true
 	return nil
+}
+
+// threadCount resolves the llama.cpp compute thread count: the explicit
+// config value when set, else runtime.NumCPU()-1 (leave one core free),
+// floored at 1.
+func (l *Local) threadCount() int {
+	if l.threads > 0 {
+		return l.threads
+	}
+	return max(1, runtime.NumCPU()-1)
 }
 
 // truncateTokens clamps tokens to nCtx, keeping EOS as the final token —

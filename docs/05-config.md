@@ -79,6 +79,7 @@ index:
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
     queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
+    threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
@@ -126,6 +127,7 @@ ANY_INDEX_LOCAL_LIB_DIR=/opt/llamacpp
 ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
 ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
 ANY_INDEX_LOCAL_DIM=512
+ANY_INDEX_LOCAL_THREADS=8            # 0/unset = runtime.NumCPU()-1
 ```
 
 ### `index.embedder: local` prerequisites

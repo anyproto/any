@@ -139,11 +139,13 @@ func (d *deps) typeList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	out := make([]api.TypeInfo, 0, len(infos)+1)
+	// nav is registered with the SDK (config.Config.Types, see sdk.go) as a
+	// property-only type, so Types().List already surfaces it with
+	// BuiltIn=true — do NOT inject it again here or clients see "nav" twice.
+	out := make([]api.TypeInfo, 0, len(infos))
 	for _, t := range infos {
 		out = append(out, typeInfoToAPI(t))
 	}
-	out = append(out, nav.TypeInfo())
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
 }
 

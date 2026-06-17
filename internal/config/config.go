@@ -127,6 +127,11 @@ type IndexLocal struct {
 	// Dim truncates output vectors (Matryoshka) and renormalizes;
 	// 0 keeps the model's full dimension (1024 for the default model).
 	Dim int `yaml:"dim"`
+	// Threads sets the llama.cpp compute thread count (NThreads /
+	// NThreadsBatch). 0 = default to runtime.NumCPU()-1 (leave one core
+	// free). Going beyond the physical core count can regress on
+	// hyperthreaded CPUs.
+	Threads int `yaml:"threads"`
 }
 
 type IndexVector struct {

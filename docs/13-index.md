@@ -292,7 +292,10 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   `index.local.dim` truncates output vectors (Matryoshka) to shrink
   the IVF index. One llama context per process, mutex-serialized;
   texts embed sequentially within a batch (multi-sequence batching is
-  a known follow-up). Loaded cost ≈ 640 MB mmap + ~200 MB context;
+  a known follow-up). Compute threads (`NThreads`/`NThreadsBatch`)
+  default to `runtime.NumCPU()-1` (leave one core free); override with
+  `index.local.threads` / `ANY_INDEX_LOCAL_THREADS` — going past the
+  physical core count can regress on hyperthreaded CPUs. Loaded cost ≈ 640 MB mmap + ~200 MB context;
   nothing is loaded until the first embed call. Linux needs a system
   `libffi.so.8` (ubiquitous on mainstream distros; NixOS: `nix develop`
   — the flake's dev shell provides it).

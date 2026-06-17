@@ -3383,6 +3383,61 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/ui/commands": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ui"
+                ],
+                "summary": "Publish a UI command",
+                "parameters": [
+                    {
+                        "description": "command",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UICommand"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.UICommandPublishResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/ui/commands/subscribe": {
+            "get": {
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "ui"
+                ],
+                "summary": "Subscribe to UI commands (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -4799,6 +4854,31 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/api.TypeInfo"
                     }
+                }
+            }
+        },
+        "api.UICommand": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "objectId": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "spaceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UICommandPublishResponse": {
+            "type": "object",
+            "properties": {
+                "subscribers": {
+                    "type": "integer"
                 }
             }
         }

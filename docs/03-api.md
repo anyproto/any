@@ -203,15 +203,32 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
-**`GET /v1/spaces` defaults to active spaces only** (TEMPORARY
-workaround). `DELETE` is the SDK's soft-delete — the row stays in
-`Service.List` with `status:"deleted"` and is never offloaded yet (no
-proper space deletion / offloading; see `docs/07-roadmap.md`), so the
-raw list otherwise accumulates dozens of dead rows. Pass `?status=all`
-to get the full list (every status), or `?status=<value>` to filter to
-a specific status (e.g. `deleted`). Remove this default once deletion
-actually reclaims the rows. The `POST /v1/spaces/query[/subscribe]`
-primitive is unaffected — it still returns the raw tech-index rows.
+**`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
+It returns `204` as soon as the local half is done — no network round
+trip on the call path: the SDK writes the synced `remoteStatus=deleted`
+tombstone (propagates to the account's other devices, drives the
+`Subscribe` `Removed` event), offloads all local state immediately
+(reclaims disk even offline — closes watchers + Store, evicts the
+any-sync space, drops the per-space CRDT collections and DB file), and
+kicks a background reconciler that sends the signed
+`coordinator.SpaceDelete` now (if online) or on a later tick. Owner-only
+on the network side: deleting a non-owned space offloads locally and the
+reconciler no-ops the coordinator call. The reconciler also runs the
+inbound direction — spaces the coordinator reports gone (deleted on
+another device, or an owner deleted a space you joined) are offloaded
+locally on the next poll.
+
+**`GET /v1/spaces` defaults to active spaces only.** The tech-space row
+is never physically removed — it stays in `Service.List` with
+`status:"deleted"` as a **sticky tombstone** — so the raw list otherwise
+accumulates dead rows even though their storage is reclaimed. Pass
+`?status=all` to get the full list (every status), or `?status=<value>`
+to filter to a specific status (e.g. `deleted`). The
+`POST /v1/spaces/query[/subscribe]` primitive is unaffected — it still
+returns the raw tech-index rows. Consumers that keep derived per-space
+state (search index, UI caches) drop it by watching
+`POST /v1/spaces/query/subscribe` and purging on the `removed` frame;
+the server's own search indexer already does this.
 
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
@@ -1232,6 +1249,24 @@ transition (carrying the GET body), terminating with `event: closed`
 on server shutdown. Account-wide subscribe lives outside the space
 group because the SDK call is account-scoped — one stream covers
 every known space.
+
+### UI commands
+
+Account-wide, **in-memory** agent→any-ui control channel. Not space
+data — no `:spaceId` scope, no SDK/dataset backing, nothing stored.
+Full contract in `docs/15-ui-commands.md`.
+
+| Method | Path                          | Purpose                                              |
+|--------|-------------------------------|-----------------------------------------------------|
+| POST   | `/v1/ui/commands`             | publish a command → `{subscribers: n}` (0 = nobody listening) |
+| GET    | `/v1/ui/commands/subscribe`   | SSE — `ready` → `command` per publish → `closed`     |
+
+Body: `{action, spaceId, objectId?, source?}` — `action` is an open
+slug set (`open_space` / `open_object`); `objectId` required iff
+`action == "open_object"`. **At-most-once, no snapshot** — a subscriber
+receives only commands published after it connects (no stale replay on
+reconnect). `closed` reasons: `server_shutdown`, `overflow`. Both routes
+sit outside the space group like `/sync-status/subscribe`.
 
 ### Debug (diagnostic)
 
