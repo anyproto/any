@@ -75,9 +75,12 @@ type IndexSearch struct {
 	FtsWeight    float64 `yaml:"ftsWeight"`
 	VectorWeight float64 `yaml:"vectorWeight"`
 	// MinVectorSim drops vector hits below this cosine similarity before
-	// fusion. Default 0 keeps the legacy floor (similarity must be > 0);
-	// raise it (e.g. 0.25–0.35, measured) to cut weak-but-positive
-	// neighbours that only pollute fusion when nothing real matched.
+	// fusion. Default 0 keeps the legacy floor (similarity must be > 0).
+	// NOTE: measured against the default local model (Qwen3-Embedding-0.6B)
+	// a static floor is a poor noise filter — gibberish queries score
+	// ~0.6 cosine, on par with on-topic, so any cutoff that drops noise
+	// also drops real hits (internal/indexer/live_probe_test.go). Leave
+	// at 0 for that model; raise only for a better-calibrated embedder.
 	MinVectorSim float64 `yaml:"minVectorSim"`
 	// StopWords toggles query-side stop-word stripping for the FTS leg
 	// only (the vector leg always sees the full query). nil/absent = on

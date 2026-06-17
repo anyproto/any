@@ -386,21 +386,35 @@ func runStrategy(t *testing.T, emb Embedder, chunk func(evalObject) []index.Inde
 	return sum
 }
 
+// realEvalEmbedder builds the embedder named by ANY_EVAL_EMBEDDER, reusing
+// an already-downloaded local model via ANY_EVAL_LOCAL_MODEL /
+// ANY_EVAL_LOCAL_LIBDIR (so the eval runs against the SAME model the
+// server uses, no re-download). Returns nil when ANY_EVAL_EMBEDDER unset.
+func realEvalEmbedder(t *testing.T) (string, Embedder) {
+	t.Helper()
+	name := os.Getenv("ANY_EVAL_EMBEDDER")
+	if name == "" {
+		return "", nil
+	}
+	cfg := config.Index{
+		Embedder: name,
+		OpenAI:   config.IndexOpenAI{Model: os.Getenv("ANY_EVAL_OPENAI_MODEL")},
+		Local: config.IndexLocal{
+			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
+			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
+		},
+	}
+	e, err := NewEmbedder(cfg, t.TempDir(), "")
+	if err != nil || e == nil {
+		t.Fatalf("real embedder %q: %v", name, err)
+	}
+	return name, e
+}
+
 func TestSearchEval(t *testing.T) {
 	const k = 5
 	embedders := map[string]Embedder{"hash": hashEmbedder{dim: 256}}
-	if name := os.Getenv("ANY_EVAL_EMBEDDER"); name != "" {
-		real, err := NewEmbedder(config.Index{
-			Embedder: name,
-			Ollama:   config.IndexOllama{},
-			OpenAI:   config.IndexOpenAI{Model: os.Getenv("ANY_EVAL_OPENAI_MODEL")},
-		}, t.TempDir(), "")
-		if err != nil {
-			t.Fatalf("real embedder %q: %v", name, err)
-		}
-		if real == nil {
-			t.Fatalf("real embedder %q resolved to nil", name)
-		}
+	if name, real := realEvalEmbedder(t); real != nil {
 		embedders[name] = real
 	}
 
@@ -452,11 +466,7 @@ func TestSearchEvalKnobs(t *testing.T) {
 	const k = 5
 	emb := Embedder(hashEmbedder{dim: 256})
 	ename := "hash"
-	if name := os.Getenv("ANY_EVAL_EMBEDDER"); name != "" {
-		real, err := NewEmbedder(config.Index{Embedder: name, OpenAI: config.IndexOpenAI{Model: os.Getenv("ANY_EVAL_OPENAI_MODEL")}}, t.TempDir(), "")
-		if err != nil || real == nil {
-			t.Fatalf("real embedder %q: %v", name, err)
-		}
+	if name, real := realEvalEmbedder(t); real != nil {
 		emb, ename = real, name
 	}
 

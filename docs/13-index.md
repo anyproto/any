@@ -390,9 +390,14 @@ changes nothing (chunker-hybrid-search-report § 5, measured with
   lexical leg more while the dense leg is noisy (short chunks / weak
   embedder).
 - **Vector similarity floor** (`minVectorSim`, default 0 = the legacy
-  "> 0" floor) — drops weak-but-positive ANN neighbours that only
-  pollute fusion when nothing real matched. Raise to ~0.25–0.35
-  (measure per embedder).
+  "> 0" floor) — drops vector hits at/below the cutoff before fusion.
+  **Measured caveat:** for the default local model
+  (Qwen3-Embedding-0.6B) a static floor is a poor noise filter —
+  gibberish queries score ~0.6 cosine, on par with on-topic, and *above*
+  real off-topic queries (`internal/indexer/live_probe_test.go`), so any
+  cutoff that drops noise also drops signal. Keep 0 for that model and
+  let RRF + the FTS leg do the discrimination; raise it only for a
+  better-calibrated embedder (e.g. OpenAI).
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not — an agent

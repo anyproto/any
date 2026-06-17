@@ -118,7 +118,7 @@ ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
 ANY_INDEX_SEARCH_STOP_WORDS=true      # index.search.stopWords
 ANY_INDEX_SEARCH_FTS_WEIGHT=1.0       # index.search.ftsWeight
 ANY_INDEX_SEARCH_VECTOR_WEIGHT=0.5    # index.search.vectorWeight
-ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0.3   # index.search.minVectorSim
+ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0     # index.search.minVectorSim (keep 0 for the local model)
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
 ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
