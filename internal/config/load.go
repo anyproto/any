@@ -126,6 +126,11 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Local.Dim = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_THREADS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.Local.Threads = n
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Vector.Dim = n
