@@ -41,7 +41,7 @@ import (
 //
 //	ErrAlreadyRunning -> -1
 //	ErrBadDataDir     -> -2
-//	a boot failure    -> -3 (see BootError / IsBoot)
+//	a boot failure    -> -3 (see BootError)
 //
 // Empty nodeconfYAML surfaces as ErrNodeconfRequired (a bad-input error,
 // distinct from a boot failure that occurs after a valid config).
@@ -74,13 +74,6 @@ func (e *BootError) Error() string {
 }
 
 func (e *BootError) Unwrap() error { return e.Err }
-
-// IsBoot reports whether err is (or wraps) a BootError. The iOS shim uses
-// it as the catch-all for the -3 error code.
-func IsBoot(err error) bool {
-	var be *BootError
-	return errors.As(err, &be)
-}
 
 // gomemlimitBytes is the GOMEMLIMIT soft cap applied at the start of
 // Start to keep Go's GC pacing from letting RSS drift into iOS jetsam

@@ -9,17 +9,20 @@ import (
 	"runtime/debug"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/config"
 )
 
 // nodeconfFixture is the in-repo sanitized staging placeholder
 // (internal/config/nodeconf-staging.yml). It boots + binds but joins no
-// network — exactly what these lifecycle tests need. Read relative to
-// this package's dir (go test runs with cwd == package dir).
+// network — exactly what these lifecycle tests need. An empty Network
+// falls through to config's embedded staging fallback, so this is the
+// same bytes the binaries ship, with no on-disk path arithmetic.
 func nodeconfFixture(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "config", "nodeconf-staging.yml"))
+	raw, err := config.LoadNodeconf(config.Network{})
 	if err != nil {
-		t.Fatalf("read nodeconf fixture: %v", err)
+		t.Fatalf("load nodeconf fixture: %v", err)
 	}
 	if len(raw) == 0 {
 		t.Fatal("nodeconf fixture is empty")

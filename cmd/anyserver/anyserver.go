@@ -41,7 +41,7 @@ const (
 	errBadDataDir = -2
 	// errBoot: boot failed after the config validated — engine/account
 	// boot, listener bind, or a config the runtime rejected. Maps from a
-	// *embedded.BootError (embedded.IsBoot) and from
+	// *embedded.BootError and from
 	// embedded.ErrNodeconfRequired (a boot-class config error: the host
 	// supplied no nodeconf, so there is nothing to boot against).
 	errBoot = -3
