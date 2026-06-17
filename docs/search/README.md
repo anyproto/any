@@ -141,6 +141,30 @@ plus an in-test exact brute force) isolated the cause:
   latency; IVF-SQ stays available for very large spaces (see cost below).
   Existing indexes keep their mode until rebuilt.
 
+### Index mode at scale: recall on FiQA (57.6k docs, real)
+
+Re-ran the exact-vs-HNSW-vs-IVF comparison on BEIR **FiQA** (57.6k docs /
+648 queries — 11× SciFact) to confirm the recall ordering holds at scale:
+
+| mode | nDCG@10 | recall@10 | MRR |
+|---|---|---|---|
+| fts (BM25) | 0.233 | 0.294 | 0.289 |
+| vector — **HNSW** | 0.466 | **0.542** | 0.550 |
+| vector — IVF-SQ | 0.440 | 0.507 | 0.528 |
+| vector — exact | 0.469 | 0.546 | 0.552 |
+
+- **HNSW ≈ exact** (0.542 vs 0.546 recall@10) — near-exact recall holds at
+  57k. **IVF-SQ loses ~4 recall@10 / ~2.5 nDCG** — the gap persists and
+  slightly widens vs SciFact. HNSW default validated at scale.
+- Exact 0.469 nDCG matches the Qwen3-0.6B model-card FiQA number — setup
+  is correct.
+- **Hybrid is not universally best.** On FiQA, *vector alone* beats hybrid
+  (0.466 vs 0.385 nDCG): paraphrastic Q&A makes BM25 weak (0.233), and
+  equal-weight RRF drags hybrid below pure dense — the opposite of SciFact
+  (claims, high lexical overlap, hybrid won). Equal weights is a safe
+  corpus-agnostic default, but `ftsWeight`/`vectorWeight` are the lever
+  for corpora where one leg is much weaker.
+
 ### Index mode: cost at scale (build / search / disk)
 
 Profiled with random dim-1024 vectors (`TestVectorModeProfile`,
@@ -215,7 +239,7 @@ mechanisms address this (`docs/05-config.md`):
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
 | `vector.mode` | HNSW (`btree`) | recall ≈ exact; +3 recall@10 vs IVF-SQ; cost edge of IVF is only ~2× build/search, no disk win |
 | memory indexing | per-record, scope `agent` | independently filterable; cheap incremental |
-| `ftsWeight` / `vectorWeight` | 1 / 1 | optimal on BEIR; tilting hurts |
+| `ftsWeight` / `vectorWeight` | 1 / 1 | safe corpus-agnostic default (optimal on SciFact); dense-favorable corpora like FiQA want vector-heavier — that's what the knobs are for |
 | `stopWords` | on | helps conversational, neutral on BEIR |
 | `minVectorSim` | 0 | static floor can't separate signal/noise for the local model |
 | `embedConcurrency` | 1 local / 4 online | parallel batches are the online throughput win; local serializes |
@@ -228,10 +252,14 @@ mechanisms address this (`docs/05-config.md`):
   above). At-scale cost profiled (100k/200k): HNSW build is ~2× IVF and
   super-linear, with ~no disk difference — IVF only pays off at very large
   N where build time dominates.
-- **Large real-data recall (in progress)** — confirming HNSW keeps its
-  recall edge over IVF on a bigger real corpus (BEIR FiQA, 57k); SciFact
-  (5k) showed +3 recall@10, random-vector recall is a worst case. Results
-  to be folded in here.
+- ~~Large real-data recall~~ **DONE** — BEIR FiQA (57.6k): HNSW ≈ exact
+  (recall@10 0.542 vs 0.546), IVF-SQ ~4 pts lower. Edge holds at 11×
+  SciFact scale (see above).
+- **Per-corpus leg weighting** — FiQA showed vector-alone beating
+  equal-weight hybrid (weak BM25). A static default can't know per corpus;
+  options for later: a query-adaptive weight, or auto-down-weighting a leg
+  whose top scores are weak. The `ftsWeight`/`vectorWeight` knobs exist
+  but are unset by default.
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them
