@@ -101,8 +101,8 @@ jobs:
             mkdir -p "build/$name/headers"
             CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$PWD/scripts/$cc" \
               go build -tags 'mobile fts' -buildmode=c-archive -ldflags "-s -w" \
-              -o "build/$name/libanyserver.a" ./cmd/anyserver
-            cp "build/$name/libanyserver.h" "build/$name/headers/libanyserver.h"
+              -o "build/$name/anyserver.a" ./cmd/anyserver
+            cp "build/$name/anyserver.h" "build/$name/headers/anyserver.h"
             cp cmd/anyserver/module.modulemap "build/$name/headers/module.modulemap"
           }
           build_slice device clangwrap-ios.sh
@@ -112,8 +112,8 @@ jobs:
         run: |
           rm -rf any.xcframework
           xcodebuild -create-xcframework \
-            -library build/device/libanyserver.a -headers build/device/headers \
-            -library build/sim/libanyserver.a -headers build/sim/headers \
+            -library build/device/anyserver.a -headers build/device/headers \
+            -library build/sim/anyserver.a -headers build/sim/headers \
             -output any.xcframework
           # Keep the per-slice Info.plist (do not strip — spike 0.5).
           cat any.xcframework/Info.plist
