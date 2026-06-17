@@ -11,6 +11,10 @@ The chunkers are wired into the process via `server.NewIndexRegistry`
 `index.enabled` and drives them through the SDK's per-space change feed
 (`Space.Changes()`).
 
+This doc is the **contract** (how it works). For the **evaluation and
+decision record** — chunk-length before/after, BEIR results, why the
+defaults are what they are — see [`search/README.md`](search/README.md).
+
 ## The contract
 
 ```go
