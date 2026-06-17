@@ -444,6 +444,31 @@ Implementation slices landed:
     alignment (docs/01-cli.md, docs/03-api.md § Spaces). SDK contract:
     its `docs/03-space.md` § Space Lifecycle.
 
+18. **UI command channel** — an account-wide, **in-memory** control
+    channel that lets an agent drive a connected any-ui window
+    (*"open this space / open this object"*), extensible to other
+    UI-side ops. Deliberately NOT a dataset: a UI command is a
+    transient directive to this device's window, not synced space data
+    — so it goes through an in-process broadcaster, not the
+    SDK/handler/CRDT machinery (same kind of consumer-side exception as
+    `/search`). `POST /v1/ui/commands` (`{action, spaceId, objectId?,
+    source?}`; `action` an open slug set — `open_space` / `open_object`)
+    fans the command out to every connected subscriber and returns
+    `{subscribers: n}` (0 = nobody listening; still 2xx,
+    fire-and-forget). `GET /v1/ui/commands/subscribe` is the SSE stream:
+    `ready` → `command` per publish → `closed{reason}`
+    (`server_shutdown` / `overflow`). **No snapshot, at-most-once** —
+    a subscriber sees only commands published after it connects, so
+    there is no stale-replay on reconnect and nothing accumulates.
+    Both routes are account-scoped, sitting outside the `:spaceId`
+    group like `/sync-status/subscribe`, behind the `/v1` auth guard.
+    `internal/server/uicmd_hub.go` (the broadcaster; non-blocking
+    publish drops slow subscribers) + `handlers_ui_commands.go` +
+    `internal/api/uicommand.go`. CLI: `any ui
+    open-space/open-object/subscribe`. Contract: docs/15-ui-commands.md.
+    Consumers: the bobrik `ui` tool (`cmd/bobrik-watch/`) and any-ui
+    (`../any-ui/docs/tasks/ui-commands.md`).
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -675,6 +700,7 @@ auto-start.
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
+| `docs/15-ui-commands.md` | UI command channel — account-wide in-memory agent→any-ui control (`/v1/ui/commands[/subscribe]`), at-most-once, command shape, SSE frames |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
 strike cut scope; add new open questions as they surface during implementation.

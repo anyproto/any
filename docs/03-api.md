@@ -1250,6 +1250,24 @@ on server shutdown. Account-wide subscribe lives outside the space
 group because the SDK call is account-scoped — one stream covers
 every known space.
 
+### UI commands
+
+Account-wide, **in-memory** agent→any-ui control channel. Not space
+data — no `:spaceId` scope, no SDK/dataset backing, nothing stored.
+Full contract in `docs/15-ui-commands.md`.
+
+| Method | Path                          | Purpose                                              |
+|--------|-------------------------------|-----------------------------------------------------|
+| POST   | `/v1/ui/commands`             | publish a command → `{subscribers: n}` (0 = nobody listening) |
+| GET    | `/v1/ui/commands/subscribe`   | SSE — `ready` → `command` per publish → `closed`     |
+
+Body: `{action, spaceId, objectId?, source?}` — `action` is an open
+slug set (`open_space` / `open_object`); `objectId` required iff
+`action == "open_object"`. **At-most-once, no snapshot** — a subscriber
+receives only commands published after it connects (no stale replay on
+reconnect). `closed` reasons: `server_shutdown`, `overflow`. Both routes
+sit outside the space group like `/sync-status/subscribe`.
+
 ### Debug (diagnostic)
 
 | Method | Path                                                 | Purpose                                |

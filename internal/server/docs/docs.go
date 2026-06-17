@@ -3202,6 +3202,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/api.ErrorEnvelope"
                         }
                     },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -3371,6 +3377,61 @@ const docTemplate = `{
                     "sync"
                 ],
                 "summary": "Subscribe to account-wide sync status (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/ui/commands": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ui"
+                ],
+                "summary": "Publish a UI command",
+                "parameters": [
+                    {
+                        "description": "command",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UICommand"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.UICommandPublishResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/ui/commands/subscribe": {
+            "get": {
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "ui"
+                ],
+                "summary": "Subscribe to UI commands (SSE)",
                 "responses": {
                     "200": {
                         "description": "OK"
@@ -4772,7 +4833,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "xKey": {
-                    "description": "XKey is an optional stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). Display-metadata, like Name — not enforced unique.\nWhen omitted, clients typically derive one from Name.",
+                    "description": "XKey is the stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). REQUIRED on create and unique per space: the\nserver rejects an empty xKey (type.xkey_required) and one that\ncollides with an existing type's xKey or id (type.xkey_conflict).\nClients derive it as a slug of Name. It's the only human handle a\ntype resolves by — the display Name is not a resolution key.",
                     "type": "string"
                 }
             }
@@ -4793,6 +4854,31 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/api.TypeInfo"
                     }
+                }
+            }
+        },
+        "api.UICommand": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "objectId": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "spaceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UICommandPublishResponse": {
+            "type": "object",
+            "properties": {
+                "subscribers": {
+                    "type": "integer"
                 }
             }
         }

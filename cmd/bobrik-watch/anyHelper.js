@@ -768,6 +768,25 @@ export function createClient(params) {
     return { ok: true, hits: d.hits || [], mode: d.mode, vectorStatus: d.vectorStatus };
   }
 
+  // uiCommand publishes a directive to the account-wide UI command channel
+  // (POST /v1/ui/commands) — tells a connected any-ui window to navigate. The
+  // server channel is in-memory + fire-and-forget: the reply carries
+  // `subscribers` (how many UI windows received it; 0 = nobody listening, still
+  // ok). Account-scoped — no space path. See docs/15-ui-commands.md.
+  //   cmd = { action: "open_space"|"open_object", spaceId, objectId? }
+  function uiCommand(cmd) {
+    if (!cmd || !cmd.action) return { ok: false, error: "action is required" };
+    if (!cmd.spaceId) return { ok: false, error: "spaceId is required" };
+    if (cmd.action === "open_object" && !cmd.objectId) {
+      return { ok: false, error: "objectId is required for open_object" };
+    }
+    var body = { action: cmd.action, spaceId: cmd.spaceId, source: "bobrik" };
+    if (cmd.objectId) body.objectId = cmd.objectId;
+    var res = api("POST", "/v1/ui/commands", body);
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
+    return { ok: true, subscribers: (res.data && res.data.subscribers) || 0 };
+  }
+
   // getUIContext reads the `ui-context` pointer object the web UI keeps in
   // the agent's own space: what the user is currently looking at. Returns
   // { spaceId, objectId, view, updatedAt } — or null when the UI has never
@@ -1394,6 +1413,7 @@ export function createClient(params) {
     listSpaces: w("listSpaces", listSpaces),
     createSpace: w("createSpace", createSpace),
     search: w("search", search),
+    uiCommand: w("uiCommand", uiCommand),
     getUIContext: w("getUIContext", getUIContext),
 
     getTools: w("getTools", getTools),
