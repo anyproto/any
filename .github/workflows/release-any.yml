@@ -1,0 +1,22 @@
+name: release-any
+
+# Tag-driven release channel → the shared _build-any reusable workflow.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-any-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  call:
+    uses: ./.github/workflows/_build-any.yml
+    with:
+      tag: ${{ github.ref_name }}
+      channel: release
+    secrets:
+      ANY_CI_TOKEN: ${{ secrets.ANY_CI_TOKEN }}

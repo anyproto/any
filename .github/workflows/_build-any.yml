@@ -1,0 +1,115 @@
+name: _build-any
+
+# Reusable workflow (called by release-any + nightly-any): build any for
+# every platform, publish a GitHub Release for the given channel, then trigger
+# the any-ui desktop build. All build logic lives in scripts/build-any.sh; this
+# is the shared orchestration the two callers used to duplicate.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag for the release channel (a v* tag); ignored for prerelease, which computes a dated v<base>-nightly.<YYYYMMDD>.<n> tag.'
+        type: string
+        required: true
+      channel:
+        description: 'release | prerelease — drives the dispatch payload + whether it is a prerelease.'
+        type: string
+        required: true
+    secrets:
+      ANY_CI_TOKEN:
+        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the any-ui desktop build.'
+        required: true
+
+permissions:
+  contents: write # create the Release
+
+jobs:
+  build-and-publish:
+    # Never run from a fork; secrets must not be exposed.
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # git describe needs tags
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # track go.mod's `go` directive — no drift
+          cache-dependency-path: go.sum
+      - name: Install jq + unzip
+        run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Authenticate private Go modules
+        env:
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+        run: |
+          # any-sync-sdk (+ its transitive deps) are PRIVATE anyproto repos.
+          # GOPRIVATE skips the public proxy + checksum DB for them; the git
+          # rewrite supplies the token so `go build` / `go tool swag` can fetch
+          # them in CI. Public deps still go through the proxy untouched.
+          echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Resolve release version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = prerelease ]; then
+            # Sortable SemVer prerelease of the NEXT version:
+            #   v<latest-release + patch>-nightly.<YYYYMMDD>.<n-th build that day>
+            latest="$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+            base="${latest:-v0.0.0}"; base="${base#v}"
+            IFS=. read -r MA MI PA <<<"$base"
+            day="$(date -u +%Y%m%d)"
+            n="$(( $(git tag -l "v*-nightly.${day}.*" | wc -l | tr -d ' ') + 1 ))"
+            version="v${MA}.${MI}.$((PA + 1))-nightly.${day}.${n}"
+          else
+            version="$TAG" # the pushed release tag (vX.Y.Z)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $version"
+      - name: Build any for all platforms
+        env:
+          ANY_BUILD_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for p in darwin-arm64 darwin-x64 linux-x86_64 windows-x86_64; do
+            scripts/build-any.sh "$p" dist
+          done
+          ls -la dist
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANNEL" = prerelease ]; then
+            # Each nightly is a unique, sortable prerelease tag — they accumulate
+            # as history; we do NOT delete the previous one.
+            gh release create "$VERSION" dist/any-*.tar.gz --prerelease \
+              --target "$GITHUB_SHA" --title "any $VERSION" \
+              --notes "Nightly build ($(git rev-parse --short HEAD))."
+          else
+            gh release create "$VERSION" dist/any-*.tar.gz --title "any $VERSION" \
+              --notes "any release $VERSION (llama.cpp $(sed -n 's/^LLAMACPP_VERSION := //p' Makefile))."
+          fi
+      - name: Trigger any-ui desktop build
+        env:
+          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::ANY_CI_TOKEN not set — skipping the any-ui trigger."
+            exit 0
+          fi
+          # any-ui builds against this exact published version; it computes its OWN
+          # desktop release version (independent per repo).
+          gh api repos/anyproto/any-ui/dispatches \
+            -f event_type=any-published \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[channel]=$CHANNEL"

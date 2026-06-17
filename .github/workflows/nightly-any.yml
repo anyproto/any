@@ -1,0 +1,24 @@
+name: nightly-any
+
+# Dogfood channel (cron + manual) → the shared _build-any reusable workflow,
+# publishing a rolling `nightly` prerelease.
+on:
+  schedule:
+    - cron: '0 3 * * *' # ~03:00 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-any
+  cancel-in-progress: true
+
+jobs:
+  call:
+    uses: ./.github/workflows/_build-any.yml
+    with:
+      tag: nightly
+      channel: prerelease
+    secrets:
+      ANY_CI_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
