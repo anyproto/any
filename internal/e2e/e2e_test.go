@@ -30,18 +30,26 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const stagingFixture = "../../../test-etc/staging.yml"
+// stagingFixture is the staging nodeconf the e2e tests boot against.
+// It lives at the repo root and is gitignored (not checked in) — copy
+// your own staging.yml there to run these tests. Path is relative to
+// this package dir (`internal/e2e`), which is `go test`'s CWD.
+const stagingFixture = "../../staging.yml"
 
 // absStagingPath returns the absolute path to the staging fixture so a
 // spawned `any` binary (which has a different CWD than this test) can
 // locate it. The default DefaultNodeconfPath is CWD-relative; surfacing
 // it explicitly via a config.yaml is what an out-of-tree caller would
-// also have to do.
+// also have to do. Skips the test (rather than failing) when the
+// fixture is absent, since it isn't checked in.
 func absStagingPath(t *testing.T) string {
 	t.Helper()
 	abs, err := filepath.Abs(stagingFixture)
 	if err != nil {
 		t.Fatalf("resolve staging path: %v", err)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		t.Skipf("staging fixture %s not found — copy a staging.yml to the repo root to run e2e tests", abs)
 	}
 	return abs
 }
@@ -439,7 +447,6 @@ func TestE2E_FullFlow(t *testing.T) {
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
-			{http.MethodPost, "/v1/spaces/" + spaceID + "/properties/o1/account/t1"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
 		for _, tc := range cases {

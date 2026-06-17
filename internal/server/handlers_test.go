@@ -15,9 +15,10 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-// stagingPath points at the SDK's shared test-etc fixture relative to
-// this test file. Mirrors the SDK's sdk_test.go and anysyncx app_test.go.
-const stagingPath = "../../../test-etc/staging.yml"
+// stagingPath points at the staging nodeconf fixture at the repo root
+// (relative to this package dir, `go test`'s CWD). It's gitignored, not
+// checked in — copy your own staging.yml there to run these tests.
+const stagingPath = "../../staging.yml"
 
 // newTestDeps boots the server's deps in-process: wallet, SDK, fake
 // shutdown channel + shutdownCtx. Returns a teardown that closes the

@@ -23,3 +23,7 @@ coverage.html
 # Working prompt drafts (not part of the project surface)
 prompt.md
 prompt-*.md
+
+# Local staging nodeconf fixture used by the e2e tests (not checked in;
+# copy your own to the repo root). See internal/e2e/e2e_test.go.
+/staging.yml
