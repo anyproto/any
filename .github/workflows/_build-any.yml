@@ -144,7 +144,7 @@ jobs:
           # SC2012: NDK dir names are toolchain-controlled (28.x.yyyyy), no
           # non-alphanumeric filenames — ls -d | sort -V is the right tool here.
           # shellcheck disable=SC2012
-          NDK="$(ls -d "$ANDROID_HOME"/ndk/28.* 2>/dev/null | sort -V | tail -1)"
+          NDK="$(ls -d "$ANDROID_HOME"/ndk/28.* 2>/dev/null | sort -V | tail -1)" || true
           if [ -z "$NDK" ]; then
             echo "::error::No Android NDK 28.x found under $ANDROID_HOME/ndk/"
             exit 1
