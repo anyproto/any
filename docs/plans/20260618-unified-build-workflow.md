@@ -273,23 +273,28 @@ Key design decisions & rationale:
 **Files:**
 - Create: `scripts/build-xcframework.sh`
 
-- [ ] mirror `build-any.sh` shape: read `ANY_BUILD_VERSION` (fallback to `git
+- [x] mirror `build-any.sh` shape: read `ANY_BUILD_VERSION` (fallback to `git
       describe`), take an output dir arg, `set -euo pipefail`, header comment
-- [ ] port the two-slice `build_slice` function (device via `clangwrap-ios.sh`,
+- [x] port the two-slice `build_slice` function (device via `clangwrap-ios.sh`,
       sim via `clangwrap-iossim.sh`), tags `mobile fts`, `-buildmode=c-archive`,
       and add `-trimpath` (parity with `build-any.sh`; today's iOS build omits it)
-- [ ] **add version `-ldflags`** (`-X .../internal/version.*`) on top of the
+- [x] **add version `-ldflags`** (`-X .../internal/version.*`) on top of the
       existing `-s -w` (today's iOS build omits version stamping)
-- [ ] copy headers + `module.modulemap`, run `xcodebuild -create-xcframework`,
+- [x] copy headers + `module.modulemap`, run `xcodebuild -create-xcframework`,
       then `ditto -c -k --keepParent any.xcframework <outdir>/any.xcframework.zip`
-- [ ] move the old workflow's "App consumption" note into this script's header
-- [ ] make it executable (`chmod +x`)
-- [ ] validate: `bash -n scripts/build-xcframework.sh` + `shellcheck` if
+- [x] move the old workflow's "App consumption" note into this script's header
+- [x] make it executable (`chmod +x`) — mode `0755`
+- [x] validate: `bash -n scripts/build-xcframework.sh` + `shellcheck` if
       installed; **local run on the macOS dev box** if Xcode 26 present
       (`ANY_BUILD_VERSION=v0.0.0-test scripts/build-xcframework.sh /tmp/xcf-test`)
       → confirm a non-empty `any.xcframework.zip`; otherwise note CI-only
-- [ ] gate prerequisite still holds: `go test -count=1 ./cmd/anyserver/` passes
-- [ ] (validation gate) script syntactically clean, anyserver suite green
+      — `bash -n` OK; `shellcheck` (v0.x via brew) 0 findings; **local run
+      succeeded** on iOS 26.1 SDK / Xcode 26: 25.6 MB `any.xcframework.zip`
+      with both `ios-arm64` + `ios-arm64-simulator` slices, and `strings`
+      confirmed the `v0.0.0-test` version stamp landed in the device archive
+- [x] gate prerequisite still holds: `go test -count=1 ./cmd/anyserver/` passes
+      — `ok github.com/anyproto/any/cmd/anyserver 0.941s`
+- [x] (validation gate) script syntactically clean, anyserver suite green
 
 ### Task 4: Restructure `_build-any.yml` into 5 jobs
 
