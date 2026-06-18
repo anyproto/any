@@ -10,15 +10,27 @@ this for *why* and *how well*.
 ## TL;DR
 
 - The original index emitted **one doc per editor block** → chunks were
-  tiny (editor mean ~98 chars, ~half under 50), which hurts vector recall
-  and BM25 length normalization.
-- We switched editor to **coalesced ~1.5 KB windows**, added **memory**
-  and **program-doc** indexing, excluded **debug logs** and **program
-  source**, made re-embedding **incremental** (content hash), and added
-  three hybrid knobs (**stop-words**, **weighted RRF**, **vector floor**).
-- Measured on a real labeled benchmark (BEIR SciFact, exact deployed
-  model): **hybrid > vector > fts**, **equal RRF weights are optimal**,
-  and a **static vector-similarity floor doesn't work for this model**.
+  tiny (editor mean ~98 chars, ~half under 50), hurting vector recall and
+  BM25 length normalization. Coalescing to ~1.5 KB windows fixed it
+  (mean **98 → 392** chars, tiny-fragment share ~50% → ~9%).
+- Shipped: **coalesced editor windows**, **memory** + **program-doc**
+  indexing (debug logs + program source excluded), **incremental
+  re-embedding** (per-doc content hash → editor append / memory bumps
+  re-embed only what changed), **HNSW** as the default ANN index, and
+  hybrid knobs (**stop-words**, **weighted RRF**, **vector floor**).
+- Measured on real labeled benchmarks (BEIR SciFact 5k + FiQA 57k, exact
+  Qwen3-0.6B):
+  - **ANN: HNSW ≈ exact recall; IVF-SQ leaves ~3–4 recall@10 points** →
+    default switched to HNSW. IVF's only edge is ~2× build/search (no disk
+    win), so it's an opt-in for *very* large spaces.
+  - **Hybrid vs single-leg is corpus-dependent**: hybrid wins on
+    lexical-friendly SciFact, but vector-alone wins on paraphrastic FiQA
+    (weak BM25). Equal RRF weights are a safe default, not a universal
+    optimum — the weight knobs are the lever.
+  - **A static vector-similarity floor doesn't work for this model**
+    (gibberish scores as high as on-topic) → `minVectorSim` stays 0.
+  - FTS matches reference BM25; the deployed model matches its card once
+    the index is exact — the earlier shortfall was the approximate index.
 
 ## What changed (and where)
 
@@ -81,6 +93,25 @@ Provider notes: **OpenRouter** has no embeddings; **Together** lacks
 Qwen3 and caps e5 at 512 tokens (rejects SciFact abstracts); **DeepInfra**
 hosts `Qwen/Qwen3-Embedding-0.6B` (fp16 vs the local Q8). For the local
 model itself, set `ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=…`.
+Other BEIR sets drop in by name (e.g. `fiqa.zip`, 57.6k docs); add
+`ANY_BEIR_EXACT=1` for the exact-vs-index comparison and
+`ANY_INDEX_VECTOR_MODE=btree|ivfsq|bruteforce` to compare ANN modes.
+
+Index-mode cost profile (random vectors; no API):
+
+```bash
+ANY_VEC_BENCH=1 ANY_VEC_BENCH_SIZES=100000,200000 \
+go test -tags 'fts vector' -run TestVectorModeProfile -v -timeout 50m ./internal/indexer
+```
+
+Live cosine-distribution probe (server stopped; for the floor decision):
+
+```bash
+ANY_LIVE_INDEX=~/.any/index/index.db ANY_LIVE_SPACE=<spaceId> \
+ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOCAL_LIBDIR=… \
+[ANY_LIVE_ONTOPIC="q1,q2" ANY_LIVE_OFFTOPIC="q3,q4"] \
+go test -tags 'fts vector' -run TestLiveVectorScoreProbe -v ./internal/indexer
+```
 
 ## Results
 
@@ -95,6 +126,40 @@ model itself, set `ANY_EVAL_EMBEDDER=local ANY_EVAL_LOCAL_MODEL=… ANY_EVAL_LOC
 datasets land sensibly (program description ~1814, methods ~590, memory
 ~105, chat ~232). `prop` stays tiny (~13) — names/tags, exact-match FTS
 docs.
+
+### Editor reconcile & the append cost (incremental embedding)
+
+A coalesced window spans several blocks, so the editor chunker is a
+**`Reconciler`** — it rebuilds the object's whole window set, not a
+per-record delta (a window's text needs sibling blocks below the cursor,
+and a deleted block's position is gone from its tombstone).
+
+`append_scaling_test.go` measured the danger: rebuilding by re-reading
+*and re-embedding* every window on each change is **O(N²)** for a
+grow-by-append page. The windowed-read fast path the analysis first
+assumed doesn't fit reality — editor render order is the **nav-tree walk**
+(`treeOrder`), not flat `nav.pos`, so forming windows is inherently an
+O(doc) read.
+
+The fix that shipped is a **per-doc content hash** (FNV-1a of the indexed
+text):
+
+- **Editor reconcile diffs by hash** (`worker.reconcile`) — it re-reads
+  blocks to form windows (O(doc), but cheap against the local DB) yet
+  **re-embeds only changed/new windows**, deleting vanished ones. An
+  append re-embeds *one* window, not the document. Embedding — the
+  expensive axis — is incremental even though the read isn't.
+- **Per-record hash-skip** (chat/memory) — a record that re-streams with
+  unchanged indexed text (e.g. a memory item bumped only on `accessCount`
+  during recall, or a chat message that got a reaction) is **not
+  re-embedded**.
+
+Verified end-to-end with counting embedders (`handlers_index*_test.go`):
+an editor append embeds exactly the new window; a memory `accessCount`
+evolve re-streams but triggers **0** re-embeds, while a `context` change
+does. (Practical note: the heaviest append-loop content — agent debug
+logs — isn't indexed at all, so the O(N²) read path has no real victim;
+the deferred true fix is a persisted-window-anchor incremental read.)
 
 ### BEIR SciFact — 5183 docs / 300 queries, Qwen3-Embedding-0.6B
 
