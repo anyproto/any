@@ -3,6 +3,7 @@ package agentmem
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -73,7 +74,7 @@ func (itemsHandler) BeforeModify(ctx *handler.ChangeCtx, _ *handler.RecordChange
 	case FieldSalience:
 		err = checkIntRange(field, op.Payload, 0, 10)
 	case FieldAccessCount:
-		err = checkIntRange(field, op.Payload, 0, 1<<31)
+		err = checkIntRange(field, op.Payload, 0, math.MaxInt32)
 	case FieldConfidence:
 		err = checkIntRange(field, op.Payload, 0, 10)
 	case FieldImportance:
@@ -157,7 +158,7 @@ func validateCreatePayload(payload *anyenc.Value) (presentFields, error) {
 			visitErr = checkIntRange(key, v, 0, 10)
 		case FieldAccessCount:
 			present.accessCount = true
-			visitErr = checkIntRange(key, v, 0, 1<<31)
+			visitErr = checkIntRange(key, v, 0, math.MaxInt32)
 		case FieldValidFrom:
 			present.validFrom = true
 			visitErr = checkNonNegNumber(key, v)
