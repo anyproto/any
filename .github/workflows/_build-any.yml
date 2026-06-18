@@ -67,7 +67,7 @@ jobs:
           if [ "$CHANNEL" = prerelease ]; then
             # Sortable SemVer prerelease of the NEXT version:
             #   v<latest-release + patch>-nightly.<YYYYMMDD>.<n-th build that day>
-            latest="$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+            latest="$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)" || true
             base="${latest:-v0.0.0}"; base="${base#v}"
             IFS=. read -r MA MI PA <<<"$base"
             day="$(date -u +%Y%m%d)"
