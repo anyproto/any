@@ -1,9 +1,26 @@
 name: _build-any
 
-# Reusable workflow (called by release-any + nightly-any): build any for
-# every platform, publish a GitHub Release for the given channel, then trigger
-# the any-ui desktop build. All build logic lives in scripts/build-any.sh; this
-# is the shared orchestration the two callers used to duplicate.
+# Reusable workflow (called by release-any + nightly-any): build `any` for
+# EVERY platform — desktop (4 tarballs), Android (any.aar), iOS
+# (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
+# the client repos.
+#
+# Shape: fan-out / fan-in (5 jobs).
+#   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
+#   desktop  (ubuntu,  needs: version)     build-any.sh x4        → upload-artifact tarballs
+#   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
+#   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
+#   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
+#            download all → sha256 the 2 mobile assets → ONE `gh release create`
+#            (all 6 assets) → repository_dispatch any-ui + anytype-swift +
+#            anytype-kotlin2 (best-effort).
+#
+# One `version` job, threaded to every build, so all artifacts stamp an
+# IDENTICAL version (no per-platform drift). iOS rides the same v* tag as
+# desktop/Android — no self-tag, no separate version scheme. Build logic lives
+# in scripts/makefiles (build-any.sh, build-xcframework.sh, makefiles/android.mk);
+# the YAML stays thin. Private-module auth is the shared go-private-auth
+# composite action.
 on:
   workflow_call:
     inputs:
@@ -17,42 +34,32 @@ on:
         required: true
     secrets:
       ANY_CI_TOKEN:
-        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the any-ui desktop build.'
+        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the client builds (any-ui, anytype-swift, anytype-kotlin2).'
         required: true
 
+# No top-level write permission: only `publish` creates the Release. The build
+# jobs are read-only.
 permissions:
-  contents: write # create the Release
+  contents: read
 
 jobs:
-  build-and-publish:
+  # Resolve the single version string every other job stamps. Runs alone so
+  # there is no per-platform version drift.
+  version:
     # Never run from a fork; secrets must not be exposed.
     if: github.repository == 'anyproto/any'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     env:
       TAG: ${{ inputs.tag }}
       CHANNEL: ${{ inputs.channel }}
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # git describe needs tags
+          fetch-depth: 0 # git tag -l / git describe need all tags + history
           persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod # track go.mod's `go` directive — no drift
-          cache-dependency-path: go.sum
-      - name: Install jq + unzip
-        run: sudo apt-get update && sudo apt-get install -y jq unzip
-      - name: Authenticate private Go modules
-        env:
-          GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
-        run: |
-          # any-sync-sdk (+ its transitive deps) are PRIVATE anyproto repos.
-          # GOPRIVATE skips the public proxy + checksum DB for them; the git
-          # rewrite supplies the token so `go build` / `go tool swag` can fetch
-          # them in CI. Public deps still go through the proxy untouched.
-          echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
-          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Resolve release version
         id: ver
         run: |
@@ -71,9 +78,30 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Resolved release version: $version"
-      - name: Build any for all platforms
+
+  # Desktop: 4 CGO-free cross-compiled tarballs via build-any.sh.
+  desktop:
+    needs: version
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # build-any.sh recomputes COMMIT/DATE from git
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # track go.mod's `go` directive — no drift
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      - name: Install jq + unzip
+        run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Build any for all desktop platforms
         env:
-          ANY_BUILD_VERSION: ${{ steps.ver.outputs.version }}
+          ANY_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -81,35 +109,229 @@ jobs:
             scripts/build-any.sh "$p" dist
           done
           ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-tarballs
+          path: dist/any-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Android: 4-ABI any.aar via gomobile bind (makefiles/android.mk).
+  android:
+    needs: version
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # LDFLAGS stamps COMMIT/DATE from git
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      - name: Resolve Android NDK 28.x
+        run: |
+          set -euo pipefail
+          # Pin the 28.x line (matches anytype-heart). Export ALL THREE NDK env
+          # vars — different gomobile/NDK versions probe different ones — BEFORE
+          # `make build-android`, since `gomobile init` (on the build path)
+          # needs them to locate the toolchain.
+          # SC2012: NDK dir names are toolchain-controlled (28.x.yyyyy), no
+          # non-alphanumeric filenames — ls -d | sort -V is the right tool here.
+          # shellcheck disable=SC2012
+          NDK="$(ls -d "$ANDROID_HOME"/ndk/28.* 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$NDK" ]; then
+            echo "::error::No Android NDK 28.x found under $ANDROID_HOME/ndk/"
+            exit 1
+          fi
+          echo "Using Android NDK: $NDK"
+          {
+            echo "ANDROID_NDK=$NDK"
+            echo "ANDROID_NDK_HOME=$NDK"
+            echo "ANDROID_NDK_ROOT=$NDK"
+          } >> "$GITHUB_ENV"
+      - name: Build any.aar
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Pass the resolved version/commit/date as make COMMAND-LINE overrides
+          # — the only thing that beats the Makefile's `:=` LDFLAGS assignment
+          # (env vars do NOT override `:=`). See docs/plans Technical Details.
+          make build-android \
+            VERSION="$VERSION" \
+            COMMIT="$(git rev-parse --short HEAD)" \
+            DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ls -la dist/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-aar
+          path: dist/android/any.aar
+          if-no-files-found: error
+          retention-days: 7
+
+  # iOS: device + simulator c-archive slices → any.xcframework.zip
+  # (scripts/build-xcframework.sh). macOS runner (one job = one runner OS).
+  ios:
+    needs: version
+    if: github.repository == 'anyproto/any'
+    # NOTE: requires the iOS 26 SDK (deployment target 26.0), which ships with
+    # Xcode 26. The SDK-verify step below fails loudly if the image lacks it —
+    # bump the runner image (e.g. to macos-26) if needed.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # build-xcframework.sh git describe fallback + COMMIT/DATE
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      - name: Select latest Xcode and verify iOS 26 SDK
+        run: |
+          set -euo pipefail
+          # SC2012: Xcode app bundle names are installer-controlled (Xcode_*.app),
+          # no non-alphanumeric filenames — ls -d | sort -V is the right tool.
+          # shellcheck disable=SC2012
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iphoneos SDK version: $SDK"
+          case "$SDK" in
+            26.*) echo "iOS 26 SDK present." ;;
+            *) echo "::error::iOS 26 SDK required (deployment target 26.0); runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
+          esac
+      - name: Gate on anyserver tests
+        run: go test -count=1 ./cmd/anyserver/
+      - name: Build any.xcframework.zip
+        env:
+          ANY_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          scripts/build-xcframework.sh dist
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcframework
+          path: dist/any.xcframework.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # Fan-in: download every artifact, publish ONE GitHub Release with all 6
+  # assets, then notify the 3 client repos (best-effort).
+  publish:
+    needs: [version, desktop, android, ios]
+    if: github.repository == 'anyproto/any'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # only THIS job creates the Release
+    env:
+      CHANNEL: ${{ inputs.channel }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # release notes reference the commit + Makefile pin
+          persist-credentials: false
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect assets + checksums
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Flatten the per-job artifact dirs into one release-asset dir.
+          cp artifacts/desktop-tarballs/any-*.tar.gz dist/
+          cp artifacts/android-aar/any.aar dist/
+          cp artifacts/ios-xcframework/any.xcframework.zip dist/
+          ls -la dist
+          # sha256 the two mobile assets so the client fetch-scripts can verify
+          # them (the desktop tarballs are not sha-pinned).
+          AAR_SHA="$(sha256sum dist/any.aar | cut -d' ' -f1)"
+          XCF_SHA="$(sha256sum dist/any.xcframework.zip | cut -d' ' -f1)"
+          echo "aar_sha=$AAR_SHA" >> "$GITHUB_OUTPUT"
+          echo "xcf_sha=$XCF_SHA" >> "$GITHUB_OUTPUT"
+          echo "any.aar sha256:            $AAR_SHA"
+          echo "any.xcframework.zip sha256: $XCF_SHA"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.ver.outputs.version }}
+          AAR_SHA: ${{ steps.assets.outputs.aar_sha }}
+          XCF_SHA: ${{ steps.assets.outputs.xcf_sha }}
         run: |
           set -euo pipefail
+          LLAMACPP="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
+          # Notes embed both mobile sha256s so a client can pin without first
+          # downloading the asset.
+          notes="$(cat <<EOF
+          any $VERSION
+
+          Assets: 4 desktop tarballs, \`any.aar\` (Android), \`any.xcframework.zip\` (iOS).
+          llama.cpp: $LLAMACPP
+
+          \`any.aar\` sha256: \`$AAR_SHA\`
+          \`any.xcframework.zip\` sha256: \`$XCF_SHA\`
+          EOF
+          )"
           if [ "$CHANNEL" = prerelease ]; then
             # Each nightly is a unique, sortable prerelease tag — they accumulate
             # as history; we do NOT delete the previous one.
-            gh release create "$VERSION" dist/any-*.tar.gz --prerelease \
-              --target "$GITHUB_SHA" --title "any $VERSION" \
-              --notes "Nightly build ($(git rev-parse --short HEAD))."
+            gh release create "$VERSION" dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip \
+              --prerelease --target "$GITHUB_SHA" \
+              --title "any $VERSION" --notes "$notes"
           else
-            gh release create "$VERSION" dist/any-*.tar.gz --title "any $VERSION" \
-              --notes "any release $VERSION (llama.cpp $(sed -n 's/^LLAMACPP_VERSION := //p' Makefile))."
+            gh release create "$VERSION" dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip \
+              --title "any $VERSION" --notes "$notes"
           fi
-      - name: Trigger any-ui desktop build
+      - name: Notify client repos
         env:
           GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
+          AAR_SHA: ${{ steps.assets.outputs.aar_sha }}
+          XCF_SHA: ${{ steps.assets.outputs.xcf_sha }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::ANY_CI_TOKEN not set — skipping the any-ui trigger."
+            echo "::warning::ANY_CI_TOKEN not set — skipping client dispatches."
             exit 0
           fi
-          # any-ui builds against this exact published version; it computes its OWN
-          # desktop release version (independent per repo).
-          gh api repos/anyproto/any-ui/dispatches \
-            -f event_type=any-published \
+          # Best-effort: a failed dispatch must NOT fail the (already-published)
+          # release. Each client computes its OWN release version (independent
+          # per repo) from this exact published version.
+          dispatch() {
+            repo="$1"; shift
+            if gh api "repos/$repo/dispatches" -f event_type=any-published "$@"; then
+              echo "dispatched any-published → $repo"
+            else
+              echo "::warning::repository_dispatch to $repo failed (release is already published)."
+            fi
+          }
+          # any-ui (desktop): unchanged payload — version + channel only.
+          dispatch anyproto/any-ui \
             -f "client_payload[version]=$VERSION" \
             -f "client_payload[channel]=$CHANNEL"
+          # anytype-swift (iOS): add the asset name + sha256 to pin.
+          dispatch anyproto/anytype-swift \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[channel]=$CHANNEL" \
+            -f "client_payload[asset]=any.xcframework.zip" \
+            -f "client_payload[sha256]=$XCF_SHA"
+          # anytype-kotlin2 (Android): add the asset name + sha256 to pin.
+          dispatch anyproto/anytype-kotlin2 \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[channel]=$CHANNEL" \
+            -f "client_payload[asset]=any.aar" \
+            -f "client_payload[sha256]=$AAR_SHA"

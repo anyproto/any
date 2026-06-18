@@ -301,26 +301,31 @@ Key design decisions & rationale:
 **Files:**
 - Modify: `.github/workflows/_build-any.yml`
 
-- [ ] keep `on: workflow_call` with the **same** `tag`/`channel` inputs +
+- [x] keep `on: workflow_call` with the **same** `tag`/`channel` inputs +
       `ANY_CI_TOKEN` secret; move `permissions: contents: write` down to the
-      `publish` job only
-- [ ] `version` job (ubuntu): checkout with **`fetch-depth: 0`** (its `git tag
+      `publish` job only — top-level is now `contents: read`; only `publish`
+      declares `contents: write`
+- [x] `version` job (ubuntu): checkout with **`fetch-depth: 0`** (its `git tag
       -l`/`git describe` needs all tags + history); port the existing "Resolve
-      release version" logic; expose `outputs.version`
-- [ ] `desktop` job (ubuntu, `needs: version`): checkout **`fetch-depth: 0`**
+      release version" logic; expose `outputs.version` — verbatim port of the
+      old "Resolve release version" step, `outputs.version` ← `steps.ver`
+- [x] `desktop` job (ubuntu, `needs: version`): checkout **`fetch-depth: 0`**
       (build-any.sh recomputes COMMIT/DATE from git) + setup-go +
       `go-private-auth` (Task 1) + install jq/unzip + the `build-any.sh` x4 loop
       with `ANY_BUILD_VERSION=${{ needs.version.outputs.version }}`; replace the
       publish step with `actions/upload-artifact` of `dist/any-*.tar.gz`
-- [ ] `android` job (ubuntu, `needs: version`): checkout **`fetch-depth: 0`** +
+      — artifact `desktop-tarballs`, `if-no-files-found: error`
+- [x] `android` job (ubuntu, `needs: version`): checkout **`fetch-depth: 0`** +
       setup-go (cache, `go-version-file: go.mod`) + `go-private-auth`; resolve
       NDK fail-loud (`NDK=$(ls -d $ANDROID_HOME/ndk/28.* | sort -V | tail -1)`;
       error if empty; export **all three** `ANDROID_NDK`/`ANDROID_NDK_HOME`/
       `ANDROID_NDK_ROOT` **before** the make step); invoke `make build-android
       VERSION=${{ needs.version.outputs.version }} COMMIT=… DATE=…` (command-line
       override — env won't beat the Makefile's `:=`, see Technical Details ⚠️);
-      `upload-artifact dist/android/any.aar`
-- [ ] `ios` job (macos-15, `needs: version`): use `actions/checkout@v6` +
+      `upload-artifact dist/android/any.aar` — COMMIT=`git rev-parse --short
+      HEAD`, DATE=`date -u +…Z`, both as `make` command-line vars; artifact
+      `android-aar`
+- [x] `ios` job (macos-15, `needs: version`): use `actions/checkout@v6` +
       `actions/setup-go@v6` to match `_build-any.yml` (the source `xcframework.yml`
       pins `@v4`/`@v5` — don't carry the older versions over); checkout
       **`fetch-depth: 0`** +
@@ -328,19 +333,31 @@ Key design decisions & rationale:
       on non-`26.*`); `go test -count=1 ./cmd/anyserver/`;
       `scripts/build-xcframework.sh` with `ANY_BUILD_VERSION=${{
       needs.version.outputs.version }}`; `upload-artifact any.xcframework.zip`
-- [ ] `publish` job (ubuntu, `needs: [desktop, android, ios]`, `contents:write`):
+      — all actions pinned `@v6`; artifact `ios-xcframework`
+- [x] `publish` job (ubuntu, `needs: [desktop, android, ios]`, `contents:write`):
       `download-artifact` all → one dir; compute `sha256sum` for `any.aar` +
       `any.xcframework.zip` into env; `gh release create` (release vs prerelease
-      branch) with **all 6 assets**, notes embedding both shas
-- [ ] add the 3 `repository_dispatch` calls in `publish` (any-ui unchanged;
+      branch) with **all 6 assets**, notes embedding both shas — `needs:
+      [version, desktop, android, ios]` (version added for `outputs.version`);
+      shas via `steps.assets` outputs; notes heredoc embeds both + llama.cpp pin
+- [x] add the 3 `repository_dispatch` calls in `publish` (any-ui unchanged;
       anytype-swift + anytype-kotlin2 add `asset` + `sha256`); keep the
       empty-token warn-skip guard; dispatch failure must not fail the job
-- [ ] update the workflow header comment to describe the 5-job fan-out/fan-in
-- [ ] validate: `actionlint` if installed, else structural review; confirm job
+      — shared `dispatch()` helper warns (not fails) on a failed call; empty
+      token → `::warning::` + early exit 0
+- [x] update the workflow header comment to describe the 5-job fan-out/fan-in
+      — header now diagrams all 5 jobs + the design rationale
+- [x] validate: `actionlint` if installed, else structural review; confirm job
       graph (`needs:`) and `outputs` wiring; confirm no secret is referenced
       from a forked-PR-reachable trigger (keep the `if: github.repository ==
-      'anyproto/any'` guard)
-- [ ] (validation gate) workflow parses; callers still reference the unchanged interface
+      'anyproto/any'` guard) — **`actionlint` v1.7.12: 0 findings** on
+      `_build-any.yml` + the composite action (two `ls`-vs-`find` SC2012 infos
+      suppressed with rationale on toolchain-controlled paths); job graph +
+      `outputs.version` wiring confirmed; the `anyproto/any` guard is on every
+      job
+- [x] (validation gate) workflow parses; callers still reference the unchanged
+      interface — `release-any.yml` + `nightly-any.yml` still pass
+      `tag`/`channel`/`ANY_CI_TOKEN` unchanged (grep-confirmed)
 
 ### Task 5: Delete `xcframework.yml`
 
