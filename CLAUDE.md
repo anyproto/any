@@ -476,7 +476,7 @@ implementation diverges from a doc, update the doc in the same change.
 
 ```
 go build ./cmd/any                                # binary at ./any
-make build                                        # builds both any and bobrik-watch
+make build                                        # builds any, bobrik-watch, any-agent-runtime
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there

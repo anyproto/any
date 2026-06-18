@@ -21,7 +21,8 @@ ANY_TAGS := gomobile
 # toolchain. Idempotent: safe to re-run.
 .PHONY: setup-gomobile
 setup-gomobile:
-	go build -o "$(GOBIN)" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
+	@mkdir -p "$(GOBIN)"
+	go build -o "$(GOBIN)/" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
 	PATH="$(GOBIN):$$PATH" $(GOMOBILE) init
 
 # Produce dist/android/any.aar from the github.com/anyproto/any/mobile

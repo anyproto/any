@@ -34,4 +34,4 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
-        git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+        git config --global url."https://x-access-token:${GH_TOKEN}@github.com/anyproto/".insteadOf "https://github.com/anyproto/"

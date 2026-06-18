@@ -35,6 +35,11 @@ echo "build-xcframework: any $VERSION (commit $COMMIT)"
 
 LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/version.Commit=$COMMIT -X $PKG/internal/version.BuildDate=$DATE"
 
+# Clean the per-slice staging dir so stale slices from a prior local run can't
+# leak into the assembled xcframework (CI runners start fresh; this matters only
+# for repeated local runs). The assembled any.xcframework is removed below.
+rm -rf build
+
 # Build the device + simulator c-archive slices. Both slices use the identical
 # go build — only the cgo CC wrapper differs (device sysroot/triple vs the
 # simulator's -simulator triple, golang/go#57442). One function keeps the build

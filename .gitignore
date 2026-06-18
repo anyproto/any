@@ -5,6 +5,11 @@
 /deps/
 /dist/
 
+# iOS xcframework local build artifacts (scripts/build-xcframework.sh).
+# CI runners are fresh; these only appear on local runs.
+/build/
+/any.xcframework/
+
 # Cached llama.cpp release tarballs (make llamacpp)
 /third_party/llamacpp/cache/
 
