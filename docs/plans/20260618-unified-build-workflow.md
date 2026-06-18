@@ -385,23 +385,54 @@ Key design decisions & rationale:
 **Files:**
 - Verify (no change): `.github/workflows/release-any.yml`, `.github/workflows/nightly-any.yml`
 
-- [ ] confirm `release-any.yml` + `nightly-any.yml` still `uses:
+- [x] confirm `release-any.yml` + `nightly-any.yml` still `uses:
       ./.github/workflows/_build-any.yml` with `tag`/`channel`/`ANY_CI_TOKEN` and
-      need **no edits**
-- [ ] verify all Overview requirements: one release, 6 assets, both mobile shas
+      need **no edits** — both still `uses: ./.github/workflows/_build-any.yml`;
+      `release-any` passes `tag: ${{ github.ref_name }}` + `channel: release`,
+      `nightly-any` passes `tag: nightly` + `channel: prerelease`; both forward
+      `ANY_CI_TOKEN`. The `workflow_call` interface in `_build-any.yml` is byte
+      identical to what they call (grep-confirmed). No caller edits.
+- [x] verify all Overview requirements: one release, 6 assets, both mobile shas
       in notes, 3 dispatches, iOS on `v*` tag (no self-tag/self-publish), nightly
-      builds all 3 platforms
-- [ ] run repo-wide static checks: `go vet ./...`, `go build ./...`,
+      builds all 3 platforms — cross-checked against `_build-any.yml`:
+      (1) single `gh release create "$VERSION"` (one branch each for
+      release/prerelease, never two calls);
+      (2) 6 assets shipped — `dist/any-*.tar.gz` (4 desktop) + `dist/any.aar`
+      (Android) + `dist/any.xcframework.zip` (iOS) on the create line;
+      (3) both mobile sha256s embedded in the notes heredoc (`AAR_SHA`/`XCF_SHA`);
+      (4) 3 `repository_dispatch` calls — any-ui (version+channel),
+      anytype-swift (+asset/sha256), anytype-kotlin2 (+asset/sha256);
+      (5) iOS rides `needs: version` → shared `publish` job, NO self-tag /
+      self-publish (`xcframework.yml` deleted in Task 5);
+      (6) nightly builds all 3 platforms — desktop/android/ios all `needs:
+      version`, fan-in to `publish needs: [version,desktop,android,ios]`.
+- [x] run repo-wide static checks: `go vet ./...`, `go build ./...`,
       `go test ./...`, `go test -tags gomobile ./mobile/...`,
-      `go test -count=1 ./cmd/anyserver/`
-- [ ] run `actionlint` over `.github/workflows/` + the composite action (install
-      if needed); record the actual result
-- [ ] **CI dry-run (integration test):** push the branch, `workflow_dispatch` the
-      `nightly-any` workflow, and confirm: one prerelease appears with all 6
-      assets, the macos/ubuntu jobs all go green, and the 3 dispatches fire
-      (or warn-skip cleanly). Capture the run URL in this plan
-- [ ] ⚠️ if the CI dry-run can't run before merge (e.g. token scope), record that
-      explicitly here rather than marking acceptance complete
+      `go test -count=1 ./cmd/anyserver/` — ALL GREEN. `go vet ./...` exit 0;
+      `go build ./...` exit 0; `go test ./...` all packages `ok` (incl.
+      cmd/anyserver, internal/e2e, server, indexer, …); `go test -tags gomobile
+      ./mobile/...` `ok`; `go test -count=1 ./cmd/anyserver/` `ok 0.638s`.
+- [x] run `actionlint` over `.github/workflows/` + the composite action (install
+      if needed); record the actual result — **`actionlint` v1.7.12: 0 findings**
+      over the three workflows (`_build-any.yml`, `release-any.yml`,
+      `nightly-any.yml`). The composite action (`go-private-auth/action.yml`) is
+      not a workflow file, so actionlint mis-parses it as one ("jobs/on section
+      missing" syntax-check noise) — it was validated in Task 1 via actionlint +
+      ruby YAML parse (`runs.using: composite`, required `inputs.token`). No real
+      findings.
+- [⚠️] **CI dry-run (integration test):** DEFERRED to the user / post-merge.
+      Cannot run from this local environment: it requires pushing the feature
+      branch and triggering the `nightly-any` `workflow_dispatch` on GitHub
+      Actions, which needs `ANY_CI_TOKEN` scope and the user's involvement (no
+      push/trigger performed here per the execution constraint). The local
+      validation that CAN run — static checks + actionlint + caller/requirement
+      cross-checks — is all green above. **Acceptance is NOT marked as if CI ran.**
+- [x] ⚠️ if the CI dry-run can't run before merge (e.g. token scope), record that
+      explicitly here rather than marking acceptance complete — RECORDED: the CI
+      dry-run is deferred to the user/post-merge (above). The branch must be
+      pushed and `nightly-any` dispatched manually, then the single prerelease
+      verified to carry all 6 assets with all jobs green and the 3 dispatches
+      fired (or warn-skipped). Run URL to be captured here after the user runs it.
 
 ### Task 7: [Final] Docs + plan housekeeping
 
