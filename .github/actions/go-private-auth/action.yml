@@ -1,0 +1,36 @@
+name: Authenticate private Go modules
+description: >-
+  Configure GOPRIVATE + a global git credential rewrite so `go build` /
+  `go tool` can fetch the private anyproto Go modules (any-sync-sdk and its
+  transitive deps) in CI.
+
+# Why GLOBAL git auth (not repo-local):
+#   `actions/checkout` only authenticates git inside the checkout dir. But `go`
+#   fetches the private any-sync-sdk module with git in the MODULE CACHE — a
+#   different directory — so a repo-local credential is never seen there and the
+#   build fails with "could not read Username". A global `insteadOf` rewrite
+#   makes EVERY git invocation (module-cache ls-remote/clone included) carry the
+#   token. Pair this with `persist-credentials: false` on the checkout so the
+#   two credential sources don't collide. (Rationale preserved from the old
+#   xcframework.yml + _build-any.yml auth steps this action replaces.)
+#
+# GOPRIVATE=github.com/anyproto/* skips the public proxy + checksum DB for the
+# private modules; public deps still go through the proxy untouched.
+
+inputs:
+  token:
+    description: >-
+      PAT with read access across anyproto (fetch private modules). Passed in
+      by the caller — never a hard-coded secret ref here.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Configure GOPRIVATE + git credential rewrite
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
+        git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"

@@ -136,7 +136,10 @@ Key design decisions & rationale:
   new iOS script and to `android.mk`).
 - **⚠️ Version-threading bridge (the env-var trap):** the top-level `Makefile`
   assigns `VERSION := $(shell git describe …)` and builds `LDFLAGS` from it with
-  `:=`; `android.mk` is `include`d and inherits that `LDFLAGS`. **A `make`
+  `:=`; `android.mk` is `include`d and so inherits that `LDFLAGS` — **but does
+  not reference it today**: the current `gomobile bind` (`android.mk:29-35`) has
+  NO `-ldflags` at all. Task 2 must ADD `-ldflags '$(LDFLAGS)'` to the bind
+  call, not merely wire an override path. **A `make`
   variable assigned with `:=` is NOT overridable by an environment variable** —
   so exporting `ANY_BUILD_VERSION`/`VERSION` in the job env would be silently
   ignored and the aar would stamp `git describe`, not the CI-resolved version.
@@ -203,17 +206,18 @@ Key design decisions & rationale:
 **Files:**
 - Create: `.github/actions/go-private-auth/action.yml`
 
-- [ ] create a `composite` action that runs the auth block: append
+- [x] create a `composite` action that runs the auth block: append
       `GOPRIVATE=github.com/anyproto/*` to `$GITHUB_ENV` and
       `git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"`
-- [ ] take the token as an action `input` (e.g. `token`), not a hard-coded secret ref
-- [ ] add a header comment explaining why global (not repo-local) git auth is
+- [x] take the token as an action `input` (e.g. `token`), not a hard-coded secret ref
+- [x] add a header comment explaining why global (not repo-local) git auth is
       needed (go fetches private `any-sync-sdk` from the module cache, a
       different dir than the checkout) — preserve the rationale from the current
       `xcframework.yml` comment
-- [ ] validate: `actionlint` if installed; otherwise structural review + confirm
-      `runs.using: composite` and `inputs.token` are well-formed
-- [ ] (validation gate) action YAML parses / lints clean before next task
+- [x] validate: `actionlint` (installed v1.7.12 via brew) — 0 findings for the
+      action file; ruby YAML parse confirms `runs.using: composite` and a
+      required `inputs.token`
+- [x] (validation gate) action YAML parses / lints clean before next task
 
 ### Task 2: Rework `makefiles/android.mk` for the 4-ABI, pinned, stamped build
 
@@ -225,13 +229,18 @@ Key design decisions & rationale:
 - [ ] `setup-gomobile`: replace `go install ...gomobile@latest` / `...gobind@latest`
       with building the **go.mod-pinned** versions
       (`go build -o "$(GOBIN)" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind`);
-      keep `gomobile init` on the `build-android` path (matches heart — init
-      needs the NDK env, which the job exports before `make`), not in setup
-- [ ] `build-android`: change `-target=android/arm64` → bare `-target=android`
+      `gomobile init` today lives in `setup-gomobile` (`android.mk:20`), which is
+      already a prerequisite of `build-android` (`android.mk:26`) — so init runs
+      on the build path transitively and sees the NDK env the job exports before
+      `make`. Leave it there (or move it into the `build-android` recipe to match
+      heart's shape — either works; just don't move it OUT of the build path)
+- [ ] `build-android`: add `-ldflags '$(LDFLAGS)'` to the `gomobile bind` call
+      (there is none today); change `-target=android/arm64` → bare `-target=android`
       (all 4 ABIs); keep `-androidapi 26`, `-javapkg=io.anyproto.any`, tags
       `gomobile`; output `dist/android/any.aar`
-- [ ] add version `-ldflags` using the **inherited** `$(VERSION)/$(COMMIT)/$(DATE)`
-      from the top-level Makefile → so the CI override path is `make
+- [ ] that `$(LDFLAGS)` already carries the version `-X` stamps built from the
+      **inherited** `$(VERSION)/$(COMMIT)/$(DATE)` (top-level Makefile) → so the
+      CI override path is `make
       build-android VERSION=… COMMIT=… DATE=…` (command-line override, the ONLY
       thing that beats the Makefile's `:=` — see Technical Details ⚠️). Do NOT
       add an `ANY_BUILD_VERSION` env read to the makefile; it can't override `:=`
@@ -239,7 +248,9 @@ Key design decisions & rationale:
 - [ ] keep `install-dev-android` working (uses the same `build-android` output path)
 - [ ] verify `go mod tidy` keeps the `golang.org/x/mobile` require (held by
       `mobile/tools.go`'s `bind` import); the cmds need no module-graph entry —
-      `go build <cmd-pkg>` resolves them at the pinned version
+      `go build <cmd-pkg>` resolves them at the pinned version. Run tidy on a
+      **clean tree** and review the diff so unrelated dependency bumps don't ride
+      in (tidy may otherwise pull newer transitive versions)
 - [ ] validate: `bash -n`/`make -n build-android` (syntax + flag review);
       confirm `make build-android VERSION=v0.0.0-test` would expand the override
       into `LDFLAGS` (inspect with `make -n`/`--print-data-base` if unsure);
@@ -295,7 +306,10 @@ Key design decisions & rationale:
       VERSION=${{ needs.version.outputs.version }} COMMIT=… DATE=…` (command-line
       override — env won't beat the Makefile's `:=`, see Technical Details ⚠️);
       `upload-artifact dist/android/any.aar`
-- [ ] `ios` job (macos-15, `needs: version`): checkout **`fetch-depth: 0`** +
+- [ ] `ios` job (macos-15, `needs: version`): use `actions/checkout@v6` +
+      `actions/setup-go@v6` to match `_build-any.yml` (the source `xcframework.yml`
+      pins `@v4`/`@v5` — don't carry the older versions over); checkout
+      **`fetch-depth: 0`** +
       `go-private-auth` + setup-go; "Select Xcode + verify iOS 26 SDK" (fail loud
       on non-`26.*`); `go test -count=1 ./cmd/anyserver/`;
       `scripts/build-xcframework.sh` with `ANY_BUILD_VERSION=${{
