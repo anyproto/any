@@ -439,11 +439,21 @@ Key design decisions & rationale:
 **Files:**
 - Modify: workflow header comments (done in Tasks 1/4/5), `CLAUDE.md` if a new pattern is worth recording
 
-- [ ] confirm header-comment docs in `_build-any.yml` + the composite action +
-      `build-xcframework.sh` are accurate
-- [ ] update `CLAUDE.md` "Build / test / run" if the unified pipeline / Android
+- [x] confirm header-comment docs in `_build-any.yml` + the composite action +
+      `build-xcframework.sh` are accurate — re-read all three; each accurately
+      describes the current code (the `_build-any.yml` 5-job fan-out diagram, the
+      composite action's global-git-auth rationale + desktop/android/ios job
+      reference, the script's ANY_BUILD_VERSION/two-slice/app-consumption notes).
+      No drift; no edits needed.
+- [x] update `CLAUDE.md` "Build / test / run" if the unified pipeline / Android
       build is worth a line (new `make build-android` semantics, single release)
-- [ ] move this plan to `docs/plans/completed/` (`mkdir -p` first)
+      — added a `make build-android` line (4-ABI bind, `-ldflags '$(LDFLAGS)'`
+      version stamp, CI command-line VERSION/COMMIT/DATE override, NDK CI-only)
+      and a short CI note (one reusable `_build-any.yml` fan-out/fan-in → single
+      release with sha-pinned mobile assets + 3 client dispatches). Concise,
+      matched the surrounding style.
+- [x] move this plan to `docs/plans/completed/` (`mkdir -p` first) — moved to
+      `docs/plans/completed/20260618-unified-build-workflow.md`
 
 ## Post-Completion
 *External, no checkboxes — separate repos, not gated by this plan*

@@ -481,6 +481,12 @@ make llamacpp                                     # prebuilt llama.cpp libs into
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
                                                   # warns instead of failing the build
+make build-android                                # dist/android/any.aar — 4-ABI gomobile bind
+                                                  # (armeabi-v7a/arm64-v8a/x86/x86_64), version-
+                                                  # stamped via `-ldflags '$(LDFLAGS)'`; CI passes
+                                                  # the resolved version as make COMMAND-LINE vars
+                                                  # (VERSION=… COMMIT=… DATE=…) — env can't beat the
+                                                  # Makefile's `:=`. Needs an Android NDK (CI-only).
 go test ./...                                     # unit tests (config + server)
 go vet ./...
 
@@ -490,6 +496,12 @@ ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ./any status                                      # GET /v1/health
 ./any stop                                        # POST /v1/shutdown
 ```
+
+CI: one reusable workflow (`.github/workflows/_build-any.yml`, called by
+`release-any.yml` on `v*` tags + `nightly-any.yml` on cron) fans out per-platform
+build jobs (desktop x4 tarballs, Android `any.aar`, iOS `any.xcframework.zip`) and
+fans in to a single `publish` job that ships them all in ONE GitHub Release (both
+mobile assets sha256-pinned in the notes) and dispatches the 3 client repos.
 
 For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
 
