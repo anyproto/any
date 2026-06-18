@@ -1,5 +1,6 @@
-GOMOBILE := $(shell go env GOPATH)/bin/gomobile
-GOBIND   := $(shell go env GOPATH)/bin/gobind
+GOBIN    := $(shell go env GOPATH)/bin
+GOMOBILE := $(GOBIN)/gomobile
+GOBIND   := $(GOBIN)/gobind
 
 # Build tags for the Android bind. `gomobile` selects mobile code paths;
 # the search-index legs are opt-in (docs/13-index.md § build tags):
@@ -11,24 +12,37 @@ GOBIND   := $(shell go env GOPATH)/bin/gobind
 #     config (mobile/mobile.go). Neither tag = no search index.
 ANY_TAGS := gomobile
 
-# Install gomobile + gobind into GOPATH/bin and initialize gomobile.
-# Idempotent: safe to re-run.
+# Build the go.mod-PINNED gomobile + gobind into GOPATH/bin and initialize
+# gomobile. `go build <cmd-pkg>` resolves the commands at the version pinned
+# in go.mod (golang.org/x/mobile, held in the module graph by mobile/tools.go's
+# `bind` import) — NO `@latest`, so the toolchain can't drift release-to-release.
+# `gomobile init` runs here on the build path; the Android job exports the NDK
+# env (ANDROID_NDK{,_HOME,_ROOT}) before invoking make so init can locate the
+# toolchain. Idempotent: safe to re-run.
 .PHONY: setup-gomobile
 setup-gomobile:
-	go install golang.org/x/mobile/cmd/gomobile@latest
-	go install golang.org/x/mobile/cmd/gobind@latest
-	PATH="$(shell go env GOPATH)/bin:$$PATH" $(GOMOBILE) init
+	@mkdir -p "$(GOBIN)"
+	go build -o "$(GOBIN)/" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
+	PATH="$(GOBIN):$$PATH" $(GOMOBILE) init
 
 # Produce dist/android/any.aar from the github.com/anyproto/any/mobile
-# package. Output AAR contains JNI .so files for all gomobile-supported
-# Android ABIs; the consuming APK's ndk.abiFilters picks the subset.
+# package. Bare `-target=android` builds all 4 supported ABIs (armeabi-v7a,
+# arm64-v8a, x86, x86_64); the consuming APK's ndk.abiFilters picks the subset.
+# The AAR is version-stamped via `-ldflags '$(LDFLAGS)'`, which carries the
+# `-X .../internal/version.{Version,Commit,BuildDate}` values built from the
+# inherited $(VERSION)/$(COMMIT)/$(DATE) (top-level Makefile). CI overrides
+# the stamp with make COMMAND-LINE vars — `make build-android VERSION=… COMMIT=…
+# DATE=…` — the only thing that beats the Makefile's `:=` assignment (env does
+# NOT). No `|| true`: a failed bind fails make and never ships a stale/missing
+# aar.
 .PHONY: build-android
 build-android: setup-gomobile
 	@mkdir -p dist/android
 	@echo "Building any.aar via gomobile bind..."
-	PATH="$(shell go env GOPATH)/bin:$$PATH" $(GOMOBILE) bind \
+	PATH="$(GOBIN):$$PATH" $(GOMOBILE) bind \
 		-tags "$(ANY_TAGS)" \
-		-target=android/arm64 \
+		-ldflags '$(LDFLAGS)' \
+		-target=android \
 		-androidapi 26 \
 		-javapkg=io.anyproto.any \
 		-o dist/android/any.aar \
