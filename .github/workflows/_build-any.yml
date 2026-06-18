@@ -243,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # release notes reference the commit + Makefile pin
+          fetch-depth: 1 # no git history needed here — reads only the Makefile pin + downloaded artifacts
           persist-credentials: false
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -287,16 +287,15 @@ jobs:
           \`any.xcframework.zip\` sha256: \`$XCF_SHA\`
           EOF
           )"
+          # Per-channel flags: a nightly creates a NEW unique, sortable prerelease
+          # tag at this commit (--target), accumulating as history (we never delete
+          # the previous one); a release reuses the human-pushed vX.Y.Z tag.
+          flags=(--title "any $VERSION" --notes "$notes")
           if [ "$CHANNEL" = prerelease ]; then
-            # Each nightly is a unique, sortable prerelease tag — they accumulate
-            # as history; we do NOT delete the previous one.
-            gh release create "$VERSION" dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip \
-              --prerelease --target "$GITHUB_SHA" \
-              --title "any $VERSION" --notes "$notes"
-          else
-            gh release create "$VERSION" dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip \
-              --title "any $VERSION" --notes "$notes"
+            flags+=(--prerelease --target "$GITHUB_SHA")
           fi
+          gh release create "$VERSION" \
+            dist/any-*.tar.gz dist/any.aar dist/any.xcframework.zip "${flags[@]}"
       - name: Notify client repos
         env:
           GH_TOKEN: ${{ secrets.ANY_CI_TOKEN }}
