@@ -226,7 +226,7 @@ Key design decisions & rationale:
 - Modify: `mobile/tools.go` (or `go.mod`) — keep gomobile/gobind in module graph
 - Modify: `go.mod` / `go.sum` — settle via `go mod tidy` if the touch-up adds deps
 
-- [ ] `setup-gomobile`: replace `go install ...gomobile@latest` / `...gobind@latest`
+- [x] `setup-gomobile`: replace `go install ...gomobile@latest` / `...gobind@latest`
       with building the **go.mod-pinned** versions
       (`go build -o "$(GOBIN)" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind`);
       `gomobile init` today lives in `setup-gomobile` (`android.mk:20`), which is
@@ -234,30 +234,39 @@ Key design decisions & rationale:
       on the build path transitively and sees the NDK env the job exports before
       `make`. Leave it there (or move it into the `build-android` recipe to match
       heart's shape — either works; just don't move it OUT of the build path)
-- [ ] `build-android`: add `-ldflags '$(LDFLAGS)'` to the `gomobile bind` call
+      — kept in `setup-gomobile`; added `GOBIN := $(shell go env GOPATH)/bin`
+- [x] `build-android`: add `-ldflags '$(LDFLAGS)'` to the `gomobile bind` call
       (there is none today); change `-target=android/arm64` → bare `-target=android`
       (all 4 ABIs); keep `-androidapi 26`, `-javapkg=io.anyproto.any`, tags
       `gomobile`; output `dist/android/any.aar`
-- [ ] that `$(LDFLAGS)` already carries the version `-X` stamps built from the
+- [x] that `$(LDFLAGS)` already carries the version `-X` stamps built from the
       **inherited** `$(VERSION)/$(COMMIT)/$(DATE)` (top-level Makefile) → so the
       CI override path is `make
       build-android VERSION=… COMMIT=… DATE=…` (command-line override, the ONLY
       thing that beats the Makefile's `:=` — see Technical Details ⚠️). Do NOT
       add an `ANY_BUILD_VERSION` env read to the makefile; it can't override `:=`
-- [ ] ensure **no `|| true`** anywhere — a failed `gomobile bind` fails `make`
-- [ ] keep `install-dev-android` working (uses the same `build-android` output path)
-- [ ] verify `go mod tidy` keeps the `golang.org/x/mobile` require (held by
+      — verified via `make -n`: the override expands into `LDFLAGS`'s `-X` stamps
+- [x] ensure **no `|| true`** anywhere — a failed `gomobile bind` fails `make`
+- [x] keep `install-dev-android` working (uses the same `build-android` output path)
+      — `make -n install-dev-android` still copies `dist/android/any.aar`
+- [x] verify `go mod tidy` keeps the `golang.org/x/mobile` require (held by
       `mobile/tools.go`'s `bind` import); the cmds need no module-graph entry —
       `go build <cmd-pkg>` resolves them at the pinned version. Run tidy on a
       **clean tree** and review the diff so unrelated dependency bumps don't ride
       in (tidy may otherwise pull newer transitive versions)
-- [ ] validate: `bash -n`/`make -n build-android` (syntax + flag review);
+      — `go mod tidy` on a clean tree produced **zero** diff to go.mod/go.sum;
+      `x/mobile v0.0.0-20260508232728-bebd421c7fa8` require intact
+- [x] validate: `bash -n`/`make -n build-android` (syntax + flag review);
       confirm `make build-android VERSION=v0.0.0-test` would expand the override
       into `LDFLAGS` (inspect with `make -n`/`--print-data-base` if unsure);
       `go test -tags gomobile ./mobile/...` (mobile shim unchanged, must still
       pass); `go vet ./...`. Full `gomobile bind` run is CI-only (needs NDK) —
       note this, don't claim a local aar build if NDK is absent
-- [ ] (validation gate) makefile parses, VERSION override verified, mobile/anyserver suites green before next task
+      — `make -n build-android` parses; override confirmed
+      (`Version=v0.0.0-test Commit=deadbee BuildDate=…`);
+      `go test -tags gomobile ./mobile/...` ok; `go test ./cmd/anyserver/` ok;
+      `go vet ./...` clean. **No local aar built — NDK absent locally (CI-only).**
+- [x] (validation gate) makefile parses, VERSION override verified, mobile/anyserver suites green before next task
 
 ### Task 3: Extract `scripts/build-xcframework.sh` from `xcframework.yml`
 
