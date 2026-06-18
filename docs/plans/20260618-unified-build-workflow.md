@@ -364,11 +364,21 @@ Key design decisions & rationale:
 **Files:**
 - Delete: `.github/workflows/xcframework.yml`
 
-- [ ] remove the file (its build logic now lives in `build-xcframework.sh`, its
-      publish/tag duties in the `publish` job)
-- [ ] grep the repo for stale references to `xcframework.yml` / the old manual
-      dispatch and clean any docs/comments pointing at it
-- [ ] validate: `git grep -n xcframework.yml` returns nothing meaningful
+- [x] remove the file (its build logic now lives in `build-xcframework.sh`, its
+      publish/tag duties in the `publish` job) — `git rm` removed
+      `.github/workflows/xcframework.yml`; remaining workflows: `_build-any.yml`,
+      `release-any.yml`, `nightly-any.yml`
+- [x] grep the repo for stale references to `xcframework.yml` / the old manual
+      dispatch and clean any docs/comments pointing at it — the one stale
+      in-repo reference (`go-private-auth/action.yml` comment naming the old
+      `xcframework.yml` auth step) was reworded to point at the desktop/android/
+      ios jobs in `_build-any.yml`. No stale manual-dispatch refs found. The
+      surviving `tools/fetch-anyserver-xcframework.sh` mentions are the
+      client-repo (anytype-swift) consumption note deliberately kept in
+      `scripts/build-xcframework.sh`'s header (Task 3), not stale
+- [x] validate: `git grep -n xcframework.yml` returns nothing meaningful —
+      only the plan file self-references it now; `actionlint` clean (0 findings)
+      over the three remaining workflows after the comment edit
 
 ### Task 6: Verify callers unchanged + acceptance
 

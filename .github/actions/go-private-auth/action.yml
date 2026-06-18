@@ -11,8 +11,9 @@ description: >-
 #   build fails with "could not read Username". A global `insteadOf` rewrite
 #   makes EVERY git invocation (module-cache ls-remote/clone included) carry the
 #   token. Pair this with `persist-credentials: false` on the checkout so the
-#   two credential sources don't collide. (Rationale preserved from the old
-#   xcframework.yml + _build-any.yml auth steps this action replaces.)
+#   two credential sources don't collide. (Rationale preserved from the
+#   per-job auth steps this action replaces — now used by the desktop,
+#   android, and ios jobs in _build-any.yml.)
 #
 # GOPRIVATE=github.com/anyproto/* skips the public proxy + checksum DB for the
 # private modules; public deps still go through the proxy untouched.
