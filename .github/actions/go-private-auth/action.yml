@@ -31,7 +31,7 @@ runs:
     - name: Configure GOPRIVATE + git credential rewrite
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.token }}
+        GIT_TOKEN: ${{ inputs.token }}
       run: |
         echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
-        git config --global url."https://x-access-token:${GH_TOKEN}@github.com/anyproto/".insteadOf "https://github.com/anyproto/"
+        git config --global url."https://x-access-token:${GIT_TOKEN}@github.com/anyproto/".insteadOf "https://github.com/anyproto/"
