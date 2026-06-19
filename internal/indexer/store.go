@@ -26,9 +26,11 @@ const (
 	// indexSchemaVersion is bumped on incompatible store-layout changes:
 	// v2 = objectId:dataset:recordId primary keys; v3 = editor_blocks
 	// indexed as coalesced windows (win_<anchor>) instead of one doc per
-	// block. Mismatch = boot error advising removal; no migration — the
-	// index is derived state (re-indexes on the next change).
-	indexSchemaVersion = 3
+	// block; v4 = any-store alpha.15 FTS (postings format v2 — FTS v1
+	// indexes have no on-disk back-compat, so the index must be rebuilt).
+	// Mismatch = boot error advising removal; no migration — the index is
+	// derived state (re-indexes on the next change).
+	indexSchemaVersion = 4
 )
 
 // Store is the indexer-owned any-store database: one collection per

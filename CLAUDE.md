@@ -548,9 +548,11 @@ ordering and the old `SetBase`/`PropertyReadOpts` surface — plus
 `v0.0.10`'s change-index + tombstone `IncludeDeleted` work (status items
 13–14), the space `createdAt` stamp (status item 15), and the
 dataset-schema + unified-query base from `v0.0.8`),
-`any-store/v2 v2.0.0-alpha.14` (former `btree-fts` branch — FTS +
-vector indexes behind the search indexer, status item 14; pulled in by
-the v0.0.12 SDK bump), `any-sync v0.12.11`.
+`any-store/v2 v2.0.0-alpha.15` (FTS gains phrase/prefix/`$require`/
+`$exclude`/`$defaultOperator` query operators, per-index BM25 `b`/`k1`,
+and per-field BM25F `Weights` — postings format v2, no FTS-v1 on-disk
+back-compat so the search index rebuilds at indexSchemaVersion v4;
+pulled in by the v0.0.14 SDK bump), `any-sync v0.12.11`.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
