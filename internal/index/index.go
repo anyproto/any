@@ -53,6 +53,28 @@ type IndexEntry struct {
 	ApplySeq uint64 // peer-local, per-space monotonic apply counter
 }
 
+// Reconciler is an optional chunker capability for datasets whose index
+// unit spans MULTIPLE records — e.g. coalesced editor windows, where one
+// index doc concatenates several blocks. An incremental per-record stream
+// (ChunksSince) can't express such a unit: a window's text needs sibling
+// records below the cursor, and a deleted record's position is wiped from
+// its tombstone, so the affected window can't be located incrementally.
+//
+// Reconcile returns the object's FULL current doc set for the dataset.
+// The indexer diffs it against what is already stored (by content hash):
+// docs that vanished are deleted, new/changed docs are upserted, and
+// unchanged docs are left untouched — so their vectors are preserved and
+// not needlessly re-embedded. The indexer prefers Reconcile over
+// ChunksSince when a chunker implements this interface.
+type Reconciler interface {
+	Chunker
+	// Reconcile returns every current index entry for objectId on this
+	// chunker's dataset. since is the indexer's cursor (the current
+	// implementation rebuilds the full set and ignores it; a future
+	// incremental implementation could use it to scope work).
+	Reconcile(ctx context.Context, sp space.Space, objectId string, since uint64) ([]IndexEntry, error)
+}
+
 // Chunker streams the IndexEntry values for one dataset on one object.
 type Chunker interface {
 	// Dataset is the dataset this chunker writes — the middle segment

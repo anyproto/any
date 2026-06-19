@@ -156,17 +156,15 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	chatEntries, chatMax := collectChunks(t, ctx, chatCh, sdkSpace, chatObj, 0)
 	assertChat(t, chatEntries, chatObj, map[string]string{msg1Id: "hello one", msg2Id: "hello two"})
 
-	edEntries, edMax := collectChunks(t, ctx, edCh, sdkSpace, edObj, 0)
-	if len(edEntries) != 2 {
-		t.Fatalf("editor entries = %d, want 2: %+v", len(edEntries), edEntries)
+	// Editor coalesces its two heading-less blocks into ONE window doc,
+	// anchored on the first block, text joined by newline.
+	edEntries, _ := collectChunks(t, ctx, edCh, sdkSpace, edObj, 0)
+	if len(edEntries) != 1 {
+		t.Fatalf("editor entries = %d, want 1 coalesced window: %+v", len(edEntries), edEntries)
 	}
-	for _, en := range edEntries {
-		if en.Scope != index.ScopeBasic || en.Dataset != editor.Dataset || en.ObjectId != edObj {
-			t.Errorf("editor entry tags wrong: %+v", en)
-		}
-		if en.Data != "block one" && en.Data != "block two" {
-			t.Errorf("editor entry data unexpected: %q", en.Data)
-		}
+	if en := edEntries[0]; en.Scope != index.ScopeBasic || en.Dataset != editor.Dataset || en.ObjectId != edObj ||
+		en.RecordId != "win_"+blk1Id || en.Data != "block one\nblock two" {
+		t.Errorf("editor window entry wrong: %+v", edEntries[0])
 	}
 
 	// Prop chunker: name + description built-ins (scope basic) plus one
@@ -215,10 +213,22 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	delEntries, _ := collectChunks(t, ctx, chatCh, sdkSpace, chatObj, chatMax2)
 	assertTombstone(t, delEntries, msg1Id, chatMax2)
 
-	// --- Deletion: editor block → tombstone ---
+	// --- Deletion: editor block → window reconcile ---
+	// Editor is a Reconciler: deleting a block doesn't stream a per-record
+	// tombstone; the whole object's windows are rebuilt (PrefixDelete +
+	// the surviving block's window). The anchor moves to the survivor.
 	doJSONExpect(t, e, http.MethodDelete, edBase+"/editor/blocks/"+blk1Id, http.StatusOK)
-	edDel, _ := collectChunks(t, ctx, edCh, sdkSpace, edObj, edMax)
-	assertTombstone(t, edDel, blk1Id, edMax)
+	rc, ok := edCh.(index.Reconciler)
+	if !ok {
+		t.Fatal("editor chunker should implement index.Reconciler")
+	}
+	recon, err := rc.Reconcile(ctx, sdkSpace, edObj, 0)
+	if err != nil {
+		t.Fatalf("editor reconcile after delete: %v", err)
+	}
+	if len(recon) != 1 || recon[0].Data != "block two" {
+		t.Fatalf("editor reconcile = %+v, want one window 'block two'", recon)
+	}
 
 	// --- Deletion: memory object → no entries from the prop chunker ---
 	// (structural eviction is the indexer's job — the advance loop

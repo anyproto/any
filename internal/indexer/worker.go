@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -226,14 +227,12 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			page.prefixDels = append(page.prefixDels, objectId+":"+ch.Dataset()+":")
 			continue
 		}
-		err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
-			if e.Data == "" {
-				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
-			} else {
-				page.ups = append(page.ups, DocUpsert{Entry: e})
-			}
-			return nil
-		})
+		var err error
+		if rc, ok := ch.(index.Reconciler); ok {
+			err = w.reconcile(ctx, rc, objectId, cursor, page)
+		} else {
+			err = w.streamChunks(ctx, ch, objectId, cursor, page)
+		}
 		if err != nil {
 			// The object may have been deleted between the row read and
 			// the dataset read (tree gone). Re-check before failing.
@@ -243,6 +242,89 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			}
 			return err
 		}
+	}
+	return nil
+}
+
+// reconcile runs a coalescing chunker (multi-record index unit, e.g.
+// editor windows) and diffs its full doc set against what is stored, by
+// content hash: vanished docs are deleted, new/changed docs upserted,
+// unchanged docs left alone — so their vectors survive and are not
+// re-embedded. This is what keeps an edit/append from re-embedding the
+// whole object (chunker-hybrid-search-report § 9.5).
+func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, objectId string, cursor uint64, page *pageOps) error {
+	entries, err := rc.Reconcile(ctx, w.sp, objectId, cursor)
+	if err != nil {
+		return err
+	}
+	stored, err := w.ix.store.DocHashes(ctx, w.sp.Id(), objectId+":"+rc.Dataset()+":")
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		id := docId(e.ObjectId, e.Dataset, e.RecordId)
+		seen[id] = true
+		if e.Data == "" {
+			page.dels = append(page.dels, id)
+			continue
+		}
+		if h, ok := stored[id]; ok && h == docHash(e.Data) {
+			continue // unchanged — keep the stored doc and its vector
+		}
+		page.ups = append(page.ups, DocUpsert{Entry: e})
+	}
+	for id := range stored {
+		if !seen[id] {
+			page.dels = append(page.dels, id) // vanished
+		}
+	}
+	return nil
+}
+
+// streamChunks runs a per-record chunker. On the cold cursor (0) nothing
+// is stored, so it applies entries blind. On an incremental advance it
+// hash-checks each re-streamed record and skips re-embedding ones whose
+// indexed text is unchanged — e.g. a memory item bumped only on
+// accessCount, or a chat message that got a reaction.
+func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, objectId string, cursor uint64, page *pageOps) error {
+	var entries []index.IndexEntry
+	if err := ch.ChunksSince(ctx, w.sp, objectId, cursor, func(e index.IndexEntry) error {
+		entries = append(entries, e)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if cursor == 0 {
+		for _, e := range entries {
+			if e.Data == "" {
+				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
+			} else {
+				page.ups = append(page.ups, DocUpsert{Entry: e})
+			}
+		}
+		return nil
+	}
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Data != "" {
+			ids = append(ids, docId(e.ObjectId, e.Dataset, e.RecordId))
+		}
+	}
+	stored, err := w.ix.store.DocHashesByIds(ctx, w.sp.Id(), ids)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		id := docId(e.ObjectId, e.Dataset, e.RecordId)
+		if e.Data == "" {
+			page.dels = append(page.dels, id)
+			continue
+		}
+		if h, ok := stored[id]; ok && h == docHash(e.Data) {
+			continue // re-streamed but indexed text unchanged — keep vector
+		}
+		page.ups = append(page.ups, DocUpsert{Entry: e})
 	}
 	return nil
 }
@@ -280,38 +362,89 @@ func typeSet(row *anyenc.Value) map[string]bool {
 	return out
 }
 
-// drainPending embeds and lands pending docs batch by batch until the
-// queue is empty. The vector index is created lazily after the first
-// batch (IVF trains from existing docs).
+// drainPending embeds and lands pending docs until the queue is empty.
+// Each round pulls up to EmbedConcurrency batches and embeds them
+// concurrently: an online embedder parallelizes across HTTP requests
+// (the throughput win), while the local model serializes internally on
+// its mutex — so concurrency is safe regardless of backend. SetVectors /
+// EnsureVectorIndex stay serial. The vector index is created lazily after
+// the first batch lands.
 func (w *spaceWorker) drainPending(ctx context.Context) error {
 	spaceId := w.sp.Id()
+	batch := w.ix.opts.EmbedBatch
+	conc := w.ix.opts.EmbedConcurrency
 	for {
-		ids, texts, err := w.ix.store.Pending(ctx, spaceId, w.ix.opts.EmbedBatch)
+		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
 		if err != nil {
 			return err
 		}
 		if len(ids) == 0 {
 			return nil
 		}
-		vecs, err := w.ix.opts.Embedder.EmbedDocs(ctx, texts)
-		if err != nil {
-			// Embedder down: docs stay pending, the ticker retries —
-			// the vector pipeline freezes, FTS is unaffected.
-			return err
+
+		// Split the page into batch-sized chunks, embed concurrently.
+		type chunk struct {
+			ids   []string
+			texts []string
+			vecs  [][]float32
+			err   error
 		}
-		if len(vecs) > 0 && len(vecs[0]) > 0 {
-			// First successful batch teaches the store its dimension
-			// (no boot-time probe — an embedder that was down at boot
-			// just starts working here once reachable).
-			if err := w.ix.store.EnsureDim(ctx, len(vecs[0])); err != nil {
+		var chunks []*chunk
+		for off := 0; off < len(ids); off += batch {
+			end := min(off+batch, len(ids))
+			chunks = append(chunks, &chunk{ids: ids[off:end], texts: texts[off:end]})
+		}
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, conc)
+		for _, c := range chunks {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(c *chunk) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				c.vecs, c.err = w.ix.opts.Embedder.EmbedDocs(ctx, c.texts)
+			}(c)
+		}
+		wg.Wait()
+
+		// First successful batch teaches the store its dimension (no
+		// boot-time probe — an embedder down at boot just starts here).
+		for _, c := range chunks {
+			if c.err == nil && len(c.vecs) > 0 && len(c.vecs[0]) > 0 {
+				if err := w.ix.store.EnsureDim(ctx, len(c.vecs[0])); err != nil {
+					return err
+				}
+				break
+			}
+		}
+		// Land the successful chunks; a failed chunk leaves its docs
+		// pending (the ticker retries) and we surface the error after.
+		var firstErr error
+		landed := false
+		for _, c := range chunks {
+			if c.err != nil {
+				if firstErr == nil {
+					firstErr = c.err
+				}
+				continue
+			}
+			if err := w.ix.store.SetVectors(ctx, spaceId, c.ids, c.vecs); err != nil {
+				return err
+			}
+			landed = true
+		}
+		if landed {
+			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {
 				return err
 			}
 		}
-		if err := w.ix.store.SetVectors(ctx, spaceId, ids, vecs); err != nil {
-			return err
+		if firstErr != nil {
+			// Embedder down for some chunk: pipeline freezes (those docs
+			// stay pending), FTS unaffected; the ticker retries.
+			return firstErr
 		}
-		if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {
-			return err
+		if len(ids) < batch*conc {
+			return nil // last page
 		}
 	}
 }

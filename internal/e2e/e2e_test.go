@@ -665,7 +665,10 @@ func startServerInit(t *testing.T, bin, addr, dataDir string, withInit bool) *ru
 	// won't resolve when the test exec's it from a different working
 	// directory.
 	cfgPath := filepath.Join(dataDir, "config.yaml")
-	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\n", absStagingPath(t))
+	// embedder: none keeps e2e hermetic — the default "auto" would call the
+	// online embedding API (DeepInfra) on every boot. e2e doesn't exercise
+	// vector search, so FTS-only is fine.
+	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", absStagingPath(t))
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}

@@ -62,14 +62,22 @@ sync:
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search
-  embedder: local                     # local (default) | ollama | openai | none (FTS-only)
+  embedder: auto                      # auto (DEFAULT — online openai primary + local
+                                      #   fallback, SAME model both sides) | local |
+                                      # ollama | openai | none (FTS-only)
+  embedBatch: 64                      # docs per embed request (0 = default 64)
+  embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
+                                      # 4 for online openai/auto (parallel = the API win)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
-  openai:                             # any OpenAI-compatible /embeddings API
-    baseUrl: https://api.openai.com/v1
-    model: text-embedding-3-small     # required when embedder: openai
-    apiKey: sk-...                    # sent as Bearer; never logged
+  openai:                             # online primary for embedder: openai/auto.
+                                      # Defaults are pre-filled with shared DeepInfra
+                                      # dev creds (Qwen3-Embedding-0.6B) so `auto` works
+                                      # zero-config — TEMPORARY, rotated/removed at launch.
+    baseUrl: https://api.deepinfra.com/v1/openai
+    model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
+    apiKey: ...                       # sent as Bearer; never logged
   local:                              # in-process llama.cpp — all fields optional;
                                       # the default embedder needs no config at all
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
@@ -82,6 +90,14 @@ index:
     threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
+    mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
+                                      # friendly, ~3-4 recall@10 below exact) | btree/hnsw
+                                      # (recall≈exact, costly serial ingest) | hybrid | bruteforce
+  search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
+    stopWords: true                   # strip stop words from the FTS-leg query (default on)
+    ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
+    vectorWeight: 1                   # RRF weight for the dense leg (default 1)
+    minVectorSim: 0                   # cosine floor for vector hits; 0 = legacy ">0"
 
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
@@ -104,13 +120,20 @@ ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
 
 ANY_INDEX_ENABLED=false               # index.enabled
-ANY_INDEX_EMBEDDER=ollama             # index.embedder
+ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)
+ANY_INDEX_EMBED_BATCH=64              # index.embedBatch
+ANY_INDEX_EMBED_CONCURRENCY=8        # index.embedConcurrency (parallel batches; online)
 ANY_INDEX_OLLAMA_URL=http://localhost:11434
 ANY_INDEX_OLLAMA_MODEL=embeddinggemma
 ANY_INDEX_OPENAI_BASE_URL=https://api.openai.com/v1
 ANY_INDEX_OPENAI_MODEL=text-embedding-3-small
 ANY_INDEX_OPENAI_API_KEY=sk-...
 ANY_INDEX_VECTOR_DIM=768              # index.vector.dim (0 = probe)
+ANY_INDEX_VECTOR_MODE=btree           # index.vector.mode (btree|hybrid|bruteforce|ivfsq)
+ANY_INDEX_SEARCH_STOP_WORDS=true      # index.search.stopWords
+ANY_INDEX_SEARCH_FTS_WEIGHT=1.0       # index.search.ftsWeight
+ANY_INDEX_SEARCH_VECTOR_WEIGHT=0.5    # index.search.vectorWeight
+ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0     # index.search.minVectorSim (keep 0 for the local model)
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
 ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
@@ -123,8 +146,9 @@ ANY_INDEX_LOCAL_THREADS=8            # 0/unset = runtime.NumCPU()-1
 
 ### `index.embedder: local` prerequisites
 
-The local embedder is the **default** (set `index.embedder: none` for
-FTS-only). It runs llama.cpp in-process (no CGO — yzma dlopens the
+The local embedder is the **fallback** under the default `auto` (and used
+directly with `index.embedder: local`; set `none` for FTS-only). It runs
+llama.cpp in-process (no CGO — yzma dlopens the
 shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
 Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
 vector side just reports `unavailable` until they're met.
@@ -139,6 +163,22 @@ vector side just reports `unavailable` until they're met.
 - **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
   mainstream distros; on NixOS use `nix develop` — the repo flake's
   dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
+
+### `index.embedder: auto` (online primary + local fallback)
+
+Prefers an online OpenAI-compatible API for speed and falls back to the
+in-process local model during an outage, so vector search stays fresh
+instead of pausing. The online primary is configured by the `openai`
+block (`baseUrl` / `model` / `apiKey`); the fallback by the `local` block
+(auto-downloaded at boot regardless, so it's ready). A circuit breaker
+skips the primary for a cooldown after repeated failures, then re-probes.
+
+**Both sides must be the SAME embedding model** — the index stores one
+vector space and one dimension; mixing models yields incoherent
+similarity. The supported pairing is one model served two ways, e.g.
+`index.openai.model: Qwen/Qwen3-Embedding-0.6B` (a host that serves it,
+e.g. DeepInfra) with the default local Qwen3-Embedding-0.6B. fp16-vs-Q8
+drift is negligible.
 
 The passkey is the one secret the server may need at boot. Accepted
 sources:

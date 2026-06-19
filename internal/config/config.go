@@ -13,13 +13,13 @@ type Config struct {
 	// Account selects which account to boot when the root holds more
 	// than one. Empty = the default (root wallet.key, or the sole
 	// per-account dir).
-	Account string  `yaml:"account"`
-	Listen  Listen  `yaml:"listen"`
-	Auth    Auth    `yaml:"auth"`
-	Network Network `yaml:"network"`
-	Storage Storage `yaml:"storage"`
-	Sync    Sync    `yaml:"sync"`
-	Index   Index   `yaml:"index"`
+	Account string        `yaml:"account"`
+	Listen  Listen        `yaml:"listen"`
+	Auth    Auth          `yaml:"auth"`
+	Network Network       `yaml:"network"`
+	Storage Storage       `yaml:"storage"`
+	Sync    Sync          `yaml:"sync"`
+	Index   Index         `yaml:"index"`
 	Log     logger.Config `yaml:"log"`
 }
 
@@ -52,15 +52,51 @@ type Sync struct {
 type Index struct {
 	// Enabled gates the whole indexer. Default true.
 	Enabled bool `yaml:"enabled"`
-	// Embedder selects the embedding provider: "local" (default —
-	// in-process llama.cpp, no external service), "ollama", "openai"
-	// (any OpenAI-compatible /embeddings API), or "none" (FTS-only).
-	// Empty means unset and resolves to the default.
-	Embedder string      `yaml:"embedder"`
-	Ollama   IndexOllama `yaml:"ollama"`
-	OpenAI   IndexOpenAI `yaml:"openai"`
-	Local    IndexLocal  `yaml:"local"`
-	Vector   IndexVector `yaml:"vector"`
+	// Embedder selects the embedding provider: "auto" (DEFAULT — online
+	// openai primary + local fallback, both the SAME model), "local"
+	// (in-process llama.cpp only), "ollama", "openai" (any OpenAI-
+	// compatible /embeddings API), or "none" (FTS-only). Empty resolves to
+	// the default. The default "auto" primary uses the baked dev creds in
+	// Defaults() (devEmbed*); override via the openai block / env.
+	Embedder string `yaml:"embedder"`
+	// EmbedBatch / EmbedConcurrency tune the embed loop. EmbedBatch is
+	// docs per EmbedDocs call (0 = default 64). EmbedConcurrency is how
+	// many batches embed in parallel (0 = default: 1 for local, a few for
+	// online openai/auto — parallel requests are the online throughput
+	// win; the local model serializes internally so concurrency is safe
+	// but pointless). See docs/13-index.md.
+	EmbedBatch       int         `yaml:"embedBatch"`
+	EmbedConcurrency int         `yaml:"embedConcurrency"`
+	Ollama           IndexOllama `yaml:"ollama"`
+	OpenAI           IndexOpenAI `yaml:"openai"`
+	Local            IndexLocal  `yaml:"local"`
+	Vector           IndexVector `yaml:"vector"`
+	Search           IndexSearch `yaml:"search"`
+}
+
+// IndexSearch tunes hybrid search ranking (chunker-hybrid-search-report
+// § 5). All zero values pick safe defaults that reproduce pre-tuning
+// behavior, so an absent `index.search` block changes nothing.
+type IndexSearch struct {
+	// FtsWeight / VectorWeight scale each leg's reciprocal-rank-fusion
+	// contribution in hybrid mode. Default 1 each (plain RRF). Lowering
+	// VectorWeight trusts the lexical leg more — useful while the dense
+	// leg is noisy (short chunks, weak embedder).
+	FtsWeight    float64 `yaml:"ftsWeight"`
+	VectorWeight float64 `yaml:"vectorWeight"`
+	// MinVectorSim drops vector hits below this cosine similarity before
+	// fusion. Default 0 keeps the legacy floor (similarity must be > 0).
+	// NOTE: measured against the default local model (Qwen3-Embedding-0.6B)
+	// a static floor is a poor noise filter — gibberish queries score
+	// ~0.6 cosine, on par with on-topic, so any cutoff that drops noise
+	// also drops real hits (internal/indexer/live_probe_test.go). Leave
+	// at 0 for that model; raise only for a better-calibrated embedder.
+	MinVectorSim float64 `yaml:"minVectorSim"`
+	// StopWords toggles query-side stop-word stripping for the FTS leg
+	// only (the vector leg always sees the full query). nil/absent = on
+	// (a precision win on a bag-of-words OR engine); set false to keep
+	// the raw query.
+	StopWords *bool `yaml:"stopWords"`
 }
 
 type IndexOllama struct {
@@ -111,7 +147,28 @@ type IndexLocal struct {
 type IndexVector struct {
 	// Dim is the embedding dimension; 0 = probe the embedder at boot.
 	Dim int `yaml:"dim"`
+	// Mode selects the ANN index strategy: "" / "ivfsq" (default —
+	// cheap near-flat ingest + physical deletes, ~3–4 recall@10 below
+	// exact), "btree" / "hnsw" (recall ≈ exact but serial super-linear
+	// ingest + tombstone-rebuild deletes), "hybrid" (HNSW + RAM cache),
+	// or "bruteforce" (exact, O(N) per query). docs/search/README.md
+	// § index mode.
+	Mode string `yaml:"mode"`
 }
+
+// --- TEMPORARY pre-go-live embedding creds -------------------------------
+//
+// The default embedder is "auto": an online OpenAI-compatible primary
+// (DeepInfra, serving the SAME model the local fallback runs) + the local
+// model as fallback. These shared dev creds are baked in so teammates get
+// fast online embedding with zero setup. ROTATE on DeepInfra and REMOVE
+// this block before launch (move to real secret management). Changing the
+// key is a one-line edit here.
+const (
+	devEmbedBaseURL = "https://api.deepinfra.com/v1/openai"
+	devEmbedModel   = "Qwen/Qwen3-Embedding-0.6B" // must equal the local fallback model
+	devEmbedAPIKey  = "ssb5zG4q85Eg2sxDvXbnMmFwsOtfKIxg"
+)
 
 // Defaults returns a Config populated with v1 defaults. Paths here are
 // unexpanded — Load resolves them against the process environment.
@@ -121,7 +178,11 @@ func Defaults() Config {
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
-		Index:   Index{Enabled: true, Embedder: "local"},
+		Index: Index{
+			Enabled:  true,
+			Embedder: "auto", // online primary + local fallback (same model)
+			OpenAI:   IndexOpenAI{BaseUrl: devEmbedBaseURL, Model: devEmbedModel, ApiKey: devEmbedAPIKey},
+		},
 		Log: logger.Config{
 			DefaultLevel: "info",
 			Format:       logger.ColorizedOutput,

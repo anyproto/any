@@ -86,6 +86,16 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_EMBEDDER"); v != "" {
 		cfg.Index.Embedder = v
 	}
+	if v := os.Getenv("ANY_INDEX_EMBED_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.EmbedBatch = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_EMBED_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.EmbedConcurrency = n
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_OLLAMA_URL"); v != "" {
 		cfg.Index.Ollama.Url = v
 	}
@@ -134,6 +144,29 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Vector.Dim = n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_VECTOR_MODE"); v != "" {
+		cfg.Index.Vector.Mode = v
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_FTS_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.FtsWeight = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_VECTOR_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.VectorWeight = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_MIN_VECTOR_SIM"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.MinVectorSim = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_STOP_WORDS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Index.Search.StopWords = &b
 		}
 	}
 }

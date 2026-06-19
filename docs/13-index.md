@@ -11,11 +11,15 @@ The chunkers are wired into the process via `server.NewIndexRegistry`
 `index.enabled` and drives them through the SDK's per-space change feed
 (`Space.Changes()`).
 
+This doc is the **contract** (how it works). For the **evaluation and
+decision record** — chunk-length before/after, BEIR results, why the
+defaults are what they are — see [`search/README.md`](search/README.md).
+
 ## The contract
 
 ```go
 type IndexEntry struct {
-    Scope    string // open slug set; "basic" / "chat" / "agent" are the vocabulary
+    Scope    string // open slug set; "basic"/"chat"/"agent"/"program" are the vocabulary
     ObjectId string
     Dataset  string
     RecordId string
@@ -30,28 +34,74 @@ type Chunker interface {
     // Cleared/deleted records yield removal entries (Data == "").
     ChunksSince(ctx, sp space.Space, objectId string, since uint64, yield func(IndexEntry) error) error
 }
+
+// Optional: chunkers whose index unit spans several records implement
+// Reconciler. The indexer prefers it over ChunksSince and applies
+// {PrefixDelete, Upserts} in the same page transaction.
+type Reconciler interface {
+    Chunker
+    Reconcile(ctx, sp space.Space, objectId string, since uint64) (Reconciliation, error)
+}
+type Reconciliation struct { PrefixDelete bool; Upserts []IndexEntry }
 ```
 
 A chunker turns one object's records (for one dataset) into a stream of
 `IndexEntry` values ordered by `AddSeq`. The indexer persists a cursor
 (its last-seen `AddSeq`) and calls `ChunksSince(cursor)` to pull only
-what changed.
+what changed. A **`Reconciler`** chunker (editor) is called via
+`Reconcile` instead: it returns the object's full current doc set plus a
+`PrefixDelete` flag, because a coalesced window can't be expressed as a
+per-record delta — a window's text needs sibling records below the
+cursor, and a deleted block's position is wiped from its tombstone, so
+the affected window can't be located incrementally.
 
 ## Chunkers, scopes, gating
 
 | Chunker                 | Dataset (doc-id segment) | `TypeId()` gate | Scope of entries | `Data` |
 |-------------------------|--------------------------|-----------------|------------------|--------|
-| `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | the block's `text` (inline markdown) |
+| `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
-| `index.NewPropChunker()`| `prop` (virtual)         | — (ungated)     | per property     | property values (see below) |
+| `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
+| `program.NewDescriptionChunker()` | `program_description` | `program` | `program`   | the tool description (`text`) |
+| `program.NewMethodsChunker()`     | `program_methods`     | `program` | `program`   | method signature (`name`) + doc (`text`) |
+| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | per property     | property values (see below) |
 
-- **One record = one chunk.** Editor blocks and chat messages are
-  per-object datasets — one row per block / message, one entry per row.
-- **Chat excludes** creator / reactions / attachments — text only.
-  **Editor excludes** block type / style — text only.
+- **Chat = one record per chunk.** `chat_messages` indexes one entry per
+  message (creator / reactions / attachments excluded — text only).
+- **Editor = coalesced windows.** `editor_blocks` does NOT index one doc
+  per block: consecutive blocks (in document order — the `List` tree
+  walk) are grouped into ~1.5 KB windows broken before each heading
+  (`internal/editor/window.go`), one index doc per window, anchored on
+  the window's first block (`recordId = win_<firstBlockId>`), `Data` =
+  the member texts joined by newline with the heading leading. Tiny
+  one-block chunks (mean ~98 chars) hurt vector recall and BM25 length
+  normalization; coalescing fixes both (chunker-hybrid-search-report
+  § 3–4, eval § 9.1). Because a window spans several records, the editor
+  chunker is a **`index.Reconciler`** — it returns the object's full
+  current window set and the indexer diffs it against the stored docs by
+  **content hash** (see below): only changed/new windows re-embed,
+  unchanged ones keep their vectors. So an append re-embeds one window,
+  not the whole doc. The read is still O(doc) per edit (re-reads the
+  blocks to form windows), but that's cheap against the local DB; the
+  expensive axis (embedding) is incremental.
+- **Memory = one record per chunk, scope `agent`.** `agent_memory_items`
+  indexes one doc per item (`agentmem.NewChunker`), so each item stays
+  independently retrievable and filterable (by category / recency /
+  confidence) — coalescing would destroy that. `Data` = the item's
+  semantic + lexical text (context, body, category, keywords, entities,
+  tags); numeric/structural fields (confidence, salience, accessCount,
+  edges, timestamps) are excluded, so a metadata-only bump leaves the
+  content hash unchanged and the indexer skips re-embedding (see below) —
+  important because memory items are bumped often (accessCount on recall,
+  fields on evolution) but their text rarely changes.
+- **Programs index docs, not code.** The `program` type carries three
+  datasets; only `program_description` (tool description) and
+  `program_methods` (per-method `name` + `text`) are indexed, both under
+  scope `program`. `program_source` has no chunker — it is code, not a
+  search target.
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
-  of `[a-z0-9_-]`); `basic` / `chat` / `agent` are the established
-  vocabulary, and property meta flags can mint new ones.
+  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `program` are the
+  established vocabulary, and property meta flags can mint new ones.
 - **`TypeId()` gating**: the indexer runs a gated chunker only while the
   type literal is in the object's `any.types`; when it is not, it
   prefix-evicts `objectId:<dataset>:` instead (see eviction below).
@@ -67,7 +117,10 @@ id `objectId:prop:<propId>`:
   `PropertyDraft.Meta`, HTTP `meta` field). Only string / array kinds
   index; arrays render as a newline join of their string elements.
 - **Built-ins `any.name` and `any.description` are always indexed**
-  under scope `basic`, reserved recordIds `name` / `description`.
+  under scope `basic`, reserved recordIds `name` / `description` —
+  EXCEPT for objects whose `any.types` names an excluded type. The
+  registry passes `agent_debug_log` as an exclusion, so debug-trace
+  pages (whose name is the raw user prompt) never reach search.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
@@ -77,12 +130,38 @@ id `objectId:prop:<propId>`:
   the TTL — and only affect rows written afterwards anyway ("index from
   the next change"). `Invalidate(spaceId)` drops it (tests/ops).
 
+### Content hashes (incremental embedding)
+
+Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`,
+hex-encoded (`docHash` in `store.go`). The indexer uses it to avoid
+re-embedding unchanged content:
+
+- **Reconcile diff (editor).** `worker.reconcile` reads the object's
+  stored `(id, hash)` for `objectId:dataset:` (`Store.DocHashes`), diffs
+  against the chunker's full window set, and emits deletes for vanished
+  ids, upserts for new/changed ones, and **nothing** for unchanged ids —
+  their docs (and vectors) stay. An append re-embeds only the new window.
+- **Per-record skip (chat / memory).** On an incremental advance,
+  `worker.streamChunks` batch-reads the changed records' stored hashes
+  (`Store.DocHashesByIds`); a record that re-streamed (its `_applySeq`
+  bumped) but whose indexed text is unchanged is skipped — no re-embed.
+  Cold sync (cursor 0) skips the hash read and applies blind (nothing is
+  stored yet). This is what keeps a memory `accessCount` bump or a chat
+  reaction from re-embedding.
+
+Hash collisions are astronomically unlikely (64-bit) and the worst case
+is one stale vector. Docs written before the `hash` field existed simply
+miss the map and re-upsert once.
+
 ### Excluded from indexing entirely
 
-`agent_debug_log`, `program`, `miniapp`, and the agent-data datasets
-(`agent_turns` / `agent_chunks` / `agent_memory_items` — a dedicated
-gated chunker is a roadmap item) have **no chunker**;
-`Registry.ForDataset` returns nothing for them.
+`agent_debug_log`, `program_source`, `miniapp`, and the agent turn/chunk
+datasets (`agent_turns` / `agent_chunks`) have **no chunker**;
+`Registry.ForDataset` returns nothing for them. (`agent_memory_items` IS
+now indexed — see the memory chunker above.) `agent_debug_log` is
+diagnostic data, so it is excluded twice over: no dataset chunker AND the
+prop chunker skips its objects (so the prompt-derived page name stays out
+of search too).
 
 ## Removal semantics
 
@@ -91,7 +170,8 @@ Three granularities, all addSeq-consistent (discovered through the same
 
 | What happened | Who detects it | Index operation |
 |---------------|----------------|-----------------|
-| record deleted / value cleared | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
+| record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
+| any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
 | type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`) | prefix delete `objectId:dataset:` |
 | object deleted (`Space.Delete` — datasets dropped wholesale) | the indexer (shared objects row tombstoned) | prefix delete `objectId:` |
 
@@ -144,16 +224,22 @@ any-store database at `<data-dir>/index/index.db`, plus the
   transaction.
 - Indexes per collection: BM25 **full-text** on `data`
   (`IndexKindFulltext`); sparse range on `pending` (embed queue); and —
-  once at least one embedded doc exists — an **IVF-SQ cosine vector
-  index** on `vector`. The vector index is created lazily because IVF
-  trains its quantizers from existing documents
-  (`Store.EnsureVectorIndex`); `CompactRatio: 0.5` re-trains as the
-  space outgrows the initial training set.
+  once at least one embedded doc exists — a **cosine vector index** on
+  `vector`. The strategy (`Store.vectorIndexParams`, `index.vector.mode`)
+  defaults to **IVF-SQ** (`VectorModeIVFSQ`): cheap near-flat incremental
+  ingest + physical deletes, ~3–4 recall@10 below exact — the right fit
+  for a local, continuously-written index (docs/search/README.md § index
+  mode). Alternatives: `btree`/`hnsw` (recall ≈ exact, but serial
+  super-linear ingest + tombstone-rebuild deletes — opt-in for read-heavy
+  deployments), `hybrid` (HNSW + RAM cache), `bruteforce` (exact,
+  O(N)/query, small spaces). The index is created lazily
+  (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (v2 — the id shape;
-  an old DB errors at boot with a remove-to-rebuild message, no
-  migration: the index is derived state) and the vector dimension —
-  changing the embedder dimension is the same kind of boot error.
+  plus a `_meta` row pinning the **schema version** (v3 — editor windows;
+  v2 was one doc per block. An old DB errors at boot with a
+  remove-to-rebuild message, no migration: the index is derived state and
+  re-indexes from the next change) and the vector dimension — changing
+  the embedder dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
@@ -293,12 +379,37 @@ full `fts vector` suite).
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?}` →
 `{hits: [{scope, objectId, dataset, recordId, data, score}], mode,
 vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
-embedder, hits below zero similarity are dropped as noise), `hybrid`
+embedder, hits below the similarity floor are dropped as noise), `hybrid`
 (default — both legs fused by reciprocal rank, k=60; degrades to `fts`
 when the embedder is missing or the query embedding fails — `mode` in
 the reply is the mode that actually ran). Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 [--limit N] [--mode ...]`.
+
+**Ranking knobs (`index.search.*`, docs/05-config.md).** Three app-side
+dials, all defaulting to pre-tuning behavior so an absent config block
+changes nothing (chunker-hybrid-search-report § 5, measured with
+`internal/indexer/eval_test.go`):
+- **Stop-word stripping** (`stopWords`, default **on**) — a small English
+  stop list is removed from the **FTS-leg** query only (the vector leg
+  always gets the full query). On a bag-of-words OR engine every common
+  word matches a large fraction of the corpus and pulls BM25 toward
+  length/frequency noise; dropping them is a precision win. Built-in list
+  in `internal/indexer/stopwords.go`; an all-stop-words query is left
+  unchanged rather than emptied.
+- **Weighted RRF** (`ftsWeight` / `vectorWeight`, default 1/1) — scales
+  each leg's fusion contribution. Lower `vectorWeight` to trust the
+  lexical leg more while the dense leg is noisy (short chunks / weak
+  embedder).
+- **Vector similarity floor** (`minVectorSim`, default 0 = the legacy
+  "> 0" floor) — drops vector hits at/below the cutoff before fusion.
+  **Measured caveat:** for the default local model
+  (Qwen3-Embedding-0.6B) a static floor is a poor noise filter —
+  gibberish queries score ~0.6 cosine, on par with on-topic, and *above*
+  real off-topic queries (`internal/indexer/live_probe_test.go`), so any
+  cutoff that drops noise also drops signal. Keep 0 for that model and
+  let RRF + the FTS leg do the discrimination; raise it only for a
+  better-calibrated embedder (e.g. OpenAI).
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not — an agent

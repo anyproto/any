@@ -190,7 +190,7 @@ func BenchmarkSearch(b *testing.B) {
 	b.Run("vector", func(b *testing.B) {
 		qv := benchVec(rng, dim)
 		for i := 0; i < b.N; i++ {
-			if _, err := s.SearchVector(ctx, "sp", qv, nil, 30); err != nil {
+			if _, err := s.SearchVector(ctx, "sp", qv, nil, 30, 0); err != nil {
 				b.Fatal(err)
 			}
 		}

@@ -168,6 +168,36 @@ func TestStore_Cursor(t *testing.T) {
 	}
 }
 
+func TestStore_VectorMinSimFloor(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 2)
+	const sp = "floor"
+
+	// near ≈ query (cosine 1.0); far at cosine 0.6 to the query [1,0].
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "o1", "editor_blocks", "near", "near", 1), Vector: []float32{1, 0}},
+		{Entry: entry("basic", "o2", "editor_blocks", "far", "far", 2), Vector: []float32{0.6, 0.8}},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	query := []float32{1, 0}
+
+	// floor 0: legacy behavior, both positive-sim hits survive.
+	hits, err := s.SearchVector(ctx, sp, query, nil, 10, 0)
+	if err != nil || len(hits) != 2 {
+		t.Fatalf("floor 0 hits = %d (%v), want both", len(hits), err)
+	}
+
+	// floor 0.7: the cosine-0.6 hit is dropped, the cosine-1.0 hit stays.
+	hits, err = s.SearchVector(ctx, sp, query, nil, 10, 0.7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "near" {
+		t.Fatalf("floor 0.7 hits = %+v, want only 'near'", hits)
+	}
+}
+
 func TestStore_VectorPendingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	const dim = 4
@@ -194,7 +224,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	}
 
 	query := []float32{0.9, 0.1, 0, 0}
-	hits, err := s.SearchVector(ctx, sp, query, nil, 10)
+	hits, err := s.SearchVector(ctx, sp, query, nil, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +246,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	if len(ids) != 0 {
 		t.Fatalf("pending after SetVectors = %v, want none", ids)
 	}
-	hits, err = s.SearchVector(ctx, sp, query, []string{"chat"}, 10)
+	hits, err = s.SearchVector(ctx, sp, query, []string{"chat"}, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +305,7 @@ func TestStore_LazyDim(t *testing.T) {
 	if err != nil || len(ids) != 1 {
 		t.Fatalf("pending with unknown dim = %v, %v; want the doc queued", ids, err)
 	}
-	hits, err := s.SearchVector(ctx, sp, []float32{1, 0}, nil, 10)
+	hits, err := s.SearchVector(ctx, sp, []float32{1, 0}, nil, 10, 0)
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("vector search with unknown dim = %v, %v; want empty, nil", hits, err)
 	}
@@ -291,7 +321,7 @@ func TestStore_LazyDim(t *testing.T) {
 	if err := s.SetVectors(ctx, sp, ids, [][]float32{{1, 0, 0, 0}}); err != nil {
 		t.Fatal(err)
 	}
-	hits, err = s.SearchVector(ctx, sp, []float32{1, 0, 0, 0}, nil, 10)
+	hits, err = s.SearchVector(ctx, sp, []float32{1, 0, 0, 0}, nil, 10, 0)
 	if err != nil || len(hits) != 1 {
 		t.Fatalf("vector search after EnsureDim = %v, %v; want the doc", hits, err)
 	}

@@ -172,9 +172,15 @@ func TestSearch_FullFlow(t *testing.T) {
 	}
 
 	// --- Hybrid (default) ---
+	// Editor blocks index as coalesced windows: the hit's recordId is the
+	// window anchor (win_<firstBlockId>), and it resolves to the editor
+	// object under scope "basic".
 	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quarterly budget"}, http.StatusOK)
-	if res.Mode != api.SearchModeHybrid || len(res.Hits) == 0 || res.Hits[0].RecordId != blkId {
+	if res.Mode != api.SearchModeHybrid || len(res.Hits) == 0 || res.Hits[0].RecordId != "win_"+blkId {
 		t.Fatalf("hybrid: mode=%s hits=%v", res.Mode, hitRecordIds(res))
+	}
+	if res.Hits[0].ObjectId != edObj || res.Hits[0].Scope != "basic" {
+		t.Errorf("hybrid editor hit shape wrong: %+v", res.Hits[0])
 	}
 	if res.VectorStatus != api.VectorStatusUsed {
 		t.Errorf("hybrid with working embedder: vectorStatus = %s, want used", res.VectorStatus)

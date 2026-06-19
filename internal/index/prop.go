@@ -49,6 +49,11 @@ type PropChunker struct {
 	ttl   time.Duration
 	now   func() time.Time
 	cache map[string]*propCatalog // spaceId → snapshot
+	// excludeTypes: objects carrying any of these type ids are skipped
+	// entirely (no name/description/value entries). Used to keep
+	// diagnostic objects — e.g. agent_debug_log pages, whose name is the
+	// raw user prompt — out of search. Empty = index every object.
+	excludeTypes map[string]bool
 }
 
 // indexedProp is one catalog row: where the value lives and the scope
@@ -66,8 +71,14 @@ type propCatalog struct {
 }
 
 // NewPropChunker constructs the chunker with an empty catalog cache.
-func NewPropChunker() *PropChunker {
-	return &PropChunker{ttl: propCatalogTTL, now: time.Now, cache: map[string]*propCatalog{}}
+// excludeTypeIds names types whose objects are skipped entirely (e.g. the
+// agent_debug_log diagnostic type — see PropChunker.excludeTypes).
+func NewPropChunker(excludeTypeIds ...string) *PropChunker {
+	excl := make(map[string]bool, len(excludeTypeIds))
+	for _, id := range excludeTypeIds {
+		excl[id] = true
+	}
+	return &PropChunker{ttl: propCatalogTTL, now: time.Now, cache: map[string]*propCatalog{}, excludeTypes: excl}
 }
 
 func (c *PropChunker) Dataset() string { return DatasetProp }
@@ -144,6 +155,19 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		if IsDeleted(rec) {
 			return nil
 		}
+		attached := map[string]bool{}
+		for _, v := range rec.GetArray("any", "types") {
+			attached[string(v.GetStringBytes())] = true
+		}
+		// Diagnostic objects (e.g. agent_debug_log pages) are excluded
+		// from search wholesale — their name/description carry debug
+		// content, not knowledge. They are never indexed, so there is
+		// nothing to evict here.
+		for ex := range c.excludeTypes {
+			if attached[ex] {
+				return nil
+			}
+		}
 		entry := IndexEntry{Scope: ScopeBasic, ObjectId: objectId, Dataset: DatasetProp, ApplySeq: seq}
 
 		entry.RecordId = NamePropRecordId
@@ -157,10 +181,6 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 			return err
 		}
 
-		attached := map[string]bool{}
-		for _, v := range rec.GetArray("any", "types") {
-			attached[string(v.GetStringBytes())] = true
-		}
 		for _, p := range props {
 			e := IndexEntry{Scope: p.scope, ObjectId: objectId, Dataset: DatasetProp, RecordId: p.propId, ApplySeq: seq}
 			if attached[p.typeId] {
