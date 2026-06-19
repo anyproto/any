@@ -97,6 +97,17 @@ type IndexSearch struct {
 	// (a precision win on a bag-of-words OR engine); set false to keep
 	// the raw query.
 	StopWords *bool `yaml:"stopWords"`
+	// Bm25B / Bm25K1 tune the FTS index's BM25 (any-store FulltextParams).
+	// 0 = the engine default (b=0.75, k1=1.2). Lower b reduces the bias
+	// toward short docs (e.g. 0.4 for mixed-length notes). Set at index
+	// creation — changing them needs a rebuild.
+	Bm25B  float64 `yaml:"bm25B"`
+	Bm25K1 float64 `yaml:"bm25K1"`
+	// TitleWeight is the BM25F boost for the per-doc `title` field over
+	// `body` (editor heading / program method signature / memory context).
+	// 0 = the engine default (1.0 — no boost). Read at query time, so it
+	// can change without a rebuild.
+	TitleWeight float64 `yaml:"titleWeight"`
 }
 
 type IndexOllama struct {

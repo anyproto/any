@@ -53,6 +53,10 @@ type Store struct {
 	// vectorMode selects the ANN index strategy (see vectorIndexParams);
 	// "" resolves to the default. Set once at boot, before any search.
 	vectorMode string
+	// FTS BM25 tuning (any-store FulltextParams), set once at boot.
+	// 0 = engine default. titleWeight is the BM25F boost for the `title`
+	// field (editor heading / method sig / memory context) over `data`.
+	ftsB, ftsK1, titleWeight float64
 
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
@@ -63,6 +67,25 @@ type Store struct {
 // SetVectorMode picks the ANN index strategy for indexes created after the
 // call (existing indexes keep their mode until rebuilt). Empty = default.
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
+
+// SetFTSParams sets the BM25 tuning for FTS indexes created after the call
+// (b/k1 are index-creation params; titleWeight is read at query time).
+func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
+	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
+}
+
+// ftsParams builds the any-store FulltextParams from the configured BM25
+// tuning, or nil to use engine defaults (b=0.75, k1=1.2, no field boost).
+func (s *Store) ftsParams() *anystore.FulltextParams {
+	if s.ftsB == 0 && s.ftsK1 == 0 && s.titleWeight == 0 {
+		return nil
+	}
+	p := &anystore.FulltextParams{B: s.ftsB, K1: s.ftsK1}
+	if s.titleWeight > 0 {
+		p.Weights = map[string]float64{"title": s.titleWeight}
+	}
+	return p
+}
 
 // Hit is one search result row. Score semantics depend on the leg: BM25
 // score (higher = better) for FTS, RRF score after fusion; the vector
@@ -238,7 +261,14 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// sparse pending index (which backs the embed loop) under `vector`.
 	var indexes []anystore.IndexInfo
 	if capFTS {
-		indexes = append(indexes, anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}})
+		// BM25F over body (`data`) + a boostable `title` field (heading /
+		// method signature / memory context). Weights/b/k1 from ftsParams.
+		indexes = append(indexes, anystore.IndexInfo{
+			Name:     "fts",
+			Kind:     anystore.IndexKindFulltext,
+			Fields:   []string{"data", "title"},
+			Fulltext: s.ftsParams(),
+		})
 	}
 	if capVector {
 		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
@@ -442,6 +472,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
 		doc.Set("data", arena.NewString(e.Data))
+		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {

@@ -169,6 +169,21 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Search.StopWords = &b
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_BM25_B"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.Bm25B = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_BM25_K1"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.Bm25K1 = f
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_TITLE_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.Index.Search.TitleWeight = f
+		}
+	}
 }
 
 func applyFlags(cfg *Config, f Flags) {

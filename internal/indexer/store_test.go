@@ -168,6 +168,34 @@ func TestStore_Cursor(t *testing.T) {
 	}
 }
 
+func TestStore_BM25FTitleBoost(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 0) // FTS-only
+	s.SetFTSParams(0, 0, 8)
+	const sp = "bm25f"
+
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		// "alpha" in body only.
+		{Entry: index.IndexEntry{Scope: "basic", ObjectId: "o", Dataset: "d", RecordId: "body", Data: "alpha beta gamma"}},
+		// "alpha" in the boosted title only (different body so body doesn't match).
+		{Entry: index.IndexEntry{Scope: "basic", ObjectId: "o", Dataset: "d", RecordId: "titled", Data: "delta epsilon", Title: "alpha"}},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("want both docs to match 'alpha' (title + body), got %d: %+v", len(hits), hits)
+	}
+	if hits[0].RecordId != "titled" {
+		t.Fatalf("title boost (weight 8) should rank the title match first, got %s then %s",
+			hits[0].RecordId, hits[1].RecordId)
+	}
+}
+
 func TestStore_VectorMinSimFloor(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 2)
