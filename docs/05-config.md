@@ -87,9 +87,9 @@ index:
     threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
-    mode: btree                       # ANN index: btree/hnsw (default, recall≈exact) |
-                                      # hybrid (HNSW+RAM) | bruteforce (exact, O(N)) |
-                                      # ivfsq (approximate, cheapest build — large spaces)
+    mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
+                                      # friendly, ~3-4 recall@10 below exact) | btree/hnsw
+                                      # (recall≈exact, costly serial ingest) | hybrid | bruteforce
   search:                             # hybrid-ranking knobs (docs/13-index.md § Search)
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
     ftsWeight: 1                      # RRF weight for the lexical leg (default 1)

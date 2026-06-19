@@ -18,6 +18,106 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
+// randUnitVecs returns n random L2-normalized dim-vectors.
+func randUnitVecs(rng *rand.Rand, n, dim int) [][]float32 {
+	out := make([][]float32, n)
+	for i := range out {
+		v := make([]float32, dim)
+		var s float64
+		for d := range v {
+			v[d] = rng.Float32()*2 - 1
+			s += float64(v[d]) * float64(v[d])
+		}
+		inv := float32(1 / math.Sqrt(s))
+		for d := range v {
+			v[d] *= inv
+		}
+		out[i] = v
+	}
+	return out
+}
+
+func applyVecs(t *testing.T, s *Store, vecs [][]float32, start, end int) {
+	t.Helper()
+	const batch = 256
+	for off := start; off < end; off += batch {
+		hi := min(off+batch, end)
+		ups := make([]DocUpsert, hi-off)
+		for j := off; j < hi; j++ {
+			ups[j-off] = DocUpsert{
+				Entry:  index.IndexEntry{Scope: "basic", ObjectId: "o", Dataset: "d", RecordId: fmt.Sprintf("r%d", j), Data: "x"},
+				Vector: vecs[j],
+			}
+		}
+		if err := s.Apply(context.Background(), "sp", ups, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestVectorModeIngestProfile compares the two ingest orderings per ANN
+// mode — the difference cheggaaa flagged on the PR:
+//   - BULK: insert all vectors, then EnsureVectorIndex once (a single
+//     parallel build). What the old profile measured.
+//   - INCREMENTAL: build the index on a 64-doc seed (as the embed loop
+//     does after the first batch), then upsert the rest into the existing
+//     index — serial per-doc graph maintenance. The PRODUCTION path.
+// Gated: ANY_VEC_BENCH=1.
+func TestVectorModeIngestProfile(t *testing.T) {
+	if os.Getenv("ANY_VEC_BENCH") == "" {
+		t.Skip("set ANY_VEC_BENCH=1")
+	}
+	const dim, seed = 1024, 64
+	sizes := []int{5000, 20000, 50000}
+	if v := os.Getenv("ANY_VEC_BENCH_SIZES"); v != "" {
+		sizes = nil
+		for _, s := range strings.Split(v, ",") {
+			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+				sizes = append(sizes, n)
+			}
+		}
+	}
+	ctx := context.Background()
+	rng := rand.New(rand.NewSource(1))
+
+	t.Logf("%-7s %-8s  %12s  %18s", "N", "mode", "bulk", "incremental(prod)")
+	for _, n := range sizes {
+		vecs := randUnitVecs(rng, n, dim)
+		for _, mode := range []string{"ivfsq", "btree"} {
+			// BULK: insert all, build once.
+			sb, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sb.SetVectorMode(mode)
+			t0 := time.Now()
+			applyVecs(t, sb, vecs, 0, n)
+			if ok, err := sb.EnsureVectorIndex(ctx, "sp"); err != nil || !ok {
+				t.Fatalf("bulk ensure %s: %v", mode, err)
+			}
+			bulk := time.Since(t0)
+			_ = sb.Close()
+
+			// INCREMENTAL: seed + build, then upsert the rest into the index.
+			si, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			si.SetVectorMode(mode)
+			t1 := time.Now()
+			applyVecs(t, si, vecs, 0, min(seed, n))
+			if ok, err := si.EnsureVectorIndex(ctx, "sp"); err != nil || !ok {
+				t.Fatalf("seed ensure %s: %v", mode, err)
+			}
+			applyVecs(t, si, vecs, min(seed, n), n) // into the existing index
+			inc := time.Since(t1)
+			_ = si.Close()
+
+			t.Logf("%-7d %-8s  %12s  %18s", n, mode, bulk.Round(time.Millisecond), inc.Round(time.Millisecond))
+		}
+	}
+}
+
 // exactTopKIdx returns the recordIds ("r<i>") of the k nearest vectors to
 // q by cosine (brute force) — the ground truth for recall@k.
 func exactTopKIdx(q []float32, vecs [][]float32, k int) map[string]bool {

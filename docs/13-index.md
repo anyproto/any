@@ -226,13 +226,14 @@ any-store database at `<data-dir>/index/index.db`, plus the
   (`IndexKindFulltext`); sparse range on `pending` (embed queue); and —
   once at least one embedded doc exists — a **cosine vector index** on
   `vector`. The strategy (`Store.vectorIndexParams`, `index.vector.mode`)
-  defaults to **HNSW** (`VectorModeBTree`): recall ≈ exact, ~3 pts
-  recall@10 above the old IVF-SQ default on BEIR SciFact
-  (docs/search/README.md § index mode). Alternatives: `hybrid`
-  (HNSW + RAM cache), `bruteforce` (exact, O(N)/query), `ivfsq`
-  (approximate — cheapest build / lowest RAM, for very large spaces).
-  The index is created lazily (`Store.EnsureVectorIndex`) so the first
-  build sees real data (IVF-SQ requires it; HNSW just benefits).
+  defaults to **IVF-SQ** (`VectorModeIVFSQ`): cheap near-flat incremental
+  ingest + physical deletes, ~3–4 recall@10 below exact — the right fit
+  for a local, continuously-written index (docs/search/README.md § index
+  mode). Alternatives: `btree`/`hnsw` (recall ≈ exact, but serial
+  super-linear ingest + tombstone-rebuild deletes — opt-in for read-heavy
+  deployments), `hybrid` (HNSW + RAM cache), `bruteforce` (exact,
+  O(N)/query, small spaces). The index is created lazily
+  (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
   plus a `_meta` row pinning the **schema version** (v3 — editor windows;
   v2 was one doc per block. An old DB errors at boot with a

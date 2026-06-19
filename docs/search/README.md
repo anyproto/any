@@ -16,13 +16,19 @@ this for *why* and *how well*.
 - Shipped: **coalesced editor windows**, **memory** + **program-doc**
   indexing (debug logs + program source excluded), **incremental
   re-embedding** (per-doc content hash → editor append / memory bumps
-  re-embed only what changed), **HNSW** as the default ANN index, and
+  re-embed only what changed), a configurable **`index.vector.mode`**, and
   hybrid knobs (**stop-words**, **weighted RRF**, **vector floor**).
 - Measured on real labeled benchmarks (BEIR SciFact 5k + FiQA 57k, exact
   Qwen3-0.6B):
-  - **ANN: HNSW ≈ exact recall; IVF-SQ leaves ~3–4 recall@10 points** →
-    default switched to HNSW. IVF's only edge is ~2× build/search (no disk
-    win), so it's an opt-in for *very* large spaces.
+  - **ANN index is a real trade-off, and the default is IVF-SQ.** HNSW
+    has ≈-exact recall (IVF-SQ −3–4 recall@10), **but** on the production
+    incremental embed-loop path HNSW ingest is **~15–47× slower than IVF
+    and super-linear** (serial graph inserts), plus its deletes
+    tombstone + rebuild. For a local, continuously-written, churn-y index
+    with bulk imports, that cost outweighs the recall edge → **default
+    IVF-SQ**; HNSW (`mode: btree`) is opt-in for read-heavy / quality-max
+    deployments. (I initially defaulted to HNSW on a flawed build
+    benchmark; corrected — see § index mode.)
   - **Hybrid vs single-leg is corpus-dependent**: hybrid wins on
     lexical-friendly SciFact, but vector-alone wins on paraphrastic FiQA
     (weak BM25). Equal RRF weights are a safe default, not a universal
@@ -41,7 +47,7 @@ this for *why* and *how well*.
 | Programs | `program_description` + `program_methods` indexed (scope `program`); **source not** indexed | `internal/program/chunker.go` |
 | Debug | `agent_debug_log` excluded — no chunker, and prop chunker skips debug objects | `internal/server/sdk.go`, `internal/index/prop.go` |
 | Incremental embed | per-doc content hash → reconcile diff (editor) + per-record no-op skip (chat/memory) | `internal/indexer/{worker,store}.go` |
-| ANN index | default IVF-SQ → **HNSW**; `index.vector.mode` (btree/hybrid/bruteforce/ivfsq) | `internal/indexer/store.go`, `../05-config.md` |
+| ANN index | configurable `index.vector.mode` (default **IVF-SQ**; btree/hnsw/hybrid/bruteforce) | `internal/indexer/store.go`, `../05-config.md` |
 | Embedder fallback | `embedder: auto` — online primary + local fallback, circuit breaker, same model | `internal/indexer/embed_fallback.go` |
 | Embed throughput | parallel embed loop, `index.embedConcurrency` (1 local / 4 online) | `internal/indexer/{worker,indexer}.go` |
 | Hybrid knobs | `index.search.stopWords` / `ftsWeight` / `vectorWeight` / `minVectorSim` | `internal/indexer/{indexer,rrf,store,stopwords}.go`, `../05-config.md` |
@@ -187,27 +193,54 @@ Hybrid knob sweep: no-stopwords `0.6944` ≈ stopwords `0.6945`; fts×1.5
   leg is implemented correctly.
 - **The vector gap was the approximate index, not the model** — see below.
 
-### Index mode: HNSW vs IVF-SQ vs exact (the vector-recall fix)
+### Index mode: HNSW vs IVF-SQ vs exact — recall vs ingest cost
 
 The vector leg first measured below the model card (~0.74). Comparing ANN
 strategies on the same SciFact set + vectors (`ANY_INDEX_VECTOR_MODE`,
-plus an in-test exact brute force) isolated the cause:
+plus an in-test exact brute force) isolated the **recall** side:
 
 | index mode | vector nDCG@10 | vector recall@10 | hybrid nDCG@10 | hybrid recall@10 |
 |---|---|---|---|---|
-| IVF-SQ (old default) | 0.681 | 0.801 | 0.700 | 0.834 |
-| **HNSW / btree (new default)** | **0.703** | **0.837** | **0.724** | **0.855** |
+| IVF-SQ (default) | 0.681 | 0.801 | 0.700 | 0.834 |
+| HNSW / btree | **0.703** | **0.837** | **0.724** | **0.855** |
 | brute force (exact) | 0.701 | 0.831 | 0.723 | 0.855 |
 
-- **IVF-SQ was leaving ~3 recall@10 points (and ~2 nDCG) on the table** —
-  its default NProbe (16) scans only ~12% of cells on this corpus.
-- **HNSW ≈ exact**, at log(N) search cost (vs brute force's O(N)) — it
-  recovers essentially all the loss. Exact vector (0.70) ≈ the model
-  card modulo fp16/Q8 + formatting, so the model was never the problem.
-- **Decision: default `index.vector.mode` = HNSW (`btree`).**
-  `bruteforce` is exact for small spaces; `hybrid` adds a RAM cache for
-  latency; IVF-SQ stays available for very large spaces (see cost below).
-  Existing indexes keep their mode until rebuilt.
+- **IVF-SQ leaves ~3 recall@10 points (and ~2 nDCG) on the table** — its
+  default NProbe (16) scans only ~12% of cells on this corpus (FiQA at 57k
+  probes ~1.7% → the gap widens to ~4 pts).
+- **HNSW ≈ exact**, at log(N) search. Exact vector (0.70) ≈ the model card
+  modulo fp16/Q8, so the model was never the problem.
+
+**But recall isn't the only axis — and the ingest cost reverses the
+decision.** The first cut of this work defaulted to HNSW on the strength
+of recall plus a build benchmark showing only ~2× slower build. That
+benchmark measured the wrong path (a one-shot **parallel bulk** build).
+The **production** path is the embed loop: the index is created after the
+first ~64-doc batch, then every later batch inserts into the **existing**
+index → **serial, per-doc HNSW graph maintenance**. Measured on that path
+(`TestVectorModeIngestProfile`, random dim-1024):
+
+| N | mode | bulk (one-shot) | **incremental (production)** |
+|---|---|---|---|
+| 5k | ivfsq | 551ms | 296ms |
+| 5k | btree (HNSW) | 1.53s | **4.62s** (~15.6×) |
+| 20k | ivfsq | 3.80s | 1.11s |
+| 20k | btree (HNSW) | 6.33s | **38.0s** (~34×) |
+
+So on the real path HNSW ingest is **~15–47× slower than IVF and
+super-linear** (the gap grows with N), and HNSW **deletes tombstone +
+rebuild** while IVF deletes are physical (cheaper churn). A fix exists —
+defer index creation so cold sync uses the bulk builder (~2×) — but it
+needs a "burst settled" heuristic the indexer can't cleanly define, so
+it's not worth the complexity here.
+
+- **Decision: default `index.vector.mode` = IVF-SQ.** For a local,
+  continuously-written, churn-y index with a bulk-import path
+  (`scripts/import-obsidian.mjs`), cheap near-flat ingest + physical
+  deletes outweigh ~3–4 recall@10 points (which hybrid further softens).
+  **HNSW (`btree`) is the opt-in** for read-heavy / quality-max
+  deployments; `bruteforce` is exact for small spaces. Existing indexes
+  keep their mode until rebuilt.
 
 ### Index mode at scale: recall on FiQA (57.6k docs, real)
 
@@ -223,7 +256,8 @@ Re-ran the exact-vs-HNSW-vs-IVF comparison on BEIR **FiQA** (57.6k docs /
 
 - **HNSW ≈ exact** (0.542 vs 0.546 recall@10) — near-exact recall holds at
   57k. **IVF-SQ loses ~4 recall@10 / ~2.5 nDCG** — the gap persists and
-  slightly widens vs SciFact. HNSW default validated at scale.
+  slightly widens vs SciFact. (Confirms HNSW's recall edge at scale — but
+  the ingest cost above is why the default is still IVF-SQ.)
 - Exact 0.469 nDCG matches the Qwen3-0.6B model-card FiQA number — setup
   is correct.
 - **Hybrid is not universally best.** On FiQA, *vector alone* beats hybrid
@@ -251,18 +285,20 @@ the ~5% column), so real recall comes from BEIR (above / FiQA).
 | 200k | btree | 152s | 7.4ms | 2756 MB | 0.04* |
 | 200k | bruteforce | 0.3s | 472ms | 918 MB | 1.00 |
 
-- **IVF-SQ's only real edge is speed: ~2× faster build and ~2× faster
-  search** — but both ANN modes search in <10ms; brute force (237–472ms)
-  is unusable past a few thousand docs.
-- **IVF-SQ gives ~no disk advantage** (1362 vs 1378 MB): the base
+Note this is the **one-shot bulk build** path (insert all, then build
+once), *not* the production incremental ingest — see the much larger
+incremental gap in § index mode above.
+
+- **Search latency**: both ANN modes <10ms (IVF ~2× faster); brute force
+  (237–472ms) is unusable past a few thousand docs.
+- **Disk: ~no difference** (IVF-SQ 1362 vs HNSW 1378 MB): the base
   collection stores full float32 vectors regardless of mode; SQ only
   compresses the index portion, which is small next to the vectors.
-  (Brute force is ~half the size — it stores no index.)
-- **Build is super-linear** for both (HNSW 64s→152s for 2× data). At our
-  scale (≤ low tens of thousands) the HNSW build penalty is seconds and
-  hides behind embedding; IVF only becomes worth its lower recall at
-  *very* large N (hundreds of thousands–millions) where HNSW build time
-  dominates. Disk/RAM is not a deciding factor either way here.
+  (Brute force is ~half the size — no index.) So IVF-SQ's advantage is
+  ingest cost + churn-friendliness, **not** disk/RAM.
+- **Build is super-linear** for both; the HNSW penalty compounds on the
+  serial incremental path (the real one), which is the basis for keeping
+  IVF-SQ the default.
 
 ### Vector similarity floor — measured, kept at 0
 
@@ -305,7 +341,7 @@ mechanisms address this (`docs/05-config.md`):
 | Knob | Default | Why |
 |---|---|---|
 | editor chunk unit | coalesced ~1.5 KB windows | distribution + recall (above) |
-| `vector.mode` | HNSW (`btree`) | recall ≈ exact; +3 recall@10 vs IVF-SQ; cost edge of IVF is only ~2× build/search, no disk win |
+| `vector.mode` | IVF-SQ | cheap near-flat incremental ingest + physical deletes; HNSW's ≈-exact recall (+3–4 recall@10) isn't worth its ~15–47× serial-ingest cost + tombstone rebuilds for a write-continuous local index. `btree` opt-in for read-heavy/quality |
 | memory indexing | per-record, scope `agent` | independently filterable; cheap incremental |
 | `ftsWeight` / `vectorWeight` | 1 / 1 | safe corpus-agnostic default (optimal on SciFact); dense-favorable corpora like FiQA want vector-heavier — that's what the knobs are for |
 | `stopWords` | on | helps conversational, neutral on BEIR |
@@ -315,14 +351,18 @@ mechanisms address this (`docs/05-config.md`):
 
 ## Open items / follow-ups
 
-- ~~Vector under-performs the model card~~ **RESOLVED** — was the IVF-SQ
-  approximate index; switched the default to HNSW (recall ≈ exact, see
-  above). At-scale cost profiled (100k/200k): HNSW build is ~2× IVF and
-  super-linear, with ~no disk difference — IVF only pays off at very large
-  N where build time dominates.
+- ~~Vector under-performs the model card~~ **EXPLAINED** — it was the
+  IVF-SQ approximation (−3–4 recall@10), not the model. Default briefly
+  moved to HNSW, then **reverted to IVF-SQ** once the incremental ingest
+  cost (~15–47×, super-linear) + tombstone-rebuild deletes were measured;
+  HNSW is the opt-in. § index mode.
 - ~~Large real-data recall~~ **DONE** — BEIR FiQA (57.6k): HNSW ≈ exact
-  (recall@10 0.542 vs 0.546), IVF-SQ ~4 pts lower. Edge holds at 11×
-  SciFact scale (see above).
+  (recall@10 0.542 vs 0.546), IVF-SQ ~4 pts lower. Recall edge holds at
+  11× SciFact scale.
+- **HNSW ingest fix (deferred)** — defer index creation so cold sync /
+  bulk import uses the parallel bulk builder (~2× vs ~15–47×), making
+  `mode: btree` viable as a default later. Needs a "burst settled"
+  heuristic the indexer can't cleanly define; not pursued for now.
 - **Per-corpus leg weighting** — FiQA showed vector-alone beating
   equal-weight hybrid (weak BM25). A static default can't know per corpus;
   options for later: a query-adaptive weight, or auto-down-weighting a leg

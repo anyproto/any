@@ -137,7 +137,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = HNSW default
+	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = IVF-SQ default
 	// Stop-word stripping defaults on (a precision win on the bag-of-words
 	// FTS engine); config may disable it. Weights/floor default to
 	// pre-tuning behavior via Options.withDefaults.

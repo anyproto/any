@@ -255,16 +255,18 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 
 // vectorIndexParams resolves the ANN index strategy. The mode comes from
 // ANY_INDEX_VECTOR_MODE (test/ops override) else the configured
-// s.vectorMode else the default "btree":
-//   - "btree"/"hnsw" (DEFAULT) — HNSW graph in the btree; recall ≈ exact,
-//     log(N) search, query-time ef tunable. Measured on BEIR SciFact it
-//     recovers ~3 pts recall@10 the old IVF-SQ default lost
-//     (docs/search/README.md).
+// s.vectorMode else the default "ivfsq":
+//   - "ivfsq" (DEFAULT) — IVF + scalar quant: cheap, near-flat incremental
+//     ingest and physical deletes (churn-friendly), at ~3–4 recall@10
+//     below exact. The right default for a local, continuously-written
+//     index with bulk imports (docs/search/README.md § index mode).
+//   - "btree"/"hnsw" — HNSW graph: recall ≈ exact, but incremental ingest
+//     is serial and super-linear (~15–47× slower than IVF on the embed-
+//     loop path, growing with N) and deletes tombstone + rebuild. Opt-in
+//     for read-heavy / quality-max deployments.
 //   - "hybrid" — HNSW + a RAM layer-0 cache (faster search, more RAM).
 //   - "bruteforce"/"exact" — no index, exact scan; best recall but O(N)
 //     per query (fine for small spaces).
-//   - "ivfsq" — IVF + scalar quant; cheapest bulk build / lowest RAM, but
-//     approximate (lower recall). Prefer for very large spaces.
 func (s *Store) vectorIndexParams(dim int) *anystore.VectorParams {
 	mode := os.Getenv("ANY_INDEX_VECTOR_MODE")
 	if mode == "" {
@@ -277,27 +279,27 @@ func (s *Store) vectorIndexParams(dim int) *anystore.VectorParams {
 		CompactRatio: 0.5,
 	}
 	switch mode {
+	case "btree", "hnsw":
+		p.Mode = anystore.VectorModeBTree
 	case "hybrid":
 		p.Mode = anystore.VectorModeHybrid
 		p.HybridCacheVectors = true
 	case "bruteforce", "exact":
 		p.Mode = anystore.VectorModeBruteForce
 		p.CompactRatio = 0 // ignored for brute force
-	case "ivfsq":
+	default: // "", "ivfsq"
 		p.Mode = anystore.VectorModeIVFSQ
-	default: // "", "btree", "hnsw"
-		p.Mode = anystore.VectorModeBTree
 	}
 	return p
 }
 
 // EnsureVectorIndex creates the space's vector index once at least one
-// embedded doc exists (the IVF-SQ mode trains quantizers from existing
-// docs, so it can't be created empty; the default HNSW mode also waits so
-// the first build sees real data). Returns whether the index exists after
-// the call. Idempotent and cheap once created (cached). The strategy is
-// chosen by vectorIndexParams — default HNSW (recall ≈ exact); IVF-SQ is
-// opt-in for very large spaces where bulk-build cost / RAM dominate
+// embedded doc exists (the default IVF-SQ mode trains quantizers from
+// existing docs, so it can't be created empty; the others also wait so the
+// first build sees real data). Returns whether the index exists after the
+// call. Idempotent and cheap once created (cached). The strategy is chosen
+// by vectorIndexParams — default IVF-SQ (cheap incremental ingest,
+// churn-friendly); HNSW (btree) is opt-in for higher recall
 // (docs/search/README.md § index mode).
 func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, error) {
 	if !capVector {
