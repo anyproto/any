@@ -383,5 +383,17 @@ mechanisms address this (`docs/05-config.md`):
   abstention, which the floor can't). Deferred; the RLM `search`/`ask`
   loop ([`../12-rlm-search.md`](../12-rlm-search.md)) is the heavyweight
   stand-in.
-- **Upstream FTS asks** — phrase/required-term operators, per-field
-  weights, prefix matching, configurable BM25 `b` (`../13-index.md`).
+- **Upstream FTS asks — LANDED in any-store alpha.15** (phrase, prefix,
+  `$require`/`$exclude`/`$defaultOperator`, per-index BM25 `b`/`k1`,
+  per-field BM25F weights). Adoption status:
+  - **BM25F title boost + `b`/`k1`** — wired (`index.search.{titleWeight,
+    bm25B,bm25K1}`), defaults **neutral (0)**. A SciFact FTS sweep showed
+    title-boost and `b=0.4` both *slightly hurt* (its title is a paper
+    title, answers live in the body; coalescing already fixed length
+    bias) — so no non-zero default. The knobs are opt-in; our own domain
+    (headings / method sigs / memory summaries) may benefit but is
+    unmeasured (needs a domain-labeled set).
+  - **Phrase / `$require` / `$exclude` / `$defaultOperator`** — not yet
+    wired into `/search` query construction; AND-default is a
+    recall/precision trade to measure first. TODO.
+  - Stemming — still not offered upstream.

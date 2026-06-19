@@ -261,14 +261,16 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// sparse pending index (which backs the embed loop) under `vector`.
 	var indexes []anystore.IndexInfo
 	if capFTS {
-		// BM25F over body (`data`) + a boostable `title` field (heading /
-		// method signature / memory context). Weights/b/k1 from ftsParams.
-		indexes = append(indexes, anystore.IndexInfo{
-			Name:     "fts",
-			Kind:     anystore.IndexKindFulltext,
-			Fields:   []string{"data", "title"},
-			Fulltext: s.ftsParams(),
-		})
+		// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
+		// the boosted `title` field (heading / method sig / memory context);
+		// otherwise the index stays single-field so default ranking is
+		// unchanged. b/k1 (if set) apply either way.
+		fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
+		if s.titleWeight > 0 {
+			fts.Fields = []string{"data", "title"}
+		}
+		fts.Fulltext = s.ftsParams()
+		indexes = append(indexes, fts)
 	}
 	if capVector {
 		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})

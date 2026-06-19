@@ -35,10 +35,16 @@ func TestSearchEvalBEIR(t *testing.T) {
 		t.Skip("set ANY_BEIR_DIR to a BEIR dataset dir (corpus.jsonl, queries.jsonl, qrels/test.tsv)")
 	}
 	name, real := realEvalEmbedder(t)
-	if real == nil {
-		t.Skip("BEIR needs a real embedder — set ANY_EVAL_EMBEDDER (+ local model envs)")
+	// Without a real embedder, fall back to the hash embedder: the FTS
+	// column is still real BM25 (embedder-independent) — useful for
+	// tuning FTS knobs (titleWeight / b / k1) fast; vector/hybrid are
+	// then NOT meaningful (lexical hash). Set ANY_EVAL_EMBEDDER for real
+	// vector/hybrid numbers.
+	var inner Embedder = real
+	if inner == nil {
+		inner, name = hashEmbedder{dim: 256}, "hash(FTS-only)"
 	}
-	emb := &cachingEmbedder{Embedder: real} // memoize repeated query embeds
+	emb := &cachingEmbedder{Embedder: inner} // memoize repeated query embeds
 	ctx := context.Background()
 
 	corpus := readBEIRCorpus(t, filepath.Join(dir, "corpus.jsonl"))
@@ -107,6 +113,8 @@ func TestSearchEvalBEIR(t *testing.T) {
 	// docVecs are the full-precision (L2-normalized) doc vectors, kept for
 	// the exact-vs-IVF comparison below.
 	ix := newEvalIndexer(t, emb, Options{StopWords: true})
+	// FTS BM25 tuning for the sweep: ANY_BEIR_TITLE_WEIGHT / _BM25_B / _BM25_K1.
+	ix.store.SetFTSParams(envFloat("ANY_BEIR_BM25_B"), envFloat("ANY_BEIR_BM25_K1"), envFloat("ANY_BEIR_TITLE_WEIGHT"))
 	docVecs := ingestBEIR(t, ix, emb, corpus)
 
 	t.Logf("=== %s: production knobs (stopwords on, RRF 1/1, floor 0) — nDCG@%d / recall@%d / MRR ===", name, k, k)
@@ -189,8 +197,9 @@ func TestSearchEvalBEIR(t *testing.T) {
 const beirSpace = "beir"
 
 type beirDoc struct {
-	id   string
-	text string
+	id    string
+	text  string // title + body (for the vector embedding + body FTS)
+	title string // title only (BM25F boosted field)
 }
 
 type vecDoc struct {
@@ -264,7 +273,7 @@ func ingestBEIR(t *testing.T, ix *Indexer, emb Embedder, corpus []beirDoc) []vec
 			ups[j] = DocUpsert{
 				Entry: index.IndexEntry{
 					Scope: index.ScopeBasic, ObjectId: beirSpace, Dataset: beirSpace,
-					RecordId: corpus[idx].id, Data: corpus[idx].text,
+					RecordId: corpus[idx].id, Data: corpus[idx].text, Title: corpus[idx].title,
 				},
 				Vector: vecs[j], // store normalizes internally for cosine
 			}
@@ -359,6 +368,15 @@ func envInt(k string, def int) int {
 	return def
 }
 
+func envFloat(k string) float64 {
+	if v := os.Getenv(k); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return 0
+}
+
 func readBEIRCorpus(t *testing.T, path string) []beirDoc {
 	t.Helper()
 	f, err := os.Open(path)
@@ -380,7 +398,7 @@ func readBEIRCorpus(t *testing.T, path string) []beirDoc {
 		}
 		text := strings.TrimSpace(d.Title + "\n" + d.Text)
 		if d.ID != "" && text != "" {
-			out = append(out, beirDoc{id: d.ID, text: text})
+			out = append(out, beirDoc{id: d.ID, text: text, title: strings.TrimSpace(d.Title)})
 		}
 	}
 	return out
