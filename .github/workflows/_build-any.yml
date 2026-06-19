@@ -260,29 +260,43 @@ jobs:
           cp artifacts/ios-xcframework/any.xcframework.zip dist/
           ls -la dist
           # sha256 the two mobile assets so the client fetch-scripts can verify
-          # them (the desktop tarballs are not sha-pinned).
+          # them. aar/xcf stay discrete outputs — the dispatch step feeds them
+          # into client_payload[sha256].
           AAR_SHA="$(sha256sum dist/any.aar | cut -d' ' -f1)"
           XCF_SHA="$(sha256sum dist/any.xcframework.zip | cut -d' ' -f1)"
           echo "aar_sha=$AAR_SHA" >> "$GITHUB_OUTPUT"
           echo "xcf_sha=$XCF_SHA" >> "$GITHUB_OUTPUT"
           echo "any.aar sha256:            $AAR_SHA"
           echo "any.xcframework.zip sha256: $XCF_SHA"
+          # sha256 every desktop tarball too, as a multiline output, so a client
+          # (e.g. the macOS fetch-anyserver-macos.sh) can pin without downloading
+          # the asset first — same source-of-truth as the mobile shas.
+          {
+            echo "desktop_shas<<EOF"
+            for f in dist/any-*.tar.gz; do
+              printf '`%s` sha256: `%s`\n' "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           AAR_SHA: ${{ steps.assets.outputs.aar_sha }}
           XCF_SHA: ${{ steps.assets.outputs.xcf_sha }}
+          DESKTOP_SHAS: ${{ steps.assets.outputs.desktop_shas }}
         run: |
           set -euo pipefail
           LLAMACPP="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
-          # Notes embed both mobile sha256s so a client can pin without first
-          # downloading the asset.
+          # Notes embed every asset's sha256 (4 desktop tarballs + 2 mobile) in a
+          # uniform `<name>` sha256: `<sha>` format, so a client can pin without
+          # first downloading the asset. $DESKTOP_SHAS is the 4 desktop lines.
           notes="$(cat <<EOF
           any $VERSION
 
           Assets: 4 desktop tarballs, \`any.aar\` (Android), \`any.xcframework.zip\` (iOS).
           llama.cpp: $LLAMACPP
 
+          $DESKTOP_SHAS
           \`any.aar\` sha256: \`$AAR_SHA\`
           \`any.xcframework.zip\` sha256: \`$XCF_SHA\`
           EOF
