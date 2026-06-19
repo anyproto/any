@@ -10,7 +10,7 @@ import (
 
 // NewEmbedder constructs the configured embedding client. Returns
 // (nil, nil) for "none" — the indexer then runs FTS-only. A bare ""
-// also maps to FTS-only: config.Load defaults it to "local", so ""
+// also maps to FTS-only: config.Load defaults it to "auto", so ""
 // only survives when a config file sets it explicitly (the pre-"none"
 // opt-out syntax). modelsDir hosts the local embedder's downloaded
 // model (shared across accounts, <root>/models); legacyModelsDir is the

@@ -132,8 +132,11 @@ func TestLoad_IndexDefaults(t *testing.T) {
 	if !cfg.Index.Enabled {
 		t.Error("index.enabled should default true")
 	}
-	if cfg.Index.Embedder != "local" {
-		t.Errorf("index.embedder should default to local, got %q", cfg.Index.Embedder)
+	if cfg.Index.Embedder != "auto" {
+		t.Errorf("index.embedder should default to auto, got %q", cfg.Index.Embedder)
+	}
+	if cfg.Index.OpenAI.Model == "" || cfg.Index.OpenAI.ApiKey == "" {
+		t.Error("auto default needs baked OpenAI model + key for the online primary")
 	}
 }
 

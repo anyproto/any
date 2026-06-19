@@ -322,13 +322,16 @@ The local CPU model embeds at ~76 texts/s — the pipeline's bottleneck by
 orders of magnitude (any vector index inserts at thousands/s). Two
 mechanisms address this (`docs/05-config.md`):
 
-- **`embedder: auto`** — prefer an online OpenAI-compatible API (fast),
-  fall back to the always-downloaded local model on an outage, via a
-  circuit breaker (skip the primary for a cooldown after repeated
-  failures). So vector search stays fresh during an outage instead of
-  pausing on `pending`. **Hard constraint:** primary and fallback must be
-  the *same model* (one vector space / dim) — e.g. Qwen3-Embedding-0.6B
-  online (fp16) + local (Q8); quantization drift is negligible.
+- **`embedder: auto` (the default)** — prefer an online OpenAI-compatible
+  API (fast), fall back to the always-downloaded local model on an outage,
+  via a circuit breaker (skip the primary for a cooldown after repeated
+  failures). So embedding is fast with zero per-teammate setup and stays
+  available during an outage instead of pausing on `pending`. **Hard
+  constraint:** primary and fallback must be the *same model* (one vector
+  space / dim) — Qwen3-Embedding-0.6B online (fp16, DeepInfra) + local
+  (Q8); quantization drift is negligible. The online creds are baked dev
+  defaults (`config.devEmbed*`) — TEMPORARY, rotated/removed before
+  launch. Tests/e2e pin `embedder: none` to stay hermetic.
 - **Parallel embed loop** (`index.embedConcurrency`) — embed several
   batches per round in parallel. The win is online (parallel HTTP
   requests); the local model serializes internally on its mutex, so
@@ -347,7 +350,7 @@ mechanisms address this (`docs/05-config.md`):
 | `stopWords` | on | helps conversational, neutral on BEIR |
 | `minVectorSim` | 0 | static floor can't separate signal/noise for the local model |
 | `embedConcurrency` | 1 local / 4 online | parallel batches are the online throughput win; local serializes |
-| `embedder: auto` | (opt-in) | online speed + local fallback, same model |
+| `embedder` | **auto** (default) | online primary (DeepInfra Qwen3-0.6B, baked dev key) + local fallback, same model — fast zero-config embedding, degrades to local on outage |
 
 ## Open items / follow-ups
 

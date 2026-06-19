@@ -52,11 +52,12 @@ type Sync struct {
 type Index struct {
 	// Enabled gates the whole indexer. Default true.
 	Enabled bool `yaml:"enabled"`
-	// Embedder selects the embedding provider: "local" (default —
-	// in-process llama.cpp, no external service), "ollama", "openai"
-	// (any OpenAI-compatible /embeddings API), "auto" (online openai
-	// primary with local fallback — both must be the SAME model), or
-	// "none" (FTS-only). Empty means unset and resolves to the default.
+	// Embedder selects the embedding provider: "auto" (DEFAULT — online
+	// openai primary + local fallback, both the SAME model), "local"
+	// (in-process llama.cpp only), "ollama", "openai" (any OpenAI-
+	// compatible /embeddings API), or "none" (FTS-only). Empty resolves to
+	// the default. The default "auto" primary uses the baked dev creds in
+	// Defaults() (devEmbed*); override via the openai block / env.
 	Embedder string `yaml:"embedder"`
 	// EmbedBatch / EmbedConcurrency tune the embed loop. EmbedBatch is
 	// docs per EmbedDocs call (0 = default 64). EmbedConcurrency is how
@@ -155,6 +156,20 @@ type IndexVector struct {
 	Mode string `yaml:"mode"`
 }
 
+// --- TEMPORARY pre-go-live embedding creds -------------------------------
+//
+// The default embedder is "auto": an online OpenAI-compatible primary
+// (DeepInfra, serving the SAME model the local fallback runs) + the local
+// model as fallback. These shared dev creds are baked in so teammates get
+// fast online embedding with zero setup. ROTATE on DeepInfra and REMOVE
+// this block before launch (move to real secret management). Changing the
+// key is a one-line edit here.
+const (
+	devEmbedBaseURL = "https://api.deepinfra.com/v1/openai"
+	devEmbedModel   = "Qwen/Qwen3-Embedding-0.6B" // must equal the local fallback model
+	devEmbedAPIKey  = "ssb5zG4q85Eg2sxDvXbnMmFwsOtfKIxg"
+)
+
 // Defaults returns a Config populated with v1 defaults. Paths here are
 // unexpanded — Load resolves them against the process environment.
 func Defaults() Config {
@@ -163,7 +178,11 @@ func Defaults() Config {
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
-		Index:   Index{Enabled: true, Embedder: "local"},
+		Index: Index{
+			Enabled:  true,
+			Embedder: "auto", // online primary + local fallback (same model)
+			OpenAI:   IndexOpenAI{BaseUrl: devEmbedBaseURL, Model: devEmbedModel, ApiKey: devEmbedAPIKey},
+		},
 		Log: logger.Config{
 			DefaultLevel: "info",
 			Format:       logger.ColorizedOutput,

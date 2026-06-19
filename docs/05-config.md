@@ -62,19 +62,22 @@ sync:
 # dependency; vector search activates when an embedder is configured.
 index:
   enabled: true                       # default true; false disables the indexer + /search
-  embedder: local                     # local (default) | ollama | openai |
-                                      # auto (online openai primary + local fallback,
-                                      #   SAME model both sides) | none (FTS-only)
+  embedder: auto                      # auto (DEFAULT — online openai primary + local
+                                      #   fallback, SAME model both sides) | local |
+                                      # ollama | openai | none (FTS-only)
   embedBatch: 64                      # docs per embed request (0 = default 64)
   embedConcurrency: 0                 # batches embedded in parallel; 0 = 1 for local,
                                       # 4 for online openai/auto (parallel = the API win)
   ollama:
     url: http://localhost:11434       # default
     model: embeddinggemma             # default
-  openai:                             # any OpenAI-compatible /embeddings API
-    baseUrl: https://api.openai.com/v1
-    model: text-embedding-3-small     # required when embedder: openai
-    apiKey: sk-...                    # sent as Bearer; never logged
+  openai:                             # online primary for embedder: openai/auto.
+                                      # Defaults are pre-filled with shared DeepInfra
+                                      # dev creds (Qwen3-Embedding-0.6B) so `auto` works
+                                      # zero-config — TEMPORARY, rotated/removed at launch.
+    baseUrl: https://api.deepinfra.com/v1/openai
+    model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
+    apiKey: ...                       # sent as Bearer; never logged
   local:                              # in-process llama.cpp — all fields optional;
                                       # the default embedder needs no config at all
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
@@ -143,8 +146,9 @@ ANY_INDEX_LOCAL_THREADS=8            # 0/unset = runtime.NumCPU()-1
 
 ### `index.embedder: local` prerequisites
 
-The local embedder is the **default** (set `index.embedder: none` for
-FTS-only). It runs llama.cpp in-process (no CGO — yzma dlopens the
+The local embedder is the **fallback** under the default `auto` (and used
+directly with `index.embedder: local`; set `none` for FTS-only). It runs
+llama.cpp in-process (no CGO — yzma dlopens the
 shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
 Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
 vector side just reports `unavailable` until they're met.
