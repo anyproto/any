@@ -89,6 +89,9 @@ type IndexSearch struct {
 	// where BM25 is flat) can't drag hybrid below the dense leg. Off by
 	// default. docs/search/README.md § per-corpus leg weighting.
 	AdaptiveWeights bool `yaml:"adaptiveWeights"`
+	// DefaultOperator controls how bare FTS terms combine: "or" (default,
+	// any term) or "and" (all terms — higher precision, lower recall).
+	DefaultOperator string `yaml:"defaultOperator"`
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 keeps the legacy floor (similarity must be > 0).
 	// NOTE: measured against the default local model (Qwen3-Embedding-0.6B)

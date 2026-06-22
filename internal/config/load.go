@@ -189,6 +189,9 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Search.AdaptiveWeights = b
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_DEFAULT_OPERATOR"); v != "" {
+		cfg.Index.Search.DefaultOperator = v
+	}
 }
 
 func applyFlags(cfg *Config, f Flags) {

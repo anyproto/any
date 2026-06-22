@@ -617,6 +617,23 @@ func scopeKey(scopes []string) query.Filter {
 // SearchFTS runs the BM25 leg. Hits come back ranked by descending
 // score; docs with empty data never match (nothing was indexed).
 func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []string, limit int) ([]Hit, error) {
+	return s.SearchFTSQuery(ctx, spaceId, FTSQuery{Query: q}, scopes, limit)
+}
+
+// FTSQuery is the full-text query spec. Query is the `$search` string —
+// phrases ("...") and prefixes (foo*) in it are honored by the engine.
+// DefaultAnd makes bare terms required (AND) instead of OR. Require /
+// Exclude are extra must / must-not terms ($require / $exclude); each may
+// itself be a phrase or prefix.
+type FTSQuery struct {
+	Query      string
+	DefaultAnd bool
+	Require    []string
+	Exclude    []string
+}
+
+// SearchFTSQuery runs the BM25(F) leg with full operator support.
+func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, limit int) ([]Hit, error) {
 	if !capFTS {
 		// FTS compiled out (no fulltext index exists) — no hits rather
 		// than a query error against a missing index.
@@ -626,7 +643,16 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 	if err != nil {
 		return nil, err
 	}
-	var filter query.Filter = query.Text{Search: q}
+	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd}
+	if len(fq.Require) > 0 || len(fq.Exclude) > 0 {
+		// Build explicit clauses: the shoulds parsed from Query, plus the
+		// required / excluded terms (each parsed so phrases/prefixes work).
+		clauses := query.ParseTextSearch(fq.Query)
+		clauses = appendClauses(clauses, fq.Require, query.TextMust)
+		clauses = appendClauses(clauses, fq.Exclude, query.TextMustNot)
+		text.Clauses = clauses
+	}
+	var filter query.Filter = text
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
 	}
@@ -636,6 +662,18 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 	}
 	defer iter.Close()
 	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
+}
+
+// appendClauses parses each term (so phrase/prefix syntax is honored) and
+// appends it with the given boolean role.
+func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []query.TextClause {
+	for _, t := range terms {
+		for _, c := range query.ParseTextSearch(t) {
+			c.Op = op
+			dst = append(dst, c)
+		}
+	}
+	return dst
 }
 
 // SearchVector runs the ANN leg: nearest-first by cosine distance.

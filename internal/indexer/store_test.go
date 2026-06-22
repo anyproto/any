@@ -384,3 +384,67 @@ func TestStore_SchemaVersionMismatch(t *testing.T) {
 		t.Fatal("old schema version should refuse to open")
 	}
 }
+
+func TestStore_FTSOperators(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 0)
+	const sp = "space1"
+
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "o1", "editor_blocks", "b1", "the quick brown fox jumps", 1)},
+		{Entry: entry("basic", "o2", "editor_blocks", "b2", "a brown bear sleeps", 2)},
+		{Entry: entry("basic", "o3", "editor_blocks", "b3", "quick silver fox", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	ids := func(hits []Hit) map[string]bool {
+		m := map[string]bool{}
+		for _, h := range hits {
+			m[h.RecordId] = true
+		}
+		return m
+	}
+
+	// OR (default): "quick fox" matches anything with quick OR fox.
+	hits, err := s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "quick fox"}, nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(hits); !got["b1"] || !got["b3"] {
+		t.Fatalf("OR quick fox = %v, want b1+b3", got)
+	}
+
+	// AND (defaultOperator): "quick fox" requires both → b1, b3 (both have
+	// quick+fox), not b2.
+	hits, _ = s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "quick bear", DefaultAnd: true}, nil, 10)
+	if got := ids(hits); len(got) != 0 {
+		t.Fatalf("AND quick bear = %v, want none (no doc has both)", got)
+	}
+
+	// Phrase: "brown fox" adjacent → only b1 ("brown bear", "silver fox" miss).
+	hits, _ = s.SearchFTSQuery(ctx, sp, FTSQuery{Query: `"brown fox"`}, nil, 10)
+	if got := ids(hits); len(got) != 1 || !got["b1"] {
+		t.Fatalf("phrase \"brown fox\" = %v, want only b1", got)
+	}
+
+	// Require: must-have fox; the bare "brown" is a should (optional boost
+	// once a must exists) → both fox docs match, b1 (also brown) ranks first.
+	hits, _ = s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "brown", Require: []string{"fox"}}, nil, 10)
+	if got := ids(hits); !got["b1"] || !got["b3"] || got["b2"] {
+		t.Fatalf("require fox = %v, want b1+b3", got)
+	}
+	if hits[0].RecordId != "b1" {
+		t.Fatalf("require fox top = %s, want b1 (brown boost)", hits[0].RecordId)
+	}
+
+	// Exclude: fox but NOT quick → b1 has quick (out), b3 has quick (out) → none.
+	hits, _ = s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "fox", Exclude: []string{"quick"}}, nil, 10)
+	if got := ids(hits); len(got) != 0 {
+		t.Fatalf("exclude quick = %v, want none", got)
+	}
+	// Prefix: silv* → b3.
+	hits, _ = s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "silv*"}, nil, 10)
+	if got := ids(hits); len(got) != 1 || !got["b3"] {
+		t.Fatalf("prefix silv* = %v, want only b3", got)
+	}
+}

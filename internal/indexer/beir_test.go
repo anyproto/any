@@ -194,6 +194,22 @@ func TestSearchEvalBEIR(t *testing.T) {
 		m := eval(ix, api.SearchModeHybrid)
 		t.Logf("%-34s  %7.4f  %7.4f  %7.4f", s.label, m.ndcgAtK, m.recallAtK, m.mrr)
 	}
+
+	// $defaultOperator on the pure lexical leg — AND (all terms required)
+	// vs OR (default). Embedder-independent, so it's valid even on the hash
+	// fallback. AND trades recall for precision; the question is whether
+	// it's safe as a default over natural-language queries (it isn't).
+	t.Logf("=== %s: FTS $defaultOperator — nDCG@%d / recall@%d / MRR ===", name, k, k)
+	for _, and := range []bool{false, true} {
+		ix.opts = Options{StopWords: true, FTSDefaultAnd: and}.withDefaults()
+		ix.opts.Embedder = emb
+		m := eval(ix, api.SearchModeFTS)
+		label := "fts OR"
+		if and {
+			label = "fts AND"
+		}
+		t.Logf("%-34s  %7.4f  %7.4f  %7.4f", label, m.ndcgAtK, m.recallAtK, m.mrr)
+	}
 }
 
 const beirSpace = "beir"

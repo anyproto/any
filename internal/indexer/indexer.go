@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +56,11 @@ type Options struct {
 	// hybrid mode. Default 1 each (plain RRF).
 	FtsWeight    float64
 	VectorWeight float64
+	// FTSDefaultAnd makes the lexical leg require ALL query terms (AND)
+	// instead of the default any-term (OR). Higher precision, lower recall
+	// — off by default ($defaultOperator). Phrase/prefix and per-request
+	// Require/Exclude still work regardless.
+	FTSDefaultAnd bool
 	// AdaptiveWeights scales the FTS leg's weight by its per-query
 	// confidence (legConfidence) — auto-down-weighting BM25 when its
 	// scores are flat/weak (e.g. paraphrastic corpora), so a weak lexical
@@ -319,10 +325,19 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		// toward length/frequency noise. The vector leg keeps the full
 		// query (below). chunker-hybrid-search-report § 5.6 / § 6.2.
 		ftsQuery := req.Query
-		if ix.opts.StopWords {
+		// Don't strip inside quoted phrases — dropping a stop word would
+		// break the phrase ("the big apple" → "big apple"). A query with a
+		// quote bypasses stripping entirely (phrase searches are precise
+		// already, so the stop-word noise argument doesn't apply).
+		if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
 			ftsQuery = stripStopWords(ftsQuery)
 		}
-		ftsHits, err = ix.store.SearchFTS(ctx, spaceId, ftsQuery, req.Scopes, fetch)
+		ftsHits, err = ix.store.SearchFTSQuery(ctx, spaceId, FTSQuery{
+			Query:      ftsQuery,
+			DefaultAnd: ix.opts.FTSDefaultAnd,
+			Require:    req.Require,
+			Exclude:    req.Exclude,
+		}, req.Scopes, fetch)
 		if err != nil {
 			return api.SearchResponse{}, err
 		}

@@ -383,6 +383,22 @@ mechanisms address this (`docs/05-config.md`):
   strong — so it ships **off by default**; turn it on for semantic /
   paraphrastic corpora (our agent content likely qualifies, but unmeasured
   on a domain set).
+- ~~FTS query operators~~ **DONE** — alpha.15 brought phrase (`"..."`),
+  prefix (`foo*`), `$require` / `$exclude`, and `$defaultOperator`. Phrase
+  and prefix work in the `query` string for free (the engine re-parses a
+  directly-built `$text`); `require`/`exclude` are new `/search` request
+  arrays. **`$defaultOperator: and` is opt-in only** — measured on the
+  pure FTS leg (embedder-independent), AND over natural-language queries
+  collapses because few docs contain *every* term:
+
+  | corpus | fts OR | fts AND |
+  |---|---|---|
+  | SciFact | 0.663 / 0.790 | 0.025 / 0.024 |
+  | FiQA | 0.227 / 0.282 | 0.027 / 0.028 |
+
+  (nDCG@10 / recall@10.) So OR stays the default; AND is for short
+  keyword input the client controls. Phrase/`require`/`exclude` give
+  precision without the recall cliff.
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them

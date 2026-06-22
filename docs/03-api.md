@@ -358,10 +358,12 @@ Body:
 
 ```json
 {
-  "query":  "zeppelin disaster",      // required
-  "scopes": ["chat", "basic"],        // optional scope slugs (open set — see docs/13-index.md); empty = all
-  "limit":  10,                       // optional: default 10, max 100
-  "mode":   "hybrid"                  // optional: hybrid (default) | fts | vector
+  "query":   "zeppelin disaster",     // required; supports "phrases" and prefix* on the FTS leg
+  "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
+  "limit":   10,                      // optional: default 10, max 100
+  "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
+  "require": ["1937"],                // optional FTS must-have terms (phrase/prefix ok); ignored in vector mode
+  "exclude": ["fiction"]              // optional FTS must-not terms
 }
 ```
 

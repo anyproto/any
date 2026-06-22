@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -160,6 +161,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		FtsWeight:        cfg.Search.FtsWeight,
 		VectorWeight:     cfg.Search.VectorWeight,
 		AdaptiveWeights:  cfg.Search.AdaptiveWeights,
+		FTSDefaultAnd:    strings.EqualFold(cfg.Search.DefaultOperator, "and"),
 		MinVectorSim:     cfg.Search.MinVectorSim,
 		StopWords:        stopWords,
 	}), nil
