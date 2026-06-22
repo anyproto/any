@@ -56,7 +56,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       CHANNEL: ${{ inputs.channel }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # git tag -l / git describe need all tags + history
           persist-credentials: false
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # build-any.sh recomputes COMMIT/DATE from git
           persist-credentials: false
@@ -109,7 +109,7 @@ jobs:
             scripts/build-any.sh "$p" dist
           done
           ls -la dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-tarballs
           path: dist/any-*.tar.gz
@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # LDFLAGS stamps COMMIT/DATE from git
           persist-credentials: false
@@ -168,7 +168,7 @@ jobs:
             COMMIT="$(git rev-parse --short HEAD)" \
             DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           ls -la dist/android
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-aar
           path: dist/android/any.aar
@@ -186,7 +186,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # build-xcframework.sh git describe fallback + COMMIT/DATE
           persist-credentials: false
@@ -221,7 +221,7 @@ jobs:
           mkdir -p dist
           scripts/build-xcframework.sh dist
           ls -la dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios-xcframework
           path: dist/any.xcframework.zip
@@ -241,12 +241,12 @@ jobs:
       CHANNEL: ${{ inputs.channel }}
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1 # no git history needed here — reads only the Makefile pin + downloaded artifacts
           persist-credentials: false
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Collect assets + checksums
