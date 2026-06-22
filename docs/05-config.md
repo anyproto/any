@@ -97,6 +97,9 @@ index:
     stopWords: true                   # strip stop words from the FTS-leg query (default on)
     ftsWeight: 1                      # RRF weight for the lexical leg (default 1)
     vectorWeight: 1                   # RRF weight for the dense leg (default 1)
+    adaptiveWeights: false            # auto-down-weight FTS per query when its scores are
+                                      # flat/weak; helps paraphrastic corpora, small cost on
+                                      # lexical-friendly ones — off by default
     minVectorSim: 0                   # cosine floor for vector hits; 0 = legacy ">0"
     bm25B: 0                          # FTS BM25 length-norm; 0 = engine default 0.75
     bm25K1: 0                         # FTS BM25 tf-saturation; 0 = engine default 1.2
@@ -136,6 +139,7 @@ ANY_INDEX_VECTOR_MODE=btree           # index.vector.mode (btree|hybrid|brutefor
 ANY_INDEX_SEARCH_STOP_WORDS=true      # index.search.stopWords
 ANY_INDEX_SEARCH_FTS_WEIGHT=1.0       # index.search.ftsWeight
 ANY_INDEX_SEARCH_VECTOR_WEIGHT=0.5    # index.search.vectorWeight
+ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS=true # index.search.adaptiveWeights (auto-down-weight weak FTS)
 ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0     # index.search.minVectorSim (keep 0 for the local model)
 ANY_INDEX_SEARCH_BM25_B=0.4           # index.search.bm25B (FTS length-norm)
 ANY_INDEX_SEARCH_BM25_K1=1.2          # index.search.bm25K1 (FTS tf-saturation)

@@ -185,6 +185,8 @@ func TestSearchEvalBEIR(t *testing.T) {
 		{"stopwords, 1/1", Options{StopWords: true}},
 		{"stopwords, fts x1.5", Options{StopWords: true, FtsWeight: 1.5, VectorWeight: 1}},
 		{"stopwords, vec x1.5", Options{StopWords: true, FtsWeight: 1, VectorWeight: 1.5}},
+		{"stopwords, vec x2", Options{StopWords: true, FtsWeight: 1, VectorWeight: 2}},
+		{"stopwords, adaptive fts", Options{StopWords: true, AdaptiveWeights: true}},
 	}
 	for _, s := range sweep {
 		ix.opts = s.opts.withDefaults()

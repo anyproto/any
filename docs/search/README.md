@@ -350,6 +350,7 @@ mechanisms address this (`docs/05-config.md`):
 | `stopWords` | on | helps conversational, neutral on BEIR |
 | `minVectorSim` | 0 | static floor can't separate signal/noise for the local model |
 | `embedConcurrency` | 1 local / 4 online | parallel batches are the online throughput win; local serializes |
+| `adaptiveWeights` | off | auto-down-weights weak FTS per query — wins on paraphrastic corpora (FiQA +3 recall@10), small cost on lexical-friendly (SciFact); opt-in |
 | `embedder` | **auto** (default) | online primary (DeepInfra Qwen3-0.6B, baked dev key) + local fallback, same model — fast zero-config embedding, degrades to local on outage |
 
 ## Open items / follow-ups
@@ -366,11 +367,22 @@ mechanisms address this (`docs/05-config.md`):
   bulk import uses the parallel bulk builder (~2× vs ~15–47×), making
   `mode: btree` viable as a default later. Needs a "burst settled"
   heuristic the indexer can't cleanly define; not pursued for now.
-- **Per-corpus leg weighting** — FiQA showed vector-alone beating
-  equal-weight hybrid (weak BM25). A static default can't know per corpus;
-  options for later: a query-adaptive weight, or auto-down-weighting a leg
-  whose top scores are weak. The `ftsWeight`/`vectorWeight` knobs exist
-  but are unset by default.
+- ~~Per-corpus leg weighting~~ **DONE (opt-in)** — `index.search.adaptiveWeights`
+  down-weights the FTS leg per query by its score concentration
+  (`legConfidence`): a flat/weak BM25 distribution (paraphrastic queries)
+  is suppressed so it can't drag hybrid below the dense leg. Asymmetric by
+  design — only FTS, never the uncalibrated cosine leg. Measured (hybrid
+  nDCG@10 / recall@10):
+
+  | corpus | equal 1/1 | adaptive |
+  |---|---|---|
+  | FiQA (weak BM25) | 0.368 / 0.460 | **0.403 / 0.490** |
+  | SciFact (strong BM25) | **0.696 / 0.843** | 0.685 / 0.797 |
+
+  Big win where the lexical leg is weak, small regression where it's
+  strong — so it ships **off by default**; turn it on for semantic /
+  paraphrastic corpora (our agent content likely qualifies, but unmeasured
+  on a domain set).
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them

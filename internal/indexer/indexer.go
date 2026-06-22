@@ -55,6 +55,12 @@ type Options struct {
 	// hybrid mode. Default 1 each (plain RRF).
 	FtsWeight    float64
 	VectorWeight float64
+	// AdaptiveWeights scales the FTS leg's weight by its per-query
+	// confidence (legConfidence) — auto-down-weighting BM25 when its
+	// scores are flat/weak (e.g. paraphrastic corpora), so a weak lexical
+	// leg can't drag hybrid below the dense leg. Vector weight is left
+	// alone (cosine is uncalibrated). Off by default.
+	AdaptiveWeights bool
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 = the legacy "> 0" floor.
 	MinVectorSim float64
@@ -349,7 +355,11 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	var hits []Hit
 	switch mode {
 	case api.SearchModeHybrid:
-		hits = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ix.opts.FtsWeight, ix.opts.VectorWeight}, limit)
+		ftsW := ix.opts.FtsWeight
+		if ix.opts.AdaptiveWeights {
+			ftsW *= legConfidence(ftsHits) // down-weight a flat/weak BM25 leg
+		}
+		hits = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, limit)
 	case api.SearchModeFTS:
 		hits = ftsHits
 	case api.SearchModeVector:

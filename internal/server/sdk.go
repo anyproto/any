@@ -159,6 +159,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		EmbedConcurrency: embedConc,
 		FtsWeight:        cfg.Search.FtsWeight,
 		VectorWeight:     cfg.Search.VectorWeight,
+		AdaptiveWeights:  cfg.Search.AdaptiveWeights,
 		MinVectorSim:     cfg.Search.MinVectorSim,
 		StopWords:        stopWords,
 	}), nil

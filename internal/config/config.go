@@ -84,6 +84,11 @@ type IndexSearch struct {
 	// leg is noisy (short chunks, weak embedder).
 	FtsWeight    float64 `yaml:"ftsWeight"`
 	VectorWeight float64 `yaml:"vectorWeight"`
+	// AdaptiveWeights down-weights the FTS leg per query by its score
+	// concentration — so a weak lexical leg (e.g. paraphrastic queries
+	// where BM25 is flat) can't drag hybrid below the dense leg. Off by
+	// default. docs/search/README.md § per-corpus leg weighting.
+	AdaptiveWeights bool `yaml:"adaptiveWeights"`
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 keeps the legacy floor (similarity must be > 0).
 	// NOTE: measured against the default local model (Qwen3-Embedding-0.6B)

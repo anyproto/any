@@ -184,6 +184,11 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Search.TitleWeight = f
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_ADAPTIVE_WEIGHTS"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Index.Search.AdaptiveWeights = b
+		}
+	}
 }
 
 func applyFlags(cfg *Config, f Flags) {
