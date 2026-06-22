@@ -33,9 +33,10 @@ export function createSemSearch(deps) {
   var client = deps.client || _newClient();
 
   // search(query, opts) → { ok, hits, mode, vectorStatus } (or { ok:false,
-  // error, code }). opts: { space?, scopes?, limit?, mode? }. Defaults to the
-  // server's hybrid mode (lexical + semantic fused, degrades to fts when no
-  // embedder is reachable).
+  // error, code }). opts: { space?, scopes?, limit?, mode?, require?, exclude? }.
+  // Defaults to the server's hybrid mode (lexical + semantic fused, degrades to
+  // fts when no embedder is reachable). The query string supports "phrases" and
+  // prefix* on the lexical leg; require/exclude are must/must-not term arrays.
   function search(query, opts) {
     return client.search(query, opts || {});
   }

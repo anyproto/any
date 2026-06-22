@@ -748,8 +748,15 @@ export function createClient(params) {
   // to search ANY space on the account — same `_resolveSpaceId` mapping as
   // every other method, so the cross-space paradigm is in place here too.
   //   opts: { space?, scopes?: ("basic"|"chat"|"agent")[], limit?,
-  //           mode?: "hybrid"|"fts"|"vector" } — mode defaults server-side to
-  //   hybrid, which degrades to fts when no embedder is configured/reachable.
+  //           mode?: "hybrid"|"fts"|"vector",
+  //           require?: string[], exclude?: string[] } — mode defaults
+  //   server-side to hybrid, which degrades to fts when no embedder is
+  //   configured/reachable.
+  // The `query` itself supports lexical operators on the FTS leg: "quoted
+  //   phrases" (adjacency) and prefix* (trailing star). `require` / `exclude`
+  //   are extra must / must-not terms (each may be a phrase or prefix); a hit
+  //   must contain every `require` term and no `exclude` term. Operators apply
+  //   to the lexical leg only (ignored in pure vector mode).
   // Returns { ok, hits: [{scope, objectId, dataset, recordId, data, score}],
   //           mode, vectorStatus } — `mode` is what actually ran, `vectorStatus`
   //   (used|unavailable|disabled|skipped) says whether semantic recall took
@@ -762,6 +769,8 @@ export function createClient(params) {
     if (opts.scopes) body.scopes = opts.scopes;
     if (opts.limit !== undefined && opts.limit !== null) body.limit = opts.limit;
     if (opts.mode) body.mode = opts.mode;
+    if (opts.require) body.require = opts.require;
+    if (opts.exclude) body.exclude = opts.exclude;
     var res = api("POST", _pathForScope(opts.space) + "/search", body);
     if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
     var d = res.data || {};
