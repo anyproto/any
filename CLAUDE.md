@@ -500,8 +500,8 @@ Implementation slices landed:
     until the SDK exports sentinels, `oneToOneError`). CLI: `any
     one-to-one start/accept/decline/register/pending` (top-level group,
     aliases `1-1`/`direct`). Contract: docs/03-api.md § Spaces,
-    docs/01-cli.md, docs/02-server.md § Startup, and the SDK's
-    docs/13-one-to-one-spaces.md.
+    docs/01-cli.md, docs/02-server.md § Startup, client recipe in
+    docs/08-clients.md § 7, and the SDK's docs/13-one-to-one-spaces.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
