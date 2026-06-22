@@ -443,7 +443,6 @@ func TestE2E_FullFlow(t *testing.T) {
 	t.Run("501 routes", func(t *testing.T) {
 		cases := []struct{ method, path string }{
 			{http.MethodPost, "/v1/spaces/derive"},
-			{http.MethodPost, "/v1/spaces/one-to-one"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},

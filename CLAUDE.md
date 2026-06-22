@@ -469,6 +469,40 @@ Implementation slices landed:
     Consumers: the bobrik `ui` tool (`cmd/bobrik-watch/`) and any-ui
     (`../any-ui/docs/tasks/ui-commands.md`).
 
+19. **One-to-one (direct) spaces** — wraps the SDK's derived 1-1 space
+    surface (`any-sync-sdk` branch `feat/one-to-one-spaces`, pin bumped
+    `v0.0.13` → `v0.0.15-0.20260622111644-356cff6ca996`; pulls
+    `any-store/v2` `alpha.14` → `alpha.15`). A 1-1 is shared by exactly
+    two identities, derived deterministically from both account keys
+    (same id regardless of key order, immutable two-writer ACL, no
+    invite/accept handshake). Because the ACL can't gate membership,
+    "approve incoming" is a **local SDK state machine** surfaced as space
+    statuses, not ACL ops. Endpoints (`handlers_spaces.go`): `POST
+    /v1/spaces/one-to-one` (`{otherIdentity}` → `Service.OneToOne`;
+    initiate/accept-by-peer/un-decline, 201, goes straight to active),
+    `POST /v1/spaces/:id/one-to-one/accept` (`AcceptOneToOne`, accept a
+    pending row by id), `POST /v1/spaces/:id/one-to-one/decline`
+    (`DeclineOneToOne`, synced sticky), `POST
+    /v1/spaces/one-to-one/register-incoming` (`{peerIdentity,
+    displayHint?}` → `RegisterIncoming`, the out-of-band discovery path,
+    204, idempotent). New `SpaceInfo` fields `spaceType` (=
+    `anytype.onetoone`) + `author`, and status strings
+    `one_to_one_pending` / `one_to_one_declined`
+    (`spaceInfoToAPI`/`spaceStatusString`). **Discovery has no bespoke
+    endpoint** — incoming requests are the space list filtered on `GET
+    /v1/spaces?status=one_to_one_pending` (pending/declined hidden from
+    the active-only default, like deleted). The coordinator **inbox
+    notifier** that surfaces incoming 1-1s automatically is SDK-internal
+    — auto-started in `anysyncsdk.Open` (`StartOneToOneInbox`), so `any`
+    needs zero notifier wiring. Delete of a 1-1 is local-only +
+    re-derivable (existing `Service.Delete` path, no `any` change). Bad
+    identity / self-pairing → `400 request.invalid_field` (string-matched
+    until the SDK exports sentinels, `oneToOneError`). CLI: `any
+    one-to-one start/accept/decline/register/pending` (top-level group,
+    aliases `1-1`/`direct`). Contract: docs/03-api.md § Spaces,
+    docs/01-cli.md, docs/02-server.md § Startup, and the SDK's
+    docs/13-one-to-one-spaces.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

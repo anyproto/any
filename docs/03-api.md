@@ -199,8 +199,11 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
-| POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
-| POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+| POST   | `/v1/spaces/derive`             | `Service.Derive` (501, not implemented) |
+| POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne` — open a 1-1 (direct) space |
+| POST   | `/v1/spaces/one-to-one/register-incoming` | `Service.RegisterIncoming` — out-of-band incoming |
+| POST   | `/v1/spaces/:spaceId/one-to-one/accept`   | `Service.AcceptOneToOne`            |
+| POST   | `/v1/spaces/:spaceId/one-to-one/decline`  | `Service.DeclineOneToOne`           |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
@@ -247,6 +250,76 @@ stamp existed report the zero time (`0001-01-01T00:00:00Z`) — treat it
 as "unknown"; there is no backfill. The stamp is per-device, so the
 account's devices can disagree by a few seconds (or zero vs real on
 mixed SDK versions) — good for ordering, not for equality checks.
+
+`SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
+**app-level classification** tag (read from the in-space `spaceIndex`),
+distinct from the on-wire header `type`: a 1-1 space reports
+`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
+to tell direct chats from regular spaces client-side. `author` is the
+space owner's account identity, resolved best-effort from the ACL (empty
+when the ACL isn't loadable). Both are omitted when empty.
+
+#### One-to-one (direct) spaces
+
+A **1-1 (direct) space** is shared by exactly two identities, derived
+deterministically from both account keys: both peers compute the *same*
+spaceId (order-independent), the same immutable ACL (both as writers), the
+same read key — there is **no owner/invite handshake** at the crypto
+layer. The peer's account identity is the `id` from their `GET
+/v1/account`, exchanged out-of-band. Authoritative SDK contract:
+`any-sync-sdk/docs/13-one-to-one-spaces.md`.
+
+```
+POST /v1/spaces/one-to-one                  { otherIdentity }              → 201 SpaceInfo
+POST /v1/spaces/one-to-one/register-incoming { peerIdentity, displayHint? } → 204
+POST /v1/spaces/:spaceId/one-to-one/accept                                  → 200 SpaceInfo
+POST /v1/spaces/:spaceId/one-to-one/decline                                 → 204
+```
+
+Because the ACL is immutable (nothing to accept *cryptographically*),
+"approve incoming" is a **local SDK gate** governing whether *this device*
+materializes and syncs the derived space — surfaced as space `status`
+values, not ACL operations:
+
+- **Initiate / accept-by-peer** — `POST /v1/spaces/one-to-one`
+  (`Service.OneToOne`). Derives the space and activates it immediately
+  (implicit self-approval → `status:"active"`). Idempotent; overrides a
+  prior local decline (un-decline). Returns 201 with the `SpaceInfo`
+  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  when `otherIdentity` is empty; `400 request.invalid_field` for an
+  undecodable identity or self-pairing (`details.reason:"self"`).
+- **Incoming → pending.** When a peer reaches out, the other side learns
+  of it one of two ways: (a) automatically, via the SDK's coordinator
+  **inbox notifier** (auto-started in `sdk.Open`, see `docs/02-server.md`),
+  or (b) out-of-band, by the app calling `POST
+  /v1/spaces/one-to-one/register-incoming` with the peer's identity (+ an
+  optional `displayHint` `{name, description, iconCid}` for the UI). Either
+  way a **device-local** row appears with `status:"one_to_one_pending"`
+  and **no storage materialized**. `register-incoming` is idempotent
+  (no-op if a row already exists) and returns 204.
+- **Accept** — `POST /v1/spaces/:spaceId/one-to-one/accept`
+  (`Service.AcceptOneToOne`). Approves a pending row by space id (the peer
+  identity is read off the row, so the caller needn't re-derive it),
+  materializes + activates it. Equivalent to re-running `OneToOne(peer)`;
+  idempotent. Returns 200 with the activated `SpaceInfo`.
+- **Decline** — `POST /v1/spaces/:spaceId/one-to-one/decline`
+  (`Service.DeclineOneToOne`). Writes a **synced sticky** marker
+  (`status:"one_to_one_declined"`) suppressing the request on every device;
+  it never auto-resurfaces. A later explicit `POST /v1/spaces/one-to-one`
+  overrides it. Returns 204.
+
+**Discovery has no bespoke endpoint** — incoming requests are the space
+list filtered on the new status: `GET
+/v1/spaces?status=one_to_one_pending` (pending and declined rows are
+non-active, so they're hidden from the active-only default list, like
+`deleted`), or `POST /v1/spaces/query[/subscribe]` over the `spaces`
+dataset for a live view.
+
+**Deletion is local-only.** A 1-1 is derived and not node-owned, so
+`DELETE /v1/spaces/:spaceId` offloads it locally and propagates the
+offload to the account's other devices, but never removes it from the
+nodes — a later `POST /v1/spaces/one-to-one` re-derives and re-materializes
+it from scratch.
 
 #### Query / subscribe the space list
 
