@@ -129,7 +129,7 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
   returns `{spaceId, objectId, view, updatedAt}` (null until the UI
   first reports). `toolcall_core` appends a `[user's current view — …]`
   line to each incoming user message (user message, not the cached
-  system prompt) so "this page" resolves; the `_anytype` skill teaches
+  system prompt) so "this page" resolves; the `_any` skill teaches
   the spaceId-as-`space:` recipe.
 - The old "user space" concept is GONE from `init_agent` (it modeled
   the separate-account bobrik that bootstrapped into foreign spaces via
