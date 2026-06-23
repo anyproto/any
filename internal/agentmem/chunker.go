@@ -49,6 +49,7 @@ func (Chunker) ChunksSince(ctx context.Context, sp space.Space, objectId string,
 		}
 		if !index.IsDeleted(rec) {
 			entry.Data = memoryData(rec)
+			entry.Title = strings.TrimSpace(string(rec.GetStringBytes(FieldContext))) // summary — BM25F boost
 		}
 		return yield(entry)
 	})

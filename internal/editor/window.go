@@ -21,6 +21,7 @@ type Window struct {
 	AnchorId string   // first member block id — the record-id anchor
 	BlockIds []string // member block ids, in document order
 	Text     string   // member texts joined by "\n", heading-led
+	Title    string   // the leading heading's text (BM25F boost), if any
 }
 
 // Windows groups document-ordered blocks (as returned by List — a
@@ -58,6 +59,9 @@ func Windows(ordered []Block) []Window {
 		}
 		if !started {
 			cur = Window{AnchorId: b.Id}
+			if isHeading {
+				cur.Title = b.Text // window opens on a heading → boost it
+			}
 			started = true
 		}
 		cur.BlockIds = append(cur.BlockIds, b.Id)

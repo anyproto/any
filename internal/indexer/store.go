@@ -26,9 +26,11 @@ const (
 	// indexSchemaVersion is bumped on incompatible store-layout changes:
 	// v2 = objectId:dataset:recordId primary keys; v3 = editor_blocks
 	// indexed as coalesced windows (win_<anchor>) instead of one doc per
-	// block. Mismatch = boot error advising removal; no migration — the
-	// index is derived state (re-indexes on the next change).
-	indexSchemaVersion = 3
+	// block; v4 = any-store alpha.15 FTS (postings format v2 — FTS v1
+	// indexes have no on-disk back-compat, so the index must be rebuilt).
+	// Mismatch = boot error advising removal; no migration — the index is
+	// derived state (re-indexes on the next change).
+	indexSchemaVersion = 4
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -51,6 +53,10 @@ type Store struct {
 	// vectorMode selects the ANN index strategy (see vectorIndexParams);
 	// "" resolves to the default. Set once at boot, before any search.
 	vectorMode string
+	// FTS BM25 tuning (any-store FulltextParams), set once at boot.
+	// 0 = engine default. titleWeight is the BM25F boost for the `title`
+	// field (editor heading / method sig / memory context) over `data`.
+	ftsB, ftsK1, titleWeight float64
 
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
@@ -61,6 +67,25 @@ type Store struct {
 // SetVectorMode picks the ANN index strategy for indexes created after the
 // call (existing indexes keep their mode until rebuilt). Empty = default.
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
+
+// SetFTSParams sets the BM25 tuning for FTS indexes created after the call
+// (b/k1 are index-creation params; titleWeight is read at query time).
+func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
+	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
+}
+
+// ftsParams builds the any-store FulltextParams from the configured BM25
+// tuning, or nil to use engine defaults (b=0.75, k1=1.2, no field boost).
+func (s *Store) ftsParams() *anystore.FulltextParams {
+	if s.ftsB == 0 && s.ftsK1 == 0 && s.titleWeight == 0 {
+		return nil
+	}
+	p := &anystore.FulltextParams{B: s.ftsB, K1: s.ftsK1}
+	if s.titleWeight > 0 {
+		p.Weights = map[string]float64{"title": s.titleWeight}
+	}
+	return p
+}
 
 // Hit is one search result row. Score semantics depend on the leg: BM25
 // score (higher = better) for FTS, RRF score after fusion; the vector
@@ -236,7 +261,16 @@ func (s *Store) spaceColl(ctx context.Context, spaceId string) (anystore.Collect
 	// sparse pending index (which backs the embed loop) under `vector`.
 	var indexes []anystore.IndexInfo
 	if capFTS {
-		indexes = append(indexes, anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}})
+		// BM25 over `data` (body). When titleWeight > 0, BM25F also covers
+		// the boosted `title` field (heading / method sig / memory context);
+		// otherwise the index stays single-field so default ranking is
+		// unchanged. b/k1 (if set) apply either way.
+		fts := anystore.IndexInfo{Name: "fts", Kind: anystore.IndexKindFulltext, Fields: []string{"data"}}
+		if s.titleWeight > 0 {
+			fts.Fields = []string{"data", "title"}
+		}
+		fts.Fulltext = s.ftsParams()
+		indexes = append(indexes, fts)
 	}
 	if capVector {
 		indexes = append(indexes, anystore.IndexInfo{Fields: []string{"pending"}, Sparse: true})
@@ -440,6 +474,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
 		doc.Set("data", arena.NewString(e.Data))
+		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {
@@ -582,6 +617,23 @@ func scopeKey(scopes []string) query.Filter {
 // SearchFTS runs the BM25 leg. Hits come back ranked by descending
 // score; docs with empty data never match (nothing was indexed).
 func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []string, limit int) ([]Hit, error) {
+	return s.SearchFTSQuery(ctx, spaceId, FTSQuery{Query: q}, scopes, limit)
+}
+
+// FTSQuery is the full-text query spec. Query is the `$search` string —
+// phrases ("...") and prefixes (foo*) in it are honored by the engine.
+// DefaultAnd makes bare terms required (AND) instead of OR. Require /
+// Exclude are extra must / must-not terms ($require / $exclude); each may
+// itself be a phrase or prefix.
+type FTSQuery struct {
+	Query      string
+	DefaultAnd bool
+	Require    []string
+	Exclude    []string
+}
+
+// SearchFTSQuery runs the BM25(F) leg with full operator support.
+func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, limit int) ([]Hit, error) {
 	if !capFTS {
 		// FTS compiled out (no fulltext index exists) — no hits rather
 		// than a query error against a missing index.
@@ -591,7 +643,16 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 	if err != nil {
 		return nil, err
 	}
-	var filter query.Filter = query.Text{Search: q}
+	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd}
+	if len(fq.Require) > 0 || len(fq.Exclude) > 0 {
+		// Build explicit clauses: the shoulds parsed from Query, plus the
+		// required / excluded terms (each parsed so phrases/prefixes work).
+		clauses := query.ParseTextSearch(fq.Query)
+		clauses = appendClauses(clauses, fq.Require, query.TextMust)
+		clauses = appendClauses(clauses, fq.Exclude, query.TextMustNot)
+		text.Clauses = clauses
+	}
+	var filter query.Filter = text
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
 	}
@@ -601,6 +662,18 @@ func (s *Store) SearchFTS(ctx context.Context, spaceId, q string, scopes []strin
 	}
 	defer iter.Close()
 	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
+}
+
+// appendClauses parses each term (so phrase/prefix syntax is honored) and
+// appends it with the given boolean role.
+func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []query.TextClause {
+	for _, t := range terms {
+		for _, c := range query.ParseTextSearch(t) {
+			c.Op = op
+			dst = append(dst, c)
+		}
+	}
+	return dst
 }
 
 // SearchVector runs the ANN leg: nearest-first by cosine distance.

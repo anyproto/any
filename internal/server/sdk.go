@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,6 +139,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		return nil, err
 	}
 	st.SetVectorMode(cfg.Vector.Mode) // ANN strategy; "" = IVF-SQ default
+	st.SetFTSParams(cfg.Search.Bm25B, cfg.Search.Bm25K1, cfg.Search.TitleWeight)
 	// Stop-word stripping defaults on (a precision win on the bag-of-words
 	// FTS engine); config may disable it. Weights/floor default to
 	// pre-tuning behavior via Options.withDefaults.
@@ -158,6 +160,8 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		EmbedConcurrency: embedConc,
 		FtsWeight:        cfg.Search.FtsWeight,
 		VectorWeight:     cfg.Search.VectorWeight,
+		AdaptiveWeights:  cfg.Search.AdaptiveWeights,
+		FTSDefaultAnd:    strings.EqualFold(cfg.Search.DefaultOperator, "and"),
 		MinVectorSim:     cfg.Search.MinVectorSim,
 		StopWords:        stopWords,
 	}), nil

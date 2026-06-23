@@ -76,6 +76,7 @@ func (MethodsChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		}
 		if !index.IsDeleted(rec) {
 			entry.Data = methodData(rec)
+			entry.Title = strings.TrimSpace(string(rec.GetStringBytes(fieldName))) // signature — BM25F boost
 		}
 		return yield(entry)
 	})

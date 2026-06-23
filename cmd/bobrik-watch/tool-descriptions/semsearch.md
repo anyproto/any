@@ -15,12 +15,16 @@ Hybrid (the default) fuses lexical + semantic ranking and silently degrades to l
 Run a hybrid index search and return ranked hits.
 
 **Input:**
-- `query` (string, required) — what to find, natural language or keywords.
+- `query` (string, required) — what to find, natural language or keywords. The lexical (FTS) leg understands operators inline: `"a quoted phrase"` matches those words adjacent; a trailing star (`deploy*`) is a prefix match. Plain words are OR'd (any may match) — don't string many words expecting an implicit AND.
 - `opts` (object, optional):
   - `scopes` (string[]) — which corpora to search; any of `"chat"` (chat messages), `"basic"` (editor-block page content), `"agent"` (agent-memory objects). Omit to search all.
   - `limit` (number, default 10, max 100) — max hits.
   - `mode` (`"hybrid"` | `"fts"` | `"vector"`, default `"hybrid"`) — `hybrid` fuses lexical + semantic (degrades to fts without an embedder); `fts` is pure BM25 (use for exact ids / names / error strings); `vector` is pure semantic (errors `index.no_embedder` on an FTS-only server).
+  - `require` (string[]) — must-have terms for the lexical leg: every hit MUST contain each term (AND). Each may itself be a `"phrase"` or `prefix*`. Use to pin a query to a name/topic, e.g. `require: ["reranker"]`.
+  - `exclude` (string[]) — must-not terms: drop any hit containing them. Each may be a phrase/prefix.
   - `space` (string) — search ANY space on the account by id (cross-space; defaults to the agent's own space). Pair with the user's current-view `spaceId` to search "this space".
+
+`require`/`exclude` and phrase/prefix sharpen the **lexical** leg only — they're ignored in `mode: "vector"`. They raise precision but can over-filter; reach for them when a plain hybrid query comes back noisy, not by default.
 
 **Output:** `{ok, hits, mode, vectorStatus}` — or `{ok: false, error, code}` on failure.
 - `hits`: `[{scope, objectId, dataset, recordId, data, score}]` ranked best-first. `data` is the short indexed text; `score` is comparable only WITHIN one response (BM25 vs cosine vs RRF differ across modes) — rank, don't threshold.
@@ -36,6 +40,9 @@ r.vectorStatus   // "used" — semantic recall participated
 // Cross-space: search the space the user is currently viewing.
 var ctx = anyHelper.getUIContext();
 semsearch.search("staging deploy notes", {space: ctx.spaceId, scopes: ["basic"]});
+
+// Sharpen a noisy result: require a term, exclude another, quote a phrase.
+semsearch.search('"connection pool" timeout', {require: ["postgres"], exclude: ["redis"]});
 
 // Hydrate a hit's full record:
 var hit = r.hits[0];
