@@ -924,6 +924,26 @@ func datasetSchemaByName(datasets []any, name string) map[string]any {
 	return nil
 }
 
+// e2eRequestTimeout bounds every non-streaming e2e request. Without it a
+// single stalled SDK call (e.g. POST /v1/spaces blocking on a degraded
+// staging coordinator) hangs forever, consuming the whole package's 10m
+// `go test` budget and panicking — which aborts every other e2e test and
+// dumps goroutine stacks instead of naming the culprit. With it, a stuck
+// call fails just that test, fast, with "context deadline exceeded", and
+// the rest of the suite still runs. Streaming (SSE) requests use their
+// own no-timeout client in openSSE. Override via ANY_E2E_HTTP_TIMEOUT
+// (Go duration, e.g. "120s") for slow environments.
+var e2eClient = &http.Client{Timeout: e2eHTTPTimeout()}
+
+func e2eHTTPTimeout() time.Duration {
+	if v := os.Getenv("ANY_E2E_HTTP_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 90 * time.Second
+}
+
 func doRequest(t *testing.T, method, url, body string) (*http.Response, []byte) {
 	t.Helper()
 	var r io.Reader
@@ -937,7 +957,7 @@ func doRequest(t *testing.T, method, url, body string) (*http.Response, []byte) 
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := e2eClient.Do(req)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, url, err)
 	}
