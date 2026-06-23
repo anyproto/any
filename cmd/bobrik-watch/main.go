@@ -59,12 +59,17 @@ func main() {
 	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
 	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bao", "agent display name on replies (agent.name)")
-	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") and exit")
+	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") for an incremental (hash-gated) refresh, and exit")
+	bootstrapClean := flag.Bool("bootstrap-clean", false, "send SIGUSR1 to wipe \"System Bobrik Files\" and rebuild from scratch (recovery), and exit")
 	flag.Parse()
 	base = "http://" + *addr
 
-	if *bootstrap {
-		if err := triggerBootstrap(pidFilePath); err != nil {
+	if *bootstrap || *bootstrapClean {
+		sig := syscall.SIGHUP
+		if *bootstrapClean {
+			sig = syscall.SIGUSR1
+		}
+		if err := triggerBootstrap(pidFilePath, sig); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -106,7 +111,7 @@ func main() {
 	defer os.Remove(pidFilePath)
 
 	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT, syscall.SIGTERM)
 	go handleSignals(sigCh, spaceID, programTypeID, skillTypeID)
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
@@ -134,6 +139,19 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
 
+	// Orphan sweep: delete system-folder children whose source file is gone.
+	// The hash-gated upserts above cover add/change; this covers delete, so a
+	// plain restart fully reconciles disk → space without the destructive wipe
+	// that --bootstrap (SIGHUP) does.
+	expected, err := expectedSystemNames(programsDir, skip)
+	if err != nil {
+		return "", fmt.Errorf("build expected names: %w", err)
+	}
+	if err := sweepOrphans(base, spaceID, sysFolderID, expected); err != nil {
+		return "", fmt.Errorf("sweep orphans: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "orphan sweep complete\n")
+
 	// Debug folder for agent-trace notes — root-level, outside the
 	// system folder, so refresh never deletes it (traces accumulate).
 	debugID, err := ensureDebugFolder(base, spaceID)
@@ -146,12 +164,12 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	return sysFolderID, nil
 }
 
-// triggerBootstrap reads the PID file written by a running bobrik-watch
-// and sends it SIGHUP, which the signal handler picks up as a refresh
-// request. Errors if the PID file is missing or unparseable; the caller
-// `bobrik-watch --bootstrap` then exits non-zero so scripts can detect
-// "nothing was running."
-func triggerBootstrap(path string) error {
+// triggerBootstrap reads the PID file written by a running bobrik-watch and
+// sends it the given signal, which the signal handler picks up as a refresh
+// request (SIGHUP = incremental, SIGUSR1 = wipe-and-rebuild). Errors if the
+// PID file is missing or unparseable; the caller `bobrik-watch --bootstrap`
+// then exits non-zero so scripts can detect "nothing was running."
+func triggerBootstrap(path string, sig syscall.Signal) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read pid file %s: %w", path, err)
@@ -164,10 +182,10 @@ func triggerBootstrap(path string) error {
 	if err != nil {
 		return fmt.Errorf("find process %d: %w", pid, err)
 	}
-	if err := proc.Signal(syscall.SIGHUP); err != nil {
-		return fmt.Errorf("send SIGHUP to %d: %w", pid, err)
+	if err := proc.Signal(sig); err != nil {
+		return fmt.Errorf("send %s to %d: %w", sig, pid, err)
 	}
-	fmt.Fprintf(os.Stderr, "sent SIGHUP to %d\n", pid)
+	fmt.Fprintf(os.Stderr, "sent %s to %d\n", sig, pid)
 	return nil
 }
 
@@ -184,14 +202,26 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 	for sig := range ch {
 		switch sig {
 		case syscall.SIGHUP:
-			fmt.Fprintf(os.Stderr, "SIGHUP received — refreshing System Bobrik Files\n")
+			// Incremental refresh — same hash-gated path as startup: unchanged
+			// programs/skills are skipped, orphans swept. No wipe.
+			fmt.Fprintf(os.Stderr, "SIGHUP received — refreshing System Bobrik Files (incremental)\n")
+			if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
+				fmt.Fprintf(os.Stderr, "rebootstrap: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "refresh complete\n")
+			}
+		case syscall.SIGUSR1:
+			// Force-clean recovery — wipe the system folder + children, then
+			// rebuild from scratch. For a divergent/corrupt space; the routine
+			// path is the incremental SIGHUP above.
+			fmt.Fprintf(os.Stderr, "SIGUSR1 received — wiping and rebuilding System Bobrik Files\n")
 			if err := removeSystemFiles(base, spaceID); err != nil {
 				fmt.Fprintf(os.Stderr, "remove system files: %v\n", err)
 			}
 			if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
 				fmt.Fprintf(os.Stderr, "rebootstrap: %v\n", err)
 			} else {
-				fmt.Fprintf(os.Stderr, "refresh complete\n")
+				fmt.Fprintf(os.Stderr, "clean rebuild complete\n")
 			}
 		case syscall.SIGINT, syscall.SIGTERM:
 			fmt.Fprintf(os.Stderr, "%s received — exiting\n", sig)

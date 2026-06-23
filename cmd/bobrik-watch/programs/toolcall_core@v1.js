@@ -1032,7 +1032,7 @@ export function renderTurnMessages(turns) {
 // "" when no such skill exists so the caller can concatenate freely.
 //
 // Cross-space: tries the user space first, then falls back to the system
-// (private) space. Lets users override a system skill (e.g. _anytype) by
+// (private) space. Lets users override a system skill (e.g. _any) by
 // deploying a skill with the same name in their own space — user wins.
 // When the client has no systemSpaceId, the "system" pass is a no-op via
 // anyHelper's _pathForScope (returns the user spacePath).
@@ -1061,7 +1061,7 @@ function _loadSkillMarkdown(client, skillName) {
 }
 
 function _loadSoulMarkdown(client) { return _loadSkillMarkdown(client, "_soul"); }
-function _loadAnytypeSkill(client) { return _loadSkillMarkdown(client, "_anytype"); }
+function _loadAnySkill(client) { return _loadSkillMarkdown(client, "_any"); }
 function _loadToolcallerSkill(client) { return _loadSkillMarkdown(client, "_toolcaller"); }
 function _loadSpaceContextSkill(client) { return _loadSkillMarkdown(client, "_space_context"); }
 function _loadMetaSkillMarkdown(client) { return _loadSkillMarkdown(client, "_meta_skill"); }
@@ -1833,13 +1833,13 @@ export function main(args) {
   }
 
   // Build the system prompt from required agent skills deployed in the space.
-  // Both `_anytype` (identity + Anytype mechanics) and `_toolcaller` (run_cell
+  // Both `_any` (identity + `any` mechanics) and `_toolcaller` (run_cell
   // semantics + cell patterns) are load-bearing — fail hard with a clear
   // user-visible message if either is missing. No stale in-code fallback:
   // the skills in assistant-skills/*.md are the single source of truth.
-  var anytypeSkill = _loadAnytypeSkill(bootClient);
-  if (!anytypeSkill) {
-    var missA = "System skill `_anytype` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
+  var anySkill = _loadAnySkill(bootClient);
+  if (!anySkill) {
+    var missA = "System skill `_any` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply({ text: missA, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
@@ -1864,7 +1864,7 @@ export function main(args) {
   }
 
   var fullSystemText =
-    anytypeSkill + "\n\n---\n\n" +
+    anySkill + "\n\n---\n\n" +
     toolcallerSkill +
     _loadUserSkillsSection(bootClient) +
     _loadSpaceContextSection(spaceContextSkill, spaceContextMain, spaceContextChildren, args.spaceId) +
