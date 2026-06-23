@@ -470,9 +470,7 @@ Implementation slices landed:
     (`../any-ui/docs/tasks/ui-commands.md`).
 
 19. **One-to-one (direct) spaces** — wraps the SDK's derived 1-1 space
-    surface (`any-sync-sdk` branch `feat/one-to-one-spaces`, pin bumped
-    `v0.0.13` → `v0.0.15-0.20260622111644-356cff6ca996`; pulls
-    `any-store/v2` `alpha.14` → `alpha.15`). A 1-1 is shared by exactly
+    surface. A 1-1 is shared by exactly
     two identities, derived deterministically from both account keys
     (same id regardless of key order, immutable two-writer ACL, no
     invite/accept handshake). Because the ACL can't gate membership,
@@ -567,24 +565,10 @@ SIGHUP for the mechanics.
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
-**published modules**, not sibling checkouts — `go.mod` pins versions.
-Pins: `any-sync-sdk v0.0.12` (adds **real offline-first space deletion**
-— `Service.Delete` writes the synced `remoteStatus=deleted` tombstone,
-offloads all local state immediately, and drives the signed
-`coordinator.SpaceDelete` via a background reconciler (status item 18);
-needs no `any`-side code — the handler already called `Service.Delete`
-and the indexer already wipes on the `Subscribe` `Removed` stream — on
-top of `v0.0.11`'s `space.Agg` aggregation surface (status item 16),
-`FileProviderConfig` mnemonic seeding + `auth.AccountId` (status item
-17), and the scoped-properties API — per-record `_applySeq` change-index
-+ scope-aware `Properties.Set`/`Get`, which superseded `_addSeq`
-ordering and the old `SetBase`/`PropertyReadOpts` surface — plus
-`v0.0.10`'s change-index + tombstone `IncludeDeleted` work (status items
-13–14), the space `createdAt` stamp (status item 15), and the
-dataset-schema + unified-query base from `v0.0.8`),
-`any-store/v2 v2.0.0-alpha.14` (former `btree-fts` branch — FTS +
-vector indexes behind the search indexer, status item 14; pulled in by
-the v0.0.12 SDK bump), `any-sync v0.12.11`.
+**published modules**, not sibling checkouts — `go.mod` is the single
+source of truth for the exact versions. Don't restate version numbers
+here: they drift on every bump and go stale silently. Which SDK feature
+a given slice needed is captured per-item in the Status section above.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache
