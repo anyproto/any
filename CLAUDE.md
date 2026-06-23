@@ -481,8 +481,8 @@ make llamacpp                                     # prebuilt llama.cpp libs into
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
                                                   # warns instead of failing the build
-make build-android                                # dist/android/any.aar — 4-ABI gomobile bind
-                                                  # (armeabi-v7a/arm64-v8a/x86/x86_64), version-
+make build-android                                # dist/android/any.aar — arm64-v8a gomobile bind
+                                                  # (single ABI), version-
                                                   # stamped via `-ldflags '$(LDFLAGS)'`; CI passes
                                                   # the resolved version as make COMMAND-LINE vars
                                                   # (VERSION=… COMMIT=… DATE=…) — env can't beat the
