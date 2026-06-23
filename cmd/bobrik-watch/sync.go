@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/anyproto/any/internal/anyrt"
@@ -175,6 +178,15 @@ func syncSkills(baseURL, spaceID, skillTypeID, folderID string) error {
 		}
 
 		if objectID != "" {
+			// Skills round-trip through the markdown bridge (PUT parses to
+			// blocks, GET re-renders), so the compare isn't byte-exact — but a
+			// false "differs" only triggers a no-op PUT (markdown.Set diffs
+			// blocks and writes only what changed), never spurious churn.
+			if cur, gerr := getObjectMarkdown(baseURL, spaceID, objectID); gerr == nil &&
+				strings.TrimSpace(cur) == strings.TrimSpace(string(content)) {
+				fmt.Fprintf(os.Stderr, "unchanged skill %s (%s)\n", skillName, objectID)
+				continue
+			}
 			if err := setObjectMarkdown(baseURL, spaceID, objectID, string(content)); err != nil {
 				return fmt.Errorf("update skill %s: %w", skillName, err)
 			}
@@ -294,6 +306,28 @@ func createSkillObject(baseURL, spaceID, skillTypeID, skillPropID, skillName, ma
 		return "", fmt.Errorf("set markdown: %w", err)
 	}
 	return obj.ObjectId, nil
+}
+
+// getObjectMarkdown renders an object's blocks back to markdown via the
+// editor bridge — the read side of setObjectMarkdown, used to compare a
+// skill's stored content against disk before deciding to rewrite it.
+func getObjectMarkdown(baseURL, spaceID, objectID string) (string, error) {
+	resp, err := http.Get(baseURL + "/v1/spaces/" + url.PathEscape(spaceID) + "/objects/" + url.PathEscape(objectID) + "/editor/markdown")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("get markdown: %d %s", resp.StatusCode, msg)
+	}
+	var out struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.Content, nil
 }
 
 func setObjectMarkdown(baseURL, spaceID, objectID, markdown string) error {
@@ -431,6 +465,7 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 	// records → program_methods, any_tool = "has description AND schema".
 	description, methods := splitToolMarkdown(toolDescription(name))
 	anyTool := description != "" && len(methods) > 0
+	diskFP := programFingerprint(source, description, methods)
 
 	objectID, err := anyrt.FindProgramObject(baseURL, spaceID, programTypeID, name, version)
 	if err != nil {
@@ -438,6 +473,15 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 	}
 
 	if objectID != "" {
+		// Hash gate: rebuild the fingerprint from the records already in the
+		// space and skip every write when it equals the on-disk one. No stored
+		// hash — the comparison is in-space content vs disk content directly,
+		// so an unchanged boot produces zero new DAG changes (incl. nav, which
+		// a prior boot already set). A read error falls through to a rewrite.
+		if inFP, ferr := inSpaceProgramFingerprint(baseURL, spaceID, objectID); ferr == nil && inFP == diskFP {
+			fmt.Fprintf(os.Stderr, "unchanged %s@%s (%s)\n", name, version, objectID)
+			return nil
+		}
 		if err := modifyDataset(baseURL, spaceID, objectID, "program_source", "main", map[string]any{"code": source}); err != nil {
 			return fmt.Errorf("update %s@%s: %w", name, version, err)
 		}
@@ -462,8 +506,80 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		if err := writeToolDocs(baseURL, spaceID, objectID, description, methods); err != nil {
 			return fmt.Errorf("write tool docs for %s@%s: %w", name, version, err)
 		}
+	} else if err := clearToolDocs(baseURL, spaceID, objectID); err != nil {
+		// A program that lost its .md must drop its stale doc records too,
+		// or the fingerprint would mismatch on every subsequent boot.
+		return fmt.Errorf("clear tool docs for %s@%s: %w", name, version, err)
 	}
 	return nil
+}
+
+// programFingerprint hashes the canonical (source, description, methods)
+// triple that upsertProgram writes. The same fingerprint rebuilt from the
+// in-space records (inSpaceProgramFingerprint) lets startup skip rewriting a
+// program whose stored content is byte-identical to disk — no churn, no new
+// DAG changes. Fields are length-prefixed so concatenation is unambiguous;
+// methods are sorted by record id so read-back order can't flip the hash.
+func programFingerprint(source, description string, methods []methodDoc) string {
+	sorted := append([]methodDoc(nil), methods...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].BareName < sorted[j].BareName })
+
+	var b strings.Builder
+	fpField(&b, source)
+	fpField(&b, description)
+	for _, m := range sorted {
+		fpField(&b, m.BareName)
+		fpField(&b, m.Name)
+		fpField(&b, m.Kind)
+		fpField(&b, m.Text)
+		fpField(&b, fmt.Sprintf("%d", m.Pos))
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+func fpField(b *strings.Builder, s string) {
+	fmt.Fprintf(b, "%d:%s", len(s), s)
+}
+
+// inSpaceProgramFingerprint rebuilds programFingerprint from the records
+// currently stored on the program object, so it can be compared to the
+// on-disk fingerprint. Source/description/methods are stored verbatim (no
+// markdown round-trip), so the comparison is exact. Any read error is
+// surfaced so the caller falls back to an unconditional rewrite.
+func inSpaceProgramFingerprint(baseURL, spaceID, objectID string) (string, error) {
+	source, err := anyrt.QueryProgramSource(baseURL, spaceID, objectID)
+	if err != nil {
+		return "", err
+	}
+	description, err := readDatasetText(baseURL, spaceID, objectID, "program_description", "main", "text")
+	if err != nil {
+		return "", err
+	}
+	methods, err := readProgramMethods(baseURL, spaceID, objectID)
+	if err != nil {
+		return "", err
+	}
+	return programFingerprint(source, description, methods), nil
+}
+
+// clearToolDocs removes the description + every method record, so a program
+// that lost its tool doc (.md deleted, any_tool now false) doesn't leave
+// stale records that would forever mismatch the on-disk fingerprint. No-op
+// when the datasets are already empty.
+func clearToolDocs(baseURL, spaceID, objectID string) error {
+	descIDs, err := datasetRecordIDs(baseURL, spaceID, objectID, "program_description")
+	if err != nil {
+		return err
+	}
+	if err := deleteRecords(baseURL, spaceID, objectID, "program_description", descIDs); err != nil {
+		return err
+	}
+	methodIDs, err := datasetRecordIDs(baseURL, spaceID, objectID, "program_methods")
+	if err != nil {
+		return err
+	}
+	return deleteRecords(baseURL, spaceID, objectID, "program_methods", methodIDs)
 }
 
 // writeToolDocs writes the split tool docs: the description body to
@@ -598,6 +714,89 @@ func datasetRecordIDs(baseURL, spaceID, objectID, dataset string) ([]string, err
 		ids = append(ids, r.Id)
 	}
 	return ids, nil
+}
+
+// queryDatasetRecords returns the raw records of a dataset on an object.
+func queryDatasetRecords(baseURL, spaceID, objectID, dataset string) ([]json.RawMessage, error) {
+	body, _ := json.Marshal(map[string]any{"objectId": objectID, "dataset": dataset})
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("query %s: %d %s", dataset, resp.StatusCode, msg)
+	}
+	var out struct {
+		Records []json.RawMessage `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Records, nil
+}
+
+// readDatasetText reads a single string field from the named record of a
+// dataset. A missing record/field reads as "" — matching the disk side,
+// where an absent doc renders as the empty string.
+func readDatasetText(baseURL, spaceID, objectID, dataset, recordID, field string) (string, error) {
+	recs, err := queryDatasetRecords(baseURL, spaceID, objectID, dataset)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range recs {
+		var rec map[string]json.RawMessage
+		if err := json.Unmarshal(r, &rec); err != nil {
+			return "", err
+		}
+		var id string
+		if raw, ok := rec["id"]; ok {
+			_ = json.Unmarshal(raw, &id)
+		}
+		if id != recordID {
+			continue
+		}
+		if raw, ok := rec[field]; ok {
+			var s string
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return "", err
+			}
+			return s, nil
+		}
+	}
+	return "", nil
+}
+
+// readProgramMethods rebuilds the methodDoc slice from the program_methods
+// dataset records (record id = BareName), the read-back counterpart of
+// writeToolDocs.
+func readProgramMethods(baseURL, spaceID, objectID string) ([]methodDoc, error) {
+	recs, err := queryDatasetRecords(baseURL, spaceID, objectID, "program_methods")
+	if err != nil {
+		return nil, err
+	}
+	methods := make([]methodDoc, 0, len(recs))
+	for _, r := range recs {
+		var rec struct {
+			Id   string `json:"id"`
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+			Text string `json:"text"`
+			Pos  int    `json:"pos"`
+		}
+		if err := json.Unmarshal(r, &rec); err != nil {
+			return nil, err
+		}
+		methods = append(methods, methodDoc{
+			BareName: rec.Id, Name: rec.Name, Kind: rec.Kind, Text: rec.Text, Pos: rec.Pos,
+		})
+	}
+	return methods, nil
 }
 
 // deleteRecords tombstones dataset records. No-op on an empty id list.
@@ -760,6 +959,89 @@ func removeSystemFiles(baseURL, spaceID string) error {
 		return fmt.Errorf("delete folder %s: %w", folderID, err)
 	}
 	fmt.Fprintf(os.Stderr, "removed system folder %s\n", folderID)
+	return nil
+}
+
+// expectedSystemNames returns the set of object names (any.name) the current
+// on-disk programs + skills should produce. sweepOrphans deletes any system-
+// folder child not in this set — a program or skill whose source file was
+// removed. Names mirror the create paths: programs "name@version"
+// (createProgramObject), skills "Skill: name" (createSkillObject).
+func expectedSystemNames(programsDir string, skip map[string]bool) (map[string]bool, error) {
+	names := map[string]bool{"anyHelper@v1": true}
+
+	progs, err := os.ReadDir(programsDir)
+	if err != nil {
+		return nil, fmt.Errorf("read dir %s: %w", programsDir, err)
+	}
+	for _, e := range progs {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".js") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".js")
+		if skip[base] {
+			continue
+		}
+		name, version := parseProgramFilename(base)
+		names[name+"@"+version] = true
+	}
+
+	skills, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil, fmt.Errorf("read skills dir %s: %w", skillsDir, err)
+	}
+	for _, e := range skills {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		names["Skill: "+strings.TrimSuffix(e.Name(), ".md")] = true
+	}
+	return names, nil
+}
+
+// sweepOrphans deletes objects parented under the system folder whose
+// any.name is not in the expected set — i.e. a program or skill whose source
+// file was removed from disk. The startup hash-gate handles add/change; this
+// closes the loop on delete without the wipe-and-recreate that --bootstrap
+// does. Children with an empty name are left untouched (defensive — the
+// system folder is bobrik-exclusive, but never delete something unnamed).
+func sweepOrphans(baseURL, spaceID, folderID string, expected map[string]bool) error {
+	filter := map[string]any{"filter": map[string]any{"nav.parentId": folderID}}
+	body, _ := json.Marshal(filter)
+	resp, err := http.Post(
+		baseURL+"/v1/spaces/"+url.PathEscape(spaceID)+"/objects/query",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("query children: %d %s", resp.StatusCode, msg)
+	}
+	var out struct {
+		Records []struct {
+			Id  string `json:"id"`
+			Any struct {
+				Name string `json:"name"`
+			} `json:"any"`
+		} `json:"records"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return err
+	}
+	for _, rec := range out.Records {
+		if rec.Any.Name == "" || expected[rec.Any.Name] {
+			continue
+		}
+		if err := deleteObject(baseURL, spaceID, rec.Id); err != nil {
+			fmt.Fprintf(os.Stderr, "sweep orphan %s (%q): %v\n", rec.Id, rec.Any.Name, err)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "swept orphan %s (%q)\n", rec.Id, rec.Any.Name)
+	}
 	return nil
 }
 
