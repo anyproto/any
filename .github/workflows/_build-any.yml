@@ -13,7 +13,7 @@ name: _build-any
 #   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
 #            download all → sha256 the 2 mobile assets → ONE `gh release create`
 #            (all 6 assets) → repository_dispatch any-ui + anytype-swift +
-#            anytype-kotlin2 (best-effort).
+#            any-kotlin (best-effort).
 #
 # One `version` job, threaded to every build, so all artifacts stamp an
 # IDENTICAL version (no per-platform drift). iOS rides the same v* tag as
@@ -34,7 +34,7 @@ on:
         required: true
     secrets:
       ANY_CI_TOKEN:
-        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the client builds (any-ui, anytype-swift, anytype-kotlin2).'
+        description: 'Classic repo PAT (read+write across anyproto): fetch private Go modules during the build AND dispatch the client builds (any-ui, anytype-swift, any-kotlin).'
         required: true
 
 # No top-level write permission: only `publish` creates the Release. The build
@@ -116,7 +116,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Android: 4-ABI any.aar via gomobile bind (makefiles/android.mk).
+  # Android: arm64-v8a any.aar via gomobile bind (makefiles/android.mk).
   android:
     needs: version
     if: github.repository == 'anyproto/any'
@@ -342,8 +342,8 @@ jobs:
             -f "client_payload[channel]=$CHANNEL" \
             -f "client_payload[asset]=any.xcframework.zip" \
             -f "client_payload[sha256]=$XCF_SHA"
-          # anytype-kotlin2 (Android): add the asset name + sha256 to pin.
-          dispatch anyproto/anytype-kotlin2 \
+          # any-kotlin (Android): add the asset name + sha256 to pin.
+          dispatch anyproto/any-kotlin \
             -f "client_payload[version]=$VERSION" \
             -f "client_payload[channel]=$CHANNEL" \
             -f "client_payload[asset]=any.aar" \
