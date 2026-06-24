@@ -1094,6 +1094,62 @@ export function createClient(params) {
     return { ok: res.ok, error: res.ok ? null : _extractError(res), code: res.ok ? null : res.code };
   }
 
+  // ==================== CHAT ====================
+  // A chat is an object whose `any.types` contains the built-in "chat" type;
+  // its messages live in the per-object `chat_messages` dataset. To list
+  // chats use getObjects("chat"); to read messages use
+  // getObjects({objectId, dataset:"chat_messages", sort:["_ver.id"]}).
+  // sendChatMessage is the only bespoke piece — it's a write to the
+  // non-/query chat endpoint.
+
+  // _defaultAgentName builds the agent display label "bao (<your name>)",
+  // resolving the account display name once from GET .../members/me and
+  // caching it. Falls back to plain "bao" if the member name is empty or the
+  // lookup fails.
+  var _userName; // undefined = unresolved, "" = resolved-but-empty
+  function _defaultAgentName(scope) {
+    if (_userName === undefined) {
+      var res = api("GET", _pathForScope(scope) + "/members/me");
+      _userName = (res.ok && res.data && res.data.name) || "";
+    }
+    return _userName ? "bao (" + _userName + ")" : "bao";
+  }
+
+  // sendChatMessage(chatObjectId, text, opts) posts one message to a chat's
+  // `chat_messages` dataset via POST .../objects/:id/chat/messages.
+  //
+  // Every message is stamped agent-authored: the `agent` group carries
+  // { name, done:true }. `name` defaults to "bao (<your display name>)"
+  // (opts.agentName overrides); `done` is always true (one-shot sends are
+  // terminal). The group is a UI hint (not signature-verified) that lets
+  // agents subscribed to chat_messages tell agent posts from human ones.
+  // Pass opts.agent = null to post WITHOUT it (relay a human message).
+  //
+  // opts: { space?, agentName?, agent?:null, replyToMessageId?, attachments? }
+  // → { ok, messageId, versionId, changeId } (messageId = derived record id).
+  function sendChatMessage(chatObjectId, text, opts) {
+    if (!opts) opts = {};
+    if (chatObjectId == null || chatObjectId === "") return { ok: false, error: "chatObjectId required" };
+    if (text == null || text === "") return { ok: false, error: "text required" };
+    var scope = opts.space || "user";
+    var path = _pathForScope(scope);
+    var body = { text: String(text) };
+    if (opts.agent !== null) {
+      body.agent = { name: opts.agentName || _defaultAgentName(scope), done: true };
+    }
+    if (opts.replyToMessageId) body.replyToMessageId = opts.replyToMessageId;
+    if (opts.attachments) body.attachments = opts.attachments;
+    var res = api("POST", path + "/objects/" + chatObjectId + "/chat/messages", body);
+    if (!res.ok) return { ok: false, error: _extractError(res), code: res.code };
+    var ids = (res.data && res.data.recordIds) || [];
+    return {
+      ok: true,
+      messageId: ids[0] || null,
+      versionId: res.data && res.data.versionId,
+      changeId: res.data && res.data.changeId
+    };
+  }
+
   // ==================== TAGS ====================
   // There is no select/multi_select tag API on the any backend — tags are
   // ordinary array properties. These legacy no-ops fail loud so any remaining
@@ -1437,6 +1493,7 @@ export function createClient(params) {
     editObject: w("editObject", editObject),
     setRecord: w("setRecord", setRecord),
     deleteRecord: w("deleteRecord", deleteRecord),
+    sendChatMessage: w("sendChatMessage", sendChatMessage),
     setTags: w("setTags", setTags),
     addTag: w("addTag", addTag),
     listTags: w("listTags", listTags),

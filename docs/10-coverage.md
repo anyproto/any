@@ -18,6 +18,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |
 | Types | `GET`/`POST /types`, `GET /types/:id/properties`, `POST …/properties` | `getTypes`/`createType`, `getProperties`/`getProperty`/`describeType` (catalog-backed) |
 | Members (read) | `GET /members`, `GET /members/:identity` | `listSpaceMembers`, `getSpaceMember` |
+| Chat (write) | `POST …/objects/:o/chat/messages` | `sendChatMessage` (auto-stamps the `agent` group; reads/list via `getObjects`) |
 | Spaces (list) | `GET /spaces` | `listSpaces` |
 | Programs | (via `/modify` + `/query` on `program_*` datasets) | `listPrograms`/`getProgram`/`saveProgram`/`saveTool`/`runProgram` |
 | Agent data layer | `POST …/agent/turns`, `POST …/agent/chunks`, `GET /agent/brain`, `POST`/`PATCH`/`DELETE /agent/memory[/:itemId]` | via `client.api(...)` from JS (convmemory module); reads via `getObjects({objectId, dataset})` with `agent_turns` / `agent_chunks` / `agent_memory_items` — see `docs/11-agent-memory.md` |
@@ -28,6 +29,13 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
   dataset CRUD (setRecord / deleteRecord; reads via getObjects dataset mode).
 - `getObjects` gained `filter`/`sort`/`limit`/`offset` → the full
   `POST /objects/query` surface (see `docs/09-query.md`).
+- `sendChatMessage(chatObjectId, text, opts)` → `POST …/chat/messages` — lets a
+  JS program post to any chat. Auto-stamps the `agent` group `{ name, done:true }`
+  (name defaults to `"bao (<your display name>)"`, resolved once from
+  `GET …/members/me`; `opts.agent = null` opts out). Listing chats is
+  `getObjects("chat")`; reading history is `getObjects({objectId, dataset:
+  "chat_messages"})` — no dedicated wrappers, the query primitive already covers
+  both.
 
 ## Deliberately not wrapped (out of agent scope)
 
@@ -46,7 +54,7 @@ surface added.
 | `POST /objects/derive` | deterministic-id creation — niche; no caller |
 | `POST /objects/aggregate`, `POST /aggregate` | aggregation pipelines (`docs/14-aggregation.md`) — reachable via `client.api(...)`; add a `getAggregate` wrapper when an agent program actually needs server-side rollups |
 | `POST`/`PATCH`/`DELETE …/editor/blocks` | atomic block writes — the markdown bridge (`append`/`edit`/`PUT`) covers agent needs; blocks reachable via `api()` and read via `getObjects(null,{objectId:o,dataset:"editor_blocks"})` |
-| chat `POST/PATCH/DELETE …/chat/messages[...]`, reactions | the agent's reply is posted host-side (bobrik-watch), not from JS; no in-JS caller yet |
+| chat `PATCH/DELETE …/chat/messages[...]`, reactions | edit/delete/react have no in-JS caller yet (the reply send is wrapped by `sendChatMessage`; the host-side bobrik-watch path still posts its own replies directly) |
 | `*/subscribe` (SSE) | live streams are a host/Go concern; the JS client is request/response |
 | `GET /health`, `POST /shutdown` | lifecycle, host-side |
 
@@ -55,6 +63,7 @@ surface added.
 - The `account`/`device` property scopes and `attach`/`detach`/type-delete/
   type-prop-delete endpoints are server-side `501 sdk.not_implemented`
   (`docs/07-roadmap.md`) — nothing to wrap.
-- If chat-from-JS or atomic block editing becomes a real agent need, add thin
-  wrappers (`chatSend`/`blockCreate` etc.) following the dataset-helper pattern;
-  they're a few lines each over `api()`.
+- Chat-from-JS is wrapped (`sendChatMessage`). If atomic block editing or chat
+  edit/delete/react becomes a real agent need, add thin wrappers (`blockCreate`
+  etc.) following the dataset-helper pattern; they're a few lines each over
+  `api()`.

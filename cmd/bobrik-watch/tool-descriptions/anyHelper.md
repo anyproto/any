@@ -116,6 +116,20 @@ one field never rewrites the others). `fields` = flat `{ field: value }` map.
 Tombstone one or more dataset records. recordIds is a single id or an array.
 - opts.space: any space id (default: your own)
 
+### sendChatMessage(chatObjectId, text, opts?) [mutator]
+Post a message to a chat. `chatObjectId` is the id of a chat object — find chats
+with `getObjects("chat")` (optionally `{space}`); read history with
+`getObjects({ objectId: chatObjectId, dataset: "chat_messages", sort: ["_ver.id"] })`.
+Returns `{ ok, messageId, versionId, changeId }`. The message is stamped
+agent-authored — the `agent` group `{ name, done:true }` marks it as written by
+you (a UI hint, not signature-verified), so a watching agent can tell your posts
+from human ones. `name` defaults to `"bao (<your display name>)"`.
+- opts.agentName: override the agent display name (default `"bao (<your name>)"`)
+- opts.agent: pass `null` to post WITHOUT the agent group (relay a human message)
+- opts.replyToMessageId: thread the message as a reply
+- opts.attachments: `{ id: { type, link } }` map (create-only)
+- opts.space: any space id (default: your own)
+
 ### describeType(type, opts?) [getter]
 Inspect a type: metadata, properties, sample object, object count.
 - type: type xKey (e.g. "pages", "agent_memory") or id; builtins use their id ("chat", "program"). NOT the display name.
