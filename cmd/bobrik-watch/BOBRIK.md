@@ -43,10 +43,15 @@ On startup bobrik-watch:
 On each human message (no `agent` field):
 
 1. Creates a fresh Sobek JS runtime with `SetupAnySDKDirtyRuntime`.
-2. Registers a `chatReply` effect that posts replies back to the chat.
-3. Evaluates a wrapper that imports `private:init_agent@v1`, which
+2. Evaluates a wrapper that imports `private:init_agent@v1`, which
    bootstraps types, loads skills, boots the LLM kernel
    (`toolcall_core@v1`), and generates a response.
+
+Replies are posted through the native chat API
+(`anyHelper.sendChatMessage`) from inside the agent — the chat id is threaded
+in as `args.chatId`. There is no host-side `chatReply` effect; the only
+Go-side post is `chatSend`, a fallback used when the runtime itself fails to
+start (so the typing indicator still resolves).
 
 The kernel's debug collector (`dcInit` in `toolcall_core@v1.js`) creates
 one `Agent Debug Log` page per invocation and appends each turn live.

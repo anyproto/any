@@ -31,7 +31,7 @@ Perform grounded web research via Gemini. Creates a collection with overview pag
 - `usage` (object) — token counts from initial call
 
 Typical latency: ~50 seconds (23s initial + 2s decompose + 23s follow-ups + 1s object creation).
-Sends progress updates via chatReply at each phase.
+Sends progress updates to the chat (via `anyHelper.sendChatMessage`) at each phase.
 
 **Example:**
 ```js

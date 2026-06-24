@@ -1,8 +1,6 @@
 package anyrt
 
 import (
-	"io"
-
 	"github.com/anyproto/anytype-agent-runtime/anyruntime"
 	agentruntime "github.com/anyproto/anytype-agent-runtime/runtime"
 	"github.com/anyproto/anytype-agent-runtime/runtime/hostfn"
@@ -17,9 +15,6 @@ type RuntimeConfig struct {
 	// "Agent Debug Log" pages under (exposed to JS as
 	// env.ANY_DEBUG_FOLDER_ID). Empty leaves debug pages at root.
 	DebugFolderID string
-	// ChatReplyWriter receives chatReply effect output (bobrik-watch posts
-	// it to the chat; the CLI prints it to stdout).
-	ChatReplyWriter io.Writer
 	// ExtraLoaders are chained AFTER the anySDK loader — the space stays
 	// the source of truth (live reload: a program edit is picked up on the
 	// next import); files only fill misses (test-local modules).
@@ -30,17 +25,15 @@ type RuntimeConfig struct {
 }
 
 // SetupAnySDKDirtyRuntime configures a fresh runtime against the `any`
-// server: standard effects (fetch/fetchBatch/sleep/chatReply), console,
-// js.eval, trace wrapping, the env map, and module resolution through
-// NewAnySDKLoader (every resolve is recorded as a `module.resolve` trace
-// entry).
+// server: standard effects (fetch/fetchBatch/sleep), console, js.eval, trace
+// wrapping, the env map, and module resolution through NewAnySDKLoader (every
+// resolve is recorded as a `module.resolve` trace entry). Chat replies are not
+// a runtime effect — programs post through the native chat API
+// (anyHelper.sendChatMessage).
 func SetupAnySDKDirtyRuntime(rt agentruntime.Runtime, cfg RuntimeConfig) {
 	rt.SetEffectResolver("fetch", hostfn.Fetch)
 	rt.SetEffectResolver("fetchBatch", hostfn.FetchBatch)
 	rt.SetEffectResolver("sleep", hostfn.Sleep)
-	if cfg.ChatReplyWriter != nil {
-		rt.SetEffectResolver("chatReply", hostfn.NewChatReply(cfg.ChatReplyWriter))
-	}
 	rt.EnableConsole()
 	rt.EnableJSEval()
 	rt.EnableWrapTrace()

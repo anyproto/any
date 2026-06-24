@@ -1721,6 +1721,13 @@ export function main(args) {
   // Accept boolean true (JSON / runProgram path) or string "true" (CLI path).
   var __quiet = args.__quiet === true || args.__quiet === "true";
   var __captured = [];
+  // Replies post through the native chat API (anyHelper.sendChatMessage) —
+  // there is no host-side chatReply effect anymore. currentChatId is
+  // args.chatId, the chat bobrik watches. In __quiet (sub-agent) mode we
+  // capture the text instead of posting, exactly as before. The payload is the
+  // legacy shape — bare string or { text, done, debugLink, attachments } —
+  // mapped onto sendChatMessage so call sites stay unchanged.
+  var __replyClient = __quiet ? null : createClient(args);
   var chatReply = __quiet
     ? function(payload) {
         var t = payload && typeof payload === "object" && payload.text ? payload.text : payload;
@@ -1729,7 +1736,18 @@ export function main(args) {
         __captured.push(s);
         return { id: "quiet" };
       }
-    : globalThis.chatReply;
+    : function(payload) {
+        var p = (payload && typeof payload === "object") ? payload : { text: payload };
+        var r = __replyClient.sendChatMessage(currentChatId, p.text, {
+          // System reply path: post as the "bao" agent, not the
+          // sendChatMessage default ("bao (<display name>)") which is for
+          // ad-hoc program sends.
+          agentName: "bao",
+          done: p.done, debugLink: p.debugLink,
+          attachments: p.attachments, replyToMessageId: p.replyToMessageId
+        });
+        return (r && r.ok) ? { id: r.messageId } : { ok: false, error: r && r.error };
+      };
 
   // Wrap the rest of main() in an IIFE so a single post-process at the
   // bottom can convert any return path into the captured-text answer

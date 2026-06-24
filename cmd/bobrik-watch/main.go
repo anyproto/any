@@ -483,10 +483,7 @@ func handleChanges(spaceID, objectID string, data []byte) {
 				// Terminal message so a client's typing indicator (keyed
 				// on the last agent message's `done`) always resolves.
 				// Best-effort — the error is already on stderr.
-				if serr := chatSend(spaceID, objectID, chatReplyArgs{
-					text: "⚠ agent run failed: " + err.Error(),
-					done: true,
-				}); serr != nil {
+				if serr := chatSend(spaceID, objectID, "⚠ agent run failed: "+err.Error()); serr != nil {
 					fmt.Fprintf(os.Stderr, "post agent-error message: %v\n", serr)
 				}
 			}
@@ -501,37 +498,16 @@ func runAgent(spaceID, objectID, msgID, text string) error {
 		return fmt.Errorf("create runtime: %w", err)
 	}
 
+	// No host-side `chatReply` effect anymore: chat replies go through
+	// anyHelper.sendChatMessage in JS (one send path). The chat id reaches
+	// the agent the same way it always has — as args.chatId, threaded from
+	// runAgent's objectID through the wrapper into toolcall_core.
 	anyrt.SetupAnySDKDirtyRuntime(rt, anyrt.RuntimeConfig{
 		APIBaseURL:     base,
 		SpaceID:        spaceID,
 		PrivateSpaceID: spaceID,
 		ProgramTypeID:  programTypeID,
 		DebugFolderID:  getDebugFolderID(),
-	})
-
-	rt.SetEffectResolver("chatReply", func(tr *agentrt.TraceRecord, args ...any) any {
-		if len(args) == 0 {
-			return nil
-		}
-		reply := parseChatReplyArg(args[0])
-		// Record what we actually sent to the server, not just the
-		// stringified first arg — makes traces useful when the agent
-		// is sending structured replies with attachments.
-		traceInput := reply.text
-		if len(reply.attachments) > 0 || reply.debugLink != "" || !reply.done {
-			b, _ := json.Marshal(map[string]any{
-				"text": reply.text, "attachments": reply.attachments,
-				"debugLink": reply.debugLink, "done": reply.done,
-			})
-			traceInput = string(b)
-		}
-		tr.SetInput(traceInput)
-		fmt.Fprintf(os.Stderr, "chatReply: %s (attachments=%d done=%v)\n", reply.text, len(reply.attachments), reply.done)
-		if err := chatSend(spaceID, objectID, reply); err != nil {
-			fmt.Fprintf(os.Stderr, "chatReply error: %v\n", err)
-			return map[string]any{"error": err.Error()}
-		}
-		return nil
 	})
 
 	return runWrapperProgram(rt, spaceID, objectID, msgID, text)
@@ -570,24 +546,16 @@ export function main() {
 	return nil
 }
 
-// chatSend posts a chat message. Every bobrik message is
-// agent-authored: the `agent` group carries the Go-owned display name
-// plus the kernel-supplied debugLink / done. `args.attachments`
-// entries must already be in the wire shape (map[id]{type,link}).
-func chatSend(spaceID, objectID string, args chatReplyArgs) error {
-	agent := map[string]any{
-		"name": agentName,
-		"done": args.done,
-	}
-	if args.debugLink != "" {
-		agent["debugLink"] = args.debugLink
-	}
+// chatSend posts a terminal, agent-authored message to the chat over the
+// native chat API. It's the host-side fallback for the one case JS can't
+// cover — the agent runtime failing to start — so a client's typing
+// indicator (keyed on the last message's `done`) always resolves. The normal
+// reply path is anyHelper.sendChatMessage from inside the agent; this Go
+// poster exists only because there's no live runtime to post through here.
+func chatSend(spaceID, objectID, text string) error {
 	body := map[string]any{
-		"text":  args.text,
-		"agent": agent,
-	}
-	if len(args.attachments) > 0 {
-		body["attachments"] = args.attachments
+		"text":  text,
+		"agent": map[string]any{"name": agentName, "done": true},
 	}
 	raw, _ := json.Marshal(body)
 	resp, err := http.Post(
@@ -605,87 +573,3 @@ func chatSend(spaceID, objectID string, args chatReplyArgs) error {
 	}
 	return nil
 }
-
-// chatReplyArgs is the normalized chatReply payload — what the JS side
-// asked to send, in the pieces chatSend needs.
-type chatReplyArgs struct {
-	text        string
-	attachments map[string]any
-	debugLink   string
-	done        bool
-}
-
-// parseChatReplyArg normalizes the JS chatReply argument.
-//
-// Accepted shapes:
-//
-//   - string (legacy)                        → {text: arg, done: true}
-//   - {text, attachments?, debugLink?, done?} → as-is, plus normalization
-//   - anything else                          → fmt-stringified into text
-//
-// `done` defaults to true when absent or non-bool: a mistakenly-true
-// intermediate just stops the UI typing animation early, while a
-// mistakenly-false terminal would spin it forever. `debugLink` is the
-// kernel-composed `any://<spaceId>/<debugPageId>[#turn_<n>]` drill-down.
-//
-// Attachments are accepted as either:
-//
-//   - map[id] -> {type, link}                — the wire shape
-//   - map[id] -> "any://…" or "https://…"    — sugar: id of the form
-//     `img_*` becomes type=image, everything else type=link. Lets the
-//     agent write `{a1: "any://x"}` for the common case.
-//
-// Anything that doesn't normalize into the {type, link} shape is
-// dropped silently — the server would reject it anyway, and the
-// agent's main signal is "I got my text out" not "every key landed".
-func parseChatReplyArg(arg any) chatReplyArgs {
-	switch v := arg.(type) {
-	case string:
-		return chatReplyArgs{text: v, done: true}
-	case map[string]any:
-		out := chatReplyArgs{done: true}
-		if t, ok := v["text"].(string); ok {
-			out.text = t
-		} else {
-			out.text = fmt.Sprintf("%v", v["text"])
-		}
-		if raw, ok := v["attachments"].(map[string]any); ok && len(raw) > 0 {
-			out.attachments = normalizeAttachments(raw)
-		}
-		if l, ok := v["debugLink"].(string); ok {
-			out.debugLink = l
-		}
-		if d, ok := v["done"].(bool); ok {
-			out.done = d
-		}
-		return out
-	default:
-		return chatReplyArgs{text: fmt.Sprintf("%v", arg), done: true}
-	}
-}
-
-func normalizeAttachments(in map[string]any) map[string]any {
-	out := make(map[string]any, len(in))
-	for id, raw := range in {
-		switch entry := raw.(type) {
-		case map[string]any:
-			t, _ := entry["type"].(string)
-			l, _ := entry["link"].(string)
-			if t == "" || l == "" {
-				continue
-			}
-			out[id] = map[string]any{"type": t, "link": l}
-		case string:
-			t := "link"
-			if strings.HasPrefix(id, "img_") {
-				t = "image"
-			}
-			out[id] = map[string]any{"type": t, "link": entry}
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-

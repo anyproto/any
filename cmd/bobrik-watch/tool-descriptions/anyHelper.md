@@ -12,7 +12,7 @@
 - **Writing**: properties go in as nested type groups, mirroring the read shape — `createObject("book", { name: "Dune", book: { author: "Frank Herbert", year: 1965 } })`. Every top-level data key that isn't a reserved field (`name`, `body`, `markdown`, `types`, `space`) must be a type xKey/id with a `{ prop: value }` map; anything else fails with a clear error — misplaced/typo'd keys are NEVER silently dropped. The `type` argument of createObject/getObjects/etc. is the type **xKey** or id — NOT the display name (name is display-only metadata). Unknown property / wrong value-kind writes also fail loud (client + server validation).
 - **Reading**: records come back nested keyed by xKey — `obj["movie"].title`, `obj["agent_memory"].chat_id`. Use `getProp(obj, "agent_memory.chat_id")`. Builtin scopes read the same way: **the display name lives at `obj.any.name`**, the type ids at `obj.any.types`, tree placement at `obj.nav.parentId` / `obj.nav.pos`, `obj.program.name`. For convenience `obj.name` is hoisted as a read-only **alias** of `obj.any.name` — but it's only an alias on the in-memory record: in **filter/sort dotted paths use the real scope path** (`"any.name"`, `"any.types"`), never bare `"name"`, because those hit the wire shape where no root `name` exists. Dotted `"scope.prop"` paths are for READS (getProp) and query filter/sort keys — writes always use the nested group shape. When unsure of an object's shape, inspect a sample (`inferSchema(getObjects(type)[0])`) rather than guessing field names.
 
-Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`); read with `getObjects({ objectId, dataset })`, write with `setRecord` / `deleteRecord`.
+Structured, non-property content lives in **datasets** (e.g. `mini_app`, `program_source`, and built-in ones like `chat_messages` / `editor_blocks`); read with `getObjects({ objectId, dataset })`, write with `setRecord` / `deleteRecord`. This is the **universal** read/write path — there are almost no per-type wrappers. To list objects of any type (built-in included), `getObjects("<type>")` — e.g. `getObjects("chat")` for the space's chats; to read a built-in's records, dataset mode — e.g. `getObjects({ objectId: chatId, dataset: "chat_messages", sort: ["_ver.id"] })` for chat history. The few bespoke write helpers (`sendChatMessage`, editor markdown) exist only where the server endpoint isn't a plain dataset op. See the `getObjects` getter and `setRecord` / `deleteRecord` setters below.
 
 ## Tool Schema
 
@@ -114,6 +114,20 @@ one field never rewrites the others). `fields` = flat `{ field: value }` map.
 
 ### deleteRecord(objId, dataset, recordIds, opts?) [mutator]
 Tombstone one or more dataset records. recordIds is a single id or an array.
+- opts.space: any space id (default: your own)
+
+### sendChatMessage(chatObjectId, text, opts?) [mutator]
+Post a message to a chat. `chatObjectId` is the id of a chat object — find chats
+with `getObjects("chat")` (optionally `{space}`); read history with
+`getObjects({ objectId: chatObjectId, dataset: "chat_messages", sort: ["_ver.id"] })`.
+Returns `{ ok, messageId, versionId, changeId }`. The message is stamped
+agent-authored — the `agent` group `{ name, done:true }` marks it as written by
+you (a UI hint, not signature-verified), so a watching agent can tell your posts
+from human ones. `name` defaults to `"bao (<your display name>)"`.
+- opts.agentName: override the agent display name (default `"bao (<your name>)"`)
+- opts.agent: pass `null` to post WITHOUT the agent group (relay a human message)
+- opts.replyToMessageId: thread the message as a reply
+- opts.attachments: `{ id: { type, link } }` map (create-only)
 - opts.space: any space id (default: your own)
 
 ### describeType(type, opts?) [getter]
