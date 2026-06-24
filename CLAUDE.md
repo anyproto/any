@@ -501,6 +501,40 @@ Implementation slices landed:
     docs/01-cli.md, docs/02-server.md § Startup, client recipe in
     docs/08-clients.md § 7, and the SDK's docs/13-one-to-one-spaces.md.
 
+20. **Identities directory + encrypted profiles** — wraps the SDK's new
+    `SDK.Identities()` (`feat/identities-directory`), the account-global,
+    device-local cache of every account identity this account has
+    encountered (across spaces, 1-1s, inbox invites). Account-scoped
+    endpoints sitting outside the `:spaceId` group (like
+    `/sync-status/subscribe`): `GET /v1/identities` (`List`), `GET
+    /v1/identities/:identity` (`Get`, 404 `identity.not_found` when
+    unknown), `GET /v1/identities/subscribe` (`Subscribe`, callback→SSE
+    bridge — `event: identities` frames carrying `{added,updated,removed}`
+    batches, same `ready`→`lagged`→`closed` envelope as the
+    members/sync-status streams). `handlers_identities.go` /
+    `api/identity.go` / `client/identities.go` / `cli/identities.go` (`any
+    identities list/get/subscribe`, alias `contacts`); `/subscribe`
+    registered before the `:identity` wildcard. `IdentityInfo`
+    = `{identity, name?, description?, iconCid?, spaceIds}` — the SDK
+    strips the synced `symKey` (profile-decryption secret) before it
+    reaches us. **Two consequences of the same SDK change:** (a) profiles
+    pushed to identityRepo are now ENCRYPTED — a contact resolves
+    `name`/icon only after their key arrives via a shared-space ACL or a
+    1-1 invite, so directory AND members-list profiles surface id-only
+    until then (clients must tolerate empty names; cold-restored devices
+    resolve in the background). (b) The `identities` dataset lives on the
+    tech-space index object, so the generic `POST /v1/spaces/query[/subscribe]`
+    `dataset` field is now a CLOSED allowlist `{spaces, profile}` (else
+    `400 request.invalid_field`) — reaching `identities` there would leak
+    the raw `symKey`; read it through `GET /v1/identities`. **Rights live
+    on the members list, not here** — the directory has no permission
+    field; roles (owner/admin/writer/reader) come from `GET
+    /v1/spaces/:id/members`. Account profile read/write
+    (`GET /v1/account`, `PUT /v1/account/metadata`) is unchanged. Contract:
+    docs/03-api.md § Identities + § Account (encryption note),
+    docs/01-cli.md, docs/04-events.md § Identities directory stream,
+    client recipe docs/08-clients.md § 8.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

@@ -329,6 +329,46 @@ participants through the normal members collection. Deleting a 1-1 is
 local-only and re-derivable: `DELETE /v1/spaces/:spaceId` offloads it, and
 a later `POST /v1/spaces/one-to-one` brings it back.
 
+## 8. Members-with-roles vs. the identities directory
+
+Two surfaces resolve "who is this person," and they answer different
+questions — don't conflate them.
+
+- **A space's roster, with rights** → `GET /v1/spaces/:id/members`. Each
+  row carries the member's `permission`
+  (`owner`/`admin`/`writer`/`reader`) **and** their profile (`name` /
+  `iconCid`) **and** `status` — everything a "Members" panel with avatars
+  and roles needs, in one call. This is the authoritative source for
+  roles. Subscribe to `…/members/subscribe` for live role/membership
+  changes.
+
+- **A display name/icon for any account id you hold** (a chat message's
+  `creator`, a 1-1 peer, a mention) → `GET /v1/identities[/:identity]`,
+  the account-global directory. Cache it once and resolve ids across
+  every space. Subscribe to `/v1/identities/subscribe` to keep the cache
+  fresh as profiles resolve.
+
+```
+GET /v1/spaces/:id/members        # roster + roles for ONE space
+GET /v1/identities                # global id → profile, all spaces
+GET /v1/identities/:identity      # one contact (404 if never seen)
+```
+
+The directory carries **no rights** — it has no permission field by
+design. To show "Alice is an admin of space X," read space X's members
+list; iterate `IdentityInfo.spaceIds` if you need her role in each shared
+space. There is no cross-space role rollup (and per the 1:1 SDK-mapping
+invariant the server won't synthesize one).
+
+**Tolerate empty names.** Profiles are encrypted and decryptable only by
+contacts who received the key through a shared space's ACL or a 1-1
+invite. A freshly-seen contact — or any contact on a freshly-restored
+device, before background resolution completes — surfaces **id-only**
+(empty `name`). Render a fallback (truncated id, generated avatar) and
+let the `updated` subscribe frame fill it in. Never block UI on a
+resolved name. (Do not invent a degraded "fetch the raw profile bytes"
+path — there isn't one; the directory *is* the resolution surface.)
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.

@@ -186,6 +186,55 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 `description` / `iconCid` must be set; an all-empty body returns
 `400 request.missing_field`.
 
+> **Profiles are encrypted.** The bytes pushed to identityRepo are
+> encrypted with an account-derived key that is shared with a contact
+> only through an already-encrypted channel — a shared space's ACL
+> metadata or a 1-1 invite. A peer who has not yet received the key sees
+> the account **id only**, with `name` / `description` / `iconCid` empty,
+> until the key arrives and the SDK's background fetch resolves the
+> profile. Clients must tolerate an empty name everywhere a contact
+> profile surfaces (members list, identities directory).
+
+### Identities (account-global directory)
+
+| Method | Path                          | Purpose                              |
+|--------|-------------------------------|--------------------------------------|
+| GET    | `/v1/identities`              | `Identities.List` — every known id   |
+| GET    | `/v1/identities/:identity`    | `Identities.Get` (404 when unknown)  |
+| GET    | `/v1/identities/subscribe`    | `Identities.Subscribe` (SSE)         |
+
+The directory is the account-global, device-local cache of **every
+account identity this account has encountered** — across spaces, 1-1s,
+and inbox invites. It is the place to resolve a display name/icon for an
+identity you only hold an id for (a chat message `creator`, a 1-1 peer).
+Account-scoped — these routes sit outside the `:spaceId` group.
+
+```json
+// GET /v1/identities → 200
+{ "identities": [
+    { "identity":"A5k…",
+      "name":"Alice", "iconCid":"bafy…",
+      "spaceIds":["bafyspace1…","bafyspace2…"] } ] }
+```
+
+Each row carries the last resolved profile (`name` / `description` /
+`iconCid`, omitted until resolved — see the encryption note above) and
+`spaceIds`, the set of spaces where the identity is currently seen
+(pruned when you leave/offload a space). The synced decryption key behind
+each row is **never** exposed.
+
+**The directory carries no rights.** Roles
+(`owner`/`admin`/`writer`/`reader`) are per-space and live on the members
+list (`GET /v1/spaces/:id/members`), which is the authoritative roster.
+To show an identity's role you read the members list of the relevant
+space; there is no cross-space role rollup. See
+[clients §8](08-clients.md) for the members-vs-directory recipe.
+
+`GET /v1/identities/subscribe` streams directory changes as
+`event: identities` frames carrying `{added, updated, removed}` batches
+(same `ready` → … → `closed` envelope and reason set as the sync-status
+streams — see [events](04-events.md)).
+
 ### Spaces
 
 | Method | Path                            | Purpose                             |
@@ -337,9 +386,13 @@ POST /v1/spaces/query/subscribe    SSE        → ready → snapshot → changes
 Both wrap `Service.Query(SpaceIndexObjectId(), "spaces")` and take the
 same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `limit` / `offset` / `includeTotal` / `mailboxCapacity` /
-`driftBudgetPercent`), plus an optional `dataset` override (defaults to
-`spaces`; `profile` is the other system dataset). `objectId` is fixed
-server-side to the tech-space index object. Records are the **raw**
+`driftBudgetPercent`), plus an optional `dataset` override. `objectId` is
+fixed server-side to the tech-space index object. `dataset` is restricted
+to the closed allowlist `{spaces, profile}` (defaults to `spaces`) —
+anything else returns `400 request.invalid_field`. The tech-space index
+object also hosts the `identities` directory, whose rows carry a synced
+decryption key; it is deliberately **not** reachable here — read it
+through `GET /v1/identities`. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
 you want the projected status/role. Rows carry `createdAt` as unix
 seconds (handler-derived added-to-account time, absent on pre-stamp
@@ -1160,6 +1213,14 @@ shape mirrors `space.Member` 1:1; both `permission` and `status` are
 strings (see "Permission / status strings" below). `requestRecordId`
 is non-empty only on a pending-request entry — pass it to
 `POST /v1/spaces/:id/acl/accept`.
+
+This is the **authoritative per-space roster with rights**: each row
+carries the member's `permission` (the role) alongside the profile
+(`name` / `iconCid`, resolved from the same identityRepo cache that feeds
+the [identities directory](#identities-account-global-directory), with
+the join-time metadata as the always-present baseline). For a roster with
+roles, this one call is all a client needs — don't reach for the
+directory, which is account-global and carries no rights.
 
 ```json
 // GET /v1/spaces/:id/members

@@ -61,6 +61,22 @@ any account                                         # GET /v1/account
 any account set-metadata --name "..." [--description "..."] [--icon CID]
 ```
 
+### Identities (account-global directory)
+
+```
+any identities list                                 # GET /v1/identities
+any identities get <identity>                        # GET /v1/identities/:identity
+any identities subscribe                            # SSE: added/updated/removed
+```
+
+The account-global, device-local directory of every identity this account
+has encountered (across spaces, 1-1s, inbox invites) — profiles plus the
+spaces where each was seen. Use it to resolve a display name/icon for an
+account id you hold (a chat author, a 1-1 peer). Aliased `any contacts`.
+It carries **no rights** — for roles (owner/admin/writer/reader) read
+`any members list <spaceId>`. A contact's `name` is empty until their
+profile decryption key arrives (shared space / 1-1) and resolves.
+
 ### Spaces
 
 ```
