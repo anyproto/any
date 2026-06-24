@@ -26,8 +26,11 @@ setup-gomobile:
 	PATH="$(GOBIN):$$PATH" $(GOMOBILE) init
 
 # Produce dist/android/any.aar from the github.com/anyproto/any/mobile
-# package. Bare `-target=android` builds all 4 supported ABIs (armeabi-v7a,
-# arm64-v8a, x86, x86_64); the consuming APK's ndk.abiFilters picks the subset.
+# package. We build a SINGLE ABI (arm64-v8a) via an explicit `-target` — every
+# shipping Android device is arm64 (Google Play has required 64-bit since 2019),
+# so armeabi-v7a (dead 32-bit ARM) and x86/x86_64 (Intel emulator only) are
+# intentionally dropped to keep the AAR small. The consuming APK's
+# ndk.abiFilters picks the subset.
 # The AAR is version-stamped via `-ldflags '$(LDFLAGS)'`, which carries the
 # `-X .../internal/version.{Version,Commit,BuildDate}` values built from the
 # inherited $(VERSION)/$(COMMIT)/$(DATE) (top-level Makefile). CI overrides
@@ -42,22 +45,22 @@ build-android: setup-gomobile
 	PATH="$(GOBIN):$$PATH" $(GOMOBILE) bind \
 		-tags "$(ANY_TAGS)" \
 		-ldflags '$(LDFLAGS)' \
-		-target=android \
+		-target=android/arm64 \
 		-androidapi 26 \
 		-javapkg=io.anyproto.any \
 		-o dist/android/any.aar \
 		github.com/anyproto/any/mobile
 	@echo "Built dist/android/any.aar"
 
-# Drop the freshly-built AAR into a sibling anytype-kotlin2 checkout and
+# Drop the freshly-built AAR into a sibling any-kotlin checkout and
 # bump the SHA-keyed version in its Gradle config so the change is picked
 # up on the next `gradle :libs:publishToMavenLocal`.
 #
-# Required: CLIENT_ANDROID_PATH=/path/to/anytype-kotlin2-or-bin-to-apk
+# Required: CLIENT_ANDROID_PATH=/path/to/any-kotlin-or-bin-to-apk
 .PHONY: install-dev-android
 install-dev-android: build-android
 ifndef CLIENT_ANDROID_PATH
-	$(error CLIENT_ANDROID_PATH must point to the anytype-kotlin2 checkout)
+	$(error CLIENT_ANDROID_PATH must point to the any-kotlin checkout)
 endif
 	@cp dist/android/any.aar $(CLIENT_ANDROID_PATH)/libs/any.aar
 	@hash=$$(shasum -b dist/android/any.aar | cut -d' ' -f1)-any; \

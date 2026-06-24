@@ -350,6 +350,7 @@ mechanisms address this (`docs/05-config.md`):
 | `stopWords` | on | helps conversational, neutral on BEIR |
 | `minVectorSim` | 0 | static floor can't separate signal/noise for the local model |
 | `embedConcurrency` | 1 local / 4 online | parallel batches are the online throughput win; local serializes |
+| `adaptiveWeights` | off | auto-down-weights weak FTS per query — wins on paraphrastic corpora (FiQA +3 recall@10), small cost on lexical-friendly (SciFact); opt-in |
 | `embedder` | **auto** (default) | online primary (DeepInfra Qwen3-0.6B, baked dev key) + local fallback, same model — fast zero-config embedding, degrades to local on outage |
 
 ## Open items / follow-ups
@@ -366,11 +367,38 @@ mechanisms address this (`docs/05-config.md`):
   bulk import uses the parallel bulk builder (~2× vs ~15–47×), making
   `mode: btree` viable as a default later. Needs a "burst settled"
   heuristic the indexer can't cleanly define; not pursued for now.
-- **Per-corpus leg weighting** — FiQA showed vector-alone beating
-  equal-weight hybrid (weak BM25). A static default can't know per corpus;
-  options for later: a query-adaptive weight, or auto-down-weighting a leg
-  whose top scores are weak. The `ftsWeight`/`vectorWeight` knobs exist
-  but are unset by default.
+- ~~Per-corpus leg weighting~~ **DONE (opt-in)** — `index.search.adaptiveWeights`
+  down-weights the FTS leg per query by its score concentration
+  (`legConfidence`): a flat/weak BM25 distribution (paraphrastic queries)
+  is suppressed so it can't drag hybrid below the dense leg. Asymmetric by
+  design — only FTS, never the uncalibrated cosine leg. Measured (hybrid
+  nDCG@10 / recall@10):
+
+  | corpus | equal 1/1 | adaptive |
+  |---|---|---|
+  | FiQA (weak BM25) | 0.368 / 0.460 | **0.403 / 0.490** |
+  | SciFact (strong BM25) | **0.696 / 0.843** | 0.685 / 0.797 |
+
+  Big win where the lexical leg is weak, small regression where it's
+  strong — so it ships **off by default**; turn it on for semantic /
+  paraphrastic corpora (our agent content likely qualifies, but unmeasured
+  on a domain set).
+- ~~FTS query operators~~ **DONE** — alpha.15 brought phrase (`"..."`),
+  prefix (`foo*`), `$require` / `$exclude`, and `$defaultOperator`. Phrase
+  and prefix work in the `query` string for free (the engine re-parses a
+  directly-built `$text`); `require`/`exclude` are new `/search` request
+  arrays. **`$defaultOperator: and` is opt-in only** — measured on the
+  pure FTS leg (embedder-independent), AND over natural-language queries
+  collapses because few docs contain *every* term:
+
+  | corpus | fts OR | fts AND |
+  |---|---|---|
+  | SciFact | 0.663 / 0.790 | 0.025 / 0.024 |
+  | FiQA | 0.227 / 0.282 | 0.027 / 0.028 |
+
+  (nDCG@10 / recall@10.) So OR stays the default; AND is for short
+  keyword input the client controls. Phrase/`require`/`exclude` give
+  precision without the recall cliff.
 - **Per-object summary doc** (`name` + `description` + lead paragraph) for
   "what is this object" recall — not built.
 - **`EmbedSkip`** — FTS-index short fragments (tiny props) but keep them
@@ -383,5 +411,17 @@ mechanisms address this (`docs/05-config.md`):
   abstention, which the floor can't). Deferred; the RLM `search`/`ask`
   loop ([`../12-rlm-search.md`](../12-rlm-search.md)) is the heavyweight
   stand-in.
-- **Upstream FTS asks** — phrase/required-term operators, per-field
-  weights, prefix matching, configurable BM25 `b` (`../13-index.md`).
+- **Upstream FTS asks — LANDED in any-store alpha.15** (phrase, prefix,
+  `$require`/`$exclude`/`$defaultOperator`, per-index BM25 `b`/`k1`,
+  per-field BM25F weights). Adoption status:
+  - **BM25F title boost + `b`/`k1`** — wired (`index.search.{titleWeight,
+    bm25B,bm25K1}`), defaults **neutral (0)**. A SciFact FTS sweep showed
+    title-boost and `b=0.4` both *slightly hurt* (its title is a paper
+    title, answers live in the body; coalescing already fixed length
+    bias) — so no non-zero default. The knobs are opt-in; our own domain
+    (headings / method sigs / memory summaries) may benefit but is
+    unmeasured (needs a domain-labeled set).
+  - **Phrase / `$require` / `$exclude` / `$defaultOperator`** — not yet
+    wired into `/search` query construction; AND-default is a
+    recall/precision trade to measure first. TODO.
+  - Stemming — still not offered upstream.

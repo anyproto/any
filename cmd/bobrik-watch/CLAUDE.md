@@ -129,7 +129,7 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
   returns `{spaceId, objectId, view, updatedAt}` (null until the UI
   first reports). `toolcall_core` appends a `[user's current view — …]`
   line to each incoming user message (user message, not the cached
-  system prompt) so "this page" resolves; the `_anytype` skill teaches
+  system prompt) so "this page" resolves; the `_any` skill teaches
   the spaceId-as-`space:` recipe.
 - The old "user space" concept is GONE from `init_agent` (it modeled
   the separate-account bobrik that bootstrapped into foreign spaces via
@@ -193,18 +193,53 @@ without rebuilding the binary. That was the whole point of
 SIGHUP-driven bootstrap; embedding pinned the JS to the binary
 timestamp.
 
-## Refresh via SIGHUP
+## Startup sync — hash-gated, incremental
 
-On startup writes its PID to `./.bobrik-pid`.
-`kill -HUP $(cat .bobrik-pid)` — or, equivalently,
-`bobrik-watch --bootstrap` — deletes the "System Bobrik Files"
-folder and every object parented under it (children first, then the
-folder), then re-runs the bootstrap — `ensureSystemFolder` +
-`syncPrograms` + `syncSkills` + `ensureDebugFolder` — so the next agent run picks up the
-latest `anyHelper.js`, programs, skills, and tool descriptions from
-disk. Subscribe loop stays up across the refresh; types (`Program`,
-`Agent Skill`) are not recreated. SIGINT/SIGTERM remove the PID file
-before exit.
+`bootstrapSystemFiles` (run on every boot AND on SIGHUP) is
+`ensureSystemFolder` + `syncPrograms` + `syncSkills` + orphan sweep +
+`ensureDebugFolder`. It is **incremental, not unconditional** — it
+compares on-disk content to the content already in the space and only
+writes what changed, so a no-op restart produces ~zero new DAG changes
+(it used to rewrite every program/skill, every boot):
+
+- **Programs** (`upsertProgram`): a `programFingerprint` (sha256 over
+  source + split description + method records, length-prefixed, methods
+  sorted by id) is built from disk and rebuilt from the in-space records
+  (`inSpaceProgramFingerprint` — source/desc/methods are stored verbatim,
+  so the compare is exact). Equal ⇒ skip every write (source, `any_tool`,
+  nav, tool docs). **No stored hash** — the comparison is live in-space
+  content vs disk, so an agent's in-space `saveProgram` edit only survives
+  until the disk file changes. A program that lost its `.md` (`any_tool`
+  flips false) gets its stale `program_description`/`program_methods`
+  records cleared (`clearToolDocs`), else the fingerprint would mismatch
+  forever.
+- **Skills** (`syncSkills`): compares `GET /editor/markdown` (re-rendered)
+  to the disk `.md` (trimmed). Not byte-exact across the markdown bridge,
+  but a false "differs" only triggers a no-op PUT — `markdown.Set` diffs
+  blocks and writes only what changed, so never spurious churn.
+- **Orphan sweep** (`sweepOrphans`): deletes system-folder children whose
+  `any.name` isn't backed by a disk file (a removed program/skill). The
+  hash-gate covers add/change; this covers delete — so a plain restart
+  fully reconciles disk → space.
+
+Both the boot path and `--bootstrap` run this **same incremental**
+`bootstrapSystemFiles` — `--bootstrap` (SIGHUP) no longer wipes, so a
+refresh of an unchanged disk writes ~nothing. A plain restart and a
+`--bootstrap` are now equivalent in effect; reach for the latter to
+refresh a *running* watcher's in-space JS without restarting it.
+
+`--bootstrap-clean` (SIGUSR1) is the **force-clean recovery** path: it
+first `removeSystemFiles` (deletes the "System Bobrik Files" folder +
+children, children-first), then rebuilds from scratch. Use it only to
+recover a corrupt/divergent space (e.g. duplicate program objects the
+incremental sweep keeps because their name is still expected). The
+root-level "Debug" folder is outside the system folder and untouched by
+any path. Subscribe loop stays up across a refresh; types (`Program`,
+`Agent Skill`) are never recreated.
+
+On startup writes its PID to `./.bobrik-pid`; `kill -HUP $(cat
+.bobrik-pid)` ≡ `bobrik-watch --bootstrap`, `kill -USR1 …` ≡
+`--bootstrap-clean`. SIGINT/SIGTERM remove the PID file before exit.
 
 ## Program name validity
 
@@ -223,7 +258,8 @@ make build                                        # builds any, bobrik-watch, an
                                                   # "general" (found-or-created by name + chat type;
                                                   #  clients create "general" by convention)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
-./bin/bobrik-watch --bootstrap                    # SIGHUP a running instance
+./bin/bobrik-watch --bootstrap                    # SIGHUP — incremental (hash-gated) refresh
+./bin/bobrik-watch --bootstrap-clean              # SIGUSR1 — wipe + rebuild (recovery)
 ./bin/any-agent-runtime -e .env script.js k=v     # run one JS file with PRODUCTION module
                                                   # resolution (imports resolve from the `any`
                                                   # space via internal/anyrt — same loader as

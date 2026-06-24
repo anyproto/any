@@ -547,8 +547,8 @@ make llamacpp                                     # prebuilt llama.cpp libs into
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
                                                   # warns instead of failing the build
-make build-android                                # dist/android/any.aar — 4-ABI gomobile bind
-                                                  # (armeabi-v7a/arm64-v8a/x86/x86_64), version-
+make build-android                                # dist/android/any.aar — arm64-v8a gomobile bind
+                                                  # (single ABI), version-
                                                   # stamped via `-ldflags '$(LDFLAGS)'`; CI passes
                                                   # the resolved version as make COMMAND-LINE vars
                                                   # (VERSION=… COMMIT=… DATE=…) — env can't beat the
@@ -592,10 +592,13 @@ make build                                        # builds any, bobrik-watch, an
 
 Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
 how new JS reaches a live agent: a binary restart alone does NOT re-sync
-the in-space programs/skills; `--bootstrap` is what wipes "System Bobrik
-Files" and re-runs the bootstrap sync. See
-[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Refresh via
-SIGHUP for the mechanics.
+the in-space programs/skills of an already-running watcher; `--bootstrap`
+(SIGHUP) re-runs the bootstrap sync against disk. That sync is
+**incremental/hash-gated** — unchanged programs/skills are skipped,
+deleted ones swept — so it's cheap to run often. (`--bootstrap-clean`,
+SIGUSR1, is the wipe-and-rebuild recovery path.) See
+[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Startup sync
+for the mechanics.
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are

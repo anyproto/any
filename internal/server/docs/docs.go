@@ -4777,6 +4777,12 @@ const docTemplate = `{
         "api.SearchRequest": {
             "type": "object",
             "properties": {
+                "exclude": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "limit": {
                     "description": "Limit caps returned hits. Default 10, max 100.",
                     "type": "integer"
@@ -4788,6 +4794,13 @@ const docTemplate = `{
                 "query": {
                     "description": "Query is the search text. Required.",
                     "type": "string"
+                },
+                "require": {
+                    "description": "Require / Exclude are extra must / must-not terms for the FTS leg\n($require / $exclude) — a hit must contain every Require term and no\nExclude term. Each term may be a \"phrase\" or prefix*. Applied to the\nlexical leg only; ignored in pure vector mode.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "scopes": {
                     "description": "Scopes restricts results to the given index scopes (basic, chat,\nagent). Empty = all scopes.",

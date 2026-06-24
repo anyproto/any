@@ -50,6 +50,9 @@ type IndexEntry struct {
 	Dataset  string
 	RecordId string
 	Data     string // text to index; empty = remove this record from the index
+	Title    string // optional BM25F-boosted field (heading / signature / summary);
+	// its terms should also appear in Data — Title only adds ranking weight,
+	// and the content hash (embed-skip) is over Data alone.
 	ApplySeq uint64 // peer-local, per-space monotonic apply counter
 }
 

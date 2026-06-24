@@ -1032,7 +1032,7 @@ export function renderTurnMessages(turns) {
 // "" when no such skill exists so the caller can concatenate freely.
 //
 // Cross-space: tries the user space first, then falls back to the system
-// (private) space. Lets users override a system skill (e.g. _anytype) by
+// (private) space. Lets users override a system skill (e.g. _any) by
 // deploying a skill with the same name in their own space — user wins.
 // When the client has no systemSpaceId, the "system" pass is a no-op via
 // anyHelper's _pathForScope (returns the user spacePath).
@@ -1061,7 +1061,7 @@ function _loadSkillMarkdown(client, skillName) {
 }
 
 function _loadSoulMarkdown(client) { return _loadSkillMarkdown(client, "_soul"); }
-function _loadAnytypeSkill(client) { return _loadSkillMarkdown(client, "_anytype"); }
+function _loadAnySkill(client) { return _loadSkillMarkdown(client, "_any"); }
 function _loadToolcallerSkill(client) { return _loadSkillMarkdown(client, "_toolcaller"); }
 function _loadSpaceContextSkill(client) { return _loadSkillMarkdown(client, "_space_context"); }
 function _loadMetaSkillMarkdown(client) { return _loadSkillMarkdown(client, "_meta_skill"); }
@@ -1721,6 +1721,13 @@ export function main(args) {
   // Accept boolean true (JSON / runProgram path) or string "true" (CLI path).
   var __quiet = args.__quiet === true || args.__quiet === "true";
   var __captured = [];
+  // Replies post through the native chat API (anyHelper.sendChatMessage) —
+  // there is no host-side chatReply effect anymore. currentChatId is
+  // args.chatId, the chat bobrik watches. In __quiet (sub-agent) mode we
+  // capture the text instead of posting, exactly as before. The payload is the
+  // legacy shape — bare string or { text, done, debugLink, attachments } —
+  // mapped onto sendChatMessage so call sites stay unchanged.
+  var __replyClient = __quiet ? null : createClient(args);
   var chatReply = __quiet
     ? function(payload) {
         var t = payload && typeof payload === "object" && payload.text ? payload.text : payload;
@@ -1729,7 +1736,18 @@ export function main(args) {
         __captured.push(s);
         return { id: "quiet" };
       }
-    : globalThis.chatReply;
+    : function(payload) {
+        var p = (payload && typeof payload === "object") ? payload : { text: payload };
+        var r = __replyClient.sendChatMessage(currentChatId, p.text, {
+          // System reply path: post as the "bao" agent, not the
+          // sendChatMessage default ("bao (<display name>)") which is for
+          // ad-hoc program sends.
+          agentName: "bao",
+          done: p.done, debugLink: p.debugLink,
+          attachments: p.attachments, replyToMessageId: p.replyToMessageId
+        });
+        return (r && r.ok) ? { id: r.messageId } : { ok: false, error: r && r.error };
+      };
 
   // Wrap the rest of main() in an IIFE so a single post-process at the
   // bottom can convert any return path into the captured-text answer
@@ -1833,13 +1851,13 @@ export function main(args) {
   }
 
   // Build the system prompt from required agent skills deployed in the space.
-  // Both `_anytype` (identity + Anytype mechanics) and `_toolcaller` (run_cell
+  // Both `_any` (identity + `any` mechanics) and `_toolcaller` (run_cell
   // semantics + cell patterns) are load-bearing — fail hard with a clear
   // user-visible message if either is missing. No stale in-code fallback:
   // the skills in assistant-skills/*.md are the single source of truth.
-  var anytypeSkill = _loadAnytypeSkill(bootClient);
-  if (!anytypeSkill) {
-    var missA = "System skill `_anytype` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
+  var anySkill = _loadAnySkill(bootClient);
+  if (!anySkill) {
+    var missA = "System skill `_any` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
     chatReply({ text: missA, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
@@ -1864,7 +1882,7 @@ export function main(args) {
   }
 
   var fullSystemText =
-    anytypeSkill + "\n\n---\n\n" +
+    anySkill + "\n\n---\n\n" +
     toolcallerSkill +
     _loadUserSkillsSection(bootClient) +
     _loadSpaceContextSection(spaceContextSkill, spaceContextMain, spaceContextChildren, args.spaceId) +

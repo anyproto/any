@@ -74,6 +74,7 @@ func windowEntries(ctx context.Context, sp space.Space, objectId string) ([]inde
 			Dataset:  Dataset,
 			RecordId: windowRecordPrefix + w.AnchorId,
 			Data:     w.Text,
+			Title:    w.Title, // heading — BM25F boosted (also in Data)
 		})
 	}
 	return entries, nil

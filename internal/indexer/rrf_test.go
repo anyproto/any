@@ -67,3 +67,28 @@ func TestFuseRRF_Weights(t *testing.T) {
 		t.Errorf("zero weight should default to 1: %v vs %v", out[0].Score, out[1].Score)
 	}
 }
+
+func TestLegConfidence(t *testing.T) {
+	mk := func(scores ...float64) []Hit {
+		h := make([]Hit, len(scores))
+		for i, s := range scores {
+			h[i] = Hit{RecordId: string(rune('a' + i)), Score: s}
+		}
+		return h
+	}
+	// Peaked (top dominates) → high confidence.
+	if c := legConfidence(mk(10, 1, 1, 1)); c < 0.8 {
+		t.Errorf("peaked confidence = %.2f, want > 0.8", c)
+	}
+	// Flat → low confidence.
+	if c := legConfidence(mk(1.0, 0.99, 0.98, 0.97)); c > 0.1 {
+		t.Errorf("flat confidence = %.2f, want < 0.1", c)
+	}
+	// Single hit / empty → no penalty.
+	if c := legConfidence(mk(0.5)); c != 1 {
+		t.Errorf("single-hit confidence = %.2f, want 1", c)
+	}
+	if c := legConfidence(nil); c != 1 {
+		t.Errorf("empty confidence = %.2f, want 1", c)
+	}
+}

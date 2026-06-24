@@ -376,7 +376,8 @@ full `fts vector` suite).
 
 ### Search
 
-`POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?}` →
+`POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
+require?, exclude?}` →
 `{hits: [{scope, objectId, dataset, recordId, data, score}], mode,
 vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
 embedder, hits below the similarity floor are dropped as noise), `hybrid`
@@ -384,7 +385,17 @@ embedder, hits below the similarity floor are dropped as noise), `hybrid`
 when the embedder is missing or the query embedding fails — `mode` in
 the reply is the mode that actually ran). Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
-[--limit N] [--mode ...]`.
+[--limit N] [--mode ...] [--require T ...] [--exclude T ...]`.
+
+**FTS query operators (lexical leg).** `query` itself understands
+`"quoted phrases"` (matched by adjacency) and trailing-`*` prefixes
+(`zepp*`). `require` / `exclude` are arrays of extra must / must-not
+terms ($require / $exclude — a hit must contain every `require` term and
+no `exclude` term); each may itself be a phrase or prefix. A bare term
+alongside a `require` is an optional boost, not a filter (Lucene
+should-semantics). Operators apply to the FTS leg only and are ignored in
+pure `vector` mode. Stop-word stripping is skipped when `query` contains a
+`"` so phrases survive intact.
 
 **Ranking knobs (`index.search.*`, docs/05-config.md).** Three app-side
 dials, all defaulting to pre-tuning behavior so an absent config block
@@ -401,6 +412,19 @@ changes nothing (chunker-hybrid-search-report § 5, measured with
   each leg's fusion contribution. Lower `vectorWeight` to trust the
   lexical leg more while the dense leg is noisy (short chunks / weak
   embedder).
+- **Adaptive leg weighting** (`adaptiveWeights`, default **off**) —
+  down-weights the FTS leg per query by its score concentration so a
+  flat/weak BM25 distribution (paraphrastic queries) can't drag hybrid
+  below the dense leg. Asymmetric (FTS only — cosine is uncalibrated).
+  Measured win on weak-lexical corpora, small cost on lexical-friendly;
+  opt-in. docs/search/README.md § per-corpus leg weighting.
+- **Default operator** (`defaultOperator`, default `or`) — `and` makes
+  bare FTS terms all-required. **Measured caveat:** AND over
+  natural-language queries is catastrophic (BEIR nDCG@10 SciFact
+  0.66→0.02, FiQA 0.23→0.03) because few docs contain *every* query term;
+  use it only for short keyword input the client controls. Phrase /
+  `require` / `exclude` are the precise-query tools that don't have this
+  recall cliff.
 - **Vector similarity floor** (`minVectorSim`, default 0 = the legacy
   "> 0" floor) — drops vector hits at/below the cutoff before fusion.
   **Measured caveat:** for the default local model

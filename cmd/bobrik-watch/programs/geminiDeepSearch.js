@@ -11,12 +11,19 @@ var GEMINI_MODEL = "gemini-2.5-flash";
 var GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
 var MAX_FOLLOW_UPS = 7;
 
-// ── Guarded chatReply — works inside assistant runtime, no-ops standalone ──
+// ── Guarded progress reply — posts via the native chat API, no-ops standalone ──
 
 function reply(msg) {
-  // done:false — these are mid-turn progress updates; the run's terminal
-  // chatReply (with done:true) comes from the kernel loop, not from here.
-  if (typeof chatReply === "function") chatReply({ text: msg, done: false });
+  // Mid-turn progress updates (done:false); the run's terminal reply
+  // (done:true) comes from the kernel loop, not from here. Posts through the
+  // kernel's anyHelper to the chat it's bound to (config.chatId, threaded from
+  // args.chatId). Outside the assistant runtime — or with no chat — `anyHelper`
+  // is undefined / chatId empty, so this no-ops. Best-effort: never throw.
+  try {
+    if (typeof anyHelper !== "undefined" && anyHelper.config && anyHelper.config.chatId) {
+      anyHelper.sendChatMessage(anyHelper.config.chatId, msg, { agentName: "bao", done: false });
+    }
+  } catch (e) { /* progress is best-effort */ }
 }
 
 // ── Gemini API helpers ──────────────────────────────────────────────────────

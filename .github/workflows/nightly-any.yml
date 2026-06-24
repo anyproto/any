@@ -4,7 +4,7 @@ name: nightly-any
 # publishing a rolling `nightly` prerelease.
 on:
   schedule:
-    - cron: '0 3 * * *' # ~03:00 UTC daily
+    - cron: '30 0 * * *' # 00:30 UTC daily (off-peak minute → fires near on-time; the 7-min build publishes early enough for any-swift's nightly chain to bump + build against it the same morning)
   workflow_dispatch: {}
 
 permissions:
