@@ -265,6 +265,11 @@ export function createClient(params) {
     : null;
   // Nav folder agent debug pages are filed under. Empty = leave at root.
   const debugFolderId = params.debugFolderId || "";
+  // The chat object this agent run is replying in (threaded from args.chatId).
+  // Surfaced on `config` so a program holding this client — e.g. a tool
+  // posting progress — can `sendChatMessage(client.config.chatId, …)` without
+  // a separate chatReply channel. Empty when there's no chat (CLI runs).
+  const chatId = params.chatId || "";
 
   const spacePath = "/v1/spaces/" + spaceId;
 
@@ -1119,14 +1124,20 @@ export function createClient(params) {
   // `chat_messages` dataset via POST .../objects/:id/chat/messages.
   //
   // Every message is stamped agent-authored: the `agent` group carries
-  // { name, done:true }. `name` defaults to "bao (<your display name>)"
-  // (opts.agentName overrides); `done` is always true (one-shot sends are
-  // terminal). The group is a UI hint (not signature-verified) that lets
-  // agents subscribed to chat_messages tell agent posts from human ones.
-  // Pass opts.agent = null to post WITHOUT it (relay a human message).
+  // { name, done }. `name` defaults to "bao (<your display name>)"
+  // (opts.agentName overrides). The group is a UI hint (not signature-
+  // verified) that lets agents subscribed to chat_messages tell agent posts
+  // from human ones. Pass opts.agent = null to post WITHOUT it (relay a
+  // human message).
   //
   // opts: { space?, agentName?, agent?:null, replyToMessageId?, attachments? }
   // → { ok, messageId, versionId, changeId } (messageId = derived record id).
+  //
+  // opts.done / opts.debugLink are the kernel-loop liveness controls and are
+  // intentionally undocumented in the tool description — a normal agent send
+  // is terminal (done defaults true) with no drill-down link. The chat
+  // reply loop (toolcall_core) sets done:false on intermediate progress
+  // bubbles and attaches the per-turn debugLink.
   function sendChatMessage(chatObjectId, text, opts) {
     if (!opts) opts = {};
     if (chatObjectId == null || chatObjectId === "") return { ok: false, error: "chatObjectId required" };
@@ -1135,7 +1146,9 @@ export function createClient(params) {
     var path = _pathForScope(scope);
     var body = { text: String(text) };
     if (opts.agent !== null) {
-      body.agent = { name: opts.agentName || _defaultAgentName(scope), done: true };
+      var agent = { name: opts.agentName || _defaultAgentName(scope), done: opts.done !== false };
+      if (opts.debugLink) agent.debugLink = opts.debugLink;
+      body.agent = agent;
     }
     if (opts.replyToMessageId) body.replyToMessageId = opts.replyToMessageId;
     if (opts.attachments) body.attachments = opts.attachments;
@@ -1462,7 +1475,7 @@ export function createClient(params) {
   return {
     api: api,
     _extractError: _extractError,
-    config: { baseUrl: baseUrl, spaceId: spaceId, spacePath: spacePath, debugFolderId: debugFolderId },
+    config: { baseUrl: baseUrl, spaceId: spaceId, spacePath: spacePath, debugFolderId: debugFolderId, chatId: chatId },
     __prepareTraces: __prepareTraces,
 
     getObjects: w("getObjects", getObjects),

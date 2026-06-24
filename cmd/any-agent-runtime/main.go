@@ -111,13 +111,12 @@ Options:
 		extra = append(extra, anyruntime.NewFileLoader(*modulesDir))
 	}
 	anyrt.SetupAnySDKDirtyRuntime(rt, anyrt.RuntimeConfig{
-		APIBaseURL:      getenv("ANYTYPE_API_URL", "ANY_API_URL"),
-		SpaceID:         getenv("ANYTYPE_SPACE_ID", "ANY_SPACE_ID"),
-		PrivateSpaceID:  getenv("ANYTYPE_PRIVATE_SPACE_ID", "ANY_PRIVATE_SPACE_ID"),
-		ProgramTypeID:   program.TypeId, // builtin literal "program"
-		ChatReplyWriter: os.Stdout,
-		ExtraLoaders:    extra,
-		ExtraEnv:        dotEnv,
+		APIBaseURL:     getenv("ANYTYPE_API_URL", "ANY_API_URL"),
+		SpaceID:        getenv("ANYTYPE_SPACE_ID", "ANY_SPACE_ID"),
+		PrivateSpaceID: getenv("ANYTYPE_PRIVATE_SPACE_ID", "ANY_PRIVATE_SPACE_ID"),
+		ProgramTypeID:  program.TypeId, // builtin literal "program"
+		ExtraLoaders:   extra,
+		ExtraEnv:       dotEnv,
 	})
 
 	args := map[string]any{}
