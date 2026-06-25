@@ -296,18 +296,23 @@ jobs:
         run: |
           set -euo pipefail
           LLAMACPP="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
-          # Notes embed every asset's sha256 (desktop tarballs + 2 mobile) in a
-          # uniform `<name>` sha256: `<sha>` format, so a client can pin without
-          # first downloading the asset. $DESKTOP_SHAS is the desktop list.
+          # Notes lead with a sectioned asset list (Desktop / Android / iOS / Libs),
+          # each asset as `<name>` sha256: `<sha>` so a client can pin without first
+          # downloading. $DESKTOP_SHAS is the desktop list (one line per tarball). gh
+          # appends the auto "What's Changed" section below this (--generate-notes).
           notes="$(cat <<EOF
-          any $VERSION
+          ## Assets
 
-          Assets: desktop tarballs, \`any.aar\` (Android), \`any.xcframework.zip\` (iOS).
-          llama.cpp: $LLAMACPP
-
+          ### Desktop
           $DESKTOP_SHAS
+          ### Android
           \`any.aar\` sha256: \`$AAR_SHA\`
+
+          ### iOS
           \`any.xcframework.zip\` sha256: \`$XCF_SHA\`
+
+          ### Libs
+          llama.cpp: $LLAMACPP
           EOF
           )"
           # Per-channel flags: a nightly creates a NEW unique, sortable prerelease
