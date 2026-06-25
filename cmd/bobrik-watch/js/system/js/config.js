@@ -26,8 +26,9 @@ export function main() {
     // App credentials from Google Cloud Console → APIs & Services → Credentials
     // (OAuth client, type "Desktop app"). The per-account refresh token is
     // obtained at runtime via the oauthFlow host fn and cached by googleAuth@v1.
-    GOOGLE_OAUTH_CLIENT_ID: "",
-    GOOGLE_OAUTH_CLIENT_SECRET: "",
+    // tolya: my test desktop app account credentials:
+    GOOGLE_OAUTH_CLIENT_ID: "519847309896-if7o0qblp6dr4d5elr1ibuhkge8c2mc3.apps.googleusercontent.com",
+    GOOGLE_OAUTH_CLIENT_SECRET: "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",
     GOOGLE_OAUTH_REFRESH_TOKEN: "", // filled by googleAuth@v1 after first consent
 
     // Per-tier routing: "provider/model" pins a specific provider+model
