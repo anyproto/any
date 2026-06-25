@@ -71,6 +71,7 @@ func ensureProgramType(baseURL, spaceID string) (string, error) {
 		{"xKey": "name", "name": "name", "kind": "string"},
 		{"xKey": "version", "name": "version", "kind": "string"},
 		{"xKey": "any_tool", "name": "any_tool", "kind": "boolean"},
+		{"xKey": "tags", "name": "tags", "kind": "array"},
 		{"xKey": "source", "name": "source", "kind": "string"},
 		{"xKey": "tool_description", "name": "tool_description", "kind": "string"},
 		{"xKey": "tool_schema", "name": "tool_schema", "kind": "string"},
@@ -465,6 +466,7 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 	// records → program_methods, any_tool = "has description AND schema".
 	description, methods := splitToolMarkdown(toolDescription(name))
 	anyTool := description != "" && len(methods) > 0
+	tags := parseTags(source)
 	diskFP := programFingerprint(source, description, methods)
 
 	objectID, err := anyrt.FindProgramObject(baseURL, spaceID, programTypeID, name, version)
@@ -486,12 +488,16 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 			return fmt.Errorf("update %s@%s: %w", name, version, err)
 		}
 		// Written explicitly both ways so a removed .md flips a stale true off.
-		if err := setProgramProps(baseURL, spaceID, programTypeID, objectID, map[string]any{"any_tool": anyTool}); err != nil {
+		props := map[string]any{"any_tool": anyTool}
+		if len(tags) > 0 {
+			props["tags"] = tags
+		}
+		if err := setProgramProps(baseURL, spaceID, programTypeID, objectID, props); err != nil {
 			return fmt.Errorf("set any_tool on %s@%s: %w", name, version, err)
 		}
 		fmt.Fprintf(os.Stderr, "synced %s@%s (updated %s)\n", name, version, objectID)
 	} else {
-		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source, anyTool)
+		objectID, err = createProgramObject(baseURL, spaceID, programTypeID, name, version, source, anyTool, tags)
 		if err != nil {
 			return fmt.Errorf("create %s@%s: %w", name, version, err)
 		}
@@ -510,6 +516,39 @@ func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folde
 		// A program that lost its .md must drop its stale doc records too,
 		// or the fingerprint would mismatch on every subsequent boot.
 		return fmt.Errorf("clear tool docs for %s@%s: %w", name, version, err)
+	}
+	return nil
+}
+
+// parseTags reads a program's tags from a `// __tags: a, b, c` marker in its
+// leading comment block (alongside `// __main_source`). Returns nil when
+// absent. Tags are trimmed and de-duplicated, order preserved. Only the header
+// comment block is scanned (stops at the first real code line) so a `__tags:`
+// inside a string or a later comment can't be mistaken for the marker.
+func parseTags(source string) []string {
+	for _, line := range strings.Split(source, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if !strings.HasPrefix(t, "//") {
+			break // header comment block ended — stop scanning
+		}
+		t = strings.TrimSpace(strings.TrimPrefix(t, "//"))
+		if !strings.HasPrefix(t, "__tags:") {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(t, "__tags:"))
+		seen := map[string]bool{}
+		var out []string
+		for _, p := range strings.Split(raw, ",") {
+			s := strings.TrimSpace(p)
+			if s != "" && !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+		return out
 	}
 	return nil
 }
@@ -621,18 +660,22 @@ func parseProgramFilename(baseName string) (name, version string) {
 	return baseName, "v1"
 }
 
-func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string, anyTool bool) (string, error) {
+func createProgramObject(baseURL, spaceID, programTypeID, name, version, source string, anyTool bool, tags []string) (string, error) {
+	progProps := map[string]any{
+		"name":     name,
+		"version":  version,
+		"any_tool": anyTool,
+	}
+	if len(tags) > 0 {
+		progProps["tags"] = tags
+	}
 	body, _ := json.Marshal(map[string]any{
 		"types": []string{programTypeID},
 		"initialProperties": map[string]any{
 			"any": map[string]any{
 				"name": name + "@" + version,
 			},
-			programTypeID: map[string]any{
-				"name":     name,
-				"version":  version,
-				"any_tool": anyTool,
-			},
+			programTypeID: progProps,
 		},
 	})
 	resp, err := http.Post(

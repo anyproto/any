@@ -22,6 +22,11 @@ const (
 	PropName    = "name"
 	PropVersion = "version"
 	PropAnyTool = "any_tool"
+	// PropTags is an open-slug string array for grouping programs — e.g.
+	// `["integration"]` marks a connector tool. Declared on disk via a
+	// `// __tags: a, b` source marker (cmd/bobrik-watch/sync.go::parseTags);
+	// queryable with array `$in`. Advisory metadata — toolhood stays PropAnyTool.
+	PropTags = "tags"
 )
 
 func NewType() handler.Type {
@@ -36,6 +41,7 @@ func NewType() handler.Type {
 			{Id: PropName, Name: "Name", Kind: handler.PropertyKindString},
 			{Id: PropVersion, Name: "Version", Kind: handler.PropertyKindString},
 			{Id: PropAnyTool, Name: "Any Tool", Kind: handler.PropertyKindBoolean},
+			{Id: PropTags, Name: "Tags", Kind: handler.PropertyKindArray},
 		},
 		Datasets: []handler.Dataset{
 			{Name: DatasetSource, DataVersion: "1", Handler: handler.DefaultHandler{}},

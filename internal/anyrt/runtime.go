@@ -34,6 +34,9 @@ func SetupAnySDKDirtyRuntime(rt agentruntime.Runtime, cfg RuntimeConfig) {
 	rt.SetEffectResolver("fetch", hostfn.Fetch)
 	rt.SetEffectResolver("fetchBatch", hostfn.FetchBatch)
 	rt.SetEffectResolver("sleep", hostfn.Sleep)
+	// oauthFlow — shared OAuth 2.0 (auth-code + PKCE, loopback) primitive for
+	// the OAuth-class integration connectors. See oauth.go.
+	rt.SetEffectResolver("oauthFlow", OAuthFlow)
 	rt.EnableConsole()
 	rt.EnableJSEval()
 	rt.EnableWrapTrace()
