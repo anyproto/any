@@ -445,8 +445,8 @@ This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
 
 **Agent-facing tool.** bobrik-watch wraps this endpoint as the `semsearch`
-tool (`cmd/bobrik-watch/programs/semsearch@v1.js` +
-`tool-descriptions/semsearch.md`, over `anyHelper.search`) — the **cheap**
+tool (`cmd/bobrik-watch/js/system/js/semsearch@v1.js` +
+`js/system/md/semsearch.md`, over `anyHelper.search`) — the **cheap**
 recall tool the agent reaches for first, in contrast to the **expensive**
 RLM `search`/`ask` loop (`docs/12-rlm-search.md`). The two tool descriptions
 cross-reference each other so the agent picks by cost. `semsearch` passes

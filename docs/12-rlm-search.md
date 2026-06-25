@@ -1,7 +1,7 @@
 # RLM search — recursive-LM recall without a vector index
 
-**Status: IMPLEMENTED (v1)** — `cmd/bobrik-watch/programs/search@v1.js`
-+ `tool-descriptions/search.md`, tested by
+**Status: IMPLEMENTED (v1)** — `cmd/bobrik-watch/js/system/js/search@v1.js`
++ `js/system/md/search.md`, tested by
 `cmd/bobrik-watch/tests/js/search_test.js` (scripted mock LLM) and
 verified live end-to-end. One deliberate divergence from the original
 design: cell containment uses `new Function` parameter scoping instead
@@ -11,7 +11,7 @@ actually built. §9 lists the still-open questions.
 > **Two search tools, pick by cost.** Since this doc was first written, a
 > real local search index landed (BM25 full-text + semantic vectors —
 > `docs/13-index.md`), exposed to the agent as the **cheap** `semsearch`
-> tool (`programs/semsearch@v1.js`, one HTTP call, zero tokens). The RLM
+> tool (`js/system/js/semsearch@v1.js`, one HTTP call, zero tokens). The RLM
 > `search`/`ask` tool described here is the **expensive** sibling: an
 > isolated inner LLM loop that reasons over snippets, synthesizes grounded
 > answers, and scans records the index does not cover (the index only holds
@@ -40,7 +40,7 @@ ever enter its own context.
   `search` tool sat in the same kernel).
 - `convmemory.search()` runs in degraded mode — explicit/detected time
   ranges, category filters, recency. No similarity ranking
-  (`tool-descriptions/convmemory.md`, `docs/11-agent-memory.md`).
+  (`js/system/md/convmemory.md`, `docs/11-agent-memory.md`).
 - Semantic recall over `agent_memory_items` is documented as a
   non-functional TODO until an external vector service lands
   (`docs/07-roadmap.md` §9).
@@ -532,9 +532,9 @@ then promote the primitives outward.
 
 | Artifact | What |
 |---|---|
-| `cmd/bobrik-watch/programs/search@v1.js` | the program: root loop, `rlm.*` primitives, prompts, stats; `createSearch(deps)` factory for injection |
-| `cmd/bobrik-watch/tool-descriptions/search.md` | tool description + method schema (`search`, `ask`, `createSearch`) for toolhood |
-| `cmd/bobrik-watch/programs/llm.js` | added `completeBatchDetailed` (batched completions with per-prompt token usage) and `chatUntraced` (chat without the `__wrapTrace` wrapper) |
+| `cmd/bobrik-watch/js/system/js/search@v1.js` | the program: root loop, `rlm.*` primitives, prompts, stats; `createSearch(deps)` factory for injection |
+| `cmd/bobrik-watch/js/system/md/search.md` | tool description + method schema (`search`, `ask`, `createSearch`) for toolhood |
+| `cmd/bobrik-watch/js/system/js/llm.js` | added `completeBatchDetailed` (batched completions with per-prompt token usage) and `chatUntraced` (chat without the `__wrapTrace` wrapper) |
 | `cmd/bobrik-watch/tests/js/search_test.js` | loop mechanics with a scripted mock LLM: final/nudge/wrap-up/fallback/containment/stats/trace-compaction (jsrunner harness) |
 
 ### Trace hygiene (the calling cell's Effects digest)

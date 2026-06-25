@@ -34,11 +34,11 @@ func bobrikDir(t *testing.T) string {
 }
 
 // moduleDir builds a flat directory of symlinks the runtime uses as its single
-// -m module-resolution root: anyHelper.js (at the bobrik root) plus every
-// programs/*.js (already named like `convmemory@v1.js`, `miniapp.js`). With
-// everything in one dir, imports like `anyHelper@v1`, `miniapp@v1`,
-// `convmemory@v1` all resolve locally — so a test can exercise a full program
-// without syncing programs into a space.
+// -m module-resolution root: every program .js across the asset tree
+// (js/system/js — incl. anyHelper.js — and js/integrations/js, named like
+// `convmemory@v1.js`, `linear@v1.js`). With everything in one dir, imports like
+// `anyHelper@v1`, `miniapp@v1`, `linear@v1` all resolve locally — so a test can
+// exercise a full program without syncing programs into a space.
 func moduleDir(t *testing.T) string {
 	t.Helper()
 	root := bobrikDir(t)
@@ -48,13 +48,17 @@ func moduleDir(t *testing.T) string {
 			t.Fatalf("symlink %s: %v", name, err)
 		}
 	}
-	link(filepath.Join(root, "anyHelper.js"), "anyHelper.js")
-	progs, err := filepath.Glob(filepath.Join(root, "programs", "*.js"))
-	if err != nil {
-		t.Fatalf("glob programs: %v", err)
-	}
-	for _, p := range progs {
-		link(p, filepath.Base(p))
+	for _, sub := range []string{
+		filepath.Join("js", "system", "js"),
+		filepath.Join("js", "integrations", "js"),
+	} {
+		progs, err := filepath.Glob(filepath.Join(root, sub, "*.js"))
+		if err != nil {
+			t.Fatalf("glob %s: %v", sub, err)
+		}
+		for _, p := range progs {
+			link(p, filepath.Base(p))
+		}
 	}
 	return dir
 }

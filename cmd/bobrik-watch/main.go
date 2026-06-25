@@ -28,7 +28,7 @@ const pidFilePath = ".bobrik-pid"
 
 var (
 	base          string
-	programsDir   string
+	jsDir         string
 	spaceName     string
 	agentName     string
 	programTypeID string
@@ -56,7 +56,7 @@ func setDebugFolderID(id string) {
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7001", "any server address (host:port)")
-	flag.StringVar(&programsDir, "programs-dir", "cmd/bobrik-watch/programs", "directory with .js program files to sync")
+	flag.StringVar(&jsDir, "js-dir", "cmd/bobrik-watch/js", "root dir of bobrik JS assets (system/{js,md,skills} + integrations/{js,md})")
 	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bao", "agent display name on replies (agent.name)")
 	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") for an incremental (hash-gated) refresh, and exit")
@@ -75,10 +75,14 @@ func main() {
 		return
 	}
 
-	bobrikDir := filepath.Dir(programsDir)
-	anyHelperPath = filepath.Join(bobrikDir, "anyHelper.js")
-	skillsDir = filepath.Join(bobrikDir, "skills")
-	toolDescriptionsDir = filepath.Join(bobrikDir, "tool-descriptions")
+	// Asset tree: <jsDir>/system/{js,md,skills} + <jsDir>/integrations/{js,md}.
+	// Read live from disk at sync time (SIGHUP refresh re-reads them).
+	systemProgramsDir = filepath.Join(jsDir, "system", "js")
+	systemMdDir = filepath.Join(jsDir, "system", "md")
+	skillsDir = filepath.Join(jsDir, "system", "skills")
+	intProgramsDir = filepath.Join(jsDir, "integrations", "js")
+	intMdDir = filepath.Join(jsDir, "integrations", "md")
+	anyHelperPath = filepath.Join(systemProgramsDir, "anyHelper.js")
 
 	spaceID, err := ensureSpace(spaceName)
 	if err != nil {
@@ -118,9 +122,10 @@ func main() {
 	subscribeLoop(spaceID, objectID)
 }
 
-// bootstrapSystemFiles (re)creates the "System Bobrik Files" folder and
-// syncs all embedded programs + skills into it. Idempotent: existing
-// programs/skills are updated rather than duplicated.
+// bootstrapSystemFiles (re)creates the "System Bobrik Files" and "Integrations"
+// nav folders and syncs the JS asset tree into them: system programs (+ skills)
+// under the system folder, integration connectors under the Integrations
+// folder. Idempotent: existing programs/skills are updated, not duplicated.
 func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, error) {
 	sysFolderID, err := ensureSystemFolder(base, spaceID)
 	if err != nil {
@@ -128,27 +133,55 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	}
 	fmt.Fprintf(os.Stderr, "system folder → %s\n", sysFolderID)
 
-	skip := map[string]bool{"anyHelper": true}
-	if err := syncPrograms(base, spaceID, programTypeID, programsDir, skip, sysFolderID); err != nil {
-		return "", fmt.Errorf("sync programs: %w", err)
+	intFolderID, err := ensureNavFolder(base, spaceID, integrationsFolderName)
+	if err != nil {
+		return "", fmt.Errorf("ensure integrations folder: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "programs synced from %s\n", programsDir)
+	fmt.Fprintf(os.Stderr, "integrations folder → %s\n", intFolderID)
+
+	// anyHelper@v1 first (the client lib every other program imports), under
+	// the system folder, with its tool doc from the system md dir.
+	anyHelperJS, err := os.ReadFile(anyHelperPath)
+	if err != nil {
+		return "", fmt.Errorf("read anyHelper.js at %s: %w", anyHelperPath, err)
+	}
+	if err := upsertProgram(base, spaceID, programTypeID, "anyHelper", "v1", string(anyHelperJS), systemMdDir, sysFolderID); err != nil {
+		return "", fmt.Errorf("sync anyHelper: %w", err)
+	}
+
+	skip := map[string]bool{"anyHelper": true}
+	if err := syncPrograms(base, spaceID, programTypeID, systemProgramsDir, systemMdDir, skip, sysFolderID); err != nil {
+		return "", fmt.Errorf("sync system programs: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "system programs synced from %s\n", systemProgramsDir)
 
 	if err := syncSkills(base, spaceID, skillTypeID, sysFolderID); err != nil {
 		return "", fmt.Errorf("sync skills: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "skills synced\n")
 
-	// Orphan sweep: delete system-folder children whose source file is gone.
-	// The hash-gated upserts above cover add/change; this covers delete, so a
-	// plain restart fully reconciles disk → space without the destructive wipe
-	// that --bootstrap (SIGHUP) does.
-	expected, err := expectedSystemNames(programsDir, skip)
-	if err != nil {
-		return "", fmt.Errorf("build expected names: %w", err)
+	if err := syncPrograms(base, spaceID, programTypeID, intProgramsDir, intMdDir, nil, intFolderID); err != nil {
+		return "", fmt.Errorf("sync integration programs: %w", err)
 	}
-	if err := sweepOrphans(base, spaceID, sysFolderID, expected); err != nil {
-		return "", fmt.Errorf("sweep orphans: %w", err)
+	fmt.Fprintf(os.Stderr, "integration programs synced from %s\n", intProgramsDir)
+
+	// Orphan sweep per folder: delete a folder's children whose source file is
+	// gone. The hash-gated upserts above cover add/change; this covers delete,
+	// so a plain restart fully reconciles disk → space without the destructive
+	// wipe that --bootstrap (SIGHUP) does.
+	expectedSys, err := expectedSystemNames(systemProgramsDir, skip)
+	if err != nil {
+		return "", fmt.Errorf("build expected system names: %w", err)
+	}
+	if err := sweepOrphans(base, spaceID, sysFolderID, expectedSys); err != nil {
+		return "", fmt.Errorf("sweep system orphans: %w", err)
+	}
+	expectedInt, err := expectedProgramNames(intProgramsDir, nil)
+	if err != nil {
+		return "", fmt.Errorf("build expected integration names: %w", err)
+	}
+	if err := sweepOrphans(base, spaceID, intFolderID, expectedInt); err != nil {
+		return "", fmt.Errorf("sweep integration orphans: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "orphan sweep complete\n")
 

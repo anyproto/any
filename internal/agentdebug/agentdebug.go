@@ -22,7 +22,7 @@
 //	done           — { seq, kind, ts, status, model, turns, totalMs, totalIn, totalOut, totalCost, finalText }
 //
 // The toolcaller's debug collector (dcInit/dcLogInitialContext/dcLogTurn/
-// dcFlush in cmd/bobrik-watch/programs/toolcall_core@v1.js) writes these via
+// dcFlush in cmd/bobrik-watch/js/system/js/toolcall_core@v1.js) writes these via
 // anyHelper.setRecord. DefaultHandler stores raw values with no transformation
 // so nested arrays/objects (the per-turn cells[]) round-trip as-is.
 package agentdebug

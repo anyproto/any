@@ -13,9 +13,10 @@
 - `llamacpp/` — prebuilt llama.cpp shared libs for this `(os,arch)`
   (`fetch-llamacpp.sh`). `internal/indexer/embed_local.go` looks for them at
   `<dir-of-any-exe>/llamacpp` by default, or `$YZMA_LIB`.
-- `agent/` — bobrik's read-from-disk asset tree (`anyHelper.js`, `programs/`,
-  `skills/`, `tool-descriptions/`). Pass `bobrik-watch --programs-dir
-  <…>/agent/programs`.
+- `agent/js/` — bobrik's read-from-disk asset tree:
+  `system/{js,md,skills}` (system programs incl. `anyHelper.js`, their
+  tool-description md, agent skills) + `integrations/{js,md}` (connector
+  programs + tool-description md). Pass `bobrik-watch --js-dir <…>/agent/js`.
 - `manifest.json` — `{ version, os, arch, llamacpp_version, sha256: {path: hash} }`.
   Consumers verify every file against `sha256` before use.
 

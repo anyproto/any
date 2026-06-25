@@ -56,12 +56,12 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   through a tool save would wipe `program_methods`).
 - **Mini apps** — type `Mini App` (`mini_app`, built-in,
   `internal/miniapp/miniapp.go`), dataset `mini_app` with one `main`
-  record `{source, state, readme}`. `programs/miniapp.js` reads it via
+  record `{source, state, readme}`. `js/system/js/miniapp.js` reads it via
   `anyHelper.getObjects({objectId, dataset})` and writes via `setRecord`
   (per-field atomic) — no markdown-block parsing.
 - **Skills** — type `Agent Skill`, property `agent_skill_name` (under
   the `Agent Skill` namespace). Content stored via `editor/markdown`.
-- **Tool descriptions** — `cmd/bobrik-watch/tool-descriptions/*.md`,
+- **Tool descriptions** — `js/{system,integrations}/md/*.md`,
   SPLIT into `program_description` + `program_methods` at sync time
   (see Programs above). Authored as one file: a `## Tool Description`
   section plus a `## Tool Schema` section with `### method(sig) [kind]`
@@ -162,15 +162,15 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
   `convmemory.search` falls back to indexed period/category/recency
   reads. **Two semantic-recall search tools exist, paired by cost** —
   the agent is told to try the cheap one first and escalate:
-    - **`semsearch`** (CHEAP) — `programs/semsearch@v1.js` +
-      `tool-descriptions/semsearch.md`, a thin wrapper over
+    - **`semsearch`** (CHEAP) — `js/system/js/semsearch@v1.js` +
+      `js/system/md/semsearch.md`, a thin wrapper over
       `anyHelper.search` → `POST /v1/spaces/:spaceId/search` (the server's
       local BM25 + vector index, status item 14 / docs/13-index.md). One
       HTTP call, zero tokens, milliseconds. Method `search(query, opts)`,
       opts `{space?, scopes?, limit?, mode?}` (hybrid default), returns
       `{ok, hits, mode, vectorStatus}`.
     - **`search`/`ask`** (EXPENSIVE) — the RLM-style `search@v1` program
-      (`programs/search@v1.js` + `tool-descriptions/search.md`): an
+      (`js/system/js/search@v1.js` + `js/system/md/search.md`): an
       isolated inner LLM loop pages the datasets and maps batched classify
       sub-calls over snippets — kernel global `search`, methods
       `search(query, opts)` / `ask(question, opts)`, returns ranked
@@ -186,17 +186,23 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
 
 ## Source on disk, not embedded
 
-`anyHelper.js`, `skills/`, and `tool-descriptions/` are read live
-from the parent of `--programs-dir` (defaults to `cmd/bobrik-watch/`)
-at sync time — edits to those files take effect on the next refresh
-without rebuilding the binary. That was the whole point of
-SIGHUP-driven bootstrap; embedding pinned the JS to the binary
-timestamp.
+The JS asset tree lives under `--js-dir` (default `cmd/bobrik-watch/js`):
+`js/system/{js,md,skills}` (system programs incl. `anyHelper.js`, their
+tool-description md, agent skills) and `js/integrations/{js,md}`
+(connector programs + tool-description md). All read live from disk at
+sync time — edits take effect on the next refresh without rebuilding the
+binary. That was the whole point of SIGHUP-driven bootstrap; embedding
+pinned the JS to the binary timestamp. (Old flat layout —
+`programs/`, `skills/`, `tool-descriptions/`, `anyHelper.js` as siblings
+under `--programs-dir` — is gone.)
 
 ## Startup sync — hash-gated, incremental
 
-`bootstrapSystemFiles` (run on every boot AND on SIGHUP) is
-`ensureSystemFolder` + `syncPrograms` + `syncSkills` + orphan sweep +
+`bootstrapSystemFiles` (run on every boot AND on SIGHUP) ensures both nav
+folders ("System Bobrik Files" + "Integrations"), syncs `anyHelper` then
+the system programs + skills under the system folder and the integration
+connectors under the Integrations folder (each `syncPrograms` pass takes
+its own `(jsDir, mdDir, folder)`), then runs a per-folder orphan sweep +
 `ensureDebugFolder`. It is **incremental, not unconditional** — it
 compares on-disk content to the content already in the space and only
 writes what changed, so a no-op restart produces ~zero new DAG changes

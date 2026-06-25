@@ -20,18 +20,23 @@ On startup bobrik-watch:
 
 1. Ensures a space and chat object exist (creates them if missing).
 2. Creates the `Program` and `Agent Skill` types with their properties.
-3. Ensures the "System Bobrik Files" nav folder; everything synced
-   below is parented under it so `--bootstrap` (SIGHUP) can wipe it
-   for a clean refresh.
-4. Syncs JS programs from `cmd/bobrik-watch/programs/` (stored in the
-   `program_source` dataset) plus the sibling `anyHelper.js`. For
-   each tool, the matching `tool-descriptions/<name>.md` is SPLIT on
-   write: the `## Tool Description` body goes to `program_description`,
-   each `### method(sig) [kind]` subsection of `## Tool Schema` becomes
-   one `program_methods` record (`{name, kind, text, pos}`, id =
-   method name), and `program.any_tool` is set true. Programs without
-   a description file get `any_tool: false` and are not tools.
-5. Syncs agent skills from `cmd/bobrik-watch/skills/` (stored as
+3. Ensures the "System Bobrik Files" and "Integrations" nav folders;
+   synced programs are parented under one of them so `--bootstrap`
+   (SIGHUP) can refresh them.
+4. Syncs JS programs from the asset tree under `--js-dir`
+   (`cmd/bobrik-watch/js`): **system** programs from `js/system/js/`
+   (incl. `anyHelper.js`) → "System Bobrik Files"; **integration**
+   connectors from `js/integrations/js/` → "Integrations". Sources go
+   to the `program_source` dataset. For each tool, the matching
+   `<name>.md` from the sibling md dir (`js/system/md/` or
+   `js/integrations/md/`) is SPLIT on write: the `## Tool Description`
+   body goes to `program_description`, each `### method(sig) [kind]`
+   subsection of `## Tool Schema` becomes one `program_methods` record
+   (`{name, kind, text, pos}`, id = method name), and
+   `program.any_tool` is set true. A `// __tags: …` source marker
+   populates `program.tags` (connectors carry `integration`). Programs
+   without a description file get `any_tool: false` and are not tools.
+5. Syncs agent skills from `js/system/skills/` (stored as
    editor/markdown content on skill objects).
 6. Ensures a `Debug` nav folder nested under "System Bobrik Files"
    (so `--bootstrap`/SIGHUP wipes and recreates it with everything
@@ -88,7 +93,7 @@ Then in another terminal:
 | `--addr` | `127.0.0.1:7001` | `any` server address (host:port) |
 | `--space` | `bao` | Space name (created if missing) |
 | `--agent-name` | `bao` | `agent.name` display label on replies |
-| `--programs-dir` | `cmd/bobrik-watch/programs` | Directory with .js program files |
+| `--js-dir` | `cmd/bobrik-watch/js` | Root of the JS asset tree (`system/{js,md,skills}` + `integrations/{js,md}`) |
 
 There is no `--chat` flag: the watched chat is the space's chat object named
 **`general`**, found-or-created by name + chat type. Clients (Desktop UI, etc.)
@@ -112,17 +117,22 @@ cmd/bobrik-watch/
   runtime.go       — SetupAnySDKDirtyRuntime (effects, globals, module resolver)
   anyloader.go     — module resolver: queries program objects via any API
   sync.go          — syncs .js programs and .md skills into the space
-  anyHelper.js     — embedded JS library (drop-in for anytypeHelper)
-  programs/        — JS agent programs (copied from assistantjs, imports rewritten)
-  skills/          — agent skill markdown files
+  js/              — agent asset tree (read from disk at sync time):
+    system/
+      js/          — system JS programs (incl. anyHelper.js)
+      md/          — their tool-description markdown
+      skills/      — agent skill markdown files
+    integrations/
+      js/          — connector programs (tagged `integration`)
+      md/          — connector tool-description markdown
 ```
 
 ### Key components
 
 - **`anyHelper.js`** — JS library with the same `createClient()` API surface
   as `anytypeHelper.js`, backed by the `any` HTTP API instead of the Anytype
-  API. Read from disk at sync time (sibling of `--programs-dir`) so edits
-  take effect on `--bootstrap` without rebuilding the binary.
+  API. Lives at `js/system/js/anyHelper.js`, read from disk at sync time so
+  edits take effect on `--bootstrap` without rebuilding the binary.
 
 - **Module resolver** (`anyloader.go`) — resolves `import "name@version"`
   by querying program objects in the space (`program.name` + `program.version`

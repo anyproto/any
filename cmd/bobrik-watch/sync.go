@@ -17,14 +17,18 @@ import (
 	"github.com/anyproto/any/internal/anyrt"
 )
 
-// All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
-// refresh re-reads the live files on disk — embedding defeated the whole
-// point of the bootstrap/refresh story (anyHelper.js edits stayed pinned
-// to the binary timestamp).
+// Derived from the --js-dir root at boot so SIGHUP refresh re-reads the live
+// files on disk — embedding defeated the whole point of the bootstrap/refresh
+// story (anyHelper.js edits stayed pinned to the binary timestamp). Layout:
+// <jsDir>/system/{js,md,skills} (system programs, their tool docs, skills) and
+// <jsDir>/integrations/{js,md} (connector programs + tool docs).
 var (
-	anyHelperPath       string // <bobrikDir>/anyHelper.js
-	skillsDir           string // <bobrikDir>/skills
-	toolDescriptionsDir string // <bobrikDir>/tool-descriptions
+	anyHelperPath     string // <jsDir>/system/js/anyHelper.js
+	skillsDir         string // <jsDir>/system/skills
+	systemProgramsDir string // <jsDir>/system/js
+	systemMdDir       string // <jsDir>/system/md
+	intProgramsDir    string // <jsDir>/integrations/js
+	intMdDir          string // <jsDir>/integrations/md
 )
 
 // ensureProgramType creates the Program type with name and version
@@ -402,37 +406,27 @@ func addProperty(baseURL, spaceID, typeID string, prop map[string]string) error 
 	return nil
 }
 
-// toolDescription returns the tool description for a program name,
-// read from <toolDescriptionsDir>/<name>.md on disk. Returns "" if
-// no description file exists for the given name.
-func toolDescription(name string) string {
-	data, err := os.ReadFile(filepath.Join(toolDescriptionsDir, name+".md"))
+// toolDescription returns the tool description for a program name, read from
+// <mdDir>/<name>.md on disk (the sibling md dir of the program's js dir).
+// Returns "" if no description file exists for the given name.
+func toolDescription(mdDir, name string) string {
+	data, err := os.ReadFile(filepath.Join(mdDir, name+".md"))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
 
-// syncPrograms reads .js files from dir and upserts them as program
-// objects in the given space.
+// syncPrograms reads .js files from dir and upserts them as program objects in
+// the given space, parented under folderID. Tool descriptions are read from
+// the sibling mdDir. Called once per asset group (system, integrations).
 //
 // Filename convention: "name@version.js" → name="name", version="version".
 // Files without @version default to "v1".
 //
-// skipNames lists filenames (without .js) to skip (e.g. "anytypeHelper").
-//
-// anyHelper.js is read from anyHelperPath on disk and synced as
-// anyHelper@v1 before the rest of the programs dir.
-func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[string]bool, folderID string) error {
-	anyHelperJS, err := os.ReadFile(anyHelperPath)
-	if err != nil {
-		return fmt.Errorf("read anyHelper.js at %s: %w", anyHelperPath, err)
-	}
-	if err := upsertProgram(baseURL, spaceID, programTypeID, "anyHelper", "v1", string(anyHelperJS), folderID); err != nil {
-		return fmt.Errorf("sync anyHelper: %w", err)
-	}
-	fmt.Fprintf(os.Stderr, "synced anyHelper@v1 from %s\n", anyHelperPath)
-
+// skipNames lists filenames (without .js) to skip — e.g. "anyHelper", which
+// the orchestrator syncs explicitly first (it is the lib every program imports).
+func syncPrograms(baseURL, spaceID, programTypeID, dir, mdDir string, skipNames map[string]bool, folderID string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("read dir %s: %w", dir, err)
@@ -454,17 +448,17 @@ func syncPrograms(baseURL, spaceID, programTypeID, dir string, skipNames map[str
 			return fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 
-		if err := upsertProgram(baseURL, spaceID, programTypeID, name, version, string(source), folderID); err != nil {
+		if err := upsertProgram(baseURL, spaceID, programTypeID, name, version, string(source), mdDir, folderID); err != nil {
 			return fmt.Errorf("sync %s@%s: %w", name, version, err)
 		}
 	}
 	return nil
 }
 
-func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, folderID string) error {
+func upsertProgram(baseURL, spaceID, programTypeID, name, version, source, mdDir, folderID string) error {
 	// Tool docs split: description body → program_description, per-method
 	// records → program_methods, any_tool = "has description AND schema".
-	description, methods := splitToolMarkdown(toolDescription(name))
+	description, methods := splitToolMarkdown(toolDescription(mdDir, name))
 	anyTool := description != "" && len(methods) > 0
 	tags := parseTags(source)
 	diskFP := programFingerprint(source, description, methods)
@@ -899,6 +893,10 @@ func modifyDataset(baseURL, spaceID, objectID, dataset, recordID string, value m
 
 const (
 	systemFolderName = "System Bobrik Files"
+	// integrationsFolderName is the sibling nav folder the connector tools
+	// (from <jsDir>/integrations/js) are parented under, so they group apart
+	// from the system programs in the UI tree.
+	integrationsFolderName = "Integrations"
 	// debugFolderName holds bobrik's agent-trace notes. It lives at the
 	// nav ROOT — deliberately outside the system folder — so --bootstrap
 	// (SIGHUP) refreshes never delete it and the accumulated traces
@@ -1010,12 +1008,14 @@ func removeSystemFiles(baseURL, spaceID string) error {
 // folder child not in this set — a program or skill whose source file was
 // removed. Names mirror the create paths: programs "name@version"
 // (createProgramObject), skills "Skill: name" (createSkillObject).
-func expectedSystemNames(programsDir string, skip map[string]bool) (map[string]bool, error) {
-	names := map[string]bool{"anyHelper@v1": true}
-
-	progs, err := os.ReadDir(programsDir)
+// expectedProgramNames returns the set of "name@version" object names for the
+// .js files in dir (skipping skip[base] entries) — the program objects that
+// should exist under that group's nav folder.
+func expectedProgramNames(dir string, skip map[string]bool) (map[string]bool, error) {
+	names := map[string]bool{}
+	progs, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("read dir %s: %w", programsDir, err)
+		return nil, fmt.Errorf("read dir %s: %w", dir, err)
 	}
 	for _, e := range progs {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".js") {
@@ -1028,6 +1028,17 @@ func expectedSystemNames(programsDir string, skip map[string]bool) (map[string]b
 		name, version := parseProgramFilename(base)
 		names[name+"@"+version] = true
 	}
+	return names, nil
+}
+
+// expectedSystemNames is the expected-children set for the system folder:
+// anyHelper@v1 + the system programs + the skills.
+func expectedSystemNames(programsDir string, skip map[string]bool) (map[string]bool, error) {
+	names, err := expectedProgramNames(programsDir, skip)
+	if err != nil {
+		return nil, err
+	}
+	names["anyHelper@v1"] = true
 
 	skills, err := os.ReadDir(skillsDir)
 	if err != nil {

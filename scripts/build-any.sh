@@ -68,11 +68,10 @@ CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
 
 # bobrik agent assets — read from disk at runtime, so ship the tree.
+# Layout: agent/js/system/{js,md,skills} + agent/js/integrations/{js,md};
+# bobrik-watch is launched with --js-dir <agent>/js.
 mkdir -p "$STAGE/agent"
-cp cmd/bobrik-watch/anyHelper.js "$STAGE/agent/"
-cp -R cmd/bobrik-watch/programs "$STAGE/agent/programs"
-cp -R cmd/bobrik-watch/skills "$STAGE/agent/skills"
-cp -R cmd/bobrik-watch/tool-descriptions "$STAGE/agent/tool-descriptions"
+cp -R cmd/bobrik-watch/js "$STAGE/agent/js"
 
 # manifest.json — sha256 of every staged file (relative paths) + metadata.
 sha256_of() {
