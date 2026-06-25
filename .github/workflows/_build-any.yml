@@ -313,7 +313,12 @@ jobs:
           # Per-channel flags: a nightly creates a NEW unique, sortable prerelease
           # tag at this commit (--target), accumulating as history (we never delete
           # the previous one); a release reuses the human-pushed vX.Y.Z tag.
-          flags=(--title "any $VERSION" --notes "$notes")
+          # --generate-notes appends GitHub's auto "What's Changed" (merged PRs +
+          # new contributors + full changelog link) AFTER $notes, diffed against the
+          # previous tag: the prior nightly for a prerelease, the prior vX.Y.Z for a
+          # release. Generation is server-side (GitHub API), so it needs no local git
+          # history here. No .github/release.yml → a flat PR list (ungrouped).
+          flags=(--title "any $VERSION" --notes "$notes" --generate-notes)
           if [ "$CHANNEL" = prerelease ]; then
             flags+=(--prerelease --target "$GITHUB_SHA")
           fi
