@@ -24,12 +24,14 @@ bundled — it downloads at runtime into `<data-dir>/index/models/`.
 
 ## Platforms
 
-Currently published: `darwin-arm64`, `darwin-x64`, `linux-x86_64`.
-`windows-x86_64` is temporarily withheld from CI releases until
-`bobrik-watch` replaces its Unix signal-based refresh controls with a
-cross-platform control channel. The backend is CGO-free (purego `dlopen`), so
-one Linux job cross-builds every published target and cross-fetches each
-platform's libs.
+`darwin-arm64`, `darwin-x64`, `linux-x86_64`, `windows-x86_64`. The backend is
+CGO-free (purego `dlopen`), so one Linux job cross-builds every target and
+cross-fetches each platform's libs.
+
+Windows note: `bobrik-watch` live refresh flags (`--bootstrap` and
+`--bootstrap-clean`) are restart-only for now because their Unix implementation
+uses process signals. Restart `bobrik-watch.exe` to refresh disk-backed
+programs/skills. TODO: replace signal control with current-user-only local IPC.
 
 ## Required CI secret
 

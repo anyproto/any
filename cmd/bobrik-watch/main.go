@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -65,9 +64,9 @@ func main() {
 	base = "http://" + *addr
 
 	if *bootstrap || *bootstrapClean {
-		sig := syscall.SIGHUP
-		if *bootstrapClean {
-			sig = syscall.SIGUSR1
+		sig, err := bootstrapControlSignal(*bootstrapClean)
+		if err != nil {
+			log.Fatal(err)
 		}
 		if err := triggerBootstrap(pidFilePath, sig); err != nil {
 			log.Fatal(err)
@@ -111,7 +110,7 @@ func main() {
 	defer os.Remove(pidFilePath)
 
 	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT, syscall.SIGTERM)
+	notifyProcessSignals(sigCh)
 	go handleSignals(sigCh, spaceID, programTypeID, skillTypeID)
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
@@ -200,8 +199,8 @@ func writePIDFile(path string) error {
 
 func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID string) {
 	for sig := range ch {
-		switch sig {
-		case syscall.SIGHUP:
+		switch {
+		case sig == syscall.SIGHUP:
 			// Incremental refresh — same hash-gated path as startup: unchanged
 			// programs/skills are skipped, orphans swept. No wipe.
 			fmt.Fprintf(os.Stderr, "SIGHUP received — refreshing System Bobrik Files (incremental)\n")
@@ -210,7 +209,7 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 			} else {
 				fmt.Fprintf(os.Stderr, "refresh complete\n")
 			}
-		case syscall.SIGUSR1:
+		case isBootstrapCleanSignal(sig):
 			// Force-clean recovery — wipe the system folder + children, then
 			// rebuild from scratch. For a divergent/corrupt space; the routine
 			// path is the incremental SIGHUP above.
@@ -223,7 +222,7 @@ func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID stri
 			} else {
 				fmt.Fprintf(os.Stderr, "clean rebuild complete\n")
 			}
-		case syscall.SIGINT, syscall.SIGTERM:
+		case sig == syscall.SIGINT || sig == syscall.SIGTERM:
 			fmt.Fprintf(os.Stderr, "%s received — exiting\n", sig)
 			_ = os.Remove(pidFilePath)
 			os.Exit(0)
