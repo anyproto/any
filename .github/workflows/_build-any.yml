@@ -1,18 +1,18 @@
 name: _build-any
 
-# Reusable workflow (called by release-any + nightly-any): build `any` for
-# EVERY platform — desktop (4 tarballs), Android (any.aar), iOS
+# Reusable workflow (called by release-any + nightly-any): build `any` for the
+# publishable platforms — desktop tarballs, Android (any.aar), iOS
 # (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
 # the client repos.
 #
 # Shape: fan-out / fan-in (5 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
-#   desktop  (ubuntu,  needs: version)     build-any.sh x4        → upload-artifact tarballs
+#   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
 #            download all → sha256 the 2 mobile assets → ONE `gh release create`
-#            (all 6 assets) → repository_dispatch any-ui + anytype-swift +
+#            → repository_dispatch any-ui + anytype-swift +
 #            any-kotlin (best-effort).
 #
 # One `version` job, threaded to every build, so all artifacts stamp an
@@ -79,7 +79,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Resolved release version: $version"
 
-  # Desktop: 4 CGO-free cross-compiled tarballs via build-any.sh.
+  # Desktop: CGO-free cross-compiled tarballs via build-any.sh.
   desktop:
     needs: version
     if: github.repository == 'anyproto/any'
@@ -99,13 +99,22 @@ jobs:
           token: ${{ secrets.ANY_CI_TOKEN }}
       - name: Install jq + unzip
         run: sudo apt-get update && sudo apt-get install -y jq unzip
-      - name: Build any for all desktop platforms
+      - name: Build any for published desktop platforms
         env:
           ANY_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          for p in darwin-arm64 darwin-x64 linux-x86_64 windows-x86_64; do
+          platforms=(
+            darwin-arm64
+            darwin-x64
+            linux-x86_64
+            # TODO: restore windows-x86_64 after bobrik-watch control IPC is
+            # cross-platform. The current bootstrap/clean-refresh transport is
+            # Unix signal based, so publishing Windows would expose incomplete
+            # runtime controls even if the binary cross-compiles.
+          )
+          for p in "${platforms[@]}"; do
             scripts/build-any.sh "$p" dist
           done
           ls -la dist
@@ -228,8 +237,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Fan-in: download every artifact, publish ONE GitHub Release with all 6
-  # assets, then notify the 3 client repos (best-effort).
+  # Fan-in: download every artifact, publish ONE GitHub Release with all assets,
+  # then notify the 3 client repos (best-effort).
   publish:
     needs: [version, desktop, android, ios]
     if: github.repository == 'anyproto/any'
@@ -274,7 +283,7 @@ jobs:
           {
             echo "desktop_shas<<EOF"
             for f in dist/any-*.tar.gz; do
-              printf '`%s` sha256: `%s`\n' "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
+              printf "\`%s\` sha256: \`%s\`\n" "$(basename "$f")" "$(sha256sum "$f" | cut -d' ' -f1)"
             done
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -287,13 +296,13 @@ jobs:
         run: |
           set -euo pipefail
           LLAMACPP="$(sed -n 's/^LLAMACPP_VERSION := //p' Makefile)"
-          # Notes embed every asset's sha256 (4 desktop tarballs + 2 mobile) in a
+          # Notes embed every asset's sha256 (desktop tarballs + 2 mobile) in a
           # uniform `<name>` sha256: `<sha>` format, so a client can pin without
-          # first downloading the asset. $DESKTOP_SHAS is the 4 desktop lines.
+          # first downloading the asset. $DESKTOP_SHAS is the desktop list.
           notes="$(cat <<EOF
           any $VERSION
 
-          Assets: 4 desktop tarballs, \`any.aar\` (Android), \`any.xcframework.zip\` (iOS).
+          Assets: desktop tarballs, \`any.aar\` (Android), \`any.xcframework.zip\` (iOS).
           llama.cpp: $LLAMACPP
 
           $DESKTOP_SHAS
