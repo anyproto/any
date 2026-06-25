@@ -1,11 +1,12 @@
 // __main_source
 // __tags: integration
-// linear@v1 — read-only connector for the Linear issue tracker (GraphQL).
+// linear@v1 — connector for the Linear issue tracker (GraphQL).
 // Pattern-1 token connector: reads cfg.LINEAR_API_KEY from config@v1 and sends
 // it RAW in the Authorization header (NO "Bearer " prefix — that's OAuth-only;
 // a Bearer prefix on a personal key yields a 401 that looks like a bad key).
 // Surfaces the user's assigned issues, workspace issues (optionally
-// incremental by updatedAt), teams, single issues, and issue comments. All
+// incremental by updatedAt), teams, single issues, and issue comments, plus
+// the two common writes — updating an issue and posting a comment. All
 // methods return a consistent {ok, ...} / {ok:false, error} shape.
 // See dev space → Integration Docs → 02-linear.
 
@@ -213,6 +214,52 @@ export function listComments(opts) {
   var c = _conn(issue.comments);
   return { ok: true, issueId: issue.id, identifier: issue.identifier,
     comments: c.nodes, hasNextPage: c.hasNextPage, endCursor: c.endCursor };
+}
+
+// --- writes -------------------------------------------------------------
+
+// updateIssue(opts) — update fields on one issue (Linear `issueUpdate`).
+// opts: { id (required), title?, description?, stateId?, assigneeId?, priority? }.
+// `id` is the issue's UUID (the `id` field on a fetched issue), NOT the
+// human identifier — unlike the read methods, the mutation does not resolve
+// "ENG-123". Grab it from getIssue / myIssues / listIssues first. Only the
+// fields you pass are touched; `priority` is the 0-4 scale (see listIssues).
+export function updateIssue(opts) {
+  opts = opts || {};
+  if (!opts.id || typeof opts.id !== "string") return { ok: false, error: "id is required (the issue's UUID, e.g. from getIssue(...).issue.id)" };
+  var input = {};
+  if (typeof opts.title === "string") input.title = opts.title;
+  if (typeof opts.description === "string") input.description = opts.description;
+  if (typeof opts.stateId === "string") input.stateId = opts.stateId;
+  if (typeof opts.assigneeId === "string") input.assigneeId = opts.assigneeId;
+  if (typeof opts.priority === "number") input.priority = opts.priority;
+  if (Object.keys(input).length === 0) {
+    return { ok: false, error: "nothing to update — pass at least one of: title, description, stateId, assigneeId, priority" };
+  }
+  var q = "mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {"
+    + " issueUpdate(id: $id, input: $input) {"
+    + " success issue { " + ISSUE_FIELDS_FULL + " } } }";
+  var r = _gql(q, { id: opts.id, input: input });
+  if (!r.ok) return { ok: false, error: r.error, status: r.status };
+  var res = r.data.issueUpdate;
+  if (!res || !res.success) return { ok: false, error: "Linear rejected the update" };
+  return { ok: true, issue: res.issue };
+}
+
+// createComment(opts) — post a comment on an issue (Linear `commentCreate`).
+// opts: { issueId (required, UUID), body (required, Markdown) }.
+export function createComment(opts) {
+  opts = opts || {};
+  if (!opts.issueId || typeof opts.issueId !== "string") return { ok: false, error: "issueId is required (the issue's UUID)" };
+  if (!opts.body || typeof opts.body !== "string") return { ok: false, error: "body is required" };
+  var q = "mutation CommentCreate($input: CommentCreateInput!) {"
+    + " commentCreate(input: $input) {"
+    + " success comment { id body createdAt updatedAt url user { id name } } } }";
+  var r = _gql(q, { input: { issueId: opts.issueId, body: opts.body } });
+  if (!r.ok) return { ok: false, error: r.error, status: r.status };
+  var res = r.data.commentCreate;
+  if (!res || !res.success) return { ok: false, error: "Linear rejected the comment" };
+  return { ok: true, comment: res.comment };
 }
 
 // main(args) — default entry point: a quick connectivity check (whoami).

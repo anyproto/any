@@ -2,11 +2,13 @@
 
 ## Tool Description
 
-Read the user's **Linear** workspace — the team's issue tracker, the canonical
-record of *what work is happening and why*. Tagged `integration`. Read-only in
-this MVP: it surfaces the user's assigned issues, all workspace issues
-(optionally incrementally, by `updatedAt`), teams, individual issues with full
-detail, and issue comments. It does **not** create or modify anything in Linear.
+Read and update the user's **Linear** workspace — the team's issue tracker, the
+canonical record of *what work is happening and why*. Tagged `integration`. It
+surfaces the user's assigned issues, all workspace issues (optionally
+incrementally, by `updatedAt`), teams, individual issues with full detail, and
+issue comments; and it can update an issue (`updateIssue`) or post a comment
+(`createComment`). Writes are scoped to those two operations — it does not
+create issues, manage teams, or touch other Linear objects.
 
 Use it to answer "what's on my plate," draft standups, pull project/team
 structure, or fetch the prose of an issue and its discussion (descriptions +
@@ -130,4 +132,42 @@ comment: `{ id, body, createdAt, updatedAt, url, user {id,name} }`.
 ```js
 var c = linear.listComments({ issueId: "ENG-123" });
 c.comments[0].body;   // first comment text
+```
+
+### updateIssue(opts) [mutator]
+
+Update fields on one issue. Only the fields you pass are touched.
+
+- `opts` (object):
+  - `id` (string, required) — the issue's **UUID**, NOT the human identifier.
+    Unlike the read methods, the mutation does not resolve `"ENG-123"` — fetch
+    the issue first and pass `issue.id`.
+  - `title` (string, optional).
+  - `description` (string, optional) — Markdown.
+  - `stateId` (string, optional) — workflow-state UUID (the new status).
+  - `assigneeId` (string, optional) — user UUID.
+  - `priority` (number, optional) — 0 none / 1 urgent / 2 high / 3 normal / 4 low.
+
+Output: `{ ok, issue }` with the updated issue (full detail incl. `description`),
+or `{ ok: false, error, status? }`. Passing no updatable field is an error.
+
+```js
+var iss = linear.getIssue("ENG-123").issue;   // resolve identifier -> UUID
+linear.updateIssue({ id: iss.id, priority: 1, title: "URGENT: " + iss.title });
+```
+
+### createComment(opts) [mutator]
+
+Post a comment on an issue.
+
+- `opts` (object):
+  - `issueId` (string, required) — the issue's **UUID** (as with `updateIssue`).
+  - `body` (string, required) — comment text (Markdown).
+
+Output: `{ ok, comment }` where `comment` is `{ id, body, createdAt, updatedAt, url, user {id,name} }`,
+or `{ ok: false, error, status? }`.
+
+```js
+var iss = linear.getIssue("ENG-123").issue;
+linear.createComment({ issueId: iss.id, body: "Picking this up — ETA Friday." });
 ```
