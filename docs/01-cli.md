@@ -61,6 +61,22 @@ any account                                         # GET /v1/account
 any account set-metadata --name "..." [--description "..."] [--icon CID]
 ```
 
+### Identities (account-global directory)
+
+```
+any identities list                                 # GET /v1/identities
+any identities get <identity>                        # GET /v1/identities/:identity
+any identities subscribe                            # SSE: added/updated/removed
+```
+
+The account-global, device-local directory of every identity this account
+has encountered (across spaces, 1-1s, inbox invites) — profiles plus the
+spaces where each was seen. Use it to resolve a display name/icon for an
+account id you hold (a chat author, a 1-1 peer). Aliased `any contacts`.
+It carries **no rights** — for roles (owner/admin/writer/reader) read
+`any members list <spaceId>`. A contact's `name` is empty until their
+profile decryption key arrives (shared space / 1-1) and resolves.
+
 ### Spaces
 
 ```
@@ -109,7 +125,6 @@ any space create --name "..."
 any space list
 any space join <invite>
 any space derive [--seed <hex>]
-any space one-to-one <otherIdentity>
 ```
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
@@ -122,6 +137,27 @@ reclaims local storage immediately, then drives the signed coordinator
 delete in the background. The row stays in the space list with
 `status:"deleted"` (sticky tombstone), so a subsequent `any space query`
 still shows it.
+
+### One-to-one (direct) spaces
+
+```
+any one-to-one start    <otherIdentity>                       # shipped — open/accept a 1-1 by peer identity
+any one-to-one accept   <spaceId>                             # shipped — accept an incoming pending 1-1
+any one-to-one decline  <spaceId>                             # shipped — decline an incoming pending 1-1 (sticky)
+any one-to-one register <peerIdentity> [--name ...] [--description ...] [--icon-cid CID]   # shipped — register an out-of-band incoming request
+any one-to-one pending                                        # shipped — list incoming pending requests
+```
+
+A 1-1 (direct) space is shared by exactly two identities, derived from
+both account keys (same id regardless of who initiates). The peer's
+account identity is the `id` from their `any account` output, exchanged
+out-of-band. `start` reaches out (active immediately); the other side
+either discovers it automatically (coordinator inbox → a
+`one_to_one_pending` row, listed by `any one-to-one pending`) or has the
+app `register` it out-of-band, then `accept` / `decline` it. `decline` is
+synced + sticky account-wide; a later `start <peer>` un-declines.
+Endpoints + state machine: `docs/03-api.md` § Spaces (and the SDK's
+`docs/13-one-to-one-spaces.md`). Aliases: `any 1-1`, `any direct`.
 
 ### Objects (planned)
 

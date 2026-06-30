@@ -319,7 +319,6 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 
 	cases := []struct{ method, path string }{
 		{http.MethodPost, "/v1/spaces/derive"},
-		{http.MethodPost, "/v1/spaces/one-to-one"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1/properties/p1"},
 		{http.MethodPatch, "/v1/spaces/spc/types/t1/properties/p1"},

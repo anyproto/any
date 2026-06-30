@@ -180,6 +180,93 @@ const docTemplate = `{
                 }
             }
         },
+        "/identities": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "List known identities (account-global directory)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.IdentitiesListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/identities/subscribe": {
+            "get": {
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Subscribe to identities directory changes (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/identities/{identity}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "identities"
+                ],
+                "summary": "Get a known identity by account address",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account identity",
+                        "name": "identity",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.IdentityInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/shutdown": {
             "post": {
                 "tags": [
@@ -304,6 +391,90 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/api.SpaceInfo"
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/one-to-one": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Open a 1-1 (direct) space",
+                "parameters": [
+                    {
+                        "description": "Peer account identity",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceOneToOneRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/one-to-one/register-incoming": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Register an out-of-band incoming 1-1 request",
+                "parameters": [
+                    {
+                        "description": "Peer identity + optional display hint",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceRegisterIncomingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     },
                     "400": {
                         "description": "Bad Request",
@@ -2696,6 +2867,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/one-to-one/accept": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Accept an incoming 1-1 (direct) space",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID (from a one_to_one_pending row)",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceInfo"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/one-to-one/decline": {
+            "post": {
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Decline an incoming 1-1 (direct) space",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID (from a one_to_one_pending row)",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/properties/{objectId}": {
             "get": {
                 "produces": [
@@ -4025,6 +4258,40 @@ const docTemplate = `{
                 }
             }
         },
+        "api.IdentitiesListResponse": {
+            "type": "object",
+            "properties": {
+                "identities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.IdentityInfo"
+                    }
+                }
+            }
+        },
+        "api.IdentityInfo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "iconCid": {
+                    "type": "string"
+                },
+                "identity": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "spaceIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "api.InviteCreateResponse": {
             "type": "object",
             "properties": {
@@ -4650,6 +4917,9 @@ const docTemplate = `{
         "api.SpaceInfo": {
             "type": "object",
             "properties": {
+                "author": {
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -4669,6 +4939,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "spaceIndexObjectId": {
+                    "type": "string"
+                },
+                "spaceType": {
                     "type": "string"
                 },
                 "status": {
@@ -4724,6 +4997,14 @@ const docTemplate = `{
                 }
             }
         },
+        "api.SpaceOneToOneRequest": {
+            "type": "object",
+            "properties": {
+                "otherIdentity": {
+                    "type": "string"
+                }
+            }
+        },
         "api.SpaceQueryObjectsRequest": {
             "type": "object",
             "properties": {
@@ -4769,6 +5050,17 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "api.SpaceRegisterIncomingRequest": {
+            "type": "object",
+            "properties": {
+                "displayHint": {
+                    "$ref": "#/definitions/api.AccountMetadata"
+                },
+                "peerIdentity": {
+                    "type": "string"
                 }
             }
         },

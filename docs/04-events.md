@@ -287,6 +287,43 @@ and overflow-to-`lagged` pattern as sync-status.
 
 CLI: `any members subscribe <spaceId>`.
 
+## Identities directory stream (callback-based SSE)
+
+`GET /v1/identities/subscribe` streams changes to the account-global
+identities directory — new contacts, profile resolutions, and removals —
+over SSE. Account-scoped (no `:spaceId`). The source is the SDK's
+`Identities().Subscribe` callback, which delivers batched
+`IdentityListEvent`s; the handler reuses the same callback→channel bridge
+and 16-deep overflow-to-`lagged` forwarder as the members/sync-status
+streams.
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: identities
+data: { "added":   [ { …IdentityInfo… } ],
+        "updated": [ { …IdentityInfo… } ],
+        "removed": [ "A5k…" ] }
+
+event: lagged
+data: { "total": <count> }
+
+event: closed
+data: { "reason": "server_shutdown" }
+```
+
+One `identities` frame per directory change batch; any of `added` /
+`updated` / `removed` may be empty/absent. `added` / `updated` carry the
+full `IdentityInfo` (same shape as `GET /v1/identities/:identity`, no
+decryption key); `removed` carries the account ids that left. A contact
+whose profile key arrives after the initial sighting surfaces first in
+`added` with an empty `name`, then again in `updated` once resolved.
+
+CLI: `any identities subscribe`.
+
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay

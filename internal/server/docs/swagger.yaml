@@ -390,6 +390,28 @@ definitions:
       version:
         type: string
     type: object
+  api.IdentitiesListResponse:
+    properties:
+      identities:
+        items:
+          $ref: '#/definitions/api.IdentityInfo'
+        type: array
+    type: object
+  api.IdentityInfo:
+    properties:
+      description:
+        type: string
+      iconCid:
+        type: string
+      identity:
+        type: string
+      name:
+        type: string
+      spaceIds:
+        items:
+          type: string
+        type: array
+    type: object
   api.InviteCreateResponse:
     properties:
       inviteToken:
@@ -833,6 +855,8 @@ definitions:
     type: object
   api.SpaceInfo:
     properties:
+      author:
+        type: string
       createdAt:
         type: string
       description:
@@ -846,6 +870,8 @@ definitions:
       ownRole:
         type: string
       spaceIndexObjectId:
+        type: string
+      spaceType:
         type: string
       status:
         type: string
@@ -881,6 +907,11 @@ definitions:
           type: string
         type: array
     type: object
+  api.SpaceOneToOneRequest:
+    properties:
+      otherIdentity:
+        type: string
+    type: object
   api.SpaceQueryObjectsRequest:
     properties:
       filter:
@@ -912,6 +943,13 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  api.SpaceRegisterIncomingRequest:
+    properties:
+      displayHint:
+        $ref: '#/definitions/api.AccountMetadata'
+      peerIdentity:
+        type: string
     type: object
   api.SpaceSyncStatusResponse:
     properties:
@@ -1117,6 +1155,62 @@ paths:
       summary: Health check
       tags:
       - system
+  /identities:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IdentitiesListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List known identities (account-global directory)
+      tags:
+      - identities
+  /identities/{identity}:
+    get:
+      parameters:
+      - description: Account identity
+        in: path
+        name: identity
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.IdentityInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get a known identity by account address
+      tags:
+      - identities
+  /identities/subscribe:
+    get:
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+      summary: Subscribe to identities directory changes (SSE)
+      tags:
+      - identities
   /shutdown:
     post:
       responses:
@@ -2681,6 +2775,46 @@ paths:
       summary: Subscribe to a windowed objects query (SSE)
       tags:
       - objects
+  /spaces/{spaceId}/one-to-one/accept:
+    post:
+      parameters:
+      - description: Space ID (from a one_to_one_pending row)
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Accept an incoming 1-1 (direct) space
+      tags:
+      - spaces
+  /spaces/{spaceId}/one-to-one/decline:
+    post:
+      parameters:
+      - description: Space ID (from a one_to_one_pending row)
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Decline an incoming 1-1 (direct) space
+      tags:
+      - spaces
   /spaces/{spaceId}/properties/{objectId}:
     get:
       parameters:
@@ -3154,6 +3288,60 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Join a space via invite token
+      tags:
+      - spaces
+  /spaces/one-to-one:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Peer account identity
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceOneToOneRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Open a 1-1 (direct) space
+      tags:
+      - spaces
+  /spaces/one-to-one/register-incoming:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Peer identity + optional display hint
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceRegisterIncomingRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Register an out-of-band incoming 1-1 request
       tags:
       - spaces
   /spaces/query:

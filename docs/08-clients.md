@@ -265,6 +265,110 @@ Call patterns:
   index.embedder_unavailable` (`mode: "vector"` during an embedder
   outage — retryable).
 
+## 7. Direct (1-1) chats: derive by identity, approve incoming
+
+A 1-1 (direct) space is shared by exactly two identities and derived from
+both account keys — both peers compute the *same* spaceId, so there is no
+invite token to pass. The peer's identity is the `id` from their
+`GET /v1/account`, exchanged out-of-band (QR, link, a shared space's
+member list). Full contract: `03-api.md` § One-to-one (direct) spaces.
+
+**Open / reach out** — POST the peer's identity; the space is active
+immediately (implicit self-approval). Idempotent — calling it again (or
+after a decline) returns the same space:
+
+```json
+POST /v1/spaces/one-to-one
+{ "otherIdentity": "<peer account id>" }     // → 201 SpaceInfo (status "active")
+```
+
+The reply's `spaceType` is `"anytype.onetoone"` — that is how you tell a
+direct chat from a regular space in any list (the on-wire `type` matches,
+but classify on `spaceType`).
+
+**Discover incoming requests** — when someone reaches out to you, a
+*pending* row appears (surfaced automatically by the server's inbox
+notifier, or seeded by your app via `register-incoming` below). It is not
+materialized or synced until you accept. Read pending requests off the
+space list — they're hidden from the active-only default, so filter
+explicitly:
+
+```
+GET /v1/spaces?status=one_to_one_pending        // snapshot
+POST /v1/spaces/query/subscribe { "dataset": "spaces" }   // live (filter rows on status)
+```
+
+The pending row carries the peer's display hint (`name` / `iconCid`) for
+rendering "Alice wants to chat" without syncing anything.
+
+**Accept / decline** by the pending row's `id` (the server reads the peer
+identity off the row — you don't re-derive it):
+
+```
+POST /v1/spaces/:spaceId/one-to-one/accept      // → 200 SpaceInfo (status "active"), materializes + syncs
+POST /v1/spaces/:spaceId/one-to-one/decline     // → 204; synced sticky, suppressed on all your devices
+```
+
+Decline is account-wide and never auto-resurfaces; a later explicit
+`POST /v1/spaces/one-to-one` with that identity un-declines and activates.
+
+**Out-of-band discovery** — if your app learns of an incoming request
+through its own channel (no coordinator inbox), seed the pending row
+yourself; it's idempotent and never materializes storage:
+
+```json
+POST /v1/spaces/one-to-one/register-incoming
+{ "peerIdentity": "<peer account id>",
+  "displayHint": { "name": "Alice", "iconCid": "..." } }   // → 204
+```
+
+Once a 1-1 is active, everything else is identical to a regular space —
+both members are writers, so create objects, send chat
+(`dataset=chat_messages`), and subscribe exactly as in §1–5. Read the two
+participants through the normal members collection. Deleting a 1-1 is
+local-only and re-derivable: `DELETE /v1/spaces/:spaceId` offloads it, and
+a later `POST /v1/spaces/one-to-one` brings it back.
+
+## 8. Members-with-roles vs. the identities directory
+
+Two surfaces resolve "who is this person," and they answer different
+questions — don't conflate them.
+
+- **A space's roster, with rights** → `GET /v1/spaces/:id/members`. Each
+  row carries the member's `permission`
+  (`owner`/`admin`/`writer`/`reader`) **and** their profile (`name` /
+  `iconCid`) **and** `status` — everything a "Members" panel with avatars
+  and roles needs, in one call. This is the authoritative source for
+  roles. Subscribe to `…/members/subscribe` for live role/membership
+  changes.
+
+- **A display name/icon for any account id you hold** (a chat message's
+  `creator`, a 1-1 peer, a mention) → `GET /v1/identities[/:identity]`,
+  the account-global directory. Cache it once and resolve ids across
+  every space. Subscribe to `/v1/identities/subscribe` to keep the cache
+  fresh as profiles resolve.
+
+```
+GET /v1/spaces/:id/members        # roster + roles for ONE space
+GET /v1/identities                # global id → profile, all spaces
+GET /v1/identities/:identity      # one contact (404 if never seen)
+```
+
+The directory carries **no rights** — it has no permission field by
+design. To show "Alice is an admin of space X," read space X's members
+list; iterate `IdentityInfo.spaceIds` if you need her role in each shared
+space. There is no cross-space role rollup (and per the 1:1 SDK-mapping
+invariant the server won't synthesize one).
+
+**Tolerate empty names.** Profiles are encrypted and decryptable only by
+contacts who received the key through a shared space's ACL or a 1-1
+invite. A freshly-seen contact — or any contact on a freshly-restored
+device, before background resolution completes — surfaces **id-only**
+(empty `name`). Render a fallback (truncated id, generated avatar) and
+let the `updated` subscribe frame fill it in. Never block UI on a
+resolved name. (Do not invent a degraded "fetch the raw profile bytes"
+path — there isn't one; the directory *is* the resolution surface.)
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.

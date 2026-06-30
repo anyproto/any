@@ -186,6 +186,55 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 `description` / `iconCid` must be set; an all-empty body returns
 `400 request.missing_field`.
 
+> **Profiles are encrypted.** The bytes pushed to identityRepo are
+> encrypted with an account-derived key that is shared with a contact
+> only through an already-encrypted channel — a shared space's ACL
+> metadata or a 1-1 invite. A peer who has not yet received the key sees
+> the account **id only**, with `name` / `description` / `iconCid` empty,
+> until the key arrives and the SDK's background fetch resolves the
+> profile. Clients must tolerate an empty name everywhere a contact
+> profile surfaces (members list, identities directory).
+
+### Identities (account-global directory)
+
+| Method | Path                          | Purpose                              |
+|--------|-------------------------------|--------------------------------------|
+| GET    | `/v1/identities`              | `Identities.List` — every known id   |
+| GET    | `/v1/identities/:identity`    | `Identities.Get` (404 when unknown)  |
+| GET    | `/v1/identities/subscribe`    | `Identities.Subscribe` (SSE)         |
+
+The directory is the account-global, device-local cache of **every
+account identity this account has encountered** — across spaces, 1-1s,
+and inbox invites. It is the place to resolve a display name/icon for an
+identity you only hold an id for (a chat message `creator`, a 1-1 peer).
+Account-scoped — these routes sit outside the `:spaceId` group.
+
+```json
+// GET /v1/identities → 200
+{ "identities": [
+    { "identity":"A5k…",
+      "name":"Alice", "iconCid":"bafy…",
+      "spaceIds":["bafyspace1…","bafyspace2…"] } ] }
+```
+
+Each row carries the last resolved profile (`name` / `description` /
+`iconCid`, omitted until resolved — see the encryption note above) and
+`spaceIds`, the set of spaces where the identity is currently seen
+(pruned when you leave/offload a space). The synced decryption key behind
+each row is **never** exposed.
+
+**The directory carries no rights.** Roles
+(`owner`/`admin`/`writer`/`reader`) are per-space and live on the members
+list (`GET /v1/spaces/:id/members`), which is the authoritative roster.
+To show an identity's role you read the members list of the relevant
+space; there is no cross-space role rollup. See
+[clients §8](08-clients.md) for the members-vs-directory recipe.
+
+`GET /v1/identities/subscribe` streams directory changes as
+`event: identities` frames carrying `{added, updated, removed}` batches
+(same `ready` → … → `closed` envelope and reason set as the sync-status
+streams — see [events](04-events.md)).
+
 ### Spaces
 
 | Method | Path                            | Purpose                             |
@@ -199,8 +248,11 @@ via `GET /v1/spaces/:id/members/me`). At least one of `name` /
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
-| POST   | `/v1/spaces/derive`             | `Service.Derive`                    |
-| POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne`                  |
+| POST   | `/v1/spaces/derive`             | `Service.Derive` (501, not implemented) |
+| POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne` — open a 1-1 (direct) space |
+| POST   | `/v1/spaces/one-to-one/register-incoming` | `Service.RegisterIncoming` — out-of-band incoming |
+| POST   | `/v1/spaces/:spaceId/one-to-one/accept`   | `Service.AcceptOneToOne`            |
+| POST   | `/v1/spaces/:spaceId/one-to-one/decline`  | `Service.DeclineOneToOne`           |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
@@ -248,6 +300,76 @@ as "unknown"; there is no backfill. The stamp is per-device, so the
 account's devices can disagree by a few seconds (or zero vs real on
 mixed SDK versions) — good for ordering, not for equality checks.
 
+`SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
+**app-level classification** tag (read from the in-space `spaceIndex`),
+distinct from the on-wire header `type`: a 1-1 space reports
+`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
+to tell direct chats from regular spaces client-side. `author` is the
+space owner's account identity, resolved best-effort from the ACL (empty
+when the ACL isn't loadable). Both are omitted when empty.
+
+#### One-to-one (direct) spaces
+
+A **1-1 (direct) space** is shared by exactly two identities, derived
+deterministically from both account keys: both peers compute the *same*
+spaceId (order-independent), the same immutable ACL (both as writers), the
+same read key — there is **no owner/invite handshake** at the crypto
+layer. The peer's account identity is the `id` from their `GET
+/v1/account`, exchanged out-of-band. Authoritative SDK contract:
+`any-sync-sdk/docs/13-one-to-one-spaces.md`.
+
+```
+POST /v1/spaces/one-to-one                  { otherIdentity }              → 201 SpaceInfo
+POST /v1/spaces/one-to-one/register-incoming { peerIdentity, displayHint? } → 204
+POST /v1/spaces/:spaceId/one-to-one/accept                                  → 200 SpaceInfo
+POST /v1/spaces/:spaceId/one-to-one/decline                                 → 204
+```
+
+Because the ACL is immutable (nothing to accept *cryptographically*),
+"approve incoming" is a **local SDK gate** governing whether *this device*
+materializes and syncs the derived space — surfaced as space `status`
+values, not ACL operations:
+
+- **Initiate / accept-by-peer** — `POST /v1/spaces/one-to-one`
+  (`Service.OneToOne`). Derives the space and activates it immediately
+  (implicit self-approval → `status:"active"`). Idempotent; overrides a
+  prior local decline (un-decline). Returns 201 with the `SpaceInfo`
+  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  when `otherIdentity` is empty; `400 request.invalid_field` for an
+  undecodable identity or self-pairing (`details.reason:"self"`).
+- **Incoming → pending.** When a peer reaches out, the other side learns
+  of it one of two ways: (a) automatically, via the SDK's coordinator
+  **inbox notifier** (auto-started in `sdk.Open`, see `docs/02-server.md`),
+  or (b) out-of-band, by the app calling `POST
+  /v1/spaces/one-to-one/register-incoming` with the peer's identity (+ an
+  optional `displayHint` `{name, description, iconCid}` for the UI). Either
+  way a **device-local** row appears with `status:"one_to_one_pending"`
+  and **no storage materialized**. `register-incoming` is idempotent
+  (no-op if a row already exists) and returns 204.
+- **Accept** — `POST /v1/spaces/:spaceId/one-to-one/accept`
+  (`Service.AcceptOneToOne`). Approves a pending row by space id (the peer
+  identity is read off the row, so the caller needn't re-derive it),
+  materializes + activates it. Equivalent to re-running `OneToOne(peer)`;
+  idempotent. Returns 200 with the activated `SpaceInfo`.
+- **Decline** — `POST /v1/spaces/:spaceId/one-to-one/decline`
+  (`Service.DeclineOneToOne`). Writes a **synced sticky** marker
+  (`status:"one_to_one_declined"`) suppressing the request on every device;
+  it never auto-resurfaces. A later explicit `POST /v1/spaces/one-to-one`
+  overrides it. Returns 204.
+
+**Discovery has no bespoke endpoint** — incoming requests are the space
+list filtered on the new status: `GET
+/v1/spaces?status=one_to_one_pending` (pending and declined rows are
+non-active, so they're hidden from the active-only default list, like
+`deleted`), or `POST /v1/spaces/query[/subscribe]` over the `spaces`
+dataset for a live view.
+
+**Deletion is local-only.** A 1-1 is derived and not node-owned, so
+`DELETE /v1/spaces/:spaceId` offloads it locally and propagates the
+offload to the account's other devices, but never removes it from the
+nodes — a later `POST /v1/spaces/one-to-one` re-derives and re-materializes
+it from scratch.
+
 #### Query / subscribe the space list
 
 `GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
@@ -264,9 +386,13 @@ POST /v1/spaces/query/subscribe    SSE        → ready → snapshot → changes
 Both wrap `Service.Query(SpaceIndexObjectId(), "spaces")` and take the
 same body as the per-object `…/query` endpoints (`filter` / `sort` /
 `limit` / `offset` / `includeTotal` / `mailboxCapacity` /
-`driftBudgetPercent`), plus an optional `dataset` override (defaults to
-`spaces`; `profile` is the other system dataset). `objectId` is fixed
-server-side to the tech-space index object. Records are the **raw**
+`driftBudgetPercent`), plus an optional `dataset` override. `objectId` is
+fixed server-side to the tech-space index object. `dataset` is restricted
+to the closed allowlist `{spaces, profile}` (defaults to `spaces`) —
+anything else returns `400 request.invalid_field`. The tech-space index
+object also hosts the `identities` directory, whose rows carry a synced
+decryption key; it is deliberately **not** reachable here — read it
+through `GET /v1/identities`. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
 you want the projected status/role. Rows carry `createdAt` as unix
 seconds (handler-derived added-to-account time, absent on pre-stamp
@@ -1089,6 +1215,14 @@ shape mirrors `space.Member` 1:1; both `permission` and `status` are
 strings (see "Permission / status strings" below). `requestRecordId`
 is non-empty only on a pending-request entry — pass it to
 `POST /v1/spaces/:id/acl/accept`.
+
+This is the **authoritative per-space roster with rights**: each row
+carries the member's `permission` (the role) alongside the profile
+(`name` / `iconCid`, resolved from the same identityRepo cache that feeds
+the [identities directory](#identities-account-global-directory), with
+the join-time metadata as the always-present baseline). For a roster with
+roles, this one call is all a client needs — don't reach for the
+directory, which is account-global and carries no rights.
 
 ```json
 // GET /v1/spaces/:id/members
