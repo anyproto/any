@@ -145,10 +145,6 @@ information than `GET /files`. If a use case surfaces, they're cheap
 
 ## Known limits / open items
 
-- **SDK error sentinels.** Only `space.ErrNotFound` is exported; the
-  offload refusal and variant validation are string-matched in
-  `internal/server/handlers_files.go::fileError` (same precedent as
-  the 1-1 endpoints). Raise on the SDK when it exports sentinels.
 - **No synced file event feed / space-wide rows feed** until the SDK's
   SYN-30 files view.
 - **Search**: file content and file names are not indexed (no chunker

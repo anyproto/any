@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -581,32 +580,27 @@ func (d *deps) resolveSpaceFile(c echo.Context) (space.Space, string, error, boo
 	return sp, fileId, nil, false
 }
 
-// fileError maps SDK files-surface errors to the canonical envelope.
-// space.ErrNotFound is the only exported sentinel today; the offload
-// refusal and variant-pairing violations are string-matched (same
-// precedent as oneToOneError) until the SDK exports sentinels for
-// them.
+// fileError maps SDK files-surface errors to the canonical envelope
+// via the SDK's exported sentinels (errors.Is, never by message).
 func fileError(c echo.Context, err error, details map[string]any) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-	}
-	if errors.Is(err, space.ErrNotFound) {
-		return writeError(c, http.StatusNotFound, api.ErrFileNotFound, err.Error(), details)
-	}
-	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "not backed up"):
-		return writeError(c, http.StatusConflict, api.ErrFileNotDurable, msg, details)
-	case strings.Contains(msg, "content not available"):
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	case errors.Is(err, space.ErrNotFound):
+		return writeError(c, http.StatusNotFound, api.ErrFileNotFound, err.Error(), details)
+	case errors.Is(err, space.ErrFileNotBackedUp):
+		// Offload refused: the local bytes are the only copy.
+		return writeError(c, http.StatusConflict, api.ErrFileNotDurable, err.Error(), details)
+	case errors.Is(err, space.ErrFileNotAvailable):
 		// The receiver-side wait state: row synced, bytes not local, and
 		// the network can't serve them yet (not durable, or no public
 		// read base). A retry-later resource state, NOT a server fault —
 		// clients poll or wait for the row's networkSign update.
-		return writeError(c, http.StatusConflict, api.ErrFileNotAvailable, msg, details)
-	case strings.Contains(msg, "variant"):
-		return writeError(c, http.StatusBadRequest, api.ErrFileVariantInvalid, msg, details)
+		return writeError(c, http.StatusConflict, api.ErrFileNotAvailable, err.Error(), details)
+	case errors.Is(err, space.ErrFileVariantInvalid):
+		return writeError(c, http.StatusBadRequest, api.ErrFileVariantInvalid, err.Error(), details)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", msg, details)
+	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
 }
 
 func fileInfoToAPI(info space.FileInfo) api.FileInfo {

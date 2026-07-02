@@ -191,10 +191,12 @@ pluggable embedders, parallel batched pipelines),
   broker-embedding surfaces — the filenode-v2 broker links the SDK
   directly): `Space.Payloads()`, `Space.TreeHeads()`,
   `Service.Track/Evict`, `Headless`, `Sync.TreeTypes`. Cheap 1:1 adds
-  if a use case surfaces. Open SDK asks: exported error sentinels
-  (offload refusal / variant validation are string-matched), the
-  SYN-30 synced files view (space-wide live rows feed + remote status
-  events), file-content search indexing (no payloads chunker yet).
+  if a use case surfaces. Open SDK asks: the SYN-30 synced files view
+  (space-wide live rows feed + remote status events) and file-content
+  search indexing (no payloads chunker yet). The error-sentinel ask is
+  done — `space.ErrFileNotAvailable` / `ErrFileNotBackedUp` /
+  `ErrFileVariantInvalid` shipped and `fileError` maps them via
+  errors.Is (no string matching).
 - **Real space deletion + local offload (`any-sync-sdk v0.0.12`)** —
   `DELETE /v1/spaces/:id` (`Service.Delete`) replaced the old local-only
   soft-delete with an offline-first deletion: synchronous local half

@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -28,28 +31,28 @@ func TestAttachMime(t *testing.T) {
 	}
 }
 
-// TestFileErrorMapping pins the string-matched SDK error → wire code
-// map (fileError). These stay string-matched until the SDK exports
-// sentinels; a wording change upstream should fail here, not silently
-// turn a retryable client state back into 500 internal.
+// TestFileErrorMapping pins the SDK sentinel → wire code map
+// (fileError). Sentinels are matched with errors.Is, so wrapped forms
+// (how the SDK actually returns them) must map identically.
 func TestFileErrorMapping(t *testing.T) {
 	cases := []struct {
-		err        string
+		err        error
 		wantStatus int
 		wantCode   string
 	}{
-		{"files: offload X: not backed up — local bytes are the only copy", http.StatusConflict, api.ErrFileNotDurable},
-		{"filefetch: content not available: network advertises no public read base", http.StatusConflict, api.ErrFileNotAvailable},
-		{"filefetch: content not available: not durable and not local (P2P fetch lands with SYN-24)", http.StatusConflict, api.ErrFileNotAvailable},
-		{"files: variant must attach to the original's object A, not B", http.StatusBadRequest, api.ErrFileVariantInvalid},
-		{"something else entirely", http.StatusInternalServerError, "internal"},
+		{fmt.Errorf("files: offload X: %w", space.ErrFileNotBackedUp), http.StatusConflict, api.ErrFileNotDurable},
+		{fmt.Errorf("%w: network advertises no public read base", space.ErrFileNotAvailable), http.StatusConflict, api.ErrFileNotAvailable},
+		{space.ErrFileNotAvailable, http.StatusConflict, api.ErrFileNotAvailable},
+		{fmt.Errorf("files: variant original A: %w", space.ErrFileVariantInvalid), http.StatusBadRequest, api.ErrFileVariantInvalid},
+		{fmt.Errorf("files: attach to X: %w", space.ErrNotFound), http.StatusNotFound, api.ErrFileNotFound},
+		{errors.New("something else entirely"), http.StatusInternalServerError, "internal"},
 	}
 	e := echo.New()
 	for _, tc := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		if err := fileError(c, errors.New(tc.err), nil); err != nil {
+		if err := fileError(c, tc.err, nil); err != nil {
 			t.Fatalf("fileError returned %v", err)
 		}
 		var env api.ErrorEnvelope
@@ -57,7 +60,7 @@ func TestFileErrorMapping(t *testing.T) {
 			t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())
 		}
 		if rec.Code != tc.wantStatus || env.Error.Code != tc.wantCode {
-			t.Errorf("fileError(%q) = %d %s, want %d %s", tc.err, rec.Code, env.Error.Code, tc.wantStatus, tc.wantCode)
+			t.Errorf("fileError(%v) = %d %s, want %d %s", tc.err, rec.Code, env.Error.Code, tc.wantStatus, tc.wantCode)
 		}
 	}
 }

@@ -553,8 +553,10 @@ Implementation slices landed:
     Status + pin/retry/offload (offload of the only copy → 409
     `file.not_durable`; content not local + not fetchable → 409
     `file.not_available` — the receiver-side retry state, signalled
-    done by the row gaining `networkSign`; both string-matched pending
-    SDK sentinels, pinned by TestFileErrorMapping);
+    done by the row gaining `networkSign`; mapped from the SDK's
+    exported sentinels `space.ErrFileNotBackedUp` /
+    `ErrFileNotAvailable` / `ErrFileVariantInvalid` via errors.Is,
+    pinned by TestFileErrorMapping);
     `GET …/files/subscribe` — FileStatus SSE (streamStatusSSE pattern,
     LOCAL transitions only); `POST …/objects/:o/files/query[/subscribe]`
     — windowed query over one object's payload rows (bridges
