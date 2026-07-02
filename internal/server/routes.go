@@ -80,6 +80,12 @@ func buildEcho(d *deps) *echo.Echo {
 	// per-space group.
 	v1.GET("/datasets", d.systemDatasets)
 
+	// Account-global identities directory: every account identity this
+	// account has encountered (profiles + the spaces where each was
+	// seen), backed by SDK.Identities(). Account-scoped — no :spaceId —
+	// so like sync-status/subscribe it sits outside the space group.
+	registerIdentitiesRoutes(v1, d)
+
 	// Account-wide UI command channel: an in-memory broadcast from the
 	// agent to connected UI windows ("open this space/object"). Not
 	// space data — no :spaceId scope, no SDK/dataset backing, nothing

@@ -469,6 +469,72 @@ Implementation slices landed:
     Consumers: the bobrik `ui` tool (`cmd/bobrik-watch/`) and any-ui
     (`../any-ui/docs/tasks/ui-commands.md`).
 
+19. **One-to-one (direct) spaces** — wraps the SDK's derived 1-1 space
+    surface. A 1-1 is shared by exactly
+    two identities, derived deterministically from both account keys
+    (same id regardless of key order, immutable two-writer ACL, no
+    invite/accept handshake). Because the ACL can't gate membership,
+    "approve incoming" is a **local SDK state machine** surfaced as space
+    statuses, not ACL ops. Endpoints (`handlers_spaces.go`): `POST
+    /v1/spaces/one-to-one` (`{otherIdentity}` → `Service.OneToOne`;
+    initiate/accept-by-peer/un-decline, 201, goes straight to active),
+    `POST /v1/spaces/:id/one-to-one/accept` (`AcceptOneToOne`, accept a
+    pending row by id), `POST /v1/spaces/:id/one-to-one/decline`
+    (`DeclineOneToOne`, synced sticky), `POST
+    /v1/spaces/one-to-one/register-incoming` (`{peerIdentity,
+    displayHint?}` → `RegisterIncoming`, the out-of-band discovery path,
+    204, idempotent). New `SpaceInfo` fields `spaceType` (=
+    `anytype.onetoone`) + `author`, and status strings
+    `one_to_one_pending` / `one_to_one_declined`
+    (`spaceInfoToAPI`/`spaceStatusString`). **Discovery has no bespoke
+    endpoint** — incoming requests are the space list filtered on `GET
+    /v1/spaces?status=one_to_one_pending` (pending/declined hidden from
+    the active-only default, like deleted). The coordinator **inbox
+    notifier** that surfaces incoming 1-1s automatically is SDK-internal
+    — auto-started in `anysyncsdk.Open` (`StartOneToOneInbox`), so `any`
+    needs zero notifier wiring. Delete of a 1-1 is local-only +
+    re-derivable (existing `Service.Delete` path, no `any` change). Bad
+    identity / self-pairing → `400 request.invalid_field` (string-matched
+    until the SDK exports sentinels, `oneToOneError`). CLI: `any
+    one-to-one start/accept/decline/register/pending` (top-level group,
+    aliases `1-1`/`direct`). Contract: docs/03-api.md § Spaces,
+    docs/01-cli.md, docs/02-server.md § Startup, client recipe in
+    docs/08-clients.md § 7, and the SDK's docs/13-one-to-one-spaces.md.
+
+20. **Identities directory + encrypted profiles** — wraps the SDK's new
+    `SDK.Identities()` (`feat/identities-directory`), the account-global,
+    device-local cache of every account identity this account has
+    encountered (across spaces, 1-1s, inbox invites). Account-scoped
+    endpoints sitting outside the `:spaceId` group (like
+    `/sync-status/subscribe`): `GET /v1/identities` (`List`), `GET
+    /v1/identities/:identity` (`Get`, 404 `identity.not_found` when
+    unknown), `GET /v1/identities/subscribe` (`Subscribe`, callback→SSE
+    bridge — `event: identities` frames carrying `{added,updated,removed}`
+    batches, same `ready`→`lagged`→`closed` envelope as the
+    members/sync-status streams). `handlers_identities.go` /
+    `api/identity.go` / `client/identities.go` / `cli/identities.go` (`any
+    identities list/get/subscribe`, alias `contacts`); `/subscribe`
+    registered before the `:identity` wildcard. `IdentityInfo`
+    = `{identity, name?, description?, iconCid?, spaceIds}` — the SDK
+    strips the synced `symKey` (profile-decryption secret) before it
+    reaches us. **Two consequences of the same SDK change:** (a) profiles
+    pushed to identityRepo are now ENCRYPTED — a contact resolves
+    `name`/icon only after their key arrives via a shared-space ACL or a
+    1-1 invite, so directory AND members-list profiles surface id-only
+    until then (clients must tolerate empty names; cold-restored devices
+    resolve in the background). (b) The `identities` dataset lives on the
+    tech-space index object, so the generic `POST /v1/spaces/query[/subscribe]`
+    `dataset` field is now a CLOSED allowlist `{spaces, profile}` (else
+    `400 request.invalid_field`) — reaching `identities` there would leak
+    the raw `symKey`; read it through `GET /v1/identities`. **Rights live
+    on the members list, not here** — the directory has no permission
+    field; roles (owner/admin/writer/reader) come from `GET
+    /v1/spaces/:id/members`. Account profile read/write
+    (`GET /v1/account`, `PUT /v1/account/metadata`) is unchanged. Contract:
+    docs/03-api.md § Identities + § Account (encryption note),
+    docs/01-cli.md, docs/04-events.md § Identities directory stream,
+    client recipe docs/08-clients.md § 8.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -536,26 +602,10 @@ for the mechanics.
 
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
 (`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
-**published modules**, not sibling checkouts — `go.mod` pins versions.
-Pins: `any-sync-sdk v0.0.12` (adds **real offline-first space deletion**
-— `Service.Delete` writes the synced `remoteStatus=deleted` tombstone,
-offloads all local state immediately, and drives the signed
-`coordinator.SpaceDelete` via a background reconciler (status item 18);
-needs no `any`-side code — the handler already called `Service.Delete`
-and the indexer already wipes on the `Subscribe` `Removed` stream — on
-top of `v0.0.11`'s `space.Agg` aggregation surface (status item 16),
-`FileProviderConfig` mnemonic seeding + `auth.AccountId` (status item
-17), and the scoped-properties API — per-record `_applySeq` change-index
-+ scope-aware `Properties.Set`/`Get`, which superseded `_addSeq`
-ordering and the old `SetBase`/`PropertyReadOpts` surface — plus
-`v0.0.10`'s change-index + tombstone `IncludeDeleted` work (status items
-13–14), the space `createdAt` stamp (status item 15), and the
-dataset-schema + unified-query base from `v0.0.8`),
-`any-store/v2 v2.0.0-alpha.15` (FTS gains phrase/prefix/`$require`/
-`$exclude`/`$defaultOperator` query operators, per-index BM25 `b`/`k1`,
-and per-field BM25F `Weights` — postings format v2, no FTS-v1 on-disk
-back-compat so the search index rebuilds at indexSchemaVersion v4;
-pulled in by the v0.0.14 SDK bump), `any-sync v0.12.11`.
+**published modules**, not sibling checkouts — `go.mod` is the single
+source of truth for the exact versions. Don't restate version numbers
+here: they drift on every bump and go stale silently. Which SDK feature
+a given slice needed is captured per-item in the Status section above.
 `any-sync-sdk` is a private module — `GOPRIVATE=github.com/anyproto/any-sync-sdk`
 (+ git SSH `insteadOf`) is needed to fetch it directly. To inspect SDK
 behavior, read the module cache

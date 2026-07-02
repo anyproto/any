@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -30,7 +31,18 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/join", d.spaceJoin)
 	// Space lifecycle the SDK exposes but doesn't implement yet.
 	g.POST("/spaces/derive", notImplemented("Spaces.Derive"))
-	g.POST("/spaces/one-to-one", notImplemented("Spaces.OneToOne"))
+
+	// One-to-one (direct) spaces — derived 1-1 shared by two identities.
+	// Static `/spaces/one-to-one[...]` segments are registered before the
+	// `:spaceId` matcher so they aren't swallowed (and there is no bare
+	// POST /spaces/:spaceId to collide with). See docs/03-api.md § Spaces
+	// and the SDK's docs/13-one-to-one-spaces.md. Discovery of incoming
+	// (pending) requests is via the space list filtered on
+	// status=one_to_one_pending — no bespoke endpoint.
+	g.POST("/spaces/one-to-one", d.spaceOneToOne)
+	g.POST("/spaces/one-to-one/register-incoming", d.spaceOneToOneRegisterIncoming)
+	g.POST("/spaces/:spaceId/one-to-one/accept", d.spaceOneToOneAccept)
+	g.POST("/spaces/:spaceId/one-to-one/decline", d.spaceOneToOneDecline)
 
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
@@ -300,6 +312,134 @@ func (d *deps) spaceDelete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// spaceOneToOne handles POST /v1/spaces/one-to-one — Service.OneToOne.
+// Derives the 1-1 (direct) space shared with the given account identity
+// and activates it locally (implicit self-approval → status active).
+// Same id regardless of key order; idempotent; overrides a prior local
+// decline (un-decline).
+//
+//	@Summary	Open a 1-1 (direct) space
+//	@Tags		spaces
+//	@Accept		json
+//	@Produce	json
+//	@Param		body	body		api.SpaceOneToOneRequest	true	"Peer account identity"
+//	@Success	201		{object}	api.SpaceInfo
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/one-to-one [post]
+func (d *deps) spaceOneToOne(c echo.Context) error {
+	var req api.SpaceOneToOneRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	if req.OtherIdentity == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "otherIdentity required", nil)
+	}
+	sp, err := d.sdk.Spaces().OneToOne(c.Request().Context(), req.OtherIdentity)
+	if err != nil {
+		return oneToOneError(c, err, "otherIdentity")
+	}
+	return c.JSON(http.StatusCreated, spaceToAPI(sp))
+}
+
+// spaceOneToOneAccept handles POST /v1/spaces/:spaceId/one-to-one/accept
+// — Service.AcceptOneToOne. Approves an incoming pending 1-1 by space id
+// (the peer identity is read off the row), materializing and activating
+// it. Equivalent to re-running OneToOne(peer); idempotent.
+//
+//	@Summary	Accept an incoming 1-1 (direct) space
+//	@Tags		spaces
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID (from a one_to_one_pending row)"
+//	@Success	200		{object}	api.SpaceInfo
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/one-to-one/accept [post]
+func (d *deps) spaceOneToOneAccept(c echo.Context) error {
+	id := c.Param("spaceId")
+	sp, err := d.sdk.Spaces().AcceptOneToOne(c.Request().Context(), id)
+	if err != nil {
+		return spaceError(c, err, id)
+	}
+	return c.JSON(http.StatusOK, spaceToAPI(sp))
+}
+
+// spaceOneToOneDecline handles POST /v1/spaces/:spaceId/one-to-one/decline
+// — Service.DeclineOneToOne. Rejects an incoming pending 1-1, writing a
+// synced sticky marker so it is suppressed on every device and never
+// auto-resurfaces. A later explicit POST /v1/spaces/one-to-one overrides
+// it.
+//
+//	@Summary	Decline an incoming 1-1 (direct) space
+//	@Tags		spaces
+//	@Param		spaceId	path	string	true	"Space ID (from a one_to_one_pending row)"
+//	@Success	204
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/one-to-one/decline [post]
+func (d *deps) spaceOneToOneDecline(c echo.Context) error {
+	id := c.Param("spaceId")
+	if err := d.sdk.Spaces().DeclineOneToOne(c.Request().Context(), id); err != nil {
+		return spaceError(c, err, id)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// spaceOneToOneRegisterIncoming handles
+// POST /v1/spaces/one-to-one/register-incoming — Service.RegisterIncoming.
+// The out-of-band discovery path: record an incoming 1-1 request learned
+// through the app's own channel (QR, link, member list) as a device-local
+// one_to_one_pending row for the user to approve, without materializing
+// storage. No-op if a row for the derived space already exists.
+//
+//	@Summary	Register an out-of-band incoming 1-1 request
+//	@Tags		spaces
+//	@Accept		json
+//	@Param		body	body	api.SpaceRegisterIncomingRequest	true	"Peer identity + optional display hint"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/one-to-one/register-incoming [post]
+func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
+	var req api.SpaceRegisterIncomingRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	if req.PeerIdentity == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "peerIdentity required", nil)
+	}
+	err := d.sdk.Spaces().RegisterIncoming(c.Request().Context(), req.PeerIdentity, space.AccountMetadata{
+		Name:        req.DisplayHint.Name,
+		Description: req.DisplayHint.Description,
+		IconCID:     req.DisplayHint.IconCID,
+	})
+	if err != nil {
+		return oneToOneError(c, err, "peerIdentity")
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// oneToOneError maps the OneToOne / RegisterIncoming family of SDK errors
+// to the canonical envelope. The SDK rejects self-pairing and undecodable
+// identities but doesn't yet export errors.Is-able sentinels for them, so
+// we string-match at the boundary (same pragmatic pattern spaceJoin uses
+// for "join pending"). Grow this into an errors.Is map once the SDK
+// exports the sentinels. `field` is the request field the identity came
+// from (otherIdentity / peerIdentity), echoed in details.
+func oneToOneError(c echo.Context, err error, field string) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "cannot pair with self"):
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"cannot open a 1-1 space with your own identity",
+			map[string]any{"field": field, "reason": "self"})
+	case strings.Contains(msg, "decode identity"):
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"invalid account identity",
+			map[string]any{"field": field})
+	default:
+		return spaceError(c, err, "")
+	}
+}
+
 // spaceError maps SDK-side errors to the canonical envelope. It is
 // deliberately conservative: the SDK's error sentinels for "unknown
 // space" aren't yet exported, so we recognize context errors and fall
@@ -324,6 +464,8 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 	return api.SpaceInfo{
 		Id:          info.Id,
 		Type:        info.Type,
+		SpaceType:   info.SpaceType,
+		Author:      info.Author,
 		Name:        info.Name,
 		Description: info.Description,
 		IconCID:     info.IconCID,
@@ -354,6 +496,10 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusDeleted
 	case space.StatusRemoteDead:
 		return api.SpaceStatusRemoteDead
+	case space.StatusOneToOnePending:
+		return api.SpaceStatusOneToOnePending
+	case space.StatusOneToOneDeclined:
+		return api.SpaceStatusOneToOneDeclined
 	default:
 		return api.SpaceStatusUnknown
 	}

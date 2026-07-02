@@ -14,6 +14,19 @@ import (
 // reachable via the optional `dataset` body field.
 const SpaceListDataset = "spaces"
 
+// spaceListAllowedDatasets is the allowlist of tech-space system
+// datasets reachable through the generic space-list query/subscribe.
+// It is deliberately closed: the tech-space index object also hosts the
+// `identities` directory dataset, whose rows carry a SYNCED symKey (the
+// contact's profile-decryption secret). The public Identities API
+// (GET /v1/identities) strips that field; the raw query path would not,
+// so `identities` must never be reachable here. Read the directory
+// through GET /v1/identities instead.
+var spaceListAllowedDatasets = map[string]struct{}{
+	"spaces":  {},
+	"profile": {},
+}
+
 // spaceListQuery handles POST /v1/spaces/query.
 //
 // The windowed-query counterpart to GET /v1/spaces: a snapshot over the
@@ -99,6 +112,12 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 		if ds := string(root.GetStringBytes("dataset")); ds != "" {
 			dataset = ds
 		}
+	}
+	if _, ok := spaceListAllowedDatasets[dataset]; !ok {
+		return nil, space.QueryOpts{}, dataset, writeError(c, http.StatusBadRequest,
+			"request.invalid_field",
+			"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
+			map[string]any{"dataset": dataset}), true
 	}
 	svc := d.sdk.Spaces()
 	q, opts := applyQueryParams(root, svc.Query(svc.SpaceIndexObjectId(), dataset))
