@@ -120,10 +120,16 @@ holds no lock until it boots an account.
     ├── wallet.key               # auth.FileProvider wallet (mode 0600)
     ├── server.pid               # per-account lock file
     ├── sdk/                     # any-store DB(s) — owned by the SDK
+    ├── files/                   # file content (one CARv2 per rootCid) — owned
+    │                            #   by the SDK (files v2, docs/16-files.md)
     └── index/                   # local search index (index.db) — owned by the indexer
 ```
 
-The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`.
+The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
+SDK derives `<account-dir>/files/` next to it for file bytes. A durable
+file's bytes are a cache (reclaimable via `/v1/files/cache/*` or
+per-file offload); a non-durable file's bytes are the ONLY copy —
+deleting `files/` by hand loses them.
 The search index (`docs/13-index.md`) is derived state: removing
 `<account-dir>/index/` is safe but re-indexes only content changed
 afterwards ("index from the next change"). The embedder model cache is

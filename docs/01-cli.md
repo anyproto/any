@@ -221,6 +221,36 @@ any subscribe <spaceId> <objectId> --dataset chat_messages
 The SSE stream carries routing tuples; clients re-`list` for the new
 message body when a `changes` frame arrives.
 
+### Files
+
+```
+any file attach   <spaceId> <objectId> <path>|-  [--name N] [--mime M]
+                                                 [--variant V --variant-of FILE]
+any file list     <spaceId> [--object OBJ] [--limit N]
+any file get      <spaceId> <fileId>
+any file download <spaceId> <fileId> [-o PATH] [--variant V]
+any file status   <spaceId> <fileId>
+any file stats    <spaceId>
+any file subscribe <spaceId>
+any file pin      <spaceId> <fileId>
+any file retry    <spaceId> <fileId>
+any file offload  <spaceId> <fileId>
+any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total]
+any file query-subscribe <spaceId> <objectId> [same flags]
+any file cache size | free <bytes> | sweep
+```
+
+`attach` streams `<path>` (or stdin with `-`) as the raw upload body;
+name defaults to the basename, mime to the extension's type. The
+printed `FileInfo` receipt normally shows `durable: false` — backup is
+background work; watch `any file subscribe` for the `inflight →
+durable` flip. `download` writes raw bytes to stdout by default (pipe
+them) or to `-o PATH` with a small JSON receipt — the two deliberate
+non-JSON outputs in the CLI. `offload` exits non-zero with
+`file.not_durable` while the local bytes are the only copy. `query` /
+`query-subscribe` read the cleartext payload rows (docs/16-files.md
+§ Reads). See `docs/16-files.md` for the model.
+
 ### Subscribe
 
 ```

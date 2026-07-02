@@ -36,6 +36,11 @@
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
   - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
+  - [Files (files v2)](#files-files-v2)
+    - [Upload (attach)](#upload-attach)
+    - [Download (content)](#download-content)
+    - [Payload-row query / subscribe](#payload-row-query--subscribe)
+    - [File cache (account-wide)](#file-cache-account-wide)
   - [Members](#members)
   - [Invites](#invites)
   - [ACL operations](#acl-operations)
@@ -1198,6 +1203,122 @@ clients call `GET /agent/brain` once to learn the objectId for reads.
 All writes return the shared write result `{versionId, changeId,
 recordIds}`. Errors use the `agent.*` code namespace
 (`docs/06-errors.md`).
+
+### Files (files v2)
+
+Full model — storage tiers, durability states, cache/offload, variants
+— in [`docs/16-files.md`](16-files.md). Files always bind to an
+existing object; the SDK stores one `payloads` row per file on a
+derived per-object child. The file **bytes ride plain HTTP** — upload
+is a raw POST body, download a raw GET response — the two deliberate
+non-JSON bodies in the API. Everything else is the usual JSON.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files`                 | attach a file (raw body upload) → 201 `FileInfo` |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files/query`           | snapshot one object's payload rows |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files/query/subscribe` | live windowed view of the same (SSE) |
+| GET    | `/v1/spaces/:spaceId/files`                                   | list files (`?objectId=`, `?limit=`) |
+| GET    | `/v1/spaces/:spaceId/files/stats`                             | aggregate durability counts |
+| GET    | `/v1/spaces/:spaceId/files/subscribe`                         | file durability transitions (SSE) |
+| GET    | `/v1/spaces/:spaceId/files/:fileId`                           | one file's info |
+| GET    | `/v1/spaces/:spaceId/files/:fileId/content`                   | download the bytes (Range/206 supported) |
+| GET    | `/v1/spaces/:spaceId/files/:fileId/status`                    | one file's durability status |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/pin`                       | schedule a full background fetch → 204 |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/retry`                     | make pending background work due now → 204 |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/offload`                   | drop local bytes (keep the file) → 204 |
+| GET    | `/v1/files/cache`                                             | local cache size, all spaces |
+| POST   | `/v1/files/cache/free`                                        | LRU-reclaim `{bytes}` → `{freed}` |
+| POST   | `/v1/files/cache/sweep`                                       | one manual safety sweep → 204 |
+
+Errors use the `file.*` namespace (`docs/06-errors.md`): unknown
+fileId/objectId → `404 file.not_found`, offload of the only copy →
+`409 file.not_durable`, content not fetchable yet →
+`409 file.not_available` (retry later), broken variant pairing →
+`400 file.variant_invalid`.
+
+#### Upload (attach)
+
+The **raw request body is the file** — no JSON envelope, no multipart.
+Metadata rides outside the body:
+
+- `Content-Type` header → stored mime (parameters stripped;
+  `application/octet-stream` or absent = "unset"),
+- `?name=` → stored user-facing name,
+- `?variant=` + `?variantOf=` → attach the content as an alternate
+  representation (e.g. a thumbnail the client rendered) of an existing
+  file **on the same object**. Both or neither.
+
+```
+curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
+  'localhost:7001/v1/spaces/SP/objects/OBJ/files?name=photo.jpg'
+
+// 201
+{ "fileId": "…", "objectId": "OBJ", "rootCid": "bafy…", "size": 482113,
+  "inline": false, "durable": false, "cached": true,
+  "name": "photo.jpg", "mime": "image/jpeg" }
+```
+
+This is the one route exempt from the global 1 MB body limit — the
+body streams straight into the SDK. Files < 4096 bytes take the
+**inline tier** (`inline: true`, no `rootCid`, durable by
+construction, riding the CRDT row itself); larger files are encrypted
+and content-addressed locally, then backed up to the network's fileV2
+broker. The backup is **attempted synchronously inside the attach
+request** (best-effort): with a reachable broker the 201 usually
+already says `durable: true`, and attach latency for large files is
+dominated by the object-store upload (~upload time for a 10 MB file).
+When the broker is unreachable or refuses, attach still succeeds —
+`durable: false`, and a persistent background queue retries; watch
+`/files/subscribe` or poll `/files/:fileId/status` for the
+`inflight → durable` flip.
+
+#### Download (content)
+
+`GET /v1/spaces/:spaceId/files/:fileId/content[?variant=]` serves the
+file's verified plaintext as a **regular HTTP resource**: stored mime
+as `Content-Type` (octet-stream fallback — never sniffed),
+`Content-Disposition: inline; filename=…` from the stored name,
+`Content-Length`, and full **`Range` / 206** support (the underlying
+reader is seekable). Browser tags work directly:
+
+```html
+<img src="http://127.0.0.1:7001/v1/spaces/SP/files/FILE/content">
+```
+
+Content not yet local streams in from the network on demand; every
+fetched block persists, so repeated reads accrete toward a complete
+local copy. A file whose bytes are not local and not yet fetchable —
+not durable yet, or the network advertises no public read base —
+returns `409 file.not_available`: a **retry-later resource state**,
+not a fault. The signal that it became fetchable is the row's
+`networkSign` appearing (a row-update event on
+`…/files/query/subscribe`, or `durable: true` on a re-GET).
+
+#### Payload-row query / subscribe
+
+`POST …/objects/:objectId/files/query[/subscribe]` is the windowed
+query/subscribe primitive over ONE object's payload rows — needed
+because the `payloads` dataset lives on a derived child object whose
+id clients don't know, so the generic `/query` can't reach it. Body
+and SSE frames are identical to the generic per-object query
+(`filter / sort / limit / offset / includeTotal` + subscribe opts).
+Rows expose the **cleartext fields only** (`id`, `rootCid`, `size`,
+`networkSign`, `objectId`) — the sealed member meta (name, mime, key)
+never appears here; use `GET /files` for typed access. Returns
+`404 file.not_found` until the object's first file is attached (the
+backing dataset materializes on first Attach) — fall back to
+`GET /files?objectId=` until then.
+
+#### File cache (account-wide)
+
+The three `/v1/files/cache*` routes are SDK-level (bytes held across
+ALL spaces), so like `/sync-status/subscribe` they sit outside the
+space group. `free` drops least-recently-used content that is **safe
+to drop** (backed up or unreferenced — never the only copy) and
+returns the bytes actually freed; `sweep` is the manual trigger of the
+safety pass that otherwise runs only when `files.gcInterval` is
+configured (`docs/05-config.md`).
 
 ### Members
 

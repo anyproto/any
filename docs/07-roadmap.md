@@ -14,7 +14,8 @@ Explicit non-goals for v1:
 - Remote access / TCP auth.
 - Install script / service files.
 - Multi-account.
-- File upload/download.
+- ~~File upload/download.~~ Shipped — files v2 (see Done +
+  `16-files.md`).
 
 ## v1.x — what we learn
 
@@ -175,6 +176,25 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Files v2** — the SDK's files-v2 branch made file payloads space
+  data (payloads rows on a derived per-object child; inline tier
+  < 4096 B in the CRDT, larger files encrypted → UnixFS DAG → local
+  CARv2 + background fileV2-broker backup; offline-first durability
+  queue; on-demand seekable downloads; per-file offload + SDK-level
+  cache GC). Wrapped 1:1: attach as a raw-body POST (the one
+  BodyLimit-exempt route), `/content` download with real mime /
+  Content-Disposition / Range 206, Get/List/Stats/Status,
+  pin/retry/offload, `/files/subscribe` status SSE, per-object
+  payload-row `files/query[/subscribe]`, account-wide
+  `/v1/files/cache{,/free,/sweep}`, config `files.*`, `any file …`
+  CLI. Full model in `16-files.md`. **Deliberately not wrapped** (the
+  broker-embedding surfaces — the filenode-v2 broker links the SDK
+  directly): `Space.Payloads()`, `Space.TreeHeads()`,
+  `Service.Track/Evict`, `Headless`, `Sync.TreeTypes`. Cheap 1:1 adds
+  if a use case surfaces. Open SDK asks: exported error sentinels
+  (offload refusal / variant validation are string-matched), the
+  SYN-30 synced files view (space-wide live rows feed + remote status
+  events), file-content search indexing (no payloads chunker yet).
 - **Real space deletion + local offload (`any-sync-sdk v0.0.12`)** —
   `DELETE /v1/spaces/:id` (`Service.Delete`) replaced the old local-only
   soft-delete with an offline-first deletion: synchronous local half

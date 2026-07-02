@@ -379,6 +379,92 @@ definitions:
       error:
         $ref: '#/definitions/api.APIError'
     type: object
+  api.FileCacheFreeRequest:
+    properties:
+      bytes:
+        type: integer
+    type: object
+  api.FileCacheFreeResult:
+    properties:
+      freed:
+        type: integer
+    type: object
+  api.FileCacheInfo:
+    properties:
+      size:
+        type: integer
+    type: object
+  api.FileInfo:
+    properties:
+      cached:
+        description: Cached reports a complete local copy (always true for inline).
+        type: boolean
+      durable:
+        description: |-
+          Durable reports a verified network-custody receipt (inline files
+          are durable by construction). False right after attach is normal:
+          backup runs in the background — watch /files/subscribe or re-GET.
+        type: boolean
+      fileId:
+        type: string
+      inline:
+        description: Inline reports the inline tier (no rootCid, no backup needed).
+        type: boolean
+      mime:
+        type: string
+      name:
+        type: string
+      objectId:
+        type: string
+      rootCid:
+        description: |-
+          RootCid is the content address of the encrypted file. Empty for
+          inline-tier files (bytes ride the CRDT row itself).
+        type: string
+      size:
+        description: Size is the plaintext byte size.
+        type: integer
+      variant:
+        type: string
+      variantOf:
+        type: string
+    type: object
+  api.FileListResponse:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/api.FileInfo'
+        type: array
+    type: object
+  api.FileStats:
+    properties:
+      durable:
+        type: integer
+      inflight:
+        type: integer
+      limited:
+        type: integer
+      total:
+        type: integer
+    type: object
+  api.FileStatus:
+    properties:
+      attempts:
+        description: |-
+          Attempts counts failed background attempts since the last
+          success/enqueue; 0 when no work is pending.
+        type: integer
+      cached:
+        type: boolean
+      fileId:
+        type: string
+      lastErr:
+        type: string
+      objectId:
+        type: string
+      state:
+        type: string
+    type: object
   api.HealthResponse:
     properties:
       account:
@@ -1143,6 +1229,63 @@ paths:
       summary: List the account's system dataset schemas
       tags:
       - data
+  /files/cache:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileCacheInfo'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get local file-cache size (all spaces)
+      tags:
+      - files
+  /files/cache/free:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Bytes to free
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.FileCacheFreeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileCacheFreeResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Free up local file-cache bytes (LRU)
+      tags:
+      - files
+  /files/cache/sweep:
+    post:
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Run one file-cache safety sweep
+      tags:
+      - files
   /health:
     get:
       produces:
@@ -1851,6 +1994,264 @@ paths:
       summary: Delete records from a dataset
       tags:
       - data
+  /spaces/{spaceId}/files:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Restrict to one object's files
+        in: query
+        name: objectId
+        type: string
+      - description: Cap the result (0 = unlimited)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List a space's files
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileInfo'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get one file's info
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}/content:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      - description: 'Variant tag (default: original)'
+        in: query
+        name: variant
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+        "206":
+          description: Partial Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Download file content (raw bytes, Range supported)
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}/offload:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Offload a file's local bytes
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}/pin:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Pin a file (schedule a full background fetch)
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}/retry:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Retry a file's pending background work immediately
+      tags:
+      - files
+  /spaces/{spaceId}/files/{fileId}/status:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: File ID
+        in: path
+        name: fileId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileStatus'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get one file's durability status
+      tags:
+      - files
+  /spaces/{spaceId}/files/stats:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.FileStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Get the space's aggregate file durability counts
+      tags:
+      - files
+  /spaces/{spaceId}/files/subscribe:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to file durability transitions (SSE)
+      tags:
+      - files
   /spaces/{spaceId}/invites:
     delete:
       parameters:
@@ -2675,6 +3076,137 @@ paths:
       summary: Append markdown content (append-only fast path)
       tags:
       - editor
+  /spaces/{spaceId}/objects/{objectId}/files:
+    post:
+      consumes:
+      - application/octet-stream
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: User-facing file name
+        in: query
+        name: name
+        type: string
+      - description: Variant tag (requires variantOf)
+        in: query
+        name: variant
+        type: string
+      - description: Original fileId this variant belongs to
+        in: query
+        name: variantOf
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.FileInfo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Attach a file to an object (raw body upload)
+      tags:
+      - files
+  /spaces/{spaceId}/objects/{objectId}/files/query:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Query params
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryObjectsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Query one object's file payload rows
+      tags:
+      - files
+  /spaces/{spaceId}/objects/{objectId}/files/query/subscribe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Query params
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/api.SpaceQueryObjectsRequest'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Subscribe to one object's file payload rows (SSE)
+      tags:
+      - files
   /spaces/{spaceId}/objects/aggregate:
     post:
       consumes:

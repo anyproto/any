@@ -139,6 +139,27 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/acl/cancel-join", d.aclCancelJoin)
 	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing)
 
+	// Files (files v2 — see internal/server/handlers_files.go and
+	// docs/16-files.md). Attach streams the raw request body (exempt
+	// from the global BodyLimit — see routes.go); /content serves raw
+	// bytes with Range support. Static segments (stats, subscribe)
+	// before the :fileId matcher so they aren't swallowed. Payload-row
+	// reads go through the per-object files/query[/subscribe] bridge —
+	// the payloads dataset lives on a derived child object the generic
+	// /query can't reach.
+	g.POST("/spaces/:spaceId/objects/:objectId/files", d.fileAttach)
+	g.POST("/spaces/:spaceId/objects/:objectId/files/query", d.filesQuery)
+	g.POST("/spaces/:spaceId/objects/:objectId/files/query/subscribe", d.filesQuerySubscribe)
+	g.GET("/spaces/:spaceId/files", d.fileList)
+	g.GET("/spaces/:spaceId/files/stats", d.fileStats)
+	g.GET("/spaces/:spaceId/files/subscribe", d.fileSubscribe)
+	g.GET("/spaces/:spaceId/files/:fileId", d.fileGet)
+	g.GET("/spaces/:spaceId/files/:fileId/content", d.fileContent)
+	g.GET("/spaces/:spaceId/files/:fileId/status", d.fileStatusGet)
+	g.POST("/spaces/:spaceId/files/:fileId/pin", d.filePin)
+	g.POST("/spaces/:spaceId/files/:fileId/retry", d.fileRetry)
+	g.POST("/spaces/:spaceId/files/:fileId/offload", d.fileOffload)
+
 	// Sync status — per-space rollup + per-object state. The peers
 	// row stays 501 until the SDK exposes a stable per-space peer
 	// list on SyncStatusAPI (DebugAPI.Space surfaces the diagnostic

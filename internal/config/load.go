@@ -78,6 +78,12 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_LOG_LEVEL"); v != "" {
 		cfg.Log.DefaultLevel = v
 	}
+	if v := os.Getenv("ANY_FILES_PUBLIC_READ_BASE_URL"); v != "" {
+		cfg.Files.PublicReadBaseUrl = v
+	}
+	if v := os.Getenv("ANY_FILES_GC_INTERVAL"); v != "" {
+		cfg.Files.GCInterval = v
+	}
 	if v := os.Getenv("ANY_INDEX_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Index.Enabled = b
