@@ -59,6 +59,7 @@ func main() {
 	flag.StringVar(&jsDir, "js-dir", "cmd/bobrik-watch/js", "root dir of bobrik JS assets (system/{js,md,skills} + integrations/{js,md})")
 	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bao", "agent display name on replies (agent.name)")
+	runAddr := flag.String("run-addr", "127.0.0.1:7010", "bobrik control API address — serves POST /run (run a deployed program in bobrik's kernel against a target space)")
 	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") for an incremental (hash-gated) refresh, and exit")
 	bootstrapClean := flag.Bool("bootstrap-clean", false, "send SIGUSR1 to wipe \"System Bobrik Files\" and rebuild from scratch (recovery), and exit")
 	flag.Parse()
@@ -117,6 +118,8 @@ func main() {
 	sigCh := make(chan os.Signal, 4)
 	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT, syscall.SIGTERM)
 	go handleSignals(sigCh, spaceID, programTypeID, skillTypeID)
+
+	go startRunServer(*runAddr, spaceID)
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
 	subscribeLoop(spaceID, objectID)

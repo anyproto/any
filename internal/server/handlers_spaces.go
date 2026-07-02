@@ -68,6 +68,10 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// deterministic id for reads).
 	g.POST("/spaces/:spaceId/objects/:objectId/agent/turns", d.agentTurnAppend)
 	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
+
+	// Enrichment collection: one sourced record per enrichment fact, written
+	// onto a target object by the deterministic enrichApply program.
+	g.POST("/spaces/:spaceId/objects/:objectId/enriched-data", d.enrichedDataCreate)
 	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
 	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
 	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)
