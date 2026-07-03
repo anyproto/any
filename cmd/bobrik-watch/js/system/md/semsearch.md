@@ -18,7 +18,7 @@ Run a hybrid index search and return ranked hits.
 - `query` (string, required) — what to find, natural language or keywords. The lexical (FTS) leg understands operators inline: `"a quoted phrase"` matches those words adjacent; a trailing star (`deploy*`) is a prefix match. Plain words are OR'd (any may match) — don't string many words expecting an implicit AND.
 - `opts` (object, optional):
   - `scopes` (string[]) — which corpora to search; any of `"chat"` (chat messages), `"basic"` (editor-block page content), `"agent"` (agent-memory objects). Omit to search all.
-  - `limit` (number, default 10, max 100) — max hits.
+  - `limit` (number, default 8, max 100) — max hits. The default is sized so the whole result renders inline in a cell; ask for more explicitly when you need broader recall.
   - `mode` (`"hybrid"` | `"fts"` | `"vector"`, default `"hybrid"`) — `hybrid` fuses lexical + semantic (degrades to fts without an embedder); `fts` is pure BM25 (use for exact ids / names / error strings); `vector` is pure semantic (errors `index.no_embedder` on an FTS-only server).
   - `require` (string[]) — must-have terms for the lexical leg: every hit MUST contain each term (AND). Each may itself be a `"phrase"` or `prefix*`. Use to pin a query to a name/topic, e.g. `require: ["reranker"]`.
   - `exclude` (string[]) — must-not terms: drop any hit containing them. Each may be a phrase/prefix.
@@ -27,7 +27,7 @@ Run a hybrid index search and return ranked hits.
 `require`/`exclude` and phrase/prefix sharpen the **lexical** leg only — they're ignored in `mode: "vector"`. They raise precision but can over-filter; reach for them when a plain hybrid query comes back noisy, not by default.
 
 **Output:** `{ok, hits, mode, vectorStatus}` — a plain structured object, already parsed. Walk it directly (`var r = semsearch.search(...); r.hits[0].objectId`) — do **not** `console.log(JSON.stringify(r))` and then re-read via `logs.get`; you'd get back the string you logged, not the object. On failure: `{ok: false, error, code}`.
-- `hits`: `[{scope, objectId, dataset, recordId, data, score}]` ranked best-first. `data` is a **preview** of the indexed text (capped at ~200 chars, `…`-suffixed when trimmed) — enough to recognize/rank a hit; hydrate the full record via `getObjects` by `recordId` when you need it. `score` is comparable only WITHIN one response (BM25 vs cosine vs RRF differ across modes) — rank, don't threshold.
+- `hits`: `[{scope, objectId, dataset, recordId, data, score}]` ranked best-first. `data` is a **preview** of the indexed text (capped at ~160 chars, `…`-suffixed when trimmed) — enough to recognize/rank a hit; hydrate the full record via `getObjects` by `recordId` when you need it. `score` is rounded to 4 decimals and comparable only WITHIN one response (BM25 vs cosine vs RRF differ across modes) — rank, don't threshold.
 - `mode`: the mode that actually ran (e.g. `fts` when `hybrid` degraded).
 - `vectorStatus`: `used` | `unavailable` | `disabled` | `skipped` — whether semantic recall took part, and why not.
 - `code` on failure: `index.disabled` (indexer off on this server), `index.no_embedder` (`mode: "vector"` with no embedder), `index.embedder_unavailable` (`mode: "vector"` during an outage — retryable).

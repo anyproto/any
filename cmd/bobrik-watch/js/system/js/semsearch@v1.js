@@ -28,20 +28,30 @@ function _newClient() {
 }
 
 // Each hit's `data` is a ranking/recognition PREVIEW (the doc calls it "the
-// short indexed text, not full records — hydrate via getObjects"). We cap it so
-// a default-limit result renders inline in the run_cell kernel instead of
-// tripping the >4000-char value-store stub — the stub forces a logs.get
-// round-trip that bites the model when it has logged a stringified copy. Both
-// callers already slice data well under this (meetingEnrich takes 160), so the
-// cap is lossless in practice; reach for getObjects(recordId) for the full text.
-var DATA_PREVIEW_CHARS = 200;
+// short indexed text, not full records — hydrate via getObjects"). We trim the
+// result so even a WORST-CASE default-limit reply (every data at the cap,
+// chat hits with 59-char CID recordIds, model pretty-prints the whole thing)
+// renders inline in the run_cell kernel instead of tripping the >4000-char
+// value-store stub — the stub forces a logs.get round-trip that bites the
+// model when it has logged a stringified copy. Three knobs, sized together
+// (worst case ≈ 3.5k chars pretty-printed):
+//   - data capped at 160 chars (meetingEnrich already slices to 160 — lossless
+//     in practice; reach for getObjects(recordId) for the full text);
+//   - score rounded to 4 decimals (raw float64 is ~19 chars of noise per hit);
+//   - default limit 8 unless the caller asks for more (server default is 10).
+var DATA_PREVIEW_CHARS = 160;
+var DEFAULT_LIMIT = 8;
 
 function _trimHits(res) {
   if (!res || !res.ok || !res.hits) return res;
   for (var i = 0; i < res.hits.length; i++) {
     var h = res.hits[i];
-    if (h && typeof h.data === "string" && h.data.length > DATA_PREVIEW_CHARS) {
+    if (!h) continue;
+    if (typeof h.data === "string" && h.data.length > DATA_PREVIEW_CHARS) {
       h.data = h.data.slice(0, DATA_PREVIEW_CHARS) + "…";
+    }
+    if (typeof h.score === "number") {
+      h.score = Math.round(h.score * 1e4) / 1e4;
     }
   }
   return res;
@@ -59,8 +69,14 @@ export function createSemSearch(deps) {
   // prefix* on the lexical leg; require/exclude are must/must-not term arrays.
   // hits[].data is capped to a preview (see DATA_PREVIEW_CHARS) — a structured
   // object, ready to walk as `res.hits`, no JSON.stringify/logs.get round-trip.
+  // limit defaults to DEFAULT_LIMIT (inline-render budget); pass an explicit
+  // opts.limit for more.
   function search(query, opts) {
-    return _trimHits(client.search(query, opts || {}));
+    opts = opts || {};
+    if (opts.limit == null) {
+      opts = Object.assign({}, opts, { limit: DEFAULT_LIMIT });
+    }
+    return _trimHits(client.search(query, opts));
   }
 
   return { search: search };
