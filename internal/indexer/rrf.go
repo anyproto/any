@@ -41,9 +41,9 @@ func legConfidence(hits []Hit) float64 {
 }
 
 // fuseRRF merges ranked hit lists by reciprocal rank fusion, deduping by
-// (dataset, recordId). The fused Score replaces the per-leg scores —
-// BM25 and cosine similarity aren't comparable, ranks are. Ties break by
-// doc key for determinism.
+// (objectId, dataset, recordId) — the store's doc identity. The fused
+// Score replaces the per-leg scores — BM25 and cosine similarity aren't
+// comparable, ranks are. Ties break by doc key for determinism.
 //
 // weights scales each list's contribution (per-leg trust). A nil/short
 // weights slice defaults missing entries to 1, so fuseRRF(lists, nil,
@@ -60,7 +60,7 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 			w = weights[li]
 		}
 		for rank, h := range list {
-			key := h.Dataset + "/" + h.RecordId
+			key := h.ObjectId + "/" + h.Dataset + "/" + h.RecordId
 			a, ok := byKey[key]
 			if !ok {
 				a = &acc{hit: h}
@@ -78,7 +78,9 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 		if out[i].Score != out[j].Score {
 			return out[i].Score > out[j].Score
 		}
-		return out[i].Dataset+"/"+out[i].RecordId < out[j].Dataset+"/"+out[j].RecordId
+		ki := out[i].ObjectId + "/" + out[i].Dataset + "/" + out[i].RecordId
+		kj := out[j].ObjectId + "/" + out[j].Dataset + "/" + out[j].RecordId
+		return ki < kj
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]

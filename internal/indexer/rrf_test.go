@@ -40,6 +40,29 @@ func TestFuseRRF_LimitAndDeterminism(t *testing.T) {
 	}
 }
 
+func TestFuseRRF_SameRecordIdAcrossObjects(t *testing.T) {
+	// The prop chunker gives every object's name row the same
+	// (dataset, recordId) = (prop, name) — doc identity is
+	// objectId:dataset:recordId. Distinct objects must NOT merge into one
+	// accumulated hit (regression: a franken-hit summing several objects'
+	// reciprocal ranks outranked every real result).
+	o := func(objectId string) Hit {
+		return Hit{ObjectId: objectId, Dataset: "prop", RecordId: "name"}
+	}
+	vec := []Hit{o("obj1"), o("obj2"), o("obj3")}
+	out := fuseRRF([][]Hit{nil, vec}, nil, 10)
+	if len(out) != 3 {
+		t.Fatalf("fused = %d hits, want 3 distinct objects: %+v", len(out), out)
+	}
+	want := 1.0 / float64(rrfK+1)
+	if out[0].Score != want {
+		t.Errorf("top score = %v, want single-rank %v (no cross-object accumulation)", out[0].Score, want)
+	}
+	if out[0].ObjectId != "obj1" {
+		t.Errorf("top hit = %s, want obj1 (leg order preserved)", out[0].ObjectId)
+	}
+}
+
 func TestFuseRRF_Empty(t *testing.T) {
 	if out := fuseRRF([][]Hit{nil, {}}, nil, 5); len(out) != 0 {
 		t.Fatalf("empty legs should fuse to nothing: %+v", out)
