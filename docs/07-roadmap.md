@@ -176,7 +176,9 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
-- **Files v2** — the SDK's files-v2 branch made file payloads space
+- **Files v2** — the SDK's files-v2 work (released in
+  `any-sync-sdk v0.1.0-alpha.1`, on `any-sync v0.13.0-alpha.1`) made
+  file payloads space
   data (payloads rows on a derived per-object child; inline tier
   < 4096 B in the CRDT, larger files encrypted → UnixFS DAG → local
   CARv2 + background fileV2-broker backup; offline-first durability

@@ -134,7 +134,7 @@ on tags like `thumb` out of band.
 
 ## What is deliberately not wrapped
 
-The SDK's files-v2 branch also ships broker/embedder primitives —
+The SDK's files-v2 work also ships broker/embedder primitives —
 `Space.Payloads()` (keyless payload view), `Space.TreeHeads()`,
 `Service.Track/Evict`, `Headless` mode, `Sync.TreeTypes` selective
 sync. They exist for the filenode-v2 broker embedding, which links the
