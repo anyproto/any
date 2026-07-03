@@ -369,6 +369,56 @@ let the `updated` subscribe frame fill it in. Never block UI on a
 resolved name. (Do not invent a degraded "fetch the raw profile bytes"
 path — there isn't one; the directory *is* the resolution surface.)
 
+## 9. Live-surface budget: subscribe to views, not data
+
+The single most expensive thing a client can do is hold a wide live
+surface. Each subscription costs the server a held window, a mailbox,
+and event-build work on every write to the watched scope — and costs
+the client a stream to drain and recover. History size is nearly free
+(reads are indexed); *breadth of live surface* is what scales badly.
+Budget it by principle:
+
+- **State is queryable; subscriptions only tell you it changed.**
+  Anything worth rendering or reacting to is materialized into rows
+  and row properties (unread flags and counters are the worked
+  example). Never keep a subscription open in order to *know*
+  something — query for it on demand; subscribe only to *learn of
+  changes* to what is currently rendered.
+
+- **The live surface scales with what's on screen, not with how much
+  data exists.** One subscription per open view: the visible list
+  (one space-wide objects query), the open document or chat (one
+  per-object subscription). NEVER one subscription per object of a
+  collection — "subscribe to all chats/documents to watch them" is
+  the canonical anti-pattern; a thousand objects must not mean a
+  thousand streams. Closing a view closes its subscription.
+
+- **Aggregates ride rows so that one list subscription covers them.**
+  When you are tempted to fan out subscriptions to compute something
+  across objects (unread totals, activity badges), the answer is a
+  materialized property on the object row plus the list subscription
+  you already hold. If the aggregate you need is not materialized,
+  ask for it to be — do not fan out around the gap.
+
+- **Durable consumers use cursors, not event streams.** Anything that
+  must not miss changes (an indexer, a notifier, an exporter) persists
+  its own cursor / high-water marks in its own storage, treats live
+  events purely as a wake-up signal, and catches up by pulling
+  since-cursor or diffing against a snapshot. Events may drop by
+  design (overflow, drift, restarts); the recovery contract is always
+  "re-pull / resubscribe", never "the stream is complete".
+
+- **Recover from state, not from history.** After a disconnect, a lost
+  cursor, or a generation change, rebuild from a snapshot of current
+  rows — never by replaying the missed event gap. Snapshots are one
+  indexed query; gap replay is unbounded.
+
+Worked example of all five at once: desktop notifications across every
+chat in every space — one objects subscription per space watching
+counter properties, point queries for toast bodies, a client-local
+last-notified marker as the cursor, snapshot-as-badges on boot. See
+`16-chat.md` § Desktop notifications.
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.
@@ -379,3 +429,5 @@ path — there isn't one; the directory *is* the resolution surface.)
   `/search` semantics.
 - `14-aggregation.md` — aggregation pipelines: stage set, examples,
   limits, MongoDB divergences.
+- `16-chat.md` — chat client guide: read tracking, the viewport rule,
+  unread divider, client-side desktop notifications.
