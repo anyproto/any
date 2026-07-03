@@ -22,6 +22,14 @@ func httpLogMiddleware() echo.MiddlewareFunc {
 			start := time.Now()
 			err := next(c)
 			if err != nil {
+				// A handler that returns a raw (non-writeError) error renders
+				// as a bare "internal error" 500 with no detail in the client
+				// envelope — so log the actual error here, or it vanishes.
+				lg.Error("handler error",
+					zap.String("method", c.Request().Method),
+					zap.String("path", c.Request().URL.Path),
+					zap.Error(err),
+				)
 				// Let the error handler render the response; we still log
 				// the outcome with whatever status was set (or 500 default).
 				c.Error(err)

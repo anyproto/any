@@ -6,7 +6,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+
+	"github.com/anyproto/any-sync/app/logger"
+	"go.uber.org/zap"
 )
+
+// recoverLog surfaces recovered panics (which otherwise render as a bare
+// "internal error" 500 with nothing in the log) through the app logger with
+// the full stack.
+var recoverLog = logger.NewNamed("recover")
 
 func buildEcho(d *deps) *echo.Echo {
 	e := echo.New()
@@ -14,7 +22,17 @@ func buildEcho(d *deps) *echo.Echo {
 	e.HidePort = true
 	e.HTTPErrorHandler = errorHandler
 
-	e.Use(middleware.Recover())
+	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
+		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
+			recoverLog.Error("panic recovered",
+				zap.String("method", c.Request().Method),
+				zap.String("path", c.Request().URL.Path),
+				zap.Error(err),
+				zap.ByteString("stack", stack),
+			)
+			return err
+		},
+	}))
 	e.Use(middleware.RequestID())
 	// Desktop-shell webview origins (any-ui PR-095 / PR #162): the bundled
 	// SPA runs at a custom-scheme origin and must pass browser-side CORS to
