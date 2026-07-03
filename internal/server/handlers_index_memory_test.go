@@ -89,7 +89,7 @@ func TestIndexer_ParallelEmbed(t *testing.T) {
 	for i := range ups {
 		ups[i] = indexer.DocUpsert{Entry: index.IndexEntry{
 			Scope: "basic", ObjectId: "o", Dataset: "d",
-			RecordId: fmt.Sprintf("r%d", i), Data: fmt.Sprintf("doc number %d", i),
+			RecordId: fmt.Sprintf("r%d", i), Data: fmt.Sprintf("pending document number %d awaiting embedding", i),
 		}}
 	}
 	if err := st.Apply(ctx, spaceId, ups, nil, nil); err != nil {

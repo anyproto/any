@@ -236,8 +236,9 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	err := s.Apply(ctx, sp, []DocUpsert{
 		{Entry: entry("chat", "obj1", "chat_messages", "m1", "close match", 1), Vector: []float32{1, 0, 0, 0}},
 		{Entry: entry("basic", "obj2", "editor_blocks", "b1", "far away", 2), Vector: []float32{0, 1, 0, 0}},
-		{Entry: entry("chat", "obj1", "chat_messages", "m2", "awaiting embedding", 3)}, // pending
-		{Entry: entry("basic", "obj2", "editor_blocks", "b2", "", 4)},                  // empty text — never pending
+		{Entry: entry("chat", "obj1", "chat_messages", "m2", "awaiting embedding by the loop", 3)}, // pending
+		{Entry: entry("basic", "obj2", "editor_blocks", "b2", "", 4)},                              // empty text — never pending
+		{Entry: entry("basic", "obj2", "editor_blocks", "b3", "Details", 5)},                       // short fragment — FTS only, never pending
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -247,8 +248,8 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != "obj1:chat_messages:m2" || texts[0] != "awaiting embedding" {
-		t.Fatalf("pending = %v / %v, want only obj1:chat_messages:m2", ids, texts)
+	if len(ids) != 1 || ids[0] != "obj1:chat_messages:m2" || texts[0] != "awaiting embedding by the loop" {
+		t.Fatalf("pending = %v / %v, want only obj1:chat_messages:m2 (b3 is under minEmbedRunes)", ids, texts)
 	}
 
 	query := []float32{0.9, 0.1, 0, 0}
@@ -288,7 +289,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	}
 
 	// A re-upsert of an embedded doc goes back to pending (text changed).
-	err = s.Apply(ctx, sp, []DocUpsert{{Entry: entry("chat", "obj1", "chat_messages", "m1", "rewritten", 5)}}, nil, nil)
+	err = s.Apply(ctx, sp, []DocUpsert{{Entry: entry("chat", "obj1", "chat_messages", "m1", "rewritten with fresh content", 6)}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

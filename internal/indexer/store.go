@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"unicode/utf8"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -30,7 +31,20 @@ const (
 	// indexes have no on-disk back-compat, so the index must be rebuilt).
 	// Mismatch = boot error advising removal; no migration — the index is
 	// derived state (re-indexes on the next change).
-	indexSchemaVersion = 4
+	// v5 = min-length embed gate (minEmbedRunes): short fragments no
+	// longer carry vectors; a rebuild sheds the noise vectors already
+	// stored.
+	indexSchemaVersion = 5
+
+	// minEmbedRunes gates the vector pipeline by content length: fragments
+	// shorter than this (collapsed "Details" toggles, one-word names) have
+	// no reliable semantic embedding — the default local model scores them
+	// ~0.6 cosine against anything (the minVectorSim finding,
+	// docs/13-index.md § similarity floor), so they flood the vector leg
+	// as noise while contributing no recall. They stay fully
+	// FTS-searchable; only the embedding is skipped. Rune count, not
+	// bytes, so non-ASCII scripts aren't held to a lower bar.
+	minEmbedRunes = 20
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -480,11 +494,12 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))
-		case s.markPending && e.Data != "":
+		case s.markPending && utf8.RuneCountInString(e.Data) >= minEmbedRunes:
 			// Awaiting embedding — marked even while the embedder is
 			// down or its dimension unknown, so outages freeze the
-			// vector pipeline without losing work. Empty-text docs have
-			// nothing to embed and stay vector-less.
+			// vector pipeline without losing work. Empty or too-short
+			// texts (see minEmbedRunes) have nothing useful to embed and
+			// stay vector-less (FTS only).
 			doc.Set("pending", arena.NewNumberInt(1))
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {

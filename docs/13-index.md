@@ -481,6 +481,14 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   whose `_addSeq` moves afterwards get (re-)indexed.
 - Embedder latency only delays the vector leg: fresh writes are FTS-
   searchable immediately and gain vector recall once embedded.
+- **Short fragments are FTS-only** (`minEmbedRunes`, 20 runes): docs
+  whose indexed text is shorter never enter the embed queue. The
+  default local model gives tiny boilerplate ("Details" toggle
+  headers, one-word names) ~0.6 cosine against *any* query — the same
+  minVectorSim finding as above — so they flooded the vector leg as
+  noise while contributing no semantic recall. Lexical search still
+  matches them exactly. Introduced as index schema v5 (rebuild sheds
+  previously stored short-fragment vectors).
 - **Long records are truncated for embedding** (explicit decision, not
   an accident): the `local` embedder clamps input to
   `index.local.contextSize` tokens (default 2048, EOS preserved for
