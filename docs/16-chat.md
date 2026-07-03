@@ -206,7 +206,9 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
 
 - `unreadMention` never sets yet (no mentions feature); the field,
   counter, and index are already in place.
-- A freshly linked device starts with everything read ("first sight"
-  seeding) and converges with your other devices from the next mark
-  onward. Until then it may briefly show fewer unread than an older
-  device.
+- A freshly linked device lands on the account's real read state
+  (your other devices' synced read positions apply, so a chat your
+  phone shows unread is unread here too). Only when no device ever
+  published read state for a chat — or in the rare case its read
+  positions haven't synced yet at first open — does it start with
+  everything read and converge at the next mark.
