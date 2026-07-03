@@ -162,11 +162,20 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{{
-			Name:        Dataset,
-			DataVersion: dataVersion,
-			Handler:     messagesHandler{},
-			Schema:      datasetSchema(),
+			Name:         Dataset,
+			DataVersion:  dataVersion,
+			Handler:      messagesHandler{},
+			Schema:       datasetSchema(),
+			ReadTracking: readTracking(),
 		}},
+		// Unread counters materialized onto the chat object's row —
+		// local-scope (device-derived from the synced read frontier,
+		// never written by clients or peers). See reading.go.
+		Properties: []handler.PropertyDecl{
+			{Id: PropUnreadCount, Name: "Unread Messages", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+			{Id: PropUnreadMentions, Name: "Unread Mentions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+			{Id: PropUnreadReactionsCount, Name: "Unread Reactions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+		},
 	}
 }
 
@@ -195,6 +204,11 @@ func datasetSchema() handler.Schema {
 			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			// Read-tracking flags — SDK-materialized, device-local,
+			// filterable ({"unread": true}). See reading.go.
+			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
+			{Id: FieldUnreadMention, Name: "Unread Mention", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
+			{Id: FieldUnreadReactions, Name: "Unread Reactions", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
 		},
 	}
 }

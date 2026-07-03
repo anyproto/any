@@ -69,6 +69,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 
 	// Agent data layer (built-in types — see internal/agentlog,
 	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
