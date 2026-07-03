@@ -1008,6 +1008,19 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | edit own message text    |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | delete own message       |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
+
+Read tracking: `…/:msgId/read` marks the message and everything
+ordered before it (`_ver.id` order) read; `…/read-all` clears the
+whole chat. Both return `204`, are idempotent and forward-only (no
+mark-unread), work offline, and sync across the account's devices.
+Read state is private — no read receipts. The SDK materializes
+per-message `unread` / `unreadMention` / `unreadReactions` flags
+(filterable) and per-chat `unreadCount` / `unreadMentions` /
+`unreadReactionsCount` row properties. When to call what — including
+the viewport rule and the unread divider — is covered in
+`16-chat.md`.
 
 Liveness goes through the per-object query/subscribe endpoint with
 `dataset=chat_messages`:
