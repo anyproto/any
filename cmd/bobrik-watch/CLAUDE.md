@@ -67,7 +67,12 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   section plus a `## Tool Schema` section with `### method(sig) [kind]`
   subsections (kind ∈ getter|mutator|setup|program, default getter).
   Both sections are required for toolhood; `anyPrograms.saveProgram`
-  rejects markdown missing either.
+  rejects markdown missing either. **The opening paragraph of
+  `## Tool Description` is the prompt summary**: the system prompt
+  injects only the first paragraph (capped) for non-pinned modules —
+  the full body surfaces via `<module>.describe()` at runtime — so
+  write it as a self-contained "what is this / when to reach for it"
+  statement (tiered injection: `task-tool-injection-scaling.md`).
 - **Debug logs** — `Agent Debug Log` is a server **built-in** type
   (`internal/agentdebug`, registered in `internal/server/sdk.go`) with a
   structured `agent_debug_log` dataset — NOT a runtime-`createType`'d type

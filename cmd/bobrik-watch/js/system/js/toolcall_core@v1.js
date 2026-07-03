@@ -195,6 +195,11 @@ function _buildBootPrelude(toolDocs) {
     '  var facade = {};\n' +
     '  for (var k2 in methodSourceObj) facade[k2] = methodSourceObj[k2];\n' +
     '  facade.listMethods = function() { return allNames.slice(); };\n' +
+    '  facade.describe = function() {\n' +
+    '    return docs.description && docs.description.length > 0\n' +
+    '      ? docs.description\n' +
+    '      : "(no description in " + programName + "\'s md)";\n' +
+    '  };\n' +
     '  facade.describeMethod = function(name) {\n' +
     '    for (var i = 0; i < docs.methods.length; i++) {\n' +
     '      if (docs.methods[i].bareName === name) return docs.methods[i].content;\n' +
@@ -313,7 +318,7 @@ function _buildBootPrelude(toolDocs) {
 
 // Build the dynamic "Tools available in this kernel" section of the system
 // prompt. Per tool: ## heading + verbatim Tool Description + bare method names.
-function _buildToolsPromptSection(toolDocs) {
+export function _buildToolsPromptSection(toolDocs) {
   // Ordering discipline for the injected tool list:
   //   1. `anyHelper` pinned first.
   //   2. `convmemory` pinned second.
@@ -346,7 +351,24 @@ function _buildToolsPromptSection(toolDocs) {
     var n = names[i];
     var t = toolDocs[n];
     out += "### " + n + "\n\n";
-    out += (t.description && t.description.length > 0 ? t.description : "(no description in tool's md)") + "\n\n";
+    if (!t.description || t.description.length === 0) {
+      out += "(no description in tool's md)\n\n";
+    } else if (PIN_ORDER[n] !== undefined) {
+      // Pinned core modules are used in nearly every conversation — their
+      // full doc earns its keep inline.
+      out += t.description + "\n\n";
+    } else {
+      // Everything else gets a SUMMARY. The full doc stays one call away
+      // (`<module>.describe()`), so a new tool costs the prompt a couple
+      // hundred chars instead of a couple thousand — the tool set can grow
+      // without the system prompt growing linearly with it.
+      var summary = _toolSummary(t.description);
+      out += summary;
+      if (summary.length < t.description.length) {
+        out += "\n\n_(summary — call `" + n + ".describe()` in a cell for the full doc)_";
+      }
+      out += "\n\n";
+    }
     var methodNames = t.methods.map(function(m) { return m.signature || m.bareName; });
     if (methodNames.length > 0) {
       out += "Methods: " + methodNames.join(", ") + "\n\n";
@@ -355,8 +377,13 @@ function _buildToolsPromptSection(toolDocs) {
     }
   }
   out +=
-    "## Discovering method signatures — required before each call\n\n" +
-    "These modules are pre-bound as globals; do NOT import them and do NOT call them as Anthropic tools. The method SIGNATURES above show argument NAMES only — not their accepted shapes, value kinds, return shape, or examples. A bare arg name like `typeOrQuery` or `opts` hides real structure (a string OR a `{filter, sort, limit}` query object, etc.); do NOT assume the simplest form. You do not need to call listMethods.\n\n" +
+    "## Discovering module and method docs — required before each call\n\n" +
+    "These modules are pre-bound as globals; do NOT import them and do NOT call them as Anthropic tools. Most module descriptions above are SUMMARIES; the method SIGNATURES show argument NAMES only — not their accepted shapes, value kinds, return shape, or examples. A bare arg name like `typeOrQuery` or `opts` hides real structure (a string OR a `{filter, sort, limit}` query object, etc.); do NOT assume the simplest form. You do not need to call listMethods.\n\n" +
+    "Before using a module for the first time this session, read its full description when the summary leaves room for doubt (semantics, auth, limits):\n\n" +
+    "```\n" +
+    "var doc = gmail.describe();\n" +
+    "doc\n" +
+    "```\n\n" +
     "Before calling a method you have not used yet in this session, fetch its full inputs, outputs, and example with describeMethod (always inside a run_cell call):\n\n" +
     "```\n" +
     "var doc = anyHelper.describeMethod(\"createObject\");\n" +
@@ -366,9 +393,26 @@ function _buildToolsPromptSection(toolDocs) {
     "var doc = webSearch.describeMethod(\"search\");\n" +
     "doc\n" +
     "```\n\n" +
-    "Once you have described a method this session, you don't need to describe it again. Guessing signatures wastes turns; describe first, call second.\n\n" +
+    "Once you have described a module or method this session, you don't need to describe it again. Guessing signatures wastes turns; describe first, call second.\n\n" +
     "(`<module>.listMethods()` is also available for parity, but the names are already in this prompt — there's no need to call it.)\n\n";
   return out;
+}
+
+// _toolSummary(description) — the prompt-injected preview of a tool's full
+// description: the first paragraph, hard-capped. Tool-description md is
+// authored summary-first (every current tool's opening paragraph is a
+// what-is-this sentence), so the first paragraph is the natural tier-1 doc.
+// The cap keeps a pathological single-paragraph doc from smuggling the whole
+// thing back into the prompt. Exported for tests.
+var TOOL_SUMMARY_CAP = 400;
+export function _toolSummary(description) {
+  var text = String(description || "").trim();
+  var cut = text.indexOf("\n\n");
+  if (cut !== -1) text = text.slice(0, cut).trim();
+  if (text.length > TOOL_SUMMARY_CAP) {
+    text = text.slice(0, TOOL_SUMMARY_CAP) + "…";
+  }
+  return text;
 }
 
 // Fetch convmemory's current categories at boot and render them into a short
