@@ -101,11 +101,21 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
 
-	kind, ok := propertyKindFromString(req.Kind)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"unknown property kind",
-			map[string]any{"kind": req.Kind})
+	// Kind may be omitted when a format is declared — the SDK defaults
+	// it from format.type (links ⇒ array, date/datetime ⇒ string).
+	var kind space.PropertyKind
+	if req.Kind != "" || req.Format == nil {
+		var ok bool
+		kind, ok = propertyKindFromString(req.Kind)
+		if !ok {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"unknown property kind",
+				map[string]any{"kind": req.Kind})
+		}
+	}
+	if reason := validateFormatSemantics(req.Format, req.Kind); reason != "" {
+		return writeError(c, http.StatusBadRequest, "property.format_invalid",
+			reason, map[string]any{"format": req.Format})
 	}
 
 	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, space.PropertyDraft{
@@ -114,6 +124,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		XKey:        req.XKey,
 		Kind:        kind,
 		Meta:        req.Meta,
+		Format:      formatDraftFromAPI(req.Format),
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
@@ -264,6 +275,7 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 	if len(p.Required) > 0 {
 		out.Required = append([]string(nil), p.Required...)
 	}
+	out.Format = formatToAPI(p.Format)
 	return out
 }
 

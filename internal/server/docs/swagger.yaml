@@ -86,6 +86,12 @@ definitions:
     properties:
       description:
         type: string
+      format:
+        allOf:
+        - $ref: '#/definitions/api.PropertyFormat'
+        description: |-
+          Format declares the property's value convention. format.type is
+          pinned for the property's life; ui/filter stay mutable.
       kind:
         type: string
       meta:
@@ -682,6 +688,12 @@ definitions:
     properties:
       description:
         type: string
+      format:
+        allOf:
+        - $ref: '#/definitions/api.PropertyFormat'
+        description: |-
+          Format is the property's value-format annotation; absent for
+          properties that never declared one.
       id:
         type: string
       items:
@@ -708,6 +720,24 @@ definitions:
       xKey:
         type: string
       xKind:
+        type: string
+    type: object
+  api.PropertyFormat:
+    properties:
+      filter:
+        description: |-
+          Filter is a mongo-style condition object over candidate objects
+          (e.g. {"type": {"$in": ["page"]}}); optional, links only.
+        items:
+          type: integer
+        type: array
+      type:
+        description: Type is one of the FormatType* wire strings.
+        type: string
+      ui:
+        description: |-
+          UI is one of the FormatUI* wire strings; optional. links accepts
+          any UI; date/datetime accept none.
         type: string
     type: object
   api.QueryResponse:

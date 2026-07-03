@@ -980,6 +980,37 @@ search indexer (its value is indexed under that scope — see
   "meta": { "index": "agent" } }
 ```
 
+`POST …/properties` also accepts an optional **`format`** object — the
+property's value convention beyond its structural kind:
+
+```json
+{ "name": "related",
+  "format": { "type": "links", "ui": "multiselect",
+              "filter": { "type": { "$in": ["page"] } } } }
+```
+
+- `format.type` — `links` (array of `any://<objectId>` URI strings),
+  `date` (`2006-01-02` string), `datetime` (RFC 3339 string). `tags` is
+  reserved until the space-level tag table lands. Pinned for the
+  property's life and coupled to `kind` (`links` ⇒ `array`,
+  `date`/`datetime` ⇒ `string`); **`kind` may be omitted** when a format
+  is set — it defaults from the format type.
+- `format.ui` — presentation hint: `select` / `multiselect` / `link` /
+  `links`. `date`/`datetime` take no ui.
+- `format.filter` — mongo-style condition over candidate objects
+  (`links` only); must parse as a query condition.
+
+The SDK stores formats opaquely (structure-only checks); **this server
+is the semantics boundary**. Definition-time violations → `400
+property.format_invalid`. Value writes through `POST …/set/:typeId` and
+`initialProperties` on object create are shape-checked against the
+format (datetime must parse, links must be plain `any://<objectId>`
+URIs — no spaceId segment, no fragment) → `400
+property.format_violation` (`details: {propId, format, reason}`). No
+object-existence or object-type checks. Known gap: raw `POST
+/v1/spaces/:spaceId/modify` against the `properties` dataset bypasses
+format value validation.
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |

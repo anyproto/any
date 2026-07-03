@@ -78,6 +78,21 @@ func (d *deps) objectCreate(c echo.Context) error {
 		return errResp
 	}
 
+	// Same format value-shape gate as propertiesSet, per initial type
+	// (see propformat.go). nav injects only its own numeric props and
+	// nav declares no formats, so the extra lookups are user types only.
+	for typeId, patch := range opts.InitialProperties {
+		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
+		if err != nil {
+			continue // unknown type: the SDK rejects the write itself
+		}
+		if v := validateFormatValues(defs, patch); v != nil {
+			return writeError(c, http.StatusBadRequest, "property.format_violation",
+				"initial property value does not match the property's declared format",
+				v.details())
+		}
+	}
+
 	objectId, err := sp.Objects().Create(c.Request().Context(), opts)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
