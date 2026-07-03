@@ -2,7 +2,7 @@
 
 Deterministically APPLY a reviewed `enrich_proposal` — no LLM, no judgment. It executes each `enrich_proposal_items` record and then deletes the proposal (proposals are ephemeral). Call this only AFTER the user has approved the consolidated proposal (stage 3 of the meeting-enrich flow).
 
-Per item it: creates the target object for `new` items; for `property` items sets the REAL property value on the target (`updateObject`); and always writes an `enriched_data` record onto the target `{text, source, target, value}` — the durable, sourced collection that survives the proposal's deletion. For property items the enriched_data record also captures the set value + its property path so the UI can show the value was sourced.
+Per item it: resolves the target (for `new` items, creates the object — items that share a `newType`+`newName` map to ONE object, so grouped facts land together while each keeps its own source); for `property` items sets the REAL property value on the target (`updateObject`); and always writes an `enriched_data` record onto the target `{text, source, target, value}` — the durable, sourced collection that survives the proposal's deletion. For property items the enriched_data record also captures the set value + its property path so the UI can show the value was sourced.
 
 Because it deletes the proposal on success, it is idempotent: a second apply reads no items and no-ops. It never edits markdown bodies — enrichment lives in the `enriched_data` collection (and, for property items, the real property).
 

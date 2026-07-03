@@ -70,8 +70,12 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
 
 	// Enrichment collection: one sourced record per enrichment fact, written
-	// onto a target object by the deterministic enrichApply program.
+	// onto a target object by the deterministic apply.
 	g.POST("/spaces/:spaceId/objects/:objectId/enriched-data", d.enrichedDataCreate)
+	// Deterministic apply of a reviewed enrich_proposal (create/set-property/
+	// write enriched_data per item, then delete the proposal). Shared by the UI
+	// and the bobrik enrichApply tool.
+	g.POST("/spaces/:spaceId/enrich/apply", d.enrichApply)
 	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
 	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
 	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)

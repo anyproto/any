@@ -22,27 +22,33 @@ Enrichment is NOT markdown edits. It produces an **`enriched_data` collection** 
    ```
    Each item: `{ id, text, source, outcome, targetObjectId, targetKind, targetProperty, value, newType, newName }`.
 
-4. **CONSOLIDATE by EDITING the proposal's items — this is the whole job.**
-   The user reviews the *proposal object*, not your chat message. So your consolidation
-   MUST be written back into `enrich_proposal_items`. Do NOT just describe a consolidated
-   plan in chat — a plan that lives only in a chat message is a FAILURE of this skill.
-   The reliable way: decide your final consolidated set, then **replace the draft** —
-   delete every raw item and write your consolidated items back:
-   - **Cluster.** Many `new` items are facets of ONE topic → merge them into ONE item
-     (combine their `text`; for an existing target set `outcome:"enrich"` +
-     `targetObjectId`; or ONE new object). Do not leave 20 fragments.
-   - **Re-ground.** Confirm targets with `semsearch.search(text, { space: targetSpace })`
-     and your memory; avoid duplicates.
-   - **targetKind per item:** `collection` (default — fact lives in `enriched_data`) or
-     `property` (set a real field: `targetKind:"property"`,
-     `targetProperty:"<typeXKey>.<propXKey>"` via `anyHelper.describeType(type,{space})`,
-     `value` = the typed value). Use `property` only when a fact maps cleanly to a field.
-   - **Types for new objects:** prefer existing types (`anyHelper.getTypes({space})`);
-     propose a new type only if clearly missing, and ASK before creating types.
-   - Write with `anyHelper.deleteRecord(p.proposalId, "enrich_proposal_items", itemId, {space})`
-     to drop drafts and `anyHelper.setRecord(p.proposalId, "enrich_proposal_items", "", {field:value}, {space})`
-     to add each consolidated item (`itemId:""` derives a new id). Re-read the items
-     afterward to confirm the object now holds your consolidated set.
+4. **CONSOLIDATE by GROUPING the items — edit them IN PLACE. This is the whole job.**
+   The user reviews the *proposal object*, not your chat message, so your consolidation
+   MUST be written into `enrich_proposal_items`. A plan that lives only in a chat message
+   is a FAILURE of this skill.
+
+   **Consolidation = grouping, NOT collapsing.** Each item is one fact with its OWN
+   block-cited `source`. Do NOT merge many facts into one item and do NOT rewrite `text`
+   or `source` — that destroys provenance (every fact must keep its exact
+   `any://…#blockId` source). Instead, point related facts at the SAME target:
+   - **Group `new` facets of one topic** by giving them the SAME `newName` + `newType`
+     (leave `targetObjectId` empty). Apply creates ONE object and files every such fact
+     into its `enriched_data` collection — each fact keeps its own source. So 9 VC-research
+     facts → 9 items sharing `newName:"VC Persona Research"`, NOT one merged blob.
+   - **Route facts to an existing object** by setting `targetObjectId` (+ `outcome:"enrich"`)
+     on each — again one item per fact, sources intact.
+   - **Re-ground** targets with `semsearch.search(text,{space:targetSpace})` + memory to
+     avoid duplicates; **drop** true redundancies with `deleteRecord`.
+   - **targetKind:** `collection` (default) or `property` (a fact that maps cleanly to a
+     field: set `targetKind:"property"`, `targetProperty:"<typeXKey>.<propXKey>"` via
+     `anyHelper.describeType(type,{space})`, `value` = the typed value).
+   - **Types for new objects:** prefer existing (`anyHelper.getTypes({space})`); propose a
+     new type only if clearly missing, and ASK first.
+   - Edit fields on the EXISTING item ids (preserve `text`/`source`):
+     `anyHelper.setRecord(p.proposalId, "enrich_proposal_items", itemId, {targetObjectId, outcome, newName, newType, targetKind, targetProperty, value}, {space})`;
+     drop with `anyHelper.deleteRecord(...)`. Only ADD a brand-new item (`itemId:""`) if you
+     genuinely have a fact the draft missed — and then set its `source` yourself. Re-read the
+     items afterward to confirm each still has its `source`.
 
 5. **HAND OFF the proposal object — do NOT paste the plan as a markdown table.**
    Post a SHORT chat message: one line of counts (e.g. "Consolidated to 6 items: enrich
