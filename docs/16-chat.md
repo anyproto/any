@@ -181,11 +181,10 @@ last-notified marker per chat in local storage. Nothing per closed
 chat, nothing server-side.
 
 (In-process consumers with SDK access — the server itself, native
-wrappers — can use the finer-grained per-space read-state feed,
-`ReadState().Subscribe` + `ChangedSince(cursor)`, which itemizes every
-unread/read transition with tags and record ids. Same semantics; the
-HTTP recipe above is a coarser projection of it and is sufficient for
-notifications.)
+wrappers — can use the per-space read-state feed instead:
+`ReadState().Subscribe` + `ChangedSince(cursor)` yields dirty objects;
+`UnreadSnapshot(objectId)` is the per-object pull to diff against.
+Same semantics as the HTTP recipe, one hop closer to the engine.)
 
 ## Things not to do
 
