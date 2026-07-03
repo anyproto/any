@@ -1405,6 +1405,35 @@ function _findToolUseBlocks(content) {
   return blocks;
 }
 
+// _stampCacheTail(messages) — move the conversation's prompt-cache breakpoint
+// to the last content block of the last message before each llm.chat call.
+// Anthropic caches the longest previously-written prefix, so an advancing
+// ephemeral marker turns every turn's input into "read prior prefix + write
+// this turn's delta". Without it only the system block was cached and each
+// turn re-processed the whole growing window uncached (observed in a debug
+// log: 8k→11k fresh input tokens per turn, ~50k re-paid over a 7-turn run).
+// Strips prior message-level stamps first — one moving breakpoint plus the
+// static system-block one stays well inside Anthropic's 4-breakpoint limit.
+// The OpenAI-compat path flattens blocks and drops cache_control, so the
+// stamp is a no-op off-Anthropic.
+export function _stampCacheTail(messages) {
+  if (!messages || !messages.length) return;
+  for (var i = 0; i < messages.length; i++) {
+    var c = messages[i].content;
+    if (!c || !c.length || typeof c === "string") continue;
+    for (var j = 0; j < c.length; j++) {
+      if (c[j] && c[j].cache_control) delete c[j].cache_control;
+    }
+  }
+  var last = messages[messages.length - 1];
+  if (typeof last.content === "string") {
+    if (!last.content) return; // empty text block would be rejected
+    last.content = [{ type: "text", text: last.content }];
+  }
+  if (!last.content || !last.content.length) return;
+  last.content[last.content.length - 1].cache_control = { type: "ephemeral" };
+}
+
 // Strip a leading `[Wkd YYYY-MM-DD HH:MM UTC]\n` header that earlier model
 // runs sometimes echoed from the rendered chat history (the wrapper has
 // since been removed for assistant messages, but stored history may still
@@ -1992,6 +2021,7 @@ export function main(args) {
     var resp;
     var _t = Date.now();
     try {
+      _stampCacheTail(messages);
       resp = llm.chat(messages, {
         system: systemBlocks,
         tools: [RUN_CELL_TOOL]
@@ -2037,6 +2067,7 @@ export function main(args) {
       var summaryResp;
       try {
         // Tools omitted on purpose — force a text-only reply.
+        _stampCacheTail(messages);
         summaryResp = llm.chat(messages, { system: systemBlocks });
       } catch (e) {
         var sumErr = "FAILED at turn " + (iter + 1) + ": max_tokens recovery LLM error: " + (e.message || e);
