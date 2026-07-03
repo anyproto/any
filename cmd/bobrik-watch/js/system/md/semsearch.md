@@ -26,8 +26,8 @@ Run a hybrid index search and return ranked hits.
 
 `require`/`exclude` and phrase/prefix sharpen the **lexical** leg only — they're ignored in `mode: "vector"`. They raise precision but can over-filter; reach for them when a plain hybrid query comes back noisy, not by default.
 
-**Output:** `{ok, hits, mode, vectorStatus}` — or `{ok: false, error, code}` on failure.
-- `hits`: `[{scope, objectId, dataset, recordId, data, score}]` ranked best-first. `data` is the short indexed text; `score` is comparable only WITHIN one response (BM25 vs cosine vs RRF differ across modes) — rank, don't threshold.
+**Output:** `{ok, hits, mode, vectorStatus}` — a plain structured object, already parsed. Walk it directly (`var r = semsearch.search(...); r.hits[0].objectId`) — do **not** `console.log(JSON.stringify(r))` and then re-read via `logs.get`; you'd get back the string you logged, not the object. On failure: `{ok: false, error, code}`.
+- `hits`: `[{scope, objectId, dataset, recordId, data, score}]` ranked best-first. `data` is a **preview** of the indexed text (capped at ~200 chars, `…`-suffixed when trimmed) — enough to recognize/rank a hit; hydrate the full record via `getObjects` by `recordId` when you need it. `score` is comparable only WITHIN one response (BM25 vs cosine vs RRF differ across modes) — rank, don't threshold.
 - `mode`: the mode that actually ran (e.g. `fts` when `hybrid` degraded).
 - `vectorStatus`: `used` | `unavailable` | `disabled` | `skipped` — whether semantic recall took part, and why not.
 - `code` on failure: `index.disabled` (indexer off on this server), `index.no_embedder` (`mode: "vector"` with no embedder), `index.embedder_unavailable` (`mode: "vector"` during an outage — retryable).

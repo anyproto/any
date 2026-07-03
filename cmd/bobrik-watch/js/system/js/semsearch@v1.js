@@ -27,6 +27,26 @@ function _newClient() {
   });
 }
 
+// Each hit's `data` is a ranking/recognition PREVIEW (the doc calls it "the
+// short indexed text, not full records — hydrate via getObjects"). We cap it so
+// a default-limit result renders inline in the run_cell kernel instead of
+// tripping the >4000-char value-store stub — the stub forces a logs.get
+// round-trip that bites the model when it has logged a stringified copy. Both
+// callers already slice data well under this (meetingEnrich takes 160), so the
+// cap is lossless in practice; reach for getObjects(recordId) for the full text.
+var DATA_PREVIEW_CHARS = 200;
+
+function _trimHits(res) {
+  if (!res || !res.ok || !res.hits) return res;
+  for (var i = 0; i < res.hits.length; i++) {
+    var h = res.hits[i];
+    if (h && typeof h.data === "string" && h.data.length > DATA_PREVIEW_CHARS) {
+      h.data = h.data.slice(0, DATA_PREVIEW_CHARS) + "…";
+    }
+  }
+  return res;
+}
+
 // createSemSearch(deps?) — factory, mainly for tests; inject a client.
 export function createSemSearch(deps) {
   deps = deps || {};
@@ -37,8 +57,10 @@ export function createSemSearch(deps) {
   // Defaults to the server's hybrid mode (lexical + semantic fused, degrades to
   // fts when no embedder is reachable). The query string supports "phrases" and
   // prefix* on the lexical leg; require/exclude are must/must-not term arrays.
+  // hits[].data is capped to a preview (see DATA_PREVIEW_CHARS) — a structured
+  // object, ready to walk as `res.hits`, no JSON.stringify/logs.get round-trip.
   function search(query, opts) {
-    return client.search(query, opts || {});
+    return _trimHits(client.search(query, opts || {}));
   }
 
   return { search: search };
