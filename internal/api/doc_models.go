@@ -65,6 +65,11 @@ type SpaceModifyRequest struct {
 	Dataset  string         `json:"dataset"`
 	Records  []RecordModify `json:"records"`
 	TraceIds []string       `json:"traceIds,omitempty"`
+	// Scope selects the write route: "synced" (default — the object's
+	// own DAG change) or "local" (device-only materialization for
+	// fields the dataset schema declares local-scope; explicit record
+	// ids, no upsert, no traceIds). See docs/03-api.md § Modify records.
+	Scope string `json:"scope,omitempty" enums:"synced,local"`
 }
 
 // RecordModify documents one record in a modify batch.

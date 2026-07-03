@@ -114,6 +114,20 @@ const (
 	FieldAttachments      = "attachments"
 )
 
+// Read-tracking flag fields: device-local unread booleans riding on
+// the synced message records (the SDK read-tracking proposal's
+// RecordFlags names, one per tag). LOCAL scope — never in the DAG,
+// never synced; each device materializes its own values. Written via
+// POST /v1/spaces/:id/modify with {"scope":"local"} today; the SDK's
+// read-tracking service will own them once RecordFlags land. Local
+// writes skip the chat handler entirely (LocalSet route), so none of
+// the handler's create/edit rules below apply to them.
+const (
+	FieldUnread          = "unread"
+	FieldUnreadMention   = "unreadMention"
+	FieldUnreadReactions = "unreadReactions"
+)
+
 // Agent sub-record keys.
 const (
 	FieldAgentName      = "name"
@@ -178,7 +192,10 @@ func NewType() handler.Type {
 // class: creator / createdAt / modifiedAt are server-stamped via
 // sink.Derive → ScopeDerived (handler-only, rejected from client ops);
 // text / replyToMessageId / agent / reactions / attachments are
-// user/DAG-written → ScopeSynced. nav.* lives in the shared `objects`
+// user/DAG-written → ScopeSynced; unread / unreadMention /
+// unreadReactions are device-local read-tracking flags → ScopeLocal
+// (written via the local-scope modify route, invisible to other
+// members and other devices). nav.* lives in the shared `objects`
 // namespace, not here. reactions / attachments / agent carry nested
 // keyspaces (emoji→accountId→ts, attachmentId→{type,link},
 // {name,debugLink,done}) so they declare an unconstrained object
@@ -195,6 +212,9 @@ func datasetSchema() handler.Schema {
 			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
+			{Id: FieldUnreadMention, Name: "Unread Mention", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
+			{Id: FieldUnreadReactions, Name: "Unread Reactions", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
 		},
 	}
 }

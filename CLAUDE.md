@@ -535,6 +535,30 @@ Implementation slices landed:
     docs/01-cli.md, docs/04-events.md § Identities directory stream,
     client recipe docs/08-clients.md § 8.
 
+21. **Scoped fields for records** — the local write route is now
+    public end-to-end. SDK (`ModifyBatch.Scope`): `POST
+    /v1/spaces/:id/modify` takes `"scope": "synced"|"local"`; local
+    routes through `Object.LocalSet` (no DAG change, never syncs,
+    flows through query/subscribe, empty `changeId`), constrained to
+    fields the dataset schema declares `ScopeLocal` + explicit record
+    ids, no upsert, no traceIds (`400 request.schema`; wrong-scope ops
+    → `rejections`, synced-write-to-local-field → `400
+    dataset.validation`). Chat declares the read-tracking flag fields
+    `unread` / `unreadMention` / `unreadReactions` as ScopeLocal
+    booleans (read-tracking proposal RecordFlags names; the SDK
+    read-tracking service will own them once it lands — until then
+    they're app-writable materializations). Property definitions:
+    `POST …/types/:id/properties` accepts `scope`
+    (synced/account/local, pinned first-write like kind; derived
+    rejected) and `GET …/properties` returns it — value writes were
+    already scope-routed via `PropertiesAPI.Set`. Account scope for
+    RECORD fields is declared-but-not-writable (SDK mirror covers
+    objects rows only). SDK prerequisite: `ModifyBatch.Scope` +
+    exported `space.ParseScope` (branch cheggaaa/scoped-record-modify;
+    SDK contract test e2e/local_scope_records_test.go). `any` tests:
+    handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
+    § Datasets / § Types & properties / § Chat.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

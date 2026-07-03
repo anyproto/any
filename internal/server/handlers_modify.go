@@ -121,6 +121,19 @@ func buildModifyBatch(root *fastjson.Value) (space.ModifyBatch, error) {
 		batch.TraceIds = append(batch.TraceIds, string(t.GetStringBytes()))
 	}
 
+	// scope selects the write route (docs/03-api.md § Modify records):
+	// "synced" (default — the object's own DAG change) or "local"
+	// (device-only materialization for fields the dataset schema
+	// declares local-scope, e.g. chat's unread flags). Account and
+	// derived are not writable here.
+	if v := root.Get("scope"); v != nil {
+		sc, ok := space.ParseScope(string(v.GetStringBytes()))
+		if !ok || (sc != space.ScopeSynced && sc != space.ScopeLocal) {
+			return space.ModifyBatch{}, fmt.Errorf(`scope must be "synced" or "local"`)
+		}
+		batch.Scope = sc
+	}
+
 	recs := root.GetArray("records")
 	batch.Records = make([]space.RecordModify, 0, len(recs))
 	for i, rv := range recs {
@@ -129,6 +142,31 @@ func buildModifyBatch(root *fastjson.Value) (space.ModifyBatch, error) {
 			return space.ModifyBatch{}, fmt.Errorf("records[%d]: %w", i, err)
 		}
 		batch.Records = append(batch.Records, rec)
+	}
+
+	// Local-scope constraints, checked at the boundary so callers get a
+	// 400 instead of tripping the SDK guard: local fields annotate
+	// records the synced route already created — explicit ids, no
+	// upsert — and traceIds ride the any-sync change, which a local
+	// write never produces. The shared objects dataset is per-property
+	// scoped and its local writer is the properties endpoint, which
+	// validates per-prop scope + kind — the generic route must not
+	// bypass that.
+	if batch.Scope == space.ScopeLocal {
+		if batch.Dataset == "objects" {
+			return space.ModifyBatch{}, fmt.Errorf("local-scope writes to the objects dataset go through POST …/properties/:objectId/set/:typeId")
+		}
+		if len(batch.TraceIds) > 0 {
+			return space.ModifyBatch{}, fmt.Errorf("traceIds are not supported with local scope")
+		}
+		for i := range batch.Records {
+			if batch.Records[i].Id == "" {
+				return space.ModifyBatch{}, fmt.Errorf("records[%d]: local scope requires explicit record ids", i)
+			}
+			if batch.Records[i].Upsert {
+				return space.ModifyBatch{}, fmt.Errorf("records[%d]: local scope cannot create records (upsert unsupported)", i)
+			}
+		}
 	}
 	return batch, nil
 }

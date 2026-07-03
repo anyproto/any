@@ -33,6 +33,14 @@ type AddPropertyRequest struct {
 	// property definition. meta["index"] = "<scope>" marks the property
 	// for the search indexer (docs/13-index.md).
 	Meta map[string]string `json:"meta,omitempty"`
+	// Scope is the property's write/sync class: "synced" (default,
+	// everyone in the space), "account" (this account's devices only),
+	// or "local" (this device only, never synced). "derived" is
+	// reserved for built-ins and rejected. Pinned by the first write,
+	// like kind — changing a property's scope means defining a new
+	// property. Property VALUE writes auto-route by the declared scope
+	// (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
+	Scope string `json:"scope,omitempty"`
 }
 
 // AddPropertyResponse is the body returned by AddProperty.
@@ -81,10 +89,14 @@ type PropertyDef struct {
 	Kind        string `json:"kind"`
 	// Meta is the opaque consumer flag map set at AddProperty time
 	// (e.g. meta["index"] = "<scope>" for the search indexer).
-	Meta       map[string]string `json:"meta,omitempty"`
-	Items      *PropertyDef      `json:"items,omitempty"`
-	Properties []PropertyDef     `json:"properties,omitempty"`
-	Required   []string          `json:"required,omitempty"`
+	Meta map[string]string `json:"meta,omitempty"`
+	// Scope is the property's write/sync class (synced / derived /
+	// account / local). Definitions written before scopes existed
+	// read back as "synced".
+	Scope      string        `json:"scope,omitempty"`
+	Items      *PropertyDef  `json:"items,omitempty"`
+	Properties []PropertyDef `json:"properties,omitempty"`
+	Required   []string      `json:"required,omitempty"`
 }
 
 // PropertiesListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/properties.
