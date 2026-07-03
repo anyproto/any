@@ -138,11 +138,54 @@ Query the chat objects as usual; each row already carries
 and live updates arrive through the normal objects subscription. No
 per-chat calls, no chat opens — a thousand chats cost one query.
 
+## Desktop notifications (no per-chat subscriptions)
+
+Do NOT subscribe to every chat to detect new messages — each
+subscription holds a record window and mailbox, and puts event-build
+work on every apply. The read-state feed is the notification feed, one
+per space. It is an SDK surface (this code runs in the server / a
+desktop wrapper with SDK access; an HTTP/SSE notifications stream for
+thin clients is a planned follow-up):
+
+```go
+cancel := sp.ReadState().Subscribe(ping)               // liveness
+events, _ := sp.ReadState().ChangedSince(ctx, cursor, 0) // durable pull
+```
+
+A transition with `unread: true` and tag `message` is exactly
+"notify-worthy": your own messages never appear (born read), edits
+never appear, and reading on another device produces `unread: false`
+transitions — dismiss the matching OS notification when you see one.
+Fetch the message body for the toast with a point query by the
+transition's record id (a miss means it was deleted — skip it).
+Persist the cursor (`stateSeq`) with the same generation/reset rules
+as the change-index feed.
+
+Two rules:
+
+1. **Collapse before notifying.** Pull to the end, group by change,
+   and notify only entries whose latest transition is still unread —
+   this absorbs seed bursts, rapid cross-device reads, and delete
+   races in one rule.
+2. **Boot policy.** Don't replay the offline gap as individual toasts;
+   advance the cursor and let badges carry the state (or show one
+   summary). Only post-boot transitions deserve notifications.
+
+If the cursor falls off the pruned feed, rebuild from state instead of
+history: the chat-list query with `unreadCount > 0` enumerates the
+chats that matter, badges come from the same rows.
+
+Total live surface for a desktop client: one read-state feed per
+space, one chat-list query per space, one `/query/subscribe` for the
+currently OPEN chat. Nothing per closed chat.
+
 ## Things not to do
 
 - Don't call read endpoints on message receipt, on notification
   display, or unconditionally on chat open — only on actual
   visibility.
+- Don't subscribe to all chats to build notifications or badges — see
+  § Desktop notifications; subscriptions are for the open chat only.
 - Don't maintain your own read cursor or counters in client storage;
   the SDK's state is the durable, multi-device one. A client cache of
   rendered flags is fine — it gets corrected by events.
