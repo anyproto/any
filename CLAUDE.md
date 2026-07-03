@@ -587,16 +587,18 @@ make build                                        # builds any, bobrik-watch, an
 
 # 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
 #    tool-descriptions from disk into the bao space).
-./bin/bobrik-watch --bootstrap                    # SIGHUPs the running instance
+./bin/bobrik-watch --bootstrap                    # POST /bootstrap to the running instance
 ```
 
 Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
 how new JS reaches a live agent: a binary restart alone does NOT re-sync
 the in-space programs/skills of an already-running watcher; `--bootstrap`
-(SIGHUP) re-runs the bootstrap sync against disk. That sync is
-**incremental/hash-gated** — unchanged programs/skills are skipped,
-deleted ones swept — so it's cheap to run often. (`--bootstrap-clean`,
-SIGUSR1, is the wipe-and-rebuild recovery path.) See
+POSTs `/bootstrap` to the running watcher's control API (`--control-addr`,
+default `127.0.0.1:7010`), which re-runs the bootstrap sync against disk.
+That sync is **incremental/hash-gated** — unchanged programs/skills are
+skipped, deleted ones swept — so it's cheap to run often.
+(`--bootstrap-clean` POSTs `/bootstrap-clean`, the wipe-and-rebuild
+recovery path.) See
 [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Startup sync
 for the mechanics.
 

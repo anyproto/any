@@ -94,13 +94,14 @@ assistantjs stack (init_agent → toolcall_core → LLM) against the
   (→ `client.config.debugFolderId`), and `dcInit` files the page there
   via `client.addToCollection`. Don't add a second, Go-side debug
   writer — that just duplicates the page. The folder deliberately sits
-  OUTSIDE "System Bobrik Files" so `--bootstrap` (SIGHUP) refreshes —
+  OUTSIDE "System Bobrik Files" so `--bootstrap` refreshes —
   which wipe the system folder's children — never delete it; traces
   accumulate across refreshes. (It used to be nested inside; every
-  refresh orphaned the traces.) The folder id is stable, but SIGHUP
-  still re-runs bootstrap and rewrites `debugFolderID`, so it stays
-  guarded by `debugFolderMu` (signal goroutine writes, subscribe loop
-  reads). Folder find/create is shared via `ensureNavFolder` /
+  refresh orphaned the traces.) The folder id is stable, but a
+  `/bootstrap` refresh still re-runs bootstrap and rewrites
+  `debugFolderID`, so it stays guarded by `debugFolderMu`
+  (control-server goroutine writes, subscribe loop reads). Folder
+  find/create is shared via `ensureNavFolder` /
   `findNavFolder`.
 
 ## Cross-space model
@@ -190,12 +191,12 @@ subscribes to exactly one chat. Other spaces are reached **per call**:
 from the parent of `--programs-dir` (defaults to `cmd/bobrik-watch/`)
 at sync time — edits to those files take effect on the next refresh
 without rebuilding the binary. That was the whole point of
-SIGHUP-driven bootstrap; embedding pinned the JS to the binary
+`--bootstrap`-driven refresh; embedding pinned the JS to the binary
 timestamp.
 
 ## Startup sync — hash-gated, incremental
 
-`bootstrapSystemFiles` (run on every boot AND on SIGHUP) is
+`bootstrapSystemFiles` (run on every boot AND on `POST /bootstrap`) is
 `ensureSystemFolder` + `syncPrograms` + `syncSkills` + orphan sweep +
 `ensureDebugFolder`. It is **incremental, not unconditional** — it
 compares on-disk content to the content already in the space and only
@@ -223,13 +224,13 @@ writes what changed, so a no-op restart produces ~zero new DAG changes
   fully reconciles disk → space.
 
 Both the boot path and `--bootstrap` run this **same incremental**
-`bootstrapSystemFiles` — `--bootstrap` (SIGHUP) no longer wipes, so a
-refresh of an unchanged disk writes ~nothing. A plain restart and a
-`--bootstrap` are now equivalent in effect; reach for the latter to
-refresh a *running* watcher's in-space JS without restarting it.
+`bootstrapSystemFiles` — `--bootstrap` no longer wipes, so a refresh of
+an unchanged disk writes ~nothing. A plain restart and a `--bootstrap`
+are now equivalent in effect; reach for the latter to refresh a
+*running* watcher's in-space JS without restarting it.
 
-`--bootstrap-clean` (SIGUSR1) is the **force-clean recovery** path: it
-first `removeSystemFiles` (deletes the "System Bobrik Files" folder +
+`--bootstrap-clean` is the **force-clean recovery** path: it first
+`removeSystemFiles` (deletes the "System Bobrik Files" folder +
 children, children-first), then rebuilds from scratch. Use it only to
 recover a corrupt/divergent space (e.g. duplicate program objects the
 incremental sweep keeps because their name is still expected). The
@@ -237,9 +238,18 @@ root-level "Debug" folder is outside the system folder and untouched by
 any path. Subscribe loop stays up across a refresh; types (`Program`,
 `Agent Skill`) are never recreated.
 
-On startup writes its PID to `./.bobrik-pid`; `kill -HUP $(cat
-.bobrik-pid)` ≡ `bobrik-watch --bootstrap`, `kill -USR1 …` ≡
-`--bootstrap-clean`. SIGINT/SIGTERM remove the PID file before exit.
+**Refresh is driven over HTTP, not Unix signals** (`control_server.go`):
+a running watcher serves a control API at `--control-addr` (default
+`127.0.0.1:7010`) with `POST /bootstrap` (incremental) and `POST
+/bootstrap-clean` (wipe + rebuild). The `--bootstrap` /
+`--bootstrap-clean` flags are thin clients that POST the matching
+endpoint to that address and exit — no PID file, no `SIGHUP`/`SIGUSR1`,
+so it works on any platform (Windows included). A `bootstrapMu`
+serializes concurrent control requests; the boot path calls
+`bootstrapSystemFiles` directly, before the control server starts. If
+nothing is listening, `--bootstrap` exits non-zero. `SIGINT`/`SIGTERM`
+still terminate the process (Go's default) — there's no PID file to
+clean up.
 
 ## Program name validity
 
@@ -258,8 +268,8 @@ make build                                        # builds any, bobrik-watch, an
                                                   # "general" (found-or-created by name + chat type;
                                                   #  clients create "general" by convention)
 ./bin/bobrik-watch --addr 127.0.0.1:7002          # point at a different server
-./bin/bobrik-watch --bootstrap                    # SIGHUP — incremental (hash-gated) refresh
-./bin/bobrik-watch --bootstrap-clean              # SIGUSR1 — wipe + rebuild (recovery)
+./bin/bobrik-watch --bootstrap                    # POST /bootstrap — incremental (hash-gated) refresh
+./bin/bobrik-watch --bootstrap-clean              # POST /bootstrap-clean — wipe + rebuild (recovery)
 ./bin/any-agent-runtime -e .env script.js k=v     # run one JS file with PRODUCTION module
                                                   # resolution (imports resolve from the `any`
                                                   # space via internal/anyrt — same loader as
@@ -272,4 +282,4 @@ and (via the latter) the JS integration tests — one loader, three
 consumers, no test/prod resolution drift. Module imports are resolved
 per-import over HTTP with NO caching, by design: editing a program in the
 space (anyPrograms.saveProgram / editProgram) is live on the next message;
-disk edits land via SIGHUP re-sync. Don't add a cache here.
+disk edits land via `--bootstrap` re-sync. Don't add a cache here.

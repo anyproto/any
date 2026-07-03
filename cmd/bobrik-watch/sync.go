@@ -17,7 +17,7 @@ import (
 	"github.com/anyproto/any/internal/anyrt"
 )
 
-// All three are derived from filepath.Dir(programsDir) at boot so SIGHUP
+// All three are derived from filepath.Dir(programsDir) at boot so a /bootstrap
 // refresh re-reads the live files on disk — embedding defeated the whole
 // point of the bootstrap/refresh story (anyHelper.js edits stayed pinned
 // to the binary timestamp).
@@ -858,7 +858,7 @@ const (
 	systemFolderName = "System Bobrik Files"
 	// debugFolderName holds bobrik's agent-trace notes. It lives at the
 	// nav ROOT — deliberately outside the system folder — so --bootstrap
-	// (SIGHUP) refreshes never delete it and the accumulated traces
+	// refreshes never delete it and the accumulated traces
 	// survive. (It used to be nested under the system folder; every
 	// refresh deleted it and orphaned the traces parented inside.)
 	debugFolderName = "Debug"
@@ -1002,8 +1002,8 @@ func expectedSystemNames(programsDir string, skip map[string]bool) (map[string]b
 // sweepOrphans deletes objects parented under the system folder whose
 // any.name is not in the expected set — i.e. a program or skill whose source
 // file was removed from disk. The startup hash-gate handles add/change; this
-// closes the loop on delete without the wipe-and-recreate that --bootstrap
-// does. Children with an empty name are left untouched (defensive — the
+// closes the loop on delete without the wipe-and-recreate that
+// --bootstrap-clean does. Children with an empty name are left untouched (defensive — the
 // system folder is bobrik-exclusive, but never delete something unnamed).
 func sweepOrphans(baseURL, spaceID, folderID string, expected map[string]bool) error {
 	filter := map[string]any{"filter": map[string]any{"nav.parentId": folderID}}
