@@ -138,46 +138,54 @@ Query the chat objects as usual; each row already carries
 and live updates arrive through the normal objects subscription. No
 per-chat calls, no chat opens — a thousand chats cost one query.
 
-## Desktop notifications (no per-chat subscriptions)
+## Desktop notifications (no per-chat subscriptions, no server help)
 
 Do NOT subscribe to every chat to detect new messages — each
 subscription holds a record window and mailbox, and puts event-build
-work on every apply. The read-state feed is the notification feed, one
-per space. It is an SDK surface (this code runs in the server / a
-desktop wrapper with SDK access; an HTTP/SSE notifications stream for
-thin clients is a planned follow-up):
+work on every apply. There is also no notification service: a desktop
+client (e.g. a Tauri wrapper with its own local store) builds OS
+notifications itself, entirely over the existing HTTP surface. The
+trick is that the SDK already funnels "something notify-worthy
+happened" into the chat rows' counter properties — so ONE space-wide
+subscription covers every chat:
 
-```go
-cancel := sp.ReadState().Subscribe(ping)               // liveness
-events, _ := sp.ReadState().ChangedSince(ctx, cursor, 0) // durable pull
+```
+POST /v1/spaces/:spaceId/objects/query/subscribe
+{ "filter": {"type": "chat"}, "limit": 0 }
 ```
 
-A transition with `unread: true` and tag `message` is exactly
-"notify-worthy": your own messages never appear (born read), edits
-never appear, and reading on another device produces `unread: false`
-transitions — dismiss the matching OS notification when you see one.
-Fetch the message body for the toast with a point query by the
-transition's record id (a miss means it was deleted — skip it).
-Persist the cursor (`stateSeq`) with the same generation/reset rules
-as the change-index feed.
+Each frame's `updated` entries carry the full row and the ops — watch
+for `unreadCount` (later `unreadMentions`) changes:
 
-Two rules:
+- **Counter went up** → new unread in that chat. Fetch what to show:
+  `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
+  small limit. Keep a last-notified `_ver.id` per chat in the client's
+  local store and toast only messages above it — that marker is your
+  entire notification cursor.
+- **Counter went down** → the user read it here, in another window, or
+  on another device — dismiss that chat's OS notifications. Cross-
+  device dismissal falls out for free.
+- The counters already encode the semantics, so no client-side
+  filtering is needed: your own messages never bump them (born read),
+  edits never bump them, deleting an unseen message drops them.
 
-1. **Collapse before notifying.** Pull to the end, group by change,
-   and notify only entries whose latest transition is still unread —
-   this absorbs seed bursts, rapid cross-device reads, and delete
-   races in one rule.
-2. **Boot policy.** Don't replay the offline gap as individual toasts;
-   advance the cursor and let badges carry the state (or show one
-   summary). Only post-boot transitions deserve notifications.
+Boot policy: on start, take the subscription's snapshot as badge
+state — don't toast the offline gap (the last-notified markers make
+this automatic). On SSE overflow/drift, resubscribe; the snapshot
+frame re-establishes badges and the markers keep toasts deduplicated.
+Space add/remove: re-list `/spaces` on its own events or a slow poll.
 
-If the cursor falls off the pruned feed, rebuild from state instead of
-history: the chat-list query with `unreadCount > 0` enumerates the
-chats that matter, badges come from the same rows.
+Total live surface for a desktop client: one objects subscription per
+space, one `/query/subscribe` for the currently OPEN chat, plus a
+last-notified marker per chat in local storage. Nothing per closed
+chat, nothing server-side.
 
-Total live surface for a desktop client: one read-state feed per
-space, one chat-list query per space, one `/query/subscribe` for the
-currently OPEN chat. Nothing per closed chat.
+(In-process consumers with SDK access — the server itself, native
+wrappers — can use the finer-grained per-space read-state feed,
+`ReadState().Subscribe` + `ChangedSince(cursor)`, which itemizes every
+unread/read transition with tags and record ids. Same semantics; the
+HTTP recipe above is a coarser projection of it and is sufficient for
+notifications.)
 
 ## Things not to do
 
