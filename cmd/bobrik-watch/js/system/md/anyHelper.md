@@ -47,6 +47,10 @@ objects lacking the field — cross-object getObjects scopes by type so that's s
 ### getObject(objId, opts?) [getter]
 Fetch one object by ID. Returns the object with properties nested per type
 (`obj["<typeXKey>"].prop`, read via `getProp(obj, "<typeXKey>.prop")`) plus `markdown` body.
+When a page has no markdown of its own but carries `enriched_data` facts (the
+meeting-enrich flow), the facts come back as `obj.enrichedData` (raw rows) and a
+rendered "## Enriched facts" section on `markdown`/`body` — an empty-looking
+body means the object truly has no content, not that you missed a dataset.
 - objId: object ID
 - opts.space: any space id (default: your own space)
 - opts.from, opts.to: line range for markdown slicing

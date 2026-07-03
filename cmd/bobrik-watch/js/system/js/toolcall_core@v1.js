@@ -1315,6 +1315,45 @@ function dcLogInitialContext(systemText) {
   });
 }
 
+// Anthropic per-MTok USD prices (input/output), longest-prefix matched so
+// dated ids ("claude-haiku-4-5-20251001") resolve. Cache multipliers are
+// uniform across models: 5-minute ephemeral writes bill 1.25× input, reads
+// 0.1×. Prices drift — an off-table model yields cost null (unknown), never
+// a wrong number.
+var _CLAUDE_PRICES = {
+  "claude-fable-5": { inTok: 10, outTok: 50 },
+  "claude-opus-4": { inTok: 5, outTok: 25 }, // 4.x Opus tier all $5/$25
+  "claude-sonnet-5": { inTok: 3, outTok: 15 },
+  "claude-sonnet-4": { inTok: 3, outTok: 15 },
+  "claude-haiku-4-5": { inTok: 1, outTok: 5 }
+};
+
+// _estimateCost(model, usage) → USD or null. Anthropic usage carries the
+// cache counters separately from input_tokens (which is the UNCACHED
+// remainder only), so the estimate prices all four streams.
+export function _estimateCost(model, u) {
+  if (!model || !u || u.input_tokens === undefined) return null;
+  var price = null, bestLen = 0;
+  for (var key in _CLAUDE_PRICES) {
+    if (model.indexOf(key) === 0 && key.length > bestLen) {
+      price = _CLAUDE_PRICES[key];
+      bestLen = key.length;
+    }
+  }
+  if (!price) return null;
+  var inT = u.input_tokens || 0;
+  var cacheW = u.cache_creation_input_tokens || 0;
+  var cacheR = u.cache_read_input_tokens || 0;
+  var outT = u.output_tokens || 0;
+  return (
+    (inT * price.inTok +
+      cacheW * price.inTok * 1.25 +
+      cacheR * price.inTok * 0.1 +
+      outT * price.outTok) /
+    1e6
+  );
+}
+
 function dcLogTurn(opts) {
   if (!_dc.client || !_dc.pageId) return;
   var n = opts.n;
@@ -1355,7 +1394,14 @@ function dcLogTurn(opts) {
     outT = u.completion_tokens || u.output_tokens || 0;
     _dc.totalIn += inT;
     _dc.totalOut += outT;
-    if (u.cost !== undefined) { _dc.totalCost += (u.cost || 0); cost = u.cost; }
+    if (u.cost !== undefined) {
+      // OpenRouter reports cost directly.
+      cost = u.cost;
+    } else {
+      // Anthropic doesn't — estimate from the price table (null off-table).
+      cost = _estimateCost(resp.model || _dc.model, u);
+    }
+    if (cost != null) _dc.totalCost += (cost || 0);
   }
 
   // Turn record holds the extracted scalars + the per-cell code/result, plus

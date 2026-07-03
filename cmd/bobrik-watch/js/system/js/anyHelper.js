@@ -604,6 +604,29 @@ export function createClient(params) {
       }
     }
 
+    // Some objects carry their knowledge only as enriched_data facts (the
+    // meeting-enrich flow writes sourced facts onto a page that has no editor
+    // blocks). A bare `getObject` on such a page looked empty — the agent saw
+    // "(no body)" and had to know to query enriched_data separately. Surface
+    // the facts: raw rows on `obj.enrichedData`, and (when the page has no
+    // markdown of its own) a rendered "Enriched facts" section on
+    // `markdown`/`body` so generic consumers see the content. Only queried
+    // when the body is empty — no extra roundtrip on ordinary pages.
+    if (!obj.markdown) {
+      var edRes = api("POST", path + "/query", { objectId: objId, dataset: "enriched_data" });
+      if (edRes.ok && edRes.data && edRes.data.records && edRes.data.records.length > 0) {
+        obj.enrichedData = edRes.data.records;
+        var lines = ["## Enriched facts", ""];
+        for (var ei = 0; ei < edRes.data.records.length; ei++) {
+          var fact = edRes.data.records[ei];
+          if (!fact || !fact.text) continue;
+          lines.push("- " + fact.text + (fact.source ? " _(source: " + fact.source + ")_" : ""));
+        }
+        obj.markdown = lines.join("\n");
+        obj.body = obj.markdown;
+      }
+    }
+
     if (opts.from || opts.to) {
       var lines = (obj.markdown || "").split("\n");
       var total = lines.length;
