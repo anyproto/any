@@ -141,6 +141,16 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Local.Threads = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_GPU_LAYERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Local.GpuLayers = &n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_BATCH_DOCS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.Index.Local.BatchDocs = n
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_VECTOR_DIM"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Vector.Dim = n

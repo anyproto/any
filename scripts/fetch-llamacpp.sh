@@ -2,8 +2,17 @@
 # Fetch prebuilt llama.cpp shared libraries for a target platform.
 #
 # Usage: scripts/fetch-llamacpp.sh <llama.cpp release tag> <dest dir> [platform]
-#   platform ∈ macos-arm64 | macos-x64 | ubuntu-x64 | win-cpu-x64
+#   platform ∈ macos-arm64 | macos-x64 | ubuntu-vulkan-x64 | win-vulkan-x64
 #   default: host-detected (so `make llamacpp` keeps working with no 3rd arg).
+#
+# GPU: the default archives are GPU-capable with automatic CPU fallback.
+# macOS arm64 ships Metal; the Vulkan archives (Linux/Windows) are strict
+# supersets of the CPU-only ones — every libggml-cpu-* variant plus
+# libggml-vulkan — and ggml's dynamic backend registry treats a backend
+# whose driver/loader is missing as absent, so GPU-less machines run
+# CPU-only. CUDA/ROCm stay out (huge, per-vendor; Linux CUDA has no
+# upstream prebuilt at all) — power users point index.local.libDir at a
+# custom build. Contract: docs/13-index.md § GPU offload.
 #
 # Release archives are cached under third_party/llamacpp/cache/ so repeated
 # runs (and a warm CI cache) need no network. The dest dir gets the shared
@@ -20,7 +29,7 @@ if [ -z "$PLAT" ]; then
     case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) PLAT="macos-arm64" ;;
     Darwin-x86_64) PLAT="macos-x64" ;;
-    Linux-x86_64) PLAT="ubuntu-x64" ;;
+    Linux-x86_64) PLAT="ubuntu-vulkan-x64" ;;
     *)
         echo "fetch-llamacpp: cannot host-detect $(uname -s)-$(uname -m); pass an explicit platform" >&2
         exit 1
@@ -29,8 +38,8 @@ if [ -z "$PLAT" ]; then
 fi
 
 case "$PLAT" in
-macos-arm64 | macos-x64 | ubuntu-x64) EXT="tar.gz" ;;
-win-cpu-x64) EXT="zip" ;;
+macos-arm64 | macos-x64 | ubuntu-*) EXT="tar.gz" ;;
+win-*) EXT="zip" ;;
 *)
     echo "fetch-llamacpp: unknown platform '$PLAT'" >&2
     exit 1

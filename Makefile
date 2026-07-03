@@ -40,7 +40,9 @@ build: swagger llamacpp-soft
 # Prebuilt llama.cpp shared libs for `index.embedder: local` — fetched
 # once into bin/llamacpp/ (cached tarball under third_party/llamacpp/);
 # a no-op once bin/llamacpp/VERSION matches the pin, so repeat builds
-# stay network-free.
+# stay network-free. GPU-capable bundles with automatic CPU fallback
+# (Metal on macOS arm64, Vulkan on Linux/Windows) —
+# docs/13-index.md § GPU offload.
 llamacpp:
 	./scripts/fetch-llamacpp.sh $(LLAMACPP_VERSION) $(OUT)/llamacpp
 

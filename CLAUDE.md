@@ -546,7 +546,10 @@ make build                                        # builds any, bobrik-watch, an
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
-                                                  # warns instead of failing the build
+                                                  # warns instead of failing the build.
+                                                  # GPU-capable bundles (Metal / Vulkan) with
+                                                  # automatic CPU fallback — docs/13-index.md
+                                                  # § GPU offload
 make build-android                                # dist/android/any.aar — arm64-v8a gomobile bind
                                                   # (single ABI), version-
                                                   # stamped via `-ldflags '$(LDFLAGS)'`; CI passes
