@@ -22,7 +22,7 @@ On startup bobrik-watch:
 2. Creates the `Program` and `Agent Skill` types with their properties.
 3. Ensures the "System Bobrik Files" and "Integrations" nav folders;
    synced programs are parented under one of them so `--bootstrap`
-   (SIGHUP) can refresh them.
+   can refresh them.
 4. Syncs JS programs from the asset tree under `--js-dir`
    (`cmd/bobrik-watch/js`): **system** programs from `js/system/js/`
    (incl. `anyHelper.js`) → "System Bobrik Files"; **integration**
@@ -38,12 +38,14 @@ On startup bobrik-watch:
    without a description file get `any_tool: false` and are not tools.
 5. Syncs agent skills from `js/system/skills/` (stored as
    editor/markdown content on skill objects).
-6. Ensures a `Debug` nav folder nested under "System Bobrik Files"
-   (so `--bootstrap`/SIGHUP wipes and recreates it with everything
-   else). Its id is passed to the agent runtime as
-   `env.ANY_DEBUG_FOLDER_ID`.
-7. Writes its PID to `./.bobrik-pid` and subscribes to the chat's
-   `chat_messages` SSE stream.
+6. Ensures a `Debug` nav folder for agent-trace notes. Its id is
+   passed to the agent runtime as `env.ANY_DEBUG_FOLDER_ID`.
+7. Starts the control API (`--control-addr`, default
+   `127.0.0.1:7010`) serving `POST /run` (execute a deployed program in
+   bobrik's kernel), `POST /bootstrap`, and `POST /bootstrap-clean`,
+   then subscribes to the chat's `chat_messages` SSE stream.
+   `--bootstrap` / `--bootstrap-clean` are thin clients that POST those
+   endpoints to a running watcher.
 
 On each human message (no `agent` field):
 

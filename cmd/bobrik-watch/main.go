@@ -11,20 +11,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
 
 	"github.com/anyproto/any/internal/anyrt"
 )
-
-const pidFilePath = ".bobrik-pid"
 
 var (
 	base          string
@@ -35,9 +30,9 @@ var (
 
 	// debugFolderID is the root-level "Debug" nav folder that
 	// agent-trace notes are parented under. The folder is reused if it
-	// exists (stable id), but SIGHUP refresh (signal goroutine) still
-	// re-runs bootstrap and rewrites the variable while the subscribe
-	// loop reads it — guard with debugFolderMu.
+	// exists (stable id), but a /bootstrap refresh (control-server
+	// goroutine) still re-runs bootstrap and rewrites the variable while
+	// the subscribe loop reads it — guard with debugFolderMu.
 	debugFolderMu sync.RWMutex
 	debugFolderID string
 )
@@ -59,25 +54,25 @@ func main() {
 	flag.StringVar(&jsDir, "js-dir", "cmd/bobrik-watch/js", "root dir of bobrik JS assets (system/{js,md,skills} + integrations/{js,md})")
 	flag.StringVar(&spaceName, "space", "bao", "space name (created if missing)")
 	flag.StringVar(&agentName, "agent-name", "bao", "agent display name on replies (agent.name)")
-	runAddr := flag.String("run-addr", "127.0.0.1:7010", "bobrik control API address — serves POST /run (run a deployed program in bobrik's kernel against a target space)")
-	bootstrap := flag.Bool("bootstrap", false, "send SIGHUP to the running bobrik-watch (PID from "+pidFilePath+") for an incremental (hash-gated) refresh, and exit")
-	bootstrapClean := flag.Bool("bootstrap-clean", false, "send SIGUSR1 to wipe \"System Bobrik Files\" and rebuild from scratch (recovery), and exit")
+	controlAddr := flag.String("control-addr", "127.0.0.1:7010", "bobrik control API address (host:port) — serves POST /run, /bootstrap, /bootstrap-clean")
+	bootstrap := flag.Bool("bootstrap", false, "POST /bootstrap to the running bobrik-watch (at --control-addr) for an incremental (hash-gated) refresh, and exit")
+	bootstrapClean := flag.Bool("bootstrap-clean", false, "POST /bootstrap-clean to wipe \"System Bobrik Files\" and rebuild from scratch (recovery), and exit")
 	flag.Parse()
 	base = "http://" + *addr
 
 	if *bootstrap || *bootstrapClean {
-		sig := syscall.SIGHUP
+		endpoint := "/bootstrap"
 		if *bootstrapClean {
-			sig = syscall.SIGUSR1
+			endpoint = "/bootstrap-clean"
 		}
-		if err := triggerBootstrap(pidFilePath, sig); err != nil {
+		if err := triggerBootstrap(*controlAddr, endpoint); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 
 	// Asset tree: <jsDir>/system/{js,md,skills} + <jsDir>/integrations/{js,md}.
-	// Read live from disk at sync time (SIGHUP refresh re-reads them).
+	// Read live from disk at sync time (a /bootstrap refresh re-reads them).
 	systemProgramsDir = filepath.Join(jsDir, "system", "js")
 	systemMdDir = filepath.Join(jsDir, "system", "md")
 	skillsDir = filepath.Join(jsDir, "system", "skills")
@@ -110,16 +105,18 @@ func main() {
 		log.Fatalf("bootstrap system files: %v", err)
 	}
 
-	if err := writePIDFile(pidFilePath); err != nil {
-		log.Fatalf("write pid file: %v", err)
-	}
-	defer os.Remove(pidFilePath)
-
-	sigCh := make(chan os.Signal, 4)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGINT, syscall.SIGTERM)
-	go handleSignals(sigCh, spaceID, programTypeID, skillTypeID)
-
-	go startRunServer(*runAddr, spaceID)
+	// Refresh is driven over HTTP (see control_server.go) instead of Unix
+	// signals, so `--bootstrap` works on any platform and needs no PID file.
+	// /run (run_server.go) shares the same mux/listener.
+	controlMux := http.NewServeMux()
+	registerControlRoutes(controlMux, spaceID, programTypeID, skillTypeID)
+	registerRunRoute(controlMux, spaceID)
+	go func() {
+		fmt.Fprintf(os.Stderr, "control API listening on http://%s (POST /run, /bootstrap, /bootstrap-clean)\n", *controlAddr)
+		if err := http.ListenAndServe(*controlAddr, controlMux); err != nil {
+			fmt.Fprintf(os.Stderr, "control API server error: %v\n", err)
+		}
+	}()
 
 	fmt.Fprintf(os.Stderr, "subscribing to chat_messages…\n")
 	subscribeLoop(spaceID, objectID)
@@ -171,7 +168,7 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	// Orphan sweep per folder: delete a folder's children whose source file is
 	// gone. The hash-gated upserts above cover add/change; this covers delete,
 	// so a plain restart fully reconciles disk → space without the destructive
-	// wipe that --bootstrap (SIGHUP) does.
+	// wipe that --bootstrap-clean does.
 	expectedSys, err := expectedSystemNames(systemProgramsDir, skip)
 	if err != nil {
 		return "", fmt.Errorf("build expected system names: %w", err)
@@ -200,71 +197,25 @@ func bootstrapSystemFiles(spaceID, programTypeID, skillTypeID string) (string, e
 	return sysFolderID, nil
 }
 
-// triggerBootstrap reads the PID file written by a running bobrik-watch and
-// sends it the given signal, which the signal handler picks up as a refresh
-// request (SIGHUP = incremental, SIGUSR1 = wipe-and-rebuild). Errors if the
-// PID file is missing or unparseable; the caller `bobrik-watch --bootstrap`
-// then exits non-zero so scripts can detect "nothing was running."
-func triggerBootstrap(path string, sig syscall.Signal) error {
-	data, err := os.ReadFile(path)
+// triggerBootstrap POSTs to a running bobrik-watch's control server (see
+// control_server.go) to request a refresh — endpoint "/bootstrap" (incremental)
+// or "/bootstrap-clean" (wipe-and-rebuild). Errors if nothing is listening or
+// the server reports a non-2xx, so the caller `bobrik-watch --bootstrap` exits
+// non-zero and scripts can detect "nothing was running." Replaces the old
+// SIGHUP/SIGUSR1 + PID-file machinery so it works on any platform.
+func triggerBootstrap(controlAddr, endpoint string) error {
+	u := "http://" + controlAddr + endpoint
+	resp, err := http.Post(u, "application/json", nil)
 	if err != nil {
-		return fmt.Errorf("read pid file %s: %w", path, err)
+		return fmt.Errorf("POST %s (is bobrik-watch running?): %w", u, err)
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return fmt.Errorf("parse pid from %s: %w", path, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("POST %s: %d %s", u, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", pid, err)
-	}
-	if err := proc.Signal(sig); err != nil {
-		return fmt.Errorf("send %s to %d: %w", sig, pid, err)
-	}
-	fmt.Fprintf(os.Stderr, "sent %s to %d\n", sig, pid)
+	fmt.Fprintf(os.Stderr, "POST %s → %d %s\n", u, resp.StatusCode, strings.TrimSpace(string(body)))
 	return nil
-}
-
-func writePIDFile(path string) error {
-	pid := strconv.Itoa(os.Getpid())
-	if err := os.WriteFile(path, []byte(pid+"\n"), 0o644); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "pid file → %s (pid %s)\n", path, pid)
-	return nil
-}
-
-func handleSignals(ch <-chan os.Signal, spaceID, programTypeID, skillTypeID string) {
-	for sig := range ch {
-		switch sig {
-		case syscall.SIGHUP:
-			// Incremental refresh — same hash-gated path as startup: unchanged
-			// programs/skills are skipped, orphans swept. No wipe.
-			fmt.Fprintf(os.Stderr, "SIGHUP received — refreshing System Bobrik Files (incremental)\n")
-			if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
-				fmt.Fprintf(os.Stderr, "rebootstrap: %v\n", err)
-			} else {
-				fmt.Fprintf(os.Stderr, "refresh complete\n")
-			}
-		case syscall.SIGUSR1:
-			// Force-clean recovery — wipe the system folder + children, then
-			// rebuild from scratch. For a divergent/corrupt space; the routine
-			// path is the incremental SIGHUP above.
-			fmt.Fprintf(os.Stderr, "SIGUSR1 received — wiping and rebuilding System Bobrik Files\n")
-			if err := removeSystemFiles(base, spaceID); err != nil {
-				fmt.Fprintf(os.Stderr, "remove system files: %v\n", err)
-			}
-			if _, err := bootstrapSystemFiles(spaceID, programTypeID, skillTypeID); err != nil {
-				fmt.Fprintf(os.Stderr, "rebootstrap: %v\n", err)
-			} else {
-				fmt.Fprintf(os.Stderr, "clean rebuild complete\n")
-			}
-		case syscall.SIGINT, syscall.SIGTERM:
-			fmt.Fprintf(os.Stderr, "%s received — exiting\n", sig)
-			_ = os.Remove(pidFilePath)
-			os.Exit(0)
-		}
-	}
 }
 
 func ensureSpace(name string) (string, error) {

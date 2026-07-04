@@ -51,6 +51,58 @@ func (c *Client) SpaceGet(ctx context.Context, spaceId string) (*api.SpaceInfo, 
 	return &out, nil
 }
 
+// SpaceList fetches the account's spaces (GET /v1/spaces → Service.List,
+// mapped to []SpaceInfo). An empty status keeps the server default
+// (active-only); pass "all" for every status or a specific status string
+// (e.g. "one_to_one_pending") to filter.
+func (c *Client) SpaceList(ctx context.Context, status string) (*api.SpaceListResponse, error) {
+	var out api.SpaceListResponse
+	path := "/v1/spaces"
+	if status != "" {
+		path += "?status=" + url.QueryEscape(status)
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceOneToOne opens (initiates or explicitly accepts) a 1-1 (direct)
+// space with the given account identity — POST /v1/spaces/one-to-one →
+// Service.OneToOne. Activates locally; returns the space info.
+func (c *Client) SpaceOneToOne(ctx context.Context, req api.SpaceOneToOneRequest) (*api.SpaceInfo, error) {
+	var out api.SpaceInfo
+	if err := c.do(ctx, http.MethodPost, "/v1/spaces/one-to-one", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceOneToOneAccept approves an incoming pending 1-1 by space id — POST
+// /v1/spaces/:id/one-to-one/accept → Service.AcceptOneToOne.
+func (c *Client) SpaceOneToOneAccept(ctx context.Context, spaceId string) (*api.SpaceInfo, error) {
+	var out api.SpaceInfo
+	path := fmt.Sprintf("/v1/spaces/%s/one-to-one/accept", url.PathEscape(spaceId))
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceOneToOneDecline rejects an incoming pending 1-1 by space id — POST
+// /v1/spaces/:id/one-to-one/decline → Service.DeclineOneToOne. Returns 204.
+func (c *Client) SpaceOneToOneDecline(ctx context.Context, spaceId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/one-to-one/decline", url.PathEscape(spaceId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
+// SpaceRegisterIncoming records an out-of-band incoming 1-1 request as a
+// pending row — POST /v1/spaces/one-to-one/register-incoming →
+// Service.RegisterIncoming. Returns 204.
+func (c *Client) SpaceRegisterIncoming(ctx context.Context, req api.SpaceRegisterIncomingRequest) error {
+	return c.do(ctx, http.MethodPost, "/v1/spaces/one-to-one/register-incoming", req, nil)
+}
+
 // SpaceListQuery runs a windowed snapshot over the account's space list
 // (POST /v1/spaces/query → Service.Query on the `spaces` dataset). body
 // carries the standard query fields (filter / sort / limit / offset /

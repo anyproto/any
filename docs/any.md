@@ -25,9 +25,12 @@ bundled — it downloads at runtime into `<data-dir>/index/models/`.
 
 ## Platforms
 
-`darwin-arm64`, `darwin-x64`, `linux-x86_64`, `windows-x86_64`. The backend is
-CGO-free (purego `dlopen`), so one Linux job cross-builds every target and
-cross-fetches each platform's libs.
+Currently published: `darwin-arm64`, `darwin-x64`, `linux-x86_64`.
+`windows-x86_64` is temporarily withheld from CI releases until
+`bobrik-watch` replaces its Unix signal-based refresh controls with a
+cross-platform control channel. The backend is CGO-free (purego `dlopen`), so
+one Linux job cross-builds every published target and cross-fetches each
+platform's libs.
 
 ## Required CI secret
 

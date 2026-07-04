@@ -59,6 +59,15 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
 5. Bind HTTP listener on `127.0.0.1:<port>` (default `7001`).
 6. Serve.
 
+Opening the SDK also auto-starts the **one-to-one inbox notifier**
+(`anysyncsdk.Open` → `StartOneToOneInbox`): when a coordinator is
+configured it watches the coordinator inbox for incoming 1-1 (direct)
+space requests and surfaces each as a `one_to_one_pending` row in the
+space list — no server-side wiring or config knob. With no coordinator
+the notifier is simply off and incoming 1-1s arrive only via the
+out-of-band `POST /v1/spaces/one-to-one/register-incoming` path. See
+`03-api.md` § Spaces and the SDK's `docs/13-one-to-one-spaces.md`.
+
 ## Listen address
 
 - **Default**: `127.0.0.1:7001`. Plain HTTP, no TLS, no auth.
