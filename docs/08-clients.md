@@ -369,7 +369,71 @@ let the `updated` subscribe frame fill it in. Never block UI on a
 resolved name. (Do not invent a degraded "fetch the raw profile bytes"
 path — there isn't one; the directory *is* the resolution surface.)
 
-## 9. Live-surface budget: subscribe to views, not data
+## 9. Files: attach fire-and-forget, download as plain HTTP
+
+The full model is `17-files.md`; the call pattern for a client that
+attaches and renders files:
+
+**Attach and move on.** Upload with the raw-body POST and treat the
+201 as done — registration is durable in the CRDT immediately:
+
+```
+POST /v1/spaces/:id/objects/:objId/files?name=photo.jpg
+Content-Type: image/jpeg
+<raw bytes>
+→ 201 {fileId, size, inline, durable:true|false, cached:true, …}
+```
+
+Know what attach latency includes: the network backup is attempted
+**synchronously inside the request** (with a reachable broker a 10 MB
+attach takes roughly its object-store upload time and returns
+`durable: true`); when the broker is unreachable/refusing, attach
+returns fast with `durable: false` and a persistent queue retries in
+the background. Either way, don't block the UI on `durable`. For a
+"not backed up" badge, hold `GET …/files/stats` and refresh it on
+`GET …/files/subscribe` events (state `inflight`/`limited` →
+`durable`). `limited` means the network refused for quota — offer a
+retry (`POST …/files/:fileId/retry`) after the user frees space.
+
+**Receiving a file another member sent.** There is no push
+notification channel to build — the file IS space data. Subscribe to
+the object's payload rows
+(`POST …/objects/:objId/files/query/subscribe`): the sender's file
+shows up as an `added` row, and — the part that matters — the moment
+it becomes fetchable shows up as an **update on the same row when
+`networkSign` lands** (the broker's custody receipt is a synced
+cleartext row field; usually the row arrives already signed, since the
+sender's attach completes the backup synchronously). Then GET
+`…/files/:fileId/content`. Downloading before that point returns
+`409 file.not_available` — a retry-later state, not an error to
+surface. Two things that do NOT signal remote availability: the
+per-space `GET …/files/subscribe` status stream (deliberately local
+transitions only) and polling in a tight loop (just wait for the row
+update). Names/mime for rendering come from `GET …/files/:fileId`
+(the payload rows carry only the cleartext fields).
+
+**Render by URL, not by API call.** The content endpoint is a regular
+HTTP resource with correct mime, filename, and Range support — point
+media elements straight at it and let the browser stream/seek:
+
+```html
+<img   src="http://127.0.0.1:7001/v1/spaces/SP/files/F1/content">
+<video src="http://127.0.0.1:7001/v1/spaces/SP/files/F2/content" controls>
+```
+
+Reference a file from a record as its `fileId` (plus whatever denorm
+you want for instant rendering — size, mime, name are stable). For
+thumbnails, attach the rendered image as a variant
+(`?variant=thumb&variantOf=<fileId>`) and request
+`…/content?variant=thumb`.
+
+**Per-object file lists** come from `GET …/files?objectId=` (typed,
+with names) or live from `POST …/objects/:objId/files/query/subscribe`
+(cleartext rows — join names from a `GET /files` pass). The query path
+404s (`file.not_found`) until the object's first attach — treat that
+as an empty list, not an error.
+
+## 10. Live-surface budget: subscribe to views, not data
 
 The single most expensive thing a client can do is hold a wide live
 surface. Each subscription costs the server a held window, a mailbox,
@@ -431,3 +495,5 @@ last-notified marker as the cursor, snapshot-as-badges on boot. See
   limits, MongoDB divergences.
 - `16-chat.md` — chat client guide: read tracking, the viewport rule,
   unread divider, client-side desktop notifications.
+- `17-files.md` — files v2: tiers, durability states, cache/offload,
+  variants.

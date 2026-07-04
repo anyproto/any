@@ -50,9 +50,19 @@ func buildEcho(d *deps) *echo.Echo {
 			"http://localhost:5173",  // tauri dev (Vite, plain http)
 			"http://127.0.0.1:5173",
 		},
-		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept},
+		// Range lets the webview issue ranged file-content downloads
+		// (GET /v1/spaces/:spaceId/files/:fileId/content).
+		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range"},
 	}))
-	e.Use(middleware.BodyLimit("1M"))
+	// Global body cap for the JSON API. The one exemption is the file
+	// attach route — its raw body IS the file, streamed straight into
+	// the SDK without buffering, so a byte cap would truncate uploads.
+	e.Use(middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
+		Skipper: func(c echo.Context) bool {
+			return c.Path() == "/v1/spaces/:spaceId/objects/:objectId/files"
+		},
+		Limit: "1M",
+	}))
 	e.Use(httpLogMiddleware())
 
 	v1 := e.Group("/v1")
@@ -103,6 +113,14 @@ func buildEcho(d *deps) *echo.Echo {
 	// seen), backed by SDK.Identities(). Account-scoped — no :spaceId —
 	// so like sync-status/subscribe it sits outside the space group.
 	registerIdentitiesRoutes(v1, d)
+
+	// Account-wide file-cache controls: local bytes held by file
+	// content across ALL spaces (SDK-level, not per-space), so like
+	// sync-status/subscribe they sit outside the space group. See
+	// docs/17-files.md § Cache.
+	v1.GET("/files/cache", d.fileCacheGet)
+	v1.POST("/files/cache/free", d.fileCacheFree)
+	v1.POST("/files/cache/sweep", d.fileCacheSweep)
 
 	// Account-wide UI command channel: an in-memory broadcast from the
 	// agent to connected UI windows ("open this space/object"). Not

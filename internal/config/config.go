@@ -20,6 +20,7 @@ type Config struct {
 	Storage Storage       `yaml:"storage"`
 	Sync    Sync          `yaml:"sync"`
 	Index   Index         `yaml:"index"`
+	Files   Files         `yaml:"files"`
 	Log     logger.Config `yaml:"log"`
 }
 
@@ -44,6 +45,23 @@ type Storage struct {
 type Sync struct {
 	DialTimeout     string `yaml:"dialTimeout"`
 	ChangeBatchSize int    `yaml:"changeBatchSize"`
+}
+
+// Files tunes the SDK's file byte layer (files v2, docs/17-files.md).
+// Zero values fall back to SDK defaults; an absent `files` block
+// changes nothing.
+type Files struct {
+	// PublicReadBaseUrl overrides the network-advertised public read
+	// base for durable file downloads ({base}/blob/{spaceId}/{rootCid}).
+	// Normally left empty — the SDK resolves it once from the network's
+	// fileV2 nodes and caches it. Set it for private deployments that
+	// front the object store themselves.
+	PublicReadBaseUrl string `yaml:"publicReadBaseUrl"`
+	// GCInterval enables the SDK's periodic file-cache safety sweep at
+	// the given cadence (duration string, e.g. "1h"). Empty/zero — the
+	// default — means NO automatic sweep: reclamation is caller-driven
+	// via POST /v1/files/cache/{free,sweep} and per-file offload.
+	GCInterval string `yaml:"gcInterval"`
 }
 
 // Index configures the local search indexer (FTS + vector, see

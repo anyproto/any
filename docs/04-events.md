@@ -324,6 +324,44 @@ whose profile key arrives after the initial sighting surfaces first in
 
 CLI: `any identities subscribe`.
 
+## File status stream (callback-based SSE)
+
+`GET /v1/spaces/:id/files/subscribe` streams file durability
+transitions — attach, backup progress/failure, pin completion, manual
+retries — over SSE (docs/17-files.md § Durability states). The source
+is the SDK's `Files().SubscribeStatus` callback, bridged through the
+same 16-deep overflow-to-`lagged` forwarder as the
+members/sync-status streams. **Local transitions only** — a remote
+device finishing a backup is visible via `GET /files/:fileId/status`
+reads, not here.
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: status
+data: { "fileId": "…", "objectId": "…",
+        "state": "durable" | "inflight" | "limited",
+        "cached": true,
+        "attempts": 2, "lastErr": "…" }   // attempts/lastErr only while work is pending
+
+event: lagged
+data: { "total": <count> }
+
+event: closed
+data: { "reason": "server_shutdown" }
+```
+
+CLI: `any file subscribe <spaceId>`.
+
+Live per-object file **lists** are a different stream: the windowed
+query/subscribe primitive at
+`POST /v1/spaces/:id/objects/:objectId/files/query/subscribe` (same
+body and frame set as every `/query/subscribe`; rows are the cleartext
+payload fields — see 03-api.md § Payload-row query / subscribe).
+
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay
