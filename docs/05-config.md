@@ -43,6 +43,11 @@ auth:
 # any working directory. The embedded conf is the sanitized fixture
 # (staging networkId, placeholder nodes) — it works locally but joins no
 # network; configure a real nodeconf to sync.
+#
+# Files: durable file backup needs nodes typed `fileV2` in the nodeconf
+# (the fileV2 broker fleet). Without them attach still works
+# offline-first — files just sit in the `inflight` durability state
+# until such nodes appear (docs/17-files.md § Durability states).
 network:
   nodeconfPath: /etc/any/nodeconf.yaml
   # OR:
@@ -108,6 +113,19 @@ index:
     bm25K1: 0                         # FTS BM25 tf-saturation; 0 = engine default 1.2
     titleWeight: 0                    # BM25F boost for the title field; 0 = default 1.0
 
+# Files byte layer (files v2, docs/17-files.md). All optional — an
+# absent block changes nothing.
+files:
+  publicReadBaseUrl: ""               # override the network-advertised public read base
+                                      # ({base}/blob/{spaceId}/{rootCid}); "" = resolved
+                                      # once from the network's fileV2 nodes and cached.
+                                      # Set only for private deployments fronting the
+                                      # object store themselves
+  gcInterval: ""                      # enable the periodic file-cache safety sweep at
+                                      # this cadence (e.g. "1h"). "" (default) = NO
+                                      # background sweep — reclamation stays caller-driven
+                                      # via /v1/files/cache/* and per-file offload
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -127,6 +145,9 @@ ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
+
+ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBaseUrl
+ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)
 
 ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)

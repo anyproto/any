@@ -535,6 +535,66 @@ Implementation slices landed:
     docs/01-cli.md, docs/04-events.md § Identities directory stream,
     client recipe docs/08-clients.md § 8.
 
+21. **Files v2** — wraps the SDK files-v2 surface (`Space.Files()`:
+    Attach/Open/Get/Status/SubscribeStatus/Stats/Pin/Retry/Offload/
+    List/Query + SDK-level FileCacheSize/FreeUpFileCache/
+    SweepFileCache). Files bind to objects; the SDK stores one
+    `payloads` row per file on a derived per-object child (cleartext
+    rootCid/size/networkSign/objectId + one sealed member-only blob
+    with key/name/mime/inline bytes). Tiers: <4096 B inline in the
+    CRDT; larger → encrypted UnixFS DAG in a local CARv2 + background
+    fileV2-broker backup (offline-first persistent queue; states
+    durable/inflight/limited). Wire (handlers_files.go): `POST
+    /v1/spaces/:s/objects/:o/files` — attach, RAW streaming body (the
+    one BodyLimit-exempt route, see routes.go Skipper; Content-Type →
+    mime, `?name=&variant=&variantOf=`); `GET …/files/:fileId/content`
+    — download via http.ServeContent (stored mime, Content-Disposition,
+    Range/206; CORS AllowHeaders gained `Range`); Get/List/Stats/
+    Status + pin/retry/offload (offload of the only copy → 409
+    `file.not_durable`; content not local + not fetchable → 409
+    `file.not_available` — the receiver-side retry state, signalled
+    done by the row gaining `networkSign`; mapped from the SDK's
+    exported sentinels `space.ErrFileNotBackedUp` /
+    `ErrFileNotAvailable` / `ErrFileVariantInvalid` via errors.Is,
+    pinned by TestFileErrorMapping);
+    `GET …/files/subscribe` — FileStatus SSE (streamStatusSSE pattern,
+    LOCAL transitions only); `POST …/objects/:o/files/query[/subscribe]`
+    — windowed query over one object's payload rows (bridges
+    `Files().Query`; 404 `file.not_found` before first attach);
+    account-scoped `GET/POST /v1/files/cache[/free|/sweep]`. Config
+    `files.{publicReadBaseUrl,gcInterval}` (zero interval = NO
+    background cache GC). CLI: `any file
+    attach/list/get/download/status/stats/subscribe/pin/retry/offload/
+    query/query-subscribe/cache`. NOT wrapped (broker embedding
+    surfaces): `Space.Payloads()`, `TreeHeads()`, `Track/Evict`,
+    `Headless`, `Sync.TreeTypes`. Contract: docs/17-files.md (model),
+    docs/03-api.md § Files, docs/04-events.md § File status stream,
+    docs/08-clients.md § 9.
+
+22. **Scoped fields for records** — the local write route is now
+    public end-to-end. SDK (`ModifyBatch.Scope`): `POST
+    /v1/spaces/:id/modify` takes `"scope": "synced"|"local"`; local
+    routes through `Object.LocalSet` (no DAG change, never syncs,
+    flows through query/subscribe, empty `changeId`), constrained to
+    fields the dataset schema declares `ScopeLocal` + explicit record
+    ids, no upsert, no traceIds (`400 request.schema`; wrong-scope ops
+    → `rejections`, synced-write-to-local-field → `400
+    dataset.validation`). Chat declares the read-tracking flag fields
+    `unread` / `unreadMention` / `unreadReactions` as ScopeLocal
+    booleans (now owned by the SDK read-tracking service — see
+    internal/chat/reading.go and docs/16-chat.md). Property
+    definitions:
+    `POST …/types/:id/properties` accepts `scope`
+    (synced/account/local, pinned first-write like kind; derived
+    rejected) and `GET …/properties` returns it — value writes were
+    already scope-routed via `PropertiesAPI.Set`. Account scope for
+    RECORD fields is declared-but-not-writable (SDK mirror covers
+    objects rows only). SDK prerequisite: `ModifyBatch.Scope` +
+    exported `space.ParseScope` (branch cheggaaa/scoped-record-modify;
+    SDK contract test e2e/local_scope_records_test.go). `any` tests:
+    handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
+    § Datasets / § Types & properties / § Chat.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -770,6 +830,7 @@ auto-start.
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
 | `docs/15-ui-commands.md` | UI command channel — account-wide in-memory agent→any-ui control (`/v1/ui/commands[/subscribe]`), at-most-once, command shape, SSE frames |
+| `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

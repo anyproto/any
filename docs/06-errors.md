@@ -83,6 +83,11 @@ property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable_field         # attempt to update type-shape field
 
+file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
+file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)
+file.not_available               # 409 — content not local and not fetchable yet (not durable, or no public read base); retry after the row gains networkSign
+file.variant_invalid             # 400 — variant/variantOf pairing broken, or original on a different object
+
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 

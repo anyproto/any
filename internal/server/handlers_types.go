@@ -118,6 +118,17 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 			reason, map[string]any{"format": req.Format})
 	}
 
+	var scope space.Scope // zero value = synced (SDK default)
+	if req.Scope != "" {
+		var ok bool
+		scope, ok = space.ParseScope(req.Scope)
+		if !ok || scope == space.ScopeDerived {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"scope must be one of synced, account, local",
+				map[string]any{"scope": req.Scope})
+		}
+	}
+
 	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, space.PropertyDraft{
 		Name:        req.Name,
 		Description: req.Description,
@@ -125,6 +136,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		Kind:        kind,
 		Meta:        req.Meta,
 		Format:      formatDraftFromAPI(req.Format),
+		Scope:       scope,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
@@ -261,6 +273,9 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 		XKind:       p.XKind,
 		Kind:        propertyKindToString(p.Kind),
 		Meta:        p.Meta,
+	}
+	if p.Scope != 0 {
+		out.Scope = p.Scope.String()
 	}
 	if p.Items != nil {
 		nested := propertyDefToAPI(*p.Items)

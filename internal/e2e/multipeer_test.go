@@ -28,11 +28,17 @@ type peer struct {
 }
 
 func startPeer(t *testing.T, bin, name string) *peer {
+	return startPeerConf(t, bin, name, absStagingPath(t))
+}
+
+// startPeerConf is startPeer against an explicit nodeconf — used by the
+// file-latency benchmark to run on a local network instead of staging.
+func startPeerConf(t *testing.T, bin, name, nodeconfAbs string) *peer {
 	t.Helper()
 	dataDir := t.TempDir()
 	addr := freeLoopbackAddr(t)
 	t.Logf("peer %s: addr=%s data=%s", name, addr, dataDir)
-	srv := startServer(t, bin, addr, dataDir)
+	srv := startServerConf(t, bin, addr, dataDir, true, nodeconfAbs)
 	waitForReady(t, addr, 60*time.Second)
 	return &peer{
 		name:    name,

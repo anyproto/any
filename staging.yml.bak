@@ -1,0 +1,137 @@
+id: 69f212d61efa5e872e8d8ad6
+networkId: N9DU6hLkTAbvcpji3TCKPPd3UQWKGyzUxGmgJEyvhByqAjfD
+nodes:
+    - peerId: 12D3KooWN6Wwdod3axHpfWq1anBCgYG1sZK42RpgEZEokT4KnMu7
+      addresses:
+        - stage1-any-sync-node1.ovh.toolpad.org:450
+        - stage1-any-sync-node1.ovh.toolpad.org:1450
+        - quic://stage1-any-sync-node1.ovh.toolpad.org:5440
+      types:
+        - tree
+    - peerId: 12D3KooWJuqyFQ2ZgnYFNhdHAddF7DrTPP2rNueLjw5BWDJa9kqg
+      addresses:
+        - stage1-any-sync-node2.ovh.toolpad.org:451
+        - stage1-any-sync-node2.ovh.toolpad.org:1451
+        - quic://stage1-any-sync-node2.ovh.toolpad.org:5441
+      types:
+        - tree
+    - peerId: 12D3KooWCub3vY3kWmAQ5qf9TtKBHKY6Yk7F6tGb13M1sXqvcbV4
+      addresses:
+        - stage1-any-sync-node3.ovh.toolpad.org:452
+        - stage1-any-sync-node3.ovh.toolpad.org:1452
+        - quic://stage1-any-sync-node3.ovh.toolpad.org:5442
+      types:
+        - tree
+    - peerId: 12D3KooWRzT7eeiqPpkaXabqrtLEi1WmWPoUqZVRYiguUdJQz3sz
+      addresses:
+        - stage1-any-sync-node4.ovh.toolpad.org:453
+        - stage1-any-sync-node4.ovh.toolpad.org:1453
+        - quic://stage1-any-sync-node4.ovh.toolpad.org:5443
+      types:
+        - tree
+    - peerId: 12D3KooWPkZDAzAzioUmtd2HkPeFb8mrMgkkYtfL5Es69dbhoUMT
+      addresses:
+        - stage1-any-sync-node5.ovh.toolpad.org:454
+        - stage1-any-sync-node5.ovh.toolpad.org:1454
+        - quic://stage1-any-sync-node5.ovh.toolpad.org:5444
+      types:
+        - tree
+    - peerId: 12D3KooWF5pVsv8oaPeZj7MeAXQAbdqqrGB7AEENMnxguZtEi44V
+      addresses:
+        - stage1-any-sync-node6.ovh.toolpad.org:455
+        - stage1-any-sync-node6.ovh.toolpad.org:1455
+        - quic://stage1-any-sync-node6.ovh.toolpad.org:5445
+      types:
+        - tree
+    - peerId: 12D3KooW9xRUDQbW6bbsek45dQop9BDZBC8ATCpKxYssE8zMy2wa
+      addresses:
+        - stage1-any-sync-node7.ovh.toolpad.org:456
+        - stage1-any-sync-node7.ovh.toolpad.org:1456
+        - quic://stage1-any-sync-node7.ovh.toolpad.org:5446
+      types:
+        - tree
+    - peerId: 12D3KooWBqUE5e6BuxWDiAAvYATq36qCUvNysyDMdddUqmeCb5jG
+      addresses:
+        - stage1-any-sync-node8.ovh.toolpad.org:457
+        - stage1-any-sync-node8.ovh.toolpad.org:1457
+        - quic://stage1-any-sync-node8.ovh.toolpad.org:5447
+      types:
+        - tree
+    - peerId: 12D3KooWAzNCQWQSdfspUCT6ea3TLvJFahEHwXndh8PQGanjHhbF
+      addresses:
+        - stage1-any-sync-filenode1.ovh.toolpad.org:444
+        - stage1-any-sync-filenode1.ovh.toolpad.org:1444
+        - quic://stage1-any-sync-filenode1.ovh.toolpad.org:5434
+      types:
+        - file
+    - peerId: 12D3KooWR5ishjnaTfLbwQur6ifXSQDLSroaQxWH1KHmR1YL9Srk
+      addresses:
+        - stage1-any-sync-filenode2.ovh.toolpad.org:445
+        - stage1-any-sync-filenode2.ovh.toolpad.org:1445
+        - quic://stage1-any-sync-filenode2.ovh.toolpad.org:5435
+      types:
+        - file
+    - peerId: 12D3KooWKcGtB8jsW7mpB8zWMdVrPTZygnwkRoUKBd2ETmRDFa8x
+      addresses:
+        - stage1-any-sync-filenode3.ovh.toolpad.org:446
+        - stage1-any-sync-filenode3.ovh.toolpad.org:1446
+        - quic://stage1-any-sync-filenode3.ovh.toolpad.org:5436
+      types:
+        - file
+    - peerId: 12D3KooWNPpzKPUzcf86KemKwa3ap8kBfCmPRWkBsvymGZdoBdni
+      addresses:
+        - stage1-any-sync-coordinator1.toolpad.org:443
+        - stage1-any-sync-coordinator1.toolpad.org:1443
+        - quic://stage1-any-sync-coordinator1.toolpad.org:5430
+      types:
+        - coordinator
+    - peerId: 12D3KooWHyWNKYPdYeFK9eQ32UK9uqM1yTdXZT6qTTbtCowCYBAp
+      addresses:
+        - stage1-any-sync-coordinator2.toolpad.org:443
+        - stage1-any-sync-coordinator2.toolpad.org:1443
+        - quic://stage1-any-sync-coordinator2.toolpad.org:5430
+      types:
+        - coordinator
+    - peerId: 12D3KooWB4hmEo7YAdWzAaFpjyk4npkcwrPm2kRigsWu3MP9Xdmg
+      addresses:
+        - stage1-any-sync-coordinator3.toolpad.org:443
+        - stage1-any-sync-coordinator3.toolpad.org:1443
+        - quic://stage1-any-sync-coordinator3.toolpad.org:5430
+      types:
+        - coordinator
+    - peerId: 12D3KooWCCe34B5jMauqR8hQzm8XWwndrk8a3exsee93SWUe59TH
+      addresses:
+        - stage1-any-sync-consensusnode1.ovh.toolpad.org:447
+        - stage1-any-sync-consensusnode1.ovh.toolpad.org:1447
+        - quic://stage1-any-sync-consensusnode1.ovh.toolpad.org:5437
+      types:
+        - consensus
+    - peerId: 12D3KooWMmkxdAJa51wTVNLdkSTooRq6wZhdig4AjgKbuNFQJehD
+      addresses:
+        - stage1-any-sync-consensusnode2.ovh.toolpad.org:448
+        - stage1-any-sync-consensusnode2.ovh.toolpad.org:1448
+        - quic://stage1-any-sync-consensusnode2.ovh.toolpad.org:5438
+      types:
+        - consensus
+    - peerId: 12D3KooWCqqbJ6iLNr9cpbZ76h3aSbStxV25QdxwxpUeRKjHAaBx
+      addresses:
+        - stage1-any-sync-consensusnode3.ovh.toolpad.org:449
+        - stage1-any-sync-consensusnode3.ovh.toolpad.org:1449
+        - quic://stage1-any-sync-consensusnode3.ovh.toolpad.org:5439
+      types:
+        - consensus
+    - peerId: 12D3KooWFtqmHuVo3KDdBAQmmRvNX89T8YAkNgKTPHB972RUUiPR
+      addresses:
+        - stage1-any-sync-nsnode1.ovh.toolpad.org:450
+        - stage1-any-sync-nsnode1.ovh.toolpad.org:1450
+        - quic://stage1-any-sync-nsnode1.ovh.toolpad.org:5440
+      types:
+        - namingNode
+    - peerId: 12D3KooWEvKan54MNnyVsNpTjcYnGzi9M18Bsas2ByxvZVJ3FrwA
+      addresses:
+        - stage1-any-sync-ppnode1.ovh.toolpad.org:454
+        - stage1-any-sync-ppnode1.ovh.toolpad.org:1454
+        - quic://stage1-any-sync-ppnode1.ovh.toolpad.org:5444
+      types:
+        - paymentProcessingNode
+creationTime: 2026-04-29T16:16:54+02:00

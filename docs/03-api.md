@@ -36,6 +36,11 @@
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
   - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
+  - [Files (files v2)](#files-files-v2)
+    - [Upload (attach)](#upload-attach)
+    - [Download (content)](#download-content)
+    - [Payload-row query / subscribe](#payload-row-query--subscribe)
+    - [File cache (account-wide)](#file-cache-account-wide)
   - [Members](#members)
   - [Invites](#invites)
   - [ACL operations](#acl-operations)
@@ -413,10 +418,15 @@ GET /v1/datasets                   → { datasets: [ { name, schema } ] }   Serv
 (`{type:"object", properties:{…}, additionalProperties:<dynamic>}`). Each
 property carries an `x-scope` extension keyword classifying the field:
 
-- `synced` — user/DAG-written, synced across the account's devices;
+- `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
   `creator` / `createdAt`);
-- `local` — device-local, never synced.
+- `local` — device-local, never synced (e.g. chat `unread` /
+  `unreadMention` / `unreadReactions` — written via the local-scope
+  `POST …/modify` route, § Modify records);
+- `account` — synced across this account's devices only, invisible to
+  other members (declarable on property definitions today; dataset
+  record fields await the SDK's record-level account transport).
 
 `additionalProperties:true` marks a dynamic dataset (free-form keys
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
@@ -1011,6 +1021,20 @@ object-existence or object-type checks. Known gap: raw `POST
 /v1/spaces/:spaceId/modify` against the `properties` dataset bypasses
 format value validation.
 
+`POST …/properties` also accepts an optional **`scope`** — the
+property's write/sync class: `"synced"` (default — everyone in the
+space), `"account"` (this account's devices only, via the private tech
+space), or `"local"` (this device only, never synced). `"derived"` is
+reserved for built-ins → `400 request.schema`. Like `kind`, scope is
+pinned by the first write — changing it means defining a new property.
+`GET …/properties` returns each definition's `scope` (pre-scope
+definitions read back as `"synced"`). Value writes need no scope
+parameter: `/set/:typeId` auto-routes by the declared scope (below).
+
+```json
+{ "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
+```
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
@@ -1039,6 +1063,19 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | edit own message text    |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | delete own message       |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
+
+Read tracking: `…/:msgId/read` marks the message and everything
+ordered before it (`_ver.id` order) read; `…/read-all` clears the
+whole chat. Both return `204`, are idempotent and forward-only (no
+mark-unread), work offline, and sync across the account's devices.
+Read state is private — no read receipts. The SDK materializes
+per-message `unread` / `unreadMention` / `unreadReactions` flags
+(filterable) and per-chat `unreadCount` / `unreadMentions` /
+`unreadReactionsCount` row properties. When to call what — including
+the viewport rule and the unread divider — is covered in
+`16-chat.md`.
 
 Liveness goes through the per-object query/subscribe endpoint with
 `dataset=chat_messages`:
@@ -1087,6 +1124,13 @@ body is always read back through the query path.
   "reactions":        { "👍": { "<id1>": 1714597200, "<id2>": 1714597205 } }
 }
 ```
+
+A record may additionally carry the device-local read-tracking flags
+`unread` / `unreadMention` / `unreadReactions` (booleans, `x-scope`
+local). They are not part of the synced message — each device
+materializes its own values via `POST …/modify` with
+`{"scope":"local"}` (§ Modify records) and they never appear on other
+devices. Filterable like any field: `{"filter":{"unread":true}}`.
 
 `createdAt` and `modifiedAt` are unix-seconds, server-stamped. They
 are equal on a never-edited message — clients detect edits by
@@ -1229,6 +1273,122 @@ clients call `GET /agent/brain` once to learn the objectId for reads.
 All writes return the shared write result `{versionId, changeId,
 recordIds}`. Errors use the `agent.*` code namespace
 (`docs/06-errors.md`).
+
+### Files (files v2)
+
+Full model — storage tiers, durability states, cache/offload, variants
+— in [`docs/17-files.md`](17-files.md). Files always bind to an
+existing object; the SDK stores one `payloads` row per file on a
+derived per-object child. The file **bytes ride plain HTTP** — upload
+is a raw POST body, download a raw GET response — the two deliberate
+non-JSON bodies in the API. Everything else is the usual JSON.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files`                 | attach a file (raw body upload) → 201 `FileInfo` |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files/query`           | snapshot one object's payload rows |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/files/query/subscribe` | live windowed view of the same (SSE) |
+| GET    | `/v1/spaces/:spaceId/files`                                   | list files (`?objectId=`, `?limit=`) |
+| GET    | `/v1/spaces/:spaceId/files/stats`                             | aggregate durability counts |
+| GET    | `/v1/spaces/:spaceId/files/subscribe`                         | file durability transitions (SSE) |
+| GET    | `/v1/spaces/:spaceId/files/:fileId`                           | one file's info |
+| GET    | `/v1/spaces/:spaceId/files/:fileId/content`                   | download the bytes (Range/206 supported) |
+| GET    | `/v1/spaces/:spaceId/files/:fileId/status`                    | one file's durability status |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/pin`                       | schedule a full background fetch → 204 |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/retry`                     | make pending background work due now → 204 |
+| POST   | `/v1/spaces/:spaceId/files/:fileId/offload`                   | drop local bytes (keep the file) → 204 |
+| GET    | `/v1/files/cache`                                             | local cache size, all spaces |
+| POST   | `/v1/files/cache/free`                                        | LRU-reclaim `{bytes}` → `{freed}` |
+| POST   | `/v1/files/cache/sweep`                                       | one manual safety sweep → 204 |
+
+Errors use the `file.*` namespace (`docs/06-errors.md`): unknown
+fileId/objectId → `404 file.not_found`, offload of the only copy →
+`409 file.not_durable`, content not fetchable yet →
+`409 file.not_available` (retry later), broken variant pairing →
+`400 file.variant_invalid`.
+
+#### Upload (attach)
+
+The **raw request body is the file** — no JSON envelope, no multipart.
+Metadata rides outside the body:
+
+- `Content-Type` header → stored mime (parameters stripped;
+  `application/octet-stream` or absent = "unset"),
+- `?name=` → stored user-facing name,
+- `?variant=` + `?variantOf=` → attach the content as an alternate
+  representation (e.g. a thumbnail the client rendered) of an existing
+  file **on the same object**. Both or neither.
+
+```
+curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
+  'localhost:7001/v1/spaces/SP/objects/OBJ/files?name=photo.jpg'
+
+// 201
+{ "fileId": "…", "objectId": "OBJ", "rootCid": "bafy…", "size": 482113,
+  "inline": false, "durable": false, "cached": true,
+  "name": "photo.jpg", "mime": "image/jpeg" }
+```
+
+This is the one route exempt from the global 1 MB body limit — the
+body streams straight into the SDK. Files < 4096 bytes take the
+**inline tier** (`inline: true`, no `rootCid`, durable by
+construction, riding the CRDT row itself); larger files are encrypted
+and content-addressed locally, then backed up to the network's fileV2
+broker. The backup is **attempted synchronously inside the attach
+request** (best-effort): with a reachable broker the 201 usually
+already says `durable: true`, and attach latency for large files is
+dominated by the object-store upload (~upload time for a 10 MB file).
+When the broker is unreachable or refuses, attach still succeeds —
+`durable: false`, and a persistent background queue retries; watch
+`/files/subscribe` or poll `/files/:fileId/status` for the
+`inflight → durable` flip.
+
+#### Download (content)
+
+`GET /v1/spaces/:spaceId/files/:fileId/content[?variant=]` serves the
+file's verified plaintext as a **regular HTTP resource**: stored mime
+as `Content-Type` (octet-stream fallback — never sniffed),
+`Content-Disposition: inline; filename=…` from the stored name,
+`Content-Length`, and full **`Range` / 206** support (the underlying
+reader is seekable). Browser tags work directly:
+
+```html
+<img src="http://127.0.0.1:7001/v1/spaces/SP/files/FILE/content">
+```
+
+Content not yet local streams in from the network on demand; every
+fetched block persists, so repeated reads accrete toward a complete
+local copy. A file whose bytes are not local and not yet fetchable —
+not durable yet, or the network advertises no public read base —
+returns `409 file.not_available`: a **retry-later resource state**,
+not a fault. The signal that it became fetchable is the row's
+`networkSign` appearing (a row-update event on
+`…/files/query/subscribe`, or `durable: true` on a re-GET).
+
+#### Payload-row query / subscribe
+
+`POST …/objects/:objectId/files/query[/subscribe]` is the windowed
+query/subscribe primitive over ONE object's payload rows — needed
+because the `payloads` dataset lives on a derived child object whose
+id clients don't know, so the generic `/query` can't reach it. Body
+and SSE frames are identical to the generic per-object query
+(`filter / sort / limit / offset / includeTotal` + subscribe opts).
+Rows expose the **cleartext fields only** (`id`, `rootCid`, `size`,
+`networkSign`, `objectId`) — the sealed member meta (name, mime, key)
+never appears here; use `GET /files` for typed access. Returns
+`404 file.not_found` until the object's first file is attached (the
+backing dataset materializes on first Attach) — fall back to
+`GET /files?objectId=` until then.
+
+#### File cache (account-wide)
+
+The three `/v1/files/cache*` routes are SDK-level (bytes held across
+ALL spaces), so like `/sync-status/subscribe` they sit outside the
+space group. `free` drops least-recently-used content that is **safe
+to drop** (backed up or unreferenced — never the only copy) and
+returns the bytes actually freed; `sweep` is the manual trigger of the
+safety pass that otherwise runs only when `files.gcInterval` is
+configured (`docs/05-config.md`).
 
 ### Members
 
@@ -1523,6 +1683,36 @@ Response: the shared write result `{versionId, changeId, recordIds,
 rejections?}` — see § Write responses. `recordIds` mirrors the input
 record order (`recordIds[0]` is the derived id for the empty-id upsert
 above).
+
+The body takes an optional **`scope`** selecting the write route:
+`"synced"` (default — the object's own DAG change, synced to every
+member) or `"local"` (device-only materialization: no DAG change,
+never syncs, still flows through query/subscribe with a locally-minted
+`versionId` and an empty `changeId`). A local write may only target
+fields the dataset schema declares `local` (`x-scope` in
+`GET …/datasets`) — e.g. chat's `unread` / `unreadMention` /
+`unreadReactions` read-tracking flags on `chat_messages`. Constraints,
+enforced with `400 request.schema`: explicit record `id`s, no
+`upsert` (local fields annotate records the synced route created —
+they never create records), no `traceIds`, and not the shared
+`objects` dataset (its fields are per-property scoped — local property
+values go through `POST …/properties/:objectId/set/:typeId`, which
+validates per-prop scope and kind). Ops that target a
+non-local field come back in `rejections` (the write itself succeeds);
+the reverse direction — a synced write touching a local field — fails
+whole with `400 dataset.validation`. `"account"` is not writable here
+yet (the SDK's account transport covers property values only).
+
+```json
+{
+  "objectId": "obj_abc",
+  "dataset":  "chat_messages",
+  "scope":    "local",
+  "records": [
+    { "id": "msg_1", "ops": [ { "type": "$set", "path": "unread", "value": true } ] }
+  ]
+}
+```
 
 ## Middleware
 

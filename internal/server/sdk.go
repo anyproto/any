@@ -93,6 +93,17 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		}
 		sdkCfg.Sync.DialTimeout = d
 	}
+	// Files byte layer (files v2): public-read base override + the
+	// opt-in periodic cache sweep. Zero GCInterval = no background GC
+	// (reclamation stays caller-driven via /v1/files/cache/*).
+	sdkCfg.Files.PublicReadBaseUrl = cfg.Files.PublicReadBaseUrl
+	if cfg.Files.GCInterval != "" {
+		d, err := time.ParseDuration(cfg.Files.GCInterval)
+		if err != nil {
+			return nil, fmt.Errorf("parse files.gcInterval %q: %w", cfg.Files.GCInterval, err)
+		}
+		sdkCfg.Files.GCInterval = d
+	}
 
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
 }

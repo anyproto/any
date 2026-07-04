@@ -14,7 +14,8 @@ Explicit non-goals for v1:
 - Remote access / TCP auth.
 - Install script / service files.
 - Multi-account.
-- File upload/download.
+- ~~File upload/download.~~ Shipped — files v2 (see Done +
+  `17-files.md`).
 
 ## v1.x — what we learn
 
@@ -113,6 +114,15 @@ Not this repo's work; gate on the SDK:
   before membership-gated `editor_blocks` writes — but the HTTP route
   `/v1/spaces/:id/properties/:objectId/attach/:typeId` stays 501 (no
   agent-facing caller yet; wire it when one appears).
+- **Record-level account transport.** Dataset schema fields can
+  declare `account` scope and the tech-space carrier is already keyed
+  `(objectId, dataset, recordId)`, but the SDK's account mirror
+  handles the objects rows only — so `POST …/modify` rejects
+  `"scope":"account"` until the mirror learns dataset records. The
+  local scope shipped (status § 21); account is the missing sibling
+  (wanted for cross-device read state that survives device loss,
+  though read-tracking proper syncs its frontier via tech-space KV
+  instead).
 - **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
   Still "not implemented" on the SDK side; routes 501.
 - **`Types.Get` for non-object ids.** The SDK only returns
@@ -175,6 +185,29 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Files v2** — the SDK's files-v2 work (released in
+  `any-sync-sdk v0.1.0-alpha.1`, on `any-sync v0.13.0-alpha.1`) made
+  file payloads space
+  data (payloads rows on a derived per-object child; inline tier
+  < 4096 B in the CRDT, larger files encrypted → UnixFS DAG → local
+  CARv2 + background fileV2-broker backup; offline-first durability
+  queue; on-demand seekable downloads; per-file offload + SDK-level
+  cache GC). Wrapped 1:1: attach as a raw-body POST (the one
+  BodyLimit-exempt route), `/content` download with real mime /
+  Content-Disposition / Range 206, Get/List/Stats/Status,
+  pin/retry/offload, `/files/subscribe` status SSE, per-object
+  payload-row `files/query[/subscribe]`, account-wide
+  `/v1/files/cache{,/free,/sweep}`, config `files.*`, `any file …`
+  CLI. Full model in `17-files.md`. **Deliberately not wrapped** (the
+  broker-embedding surfaces — the filenode-v2 broker links the SDK
+  directly): `Space.Payloads()`, `Space.TreeHeads()`,
+  `Service.Track/Evict`, `Headless`, `Sync.TreeTypes`. Cheap 1:1 adds
+  if a use case surfaces. Open SDK asks: the SYN-30 synced files view
+  (space-wide live rows feed + remote status events) and file-content
+  search indexing (no payloads chunker yet). The error-sentinel ask is
+  done — `space.ErrFileNotAvailable` / `ErrFileNotBackedUp` /
+  `ErrFileVariantInvalid` shipped and `fileError` maps them via
+  errors.Is (no string matching).
 - **Real space deletion + local offload (`any-sync-sdk v0.0.12`)** —
   `DELETE /v1/spaces/:id` (`Service.Delete`) replaced the old local-only
   soft-delete with an offline-first deletion: synchronous local half
