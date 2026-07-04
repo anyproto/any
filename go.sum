@@ -15,10 +15,10 @@ github.com/anyproto/any-store v0.4.7 h1:329NWY/xUzGdwKSqFgjAFaPAVkTJbR+WdJirPrvT
 github.com/anyproto/any-store v0.4.7/go.mod h1:8cqb52gjZSaYnlybugqpSqSG1RQygY96D2vWMbSJsLo=
 github.com/anyproto/any-store/v2 v2.0.0-alpha.16 h1:2VIk6qT88V4N6pOFnlEPklT7NhZBUUcFmOf2E+4VjHc=
 github.com/anyproto/any-store/v2 v2.0.0-alpha.16/go.mod h1:FM6cz8iU3Eiy8hy+ht3lpJnDK7/V2g4boC/fzEQRfz4=
-github.com/anyproto/any-sync v0.13.0-alpha.3 h1:3kiq8Hhi5bvCx6kdSRtDYmijcj7qk8XLmCmKRDqpuhU=
-github.com/anyproto/any-sync v0.13.0-alpha.3/go.mod h1:HObtLnsHG20r8rYfwDkpHF7FHzLMjQ/USGhEDLPBVc8=
-github.com/anyproto/any-sync-sdk v0.1.1-0.20260704141815-0a126544f5ce h1:NOffemwP/zKBPLAlsi0W51/61402h+zsNFoTGvA+N34=
-github.com/anyproto/any-sync-sdk v0.1.1-0.20260704141815-0a126544f5ce/go.mod h1:HQp56Eyd8QyneoEA3JjVu7njGS+jNNd9Ib8fU1SW7Vk=
+github.com/anyproto/any-sync v0.13.0-alpha.3.0.20260704160804-71a5fdb71f3a h1:2xCEPKOvjh+QUc6nKMRVjb1yfr1bQZBeAcMZO7kpSD4=
+github.com/anyproto/any-sync v0.13.0-alpha.3.0.20260704160804-71a5fdb71f3a/go.mod h1:HObtLnsHG20r8rYfwDkpHF7FHzLMjQ/USGhEDLPBVc8=
+github.com/anyproto/any-sync-sdk v0.1.1-0.20260704162737-b02a69206023 h1:KALAob5OyVTd95G4my/jCpLVAzuzjqnJWLHOV66M46U=
+github.com/anyproto/any-sync-sdk v0.1.1-0.20260704162737-b02a69206023/go.mod h1:QwS+It3MJN7hKms5HyjmmtMP3K+8JKBVlqIVMpDzvOw=
 github.com/anyproto/anytype-agent-runtime v0.1.2 h1:Pvbgkl9NrYjS4U6UDRCeSdpHdqmUhLurxBFig3HCxYk=
 github.com/anyproto/anytype-agent-runtime v0.1.2/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/go-bip39 v1.0.0 h1:T6/7WowKYDeyuX/QyXtt98ZX0XXaoOh17M/LFF2M5yk=
