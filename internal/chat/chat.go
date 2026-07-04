@@ -114,20 +114,6 @@ const (
 	FieldAttachments      = "attachments"
 )
 
-// Read-tracking flag fields: device-local unread booleans riding on
-// the synced message records (the SDK read-tracking proposal's
-// RecordFlags names, one per tag). LOCAL scope — never in the DAG,
-// never synced; each device materializes its own values. Written via
-// POST /v1/spaces/:id/modify with {"scope":"local"} today; the SDK's
-// read-tracking service will own them once RecordFlags land. Local
-// writes skip the chat handler entirely (LocalSet route), so none of
-// the handler's create/edit rules below apply to them.
-const (
-	FieldUnread          = "unread"
-	FieldUnreadMention   = "unreadMention"
-	FieldUnreadReactions = "unreadReactions"
-)
-
 // Agent sub-record keys.
 const (
 	FieldAgentName      = "name"
@@ -176,11 +162,20 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{{
-			Name:        Dataset,
-			DataVersion: dataVersion,
-			Handler:     messagesHandler{},
-			Schema:      datasetSchema(),
+			Name:         Dataset,
+			DataVersion:  dataVersion,
+			Handler:      messagesHandler{},
+			Schema:       datasetSchema(),
+			ReadTracking: readTracking(),
 		}},
+		// Unread counters materialized onto the chat object's row —
+		// local-scope (device-derived from the synced read frontier,
+		// never written by clients or peers). See reading.go.
+		Properties: []handler.PropertyDecl{
+			{Id: PropUnreadCount, Name: "Unread Messages", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+			{Id: PropUnreadMentions, Name: "Unread Mentions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+			{Id: PropUnreadReactionsCount, Name: "Unread Reactions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+		},
 	}
 }
 
@@ -212,6 +207,8 @@ func datasetSchema() handler.Schema {
 			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			// Read-tracking flags — SDK-materialized, device-local,
+			// filterable ({"unread": true}). See reading.go.
 			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
 			{Id: FieldUnreadMention, Name: "Unread Mention", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},
 			{Id: FieldUnreadReactions, Name: "Unread Reactions", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},

@@ -658,6 +658,13 @@ func startServer(t *testing.T, bin, addr, dataDir string) *runningServer {
 // withInit=false boots an UNAUTHORIZED server (fresh root, no wallet)
 // for tests exercising the POST /v1/auth onboarding path.
 func startServerInit(t *testing.T, bin, addr, dataDir string, withInit bool) *runningServer {
+	return startServerConf(t, bin, addr, dataDir, withInit, absStagingPath(t))
+}
+
+// startServerConf is the fully-parameterised boot: nodeconfAbs picks
+// which network the peer joins (the file-latency benchmark points it
+// at a local-infra nodeconf with fileV2 nodes instead of staging).
+func startServerConf(t *testing.T, bin, addr, dataDir string, withInit bool, nodeconfAbs string) *runningServer {
 	t.Helper()
 	// Drop a config.yaml that pins network.nodeconfPath to an absolute
 	// path. The binary's compile-time default is CWD-relative, which
@@ -667,7 +674,7 @@ func startServerInit(t *testing.T, bin, addr, dataDir string, withInit bool) *ru
 	// embedder: none keeps e2e hermetic — the default "auto" would call the
 	// online embedding API (DeepInfra) on every boot. e2e doesn't exercise
 	// vector search, so FTS-only is fine.
-	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", absStagingPath(t))
+	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", nodeconfAbs)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}
