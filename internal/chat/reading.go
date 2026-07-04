@@ -1,0 +1,123 @@
+package chat
+
+import (
+	"context"
+
+	"github.com/anyproto/any-sync-sdk/handler"
+	"github.com/anyproto/any-sync-sdk/space"
+)
+
+// Read tracking. The SDK maintains the unread set per chat object
+// (see the sdk's docs/read-tracking-proposal.md); chat declares WHAT
+// counts as unread via classifyRead below, and where it materializes:
+//
+//   - per-message local flags: unread / unreadMention /
+//     unreadReactions — filterable, ride the normal query/subscribe
+//     flow ({"unread": true} finds unread messages anywhere in
+//     history, including mid-history arrivals);
+//   - per-chat local counters on the object's row: unreadCount /
+//     unreadMentions / unreadReactionsCount — the chat-list badges.
+//
+// Read state is private to the account: synced across its devices
+// through the tech space, never visible to other members. Marking is
+// forward-only (no mark-unread).
+
+// Read-tracking tags (SDK unread-entry labels).
+const (
+	TagMessage  = "message"
+	TagMention  = "mention"
+	TagReaction = "reaction"
+)
+
+// Per-message local flag fields (declared ScopeLocal in the schema).
+const (
+	FieldUnread          = "unread"
+	FieldUnreadMention   = "unreadMention"
+	FieldUnreadReactions = "unreadReactions"
+)
+
+// Per-chat counter properties on the object's row (declared
+// ScopeLocal in NewType().Properties).
+const (
+	PropUnreadCount          = "unreadCount"
+	PropUnreadMentions       = "unreadMentions"
+	PropUnreadReactionsCount = "unreadReactionsCount"
+)
+
+// classifyRead is the ReadTracking classifier: one verdict per applied
+// record change.
+//
+//   - New messages track as "message". (Mention detection lands with
+//     the mentions feature; until then unreadMention never sets.)
+//   - Reaction toggles track as "reaction" with a supersede key, so a
+//     reaction removed before anyone saw it leaves nothing behind —
+//     and an un-react clears the pending unread reaction.
+//   - Edits and deletes are untracked: an edit never re-flags a
+//     message, and the SDK clears a deleted record's unread entries
+//     itself.
+func classifyRead(_ *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
+	for i := range rec.Ops {
+		op := &rec.Ops[i]
+		switch op.Type {
+		case handler.OpDelete:
+			return handler.ReadClassification{}
+		case handler.OpSet, handler.OpUnset:
+			// reactions.<emoji>.<accountId> — a reaction toggle. The
+			// record id is always explicit here (toggles target an
+			// existing message), so it's safe in the supersede key.
+			if len(op.Path) == 3 && op.Path[0] == FieldReactions {
+				key := "reaction:" + op.Path[1] + ":" + op.Path[2] + ":" + rec.Id
+				if op.Type == handler.OpSet {
+					return handler.ReadClassification{Track: true, Tags: []string{TagReaction}, Key: key}
+				}
+				return handler.ReadClassification{Key: key}
+			}
+		}
+	}
+	if rec.Upsert {
+		return handler.ReadClassification{Track: true, Tags: []string{TagMessage}}
+	}
+	return handler.ReadClassification{}
+}
+
+// readTracking is the registration attached to the chat_messages
+// dataset in NewType.
+func readTracking() *handler.ReadTracking {
+	return &handler.ReadTracking{
+		Classify: classifyRead,
+		Seed:     handler.ReadSeedAtFirstSight,
+		CounterFields: map[string]string{
+			TagMessage:  PropUnreadCount,
+			TagMention:  PropUnreadMentions,
+			TagReaction: PropUnreadReactionsCount,
+		},
+		RecordFlags: map[string]string{
+			TagMessage:  FieldUnread,
+			TagMention:  FieldUnreadMention,
+			TagReaction: FieldUnreadReactions,
+		},
+	}
+}
+
+// ReadAll marks every unread change in the chat read (messages,
+// mentions, reactions) and publishes the account's read position to
+// its other devices.
+func ReadAll(ctx context.Context, sp space.Space, objectId string) error {
+	return sp.ReadState().MarkReadUpTo(ctx, objectId, "")
+}
+
+// Read marks msgId's message and everything ordered before it read —
+// "read up to here" in the chat's display order (`_ver.id`). A later
+// unread change targeting an older message (a fresh reaction on a
+// message above the line) stays unread: the user hasn't seen it.
+func Read(ctx context.Context, sp space.Space, objectId, msgId string) error {
+	rec, err := getRaw(ctx, sp, objectId, msgId)
+	if err != nil {
+		return err
+	}
+	verId := string(rec.GetStringBytes("_ver", "id"))
+	if verId == "" {
+		return ErrNotFound
+	}
+	return sp.ReadState().MarkReadUpTo(ctx, objectId, space.VersionId(verId))
+}

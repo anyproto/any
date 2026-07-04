@@ -272,3 +272,60 @@ func chatOpError(c echo.Context, err error, spaceId, objectId string) error {
 	}
 	return sdkOpError(c, err, map[string]any{"spaceId": spaceId, "objectId": objectId})
 }
+
+// chatReadAll handles POST .../chat/read-all.
+//
+//	@Summary	Mark every message, mention, and reaction in the chat read
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Chat object ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/read-all [post]
+func (d *deps) chatReadAll(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	objectId := c.Param("objectId")
+	if objectId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
+	}
+	if err := chat.ReadAll(c.Request().Context(), sp, objectId); err != nil {
+		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// chatRead handles POST .../chat/messages/:msgId/read — mark this
+// message and everything ordered before it read.
+//
+//	@Summary	Mark a message and everything before it read
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Chat object ID"
+//	@Param		msgId		path	string	true	"Message ID (read boundary, inclusive)"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read [post]
+func (d *deps) chatRead(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	objectId := c.Param("objectId")
+	msgId := c.Param("msgId")
+	if objectId == "" || msgId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
+	}
+	if err := chat.Read(c.Request().Context(), sp, objectId, msgId); err != nil {
+		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
