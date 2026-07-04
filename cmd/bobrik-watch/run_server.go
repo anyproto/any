@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"os"
 
 	agentrt "github.com/anyproto/anytype-agent-runtime/runtime"
 
@@ -37,13 +36,14 @@ type runResponse struct {
 	Trace  any    `json:"trace,omitempty"`
 }
 
-// startRunServer launches bobrik's control API. POST /run executes a deployed
-// program in bobrik's own kernel — the exact runtime path a chat-driven agent
-// run uses (NewSobekRuntime + SetupAnySDKDirtyRuntime + EvalToString), so there
-// is no second environment or module loader. One fresh runtime per request,
-// mirroring runAgent's per-message isolation. Blocks; run in a goroutine.
-func startRunServer(addr, bobrikSpaceID string) {
-	mux := http.NewServeMux()
+// registerRunRoute adds POST /run to mux. It executes a deployed program in
+// bobrik's own kernel — the exact runtime path a chat-driven agent run uses
+// (NewSobekRuntime + SetupAnySDKDirtyRuntime + EvalToString), so there is no
+// second environment or module loader. One fresh runtime per request,
+// mirroring runAgent's per-message isolation. Registered onto the same mux as
+// /bootstrap and /bootstrap-clean (see registerControlRoutes in
+// control_server.go) so all three share one listener.
+func registerRunRoute(mux *http.ServeMux, bobrikSpaceID string) {
 	mux.HandleFunc("/run", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeRunErr(w, http.StatusMethodNotAllowed, "POST only")
@@ -133,11 +133,6 @@ func startRunServer(addr, bobrikSpaceID string) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	})
-
-	fmt.Fprintf(os.Stderr, "run API listening on http://%s/run\n", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		fmt.Fprintf(os.Stderr, "run API server error: %v\n", err)
-	}
 }
 
 func writeRunErr(w http.ResponseWriter, code int, msg string) {

@@ -24,9 +24,9 @@ type controlResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// startControlServer launches bobrik's control API — the HTTP replacement for
-// the old SIGHUP/SIGUSR1 signals, so `--bootstrap` works on any platform (no
-// Unix-only signals, no PID file). Endpoints:
+// registerControlRoutes adds bobrik's control API to mux — the HTTP
+// replacement for the old SIGHUP/SIGUSR1 signals, so `--bootstrap` works on
+// any platform (no Unix-only signals, no PID file). Endpoints:
 //
 //	POST /bootstrap        — incremental (hash-gated) refresh of "System Bobrik
 //	                         Files" (same path as a plain restart / boot).
@@ -34,11 +34,10 @@ type controlResponse struct {
 //	                         from scratch (corrupt/divergent-space recovery).
 //
 // Both run the exact bootstrapSystemFiles the boot path runs, so a running
-// watcher refreshes its in-space JS without restarting. Blocks; run in a
-// goroutine.
-func startControlServer(addr, spaceID, programTypeID, skillTypeID string) {
-	mux := http.NewServeMux()
-
+// watcher refreshes its in-space JS without restarting. Registered onto the
+// same mux as /run (see startRunRoutes in run_server.go) so both share one
+// listener.
+func registerControlRoutes(mux *http.ServeMux, spaceID, programTypeID, skillTypeID string) {
 	mux.HandleFunc("/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeControlErr(w, http.StatusMethodNotAllowed, "POST only")
@@ -76,11 +75,6 @@ func startControlServer(addr, spaceID, programTypeID, skillTypeID string) {
 		fmt.Fprintf(os.Stderr, "clean rebuild complete\n")
 		writeControlOK(w, folderID)
 	})
-
-	fmt.Fprintf(os.Stderr, "control API listening on http://%s (POST /bootstrap, /bootstrap-clean)\n", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		fmt.Fprintf(os.Stderr, "control API server error: %v\n", err)
-	}
 }
 
 func writeControlOK(w http.ResponseWriter, folderID string) {

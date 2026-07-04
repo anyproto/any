@@ -9,11 +9,12 @@ import (
 	"time"
 )
 
-// TestControlServerContract drives the real startControlServer handlers over
-// HTTP. It doesn't need a running `any` server: base points at an unreachable
-// address, so bootstrapSystemFiles fails fast and we assert on the dispatch +
-// error-shaping contract (method rejection, JSON reply shape) rather than a
-// successful sync. Verifies the SIGHUP/SIGUSR1 → HTTP replacement wire surface.
+// TestControlServerContract drives the real registerControlRoutes handlers
+// over HTTP. It doesn't need a running `any` server: base points at an
+// unreachable address, so bootstrapSystemFiles fails fast and we assert on
+// the dispatch + error-shaping contract (method rejection, JSON reply shape)
+// rather than a successful sync. Verifies the SIGHUP/SIGUSR1 → HTTP
+// replacement wire surface.
 func TestControlServerContract(t *testing.T) {
 	// Unreachable API so bootstrapSystemFiles returns an error quickly.
 	base = "http://127.0.0.1:1"
@@ -23,9 +24,10 @@ func TestControlServerContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
-	ln.Close()
 
-	go startControlServer(addr, "space-x", "prog-type", "skill-type")
+	mux := http.NewServeMux()
+	registerControlRoutes(mux, "space-x", "prog-type", "skill-type")
+	go http.Serve(ln, mux)
 
 	// Wait for the listener to come up.
 	deadline := time.Now().Add(2 * time.Second)
