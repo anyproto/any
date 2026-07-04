@@ -22,7 +22,7 @@ import (
 // request body (the one route exempted from the global BodyLimit),
 // download serves a seekable reader through http.ServeContent so
 // Content-Length / Range / 206 come for free. Everything else is the
-// usual JSON. See docs/16-files.md for the model, docs/03-api.md
+// usual JSON. See docs/17-files.md for the model, docs/03-api.md
 // § Files for the wire catalog.
 
 // fileAttach handles POST /v1/spaces/:spaceId/objects/:objectId/files.

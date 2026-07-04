@@ -7,7 +7,7 @@ package api
 // POST /objects/:objectId/files/query[/subscribe] (cleartext rows).
 // The file BYTES ride plain HTTP — upload is a raw POST body, download
 // a raw GET response with real Content-Type / Range support — the two
-// deliberate non-JSON bodies in the API. See docs/16-files.md.
+// deliberate non-JSON bodies in the API. See docs/17-files.md.
 
 // FileInfo describes one attached file — the unsealed member view.
 // Name / Mime / Variant / VariantOf come from the sealed (member-only)

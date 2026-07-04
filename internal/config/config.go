@@ -47,7 +47,7 @@ type Sync struct {
 	ChangeBatchSize int    `yaml:"changeBatchSize"`
 }
 
-// Files tunes the SDK's file byte layer (files v2, docs/16-files.md).
+// Files tunes the SDK's file byte layer (files v2, docs/17-files.md).
 // Zero values fall back to SDK defaults; an absent `files` block
 // changes nothing.
 type Files struct {

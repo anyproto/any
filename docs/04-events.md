@@ -328,7 +328,7 @@ CLI: `any identities subscribe`.
 
 `GET /v1/spaces/:id/files/subscribe` streams file durability
 transitions — attach, backup progress/failure, pin completion, manual
-retries — over SSE (docs/16-files.md § Durability states). The source
+retries — over SSE (docs/17-files.md § Durability states). The source
 is the SDK's `Files().SubscribeStatus` callback, bridged through the
 same 16-deep overflow-to-`lagged` forwarder as the
 members/sync-status streams. **Local transitions only** — a remote

@@ -121,7 +121,7 @@ holds no lock until it boots an account.
     ├── server.pid               # per-account lock file
     ├── sdk/                     # any-store DB(s) — owned by the SDK
     ├── files/                   # file content (one CARv2 per rootCid) — owned
-    │                            #   by the SDK (files v2, docs/16-files.md)
+    │                            #   by the SDK (files v2, docs/17-files.md)
     └── index/                   # local search index (index.db) — owned by the indexer
 ```
 

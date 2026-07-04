@@ -248,8 +248,8 @@ durable` flip. `download` writes raw bytes to stdout by default (pipe
 them) or to `-o PATH` with a small JSON receipt — the two deliberate
 non-JSON outputs in the CLI. `offload` exits non-zero with
 `file.not_durable` while the local bytes are the only copy. `query` /
-`query-subscribe` read the cleartext payload rows (docs/16-files.md
-§ Reads). See `docs/16-files.md` for the model.
+`query-subscribe` read the cleartext payload rows (docs/17-files.md
+§ Reads). See `docs/17-files.md` for the model.
 
 ### Subscribe
 

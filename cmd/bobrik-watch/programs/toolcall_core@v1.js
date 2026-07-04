@@ -1857,14 +1857,14 @@ export function main(args) {
   // the skills in assistant-skills/*.md are the single source of truth.
   var anySkill = _loadAnySkill(bootClient);
   if (!anySkill) {
-    var missA = "System skill `_any` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
+    var missA = "System skill `_any` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`) to deploy agent skills.";
     chatReply({ text: missA, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missA });
     return "";
   }
   var toolcallerSkill = _loadToolcallerSkill(bootClient);
   if (!toolcallerSkill) {
-    var missT = "System skill `_toolcaller` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`, or `kill -HUP $(cat .bobrik-pid)`) to deploy agent skills.";
+    var missT = "System skill `_toolcaller` is missing from this space. Re-run the bobrik-watch bootstrap (`bobrik-watch --bootstrap`) to deploy agent skills.";
     chatReply({ text: missT, done: true, debugLink: dcDebugLink(0) });
     dcFlush({ status: "skill_missing", finalText: missT });
     return "";

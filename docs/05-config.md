@@ -47,7 +47,7 @@ auth:
 # Files: durable file backup needs nodes typed `fileV2` in the nodeconf
 # (the fileV2 broker fleet). Without them attach still works
 # offline-first — files just sit in the `inflight` durability state
-# until such nodes appear (docs/16-files.md § Durability states).
+# until such nodes appear (docs/17-files.md § Durability states).
 network:
   nodeconfPath: /etc/any/nodeconf.yaml
   # OR:
@@ -113,7 +113,7 @@ index:
     bm25K1: 0                         # FTS BM25 tf-saturation; 0 = engine default 1.2
     titleWeight: 0                    # BM25F boost for the title field; 0 = default 1.0
 
-# Files byte layer (files v2, docs/16-files.md). All optional — an
+# Files byte layer (files v2, docs/17-files.md). All optional — an
 # absent block changes nothing.
 files:
   publicReadBaseUrl: ""               # override the network-advertised public read base

@@ -567,7 +567,7 @@ Implementation slices landed:
     attach/list/get/download/status/stats/subscribe/pin/retry/offload/
     query/query-subscribe/cache`. NOT wrapped (broker embedding
     surfaces): `Space.Payloads()`, `TreeHeads()`, `Track/Evict`,
-    `Headless`, `Sync.TreeTypes`. Contract: docs/16-files.md (model),
+    `Headless`, `Sync.TreeTypes`. Contract: docs/17-files.md (model),
     docs/03-api.md § Files, docs/04-events.md § File status stream,
     docs/08-clients.md § 9.
 
@@ -623,16 +623,18 @@ make build                                        # builds any, bobrik-watch, an
 
 # 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
 #    tool-descriptions from disk into the bao space).
-./bin/bobrik-watch --bootstrap                    # SIGHUPs the running instance
+./bin/bobrik-watch --bootstrap                    # POST /bootstrap to the running instance
 ```
 
 Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
 how new JS reaches a live agent: a binary restart alone does NOT re-sync
 the in-space programs/skills of an already-running watcher; `--bootstrap`
-(SIGHUP) re-runs the bootstrap sync against disk. That sync is
-**incremental/hash-gated** — unchanged programs/skills are skipped,
-deleted ones swept — so it's cheap to run often. (`--bootstrap-clean`,
-SIGUSR1, is the wipe-and-rebuild recovery path.) See
+POSTs `/bootstrap` to the running watcher's control API (`--control-addr`,
+default `127.0.0.1:7010`), which re-runs the bootstrap sync against disk.
+That sync is **incremental/hash-gated** — unchanged programs/skills are
+skipped, deleted ones swept — so it's cheap to run often.
+(`--bootstrap-clean` POSTs `/bootstrap-clean`, the wipe-and-rebuild
+recovery path.) See
 [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Startup sync
 for the mechanics.
 
@@ -804,7 +806,7 @@ auto-start.
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
 | `docs/15-ui-commands.md` | UI command channel — account-wide in-memory agent→any-ui control (`/v1/ui/commands[/subscribe]`), at-most-once, command shape, SSE frames |
-| `docs/16-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
+| `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

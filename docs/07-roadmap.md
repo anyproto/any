@@ -15,7 +15,7 @@ Explicit non-goals for v1:
 - Install script / service files.
 - Multi-account.
 - ~~File upload/download.~~ Shipped — files v2 (see Done +
-  `16-files.md`).
+  `17-files.md`).
 
 ## v1.x — what we learn
 
@@ -189,7 +189,7 @@ pluggable embedders, parallel batched pipelines),
   pin/retry/offload, `/files/subscribe` status SSE, per-object
   payload-row `files/query[/subscribe]`, account-wide
   `/v1/files/cache{,/free,/sweep}`, config `files.*`, `any file …`
-  CLI. Full model in `16-files.md`. **Deliberately not wrapped** (the
+  CLI. Full model in `17-files.md`. **Deliberately not wrapped** (the
   broker-embedding surfaces — the filenode-v2 broker links the SDK
   directly): `Space.Payloads()`, `Space.TreeHeads()`,
   `Service.Track/Evict`, `Headless`, `Sync.TreeTypes`. Cheap 1:1 adds

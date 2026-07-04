@@ -69,6 +69,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 
 	// Agent data layer (built-in types — see internal/agentlog,
 	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
@@ -140,7 +142,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing)
 
 	// Files (files v2 — see internal/server/handlers_files.go and
-	// docs/16-files.md). Attach streams the raw request body (exempt
+	// docs/17-files.md). Attach streams the raw request body (exempt
 	// from the global BodyLimit — see routes.go); /content serves raw
 	// bytes with Range support. Static segments (stats, subscribe)
 	// before the :fileId matcher so they aren't swallowed. Payload-row

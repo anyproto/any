@@ -19,6 +19,12 @@ import (
 func (messagesHandler) Indexes() []anystore.IndexInfo {
 	return []anystore.IndexInfo{
 		{Name: "idx_ver_id", Fields: []string{"_ver.id"}},
+		// Flag indexes are sparse: the materializer $unsets a flag when
+		// it clears, so only currently-unread rows carry the field —
+		// the index stays proportional to the unread set.
+		{Name: "idx_unread", Fields: []string{FieldUnread, "_ver.id"}, Sparse: true},
+		{Name: "idx_unread_mention", Fields: []string{FieldUnreadMention, "_ver.id"}, Sparse: true},
+		{Name: "idx_unread_reactions", Fields: []string{FieldUnreadReactions, "_ver.id"}, Sparse: true},
 	}
 }
 
@@ -70,10 +76,10 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 // BeforeModify gates per-op edits. Path allow-list:
 //
 //   - text                                — $set, by author only,
-//                                            bumps modifiedAt
+//     bumps modifiedAt
 //   - reactions.<emoji>.<creator>         — $set (add) or $unset
-//                                            (remove), only on the
-//                                            caller's own slot
+//     (remove), only on the
+//     caller's own slot
 //
 // Anything else (including direct writes to creator, createdAt,
 // modifiedAt, replyToMessageId, _ver.*, _deletedAt) drops the op.

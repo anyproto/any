@@ -14,7 +14,7 @@ import (
 )
 
 // newFileCmd is the root for `any file <subcommand>` — the CLI face of
-// the files v2 surface (docs/16-files.md). attach/download move raw
+// the files v2 surface (docs/17-files.md). attach/download move raw
 // bytes (the two non-JSON flows in the CLI); everything else prints
 // the usual JSON.
 func newFileCmd() *cobra.Command {
