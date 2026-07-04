@@ -114,6 +114,15 @@ Not this repo's work; gate on the SDK:
   before membership-gated `editor_blocks` writes — but the HTTP route
   `/v1/spaces/:id/properties/:objectId/attach/:typeId` stays 501 (no
   agent-facing caller yet; wire it when one appears).
+- **Record-level account transport.** Dataset schema fields can
+  declare `account` scope and the tech-space carrier is already keyed
+  `(objectId, dataset, recordId)`, but the SDK's account mirror
+  handles the objects rows only — so `POST …/modify` rejects
+  `"scope":"account"` until the mirror learns dataset records. The
+  local scope shipped (status § 21); account is the missing sibling
+  (wanted for cross-device read state that survives device loss,
+  though read-tracking proper syncs its frontier via tech-space KV
+  instead).
 - **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
   Still "not implemented" on the SDK side; routes 501.
 - **`Types.Get` for non-object ids.** The SDK only returns

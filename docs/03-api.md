@@ -418,10 +418,15 @@ GET /v1/datasets                   → { datasets: [ { name, schema } ] }   Serv
 (`{type:"object", properties:{…}, additionalProperties:<dynamic>}`). Each
 property carries an `x-scope` extension keyword classifying the field:
 
-- `synced` — user/DAG-written, synced across the account's devices;
+- `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
   `creator` / `createdAt`);
-- `local` — device-local, never synced.
+- `local` — device-local, never synced (e.g. chat `unread` /
+  `unreadMention` / `unreadReactions` — written via the local-scope
+  `POST …/modify` route, § Modify records);
+- `account` — synced across this account's devices only, invisible to
+  other members (declarable on property definitions today; dataset
+  record fields await the SDK's record-level account transport).
 
 `additionalProperties:true` marks a dynamic dataset (free-form keys
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
@@ -985,6 +990,20 @@ search indexer (its value is indexed under that scope — see
   "meta": { "index": "agent" } }
 ```
 
+`POST …/properties` also accepts an optional **`scope`** — the
+property's write/sync class: `"synced"` (default — everyone in the
+space), `"account"` (this account's devices only, via the private tech
+space), or `"local"` (this device only, never synced). `"derived"` is
+reserved for built-ins → `400 request.schema`. Like `kind`, scope is
+pinned by the first write — changing it means defining a new property.
+`GET …/properties` returns each definition's `scope` (pre-scope
+definitions read back as `"synced"`). Value writes need no scope
+parameter: `/set/:typeId` auto-routes by the declared scope (below).
+
+```json
+{ "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
+```
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
@@ -1074,6 +1093,13 @@ body is always read back through the query path.
   "reactions":        { "👍": { "<id1>": 1714597200, "<id2>": 1714597205 } }
 }
 ```
+
+A record may additionally carry the device-local read-tracking flags
+`unread` / `unreadMention` / `unreadReactions` (booleans, `x-scope`
+local). They are not part of the synced message — each device
+materializes its own values via `POST …/modify` with
+`{"scope":"local"}` (§ Modify records) and they never appear on other
+devices. Filterable like any field: `{"filter":{"unread":true}}`.
 
 `createdAt` and `modifiedAt` are unix-seconds, server-stamped. They
 are equal on a never-edited message — clients detect edits by
@@ -1626,6 +1652,36 @@ Response: the shared write result `{versionId, changeId, recordIds,
 rejections?}` — see § Write responses. `recordIds` mirrors the input
 record order (`recordIds[0]` is the derived id for the empty-id upsert
 above).
+
+The body takes an optional **`scope`** selecting the write route:
+`"synced"` (default — the object's own DAG change, synced to every
+member) or `"local"` (device-only materialization: no DAG change,
+never syncs, still flows through query/subscribe with a locally-minted
+`versionId` and an empty `changeId`). A local write may only target
+fields the dataset schema declares `local` (`x-scope` in
+`GET …/datasets`) — e.g. chat's `unread` / `unreadMention` /
+`unreadReactions` read-tracking flags on `chat_messages`. Constraints,
+enforced with `400 request.schema`: explicit record `id`s, no
+`upsert` (local fields annotate records the synced route created —
+they never create records), no `traceIds`, and not the shared
+`objects` dataset (its fields are per-property scoped — local property
+values go through `POST …/properties/:objectId/set/:typeId`, which
+validates per-prop scope and kind). Ops that target a
+non-local field come back in `rejections` (the write itself succeeds);
+the reverse direction — a synced write touching a local field — fails
+whole with `400 dataset.validation`. `"account"` is not writable here
+yet (the SDK's account transport covers property values only).
+
+```json
+{
+  "objectId": "obj_abc",
+  "dataset":  "chat_messages",
+  "scope":    "local",
+  "records": [
+    { "id": "msg_1", "ops": [ { "type": "$set", "path": "unread", "value": true } ] }
+  ]
+}
+```
 
 ## Middleware
 

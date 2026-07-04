@@ -4502,6 +4502,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "scope": {
+                    "description": "Scope is the property's write/sync class: \"synced\" (default,\neveryone in the space), \"account\" (this account's devices only),\nor \"local\" (this device only, never synced). \"derived\" is\nreserved for built-ins and rejected. Pinned by the first write,\nlike kind — changing a property's scope means defining a new\nproperty. Property VALUE writes auto-route by the declared scope\n(POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).",
+                    "type": "string"
+                },
                 "xKey": {
                     "type": "string"
                 }
@@ -5506,6 +5510,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "scope": {
+                    "description": "Scope is the property's write/sync class (synced / derived /\naccount / local). Definitions written before scopes existed\nread back as \"synced\".",
+                    "type": "string"
+                },
                 "xKey": {
                     "type": "string"
                 },
@@ -5788,6 +5796,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/api.RecordModify"
                     }
+                },
+                "scope": {
+                    "description": "Scope selects the write route: \"synced\" (default — the object's\nown DAG change) or \"local\" (device-only materialization for\nfields the dataset schema declares local-scope; explicit record\nids, no upsert, no traceIds). See docs/03-api.md § Modify records.",
+                    "type": "string",
+                    "enum": [
+                        "synced",
+                        "local"
+                    ]
                 },
                 "traceIds": {
                     "type": "array",

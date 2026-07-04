@@ -187,7 +187,10 @@ func NewType() handler.Type {
 // class: creator / createdAt / modifiedAt are server-stamped via
 // sink.Derive → ScopeDerived (handler-only, rejected from client ops);
 // text / replyToMessageId / agent / reactions / attachments are
-// user/DAG-written → ScopeSynced. nav.* lives in the shared `objects`
+// user/DAG-written → ScopeSynced; unread / unreadMention /
+// unreadReactions are device-local read-tracking flags → ScopeLocal
+// (written via the local-scope modify route, invisible to other
+// members and other devices). nav.* lives in the shared `objects`
 // namespace, not here. reactions / attachments / agent carry nested
 // keyspaces (emoji→accountId→ts, attachmentId→{type,link},
 // {name,debugLink,done}) so they declare an unconstrained object
