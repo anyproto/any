@@ -76,6 +76,9 @@ type P2P struct {
 	// Port fixes the QUIC listen port. 0 (default) = reuse the port
 	// persisted from the previous run, or pick an ephemeral one.
 	Port int `yaml:"port"`
+	// ServiceName overrides the mDNS service type (default "_any._tcp").
+	// Set it to isolate a deployment onto its own discovery namespace.
+	ServiceName string `yaml:"serviceName"`
 }
 
 // Index configures the local search indexer (FTS + vector, see
