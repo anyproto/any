@@ -103,6 +103,26 @@ func (c *Client) SpaceRegisterIncoming(ctx context.Context, req api.SpaceRegiste
 	return c.do(ctx, http.MethodPost, "/v1/spaces/one-to-one/register-incoming", req, nil)
 }
 
+// SpaceInviteAccept approves a direct-add invite by space id — POST
+// /v1/spaces/:id/invite/accept → Service.AcceptInvite. 200 returns the
+// loaded space; 202 means accepted with the load continuing in the
+// background (the returned info carries the current status).
+func (c *Client) SpaceInviteAccept(ctx context.Context, spaceId string) (*api.SpaceInfo, error) {
+	var out api.SpaceInfo
+	path := fmt.Sprintf("/v1/spaces/%s/invite/accept", url.PathEscape(spaceId))
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceInviteDecline rejects a direct-add invite by space id — POST
+// /v1/spaces/:id/invite/decline → Service.DeclineInvite. Returns 204.
+func (c *Client) SpaceInviteDecline(ctx context.Context, spaceId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/invite/decline", url.PathEscape(spaceId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
 // SpaceListQuery runs a windowed snapshot over the account's space list
 // (POST /v1/spaces/query → Service.Query on the `spaces` dataset). body
 // carries the standard query fields (filter / sort / limit / offset /

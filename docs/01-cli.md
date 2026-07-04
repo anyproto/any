@@ -300,6 +300,9 @@ any invite create     <spaceId> [--permissions writer|reader]
 any invite list       <spaceId>
 any invite revoke     <spaceId> <recordId>
 any invite revoke-all <spaceId>
+any invite pending                       # direct-add invites awaiting approval
+any invite accept     <spaceId>          # accept a direct-add invite (loads the space)
+any invite decline    <spaceId>          # decline (sticky; accept later overrides)
 
 any join <invite>
 
@@ -307,12 +310,20 @@ any acl accept       <spaceId>
 any acl decline      <spaceId>
 any acl grant        <spaceId> <identity> <permission>
 any acl remove       <spaceId> <identity>...
-any acl add          <spaceId> <identity> <permission>
+any acl add          <spaceId> <identity>[,<identity>...] <permission>
 any acl ownership    <spaceId>
 any acl self-remove  <spaceId>
 any acl cancel-join  <spaceId>
 any acl stop-sharing <spaceId>
 ```
+
+`any acl add` adds accounts **by identity** — the whole comma-separated
+batch lands in one ACL record, and each added account is notified through
+the coordinator inbox (durable, retried): on their side the space shows
+up as an `invite_pending` row (`any invite pending`), which they resolve
+with `any invite accept` / `any invite decline`. Decline is synced +
+sticky account-wide but non-terminal — a later accept overrides it; the
+declined account stays on the ACL (no self-remove in v1).
 
 ### Sync status
 

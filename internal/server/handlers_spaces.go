@@ -44,6 +44,13 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/one-to-one/accept", d.spaceOneToOneAccept)
 	g.POST("/spaces/:spaceId/one-to-one/decline", d.spaceOneToOneDecline)
 
+	// Direct-add invites — spaces this account was added to by identity
+	// (ACL add). Sender side is POST /v1/spaces/:spaceId/acl/add; incoming
+	// invites surface via GET /v1/spaces?status=invite_pending — no
+	// bespoke list endpoint, mirroring the 1-1 pattern.
+	g.POST("/spaces/:spaceId/invite/accept", d.spaceInviteAccept)
+	g.POST("/spaces/:spaceId/invite/decline", d.spaceInviteDecline)
+
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
@@ -440,6 +447,94 @@ func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// spaceInviteAccept handles POST /v1/spaces/:spaceId/invite/accept —
+// Service.AcceptInvite. Approves a direct-add invite: the account is
+// already an ACL member, so accept flips the synced status to active
+// (every device converges) and loads the space. 200 with the loaded
+// space, or 202 when the content isn't pullable yet — loading continues
+// durably in the background; poll GET /v1/spaces/:spaceId for the flip.
+// Idempotent; also overrides a prior decline.
+//
+//	@Summary	Accept a direct-add invite
+//	@Tags		spaces
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID (from an invite_pending row)"
+//	@Success	200		{object}	api.SpaceInfo	"Accepted and loaded"
+//	@Success	202		{object}	api.SpaceInfo	"Accepted; load continues in background"
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invite/accept [post]
+func (d *deps) spaceInviteAccept(c echo.Context) error {
+	id := c.Param("spaceId")
+	sp, err := d.sdk.Spaces().AcceptInvite(c.Request().Context(), id)
+	if err == nil {
+		return c.JSON(http.StatusOK, spaceToAPI(sp))
+	}
+	// spaceimpl.ErrInviteAcceptPending is internal-only; match the
+	// documented error string (same pragmatic pattern as spaceJoin).
+	if strings.Contains(err.Error(), "invite accepted; space load pending") {
+		infos, lErr := d.sdk.Spaces().List(c.Request().Context())
+		if lErr == nil {
+			for _, info := range infos {
+				if info.Id == id {
+					return c.JSON(http.StatusAccepted, spaceInfoToAPI(info))
+				}
+			}
+		}
+		return c.JSON(http.StatusAccepted, api.SpaceInfo{
+			Id:     id,
+			Status: api.SpaceStatusActive,
+		})
+	}
+	return inviteStateError(c, err, id)
+}
+
+// spaceInviteDecline handles POST /v1/spaces/:spaceId/invite/decline —
+// Service.DeclineInvite. Rejects a direct-add invite: a synced sticky
+// marker suppresses it on every device; a later accept overrides it. No
+// ACL change happens — the account stays a member on the space's ACL.
+//
+//	@Summary	Decline a direct-add invite
+//	@Tags		spaces
+//	@Param		spaceId	path	string	true	"Space ID (from an invite_pending row)"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invite/decline [post]
+func (d *deps) spaceInviteDecline(c echo.Context) error {
+	id := c.Param("spaceId")
+	if err := d.sdk.Spaces().DeclineInvite(c.Request().Context(), id); err != nil {
+		return inviteStateError(c, err, id)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// inviteStateError maps the AcceptInvite / DeclineInvite family of SDK
+// errors to the canonical envelope, string-matching the documented
+// messages until the SDK exports errors.Is-able sentinels.
+func inviteStateError(c echo.Context, err error, spaceID string) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "unknown space"):
+		return writeError(c, http.StatusNotFound, "space.not_found",
+			"space not found", map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "is a 1-1 space"):
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"this is a 1-1 space — use the one-to-one accept/decline endpoints",
+			map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "not invite-pending"):
+		return writeError(c, http.StatusConflict, "space.not_invite_pending",
+			"space is not awaiting invite approval", map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "is deleted"):
+		return writeError(c, http.StatusConflict, "space.deleted",
+			"space is deleted", map[string]any{"spaceId": spaceID})
+	default:
+		return spaceError(c, err, spaceID)
+	}
+}
+
 // oneToOneError maps the OneToOne / RegisterIncoming family of SDK errors
 // to the canonical envelope. The SDK rejects self-pairing and undecodable
 // identities but doesn't yet export errors.Is-able sentinels for them, so
@@ -523,6 +618,10 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusOneToOnePending
 	case space.StatusOneToOneDeclined:
 		return api.SpaceStatusOneToOneDeclined
+	case space.StatusInvitePending:
+		return api.SpaceStatusInvitePending
+	case space.StatusInviteDeclined:
+		return api.SpaceStatusInviteDeclined
 	default:
 		return api.SpaceStatusUnknown
 	}
