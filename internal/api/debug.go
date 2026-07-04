@@ -67,3 +67,31 @@ type ObjectDebugResponse struct {
 	// not a cross-peer primitive.
 	MaxAddSeq uint64 `json:"maxAddSeq"`
 }
+
+// P2PStatusResponse is the wire shape of SDK.P2PStatus() — the
+// account-wide local-network (LAN) layer snapshot. Diagnostic; the
+// per-space p2p state lives in SpaceSyncStatusResponse (p2p /
+// localPeers).
+//
+// Possibility is one of: unknown, possible, nointerfaces, restricted.
+// State is one of: unknown, notpossible, notconnected, connected,
+// restricted.
+type P2PStatusResponse struct {
+	// PeerId is THIS device's peer id. Devices of one account must
+	// each have a distinct peerId — devices sharing one cannot pair.
+	PeerId          string          `json:"peerId"`
+	Enabled         bool            `json:"enabled"`
+	ListenerStarted bool            `json:"listenerStarted"`
+	Port            int             `json:"port"`
+	Possibility     string          `json:"possibility"`
+	State           string          `json:"state"`
+	Peers           []P2PPeerStatus `json:"peers"`
+}
+
+// P2PPeerStatus is one discovered LAN peer: the spaces it reported in
+// the space exchange and whether a connection is live right now.
+type P2PPeerStatus struct {
+	PeerId    string   `json:"peerId"`
+	SpaceIds  []string `json:"spaceIds"`
+	Connected bool     `json:"connected"`
+}
