@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // TypesCreateRequest is the body of POST /v1/spaces/:spaceId/types.
 // Mirrors space.TypeCreateParams.
 type TypesCreateRequest struct {
@@ -22,17 +24,22 @@ type TypesCreateResponse struct {
 
 // AddPropertyRequest is the body of POST /v1/spaces/:spaceId/types/:typeId/properties.
 // Kind is the wire string from PropertyKind* below; the server rejects
-// unknown values with 400 invalid_request. Items / Properties /
-// Required from space.PropertyDraft are not exposed in v1.
+// unknown values with 400 invalid_request. Kind may be omitted when
+// Format is set — it then defaults from the format type (links ⇒ array,
+// date/datetime ⇒ string). Items / Properties / Required from
+// space.PropertyDraft are not exposed in v1.
 type AddPropertyRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	XKey        string `json:"xKey,omitempty"`
-	Kind        string `json:"kind"`
+	Kind        string `json:"kind,omitempty"`
 	// Meta is an opaque consumer flag map, stored verbatim on the
 	// property definition. meta["index"] = "<scope>" marks the property
 	// for the search indexer (docs/13-index.md).
 	Meta map[string]string `json:"meta,omitempty"`
+	// Format declares the property's value convention. format.type is
+	// pinned for the property's life; ui/filter stay mutable.
+	Format *PropertyFormat `json:"format,omitempty"`
 	// Scope is the property's write/sync class: "synced" (default,
 	// everyone in the space), "account" (this account's devices only),
 	// or "local" (this device only, never synced). "derived" is
@@ -42,6 +49,41 @@ type AddPropertyRequest struct {
 	// (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
 	Scope string `json:"scope,omitempty"`
 }
+
+// PropertyFormat is the wire shape of a property's format annotation.
+// The server validates the semantics on its write path (type/ui
+// vocabulary, ui/type compatibility, filter parses as a query
+// condition) and validates property VALUES against the format on the
+// property-write endpoints (a datetime parses, links are well-formed
+// any:// URIs). No object-existence or object-type checks.
+type PropertyFormat struct {
+	// Type is one of the FormatType* wire strings.
+	Type string `json:"type"`
+	// UI is one of the FormatUI* wire strings; optional. links accepts
+	// any UI; date/datetime accept none.
+	UI string `json:"ui,omitempty"`
+	// Filter is a mongo-style condition object over candidate objects
+	// (e.g. {"type": {"$in": ["page"]}}); optional, links only.
+	Filter json.RawMessage `json:"filter,omitempty"`
+}
+
+// FormatType* are the wire strings of space.FormatType. "tags" is
+// reserved until the space-level tag table lands — the SDK rejects it.
+const (
+	FormatTypeLinks    = "links"
+	FormatTypeDate     = "date"
+	FormatTypeDatetime = "datetime"
+	FormatTypeTags     = "tags"
+)
+
+// FormatUI* are the accepted presentation hints for format-bearing
+// properties. Opaque to the SDK; vocabulary enforced by this server.
+const (
+	FormatUISelect      = "select"
+	FormatUIMultiselect = "multiselect"
+	FormatUILink        = "link"
+	FormatUILinks       = "links"
+)
 
 // AddPropertyResponse is the body returned by AddProperty.
 type AddPropertyResponse struct {
@@ -97,6 +139,9 @@ type PropertyDef struct {
 	Items      *PropertyDef  `json:"items,omitempty"`
 	Properties []PropertyDef `json:"properties,omitempty"`
 	Required   []string      `json:"required,omitempty"`
+	// Format is the property's value-format annotation; absent for
+	// properties that never declared one.
+	Format *PropertyFormat `json:"format,omitempty"`
 }
 
 // PropertiesListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/properties.

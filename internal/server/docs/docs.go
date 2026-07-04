@@ -4489,6 +4489,14 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "format": {
+                    "description": "Format declares the property's value convention. format.type is\npinned for the property's life; ui/filter stay mutable.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/api.PropertyFormat"
+                        }
+                    ]
+                },
                 "kind": {
                     "type": "string"
                 },
@@ -5479,6 +5487,14 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "format": {
+                    "description": "Format is the property's value-format annotation; absent for\nproperties that never declared one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/api.PropertyFormat"
+                        }
+                    ]
+                },
                 "id": {
                     "type": "string"
                 },
@@ -5518,6 +5534,26 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "xKind": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PropertyFormat": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "description": "Filter is a mongo-style condition object over candidate objects\n(e.g. {\"type\": {\"$in\": [\"page\"]}}); optional, links only.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "type": {
+                    "description": "Type is one of the FormatType* wire strings.",
+                    "type": "string"
+                },
+                "ui": {
+                    "description": "UI is one of the FormatUI* wire strings; optional. links accepts\nany UI; date/datetime accept none.",
                     "type": "string"
                 }
             }
