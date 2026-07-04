@@ -242,13 +242,15 @@ func (d *deps) spaceList(c echo.Context) error {
 			continue
 		}
 		row := spaceInfoToAPI(info)
-		// Eagerly-resident spaces (post-boot) give us the
-		// deterministic spaceIndex object id without touching disk.
-		// On a row the SDK can't resolve to a handle (rare —
-		// e.g. tombstoned), skip the lookup and emit the row
-		// without the field.
-		if sp, err := d.sdk.Spaces().Get(ctx, info.Id); err == nil {
-			row.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+		// Resolve the deterministic spaceIndex object id for ACTIVE rows
+		// only. Service.Get materializes the space, so probing every row
+		// would download not-yet-accepted direct-add invites (defeating
+		// the SDK's accept gate) and pointlessly load joining/tombstoned
+		// rows; non-active rows just omit the field.
+		if info.Status == space.StatusActive {
+			if sp, err := d.sdk.Spaces().Get(ctx, info.Id); err == nil {
+				row.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+			}
 		}
 		out = append(out, row)
 	}
@@ -264,11 +266,23 @@ func (d *deps) spaceList(c echo.Context) error {
 // @Router		/spaces/{spaceId} [get]
 func (d *deps) spaceGet(c echo.Context) error {
 	id := c.Param("spaceId")
-	sp, err := d.sdk.Spaces().Get(c.Request().Context(), id)
-	if err != nil {
-		return spaceError(c, err, id)
+	ctx := c.Request().Context()
+	sp, err := d.sdk.Spaces().Get(ctx, id)
+	if err == nil {
+		return c.JSON(http.StatusOK, spaceToAPI(sp))
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(sp))
+	// Rows that must not (pending/declined direct-add invites) or cannot
+	// (tombstoned) be materialized still exist in the index — serve the
+	// row info instead of failing, without loading anything.
+	infos, lErr := d.sdk.Spaces().List(ctx)
+	if lErr == nil {
+		for _, info := range infos {
+			if info.Id == id {
+				return c.JSON(http.StatusOK, spaceInfoToAPI(info))
+			}
+		}
+	}
+	return spaceError(c, err, id)
 }
 
 // spaceUpdate handles PATCH /v1/spaces/:spaceId.

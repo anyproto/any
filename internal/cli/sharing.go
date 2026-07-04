@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -310,6 +311,15 @@ func newACLCmd() *cobra.Command {
 						Permission: args[2],
 						Metadata:   api.AccountMetadata{Name: name, Description: desc},
 					})
+				}
+				if len(accounts) == 0 {
+					return fmt.Errorf("no identities in %q", args[1])
+				}
+				// Metadata lands in an immutable ACL record per account —
+				// one --name stamped onto a whole batch would permanently
+				// mislabel every member but one.
+				if len(accounts) > 1 && (name != "" || desc != "") {
+					return fmt.Errorf("--name/--description apply to a single identity; drop them for a batch add")
 				}
 				cl := client.New(flags.Addr, flags.Timeout)
 				return cl.ACLAdd(cmd.Context(), args[0], api.ACLAddRequest{Accounts: accounts})
