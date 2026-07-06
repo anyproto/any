@@ -88,8 +88,10 @@ type P2PStatusResponse struct {
 	Peers           []P2PPeerStatus `json:"peers"`
 }
 
-// P2PPeerStatus is one discovered LAN peer: the spaces it reported in
-// the space exchange and whether a connection is live right now.
+// P2PPeerStatus is one discovered LAN peer: the spaces it PROVED it
+// shares with this account in the space exchange (the handshake reveals
+// only the intersection of the two space sets, not everything the peer
+// holds) and whether a connection is live right now.
 type P2PPeerStatus struct {
 	PeerId    string   `json:"peerId"`
 	SpaceIds  []string `json:"spaceIds"`

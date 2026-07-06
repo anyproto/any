@@ -5,8 +5,8 @@ go 1.26.2
 require (
 	github.com/anyproto/any-store v0.4.7
 	github.com/anyproto/any-store/v2 v2.0.0-alpha.16
-	github.com/anyproto/any-sync v0.13.0-alpha.3.0.20260704160804-71a5fdb71f3a
-	github.com/anyproto/any-sync-sdk v0.1.1-0.20260704170811-0cfecf5400dd
+	github.com/anyproto/any-sync v0.13.0-alpha.5
+	github.com/anyproto/any-sync-sdk v0.1.1
 	github.com/anyproto/anytype-agent-runtime v0.1.2
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2

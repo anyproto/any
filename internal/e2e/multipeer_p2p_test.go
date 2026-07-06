@@ -49,9 +49,13 @@ func TestE2E_MultipeerP2P(t *testing.T) {
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
 	// Discovery: each server must see the other as a connected LAN
-	// peer that shares the space. The joiner advertises the space via
-	// its post-pull re-handshake; the 60s discovery resweep is the
-	// slowest fallback path, so allow a bit more than that.
+	// peer that shares the space. With SpaceExchangeV2 peers advertise
+	// only spaces whose ACL-derived discovery key they can compute, so
+	// the joiner starts covering the space once the owner's approval
+	// has synced its read key in. A derivation attempt before that is
+	// negative-cached for a minute (SDK discoverykeys.negativeRetryAfter),
+	// and the next handshake after expiry is the 60s discovery resweep
+	// — worst case ~2min after join, so allow three.
 	p2pSees := func(base, spaceId string) bool {
 		var st api.P2PStatusResponse
 		mustJSON(t, http.MethodGet, base+"/v1/debug/p2p", "", http.StatusOK, &st)
@@ -67,7 +71,7 @@ func TestE2E_MultipeerP2P(t *testing.T) {
 		}
 		return false
 	}
-	if !pollUntil(90*time.Second, func() bool {
+	if !pollUntil(180*time.Second, func() bool {
 		return p2pSees(owner.base, sp.Id) && p2pSees(joiner.base, sp.Id)
 	}) {
 		var so, sj api.P2PStatusResponse
@@ -89,23 +93,41 @@ func TestE2E_MultipeerP2P(t *testing.T) {
 	}
 }
 
-// deadNodeconf is an unreachable any-sync network (loopback ports
-// nobody listens on) — the offline fixture. Same shape as the SDK's
-// e2e/local.yml.
-const deadNodeconf = `id: 64384a038e697b7fce2f447e
+// deadNodeconfTmpl is an unreachable any-sync network — the offline
+// fixture, same shape as the SDK's e2e/local.yml. The node address is
+// a %s placeholder: hardcoded ports (the SDK's local dev network uses
+// 4830/4430) can answer when that network happens to be running, which
+// silently un-offlines the test. writeDeadNodeconf fills in a
+// freshly-released loopback port instead — it refuses connections
+// instantly, and even if something re-binds it the secure handshake
+// fails on the peer-id mismatch.
+const deadNodeconfTmpl = `id: 64384a038e697b7fce2f447e
 networkId: N4N1wDHFpFpovXBqdbq2TDXE9tXdXbtV1eTJFpKJW4YeaJqR
 nodes:
   - peerId: 12D3KooWKLCajM89S8unbt3tgGbRLgmiWnFZT3adn9A5pQciBSLa
     addresses:
-      - "127.0.0.1:4830"
+      - "%s"
     types:
       - coordinator
   - peerId: 12D3KooWKnXTtbveMDUFfeSqR5dt9a4JW66tZQXG7C7PdDh3vqGu
     addresses:
-      - 127.0.0.1:4430
+      - %s
     types:
       - tree
 `
+
+// writeDeadNodeconf writes the guaranteed-unreachable nodeconf into a
+// temp dir and returns its path.
+func writeDeadNodeconf(t *testing.T) string {
+	t.Helper()
+	dead := freeLoopbackAddr(t)
+	path := filepath.Join(t.TempDir(), "dead-nodeconf.yml")
+	body := fmt.Sprintf(deadNodeconfTmpl, dead, dead)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 // startPeerOffline boots an UNAUTHORIZED `any` server against the dead
 // nodeconf, then onboards it via POST /v1/auth with the given mnemonic
@@ -152,10 +174,7 @@ func TestE2E_MultipeerP2PColdRestore(t *testing.T) {
 		t.Skip("multipeer test takes ~60s; rerun without -short")
 	}
 
-	nodeconfPath := filepath.Join(t.TempDir(), "dead-nodeconf.yml")
-	if err := os.WriteFile(nodeconfPath, []byte(deadNodeconf), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	nodeconfPath := writeDeadNodeconf(t)
 	mnemonic, err := auth.GenerateMnemonic()
 	if err != nil {
 		t.Fatal(err)
