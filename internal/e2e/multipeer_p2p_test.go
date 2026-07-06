@@ -50,12 +50,12 @@ func TestE2E_MultipeerP2P(t *testing.T) {
 
 	// Discovery: each server must see the other as a connected LAN
 	// peer that shares the space. With SpaceExchangeV2 peers advertise
-	// only spaces whose ACL-derived discovery key they can compute, so
-	// the joiner starts covering the space once the owner's approval
-	// has synced its read key in. A derivation attempt before that is
-	// negative-cached for a minute (SDK discoverykeys.negativeRetryAfter),
-	// and the next handshake after expiry is the 60s discovery resweep
-	// — worst case ~2min after join, so allow three.
+	// only spaces whose ACL-derived discovery key they can compute —
+	// the joiner covers the space once the owner's approval has synced
+	// its read key in, and the event-driven re-handshake (space pull /
+	// tech-space index change) resets the SDK's negative derivation
+	// cache first (v0.1.2), so that lands promptly. The 60s discovery
+	// resweep stays the slowest fallback path, so allow a bit more.
 	p2pSees := func(base, spaceId string) bool {
 		var st api.P2PStatusResponse
 		mustJSON(t, http.MethodGet, base+"/v1/debug/p2p", "", http.StatusOK, &st)
@@ -71,7 +71,7 @@ func TestE2E_MultipeerP2P(t *testing.T) {
 		}
 		return false
 	}
-	if !pollUntil(180*time.Second, func() bool {
+	if !pollUntil(90*time.Second, func() bool {
 		return p2pSees(owner.base, sp.Id) && p2pSees(joiner.base, sp.Id)
 	}) {
 		var so, sj api.P2PStatusResponse

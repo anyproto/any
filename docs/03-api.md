@@ -1625,9 +1625,8 @@ whether a connection is live. Account-scoped (no `:spaceId`), so it
 sits outside the space group. `spaceIds` is the SHARED set only — the
 space exchange proves membership per space and reveals nothing else, so
 a stranger on the LAN shows up (if it runs any-sync p2p) with an empty
-list. A freshly joined space can take a couple of minutes to appear:
-the joiner can only advertise it once its ACL read key has synced in,
-and a too-early attempt is retried on a ~1-minute cadence.
+list. A freshly joined space appears once the joiner's ACL read key
+has synced in — normally within seconds of the join being approved.
 
 ```json
 {
