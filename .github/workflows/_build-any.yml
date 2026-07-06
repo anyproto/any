@@ -109,10 +109,7 @@ jobs:
             darwin-arm64
             darwin-x64
             linux-x86_64
-            # TODO: restore windows-x86_64 after bobrik-watch control IPC is
-            # cross-platform. The current bootstrap/clean-refresh transport is
-            # Unix signal based, so publishing Windows would expose incomplete
-            # runtime controls even if the binary cross-compiles.
+            windows-x86_64
           )
           for p in "${platforms[@]}"; do
             scripts/build-any.sh "$p" dist
