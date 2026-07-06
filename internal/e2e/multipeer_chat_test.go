@@ -29,6 +29,10 @@ type chatMsg struct {
 	Agent            *api.ChatAgentMeta
 	Text             string
 	Reactions        map[string]map[string]int64
+	// SDK-materialized read-tracking flags (docs/16-chat.md). Absent
+	// on the wire once read, so false means "read".
+	Unread          bool
+	UnreadReactions bool
 }
 
 // chatListResp is the read-back message list, materialised via POST
@@ -136,6 +140,8 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
 		Reactions        map[string]map[string]float64 `json:"reactions"`
+		Unread           bool                          `json:"unread"`
+		UnreadReactions  bool                          `json:"unreadReactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("chatMessages: decode record: %v\nraw=%s", err, raw)
@@ -162,6 +168,8 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		Agent:            f.Agent,
 		Text:             f.Text,
 		Reactions:        reactions,
+		Unread:           f.Unread,
+		UnreadReactions:  f.UnreadReactions,
 	}
 }
 

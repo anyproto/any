@@ -1114,7 +1114,8 @@ mark-unread), work offline, and sync across the account's devices.
 Read state is private — no read receipts. The SDK materializes
 per-message `unread` / `unreadMention` / `unreadReactions` flags
 (filterable) and per-chat `unreadCount` / `unreadMentions` /
-`unreadReactionsCount` row properties. When to call what — including
+`unreadReactionsCount` row properties (nested under the type
+container on the row: `chat.unreadCount`). When to call what — including
 the viewport rule and the unread divider — is covered in
 `16-chat.md`.
 

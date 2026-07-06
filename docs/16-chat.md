@@ -28,19 +28,26 @@ subscribe frames):
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. |
 
 Per chat (local properties on the chat object's row, present in any
-object query — this is your chat list):
+object query — this is your chat list). Like every type-declared
+property, the values live under the type's container on the row —
+read them at `chat.<property>`, NOT top-level:
 
-| property | meaning |
+| row path | meaning |
 |---|---|
-| `unreadCount` | unread messages |
-| `unreadMentions` | unread mentions |
-| `unreadReactionsCount` | unread reactions |
+| `chat.unreadCount` | unread messages |
+| `chat.unreadMentions` | unread mentions |
+| `chat.unreadReactionsCount` | unread reactions |
+
+A counter is absent from the row until the SDK first materializes it
+— treat absent as 0. (A top-level `unreadCount` never exists; probing
+that path reads 0 forever and looks exactly like "counters are
+broken".)
 
 Rules that follow:
 
-- **Never count unread client-side.** Badge from `unreadCount`; filter
-  messages with `{"unread": true}`. The SDK keeps both consistent,
-  including across devices and after deletes.
+- **Never count unread client-side.** Badge from the row's
+  `chat.unreadCount`; filter messages with `{"unread": true}`. The SDK
+  keeps both consistent, including across devices and after deletes.
 - **Your own messages are born read** — on every one of your devices
   (read state is per *account*, not per device). Never call a read
   endpoint after sending.
@@ -133,10 +140,12 @@ the history is.
 ## Chat list
 
 Query the chat objects as usual; each row already carries
-`unreadCount` / `unreadMentions` / `unreadReactionsCount`, so sorting
-"unread first" or badging is a plain filter/sort on the list query,
-and live updates arrive through the normal objects subscription. No
-per-chat calls, no chat opens — a thousand chats cost one query.
+`chat.unreadCount` / `chat.unreadMentions` /
+`chat.unreadReactionsCount`, so sorting "unread first" or badging is
+a plain filter/sort on the list query (nested paths work everywhere:
+`{"sort": ["-chat.unreadCount"]}`), and live updates arrive through
+the normal objects subscription. No per-chat calls, no chat opens — a
+thousand chats cost one query.
 
 ## Desktop notifications (no per-chat subscriptions, no server help)
 
@@ -151,11 +160,11 @@ subscription covers every chat:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
-{ "filter": {"type": "chat"}, "limit": 0 }
+{ "filter": {"any.types": "chat"}, "limit": 0 }
 ```
 
 Each frame's `updated` entries carry the full row and the ops — watch
-for `unreadCount` (later `unreadMentions`) changes:
+for `chat.unreadCount` (later `chat.unreadMentions`) changes:
 
 - **Counter went up** → new unread in that chat. Fetch what to show:
   `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
