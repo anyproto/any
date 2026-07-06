@@ -63,6 +63,21 @@ sync:
   dialTimeout: 10s
   changeBatchSize: 100
 
+# Local-network (p2p) discovery + sync. Devices of the same account on
+# the same LAN discover each other over mDNS and sync shared spaces
+# directly — including while the sync nodes are unreachable (offline
+# LAN sync and account cold-restore from a nearby device). Surfaced in
+# `any sync-status` (p2p / localPeers fields) and `any debug p2p`.
+p2p:
+  enabled: true                       # opt-out; absent/true = on. false =
+                                      #   no listener, no discovery.
+  port: 0                             # QUIC listen port. 0 = reuse the port
+                                      #   persisted from the previous run, or
+                                      #   pick an ephemeral one on first start.
+  serviceName: ""                     # mDNS service type; empty = "_any._tcp".
+                                      #   Override to isolate a deployment onto
+                                      #   its own discovery namespace.
+
 # Local search index (docs/13-index.md). FTS needs no external
 # dependency; vector search activates when an embedder is configured.
 index:

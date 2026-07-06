@@ -102,6 +102,11 @@ func buildEcho(d *deps) *echo.Echo {
 	// rollup transitions on one stream, so it has no :spaceId scope.
 	v1.GET("/sync-status/subscribe", d.syncStatusSubscribe)
 
+	// Account-wide p2p (local network) snapshot — listener, discovery
+	// possibility, every known LAN peer. Account-scoped like
+	// sync-status/subscribe.
+	v1.GET("/debug/p2p", d.debugP2P)
+
 	// Account-wide dataset discovery: the tech-space system datasets
 	// (spaces, profile) that back the generic space-list query/subscribe.
 	// Account-scoped, so like sync-status/subscribe it sits outside the
