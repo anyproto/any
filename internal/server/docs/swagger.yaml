@@ -747,6 +747,39 @@ definitions:
       recordIndex:
         type: integer
     type: object
+  api.P2PPeerStatus:
+    properties:
+      connected:
+        type: boolean
+      peerId:
+        type: string
+      spaceIds:
+        items:
+          type: string
+        type: array
+    type: object
+  api.P2PStatusResponse:
+    properties:
+      enabled:
+        type: boolean
+      listenerStarted:
+        type: boolean
+      peerId:
+        description: |-
+          PeerId is THIS device's peer id. Devices of one account must
+          each have a distinct peerId — devices sharing one cannot pair.
+        type: string
+      peers:
+        items:
+          $ref: '#/definitions/api.P2PPeerStatus'
+        type: array
+      port:
+        type: integer
+      possibility:
+        type: string
+      state:
+        type: string
+    type: object
   api.PeerSyncStats:
     properties:
       changed:
@@ -1097,8 +1130,12 @@ definitions:
     properties:
       lastSyncedAt:
         type: string
+      localPeers:
+        type: integer
       networkPeers:
         type: integer
+      p2p:
+        type: string
       spaceId:
         type: string
       state:
@@ -1285,6 +1322,18 @@ paths:
       summary: List the account's system dataset schemas
       tags:
       - data
+  /debug/p2p:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.P2PStatusResponse'
+      summary: Local-network (p2p) layer snapshot (diagnostic, unstable)
+      tags:
+      - debug
   /files/cache:
     get:
       produces:
@@ -2308,6 +2357,66 @@ paths:
       summary: Subscribe to file durability transitions (SSE)
       tags:
       - files
+  /spaces/{spaceId}/invite/accept:
+    post:
+      parameters:
+      - description: Space ID (from an invite_pending row)
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Accepted and loaded
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "202":
+          description: Accepted; load continues in background
+          schema:
+            $ref: '#/definitions/api.SpaceInfo'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Accept a direct-add invite
+      tags:
+      - spaces
+  /spaces/{spaceId}/invite/decline:
+    post:
+      parameters:
+      - description: Space ID (from an invite_pending row)
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Decline a direct-add invite
+      tags:
+      - spaces
   /spaces/{spaceId}/invites:
     delete:
       parameters:
@@ -2898,6 +3007,77 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Toggle a reaction on a message
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID (read boundary, inclusive)
+        in: path
+        name: msgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark a message and everything before it read
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/read-all:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark every message, mention, and reaction in the chat read
       tags:
       - chat
   /spaces/{spaceId}/objects/{objectId}/editor/blocks:
