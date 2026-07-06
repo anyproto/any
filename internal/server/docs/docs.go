@@ -161,6 +161,25 @@ const docTemplate = `{
                 }
             }
         },
+        "/debug/p2p": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "debug"
+                ],
+                "summary": "Local-network (p2p) layer snapshot (diagnostic, unstable)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.P2PStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/files/cache": {
             "get": {
                 "produces": [
@@ -3000,6 +3019,113 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Mark a message and everything before it read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Chat object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Message ID (read boundary, inclusive)",
+                        "name": "msgId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/objects/{objectId}/chat/read-all": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Mark every message, mention, and reaction in the chat read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Chat object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}/editor/blocks": {
             "post": {
                 "consumes": [
@@ -5430,6 +5556,53 @@ const docTemplate = `{
                 }
             }
         },
+        "api.P2PPeerStatus": {
+            "type": "object",
+            "properties": {
+                "connected": {
+                    "type": "boolean"
+                },
+                "peerId": {
+                    "type": "string"
+                },
+                "spaceIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.P2PStatusResponse": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "listenerStarted": {
+                    "type": "boolean"
+                },
+                "peerId": {
+                    "description": "PeerId is THIS device's peer id. Devices of one account must\neach have a distinct peerId — devices sharing one cannot pair.",
+                    "type": "string"
+                },
+                "peers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.P2PPeerStatus"
+                    }
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "possibility": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "api.PeerSyncStats": {
             "type": "object",
             "properties": {
@@ -5922,8 +6095,14 @@ const docTemplate = `{
                 "lastSyncedAt": {
                     "type": "string"
                 },
+                "localPeers": {
+                    "type": "integer"
+                },
                 "networkPeers": {
                     "type": "integer"
+                },
+                "p2p": {
+                    "type": "string"
                 },
                 "spaceId": {
                     "type": "string"
