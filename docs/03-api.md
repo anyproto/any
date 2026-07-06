@@ -1561,6 +1561,8 @@ object catalog.
   "synced":       1,
   "total":        3,
   "networkPeers": 0,
+  "localPeers":   1,
+  "p2p":          "connected",
   "lastSyncedAt": "0001-01-01T00:00:00Z" }
 
 // GET /v1/spaces/:spaceId/sync-status/objects/:objectId
@@ -1568,6 +1570,14 @@ object catalog.
   "state":      "synced",
   "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
+
+`networkPeers` counts responsible sync nodes with a live connection;
+`localPeers` counts local-network (LAN) peers sharing this space that
+are connected right now. `p2p` summarizes the local-network state:
+`unknown` / `notpossible` (disabled or no usable interface) /
+`notconnected` / `connected` / `restricted` (OS denied local-network
+access). A space can be `synced` with `networkPeers: 0` when it
+converged entirely over the LAN.
 
 The two `/subscribe` endpoints are SSE streams. Wire shape and
 lifecycle are documented in `04-events.md` § Sync-status streams —
@@ -1601,11 +1611,38 @@ sit outside the space group like `/sync-status/subscribe`.
 |--------|------------------------------------------------------|----------------------------------------|
 | GET    | `/v1/spaces/:spaceId/debug`                          | `Space.Debug().Space()`                |
 | GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
+| GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide local-network snapshot |
 
 **Diagnostic only — not a stable interface.** The SDK's `DebugAPI` is
 explicitly tagged as "fields and methods may grow or move"; this
 mirror inherits the same churn. Production UI should use
 `/sync-status` instead (501 until the SDK lands it).
+
+`GET /v1/debug/p2p` returns the account-wide local-network layer: this
+device's own peer id, listener state, discovery possibility, and every
+discovered LAN peer with the spaces it shares with this account and
+whether a connection is live. Account-scoped (no `:spaceId`), so it
+sits outside the space group. `spaceIds` is the SHARED set only — the
+space exchange proves membership per space and reveals nothing else, so
+a stranger on the LAN shows up (if it runs any-sync p2p) with an empty
+list. A freshly joined space appears once the joiner's ACL read key
+has synced in — normally within seconds of the join being approved.
+
+```json
+{
+  "peerId":          "12D3Koo…",
+  "enabled":         true,
+  "listenerStarted": true,
+  "port":            56187,
+  "possibility":     "possible",
+  "state":           "connected",
+  "peers": [
+    { "peerId":    "12D3Koo…",
+      "spaceIds":  ["spc_…"],
+      "connected": true }
+  ]
+}
+```
 
 `GET /v1/spaces/:spaceId/debug` returns the per-space outbound
 headsync counters since boot (in-memory; resets on every server

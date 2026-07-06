@@ -15,8 +15,24 @@ func newDebugCmd() *cobra.Command {
 		Use:   "debug",
 		Short: "diagnostic snapshots (not stable — see `any sync-status` for production)",
 	}
-	cmd.AddCommand(newDebugSpaceCmd(), newDebugObjectCmd())
+	cmd.AddCommand(newDebugSpaceCmd(), newDebugObjectCmd(), newDebugP2PCmd())
 	return cmd
+}
+
+func newDebugP2PCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "p2p",
+		Short: "local-network layer snapshot: listener, discovery state, discovered LAN peers",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := client.New(flags.Addr, flags.Timeout)
+			out, err := cl.DebugP2P(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
 }
 
 func newDebugSpaceCmd() *cobra.Command {

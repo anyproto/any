@@ -9,13 +9,18 @@ import "time"
 // State is one of: unknown, offline, syncing, synced, error.
 // Synced / Total count regular objects (excluding ACL / settings /
 // spaceIndex / members system trees). NetworkPeers is the count of
-// responsible nodes we've heard from.
+// responsible sync nodes with a live connection; LocalPeers counts
+// LAN peers sharing this space with a live connection, and P2P
+// summarizes that as one of: unknown, notpossible, notconnected,
+// connected, restricted.
 type SpaceSyncStatusResponse struct {
 	SpaceId      string    `json:"spaceId"`
 	State        string    `json:"state"`
 	Synced       int       `json:"synced"`
 	Total        int       `json:"total"`
 	NetworkPeers int       `json:"networkPeers"`
+	LocalPeers   int       `json:"localPeers"`
+	P2P          string    `json:"p2p"`
 	LastSyncedAt time.Time `json:"lastSyncedAt"`
 }
 
