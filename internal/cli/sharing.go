@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -92,12 +94,16 @@ func newMembersCmd() *cobra.Command {
 	return cmd
 }
 
-// `any invite ...` — owner-side mint / list / revoke flow. Joiners use
-// `any join`, not `invite accept`.
+// `any invite ...` — owner-side mint / list / revoke flow for token
+// invites (joiners use `any join`, not `invite accept`), plus the
+// receiver side of DIRECT-ADD invites: spaces this account was added to
+// by identity (`any acl add` on the other side) surface as
+// status=invite_pending rows — `invite pending` lists them, `invite
+// accept` / `invite decline` resolve them.
 func newInviteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "invite",
-		Short: "mint, list, and revoke share invites",
+		Short: "mint/list/revoke share invites; accept or decline direct-add invites",
 	}
 	cmd.AddCommand(
 		&cobra.Command{
@@ -142,6 +148,41 @@ func newInviteCmd() *cobra.Command {
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cl := client.New(flags.Addr, flags.Timeout)
 				return cl.InvitesRevokeAll(cmd.Context(), args[0])
+			},
+		},
+		&cobra.Command{
+			Use:   "pending",
+			Short: "list direct-add invites awaiting approval",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				out, err := cl.SpaceList(cmd.Context(), api.SpaceStatusInvitePending)
+				if err != nil {
+					return err
+				}
+				return printJSON(out)
+			},
+		},
+		&cobra.Command{
+			Use:   "accept <spaceId>",
+			Short: "accept a direct-add invite (loads the space)",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				out, err := cl.SpaceInviteAccept(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return printJSON(out)
+			},
+		},
+		&cobra.Command{
+			Use:   "decline <spaceId>",
+			Short: "decline a direct-add invite (sticky; accept later overrides)",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				return cl.SpaceInviteDecline(cmd.Context(), args[0])
 			},
 		},
 	)
@@ -249,26 +290,43 @@ func newACLCmd() *cobra.Command {
 		},
 	})
 
-	// add <spaceId> <identity> <permission> — single-account variant.
+	// add <spaceId> <identity>[,<identity>...] <permission> — the whole
+	// batch lands in ONE ACL record; each added account gets a durable
+	// inbox notification and surfaces the space as invite_pending.
 	{
 		var name, desc string
 		add := &cobra.Command{
-			Use:   "add <spaceId> <identity> <permission>",
-			Short: "add an account directly without an invite/request round-trip",
+			Use:   "add <spaceId> <identity>[,<identity>...] <permission>",
+			Short: "add accounts directly without an invite/request round-trip (one ACL record per call)",
 			Args:  cobra.ExactArgs(3),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
-				return cl.ACLAdd(cmd.Context(), args[0], api.ACLAddRequest{
-					Accounts: []api.ACLAddAccount{{
-						Identity:   args[1],
+				var accounts []api.ACLAddAccount
+				for _, id := range strings.Split(args[1], ",") {
+					id = strings.TrimSpace(id)
+					if id == "" {
+						continue
+					}
+					accounts = append(accounts, api.ACLAddAccount{
+						Identity:   id,
 						Permission: args[2],
 						Metadata:   api.AccountMetadata{Name: name, Description: desc},
-					}},
-				})
+					})
+				}
+				if len(accounts) == 0 {
+					return fmt.Errorf("no identities in %q", args[1])
+				}
+				// Metadata lands in an immutable ACL record per account —
+				// one --name stamped onto a whole batch would permanently
+				// mislabel every member but one.
+				if len(accounts) > 1 && (name != "" || desc != "") {
+					return fmt.Errorf("--name/--description apply to a single identity; drop them for a batch add")
+				}
+				cl := client.New(flags.Addr, flags.Timeout)
+				return cl.ACLAdd(cmd.Context(), args[0], api.ACLAddRequest{Accounts: accounts})
 			},
 		}
-		add.Flags().StringVar(&name, "name", "", "metadata name")
-		add.Flags().StringVar(&desc, "description", "", "metadata description")
+		add.Flags().StringVar(&name, "name", "", "metadata name (single-identity adds)")
+		add.Flags().StringVar(&desc, "description", "", "metadata description (single-identity adds)")
 		cmd.AddCommand(add)
 	}
 

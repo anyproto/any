@@ -258,6 +258,8 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/one-to-one/register-incoming` | `Service.RegisterIncoming` — out-of-band incoming |
 | POST   | `/v1/spaces/:spaceId/one-to-one/accept`   | `Service.AcceptOneToOne`            |
 | POST   | `/v1/spaces/:spaceId/one-to-one/decline`  | `Service.DeclineOneToOne`           |
+| POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
+| POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
@@ -374,6 +376,45 @@ dataset for a live view.
 offload to the account's other devices, but never removes it from the
 nodes — a later `POST /v1/spaces/one-to-one` re-derives and re-materializes
 it from scratch.
+
+#### Direct-add invites (added to a space by identity)
+
+The counterpart of `POST /v1/spaces/:spaceId/acl/add`: when another
+account adds this account to a regular space **by identity** (one ACL
+record per batch — the SDK notifies every added account through the
+coordinator inbox, durably retried), the space surfaces here as a
+**synced** pending row. The account is already a full ACL member; like
+the 1-1 gate, approval only governs whether the space is materialized —
+nothing is downloaded until accepted. Authoritative SDK contract:
+`any-sync-sdk/docs/15-direct-add-invites.md`.
+
+```
+POST /v1/spaces/:spaceId/invite/accept    → 200 SpaceInfo | 202 SpaceInfo
+POST /v1/spaces/:spaceId/invite/decline   → 204
+```
+
+- **Incoming → pending.** The SDK's inbox notifier registers the row
+  autonomously with `status:"invite_pending"` — synced account-wide
+  (unlike the device-local 1-1 pending), carrying the sender-supplied
+  name hint until the real metadata syncs after accept. Discover via
+  `GET /v1/spaces?status=invite_pending` — no bespoke endpoint,
+  mirroring the 1-1 pattern.
+- **Accept** — `POST /v1/spaces/:spaceId/invite/accept`
+  (`Service.AcceptInvite`). Flips the synced status to active (every
+  device converges) and loads the space. `200` with the loaded
+  `SpaceInfo` when content is pullable now; `202` when the accept is
+  recorded but loading continues in the background (crash-safe — poll
+  `GET /v1/spaces/:spaceId` for the flip). Idempotent; also overrides a
+  prior decline. `404 space.not_found` for unknown ids,
+  `409 space.not_invite_pending` when the row isn't awaiting approval,
+  `400 request.invalid_field` for 1-1 rows (use the one-to-one
+  endpoints).
+- **Decline** — `POST /v1/spaces/:spaceId/invite/decline`
+  (`Service.DeclineInvite`). Writes a **synced sticky, non-terminal**
+  marker (`status:"invite_declined"`) suppressing the invite on every
+  device; a later accept overrides it. **No ACL change** — the account
+  remains a member on the space's ACL (self-remove is a follow-up).
+  Returns 204.
 
 #### Query / subscribe the space list
 

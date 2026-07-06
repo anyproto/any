@@ -97,6 +97,17 @@ const (
 	// account-wide sticky marker. Hidden from the default list like
 	// deleted; an explicit POST /v1/spaces/one-to-one overrides it.
 	SpaceStatusOneToOneDeclined = "one_to_one_declined"
+	// SpaceStatusInvitePending is a regular space another account added
+	// this account to directly (ACL add by identity). Already a full
+	// member; approval is a local gate — nothing is downloaded until
+	// accepted. Synced account-wide. Discover via
+	// GET /v1/spaces?status=invite_pending, then
+	// POST /v1/spaces/:spaceId/invite/accept or .../invite/decline.
+	SpaceStatusInvitePending = "invite_pending"
+	// SpaceStatusInviteDeclined is a direct-add invite the user declined
+	// — synced, sticky, non-terminal (accept overrides). Hidden from the
+	// default list like deleted.
+	SpaceStatusInviteDeclined = "invite_declined"
 )
 
 // Space permission string values for SpaceInfo.OwnRole. Mirror the
