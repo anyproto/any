@@ -196,12 +196,41 @@ func TestTurnDelete_Rejected(t *testing.T) {
 func minimalChunk(arena *anyenc.Arena) *anyenc.Value {
 	payload := arena.NewObject()
 	payload.Set(FieldSeq, arena.NewNumberInt(0))
+	payload.Set(FieldLevel, arena.NewNumberInt(1))
 	payload.Set(FieldSummary, arena.NewString("alice asked about X; agent created Y"))
 	payload.Set(FieldPeriodStart, arena.NewNumberInt(1700000000))
 	payload.Set(FieldPeriodEnd, arena.NewNumberInt(1700003600))
 	payload.Set(FieldFromSeq, arena.NewNumberInt(0))
 	payload.Set(FieldToSeq, arena.NewNumberInt(9))
 	return payload
+}
+
+func TestChunkCreate_MissingLevelRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Del(FieldLevel)
+	ctx, sink := ctxAndSink()
+	err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "level required")
+}
+
+func TestChunkCreate_ZeroLevelRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Set(FieldLevel, arena.NewNumberInt(0))
+	ctx, sink := ctxAndSink()
+	err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "level must be ≥ 1")
+}
+
+func TestChunkCreate_Level2OK(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Set(FieldLevel, arena.NewNumberInt(2)) // over level-1 chunks
+	ctx, sink := ctxAndSink()
+	if err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
+		t.Fatalf("level-2 chunk should be valid: %v", err)
+	}
 }
 
 func TestChunkCreate_Minimal(t *testing.T) {
@@ -218,6 +247,7 @@ func TestChunkCreate_MissingPointersRejected(t *testing.T) {
 	arena := &anyenc.Arena{}
 	payload := arena.NewObject()
 	payload.Set(FieldSeq, arena.NewNumberInt(0))
+	payload.Set(FieldLevel, arena.NewNumberInt(1))
 	payload.Set(FieldSummary, arena.NewString("s"))
 	payload.Set(FieldPeriodStart, arena.NewNumberInt(1700000000))
 	payload.Set(FieldPeriodEnd, arena.NewNumberInt(1700003600))

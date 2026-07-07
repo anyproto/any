@@ -22,11 +22,13 @@ func (turnsHandler) Indexes() []anystore.IndexInfo {
 	}
 }
 
-// Indexes for agent_chunks: `seq` orders chunks (boot loads the last
-// M); `periodEnd` backs "chunks covering period X" range queries.
+// Indexes for agent_chunks: the boot window loads the last M chunks
+// PER LEVEL (hierarchical compression, ADR-006 §2), so the compound
+// [level, seq] index backs "newest chunks at level N"; `periodEnd`
+// backs "chunks covering period X" range queries.
 func (chunksHandler) Indexes() []anystore.IndexInfo {
 	return []anystore.IndexInfo{
-		{Name: "idx_seq", Fields: []string{FieldSeq}},
+		{Name: "idx_level_seq", Fields: []string{FieldLevel, FieldSeq}},
 		{Name: "idx_period_end", Fields: []string{FieldPeriodEnd}},
 	}
 }
@@ -203,8 +205,10 @@ func validateChunkPayload(payload *anyenc.Value) error {
 	var (
 		visitErr               error
 		hasSeq, hasSummary     bool
+		hasLevel               bool
 		hasFromSeq, hasToSeq   bool
 		hasPerStart, hasPerEnd bool
+		level                  int
 		fromSeq, toSeq         int
 		periodStart, periodEnd float64
 	)
@@ -217,6 +221,13 @@ func validateChunkPayload(payload *anyenc.Value) error {
 		case FieldSeq:
 			hasSeq = true
 			visitErr = checkSeq("chunk", key, v)
+		case FieldLevel:
+			hasLevel = true
+			if visitErr = checkSeq("chunk", key, v); visitErr == nil {
+				if level, _ = v.Int(); level < 1 {
+					visitErr = rejectCreate("chunk", "level must be ≥ 1")
+				}
+			}
 		case FieldFromAgent:
 			visitErr = checkString("chunk", key, v, MaxFromAgentBytes, false)
 		case FieldSummary:
@@ -254,6 +265,8 @@ func validateChunkPayload(payload *anyenc.Value) error {
 	switch {
 	case !hasSeq:
 		return rejectCreate("chunk", "seq required")
+	case !hasLevel:
+		return rejectCreate("chunk", "level required (≥1)")
 	case !hasSummary:
 		return rejectCreate("chunk", "summary required")
 	case !hasFromSeq || !hasToSeq:

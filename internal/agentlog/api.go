@@ -137,9 +137,14 @@ func CreateChunk(ctx context.Context, sp space.Space, objectId string, req api.A
 	if req.FromSeq == nil || req.ToSeq == nil {
 		return space.ModifyResult{}, fmt.Errorf("agentlog: create chunk: fromSeq, toSeq required")
 	}
+	level := 1 // ADR-006 §2: default level is 1 (over turns)
+	if req.Level != nil {
+		level = *req.Level
+	}
 	build := func(seq int) map[string]any {
 		payload := map[string]any{
 			FieldSeq:         seq,
+			FieldLevel:       level,
 			FieldSummary:     req.Summary,
 			FieldPeriodStart: req.PeriodStart,
 			FieldPeriodEnd:   req.PeriodEnd,

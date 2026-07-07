@@ -45,22 +45,25 @@
 //	{
 //	  "id":          "<zero-padded seq>",
 //	  "seq":         <int>,               // chunk counter, server-assigned
+//	  "level":       <int>,               // 1 = over turns, 2+ = over chunks
 //	  "creator":     "<accountId>",       // server-stamped
 //	  "createdAt":   <unix-seconds>,      // server-stamped
 //	  "fromAgent":   "<opaque>",          // optional
 //	  "summary":     "<dense paragraph>",
 //	  "periodStart": <unix-seconds>,      // indexable range fields
 //	  "periodEnd":   <unix-seconds>,
-//	  "fromSeq":     <int>,               // inclusive pointers into agent_turns
+//	  "fromSeq":     <int>,               // inclusive child pointers (§2)
 //	  "toSeq":       <int>,
 //	  "turnsCovered":<int>                // optional count
 //	}
 //
-// fromSeq/toSeq are the layering contract: a chunk always knows the
-// exact raw range it summarizes, so `{seq:{$gte:fromSeq,$lte:toSeq}}`
-// against agent_turns on the same object reconstructs full fidelity.
-// Compression never mutates or deletes turns — the pointers ARE the
-// "compacted" marker.
+// Hierarchical compression (ADR-006 §2): a level-1 chunk summarizes a
+// contiguous range of agent_turns; a level-N chunk summarizes a
+// contiguous range of level-(N-1) CHUNKS. fromSeq/toSeq point at the
+// child seqs at the level below, so drill-down is recursive
+// (chunk → child chunks → … → raw turns) and never a bulk load.
+// Compression never mutates or deletes what it covers — the pointers
+// ARE the "compacted" marker.
 //
 // Both datasets are append-only in v1: BeforeModify and BeforeDelete
 // reject everything. GC/retention is a deliberate non-feature for now;
@@ -133,6 +136,7 @@ var StopReasons = map[string]bool{
 // Field keys on a chunk record (seq/creator/createdAt/fromAgent shared
 // with turns above).
 const (
+	FieldLevel        = "level"
 	FieldSummary      = "summary"
 	FieldPeriodStart  = "periodStart"
 	FieldPeriodEnd    = "periodEnd"
@@ -145,7 +149,7 @@ const (
 // reject older writers.
 const (
 	turnsDataVersion  = "agent_turns-v2"
-	chunksDataVersion = "agent_chunks-v1"
+	chunksDataVersion = "agent_chunks-v2"
 )
 
 // Validation limits. Conservative; revisit if real usage hits them.

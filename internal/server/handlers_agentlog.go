@@ -99,6 +99,10 @@ func (d *deps) agentChunkCreate(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentSeqRequired,
 			"seq must be non-negative (omit to let the server assign it)", nil)
 	}
+	if req.Level != nil && *req.Level < 1 {
+		return writeError(c, http.StatusBadRequest, api.ErrAgentChunkInvalid,
+			"level must be ≥ 1 (omit for the level-1 default)", nil)
+	}
 	if req.Summary == "" {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentChunkInvalid, "summary required", nil)
 	}

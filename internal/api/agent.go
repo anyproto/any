@@ -37,13 +37,13 @@ type LLMStats struct {
 // The record id is derived from seq (zero-padded) so lexical id order
 // matches insertion order. Server stamps creator / createdAt.
 type AgentTurnAppendRequest struct {
-	Seq        *int      `json:"seq,omitempty"`
-	FromAgent  string    `json:"fromAgent,omitempty"`
-	UserName   string    `json:"userName,omitempty"`
-	UserText   string    `json:"userText,omitempty"`
-	Think      string    `json:"think,omitempty"`
-	Replies    []string  `json:"replies,omitempty"`
-	Effects    []string  `json:"effects,omitempty"`
+	Seq         *int      `json:"seq,omitempty"`
+	FromAgent   string    `json:"fromAgent,omitempty"`
+	UserName    string    `json:"userName,omitempty"`
+	UserText    string    `json:"userText,omitempty"`
+	Think       string    `json:"think,omitempty"`
+	Replies     []string  `json:"replies,omitempty"`
+	Effects     []string  `json:"effects,omitempty"`
 	MessageIds  []string  `json:"messageIds,omitempty"`
 	TraceRef    string    `json:"traceRef,omitempty"`
 	Interrupted bool      `json:"interrupted,omitempty"`
@@ -58,8 +58,13 @@ type AgentTurnAppendRequest struct {
 // dataset — the raw range this summary covers; drill-down is
 // `{seq: {$gte: fromSeq, $lte: toSeq}}`. periodStart/periodEnd are
 // unix seconds so period range filters stay indexable.
+// `level` is the hierarchical-compression tier (ADR-006 §2): 1
+// summarizes agent_turns, 2+ summarizes level-(N-1) chunks. Omit for
+// the common level-1 case (server defaults to 1). fromSeq/toSeq point
+// at the CHILD seqs at the level below.
 type AgentChunkCreateRequest struct {
 	Seq          *int   `json:"seq,omitempty"`
+	Level        *int   `json:"level,omitempty"`
 	FromAgent    string `json:"fromAgent,omitempty"`
 	Summary      string `json:"summary"`
 	PeriodStart  int64  `json:"periodStart"`
