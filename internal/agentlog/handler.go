@@ -137,6 +137,8 @@ func validateTurnPayload(payload *anyenc.Value) error {
 			visitErr = checkStringArray("turn", key, v, MaxEffects, MaxEffectBytes)
 		case FieldMessageIds:
 			visitErr = checkStringArray("turn", key, v, MaxMessageIds, MaxIdBytes)
+		case FieldInterrupted:
+			visitErr = checkBool("turn", key, v)
 		case FieldLLM:
 			visitErr = validateLLM(v)
 		default:
@@ -173,11 +175,19 @@ func validateLLM(v *anyenc.Value) error {
 		key := string(rawKey)
 		switch key {
 		case FieldLLMStopReason:
-			visitErr = checkString("turn", "llm."+key, val, MaxStopReasonBytes, false)
+			if err := checkString("turn", "llm."+key, val, MaxStopReasonBytes, false); err != nil {
+				visitErr = err
+			} else if s, _ := val.StringBytes(); !StopReasons[string(s)] {
+				visitErr = rejectCreate("turn", "llm.stopReason not in the closed set "+
+					"(done|wrapup|break_soft|break_hard|length|error): "+string(s))
+			}
 		case FieldLLMModel:
 			visitErr = checkString("turn", "llm."+key, val, MaxModelBytes, false)
-		case FieldLLMInTokens, FieldLLMOutTokens, FieldLLMCacheRead, FieldLLMCacheWrite:
+		case FieldLLMInTokens, FieldLLMOutTokens, FieldLLMCacheRead,
+			FieldLLMCacheWrite, FieldLLMFuelUsed, FieldLLMCells:
 			visitErr = checkNonNegInt("turn", "llm."+key, val)
+		case FieldLLMCostUsd:
+			visitErr = checkNonNegNumber("turn", "llm."+key, val)
 		default:
 			visitErr = rejectCreate("turn", "llm: unknown field "+key)
 		}
@@ -324,6 +334,13 @@ func checkNonNegNumber(kind, key string, v *anyenc.Value) error {
 	f, err := v.Float64()
 	if err != nil || f < 0 {
 		return rejectCreate(kind, key+" must be ≥ 0")
+	}
+	return nil
+}
+
+func checkBool(kind, key string, v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeTrue && v.Type() != anyenc.TypeFalse {
+		return rejectCreate(kind, key+" must be a boolean")
 	}
 	return nil
 }

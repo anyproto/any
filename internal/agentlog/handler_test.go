@@ -77,6 +77,7 @@ func TestTurnCreate_FullPayload(t *testing.T) {
 	payload.Set(FieldEffects, newStringArray(arena, "created Book [Dune](any://s/o)"))
 	payload.Set(FieldMessageIds, newStringArray(arena, "msg1", "msg2"))
 	payload.Set(FieldTraceRef, arena.NewString("traceObj1"))
+	payload.Set(FieldInterrupted, arena.NewTrue())
 	llm := arena.NewObject()
 	llm.Set(FieldLLMStopReason, arena.NewString("done"))
 	llm.Set(FieldLLMInTokens, arena.NewNumberInt(1200))
@@ -84,12 +85,35 @@ func TestTurnCreate_FullPayload(t *testing.T) {
 	llm.Set(FieldLLMCacheRead, arena.NewNumberInt(8000))
 	llm.Set(FieldLLMCacheWrite, arena.NewNumberInt(0))
 	llm.Set(FieldLLMModel, arena.NewString("claude-sonnet-4-6"))
+	llm.Set(FieldLLMCostUsd, arena.NewNumberFloat64(0.0123))
+	llm.Set(FieldLLMFuelUsed, arena.NewNumberInt(184223))
+	llm.Set(FieldLLMCells, arena.NewNumberInt(3))
 	payload.Set(FieldLLM, llm)
 
 	ctx, sink := ctxAndSink()
 	if err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
+}
+
+func TestTurnCreate_StopReasonEnumEnforced(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalTurn(arena)
+	llm := arena.NewObject()
+	llm.Set(FieldLLMStopReason, arena.NewString("end_turn")) // v1 raw string — now rejected
+	payload.Set(FieldLLM, llm)
+	ctx, sink := ctxAndSink()
+	err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "stopReason not in the closed set")
+}
+
+func TestTurnCreate_InterruptedMustBeBool(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalTurn(arena)
+	payload.Set(FieldInterrupted, arena.NewString("yes"))
+	ctx, sink := ctxAndSink()
+	err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "interrupted must be a boolean")
 }
 
 func TestTurnCreate_MissingSeqRejected(t *testing.T) {

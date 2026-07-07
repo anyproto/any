@@ -54,6 +54,9 @@ func AppendTurn(ctx context.Context, sp space.Space, objectId string, req api.Ag
 	setIfStrings(payload, FieldReplies, req.Replies)
 	setIfStrings(payload, FieldEffects, req.Effects)
 	setIfStrings(payload, FieldMessageIds, req.MessageIds)
+	if req.Interrupted {
+		payload[FieldInterrupted] = true
+	}
 	if req.LLM != nil {
 		llm := map[string]any{}
 		setIfString(llm, FieldLLMStopReason, req.LLM.StopReason)
@@ -62,6 +65,11 @@ func AppendTurn(ctx context.Context, sp space.Space, objectId string, req api.Ag
 		setIfInt(llm, FieldLLMOutTokens, req.LLM.OutTokens)
 		setIfInt(llm, FieldLLMCacheRead, req.LLM.CacheRead)
 		setIfInt(llm, FieldLLMCacheWrite, req.LLM.CacheWrite)
+		setIfInt(llm, FieldLLMFuelUsed, req.LLM.FuelUsed)
+		setIfInt(llm, FieldLLMCells, req.LLM.Cells)
+		if req.LLM.CostUsd > 0 {
+			llm[FieldLLMCostUsd] = req.LLM.CostUsd
+		}
 		if len(llm) > 0 {
 			payload[FieldLLM] = llm
 		}

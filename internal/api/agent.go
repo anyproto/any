@@ -12,13 +12,18 @@ package api
 // Cheap scalars duplicated from the run trace for convenience — the
 // heavy per-LLM-API-turn detail (cells, raw responses) lives in the
 // run trace object, reachable via the turn's traceRef.
+// StopReason is one of the neutral invocation outcomes: done | wrapup |
+// break_soft | break_hard | length | error (agentlog.StopReasons).
 type LLMStats struct {
-	StopReason string `json:"stopReason,omitempty"`
-	InTokens   int    `json:"inTokens,omitempty"`
-	OutTokens  int    `json:"outTokens,omitempty"`
-	CacheRead  int    `json:"cacheRead,omitempty"`
-	CacheWrite int    `json:"cacheWrite,omitempty"`
-	Model      string `json:"model,omitempty"`
+	StopReason string  `json:"stopReason,omitempty"`
+	InTokens   int     `json:"inTokens,omitempty"`
+	OutTokens  int     `json:"outTokens,omitempty"`
+	CacheRead  int     `json:"cacheRead,omitempty"`
+	CacheWrite int     `json:"cacheWrite,omitempty"`
+	Model      string  `json:"model,omitempty"`
+	CostUsd    float64 `json:"costUsd,omitempty"`
+	FuelUsed   int     `json:"fuelUsed,omitempty"`
+	Cells      int     `json:"cells,omitempty"`
 }
 
 // AgentTurnAppendRequest is the body of
@@ -38,9 +43,10 @@ type AgentTurnAppendRequest struct {
 	Think      string    `json:"think,omitempty"`
 	Replies    []string  `json:"replies,omitempty"`
 	Effects    []string  `json:"effects,omitempty"`
-	MessageIds []string  `json:"messageIds,omitempty"`
-	TraceRef   string    `json:"traceRef,omitempty"`
-	LLM        *LLMStats `json:"llm,omitempty"`
+	MessageIds  []string  `json:"messageIds,omitempty"`
+	TraceRef    string    `json:"traceRef,omitempty"`
+	Interrupted bool      `json:"interrupted,omitempty"`
+	LLM         *LLMStats `json:"llm,omitempty"`
 }
 
 // AgentChunkCreateRequest is the body of

@@ -27,15 +27,17 @@
 //	  "replies":   ["<bubble>", ...],     // optional
 //	  "effects":   ["<one-liner>", ...],  // optional
 //	  "messageIds":["<chat msg id>",...], // optional, same-object chat_messages refs
-//	  "debugRef":  "<objectId>",          // optional, agent_debug_log page
-//	  "llm": { "stopReason", "inTokens", "outTokens",
-//	           "cacheRead", "cacheWrite", "model" }   // optional scalars
+//	  "traceRef":  "<objectId>",          // optional, the run's trace object
+//	  "interrupted": <bool>,              // optional, invocation was broken/cut
+//	  "llm": { "stopReason", "inTokens", "outTokens", "cacheRead",
+//	           "cacheWrite", "model", "costUsd", "fuelUsed", "cells" }
 //	}
 //
 // The heavy per-LLM-API-turn detail (tool cells, raw responses) is
-// deliberately NOT here — it lives once, in agent_debug_log, reachable
-// via debugRef. The turn record is the conversation-replay unit the
-// agent's boot window reads; it must stay lean.
+// deliberately NOT here — it lives once in the run's trace object,
+// reachable via traceRef. The turn record is the conversation-replay
+// unit the agent's boot window reads; it must stay lean. `stopReason`
+// is a neutral outcome (StopReasons), not a raw provider string.
 //
 // Dataset `agent_chunks` — one record per compression event,
 // immutable post-create:
@@ -88,18 +90,19 @@ const (
 
 // Field keys on a turn record. Literal strings, matching chat/editor.
 const (
-	FieldSeq        = "seq"
-	FieldCreator    = "creator"
-	FieldCreatedAt  = "createdAt"
-	FieldFromAgent  = "fromAgent"
-	FieldUserName   = "userName"
-	FieldUserText   = "userText"
-	FieldThink      = "think"
-	FieldReplies    = "replies"
-	FieldEffects    = "effects"
-	FieldMessageIds = "messageIds"
-	FieldTraceRef   = "traceRef"
-	FieldLLM        = "llm"
+	FieldSeq         = "seq"
+	FieldCreator     = "creator"
+	FieldCreatedAt   = "createdAt"
+	FieldFromAgent   = "fromAgent"
+	FieldUserName    = "userName"
+	FieldUserText    = "userText"
+	FieldThink       = "think"
+	FieldReplies     = "replies"
+	FieldEffects     = "effects"
+	FieldMessageIds  = "messageIds"
+	FieldTraceRef    = "traceRef"
+	FieldInterrupted = "interrupted"
+	FieldLLM         = "llm"
 )
 
 // Sub-keys of the llm scalar bundle.
@@ -110,7 +113,22 @@ const (
 	FieldLLMCacheRead  = "cacheRead"
 	FieldLLMCacheWrite = "cacheWrite"
 	FieldLLMModel      = "model"
+	FieldLLMCostUsd    = "costUsd"
+	FieldLLMFuelUsed   = "fuelUsed"
+	FieldLLMCells      = "cells"
 )
+
+// StopReasons is the closed set of neutral invocation outcomes
+// (ADR-005 Outcome + ADR-006 §1) — replaces the v1 raw-provider
+// strings ("end_turn"). Every invocation ends in exactly one.
+var StopReasons = map[string]bool{
+	"done":       true,
+	"wrapup":     true,
+	"break_soft": true,
+	"break_hard": true,
+	"length":     true,
+	"error":      true,
+}
 
 // Field keys on a chunk record (seq/creator/createdAt/fromAgent shared
 // with turns above).
