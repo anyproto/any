@@ -113,17 +113,20 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 // (internal/indexer) drives it.
 //
 // Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
-// items, object properties (name / description / flagged values), and
-// PROGRAM DOCS (description + per-method docs). Deliberately NOT indexed:
-// program SOURCE (code, not knowledge), miniapp content, agent turns /
-// chunks, and agent_debug_log (diagnostic data) — none has a chunker.
-// agent_debug_log pages are further excluded from the property chunker so
-// their prompt-derived names never leak into search.
+// items, agent HISTORY (turns + chunks, scope "history"), object
+// properties (name / description / flagged values), and PROGRAM DOCS
+// (description + per-method docs). Deliberately NOT indexed: program
+// SOURCE (code, not knowledge), miniapp content, and agent_debug_log
+// (diagnostic data) — none has a chunker. agent_debug_log pages are
+// further excluded from the property chunker so their prompt-derived
+// names never leak into search.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
 		agentmem.NewChunker(),
+		agentlog.NewTurnChunker(),
+		agentlog.NewChunkChunker(),
 		program.NewDescriptionChunker(),
 		program.NewMethodsChunker(),
 		index.NewPropChunker(agentdebug.TypeId),

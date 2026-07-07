@@ -20,9 +20,10 @@ import (
 // ValidScope works (property meta flags carry arbitrary scopes); these
 // constants are just the established vocabulary.
 const (
-	ScopeBasic = "basic" // editor blocks, object names/descriptions
-	ScopeChat  = "chat"  // chat messages
-	ScopeAgent = "agent" // agent memory
+	ScopeBasic   = "basic"   // editor blocks, object names/descriptions
+	ScopeChat    = "chat"    // chat messages
+	ScopeAgent   = "agent"   // agent memory
+	ScopeHistory = "history" // agent turns + chunks (conversation history)
 )
 
 // ApplySeqField is the reserved record field carrying the per-space
