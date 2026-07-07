@@ -85,8 +85,11 @@ func chatRowCounters(t *testing.T, p *peer, spaceId, objectId string) rowCounter
 //  2. Own messages are born read on the author, in both roles.
 //  3. `POST .../messages/:id/read` is a boundary: clears at-and-before,
 //     leaves after; `POST .../read-all` clears the rest.
-//  4. A cross-account reaction sets `unreadReactions` + the row's
-//     `unreadReactionsCount` without touching `unreadCount`.
+//  4. A cross-account reaction on YOUR message sets `unreadReactions`
+//     + the row's `unreadReactionsCount` without touching
+//     `unreadCount`; a reaction on a message you did NOT author syncs
+//     without badging you (the audience rule — reactions signal the
+//     message's author only).
 //  5. A reaction retracted before the recipient looks leaves no trace
 //     (the classifier's supersede key), and read-all clears a live one.
 //
@@ -254,6 +257,26 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 			findById(lastList, m4.Id).UnreadReactions, lastCounters)
 	}
 
+	// --- (4b) Audience: a reaction badges the message's AUTHOR only.
+	// The owner reacting to its own m3 syncs to the joiner but must not
+	// move the joiner's flag or counter (still the 1 pending ❤️ on m4).
+	party := url.PathEscape("🎉")
+	mustStatus(t, http.MethodPost,
+		ownerBase+"/chat/messages/"+m3.Id+"/reactions/"+party, "", http.StatusOK)
+	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
+		_, ok := findById(chatMessages(t, joinerBase), m3.Id).Reactions["🎉"][ownerId]
+		return ok
+	}) {
+		t.Fatalf("joiner never saw the owner's 🎉 self-reaction")
+	}
+	lastList = chatMessages(t, joinerBase)
+	lastCounters = chatRowCounters(t, joiner, sp.Id, obj.ObjectId)
+	if findById(lastList, m3.Id).UnreadReactions || lastCounters.reactions != 1 {
+		t.Errorf("joiner: reaction on the owner's own message must not badge the joiner: "+
+			"m3.unreadReactions=%v counters=%v",
+			findById(lastList, m3.Id).UnreadReactions, lastCounters)
+	}
+
 	// --- (5a) Retracting the reaction before the joiner reads leaves no
 	// trace — the classifier's supersede key withdraws the pending entry.
 	mustStatus(t, http.MethodPost,
@@ -310,11 +333,12 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 // primary surface. A 1-1 space has no invite handshake and an
 // immutable two-writer ACL, so the membership path differs from a
 // shared space end to end; this pins that read tracking behaves the
-// same there: a message from the other side sets the flag AND the row
-// counter in both directions, and read-all clears them. The full
-// flag/boundary/reaction matrix lives in
-// TestE2E_MultipeerChatReadTracking — same machinery, no need to
-// repeat it here.
+// same there: messages from the other side set the flag AND the row
+// counter in both directions, read-all clears them, and the full
+// reaction flow holds — a reaction badges the reacted-to message's
+// author only, retract leaves no trace, read-all clears a live one.
+// The read-boundary matrix stays in TestE2E_MultipeerChatReadTracking
+// — same machinery, no need to repeat it here.
 func TestE2E_OneToOneChatReadTracking(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -410,5 +434,95 @@ func TestE2E_OneToOneChatReadTracking(t *testing.T) {
 	}
 	if c := chatRowCounters(t, bob, oneOne.Id, obj.ObjectId); c.messages != 0 {
 		t.Errorf("bob: own reply must stay read on the author, counters=%v", c)
+	}
+
+	// --- Full reaction flow, DM edition. m3 is bob's message, m2 is
+	// alice's own; identities for the reaction map checks come from
+	// the creator stamps.
+	aliceId, bobId := m1.Creator, m3.Creator
+	if aliceId == "" || bobId == "" || aliceId == bobId {
+		t.Fatalf("creator stamps broken: alice=%q bob=%q", aliceId, bobId)
+	}
+
+	// Alice reacts to bob's message → bob (the author) gets the flag
+	// and the reaction counter; his message counter stays clean.
+	heart := url.PathEscape("❤️")
+	mustStatus(t, http.MethodPost,
+		aliceObj+"/chat/messages/"+m3.Id+"/reactions/"+heart, "", http.StatusOK)
+	if !pollUntilSynced(t, 3*time.Minute, oneOne.Id, []*peer{alice, bob}, func() bool {
+		_, ok := findById(chatMessages(t, bobObj), m3.Id).Reactions["❤️"][aliceId]
+		return ok
+	}) {
+		t.Fatalf("bob never saw alice's ❤️ reaction")
+	}
+	if !pollUntil(30*time.Second, func() bool {
+		lastMsg = findById(chatMessages(t, bobObj), m3.Id)
+		lastCounters = chatRowCounters(t, bob, oneOne.Id, obj.ObjectId)
+		return lastMsg.UnreadReactions &&
+			lastCounters.reactions == 1 && lastCounters.messages == 0
+	}) {
+		t.Fatalf("bob: DM reaction never materialized: m3.unreadReactions=%v counters=%v",
+			lastMsg.UnreadReactions, lastCounters)
+	}
+
+	// Audience: alice reacting to her OWN m2 syncs to bob without
+	// badging him (still just the ❤️ pending on m3).
+	party := url.PathEscape("🎉")
+	mustStatus(t, http.MethodPost,
+		aliceObj+"/chat/messages/"+m2.Id+"/reactions/"+party, "", http.StatusOK)
+	if !pollUntilSynced(t, 3*time.Minute, oneOne.Id, []*peer{alice, bob}, func() bool {
+		_, ok := findById(chatMessages(t, bobObj), m2.Id).Reactions["🎉"][aliceId]
+		return ok
+	}) {
+		t.Fatalf("bob never saw alice's 🎉 self-reaction")
+	}
+	lastList := chatMessages(t, bobObj)
+	lastCounters = chatRowCounters(t, bob, oneOne.Id, obj.ObjectId)
+	if findById(lastList, m2.Id).UnreadReactions || lastCounters.reactions != 1 {
+		t.Errorf("bob: reaction on alice's own message must not badge bob: "+
+			"m2.unreadReactions=%v counters=%v",
+			findById(lastList, m2.Id).UnreadReactions, lastCounters)
+	}
+
+	// Retract before bob looks: no trace left.
+	mustStatus(t, http.MethodPost,
+		aliceObj+"/chat/messages/"+m3.Id+"/reactions/"+heart, "", http.StatusOK)
+	if !pollUntilSynced(t, 3*time.Minute, oneOne.Id, []*peer{alice, bob}, func() bool {
+		_, ok := findById(chatMessages(t, bobObj), m3.Id).Reactions["❤️"][aliceId]
+		return !ok
+	}) {
+		t.Fatalf("bob never saw the ❤️ retract")
+	}
+	if !pollUntil(30*time.Second, func() bool {
+		lastMsg = findById(chatMessages(t, bobObj), m3.Id)
+		lastCounters = chatRowCounters(t, bob, oneOne.Id, obj.ObjectId)
+		return !lastMsg.UnreadReactions && lastCounters.reactions == 0
+	}) {
+		t.Fatalf("bob: retracted DM reaction left unread state: counters=%v", lastCounters)
+	}
+
+	// A live reaction clears through read-all (fresh emoji, fresh
+	// supersede key).
+	thumb := url.PathEscape("👍")
+	mustStatus(t, http.MethodPost,
+		aliceObj+"/chat/messages/"+m3.Id+"/reactions/"+thumb, "", http.StatusOK)
+	if !pollUntilSynced(t, 3*time.Minute, oneOne.Id, []*peer{alice, bob}, func() bool {
+		_, ok := findById(chatMessages(t, bobObj), m3.Id).Reactions["👍"][aliceId]
+		return ok
+	}) {
+		t.Fatalf("bob never saw alice's 👍 reaction")
+	}
+	if !pollUntil(30*time.Second, func() bool {
+		return chatRowCounters(t, bob, oneOne.Id, obj.ObjectId).reactions == 1
+	}) {
+		t.Fatalf("bob: 👍 never counted unread")
+	}
+	mustStatus(t, http.MethodPost, bobObj+"/chat/read-all", "", http.StatusNoContent)
+	if !pollUntil(30*time.Second, func() bool {
+		lastMsg = findById(chatMessages(t, bobObj), m3.Id)
+		lastCounters = chatRowCounters(t, bob, oneOne.Id, obj.ObjectId)
+		return !lastMsg.UnreadReactions && lastCounters.reactions == 0
+	}) {
+		t.Fatalf("bob: read-all never cleared the DM reaction: counters=%v", lastCounters)
 	}
 }

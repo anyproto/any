@@ -25,7 +25,7 @@ subscribe frames):
 |---|---|
 | `unread: true` | the message itself is unread. Absent (not `false`) once read — filter with `{"unread": true}`. |
 | `unreadMention: true` | unread mention of you. (Never set today; arrives with the mentions feature. Wire your badge logic now.) |
-| `unreadReactions: true` | someone reacted to this message and you haven't seen it. |
+| `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (local properties on the chat object's row, present in any
 object query — this is your chat list). Like every type-declared
@@ -53,6 +53,10 @@ Rules that follow:
   endpoint after sending.
 - Edits never re-flag a message. Deleting an unread message silently
   drops it from flags and counters.
+- **Reactions badge the message's author, nobody else.** Someone
+  reacting to a third party's message never sets your
+  `unreadReactions` or bumps your `chat.unreadReactionsCount` — the
+  reaction still syncs and renders, it just isn't *your* unread.
 - A reaction added and removed before you looked leaves no trace.
 
 ## Marking read: when and how

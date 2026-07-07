@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -51,11 +52,15 @@ const (
 //     the mentions feature; until then unreadMention never sets.)
 //   - Reaction toggles track as "reaction" with a supersede key, so a
 //     reaction removed before anyone saw it leaves nothing behind —
-//     and an un-react clears the pending unread reaction.
+//     and an un-react clears the pending unread reaction. The verdict
+//     is audience-restricted to the reacted-to message's AUTHOR: a
+//     reaction is a signal to the person who wrote the message, so it
+//     badges only them — someone reacting to a third party's message
+//     never lights your counter (audienceAuthor below).
 //   - Edits and deletes are untracked: an edit never re-flags a
 //     message, and the SDK clears a deleted record's unread entries
 //     itself.
-func classifyRead(_ *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
+func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
 	for i := range rec.Ops {
 		op := &rec.Ops[i]
 		switch op.Type {
@@ -68,7 +73,12 @@ func classifyRead(_ *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadC
 			if len(op.Path) == 3 && op.Path[0] == FieldReactions {
 				key := "reaction:" + op.Path[1] + ":" + op.Path[2] + ":" + rec.Id
 				if op.Type == handler.OpSet {
-					return handler.ReadClassification{Track: true, Tags: []string{TagReaction}, Key: key}
+					return handler.ReadClassification{
+						Track:    true,
+						Tags:     []string{TagReaction},
+						Key:      key,
+						Audience: audienceAuthor(ctx.SelfIdentity),
+					}
 				}
 				return handler.ReadClassification{Key: key}
 			}
@@ -78,6 +88,18 @@ func classifyRead(_ *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadC
 		return handler.ReadClassification{Track: true, Tags: []string{TagMessage}}
 	}
 	return handler.ReadClassification{}
+}
+
+// audienceAuthor is the audience filter "this replica's account wrote
+// the target message" — the SDK matches it against the reacted-to
+// record, so the entry tracks only on the author's own replicas.
+// `creator` is a derived create-stamp (immutable), which is what makes
+// the verdict replay-deterministic. Self identity is per-process, not
+// per-package, so the filter is built per verdict — reaction toggles
+// are rare enough that this never shows up.
+func audienceAuthor(self string) query.Filter {
+	return query.Key{Path: []string{FieldCreator},
+		Filter: query.NewComp(query.CompOpEq, self)}
 }
 
 // readTracking is the registration attached to the chat_messages
