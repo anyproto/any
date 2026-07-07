@@ -9,9 +9,9 @@ package api
 // docs/11-agent-memory.md for the layering model.
 
 // LLMStats is the per-turn LLM summary embedded in a turn record.
-// Cheap scalars duplicated from the debug log for convenience — the
-// heavy per-LLM-API-turn detail (cells, raw responses) lives only in
-// agent_debug_log, reachable via the turn's debugRef.
+// Cheap scalars duplicated from the run trace for convenience — the
+// heavy per-LLM-API-turn detail (cells, raw responses) lives in the
+// run trace object, reachable via the turn's traceRef.
 type LLMStats struct {
 	StopReason string `json:"stopReason,omitempty"`
 	InTokens   int    `json:"inTokens,omitempty"`
@@ -39,7 +39,7 @@ type AgentTurnAppendRequest struct {
 	Replies    []string  `json:"replies,omitempty"`
 	Effects    []string  `json:"effects,omitempty"`
 	MessageIds []string  `json:"messageIds,omitempty"`
-	DebugRef   string    `json:"debugRef,omitempty"`
+	TraceRef   string    `json:"traceRef,omitempty"`
 	LLM        *LLMStats `json:"llm,omitempty"`
 }
 

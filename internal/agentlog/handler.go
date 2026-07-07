@@ -129,7 +129,7 @@ func validateTurnPayload(payload *anyenc.Value) error {
 			visitErr = checkString("turn", key, v, MaxUserTextBytes, true)
 		case FieldThink:
 			visitErr = checkString("turn", key, v, MaxThinkBytes, true)
-		case FieldDebugRef:
+		case FieldTraceRef:
 			visitErr = checkString("turn", key, v, MaxIdBytes, false)
 		case FieldReplies:
 			visitErr = checkStringArray("turn", key, v, MaxReplies, MaxReplyBytes)

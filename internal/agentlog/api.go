@@ -50,7 +50,7 @@ func AppendTurn(ctx context.Context, sp space.Space, objectId string, req api.Ag
 	setIfString(payload, FieldUserName, req.UserName)
 	setIfString(payload, FieldUserText, req.UserText)
 	setIfString(payload, FieldThink, req.Think)
-	setIfString(payload, FieldDebugRef, req.DebugRef)
+	setIfString(payload, FieldTraceRef, req.TraceRef)
 	setIfStrings(payload, FieldReplies, req.Replies)
 	setIfStrings(payload, FieldEffects, req.Effects)
 	setIfStrings(payload, FieldMessageIds, req.MessageIds)

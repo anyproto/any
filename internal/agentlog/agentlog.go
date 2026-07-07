@@ -98,7 +98,7 @@ const (
 	FieldReplies    = "replies"
 	FieldEffects    = "effects"
 	FieldMessageIds = "messageIds"
-	FieldDebugRef   = "debugRef"
+	FieldTraceRef   = "traceRef"
 	FieldLLM        = "llm"
 )
 
@@ -126,7 +126,7 @@ const (
 // Data versions pinned to writes. Bump only when validation must
 // reject older writers.
 const (
-	turnsDataVersion  = "agent_turns-v1"
+	turnsDataVersion  = "agent_turns-v2"
 	chunksDataVersion = "agent_chunks-v1"
 )
 
@@ -139,7 +139,7 @@ const (
 	MaxEffectBytes     = 2 * 1024
 	MaxEffects         = 256
 	MaxMessageIds      = 64
-	MaxIdBytes         = 256 // messageIds entries, debugRef
+	MaxIdBytes         = 256 // messageIds entries, traceRef
 	MaxFromAgentBytes  = 256 // mirrors chat
 	MaxUserNameBytes   = 256
 	MaxStopReasonBytes = 64
