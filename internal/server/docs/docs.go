@@ -3000,6 +3000,113 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Mark a message and everything before it read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Chat object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Message ID (read boundary, inclusive)",
+                        "name": "msgId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/objects/{objectId}/chat/read-all": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Mark every message, mention, and reaction in the chat read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Chat object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}/editor/blocks": {
             "post": {
                 "consumes": [
@@ -4544,6 +4651,9 @@ const docTemplate = `{
                 "fromSeq": {
                     "type": "integer"
                 },
+                "level": {
+                    "type": "integer"
+                },
                 "periodEnd": {
                     "type": "integer"
                 },
@@ -4658,9 +4768,6 @@ const docTemplate = `{
         "api.AgentTurnAppendRequest": {
             "type": "object",
             "properties": {
-                "debugRef": {
-                    "type": "string"
-                },
                 "effects": {
                     "type": "array",
                     "items": {
@@ -4669,6 +4776,9 @@ const docTemplate = `{
                 },
                 "fromAgent": {
                     "type": "string"
+                },
+                "interrupted": {
+                    "type": "boolean"
                 },
                 "llm": {
                     "$ref": "#/definitions/api.LLMStats"
@@ -4689,6 +4799,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "think": {
+                    "type": "string"
+                },
+                "traceRef": {
                     "type": "string"
                 },
                 "userName": {
@@ -5175,6 +5288,15 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "cacheWrite": {
+                    "type": "integer"
+                },
+                "cells": {
+                    "type": "integer"
+                },
+                "costUsd": {
+                    "type": "number"
+                },
+                "fuelUsed": {
                     "type": "integer"
                 },
                 "inTokens": {

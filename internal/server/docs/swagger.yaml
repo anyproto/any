@@ -133,6 +133,8 @@ definitions:
         type: string
       fromSeq:
         type: integer
+      level:
+        type: integer
       periodEnd:
         type: integer
       periodStart:
@@ -208,14 +210,14 @@ definitions:
     type: object
   api.AgentTurnAppendRequest:
     properties:
-      debugRef:
-        type: string
       effects:
         items:
           type: string
         type: array
       fromAgent:
         type: string
+      interrupted:
+        type: boolean
       llm:
         $ref: '#/definitions/api.LLMStats'
       messageIds:
@@ -229,6 +231,8 @@ definitions:
       seq:
         type: integer
       think:
+        type: string
+      traceRef:
         type: string
       userName:
         type: string
@@ -560,6 +564,12 @@ definitions:
       cacheRead:
         type: integer
       cacheWrite:
+        type: integer
+      cells:
+        type: integer
+      costUsd:
+        type: number
+      fuelUsed:
         type: integer
       inTokens:
         type: integer
@@ -2898,6 +2908,77 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Toggle a reaction on a message
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID (read boundary, inclusive)
+        in: path
+        name: msgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark a message and everything before it read
+      tags:
+      - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/read-all:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark every message, mention, and reaction in the chat read
       tags:
       - chat
   /spaces/{spaceId}/objects/{objectId}/editor/blocks:
