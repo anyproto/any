@@ -17,7 +17,7 @@
 //	{
 //	  "id":        "<zero-padded seq>",   // lexical order == insertion order
 //	  "_ver":      { ... },               // SDK-managed
-//	  "seq":       <int>,                 // per-chat monotonic, caller-assigned
+//	  "seq":       <int>,                 // per-chat monotonic, server-assigned
 //	  "creator":   "<accountId>",         // server-stamped
 //	  "createdAt": <unix-seconds>,        // server-stamped
 //	  "fromAgent": "<opaque>",            // optional, like chat's fromAgent
@@ -44,7 +44,7 @@
 //
 //	{
 //	  "id":          "<zero-padded seq>",
-//	  "seq":         <int>,               // chunk counter, caller-assigned
+//	  "seq":         <int>,               // chunk counter, server-assigned
 //	  "creator":     "<accountId>",       // server-stamped
 //	  "createdAt":   <unix-seconds>,      // server-stamped
 //	  "fromAgent":   "<opaque>",          // optional

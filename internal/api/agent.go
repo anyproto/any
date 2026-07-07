@@ -31,12 +31,13 @@ type LLMStats struct {
 //
 // One record per agent invocation (human message → end_turn),
 // append-only and immutable. `seq` is the per-chat monotonic ordering
-// key the caller assigns (last seen + 1); the record id is derived
-// from it (zero-padded) so lexical id order matches insertion order.
-// Server stamps creator / createdAt and rejects client attempts to
-// set them.
+// key; OMIT it and the server allocates max+1 (the normal path,
+// retrying on collision — no client probe/retry). Provide it only to
+// control the seq explicitly (a duplicate then surfaces as an error).
+// The record id is derived from seq (zero-padded) so lexical id order
+// matches insertion order. Server stamps creator / createdAt.
 type AgentTurnAppendRequest struct {
-	Seq        *int      `json:"seq"`
+	Seq        *int      `json:"seq,omitempty"`
 	FromAgent  string    `json:"fromAgent,omitempty"`
 	UserName   string    `json:"userName,omitempty"`
 	UserText   string    `json:"userText,omitempty"`
@@ -58,7 +59,7 @@ type AgentTurnAppendRequest struct {
 // `{seq: {$gte: fromSeq, $lte: toSeq}}`. periodStart/periodEnd are
 // unix seconds so period range filters stay indexable.
 type AgentChunkCreateRequest struct {
-	Seq          *int   `json:"seq"`
+	Seq          *int   `json:"seq,omitempty"`
 	FromAgent    string `json:"fromAgent,omitempty"`
 	Summary      string `json:"summary"`
 	PeriodStart  int64  `json:"periodStart"`
