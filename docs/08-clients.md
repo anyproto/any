@@ -433,6 +433,12 @@ with names) or live from `POST …/objects/:objId/files/query/subscribe`
 404s (`file.not_found`) until the object's first attach — treat that
 as an empty list, not an error.
 
+**Deleting.** `DELETE …/files/:fileId` removes the file for every
+member and cascades to its variants; a live files/query window sees
+the row as a `removed`. It is not idempotent — an already-deleted id
+404s, which a UI retry should treat as success. Local bytes are
+reclaimed by cache GC, not synchronously (`17-files.md` § Delete).
+
 ## 10. Live-surface budget: subscribe to views, not data
 
 The single most expensive thing a client can do is hold a wide live

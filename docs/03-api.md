@@ -1339,6 +1339,7 @@ non-JSON bodies in the API. Everything else is the usual JSON.
 | POST   | `/v1/spaces/:spaceId/files/:fileId/pin`                       | schedule a full background fetch → 204 |
 | POST   | `/v1/spaces/:spaceId/files/:fileId/retry`                     | make pending background work due now → 204 |
 | POST   | `/v1/spaces/:spaceId/files/:fileId/offload`                   | drop local bytes (keep the file) → 204 |
+| DELETE | `/v1/spaces/:spaceId/files/:fileId`                           | delete the file for every member → 204 |
 | GET    | `/v1/files/cache`                                             | local cache size, all spaces |
 | POST   | `/v1/files/cache/free`                                        | LRU-reclaim `{bytes}` → `{freed}` |
 | POST   | `/v1/files/cache/sweep`                                       | one manual safety sweep → 204 |

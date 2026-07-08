@@ -272,6 +272,29 @@ func TestE2E_FilesBinary(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/files/cache/free",
 		`{"bytes":0}`, http.StatusBadRequest, &env)
 	mustStatus(t, http.MethodPost, base+"/v1/files/cache/sweep", "", http.StatusNoContent)
+
+	// --- delete -----------------------------------------------------------
+	// Deleting the original cascades to its variant; the inline file
+	// survives. A second delete (or an unknown id) is a 404.
+	mustStatus(t, http.MethodDelete, filesBase+"/"+bigInfo.FileId, "", http.StatusNoContent)
+	mustJSON(t, http.MethodGet, filesBase+"/"+bigInfo.FileId, "", http.StatusNotFound, &env)
+	mustJSON(t, http.MethodGet, filesBase+"/"+thumbInfo.FileId, "", http.StatusNotFound, &env)
+	errObj, _ = env["error"].(map[string]any)
+	if errObj["code"] != api.ErrFileNotFound {
+		t.Errorf("deleted variant code = %v, want %s", errObj["code"], api.ErrFileNotFound)
+	}
+	mustJSON(t, http.MethodGet, filesBase, "", http.StatusOK, &list)
+	if len(list.Files) != 1 {
+		t.Errorf("post-delete listing = %d files, want 1: %+v", len(list.Files), list.Files)
+	}
+	mustJSON(t, http.MethodDelete, filesBase+"/"+bigInfo.FileId, "", http.StatusNotFound, &env)
+	mustJSON(t, http.MethodDelete, filesBase+"/no-such-file", "", http.StatusNotFound, &env)
+
+	mustStatus(t, http.MethodDelete, filesBase+"/"+inlineInfo.FileId, "", http.StatusNoContent)
+	mustJSON(t, http.MethodGet, filesBase+"/stats", "", http.StatusOK, &stats)
+	if stats.Total != 0 {
+		t.Errorf("post-delete stats = %+v, want total 0", stats)
+	}
 }
 
 // attachFile POSTs raw bytes to url with the given content type and

@@ -121,6 +121,25 @@ Local bytes (CARv2s) are a cache once a file is durable:
   offloads all its state including file bytes (the space-delete path,
   status item 18 in `CLAUDE.md`).
 
+## Delete
+
+`DELETE /files/:fileId` removes the file for **every member**: the
+payload row is deleted in one synced change, so it disappears from
+`GET /files`, `/files/query` snapshots, and live `/files/query/subscribe`
+windows (as a `removed`) on every device once the deletion syncs.
+Deleting an original **cascades to its variants** — they are
+unresolvable without it. Locally, pending background work (backup,
+pin) is cancelled and the content ref released; the bytes themselves
+are reclaimed by cache GC (the safety sweep, once the CAR is
+unreferenced past grace — deletion never races a settling sync).
+Content shared with a surviving file via dedup keeps its bytes.
+
+Unknown or already-deleted ids → `404 file.not_found` (delete is not
+idempotent over the wire). The **network copy is not reclaimed** —
+fileprotov2 has no delete RPC yet; the broker's row-driven accounting
+stops counting the rows once the deletion syncs, and network-side GC
+is an SDK/filenode roadmap item.
+
 ## Variants
 
 A **variant** is an alternate representation of a file — e.g. a

@@ -183,6 +183,15 @@ func (c *Client) FileOffload(ctx context.Context, spaceId, fileId string) error 
 	return c.fileAction(ctx, spaceId, fileId, "offload")
 }
 
+// FileDelete removes the file — synced row delete (variants of an
+// original go with it) plus local cleanup. 404 file.not_found for an
+// unknown or already-deleted fileId.
+func (c *Client) FileDelete(ctx context.Context, spaceId, fileId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/files/%s",
+		url.PathEscape(spaceId), url.PathEscape(fileId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 func (c *Client) fileAction(ctx context.Context, spaceId, fileId, verb string) error {
 	path := fmt.Sprintf("/v1/spaces/%s/files/%s/%s",
 		url.PathEscape(spaceId), url.PathEscape(fileId), verb)

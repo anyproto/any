@@ -235,6 +235,7 @@ any file subscribe <spaceId>
 any file pin      <spaceId> <fileId>
 any file retry    <spaceId> <fileId>
 any file offload  <spaceId> <fileId>
+any file delete   <spaceId> <fileId> --yes
 any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total]
 any file query-subscribe <spaceId> <objectId> [same flags]
 any file cache size | free <bytes> | sweep
@@ -247,7 +248,9 @@ background work; watch `any file subscribe` for the `inflight →
 durable` flip. `download` writes raw bytes to stdout by default (pipe
 them) or to `-o PATH` with a small JSON receipt — the two deliberate
 non-JSON outputs in the CLI. `offload` exits non-zero with
-`file.not_durable` while the local bytes are the only copy. `query` /
+`file.not_durable` while the local bytes are the only copy. `delete`
+removes the file for every member (variants cascade with their
+original) and refuses to run without `--yes`. `query` /
 `query-subscribe` read the cleartext payload rows (docs/17-files.md
 § Reads). See `docs/17-files.md` for the model.
 
