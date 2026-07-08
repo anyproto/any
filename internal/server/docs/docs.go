@@ -2741,6 +2741,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/{objectId}/backlinks": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "objects"
+                ],
+                "summary": "List objects that reference an object (links-format property values)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BacklinksResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}/chat/messages": {
             "post": {
                 "consumes": [
@@ -4872,6 +4925,31 @@ const docTemplate = `{
                 },
                 "authorized": {
                     "type": "boolean"
+                }
+            }
+        },
+        "api.Backlink": {
+            "type": "object",
+            "properties": {
+                "objectId": {
+                    "type": "string"
+                },
+                "propId": {
+                    "type": "string"
+                },
+                "typeId": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BacklinksResponse": {
+            "type": "object",
+            "properties": {
+                "backlinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.Backlink"
+                    }
                 }
             }
         },
