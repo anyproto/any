@@ -68,6 +68,17 @@ const (
 // Dataset is the per-object dataset holding the item records.
 const Dataset = "agent_memory_items"
 
+// Harness bookkeeping datasets on the same brain object (anybao
+// ADR-007): DatasetJobState holds background-sweep cursors
+// (extraction/linkgen/evolution — one small record per job);
+// DatasetROI logs auto-recall injections for the §1b/§5 ROI metrics.
+// Raw DefaultHandler values — the harness owns the shapes (same
+// stance as agent_triggers).
+const (
+	DatasetJobState = "agent_job_state"
+	DatasetROI      = "agent_roi_injections"
+)
+
 // Field keys on an item record.
 const (
 	FieldCreator     = "creator"
@@ -137,6 +148,8 @@ func NewType() handler.Type {
 		Description: Description,
 		Datasets: []handler.Dataset{
 			{Name: Dataset, DataVersion: dataVersion, Handler: itemsHandler{}},
+			{Name: DatasetJobState, DataVersion: "1", Handler: handler.DefaultHandler{}},
+			{Name: DatasetROI, DataVersion: "1", Handler: handler.DefaultHandler{}},
 		},
 	}
 }
