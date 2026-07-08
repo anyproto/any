@@ -72,7 +72,7 @@ func (itemsHandler) BeforeModify(ctx *handler.ChangeCtx, _ *handler.RecordChange
 	var err error
 	switch field {
 	case FieldSalience:
-		err = checkIntRange(field, op.Payload, 0, 10)
+		err = checkFloatRange(field, op.Payload, 0, 10)
 	case FieldAccessCount:
 		err = checkIntRange(field, op.Payload, 0, math.MaxInt32)
 	case FieldConfidence:
@@ -155,7 +155,7 @@ func validateCreatePayload(payload *anyenc.Value) (presentFields, error) {
 			visitErr = checkIntRange(key, v, 1, 10)
 		case FieldSalience:
 			present.salience = true
-			visitErr = checkIntRange(key, v, 0, 10)
+			visitErr = checkFloatRange(key, v, 0, 10)
 		case FieldAccessCount:
 			present.accessCount = true
 			visitErr = checkIntRange(key, v, 0, math.MaxInt32)
@@ -303,6 +303,22 @@ func checkStringArray(key string, v *anyenc.Value, maxItems, maxItemBytes int) e
 		if len(item.GetStringBytes()) > maxItemBytes {
 			return rejectCreate(fmt.Sprintf("%s[%d] too long (> %d bytes)", key, i, maxItemBytes))
 		}
+	}
+	return nil
+}
+
+// checkFloatRange: salience is CONTINUOUS (0..10) — the decay sweep
+// writes half-life fractions; the other scores stay integer rubrics.
+func checkFloatRange(key string, v *anyenc.Value, lo, hi float64) error {
+	if v == nil || v.Type() != anyenc.TypeNumber {
+		return rejectCreate(key + " must be a number")
+	}
+	n, err := v.Float64()
+	if err != nil {
+		return rejectCreate(key + " must be a number")
+	}
+	if n < lo || n > hi {
+		return rejectCreate(fmt.Sprintf("%s must be in %v..%v", key, lo, hi))
 	}
 	return nil
 }

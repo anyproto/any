@@ -106,7 +106,7 @@ type AgentMemoryCreateRequest struct {
 	Keywords   []string `json:"keywords,omitempty"`
 	Confidence *int     `json:"confidence,omitempty"`
 	Importance *int     `json:"importance,omitempty"`
-	Salience   *int     `json:"salience,omitempty"`
+	Salience   *float64 `json:"salience,omitempty"`
 	ValidFrom  int64    `json:"validFrom,omitempty"`
 	Edges      []Edge   `json:"edges,omitempty"`
 	ChatId     string   `json:"chatId,omitempty"`
@@ -119,7 +119,7 @@ type AgentMemoryCreateRequest struct {
 // server-side. At least one field must be present
 // (400 request.missing_field otherwise).
 type AgentMemoryEvolveRequest struct {
-	Salience    *int      `json:"salience,omitempty"`
+	Salience    *float64  `json:"salience,omitempty"`
 	AccessCount *int      `json:"accessCount,omitempty"`
 	Confidence  *int      `json:"confidence,omitempty"`
 	Importance  *int      `json:"importance,omitempty"`
