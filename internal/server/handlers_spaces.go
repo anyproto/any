@@ -168,6 +168,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/files/:fileId/pin", d.filePin)
 	g.POST("/spaces/:spaceId/files/:fileId/retry", d.fileRetry)
 	g.POST("/spaces/:spaceId/files/:fileId/offload", d.fileOffload)
+	g.DELETE("/spaces/:spaceId/files/:fileId", d.fileDelete)
 
 	// Sync status — per-space rollup + per-object state. The peers
 	// row stays 501 until the SDK exposes a stable per-space peer

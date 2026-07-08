@@ -537,7 +537,7 @@ Implementation slices landed:
 
 21. **Files v2** — wraps the SDK files-v2 surface (`Space.Files()`:
     Attach/Open/Get/Status/SubscribeStatus/Stats/Pin/Retry/Offload/
-    List/Query + SDK-level FileCacheSize/FreeUpFileCache/
+    Delete/List/Query + SDK-level FileCacheSize/FreeUpFileCache/
     SweepFileCache). Files bind to objects; the SDK stores one
     `payloads` row per file on a derived per-object child (cleartext
     rootCid/size/networkSign/objectId + one sealed member-only blob
@@ -557,6 +557,10 @@ Implementation slices landed:
     exported sentinels `space.ErrFileNotBackedUp` /
     `ErrFileNotAvailable` / `ErrFileVariantInvalid` via errors.Is,
     pinned by TestFileErrorMapping);
+    `DELETE …/files/:fileId` — synced row delete (variants cascade;
+    404 `file.not_found` on unknown/already-deleted; local bytes
+    reclaimed by cache GC, no network reclaim — fileprotov2 has no
+    delete RPC yet);
     `GET …/files/subscribe` — FileStatus SSE (streamStatusSSE pattern,
     LOCAL transitions only); `POST …/objects/:o/files/query[/subscribe]`
     — windowed query over one object's payload rows (bridges
@@ -565,7 +569,7 @@ Implementation slices landed:
     `files.{publicReadBaseUrl,gcInterval}` (zero interval = NO
     background cache GC). CLI: `any file
     attach/list/get/download/status/stats/subscribe/pin/retry/offload/
-    query/query-subscribe/cache`. NOT wrapped (broker embedding
+    query/query-subscribe/cache` + `delete --yes`. NOT wrapped (broker embedding
     surfaces): `Space.Payloads()`, `TreeHeads()`, `Track/Evict`,
     `Headless`, `Sync.TreeTypes`. Contract: docs/17-files.md (model),
     docs/03-api.md § Files, docs/04-events.md § File status stream,
