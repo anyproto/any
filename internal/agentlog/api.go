@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -42,24 +43,28 @@ func appendSeqAssigned(
 	if reqSeq != nil {
 		return create(ctx, sp, objectId, dataset, RecordId(*reqSeq), buildPayload(*reqSeq), opName)
 	}
-	var lastReject string
+	var lastSeq int
 	for range maxSeqAllocAttempts {
 		seq, err := nextSeq(ctx, sp, objectId, dataset)
 		if err != nil {
 			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: alloc seq: %w", opName, err)
 		}
-		res, rejected, err := tryCreate(ctx, sp, objectId, dataset, RecordId(seq), buildPayload(seq), opName)
+		res, reason, err := tryCreate(ctx, sp, objectId, dataset, RecordId(seq), buildPayload(seq), opName)
 		if err != nil {
 			return space.ModifyResult{}, err
 		}
-		if !rejected {
+		if reason == "" {
 			return res, nil
 		}
-		lastReject = fmt.Sprintf("seq %d collided", seq)
+		if !isSeqCollision(reason) {
+			// validation rejection — surface immediately, don't retry.
+			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, reason)
+		}
+		lastSeq = seq // collision — re-probe and retry
 	}
 	return space.ModifyResult{}, fmt.Errorf(
-		"agentlog: %s: seq allocation exhausted after %d attempts (%s)",
-		opName, maxSeqAllocAttempts, lastReject)
+		"agentlog: %s: seq allocation exhausted after %d attempts (last seq %d collided)",
+		opName, maxSeqAllocAttempts, lastSeq)
 }
 
 // ensureType attaches the agent_log type to the object's any.types if
@@ -160,11 +165,12 @@ func CreateChunk(ctx context.Context, sp space.Space, objectId string, req api.A
 
 // tryCreate is the shared single-record write: one multi-field $set
 // with an explicit id, upsert so first-write creates (a second write
-// with the same id becomes a modify and is rejected by the append-only
-// handler — the collision signal). Returns rejected=true separately so
-// the seq-allocation loop can retry; a transport error is still an
-// error.
-func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, bool, error) {
+// with the same id becomes a MODIFY and is rejected by the append-only
+// handler — the collision signal, reason "append_only:"). Returns the
+// rejection REASON separately (empty = success) so the caller can tell
+// a seq collision (retry) from a validation rejection (surface): only
+// an "append_only" reason means the id is taken.
+func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, string, error) {
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
 		Dataset:  dataset,
@@ -179,26 +185,33 @@ func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId 
 		}},
 	})
 	if err != nil {
-		return space.ModifyResult{}, false, fmt.Errorf("agentlog: %s: modify: %w", opName, err)
+		return space.ModifyResult{}, "", fmt.Errorf("agentlog: %s: modify: %w", opName, err)
 	}
 	if len(res.Rejections) > 0 {
-		return space.ModifyResult{}, true, nil
+		return space.ModifyResult{}, res.Rejections[0].Reason, nil
 	}
 	if len(res.RecordIds) == 0 {
-		return space.ModifyResult{}, false, fmt.Errorf("agentlog: %s: empty RecordIds", opName)
+		return space.ModifyResult{}, "", fmt.Errorf("agentlog: %s: empty RecordIds", opName)
 	}
-	return res, false, nil
+	return res, "", nil
 }
 
-// create is tryCreate for the client-provided-seq path: a rejection is
-// a real collision to surface (not retried).
+// isSeqCollision reports whether a rejection reason is the append-only
+// gate firing on an existing id (a seq collision) vs a validation
+// rejection of the payload (which must surface, not retry).
+func isSeqCollision(reason string) bool {
+	return strings.Contains(reason, "append_only")
+}
+
+// create is tryCreate for the client-provided-seq path: any rejection
+// surfaces (a duplicate seq is a real error; a validation reject too).
 func create(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, error) {
-	res, rejected, err := tryCreate(ctx, sp, objectId, dataset, recordId, payload, opName)
+	res, reason, err := tryCreate(ctx, sp, objectId, dataset, recordId, payload, opName)
 	if err != nil {
 		return space.ModifyResult{}, err
 	}
-	if rejected {
-		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected (seq collision)", opName)
+	if reason != "" {
+		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, reason)
 	}
 	return res, nil
 }

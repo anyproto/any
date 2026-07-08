@@ -60,6 +60,12 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentTurnInvalid, "too many messageIds",
 			map[string]any{"max": agentlog.MaxMessageIds, "got": len(req.MessageIds)})
 	}
+	if req.LLM != nil && req.LLM.StopReason != "" && !agentlog.StopReasons[req.LLM.StopReason] {
+		return writeError(c, http.StatusBadRequest, api.ErrAgentTurnInvalid,
+			"llm.stopReason not in the closed set "+
+				"(done|wrapup|break_soft|break_hard|length|error)",
+			map[string]any{"got": req.LLM.StopReason})
+	}
 
 	res, err := agentlog.AppendTurn(c.Request().Context(), sp, objectId, req)
 	if err != nil {
