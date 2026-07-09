@@ -110,8 +110,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"))
 	g.GET("/spaces/:spaceId/types/:typeId/properties", d.typeProperties)
 	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty)
-	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.RemoveProperty"))
-	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.UpdatePropertyMeta"))
+	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty)
+	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty)
 
 	// Properties. Scoped properties (v0.0.11) unified the former
 	// base/account/device set endpoints into one scope-aware Set — the

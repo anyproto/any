@@ -1006,7 +1006,7 @@ they want at-least-once semantics across reconnects.
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
-| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.PatchProperty` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -1041,15 +1041,25 @@ property's value convention beyond its structural kind:
 ```
 
 - `format.type` — `links` (array of `any://<objectId>` URI strings),
-  `date` (`2006-01-02` string), `datetime` (RFC 3339 string). `tags` is
-  reserved until the space-level tag table lands. Pinned for the
-  property's life and coupled to `kind` (`links` ⇒ `array`,
-  `date`/`datetime` ⇒ `string`); **`kind` may be omitted** when a format
-  is set — it defaults from the format type.
+  `date` (`2006-01-02` string), `datetime` (RFC 3339 string), `select`
+  (a single option key — string), `multiselect` (an array of option
+  keys). `tags` is reserved until the space-level tag table lands.
+  Pinned for the property's life and coupled to `kind` (`links` /
+  `multiselect` ⇒ `array`, `date`/`datetime`/`select` ⇒ `string`);
+  **`kind` may be omitted** when a format is set — it defaults from the
+  format type.
 - `format.ui` — presentation hint: `select` / `multiselect` / `link` /
   `links`. `date`/`datetime` take no ui.
 - `format.filter` — mongo-style condition over candidate objects
   (`links` only); must parse as a query condition.
+- `format.options` — the enumerated choice set for `select` /
+  `multiselect`, a map keyed by each option's **stable key** (the key IS
+  the value a select/multiselect value stores). Each entry is
+  `{name, color, pos, meta?}` (all strings; `pos` is a lexid display-
+  order key). Usually populated via PATCH (below), not at create.
+  Membership is **not** enforced on value writes (an option may be
+  deleted while values still reference its key — dangling-tolerant).
+- `format.meta` — an opaque format-level string→string config bag.
 
 The SDK stores formats opaquely (structure-only checks); **this server
 is the semantics boundary**. Definition-time violations → `400
@@ -1075,6 +1085,51 @@ parameter: `/set/:typeId` auto-routes by the declared scope (below).
 ```json
 { "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
 ```
+
+**`PATCH …/properties/:propId`** — a generic per-path patch to a property
+definition (`TypesAPI.PatchProperty`). This is the write half of a
+property rename and of select/multiselect option CRUD (create / rename /
+recolor / reorder / delete an option). Body:
+
+```json
+{ "set":   { "format.options.high.name": "High",
+             "format.options.high.color": "red",
+             "format.options.high.pos": "a0" },
+  "unset": [ "format.options.low" ] }
+```
+
+`set` maps a dotted path to its new value; `unset` lists dotted paths to
+remove (naming a whole option key, e.g. `format.options.high`, deletes
+that option). Every value is a JSON **string** except `format.filter`
+(a condition object stored as its JSON text). All ops apply in one CRDT
+change (atomic); each leaf merges per-path, so concurrent edits to
+different options/leaves converge. Deleting then re-adding the same
+option key works (it's a field unset, not a record tombstone).
+
+Mutable paths: `name`, `description`, `xKey`, `xKind`, `meta.<k>`,
+`format.ui`, `format.filter`, `format.meta.<k>`,
+`format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>`.
+A **`set`** must target a scalar leaf; a bare container
+(`meta`, `format.meta`, `format.options`, `format.options.<key>`) is
+rejected on `set` (it would clobber the whole map) but may be **`unset`**
+to clear it (e.g. unset `format.options.<key>` deletes an option).
+Pinned paths (`kind`, `scope`, `items`, `properties`, the whole `format`
+object, `format.type`) → `400 property.immutable`; an unknown/malformed
+path or a non-string value on a non-format leaf → `400
+request.invalid_field`; a format-specific value error (unknown
+`format.ui`, unparseable `format.filter`, `format.*` on a format-less
+property) → `400 property.format_invalid`. PATCH/DELETE on a registered
+built-in type → `400 type.registered`. Returns `204`; `404 sdk.not_found`
+for an unknown type/propId. At least one `set`/`unset` entry is required.
+
+Examples: rename `{ "set": { "name": "Priority" } }`; recolor
+`{ "set": { "format.options.high.color": "blue" } }`; delete an option
+`{ "unset": [ "format.options.high" ] }`.
+
+**`DELETE …/properties/:propId`** (`TypesAPI.RemoveProperty`) tombstones
+the definition and returns `204`. Existing instance values are **not**
+cleaned up — subsequent writes to that propId are dropped op-by-op
+(dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
 
 ### Properties (values on objects)
 
