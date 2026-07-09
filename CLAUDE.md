@@ -598,6 +598,26 @@ Implementation slices landed:
     SDK contract test e2e/local_scope_records_test.go). `any` tests:
     handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
     § Datasets / § Types & properties / § Chat.
+23. **Per-space general chat** — every space now has one deterministic
+    "general" chat object, derived from a fixed seed
+    (`chat.GeneralChatSeed` = `any/general-chat/v1`, `internal/chat/general.go`)
+    via `Objects().Derive` — the same idempotent primitive
+    `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
+    "the chat for this space" (the only case for a 1-1) otherwise each
+    `Objects().Create` a fresh chat, so a space ends up with two or three
+    parallel chats. Surface: `GET /v1/spaces/:spaceId/chat` →
+    `{objectId}` (`handlers_chat.go::generalChatGet`, resolves +
+    materializes on first use, chat type attached — returned id accepts
+    `chat/messages` writes immediately; mirrors `GET /agent/brain`), plus
+    a new `SpaceInfo.generalChatObjectId` populated on every single-space
+    response by `spaceToAPI` (now takes a ctx and derives best-effort) —
+    create / get / one-to-one / join. Omitted on `GET /v1/spaces` list
+    rows (kept a cheap read that never materializes chats), same policy
+    as `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
+    the creator did, so local + CRDT-replicated converge. CLI: `any chat
+    general <spaceId>`; client `Client.GeneralChat`. Contract:
+    docs/03-api.md § Chat (General chat) + § Spaces, docs/01-cli.md
+    § Chat, docs/16-chat.md § Finding the chat object.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

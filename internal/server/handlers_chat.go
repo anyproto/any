@@ -11,6 +11,32 @@ import (
 	"github.com/anyproto/any/internal/chat"
 )
 
+// generalChatGet handles GET /v1/spaces/:spaceId/chat — resolves the
+// space's single deterministic "general" chat object, materializing it
+// on first use. Mirrors GET /agent/brain: the returned objectId is
+// where clients write/read the chat_messages dataset, instead of
+// creating a fresh chat per client (which leaves a space with two or
+// three parallel chats — most visibly in 1-1 direct spaces).
+//
+//	@Summary	Resolve the per-space general chat object id
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Success	200		{object}	api.GeneralChatResponse
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/chat [get]
+func (d *deps) generalChatGet(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	objectId, err := chat.DeriveGeneralChatObjectId(c.Request().Context(), sp)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	}
+	return c.JSON(http.StatusOK, api.GeneralChatResponse{ObjectId: objectId})
+}
+
 // chatSend handles POST /v1/spaces/:spaceId/objects/:objectId/chat/messages.
 //
 //	@Summary	Send a chat message
