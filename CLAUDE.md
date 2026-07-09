@@ -598,6 +598,43 @@ Implementation slices landed:
     SDK contract test e2e/local_scope_records_test.go). `any` tests:
     handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
     § Datasets / § Types & properties / § Chat.
+23. **Property PATCH + select options** — closes any-ui #252
+    (#1 rename / #2 delete / #3+#5 select-option CRUD + colors + order).
+    Two live endpoints replace the old `501` stubs:
+    - `PATCH /v1/spaces/:spaceId/types/:typeId/properties/:propId` →
+      `TypesAPI.PatchProperty`, a generic `{set, unset}` per-path patch
+      (`api.PropertyPatchRequest`). One endpoint covers rename +
+      option create/rename/recolor/reorder/delete — **zero
+      option-specific methods**, because options are just string leaves
+      under `format.options.<key>.{name,color,pos,meta.<k>}` and the CRDT
+      already merges per-path `$set`/`$unset`. `any` translates wire
+      paths → storage (`xKey`→`x-key`), validates leaf semantics
+      (`format.ui` vocab, `format.filter` parses, strings elsewhere) and
+      rejects pinned paths (`kind`/`scope`/`items`/`properties`/`format`
+      whole/`format.type`) → `400 property.immutable`
+      (`patchPathToStorage`/`patchSetValue` in `propformat.go`). Options
+      are **dangling-tolerant**: delete is a hard `$unset`, values keep
+      an orphan key, membership is not validated (no archive flag).
+    - `DELETE …/properties/:propId` → `TypesAPI.RemoveProperty`
+      (tombstone; values not cleaned up; `404` on unknown).
+    - New `select` (kind=string) / `multiselect` (kind=array)
+      `FormatType`s give options a home; `PropertyFormat.Options`
+      (`map[string]{Name,Color,Pos,Meta}`) + `Meta`. Read-back rides
+      `formatToAPI`. First `any type` CLI surface (`internal/cli/types.go`:
+      `type create/list`, `type property list/add/patch/remove`,
+      `type property option set/delete`) + `internal/client/types.go`.
+    - **#4 (atomic rename/delete a value across N objects) is won't-fix**
+      — impossible in a per-object CRDT, and mooted: values store the
+      immutable option key, so rename is one write / zero object writes;
+      delete is dangling-tolerant.
+    - **SDK prerequisite (sdk2, unreleased):** `space.PatchProperty` +
+      `PropertyPatch` replace `UpdatePropertyMeta`/`PropertyMetaUpdate`;
+      `RemoveProperty` implemented (was a stub in v0.1.4); `FormatSelect`/
+      `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
+      `PropertyOption`; exported `space.ErrPinnedField` +
+      `typetype.IsPinnedPath`. `go.mod` has a `replace` →
+      `../any-sync-sdk2` for dev — drop it + bump to a tagged version
+      before publishing. Docs: 03-api.md § Types, 01-cli.md § Types.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
