@@ -79,6 +79,16 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 
+	// Version history (SDK Space.History(); SDK
+	// docs/version-history-proposal.md). Read-only; versions are the
+	// ChangeIds every write already returns. The static `diff` segment
+	// is registered before the `:version` matcher so it isn't
+	// swallowed.
+	g.GET("/spaces/:spaceId/objects/:objectId/history", d.historyList)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/diff", d.historyDiff)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt)
+
 	// Agent data layer (built-in types — see internal/agentlog,
 	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
 	// reads + liveness go through /query and /query/subscribe with
