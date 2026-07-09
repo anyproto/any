@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -167,6 +168,10 @@ func (d *deps) historyViewAt(c echo.Context) error {
 		vd := api.HistoryViewDataset{Dataset: ds, Records: make([]json.RawMessage, 0, len(records))}
 		for _, rec := range records {
 			vd.Records = append(vd.Records, json.RawMessage(rec.FastJson(fa).MarshalTo(nil)))
+			// MarshalTo copied the bytes out; reset per record so the
+			// arena stays O(one record) instead of growing to the
+			// whole materialized view.
+			fa.Reset()
 		}
 		// Skip empty system datasets so the payload stays readable;
 		// the explicitly-requested dataset is always present.
@@ -267,7 +272,9 @@ func (d *deps) historyDiff(c echo.Context) error {
 		if v == nil {
 			return nil
 		}
-		return json.RawMessage(v.FastJson(fa).MarshalTo(nil))
+		out := json.RawMessage(v.FastJson(fa).MarshalTo(nil))
+		fa.Reset() // bytes copied; keep the arena O(one value)
+		return out
 	}
 
 	out := api.HistoryDiffResponse{Base: res.Base, Version: res.Version, Datasets: make([]api.HistoryDatasetDiff, 0, len(res.Datasets))}
@@ -309,16 +316,6 @@ func historyError(c echo.Context, err error) error {
 }
 
 // splitNonEmpty splits s on sep, dropping empty segments.
-func splitNonEmpty(s string, sep byte) []string {
-	var out []string
-	start := 0
-	for i := 0; i <= len(s); i++ {
-		if i == len(s) || s[i] == sep {
-			if i > start {
-				out = append(out, s[start:i])
-			}
-			start = i + 1
-		}
-	}
-	return out
+func splitNonEmpty(s string, sep rune) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return r == sep })
 }

@@ -25,8 +25,11 @@ type HistoryChange struct {
 	Dataset   string                 `json:"dataset"`
 	TraceIds  []string               `json:"traceIds,omitempty"`
 	Touched   []HistoryTouchedRecord `json:"touched,omitempty"`
-	Truncated bool                   `json:"truncated,omitempty"` // oldest listable entry hit the history horizon
-	GroupSize int                    `json:"groupSize"`
+	// Truncated is RESERVED (always false today): the SDK keeps full
+	// history locally. It becomes meaningful with the future
+	// snapshot-horizon contract.
+	Truncated bool `json:"truncated,omitempty"`
+	GroupSize int  `json:"groupSize"`
 }
 
 // HistoryTouchedRecord names one record a change touched with its op
