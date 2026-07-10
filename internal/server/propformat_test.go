@@ -119,13 +119,14 @@ func TestServer_PropertyFormat(t *testing.T) {
 		body string
 		want int
 	}{
-		"valid links":         {`{"patch":{"` + relatedProp + `":["any://abc","any://def"]}}`, http.StatusOK},
+		"valid links":         {`{"patch":{"` + relatedProp + `":["any://objabc","any://objdef"]}}`, http.StatusOK},
 		"valid datetime":      {`{"patch":{"` + dueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusOK},
 		"bad datetime":        {`{"patch":{"` + dueProp + `":"tomorrow"}}`, http.StatusBadRequest},
 		"datetime non-string": {`{"patch":{"` + dueProp + `":12345}}`, http.StatusBadRequest},
-		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://abc"}}`, http.StatusBadRequest},
+		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://objabc"}}`, http.StatusBadRequest},
 		"links bad uri":       {`{"patch":{"` + relatedProp + `":["not-a-uri"]}}`, http.StatusBadRequest},
-		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space/obj"]}}`, http.StatusBadRequest},
+		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space1/objabc"]}}`, http.StatusBadRequest},
+		"links typed form":    {`{"patch":{"` + relatedProp + `":["any://o/space1/objabc"]}}`, http.StatusBadRequest},
 	} {
 		rec = doJSON(t, e, http.MethodPost, setURL, tc.body)
 		if rec.Code != tc.want {
