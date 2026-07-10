@@ -15,8 +15,11 @@ export function main() {
     TIERS: {
       // codegen — the toolcaller agent's main loop (llm.chat default tier).
       // classify — one-off structured judgments (geminiDeepSearch).
-      classify:  "claude/claude-sonnet-4-6",
-      codegen:   "claude/claude-sonnet-4-6",
+      // Eval (2026-07-08): sonnet-5 ~3x faster + cheaper than sonnet-4-6 on
+      // codegen ($2/$10 intro pricing through 2026-08-31, sticker $3/$15);
+      // haiku-4-5 fastest + 3x cheaper on classify, same answers.
+      classify:  "claude/claude-haiku-4-5-20251001",
+      codegen:   "claude/claude-sonnet-5",
       // search@v1 tiers (docs/12-rlm-search.md). The orchestrator runs the
       // RLM root loop (coverage judgment, when-to-stop — the capability that
       // matters); search_classify scores snippet batches (model-insensitive).

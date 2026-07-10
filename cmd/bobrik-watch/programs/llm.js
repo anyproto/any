@@ -9,7 +9,7 @@ import { main as getConfig } from "config@v1"
 // classify: binary/list selection, structured output (cheapest, fastest)
 // codegen: JS code generation — the toolcaller agent's main loop
 var MODEL_TIERS = {
-  claude: { classify: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-4-6" },
+  claude: { classify: "claude-haiku-4-5-20251001", codegen: "claude-sonnet-5" },
   openai: { classify: "gpt-5-mini", codegen: "gpt-5" },
   together: { classify: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", codegen: "Qwen/Qwen2.5-7B-Instruct-Turbo" },
   openrouter: { classify: "z-ai/glm-5.1", codegen: "z-ai/glm-5.1" },
@@ -19,7 +19,7 @@ var MODEL_TIERS = {
 function completeClaude(prompt, model, config, opts) {
   var apiKey = config.CLAUDE_API_KEY;
   if (!apiKey) throw new Error("CLAUDE_API_KEY not set in config@v1");
-  model = model || config.CLAUDE_MODEL || "claude-sonnet-4-6";
+  model = model || config.CLAUDE_MODEL || "claude-sonnet-5";
 
   var messageContent;
   if (opts && opts.cachedPrefix) {
@@ -72,9 +72,9 @@ function completeClaude(prompt, model, config, opts) {
 function chatClaude(messages, model, config, opts) {
   var apiKey = config.CLAUDE_API_KEY;
   if (!apiKey) throw new Error("CLAUDE_API_KEY not set in config@v1");
-  model = model || config.CLAUDE_MODEL || "claude-sonnet-4-6";
+  model = model || config.CLAUDE_MODEL || "claude-sonnet-5";
 
-  // Default max_tokens: 32768. Sonnet 4.6 supports up to ~64K output;
+  // Default max_tokens: 32768. Sonnet 5 supports up to 128K output (streamed);
   // 32K is the usual sweet spot — plenty of headroom for large batch cells
   // or rich-content turns without pushing toward the latency edge. Billing
   // is on actual output so the ceiling costs nothing when unused. Callers
@@ -753,7 +753,7 @@ function _extractUsage(response) {
 function _buildFetchArgs(provider, prompt, model, config) {
   if (provider === "claude") {
     var apiKey = config.CLAUDE_API_KEY;
-    model = model || config.CLAUDE_MODEL || "claude-sonnet-4-6";
+    model = model || config.CLAUDE_MODEL || "claude-sonnet-5";
     return ["https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
