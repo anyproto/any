@@ -1107,7 +1107,6 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 
 | Method | Path                                                                     | Purpose                  |
 |--------|--------------------------------------------------------------------------|--------------------------|
-| GET    | `/v1/spaces/:spaceId/chat`                                                    | resolve the space's general chat object id |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages`                         | send a message           |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | edit own message text    |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId`                  | delete own message       |
@@ -1118,19 +1117,19 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 **General chat.** Every space has one deterministic "general" chat
 object, derived from a fixed seed (`chat.GeneralChatSeed`,
 `any/general-chat/v1`) — the same objects/derive primitive the brain
-(`/agent/brain`) uses. `GET /v1/spaces/:spaceId/chat` →
-`{ "objectId": "<id>" }` resolves it, materializing the object on first
-call (the `chat` type is attached then, so the returned id accepts
-`chat/messages` writes immediately). The id is also surfaced as
-`generalChatObjectId` on every single-space response (create / get /
-one-to-one / join); it is omitted from `GET /v1/spaces` list rows,
-which stay a cheap read that never materializes chats. Clients should
-write and read this shared chat instead of creating their own chat
-object per client — otherwise a space accumulates two or three parallel
-chats depending on which client spoke first, most visibly in 1-1 direct
-spaces. Deterministic derivation means a joiner computes the same id
-the creator did, so the locally derived object and the CRDT-replicated
-one converge.
+(`/agent/brain`) uses. There is no bespoke resolver endpoint: the id is
+delivered as `generalChatObjectId` on every single-space `SpaceInfo`
+response (create / get / one-to-one / join) — the same common point
+that carries `spaceIndexObjectId` (§ Spaces). The first single-space
+response materializes the object (the `chat` type is attached then, so
+the id accepts `chat/messages` writes immediately); it is omitted from
+`GET /v1/spaces` list rows, which stay a cheap read that never
+materializes chats. Clients should write and read this shared chat
+instead of creating their own chat object per client — otherwise a
+space accumulates two or three parallel chats depending on which client
+spoke first, most visibly in 1-1 direct spaces. Deterministic
+derivation means a joiner computes the same id the creator did, so the
+locally derived object and the CRDT-replicated one converge.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

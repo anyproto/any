@@ -77,10 +77,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
 	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
-	// Resolver for the deterministic per-space "general" chat object —
-	// the well-known chat every client should share instead of creating
-	// its own. Materializes on first use (see chat.GeneralChatSeed).
-	g.GET("/spaces/:spaceId/chat", d.generalChatGet)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 

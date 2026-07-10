@@ -25,32 +25,12 @@ func newChatCmd() *cobra.Command {
 		Short: "send / edit / delete / react to messages on a chat object (reads via `any query`)",
 	}
 	cmd.AddCommand(
-		newChatGeneralCmd(),
 		newChatSendCmd(),
 		newChatEditCmd(),
 		newChatDeleteCmd(),
 		newChatReactCmd(),
 	)
 	return cmd
-}
-
-// newChatGeneralCmd resolves the space's deterministic "general" chat
-// object id (materializing it on first use), so callers write/read
-// that shared chat instead of creating their own.
-func newChatGeneralCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "general <spaceId>",
-		Short: "resolve the space's shared general chat object id (creates on first use)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
-			out, err := cl.GeneralChat(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			return printJSON(out)
-		},
-	}
 }
 
 func newChatSendCmd() *cobra.Command {

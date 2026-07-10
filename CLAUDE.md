@@ -605,19 +605,19 @@ Implementation slices landed:
     `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
     "the chat for this space" (the only case for a 1-1) otherwise each
     `Objects().Create` a fresh chat, so a space ends up with two or three
-    parallel chats. Surface: `GET /v1/spaces/:spaceId/chat` →
-    `{objectId}` (`handlers_chat.go::generalChatGet`, resolves +
-    materializes on first use, chat type attached — returned id accepts
-    `chat/messages` writes immediately; mirrors `GET /agent/brain`), plus
-    a new `SpaceInfo.generalChatObjectId` populated on every single-space
-    response by `spaceToAPI` (now takes a ctx and derives best-effort) —
-    create / get / one-to-one / join. Omitted on `GET /v1/spaces` list
-    rows (kept a cheap read that never materializes chats), same policy
-    as `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
-    the creator did, so local + CRDT-replicated converge. CLI: `any chat
-    general <spaceId>`; client `Client.GeneralChat`. Contract:
-    docs/03-api.md § Chat (General chat) + § Spaces, docs/01-cli.md
-    § Chat, docs/16-chat.md § Finding the chat object.
+    parallel chats. Surface: NO bespoke endpoint — the id is delivered
+    through the existing common per-space metadata point:
+    `SpaceInfo.generalChatObjectId`, populated on every single-space
+    response by `spaceToAPI` (takes a ctx, derives best-effort —
+    materializing the object on first sight, chat type attached, so the
+    id accepts `chat/messages` writes immediately) — create / get /
+    one-to-one / join. Omitted on `GET /v1/spaces` list rows (kept a
+    cheap read that never materializes chats), same policy as
+    `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
+    the creator did, so local + CRDT-replicated converge. CLI: read it
+    off `any space get <spaceId>`. Contract: docs/03-api.md § Chat
+    (General chat) + § Spaces, docs/01-cli.md § Chat, docs/16-chat.md
+    § Finding the chat object.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

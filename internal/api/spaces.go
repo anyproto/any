@@ -89,16 +89,6 @@ type SpaceListResponse struct {
 	Spaces []SpaceInfo `json:"spaces"`
 }
 
-// GeneralChatResponse is the body of GET /v1/spaces/:spaceId/chat — the
-// deterministic per-space general chat object id (see
-// chat.GeneralChatSeed). Same derive-on-first-use semantics as
-// AgentBrainResponse: the GET materializes the object if it doesn't
-// exist yet, so a client can call it once and then write/read the
-// chat_messages dataset on the returned id.
-type GeneralChatResponse struct {
-	ObjectId string `json:"objectId"`
-}
-
 // Space status string values exposed on the wire. Mirror the
 // space.Status enum 1:1.
 const (

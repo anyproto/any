@@ -481,11 +481,6 @@ definitions:
       state:
         type: string
     type: object
-  api.GeneralChatResponse:
-    properties:
-      objectId:
-        type: string
-    type: object
   api.HealthResponse:
     properties:
       account:
@@ -1997,28 +1992,6 @@ paths:
       summary: Aggregate over a per-object dataset
       tags:
       - data
-  /spaces/{spaceId}/chat:
-    get:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/api.GeneralChatResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/api.ErrorEnvelope'
-      summary: Resolve the per-space general chat object id
-      tags:
-      - chat
   /spaces/{spaceId}/datasets:
     get:
       parameters:

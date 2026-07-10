@@ -1408,40 +1408,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/spaces/{spaceId}/chat": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "chat"
-                ],
-                "summary": "Resolve the per-space general chat object id",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Space ID",
-                        "name": "spaceId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.GeneralChatResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/api.ErrorEnvelope"
-                        }
-                    }
-                }
-            }
-        },
         "/spaces/{spaceId}/datasets": {
             "get": {
                 "produces": [
@@ -5340,14 +5306,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "state": {
-                    "type": "string"
-                }
-            }
-        },
-        "api.GeneralChatResponse": {
-            "type": "object",
-            "properties": {
-                "objectId": {
                     "type": "string"
                 }
             }

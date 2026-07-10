@@ -9,19 +9,6 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// GeneralChat resolves the deterministic per-space general chat object
-// id, materializing it on first use. Callers write/read the
-// chat_messages dataset on the returned id instead of creating their
-// own chat object.
-func (c *Client) GeneralChat(ctx context.Context, spaceId string) (*api.GeneralChatResponse, error) {
-	var out api.GeneralChatResponse
-	path := fmt.Sprintf("/v1/spaces/%s/chat", url.PathEscape(spaceId))
-	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
 // ChatSend posts a new message to the chat object's message stream.
 // Body shape mirrors api.ChatSendRequest. Returns the modify result —
 // recordIds[0] is the server-derived message id; read the record back

@@ -199,18 +199,17 @@ any aggregate $SPID $OBJID --dataset chat_messages \
 ### Chat
 
 ```
-any chat general <spaceId>
-any chat send    <spaceId> <objectId> --text "..." | --file FILE | -  [--reply-to <msgId>]
-any chat list    <spaceId> <objectId> [--before <msgId>] [--after <msgId>] [--limit N]
-any chat edit    <spaceId> <objectId> <msgId> --text "..." | --file FILE | -
-any chat delete  <spaceId> <objectId> <msgId>
-any chat react   <spaceId> <objectId> <msgId> <emoji>
+any chat send   <spaceId> <objectId> --text "..." | --file FILE | -  [--reply-to <msgId>]
+any chat list   <spaceId> <objectId> [--before <msgId>] [--after <msgId>] [--limit N]
+any chat edit   <spaceId> <objectId> <msgId> --text "..." | --file FILE | -
+any chat delete <spaceId> <objectId> <msgId>
+any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
-`chat general` resolves (creating on first use) the space's single
-deterministic general chat object and prints `{ "objectId": "..." }` —
-the shared chat every client should use as `<objectId>` for the other
-commands, instead of creating its own. See `docs/03-api.md` § Chat.
+The `<objectId>` for a space's shared general chat is the
+`generalChatObjectId` field of `any space get <spaceId>` — use it
+instead of creating a chat object per client. See `docs/03-api.md`
+§ Chat → General chat.
 
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
