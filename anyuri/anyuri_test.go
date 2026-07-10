@@ -127,12 +127,12 @@ func TestParseRejectsGarbage(t *testing.T) {
 		"any://o/space1",                       // o wants 2 or 4 segments after the kind
 		"any://o/space1/object1/chat_messages", // dangling dataset without recordId
 		"any://o/space1/object1/chat_messages/msgid1/prop1x", // reserved record-field form
-		"any://m/space1",              // mention without identity
-		"any://s/space1/object1",      // space takes no further segments
-		"any://p/space1/object1",      // prop wants 3
-		"any://f/space1",              // file wants 2
-		"any://o/space1//msgid1",      // empty segment
-		"any://o//object1",            // empty space id
+		"any://m/space1",         // mention without identity
+		"any://s/space1/object1", // space takes no further segments
+		"any://p/space1/object1", // prop wants 3
+		"any://f/space1",         // file wants 2
+		"any://o/space1//msgid1", // empty segment
+		"any://o//object1",       // empty space id
 	} {
 		_, err := anyuri.Parse(bad)
 		require.Error(t, err, "%q must not parse", bad)
@@ -158,14 +158,14 @@ func TestIsPropertyValueRef(t *testing.T) {
 	assert.True(t, anyuri.IsPropertyValueRef("any://object1"))
 
 	for _, bad := range []string{
-		"any://space1/object1",     // global form
-		"any://object1#frag1",      // fragment
-		"any://o/space1/object1",   // typed form
-		"any://m/space1/ident1",    // typed form
-		"any://s/space1",           // typed form
-		"any://",                   // garbage
-		"object1",                  // no scheme
-		"any://abcd",               // kind-slug namespace, not an id
+		"any://space1/object1",   // global form
+		"any://object1#frag1",    // fragment
+		"any://o/space1/object1", // typed form
+		"any://m/space1/ident1",  // typed form
+		"any://s/space1",         // typed form
+		"any://",                 // garbage
+		"object1",                // no scheme
+		"any://abcd",             // kind-slug namespace, not an id
 	} {
 		assert.False(t, anyuri.IsPropertyValueRef(bad), bad)
 	}
