@@ -866,6 +866,20 @@ definitions:
         items:
           type: integer
         type: array
+      meta:
+        additionalProperties:
+          type: string
+        description: Meta is an opaque, format-level string config bag.
+        type: object
+      options:
+        additionalProperties:
+          $ref: '#/definitions/api.PropertyOption'
+        description: |-
+          Options is the enumerated choice set for select / multiselect,
+          keyed by the option's stable key (which IS the stored value).
+          Read back on GET; write/mutate via PATCH (format.options.<key>.*
+          paths), not this create body's whole-map form.
+        type: object
       type:
         description: Type is one of the FormatType* wire strings.
         type: string
@@ -874,6 +888,32 @@ definitions:
           UI is one of the FormatUI* wire strings; optional. links accepts
           any UI; date/datetime accept none.
         type: string
+    type: object
+  api.PropertyOption:
+    properties:
+      color:
+        type: string
+      meta:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      pos:
+        type: string
+    type: object
+  api.PropertyPatchRequest:
+    properties:
+      set:
+        additionalProperties:
+          items:
+            type: integer
+          type: array
+        type: object
+      unset:
+        items:
+          type: string
+        type: array
     type: object
   api.QueryResponse:
     properties:
@@ -4051,6 +4091,81 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Add a property to a type
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/properties/{propId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      - description: Property ID
+        in: path
+        name: propId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Remove a property definition
+      tags:
+      - types
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        type: string
+      - description: Property ID
+        in: path
+        name: propId
+        required: true
+        type: string
+      - description: set/unset paths
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.PropertyPatchRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Patch a property definition (rename, options, colors, order)
       tags:
       - types
   /spaces/join:

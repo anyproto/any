@@ -65,15 +65,34 @@ type PropertyFormat struct {
 	// Filter is a mongo-style condition object over candidate objects
 	// (e.g. {"type": {"$in": ["page"]}}); optional, links only.
 	Filter json.RawMessage `json:"filter,omitempty"`
+	// Options is the enumerated choice set for select / multiselect,
+	// keyed by the option's stable key (which IS the stored value).
+	// Read back on GET; write/mutate via PATCH (format.options.<key>.*
+	// paths), not this create body's whole-map form.
+	Options map[string]PropertyOption `json:"options,omitempty"`
+	// Meta is an opaque, format-level string config bag.
+	Meta map[string]string `json:"meta,omitempty"`
+}
+
+// PropertyOption is one select / multiselect choice. Its map key in
+// PropertyFormat.Options is the stored value; the fields below are the
+// mutable display slice.
+type PropertyOption struct {
+	Name  string            `json:"name,omitempty"`
+	Color string            `json:"color,omitempty"`
+	Pos   string            `json:"pos,omitempty"`
+	Meta  map[string]string `json:"meta,omitempty"`
 }
 
 // FormatType* are the wire strings of space.FormatType. "tags" is
 // reserved until the space-level tag table lands — the SDK rejects it.
 const (
-	FormatTypeLinks    = "links"
-	FormatTypeDate     = "date"
-	FormatTypeDatetime = "datetime"
-	FormatTypeTags     = "tags"
+	FormatTypeLinks       = "links"
+	FormatTypeDate        = "date"
+	FormatTypeDatetime    = "datetime"
+	FormatTypeTags        = "tags"
+	FormatTypeSelect      = "select"
+	FormatTypeMultiselect = "multiselect"
 )
 
 // FormatUI* are the accepted presentation hints for format-bearing
@@ -147,4 +166,20 @@ type PropertyDef struct {
 // PropertiesListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/properties.
 type PropertiesListResponse struct {
 	Properties []PropertyDef `json:"properties"`
+}
+
+// PropertyPatchRequest is the body of PATCH
+// /v1/spaces/:spaceId/types/:typeId/properties/:propId — a generic
+// per-path patch to a property definition (space.PropertyPatch). Set
+// assigns values at dotted field paths; Unset removes them (a whole
+// option subtree, e.g. "format.options.high", is unset by naming it).
+//
+// Mutable paths: name, description, xKey, xKind, meta.<k>, format.ui,
+// format.filter, format.meta.<k>, format.options.<key>.{name,color,pos},
+// format.options.<key>.meta.<k>. Pinned paths (kind, scope, items,
+// properties, the whole `format` object, format.type) are rejected with
+// 400 property.immutable. At least one entry across Set/Unset required.
+type PropertyPatchRequest struct {
+	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Unset []string                   `json:"unset,omitempty"`
 }

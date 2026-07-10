@@ -64,7 +64,7 @@ bind at create for now.)
   Each entry is a `PropertyDef` (`kind`, `required`, nested `items` /
   `properties`). Validate kind and required-ness before writing. Don't rely
   on the server to reject a mismatch today — the SDK-level guards
-  (`property.kind_mismatch`, `property.immutable_field`) are not wired into
+  (`property.kind_mismatch`, `property.immutable`) are not wired into
   the v1 write path, so a malformed write succeeds now and bites later.
 
 ## 3. Reads go through query / subscribe
