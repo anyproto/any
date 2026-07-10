@@ -780,6 +780,7 @@ From `docs/00-overview.md`:
 ```
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
+├── anyuri/               PUBLIC: canonical any:// link grammar (docs/19-links.md)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -789,7 +790,11 @@ any/
 └── docs/
 ```
 
-Nothing is published externally; everything under `internal/`. Request/response
+Everything lives under `internal/` with ONE deliberate exception:
+`anyuri/` is public (`github.com/anyproto/any/anyuri`) — any owns the
+link format and clients/agents import the Build/Parse rule instead of
+reimplementing it (SYN-75). Don't add further public packages without
+the same kind of explicit contract. Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.
 

@@ -31,14 +31,27 @@ func ExtractMentions(text string) []string {
 		if start > 0 && isSchemeByte(text[start-1]) {
 			continue
 		}
-		end := start
-		for end < len(text) && isURIByte(text[end]) {
+		// The prefix is already matched; scan only the TAIL charset
+		// from here. '.' must stay in the charset — space ids are
+		// "<cid>.<replKey>" — but ':' is only ever in the scheme, so a
+		// glued colon terminates the token.
+		end := i
+		for end < len(text) && isTailByte(text[end]) {
 			end++
 		}
 		token := strings.TrimRight(text[start:end], ".,;:!?")
 		u, err := Parse(token)
 		if err != nil || u.Kind != KindMention || u.Identity == "" {
 			continue
+		}
+		// Identities are base58 — never dotted. A '.' inside the parsed
+		// identity is a glued sentence period ("…/<id>.Check this"):
+		// keep the id, shed the absorbed word.
+		if dot := strings.IndexByte(u.Identity, '.'); dot >= 0 {
+			u.Identity = u.Identity[:dot]
+			if u.Identity == "" {
+				continue
+			}
 		}
 		if _, dup := seen[u.Identity]; dup {
 			continue
@@ -52,17 +65,21 @@ func ExtractMentions(text string) []string {
 	return out
 }
 
-// isURIByte reports whether c may appear inside an any:// token:
-// alphanumerics (base58 ids, dataset names) plus the structural bytes
-// of the grammar (path, params, fragment) and "_"/"-"/"." seen in
-// dataset names, fragments and variant tags.
-func isURIByte(c byte) bool {
+// isTailByte reports whether c may appear in an any:// token AFTER
+// the "any://m/" prefix: alphanumerics (base58 ids) plus the
+// structural bytes of the grammar (path, params, fragment), '.'
+// (space ids are "<cid>.<replKey>") and "_"/"-" (fragments like
+// turn_3, variant tags). Deliberately NOT ':' — only the
+// already-matched scheme needs it, so a glued colon terminates the
+// token instead of corrupting the identity; glued periods are shed by
+// the identity-segment cut in ExtractMentions.
+func isTailByte(c byte) bool {
 	switch {
 	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		return true
 	}
 	switch c {
-	case ':', '/', '?', '&', '=', '#', '_', '-', '.':
+	case '/', '?', '&', '=', '#', '_', '-', '.':
 		return true
 	}
 	return false
