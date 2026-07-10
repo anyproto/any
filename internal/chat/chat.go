@@ -16,6 +16,7 @@
 //	    "name": "<display label>", "debugLink": "<any://…>", "done": <bool>
 //	  },
 //	  "text":             "<markdown>",                      // ≤ MaxTextBytes
+//	  "mentions":         ["<accountId>", ...],              // server-derived
 //	  "attachments":      {                                  // optional, create-only
 //	    "<id>": { "type": "<link|image|…>", "link": "<url>" }
 //	  },
@@ -67,6 +68,26 @@
 // layer rolls it up to `{emoji: [accountId, ...]}` (sorted by
 // timestamp ascending) because that's what clients render.
 //
+// `mentions` is server-DERIVED, never client-supplied (spoofable both
+// ways otherwise: silent-ping griefing and notification suppression —
+// the text is the source of truth). At change materialization the
+// handler parses the message text for mention links
+// (`any://m/<spaceId>/<identity>`, anyuri.ExtractMentions) and stamps
+// the deduped identity array; when the message is a reply
+// (`replyToMessageId`), the replied-to message's creator is folded in
+// — a reply IS a ping to the original author, and folding it in at
+// write time keeps every consumer (badge counter, push, "mentions of
+// me" query) a single indexed field check. Edits re-derive the array
+// from the new text (the reply fold-in re-reads via ctx.Get; the
+// replied-to creator is immutable so this is replica-deterministic).
+// Absent when the message mentions nobody — the sparse idx_mentions
+// index stays proportional to mentioning messages. v1 does not
+// distinguish reply-derived entries from text mentions: a ping is a
+// ping. Self-mentions are not filtered — the array is an objective
+// fact of the message; "not my own messages" is a client-side
+// creator != me filter (and read-tracking never badges self-authored
+// changes anyway).
+//
 // Server-stamped fields land via sink.Derive in BeforeCreate /
 // BeforeModify; they are intentionally invisible to client payloads.
 // The handler rejects payloads that try to set them directly.
@@ -109,6 +130,7 @@ const (
 	FieldModifiedAt       = "modifiedAt"
 	FieldReplyToMessageId = "replyToMessageId"
 	FieldText             = "text"
+	FieldMentions         = "mentions"
 	FieldReactions        = "reactions"
 	FieldAgent            = "agent"
 	FieldAttachments      = "attachments"
@@ -147,6 +169,12 @@ const (
 	MaxAttachmentIdBytes   = 64
 	MaxAttachmentTypeBytes = 64
 	MaxAttachmentLinkBytes = 2 * 1024
+
+	// MaxMentions caps the derived mentions array (post-dedup,
+	// first-occurrence order wins). MaxTextBytes already bounds real
+	// mentions far below this; the cap is a defense against
+	// pathological link-stuffing, not a product limit.
+	MaxMentions = 64
 )
 
 // NewType returns the handler.Type to add to config.Config.Types so
@@ -166,6 +194,7 @@ func NewType() handler.Type {
 			DataVersion:  dataVersion,
 			Handler:      messagesHandler{},
 			Schema:       datasetSchema(),
+			Indexes:      messagesHandler{}.Indexes(),
 			ReadTracking: readTracking(),
 		}},
 		// Unread counters materialized onto the chat object's row —
@@ -184,8 +213,8 @@ func NewType() handler.Type {
 //
 // Dynamic so undeclared keys stay permitted (forward-compat with clients
 // that grow the record), but every known field is declared with its
-// class: creator / createdAt / modifiedAt are server-stamped via
-// sink.Derive → ScopeDerived (handler-only, rejected from client ops);
+// class: creator / createdAt / modifiedAt / mentions are server-stamped
+// via sink.Derive → ScopeDerived (handler-only, rejected from client ops);
 // text / replyToMessageId / agent / reactions / attachments are
 // user/DAG-written → ScopeSynced; unread / unreadMention /
 // unreadReactions are device-local read-tracking flags → ScopeLocal
@@ -202,6 +231,7 @@ func datasetSchema() handler.Schema {
 			{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeDerived},
 			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
 			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
+			{Id: FieldMentions, Name: "Mentions", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeDerived},
 			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},

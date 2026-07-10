@@ -99,6 +99,21 @@ Implementation slices landed:
    `any chat send --agent-name <name> [--agent-debug-link L]
    [--agent-done=false]`. Contract spec: task-agent-message-field.md +
    ../any-ui/docs/tasks/agent-message-field.md.
+   **Mentions (SYN-72)**: records carry a server-DERIVED `mentions`
+   identity array (ScopeDerived, client writes rejected) — parsed from
+   `any://m/…` links in text via `anyuri.ExtractMentions` plus the
+   replied-to message's creator folded in at materialization
+   (`deriveMentions`, reads the target via the SDK's `ChangeCtx.Get`);
+   edits re-derive ($unset when empty); sparse multikey `idx_mentions`
+   backs `{"mentions": id}` filters. `classifyRead` tags mentions of
+   self (post-apply `ctx.Get`/`ctx.RecordId` read of the derived
+   array), so `unreadMention` + `chat.unreadMentions` are live — a
+   mention-adding edit badges without re-flagging `unread`. The
+   canonical `any://` grammar lives in the public `anyuri/` package
+   (moved from the SDK, SYN-75 — see docs/19-links.md). NOTE: chat /
+   editor / agentlog / agentmem now actually wire `Dataset.Indexes`
+   (the per-handler `Indexes()` methods used to be dead code — no
+   built-in index was ensured before this).
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /

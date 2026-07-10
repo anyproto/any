@@ -8,6 +8,8 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/handler"
+
+	"github.com/anyproto/any/anyuri"
 )
 
 // Indexes declares the any-store indexes ensured on each chat
@@ -25,15 +27,20 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 		{Name: "idx_unread", Fields: []string{FieldUnread, "_ver.id"}, Sparse: true},
 		{Name: "idx_unread_mention", Fields: []string{FieldUnreadMention, "_ver.id"}, Sparse: true},
 		{Name: "idx_unread_reactions", Fields: []string{FieldUnreadReactions, "_ver.id"}, Sparse: true},
+		// mentions is an array field, so the index is multikey (one
+		// entry per mentioned identity) — {"mentions": "<identity>"}
+		// eq-filters are index-backed. Sparse: the handler $unsets the
+		// field when a message mentions nobody.
+		{Name: "idx_mentions", Fields: []string{FieldMentions, "_ver.id"}, Sparse: true},
 	}
 }
 
 // BeforeCreate validates the creation payload, then derives the
-// server-stamped row-root fields (creator, createdAt, modifiedAt)
-// via sink.Derive so they land alongside the user's text /
-// replyToMessageId in one apply step. Chronological order comes from
-// the SDK-managed `_ver.id` creation marker — no chat-side stamp
-// needed.
+// server-stamped row-root fields (creator, createdAt, modifiedAt, and
+// the mentions array — see deriveMentions) via sink.Derive so they
+// land alongside the user's text / replyToMessageId in one apply
+// step. Chronological order comes from the SDK-managed `_ver.id`
+// creation marker — no chat-side stamp needed.
 //
 // The expected creation shape is exactly one multi-field $set op
 // (empty Path, object payload). Any other shape rejects the whole
@@ -70,6 +77,10 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 	}
 
 	stampCreate(ctx, sink)
+	deriveMentions(ctx, sink,
+		op.Payload.GetStringBytes(FieldText),
+		string(op.Payload.GetStringBytes(FieldReplyToMessageId)),
+		false)
 	return nil
 }
 
@@ -451,7 +462,67 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 			Payload: a.NewNumberInt(int(ctx.Change.Timestamp)),
 		})
 	}
+	// Re-derive mentions from the new text. replyToMessageId is
+	// create-only, so the pre-op record is authoritative for the reply
+	// fold-in.
+	var replyTo string
+	if ctx != nil && ctx.Before != nil {
+		replyTo = string(ctx.Before.GetStringBytes(FieldReplyToMessageId))
+	}
+	deriveMentions(ctx, sink, text, replyTo, true)
 	return nil
+}
+
+// deriveMentions computes and stamps the derived `mentions` array: the
+// identities mentioned in text (any://m/… links, deduped in
+// first-occurrence order) plus, for replies, the replied-to message's
+// creator — read via ctx.Get, which is replica-deterministic here
+// because `creator` is an immutable create-stamp and the replied-to
+// create is a causal ancestor of this change. Accepted edge: a reply
+// racing a concurrent DELETE of its target reads a creator-less
+// tombstone on replicas that applied the delete first, so their
+// derived array omits the fold-in — display-only divergence (derived
+// ops are local re-derivation, never synced payload).
+//
+// A message with no mentions carries no field: create stamps nothing,
+// an edit $unsets (unconditionally — a no-op when already absent), so
+// the sparse idx_mentions holds only mentioning rows.
+func deriveMentions(ctx *handler.ChangeCtx, sink *handler.Sink, text []byte, replyTo string, isEdit bool) {
+	if sink == nil {
+		return
+	}
+	ids := anyuri.ExtractMentions(string(text))
+	if replyTo != "" && ctx != nil && ctx.Get != nil {
+		if rec := ctx.Get(Dataset, replyTo); rec != nil && rec.Get("_deletedAt") == nil {
+			if creator := string(rec.GetStringBytes(FieldCreator)); creator != "" && !containsIdentity(ids, creator) {
+				ids = append(ids, creator)
+			}
+		}
+	}
+	if len(ids) > MaxMentions {
+		ids = ids[:MaxMentions]
+	}
+	a := &anyenc.Arena{}
+	if len(ids) == 0 {
+		if isEdit {
+			sink.Derive(handler.Op{Type: handler.OpUnset, Path: []string{FieldMentions}})
+		}
+		return
+	}
+	arr := a.NewArray()
+	for i, id := range ids {
+		arr.SetArrayItem(i, a.NewString(id))
+	}
+	sink.Derive(handler.Op{Type: handler.OpSet, Path: []string{FieldMentions}, Payload: arr})
+}
+
+func containsIdentity(ids []string, id string) bool {
+	for _, v := range ids {
+		if v == id {
+			return true
+		}
+	}
+	return false
 }
 
 func isReactionToggle(op *handler.Op) bool {

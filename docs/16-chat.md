@@ -39,7 +39,7 @@ subscribe frames):
 | field | meaning |
 |---|---|
 | `unread: true` | the message itself is unread. Absent (not `false`) once read — filter with `{"unread": true}`. |
-| `unreadMention: true` | unread mention of you. (Never set today; arrives with the mentions feature. Wire your badge logic now.) |
+| `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://m/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when an edit adds a mention of you. |
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (local properties on the chat object's row, present in any
@@ -66,8 +66,13 @@ Rules that follow:
 - **Your own messages are born read** — on every one of your devices
   (read state is per *account*, not per device). Never call a read
   endpoint after sending.
-- Edits never re-flag a message. Deleting an unread message silently
-  drops it from flags and counters.
+- Edits never re-flag a message's `unread`. The one exception is
+  mentions: an edit whose new text mentions you sets `unreadMention`
+  (a fresh ping is a ping), and repeated re-edits collapse into ONE
+  live mention entry, never N. An edit that removes your mention
+  clears an edit-added `unreadMention`; it cannot clear the `unread`
+  of the original message. Deleting an unread message silently drops
+  it from flags and counters.
 - **Reactions badge the message's author, nobody else.** Someone
   reacting to a third party's message never sets your
   `unreadReactions` or bumps your `chat.unreadReactionsCount` — the
@@ -156,6 +161,56 @@ The unread filter is index-backed (`unread` is sparse-indexed with a
 `_ver.id` tiebreak), so these queries stay cheap no matter how long
 the history is.
 
+## Mentions
+
+A mention is a markdown link whose destination is a mention URI
+(docs/19-links.md; build it with `anyuri.BuildMention`):
+
+```
+Hey [Zarko](any://m/<spaceId>/<identity>), take a look
+```
+
+The server derives a `mentions: ["<identity>", …]` array on every
+message at change materialization — **clients never write it** (it's
+`ScopeDerived`; a direct write is rejected, and text is the source of
+truth, so a spoofed array can neither silent-ping nor suppress a real
+ping). Two sources, one array:
+
+- every `any://m/…` link in the text (deduped, first-occurrence
+  order);
+- **replies count as mentions**: the replied-to message's creator is
+  folded in at write time, so "all pings for me" is one field check —
+  reply-derived entries are not distinguished from text mentions.
+
+Edits re-derive the array from the new text. A message that mentions
+nobody carries no `mentions` field at all.
+
+Recipes — all index-backed (`mentions` is a sparse multikey index with
+a `_ver.id` tiebreak; use the equality form, not `$exists`):
+
+```
+# All my mentions, newest first:
+POST /v1/spaces/:spaceId/query
+{ "objectId": "<chatId>", "dataset": "chat_messages",
+  "filter": {"mentions": "<myIdentity>"},
+  "sort": ["-_ver.id"], "limit": 20 }
+
+# My unread mentions (divider / jump target — same shape as unread):
+{ …, "filter": {"unreadMention": true}, "sort": ["_ver.id"], "limit": 1 }
+```
+
+Badge from the row's `chat.unreadMentions`, exactly like
+`chat.unreadCount`. Self-mentions and self-replies list you in
+`mentions` (it's an objective fact of the message — filter with
+`creator != me` if you don't want them) but never badge you: your own
+writes are born read.
+
+Notes: pre-existing messages carry no `mentions` until they're edited
+(derivation happens at write time; stored history is never rewritten).
+Rendering the "magic" mention chip — resolving the current display
+name via `GET /v1/identities`, falling back to the link text snapshot
+— is described in docs/19-links.md § Mentions.
+
 ## Chat list
 
 Query the chat objects as usual; each row already carries
@@ -183,7 +238,7 @@ POST /v1/spaces/:spaceId/objects/query/subscribe
 ```
 
 Each frame's `updated` entries carry the full row and the ops — watch
-for `chat.unreadCount` (later `chat.unreadMentions`) changes:
+for `chat.unreadCount` / `chat.unreadMentions` changes:
 
 - **Counter went up** → new unread in that chat. Fetch what to show:
   `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,
@@ -232,8 +287,6 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
 
 ## Current limitations
 
-- `unreadMention` never sets yet (no mentions feature); the field,
-  counter, and index are already in place.
 - A freshly linked device lands on the account's real read state
   (your other devices' synced read positions apply, so a chat your
   phone shows unread is unread here too). Only when no device ever

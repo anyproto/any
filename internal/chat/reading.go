@@ -48,8 +48,18 @@ const (
 // classifyRead is the ReadTracking classifier: one verdict per applied
 // record change.
 //
-//   - New messages track as "message". (Mention detection lands with
-//     the mentions feature; until then unreadMention never sets.)
+//   - New messages track as "message", plus "mention" when the derived
+//     `mentions` array (stamped by the handler in the same apply, read
+//     back post-apply via mentionsSelf) contains this replica's
+//     account. The create entry is deliberately KEYLESS: a keyed entry
+//     is clearable by a later same-key verdict, and no edit must ever
+//     be able to clear the create's "message" unread.
+//   - Text edits track as "mention" (only) when the re-derived
+//     mentions include self — an edit that pings you re-notifies; one
+//     that stops pinging you clears the edit-tracked entry via the
+//     supersede key. Because the key collapses repeats, N re-edits of
+//     a mentioning message hold ONE live mention entry. The `unread` /
+//     "message" semantics of edits are unchanged (never re-flagged).
 //   - Reaction toggles track as "reaction" with a supersede key, so a
 //     reaction removed before anyone saw it leaves nothing behind —
 //     and an un-react clears the pending unread reaction. The verdict
@@ -57,9 +67,11 @@ const (
 //     reaction is a signal to the person who wrote the message, so it
 //     badges only them — someone reacting to a third party's message
 //     never lights your counter (audienceAuthor below).
-//   - Edits and deletes are untracked: an edit never re-flags a
-//     message, and the SDK clears a deleted record's unread entries
-//     itself.
+//   - Deletes are untracked: the SDK clears a deleted record's unread
+//     entries itself.
+//
+// Self-mentions and self-replies never badge — self-authored changes
+// are born read account-wide regardless of the verdict.
 func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
 	for i := range rec.Ops {
 		op := &rec.Ops[i]
@@ -82,12 +94,52 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 				}
 				return handler.ReadClassification{Key: key}
 			}
+			// text — an edit. Real creates carry a multi-field $set
+			// (empty path); the Upsert guard keeps any create shape on
+			// the create branch below. The record id is explicit on
+			// edits, so it's safe in the supersede key.
+			if !rec.Upsert && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
+				key := "mention:" + rec.Id
+				if mentionsSelf(ctx) {
+					return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: key}
+				}
+				return handler.ReadClassification{Key: key}
+			}
 		}
 	}
 	if rec.Upsert {
-		return handler.ReadClassification{Track: true, Tags: []string{TagMessage}}
+		tags := []string{TagMessage}
+		if mentionsSelf(ctx) {
+			tags = append(tags, TagMention)
+		}
+		return handler.ReadClassification{Track: true, Tags: tags}
 	}
 	return handler.ReadClassification{}
+}
+
+// mentionsSelf reports whether the just-applied record's derived
+// `mentions` array contains this replica's account. Classification
+// runs after the record loop in the same tx, so ctx.Get sees the
+// array the handler stamped for this very change — one read covers
+// text mentions AND the reply fold-in, with no duplicate parsing. An
+// Audience filter can't express this: it gates the WHOLE verdict, and
+// on creates the mention tag rides next to the unconditional
+// "message" tag. Verdicts are device-local, so keying off
+// SelfIdentity here is sound.
+func mentionsSelf(ctx *handler.ChangeCtx) bool {
+	if ctx == nil || ctx.Get == nil || ctx.SelfIdentity == "" || ctx.RecordId == "" {
+		return false
+	}
+	rec := ctx.Get(Dataset, ctx.RecordId)
+	if rec == nil {
+		return false
+	}
+	for _, v := range rec.GetArray(FieldMentions) {
+		if string(v.GetStringBytes()) == ctx.SelfIdentity {
+			return true
+		}
+	}
+	return false
 }
 
 // audienceAuthor is the audience filter "this replica's account wrote

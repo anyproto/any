@@ -1238,6 +1238,7 @@ body is always read back through the query path.
     "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
   },
   "text":             "**hi** _there_",
+  "mentions":         ["<identity1>", "<identity2>"],
   "attachments": {
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
@@ -1257,6 +1258,21 @@ devices. Filterable like any field: `{"filter":{"unread":true}}`.
 are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
+
+`mentions` is server-DERIVED (`x-scope` derived) — never accepted from
+a client: the send route has no such field and a direct `$set` via
+`POST …/modify` is rejected (400 `dataset.validation`). At change
+materialization the handler extracts every mention link
+(`any://m/<spaceId>/<identity>`, docs/19-links.md) from `text`
+(deduped, first-occurrence order, capped at 64) and, when
+`replyToMessageId` is set, folds in the replied-to message's creator —
+a reply is a ping to the original author, and folding it in at write
+time keeps every consumer (badge, push, "mentions of me") a single
+indexed field check (`{"filter":{"mentions":"<identity>"}}`,
+sparse multikey index with `_ver.id` tiebreak). Edits re-derive the
+array from the new text. Omitted when the message mentions nobody.
+Reply-derived entries are not distinguished from text mentions.
+Client recipes: docs/16-chat.md § Mentions.
 
 `agent` is an optional, create-only group the sender sets to mark the
 message as written by an agent acting on the signer's behalf (vs typed
@@ -1310,7 +1326,9 @@ See `internal/chat/handler.go`.
 
 `text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. `agent` is optional (see § Message wire shape for the
+target exists (when it does exist, its creator is folded into the
+derived `mentions` array; when it doesn't, the fold-in is silently
+skipped). `agent` is optional (see § Message wire shape for the
 sub-field rules; 400 `chat.agent_invalid` on violations); immutable
 post-create. Returns 201 with the shared write
 result `{versionId, changeId, recordIds}` — `recordIds[0]` is the

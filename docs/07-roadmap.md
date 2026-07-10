@@ -387,9 +387,10 @@ pluggable embedders, parallel batched pipelines),
   SDK's existing `_ver.id` creation marker; pagination cursors are
   message ids that resolve to that boundary. Liveness reuses the
   generic subscribe primitive with `dataset=chat_messages`. Out of
-  scope for v1: pinned, read tracking / mentions, attachments,
-  blocks (typed text/link/embed/quote), per-emoji-per-identity
-  unread reaction tracking — all live as v1.x followups.
+  scope for v1: pinned, blocks (typed text/link/embed/quote),
+  per-emoji-per-identity unread reaction tracking — v1.x followups.
+  Read tracking, attachments, and mentions (derived `mentions` field
+  + `unreadMention` badging, SYN-72) have since shipped.
 - **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
   and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply
   events as Server-Sent Events. Wire format: `event: ready` →
