@@ -4764,7 +4764,7 @@
                     }
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",
@@ -4802,7 +4802,7 @@
                     "type": "integer"
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",

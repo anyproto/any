@@ -4770,7 +4770,7 @@ const docTemplate = `{
                     }
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",
@@ -4808,7 +4808,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",
