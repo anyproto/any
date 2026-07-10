@@ -6240,6 +6240,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "generalChatObjectId": {
+                    "type": "string"
+                },
                 "iconCid": {
                     "type": "string"
                 },

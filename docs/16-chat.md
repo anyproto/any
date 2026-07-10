@@ -4,6 +4,21 @@ How to build a messenger UI on the chat API: rendering, liveness, and
 — the part that's easy to get wrong — read tracking. Endpoint shapes
 live in `03-api.md § Chat`; this doc is about using them correctly.
 
+## Finding the chat object for a space
+
+Most clients want "the chat for this space" — a single well-known chat,
+not one per client. Read `generalChatObjectId` off any single-space
+response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
+replies — CLI `any space get <spaceId>`); that id is derived
+deterministically from a fixed seed, materialized on the first
+single-space response, and identical for every peer. Use it as the
+`<objectId>` in every endpoint below. Do **not**
+`POST /objects` a fresh chat per client — a space would then carry two
+or three parallel chats depending on who spoke first (the failure mode
+this field exists to prevent, most visible in 1-1 direct spaces).
+Additional, purpose-specific chats are still fine — create them
+explicitly when you actually want more than one.
+
 ## The model in four sentences
 
 Messages are records on the chat object's `chat_messages` dataset,

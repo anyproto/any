@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/chat"
 )
 
 func registerSpaceRoutes(g *echo.Group, d *deps) {
@@ -210,7 +211,7 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(sp))
+	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
 }
 
 // @Summary	List spaces
@@ -270,7 +271,7 @@ func (d *deps) spaceGet(c echo.Context) error {
 	ctx := c.Request().Context()
 	sp, err := d.sdk.Spaces().Get(ctx, id)
 	if err == nil {
-		return c.JSON(http.StatusOK, spaceToAPI(sp))
+		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
 	}
 	// Rows that must not (pending/declined direct-add invites) or cannot
 	// (tombstoned) be materialized still exist in the index — serve the
@@ -384,7 +385,7 @@ func (d *deps) spaceOneToOne(c echo.Context) error {
 	if err != nil {
 		return oneToOneError(c, err, "otherIdentity")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(sp))
+	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneAccept handles POST /v1/spaces/:spaceId/one-to-one/accept
@@ -405,7 +406,7 @@ func (d *deps) spaceOneToOneAccept(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(sp))
+	return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneDecline handles POST /v1/spaces/:spaceId/one-to-one/decline
@@ -484,7 +485,7 @@ func (d *deps) spaceInviteAccept(c echo.Context) error {
 	id := c.Param("spaceId")
 	sp, err := d.sdk.Spaces().AcceptInvite(c.Request().Context(), id)
 	if err == nil {
-		return c.JSON(http.StatusOK, spaceToAPI(sp))
+		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
 	}
 	// spaceimpl.ErrInviteAcceptPending is internal-only; match the
 	// documented error string (same pragmatic pattern as spaceJoin).
@@ -609,11 +610,20 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 }
 
 // spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates
-// SpaceIndexObjectId from the resident space handle so single-space
-// responses always carry it.
-func spaceToAPI(sp space.Space) api.SpaceInfo {
+// SpaceIndexObjectId from the resident space handle, plus
+// GeneralChatObjectId by deriving (materializing on first sight) the
+// space's single general chat, so single-space responses always carry
+// both. This is the one place every single-space path (create / get /
+// one-to-one / join) funnels through, so it's where "every space has a
+// chat" is enforced. Derive is best-effort: on failure the field is
+// omitted rather than failing the whole response (mirrors the list
+// path's tolerance for a missing SpaceIndexObjectId).
+func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out := spaceInfoToAPI(sp.Info())
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
+		out.GeneralChatObjectId = id
+	}
 	return out
 }
 

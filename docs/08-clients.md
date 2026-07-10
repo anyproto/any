@@ -108,6 +108,15 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 ## 4. Chat: newest-first reads and backward pagination
 
+**Where `<chatObjectId>` comes from:** for "the chat of this space" —
+the common case — read `generalChatObjectId` off any single-space
+response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
+replies). It's derived deterministically per space and identical on
+every peer, so all clients share one chat instead of each creating
+their own. Only `POST /objects` a fresh chat object when you
+deliberately want an *additional*, purpose-specific one. Full guidance:
+`16-chat.md` § Finding the chat object.
+
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
 `VersionId` at creation — its position in the any-sync DAG (the SDK's
@@ -284,7 +293,10 @@ POST /v1/spaces/one-to-one
 
 The reply's `spaceType` is `"anytype.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
-but classify on `spaceType`).
+but classify on `spaceType`). The same reply carries
+`generalChatObjectId` — the message thread of the 1-1. Both peers derive
+the identical id, so neither creates a chat object: write and subscribe
+there directly (§ 4).
 
 **Discover incoming requests** — when someone reaches out to you, a
 *pending* row appears (surfaced automatically by the server's inbox

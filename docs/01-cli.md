@@ -206,6 +206,11 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
+The `<objectId>` for a space's shared general chat is the
+`generalChatObjectId` field of `any space get <spaceId>` — use it
+instead of creating a chat object per client. See `docs/03-api.md`
+§ Chat → General chat.
+
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
 delete only work on your own messages (server returns 403 otherwise).
