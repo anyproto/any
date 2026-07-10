@@ -183,7 +183,11 @@ ping). Two sources, one array:
   reply-derived entries are not distinguished from text mentions.
 
 Edits re-derive the array from the new text. A message that mentions
-nobody carries no `mentions` field at all.
+nobody carries no `mentions` field at all. The array is capped at 64
+identities (post-dedup; far above anything real — a defense against
+link-stuffing), and the reply fold-in always survives the cap: when
+it's hit, the last text mention yields the slot, so stuffing a reply
+with links can't squeeze the replied-to author out of their ping.
 
 Recipes — all index-backed (`mentions` is a sparse multikey index with
 a `_ver.id` tiebreak; use the equality form, not `$exists`):
