@@ -73,6 +73,18 @@ const (
 // Self-mentions and self-replies never badge — self-authored changes
 // are born read account-wide regardless of the verdict.
 func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.ReadClassification {
+	// One verdict per record change, so a crafted multi-op change must
+	// not let one op SHADOW another's verdict: scan every op first,
+	// then pick by priority — delete > mention-tracking text edit >
+	// reaction > mention-clearing text edit. The mention edit outranks
+	// the reaction deliberately: a valid text edit is author-only, so
+	// any reaction bundled into the same change targets the author's
+	// OWN message — its audience is the author, who is born read, so
+	// the reaction verdict was a no-op anyway; preferring it would let
+	// an author bundle a reaction with a mention-adding edit and ship
+	// the mention without the badge.
+	var reaction *handler.ReadClassification
+	textEdit := false
 	for i := range rec.Ops {
 		op := &rec.Ops[i]
 		switch op.Type {
@@ -82,30 +94,37 @@ func classifyRead(ctx *handler.ChangeCtx, rec *handler.RecordChange) handler.Rea
 			// reactions.<emoji>.<accountId> — a reaction toggle. The
 			// record id is always explicit here (toggles target an
 			// existing message), so it's safe in the supersede key.
-			if len(op.Path) == 3 && op.Path[0] == FieldReactions {
+			if reaction == nil && len(op.Path) == 3 && op.Path[0] == FieldReactions {
 				key := "reaction:" + op.Path[1] + ":" + op.Path[2] + ":" + rec.Id
 				if op.Type == handler.OpSet {
-					return handler.ReadClassification{
+					reaction = &handler.ReadClassification{
 						Track:    true,
 						Tags:     []string{TagReaction},
 						Key:      key,
 						Audience: audienceAuthor(ctx.SelfIdentity),
 					}
+				} else {
+					reaction = &handler.ReadClassification{Key: key}
 				}
-				return handler.ReadClassification{Key: key}
 			}
 			// text — an edit. Real creates carry a multi-field $set
 			// (empty path); the Upsert guard keeps any create shape on
 			// the create branch below. The record id is explicit on
 			// edits, so it's safe in the supersede key.
 			if !rec.Upsert && op.Type == handler.OpSet && len(op.Path) == 1 && op.Path[0] == FieldText {
-				key := "mention:" + rec.Id
-				if mentionsSelf(ctx) {
-					return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: key}
-				}
-				return handler.ReadClassification{Key: key}
+				textEdit = true
 			}
 		}
+	}
+	if textEdit && mentionsSelf(ctx) {
+		return handler.ReadClassification{Track: true, Tags: []string{TagMention}, Key: "mention:" + rec.Id}
+	}
+	if reaction != nil {
+		return *reaction
+	}
+	if textEdit {
+		// Mention-less edit: clears a previously edit-tracked mention.
+		return handler.ReadClassification{Key: "mention:" + rec.Id}
 	}
 	if rec.Upsert {
 		tags := []string{TagMessage}

@@ -120,6 +120,40 @@ func TestClassifyRead_TextEditMentionKey(t *testing.T) {
 	}
 }
 
+// A crafted multi-op change must not shadow the mention verdict: an
+// author bundling a reaction toggle with a mention-adding text edit
+// (only reachable via the generic /modify) must still badge the
+// mentioned account, regardless of op order. The reaction verdict is
+// the one to yield — a valid text edit is author-only, so the bundled
+// reaction targets the author's own message and its audience (the
+// author) is born read anyway.
+func TestClassifyRead_ReactionCannotShadowMentionEdit(t *testing.T) {
+	records := map[string]*anyenc.Value{
+		"m1": anyenc.MustParseJson(`{"id":"m1","creator":"acc-b","text":"hi","mentions":["acc-me"]}`),
+	}
+	reaction := handler.Op{Type: handler.OpSet, Path: []string{FieldReactions, "x", "acc-b"}}
+	edit := handler.Op{Type: handler.OpSet, Path: []string{FieldText}}
+
+	for name, ops := range map[string][]handler.Op{
+		"reaction first": {reaction, edit},
+		"edit first":     {edit, reaction},
+	} {
+		rec := &handler.RecordChange{Id: "m1", Ops: ops}
+		cl := classifyRead(classifyCtx("acc-me", "m1", records), rec)
+		if !cl.Track || len(cl.Tags) != 1 || cl.Tags[0] != TagMention {
+			t.Fatalf("%s: verdict = %+v, want tracked [mention]", name, cl)
+		}
+	}
+
+	// Without a self-mention the reaction verdict resumes priority.
+	records["m1"] = anyenc.MustParseJson(`{"id":"m1","creator":"acc-b","text":"hi"}`)
+	cl := classifyRead(classifyCtx("acc-me", "m1", records),
+		&handler.RecordChange{Id: "m1", Ops: []handler.Op{reaction, edit}})
+	if !cl.Track || len(cl.Tags) != 1 || cl.Tags[0] != TagReaction {
+		t.Fatalf("no-mention bundle: verdict = %+v, want tracked [reaction]", cl)
+	}
+}
+
 // --- BeforeCreate / BeforeModify: client-supplied mentions rejected ---------
 
 func TestBeforeCreate_RejectsClientMentions(t *testing.T) {

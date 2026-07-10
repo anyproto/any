@@ -3,6 +3,7 @@ package chat
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -491,38 +492,38 @@ func deriveMentions(ctx *handler.ChangeCtx, sink *handler.Sink, text []byte, rep
 	if sink == nil {
 		return
 	}
+	// Text mentions are capped BEFORE the reply fold-in so the fold-in
+	// can never be the entry truncation drops: the replied-to author is
+	// the one recipient the reply contract guarantees a ping for, and a
+	// link-stuffed reply must not squeeze them out (that would be the
+	// notification-suppression vector this field exists to close). When
+	// the cap is hit, the last text mention yields the slot instead.
 	ids := anyuri.ExtractMentions(string(text))
+	if len(ids) > MaxMentions {
+		ids = ids[:MaxMentions]
+	}
 	if replyTo != "" && ctx != nil && ctx.Get != nil {
 		if rec := ctx.Get(Dataset, replyTo); rec != nil && rec.Get("_deletedAt") == nil {
-			if creator := string(rec.GetStringBytes(FieldCreator)); creator != "" && !containsIdentity(ids, creator) {
+			if creator := string(rec.GetStringBytes(FieldCreator)); creator != "" && !slices.Contains(ids, creator) {
+				if len(ids) == MaxMentions {
+					ids = ids[:MaxMentions-1]
+				}
 				ids = append(ids, creator)
 			}
 		}
 	}
-	if len(ids) > MaxMentions {
-		ids = ids[:MaxMentions]
-	}
-	a := &anyenc.Arena{}
 	if len(ids) == 0 {
 		if isEdit {
 			sink.Derive(handler.Op{Type: handler.OpUnset, Path: []string{FieldMentions}})
 		}
 		return
 	}
+	a := &anyenc.Arena{}
 	arr := a.NewArray()
 	for i, id := range ids {
 		arr.SetArrayItem(i, a.NewString(id))
 	}
 	sink.Derive(handler.Op{Type: handler.OpSet, Path: []string{FieldMentions}, Payload: arr})
-}
-
-func containsIdentity(ids []string, id string) bool {
-	for _, v := range ids {
-		if v == id {
-			return true
-		}
-	}
-	return false
 }
 
 func isReactionToggle(op *handler.Op) bool {

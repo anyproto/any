@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,27 @@ func TestServer_Chat_Mentions(t *testing.T) {
 		fmt.Sprintf("see [doc](any://o/%s/%s) and any://f/%s/file1x", spaceId, objectId, spaceId), "")
 	if other.Mentions != nil {
 		t.Errorf("non-mention links: mentions = %v, want absent", other.Mentions)
+	}
+
+	// Link-stuffing cannot squeeze the reply fold-in out of the cap:
+	// a reply with MaxMentions+ distinct text mentions still carries
+	// the replied-to author (the last text mention yields the slot).
+	var stuffed strings.Builder
+	for i := 0; i < 70; i++ {
+		fmt.Fprintf(&stuffed, "[x](any://m/%s/stuffedident%02d) ", spaceId, i)
+	}
+	capped := chatSend(t, e, base, stuffed.String(), plain.Id)
+	if len(capped.Mentions) != 64 {
+		t.Fatalf("stuffed reply: len(mentions) = %d, want 64", len(capped.Mentions))
+	}
+	found := false
+	for _, id := range capped.Mentions {
+		if id == plain.Creator {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("stuffed reply dropped the replied-to author from mentions")
 	}
 }

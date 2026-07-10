@@ -1264,7 +1264,10 @@ a client: the send route has no such field and a direct `$set` via
 `POST …/modify` is rejected (400 `dataset.validation`). At change
 materialization the handler extracts every mention link
 (`any://m/<spaceId>/<identity>`, docs/19-links.md) from `text`
-(deduped, first-occurrence order, capped at 64) and, when
+(deduped, first-occurrence order, capped at 64 — with the reply
+fold-in always retained: when the cap is hit, the last text mention
+yields the slot, so link-stuffing can't squeeze the replied-to author
+out) and, when
 `replyToMessageId` is set, folds in the replied-to message's creator —
 a reply is a ping to the original author, and folding it in at write
 time keeps every consumer (badge, push, "mentions of me") a single
