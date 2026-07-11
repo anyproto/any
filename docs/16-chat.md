@@ -52,7 +52,7 @@ read them at `chat.<property>`, NOT top-level:
 | `chat.unreadCount` | local | unread messages |
 | `chat.unreadMentions` | local | unread mentions |
 | `chat.unreadReactionsCount` | local | unread reactions |
-| `chat.notifyMode` | account | per-chat push preference: `all` \| `mentions` \| `none`. Client-written via `POST /v1/spaces/:s/properties/:chatObjectId/set/chat`, synced across the account's devices, invisible to other members. Not enum-enforced — treat absent/garbage as "inherit the space-level `settings.notifyMode`" (default `all`). Consumed by the push subscription sync loop (`internal/push`). |
+| `chat.notifyMode` | account | per-chat push preference: `all` \| `mentions` \| `none`. Client-written via `POST /v1/spaces/:s/properties/:chatObjectId/set/chat`, synced across the account's devices, invisible to other members. Not enum-enforced — treat absent/garbage as "inherit the space-level `settings.notifyMode`" (default `all`). Consumed by the push subscription sync loop (`internal/push`; full push contract in `docs/20-push.md`). |
 
 A counter is absent from the row until the SDK first materializes it
 — treat absent as 0. (A top-level `unreadCount` never exists; probing

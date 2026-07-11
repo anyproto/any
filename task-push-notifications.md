@@ -3,9 +3,16 @@
 Linear: [SYN-47](https://linear.app/anyorg/issue/SYN-47/push-notifications)
 · branch `cheggaaa/syn-47-push-notifications`
 
-**Status: PLANNED** — research done (all contract claims below verified
-against real code, file:line cited), design decisions locked, not yet
-implemented.
+**Status: IMPLEMENTED through M5** (2026-07-11) — SDK `pushclient` +
+`settings` subtree (M1, branch `cheggaaa/syn-47-push-client`),
+`internal/push` service + config + token/settings endpoints (M2),
+per-chat `notifyMode` + effective-mode sync loop (M3), chat
+send/edit/read hooks (M4), CLI + docs (`docs/20-push.md`) + gated e2e
+(`internal/e2e/push_test.go`, `ANY_PUSH_E2E_PEER_ID`/`_ADDRS`) (M5).
+**Remaining:** the staging/production push-node address (infra
+hand-off, config-only) + running the e2e against real infra. The
+research notes below are the design record; contract claims were
+verified against real code, file:line cited.
 
 Bases:
 - `any` side: this branch
