@@ -76,8 +76,11 @@ func topicChatMention(chatObjectId, identity string) string {
 // subscriptions).
 //
 // chats maps spaceId → that space's chat objects (nil / missing key =
-// enumeration unavailable or no chats → space-level bulk topics, the
-// pre-M3 behavior). Only StatusActive rows participate —
+// no chats → space-level bulk topics, the pre-M3 behavior; a space
+// whose enumeration FAILED never reaches here with a missing key —
+// collectChatModes substitutes its last-known-good entries or the
+// caller drops the space from infos entirely, because bulk would
+// silently unmute muted chats). Only StatusActive rows participate —
 // pending/declined/deleted/joining rows have no loadable ACL to derive
 // push keys from.
 //
@@ -112,10 +115,15 @@ func desiredSubs(infos []space.SpaceInfo, chats map[string][]chatNotify, identit
 //   - Any chat overrides → PER-CHAT topics for EVERY chat (bulk and
 //     per-chat topics don't mix — "chats" would override a muted
 //     chat). Effective mode = chat.notifyMode ?? spaceMode:
-//     all → chats/<sha256hex(id)>; mentions →
-//     chats/<sha256hex(id)>/<identity>; none → skip the chat.
-//     Mentions arrive on the per-chat mention topic, so the bare
-//     identity topic is deliberately absent here (heart parity).
+//     all → chats/<sha256hex(id)> AND chats/<sha256hex(id)>/<identity>
+//     (mention-adding EDITS publish only the mention topics — no room
+//     re-notify — so an "all" chat must hold its own mention topic
+//     too, or a newly-mentioned "all" subscriber would receive
+//     nothing while a "mentions" one is pinged; multi-topic matches
+//     of one message are the norm — the push server dedups per
+//     device); mentions → chats/<sha256hex(id)>/<identity>; none →
+//     skip the chat. The bare identity topic is deliberately absent
+//     here — it belongs to the bulk branch (heart parity).
 func spaceTopics(spaceMode string, entries []chatNotify, identity string) []string {
 	hasOverride := false
 	for _, ce := range entries {
@@ -141,7 +149,7 @@ func spaceTopics(spaceMode string, entries []chatNotify, identity string) []stri
 		}
 		switch eff {
 		case ModeAll:
-			topics = append(topics, topicChat(ce.objectId))
+			topics = append(topics, topicChat(ce.objectId), topicChatMention(ce.objectId, identity))
 		case ModeMentions:
 			topics = append(topics, topicChatMention(ce.objectId, identity))
 			// ModeNone: muted chat — no topic.

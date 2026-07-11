@@ -84,6 +84,13 @@ func (d *deps) spaceSettingsPatch(c echo.Context) error {
 		}
 		return spaceError(c, err, id)
 	}
+	// Local settings writes converge immediately: kick the push
+	// reconcile (hash-gated and nearly free, so no need to check which
+	// keys changed). Remote-origin writes still ride the 5-minute tick
+	// (docs/20-push.md § Settings).
+	if d.push != nil {
+		d.push.Kick()
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 

@@ -89,10 +89,16 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			topics:    []string{TopicChats, testIdentity},
 		},
 		{
+			// Per-chat "all" holds BOTH the broadcast and its own mention
+			// topic: mention-adding edits publish only the mention topics
+			// (no room re-notify), so chats/<sha> alone would drop them.
 			name:      "one none override flips the whole space to per-chat",
 			spaceMode: ModeAll,
 			chats:     []chatNotify{{objectId: "c1", mode: ModeNone}, {objectId: "c2"}},
-			topics:    []string{TopicChats + "/" + sha("c2")}, // c1 muted, c2 inherits all
+			topics: []string{ // c1 muted, c2 inherits all
+				TopicChats + "/" + sha("c2"),
+				TopicChats + "/" + sha("c2") + "/" + testIdentity,
+			},
 		},
 		{
 			name:      "mentions override yields the per-chat mention topic",
@@ -101,6 +107,7 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			topics: []string{
 				TopicChats + "/" + sha("c1") + "/" + testIdentity,
 				TopicChats + "/" + sha("c2"),
+				TopicChats + "/" + sha("c2") + "/" + testIdentity,
 			},
 		},
 		{
@@ -109,6 +116,7 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			chats:     []chatNotify{{objectId: "c1", mode: ModeAll}, {objectId: "c2"}},
 			topics: []string{
 				TopicChats + "/" + sha("c1"),
+				TopicChats + "/" + sha("c1") + "/" + testIdentity,
 				TopicChats + "/" + sha("c2") + "/" + testIdentity,
 			},
 		},
@@ -116,13 +124,19 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			name:      "garbage mode inherits inside a per-chat space",
 			spaceMode: ModeAll,
 			chats:     []chatNotify{{objectId: "c1", mode: "loud"}, {objectId: "c2", mode: ModeNone}},
-			topics:    []string{TopicChats + "/" + sha("c1")},
+			topics: []string{
+				TopicChats + "/" + sha("c1"),
+				TopicChats + "/" + sha("c1") + "/" + testIdentity,
+			},
 		},
 		{
 			name:      "all override un-mutes a chat in a muted space",
 			spaceMode: ModeNone,
 			chats:     []chatNotify{{objectId: "c1", mode: ModeAll}, {objectId: "c2"}},
-			topics:    []string{TopicChats + "/" + sha("c1")}, // c2 inherits none
+			topics: []string{ // c2 inherits none
+				TopicChats + "/" + sha("c1"),
+				TopicChats + "/" + sha("c1") + "/" + testIdentity,
+			},
 		},
 		{
 			name:      "every chat muted → no subscription entry at all",
@@ -137,6 +151,7 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			topics: []string{
 				TopicChats + "/" + sha("c1") + "/" + testIdentity,
 				TopicChats + "/" + sha("c2"),
+				TopicChats + "/" + sha("c2") + "/" + testIdentity,
 			},
 		},
 	}
@@ -159,6 +174,30 @@ func TestDesiredSubs_PerChat(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPerChatAll_SubscribesEditPublishTopics pins the preference
+// ordering across the subscribe/publish split: NotifyChatEdit
+// publishes a mention-adding edit ONLY on the per-chat mention + bare
+// identity topics (no room re-notify), so an effective-"all" chat in
+// the per-chat branch must subscribe a topic from that publish set —
+// otherwise "all" users would miss edits that "mentions" users get.
+func TestPerChatAll_SubscribesEditPublishTopics(t *testing.T) {
+	// c1's none override flips the space per-chat; c2 is effective-all.
+	subs := spaceTopics(ModeAll,
+		[]chatNotify{{objectId: "c1", mode: ModeNone}, {objectId: "c2"}}, testIdentity)
+	// NotifyChatEdit's publish set for a mention of testIdentity in c2
+	// (chatpush.go): per-chat mention topic + bare identity.
+	published := map[string]bool{
+		TopicChats + "/" + sha("c2") + "/" + testIdentity: true,
+		testIdentity: true,
+	}
+	for _, topic := range subs {
+		if published[topic] {
+			return
+		}
+	}
+	t.Fatalf("effective-all chat subscribes %v — none of the edit publish topics %v; mention-adding edits would be dropped", subs, published)
 }
 
 // TestDesiredSubs_PerChatScopedToSpace: an override in one space never

@@ -5,12 +5,18 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// pushHTTPLog receives the real errors the push endpoints hide from
+// their 500 envelopes (handlers_auth.go's authLog pattern).
+var pushHTTPLog = logger.NewNamed("push.http")
 
 // pushDisabled is the shared 409 for "no push service on this server"
 // — deps.push is nil when config.Push isn't active (indexer's
@@ -24,6 +30,11 @@ func pushDisabled(c echo.Context) error {
 // SDK's ErrPushNotConfigured collapses onto the same 409 as a nil
 // service — from the caller's view both mean "this server does no
 // push".
+//
+// The 500 fallback deliberately hides the underlying error: token
+// persistence failures are os.PathErrors embedding the absolute
+// push-token.json path, and the envelope must never leak filesystem
+// paths (docs/06-errors.md). The real error goes to the server log.
 func pushError(c echo.Context, err error) error {
 	if errors.Is(err, space.ErrPushNotConfigured) {
 		return pushDisabled(c)
@@ -31,7 +42,11 @@ func pushError(c echo.Context, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), nil)
+	pushHTTPLog.Error("push operation failed",
+		zap.String("method", c.Request().Method),
+		zap.String("path", c.Request().URL.Path),
+		zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "push operation failed", nil)
 }
 
 // pushTokenSet handles POST /v1/push/token — persist this device's

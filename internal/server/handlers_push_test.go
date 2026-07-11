@@ -2,11 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -46,6 +51,39 @@ func TestPush_Disabled(t *testing.T) {
 		if apiErr := decodeErr(t, rec.Body.Bytes()); apiErr.Code != "push.disabled" {
 			t.Errorf("%s %s: code = %q, want push.disabled", tc.method, tc.path, apiErr.Code)
 		}
+	}
+}
+
+// TestPushError_GenericInternalMessage: the 500 fallback must never
+// echo the underlying error — token-file failures are os.PathErrors
+// carrying the absolute push-token.json path, and the envelope must
+// not leak filesystem paths (the real error goes to the log).
+func TestPushError_GenericInternalMessage(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/push/token", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	leaky := &os.PathError{
+		Op:   "open",
+		Path: "/home/someone/.any/acc1/push-token.json",
+		Err:  errors.New("permission denied"),
+	}
+	if err := pushError(c, leaky); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	apiErr := decodeErr(t, rec.Body.Bytes())
+	if apiErr.Code != "internal" {
+		t.Errorf("code = %q, want internal", apiErr.Code)
+	}
+	if apiErr.Message != "push operation failed" {
+		t.Errorf("message = %q, want the generic \"push operation failed\"", apiErr.Message)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "push-token.json") || strings.Contains(body, "/home/") {
+		t.Errorf("envelope leaks the filesystem path: %s", body)
 	}
 }
 

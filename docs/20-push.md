@@ -123,13 +123,30 @@ bulk-vs-per-chat branch (`internal/push/topics.go`):
   `[<identity>]`; `none` → nothing.
 - **Any chat overrides** → per-chat topics for *every* chat (bulk and
   per-chat don't mix — `chats` would override a muted chat). Per chat,
-  effective mode `all` → `chats/<sha>`; `mentions` →
-  `chats/<sha>/<identity>`; `none` → skip.
+  effective mode `all` → `chats/<sha>` **and** `chats/<sha>/<identity>`
+  (mention-adding *edits* publish only the mention topics — no room
+  re-notify — so an "all" chat must hold its own mention topic too;
+  multi-topic matches of one message are the norm, the push server
+  dedups per device); `mentions` → `chats/<sha>/<identity>`; `none` →
+  skip.
 
 The loop reconciles on space-list events (debounced), on a 5-minute
-tick, and on token changes; `SubscribeAll` is a **full replace**
-(server semantics), diffed locally via a desired-state hash. Owned
-spaces and 1-1s are `RegisterSpace`d first.
+tick, and on token changes; local writes to either knob (the settings
+`PATCH`, a `chat.notifyMode` property set) also kick it directly, so
+this device's mode changes converge immediately. **Remote-origin
+writes — another device flipping a mode, a peer creating a chat —
+converge on the next 5-minute tick**: the loop has no cross-peer
+change feed, the tick is the explicit convergence bound.
+`SubscribeAll` is a **full replace** (server semantics), diffed
+locally via a desired-state hash. Owned spaces and 1-1s are
+`RegisterSpace`d first (best-effort — a space whose registration fails
+is skipped with a warning and keeps its topics in the payload).
+
+If a space's chat enumeration fails mid-reconcile, the loop is
+**fail-safe, never fail-open**: it reuses that space's last-known-good
+modes, or — with no known-good state — omits the space from the round
+entirely (retried next kick/tick) rather than fall back to bulk
+topics, which would silently unmute muted chats.
 
 ## Endpoints
 

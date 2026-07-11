@@ -92,8 +92,28 @@ type Service struct {
 	lastSyncedHash string       // desiredHash of the last SUCCESSFUL SubscribeAll round ("" = never)
 	notConfigured  bool         // SDK opened without a push node — loops idle (logged once)
 	capture        CaptureFunc  // test seam — diverts Enqueue, nil in production
+	// lastChatModes is the per-space last-known-good chat enumeration —
+	// the fail-safe collectChatModes falls back to when a space's
+	// enumeration fails (a bulk fallback would silently unmute muted
+	// chats). Keyed by spaceId; a present-but-empty entry means "known
+	// good: no chats". Pruned to the active space set every round.
+	lastChatModes map[string][]chatNotify
+
+	// Test seams — set before Start, nil in production. pushAPI
+	// overrides s.sdk.Push() (fake push node); chatEnum overrides the
+	// SDK-backed per-space chat enumeration in collectChatModes.
+	pushAPI  space.PushAPI
+	chatEnum func(ctx context.Context, spaceId string) ([]chatNotify, error)
 
 	cancelSpaceSub func()
+}
+
+// push returns the push API — the SDK's, unless a test injected one.
+func (s *Service) push() space.PushAPI {
+	if s.pushAPI != nil {
+		return s.pushAPI
+	}
+	return s.sdk.Push()
 }
 
 // CaptureFunc receives one would-be-enqueued notification. Test seam;
@@ -205,7 +225,7 @@ func (s *Service) SetToken(ctx context.Context, platform space.PushPlatform, tok
 
 	fctx, cancel := context.WithTimeout(ctx, forwardBudget)
 	defer cancel()
-	if err := s.sdk.Push().SetToken(fctx, platform, token); err != nil {
+	if err := s.push().SetToken(fctx, platform, token); err != nil {
 		if errors.Is(err, space.ErrPushNotConfigured) {
 			// Terminal for this process — roll the persist back so a
 			// rejected set leaves no half-registered state behind.
@@ -217,12 +237,26 @@ func (s *Service) SetToken(ctx context.Context, platform space.PushPlatform, tok
 		}
 		s.lg.Warn("push token forward failed — retrying in background", zap.Error(err))
 	} else {
-		s.mu.Lock()
-		s.tokenForwarded = true
-		s.mu.Unlock()
+		s.markForwarded(tok)
 	}
 	s.Kick()
 	return nil
+}
+
+// markForwarded records a successful token forward — but only when the
+// device token is STILL the one that was actually sent. A concurrent
+// SetToken landing between the snapshot and the RPC completing must
+// not be masked by the stale forward: its own synchronous forward may
+// have failed transiently, and marking forwarded here would stop the
+// sync loop from ever re-forwarding the newer token. When the token
+// moved, tokenForwarded stays false and the next round forwards the
+// new value.
+func (s *Service) markForwarded(sent deviceToken) {
+	s.mu.Lock()
+	if s.token != nil && s.token.Platform == sent.Platform && s.token.Token == sent.Token {
+		s.tokenForwarded = true
+	}
+	s.mu.Unlock()
 }
 
 // RevokeToken forwards the revoke (best-effort — the token file is
@@ -232,7 +266,7 @@ func (s *Service) SetToken(ctx context.Context, platform space.PushPlatform, tok
 func (s *Service) RevokeToken(ctx context.Context) error {
 	fctx, cancel := context.WithTimeout(ctx, forwardBudget)
 	defer cancel()
-	if err := s.sdk.Push().RevokeToken(fctx); err != nil {
+	if err := s.push().RevokeToken(fctx); err != nil {
 		if errors.Is(err, space.ErrPushNotConfigured) {
 			return err
 		}
@@ -263,7 +297,7 @@ func (s *Service) TokenStatus() (registered bool, platform string) {
 // Subscriptions returns the account's server-held topic set (raw
 // {spaceKey, topic} rows, unsigned) — SDK passthrough.
 func (s *Service) Subscriptions(ctx context.Context) ([]space.PushSubscription, error) {
-	return s.sdk.Push().Subscriptions(ctx)
+	return s.push().Subscriptions(ctx)
 }
 
 // Enqueue schedules one notification for buffered async delivery
@@ -323,6 +357,12 @@ func (s *Service) syncLoop() {
 // registered, rebuild the desired topic set from the space list, and
 // — when it differs from the last successfully synced set —
 // RegisterSpace the owned/1-1 spaces and SubscribeAll (full replace).
+//
+// A round can be PARTIAL: spaces whose chat enumeration failed with no
+// last-known-good cache are omitted from the desired set (see
+// collectChatModes). Partial rounds still SubscribeAll so healthy
+// spaces converge, but never advance lastSyncedHash — the omitted
+// space is retried on the next kick/tick.
 func (s *Service) syncOnce() {
 	s.mu.Lock()
 	idle := s.notConfigured
@@ -340,23 +380,38 @@ func (s *Service) syncOnce() {
 		s.lg.Warn("push sync: list spaces", zap.Error(err))
 		return
 	}
-	subs, register := desiredSubs(infos, s.collectChatModes(ctx, infos), s.sdk.Account().Id())
+	chats, omit := s.collectChatModes(ctx, infos)
+	partial := len(omit) > 0
+	if partial {
+		kept := make([]space.SpaceInfo, 0, len(infos))
+		for _, info := range infos {
+			if !omit[info.Id] {
+				kept = append(kept, info)
+			}
+		}
+		infos = kept
+	}
+	subs, register := desiredSubs(infos, chats, s.sdk.Account().Id())
 	h := desiredHash(register, subs)
 	s.mu.Lock()
 	unchanged := h == s.lastSyncedHash
 	s.mu.Unlock()
 	if unchanged {
+		// Nothing to change server-side. On a partial round the hash was
+		// never advanced past this state, so the omitted space still
+		// retries on the next kick/tick.
 		return
 	}
 
-	for _, id := range register {
-		if err := s.sdk.Push().RegisterSpace(ctx, id); err != nil {
-			s.syncFailure(err, "register space")
-			return
-		}
+	if !s.reconcile(ctx, register, subs) {
+		return
 	}
-	if err := s.sdk.Push().SubscribeAll(ctx, subs); err != nil {
-		s.syncFailure(err, "subscribe all")
+	if partial {
+		// The omitted space's desired state is deliberately incomplete —
+		// leave lastSyncedHash untouched so the next kick/tick recomputes
+		// and retries instead of settling here.
+		s.lg.Debug("push subscriptions synced (partial round — omitted spaces retry)",
+			zap.Int("spaces", len(subs)), zap.Int("omitted", len(omit)))
 		return
 	}
 	s.mu.Lock()
@@ -364,6 +419,38 @@ func (s *Service) syncOnce() {
 	s.mu.Unlock()
 	s.lg.Debug("push subscriptions synced",
 		zap.Int("spaces", len(subs)), zap.Int("registered", len(register)))
+}
+
+// reconcile pushes one desired state to the push node: RegisterSpace
+// for the owned/1-1 ids, then the SubscribeAll full replace. Reports
+// whether the SubscribeAll landed (the caller only advances the hash
+// on true).
+//
+// Per-space registration failures warn and CONTINUE — one
+// unregistrable space must not starve the whole account's reconcile.
+// The failed space keeps its topics in the SubscribeAll payload:
+// registration is best-effort forward-compat (the push server's
+// ExistedSpaces check is currently a no-op), and RegisterSpace is
+// idempotent, so the next changed round retries it harmlessly.
+// ErrPushNotConfigured still aborts the round and idles the loop; a
+// dead round context aborts too (everything after it would fail the
+// same way).
+func (s *Service) reconcile(ctx context.Context, register []string, subs []space.PushSpaceTopics) bool {
+	for _, id := range register {
+		if err := s.push().RegisterSpace(ctx, id); err != nil {
+			if errors.Is(err, space.ErrPushNotConfigured) || ctx.Err() != nil {
+				s.syncFailure(err, "register space")
+				return false
+			}
+			s.lg.Warn("push sync: register space failed — skipping it, reconcile continues",
+				zap.String("spaceId", id), zap.Error(err))
+		}
+	}
+	if err := s.push().SubscribeAll(ctx, subs); err != nil {
+		s.syncFailure(err, "subscribe all")
+		return false
+	}
+	return true
 }
 
 // chatTypeFilter matches objects rows whose `any.types` array carries
@@ -378,53 +465,123 @@ var chatTypeFilter = query.Key{
 // collectChatModes enumerates every ACTIVE space's chat objects and
 // their raw `chat.notifyMode` property (read off the objects row,
 // where the account-scoped value is mirrored) — the per-chat input to
-// desiredSubs. Returns nil entries for spaces that contribute
-// nothing.
+// desiredSubs. Returns nil `out` entries for spaces that contribute
+// nothing, plus the set of spaces to OMIT from this round's desired
+// state.
+//
+// Failure policy — fail-SAFE, never fail-open. A space whose
+// enumeration fails must NOT degrade to its space-level BULK topics:
+// bulk `chats` would silently unmute every muted chat in the space (a
+// mute violation, the worst outcome). Instead:
+//   - every SUCCESSFUL enumeration is cached (lastChatModes, including
+//     the empty result), and a failing space reuses its last-known-good
+//     entries (warn);
+//   - a failing space with NO cache is omitted from the desired set
+//     entirely for this round and reported in `omit` — the caller runs
+//     a partial round (SubscribeAll still happens so healthy spaces
+//     converge, but lastSyncedHash does not advance, so the space is
+//     retried next kick/tick). Omission loses at most one tick of that
+//     space's pushes — strictly safer than violating a mute.
 //
 // Access pattern: Spaces().Get, the same handle the indexer uses for
 // its per-space workers — for a StatusActive row that's (re)opening
 // local storage, never a network join. Non-active rows are skipped
 // before Get so a pending/deleted row is never force-materialized
-// (desiredSubs ignores them anyway). A space that fails to open or
-// query degrades to its space-level BULK topics for that round (its
-// key stays absent) — benign, retried next kick/tick, so it logs at
-// debug.
-func (s *Service) collectChatModes(ctx context.Context, infos []space.SpaceInfo) map[string][]chatNotify {
-	var out map[string][]chatNotify
+// (desiredSubs ignores them anyway).
+func (s *Service) collectChatModes(ctx context.Context, infos []space.SpaceInfo) (out map[string][]chatNotify, omit map[string]bool) {
+	active := make(map[string]bool, len(infos))
 	for _, info := range infos {
 		if info.Status != space.StatusActive {
 			continue
 		}
-		sp, err := s.sdk.Spaces().Get(ctx, info.Id)
+		active[info.Id] = true
+		entries, err := s.chatModes(ctx, info.Id)
 		if err != nil {
-			s.lg.Debug("push sync: open space for chat modes — bulk fallback",
+			cached, ok := s.cachedChatModes(info.Id)
+			if !ok {
+				s.lg.Warn("push sync: chat-mode enumeration failed with no last-known-good cache — omitting space this round",
+					zap.String("spaceId", info.Id), zap.Error(err))
+				if omit == nil {
+					omit = make(map[string]bool)
+				}
+				omit[info.Id] = true
+				continue
+			}
+			s.lg.Warn("push sync: chat-mode enumeration failed — using last-known-good modes",
 				zap.String("spaceId", info.Id), zap.Error(err))
-			continue
+			entries = cached
+		} else {
+			s.storeChatModes(info.Id, entries)
 		}
-		// Sorted by id so the topic order — and therefore desiredHash —
-		// is deterministic across rounds.
-		rows, err := sp.QueryObjects().Filter(chatTypeFilter).Sort("id").All(ctx)
-		if err != nil {
-			s.lg.Debug("push sync: query chat objects — bulk fallback",
-				zap.String("spaceId", info.Id), zap.Error(err))
+		if len(entries) == 0 {
 			continue
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		entries := make([]chatNotify, 0, len(rows))
-		for _, row := range rows {
-			entries = append(entries, chatNotify{
-				objectId: string(row.GetStringBytes("id")),
-				mode:     string(row.GetStringBytes(chat.TypeId, chat.PropNotifyMode)),
-			})
 		}
 		if out == nil {
 			out = make(map[string][]chatNotify)
 		}
 		out[info.Id] = entries
 	}
-	return out
+	s.pruneChatModes(active)
+	return out, omit
+}
+
+// chatModes enumerates one space's chat objects. Routed through the
+// chatEnum test seam when set.
+func (s *Service) chatModes(ctx context.Context, spaceId string) ([]chatNotify, error) {
+	if s.chatEnum != nil {
+		return s.chatEnum(ctx, spaceId)
+	}
+	sp, err := s.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	// Sorted by id so the topic order — and therefore desiredHash —
+	// is deterministic across rounds.
+	rows, err := sp.QueryObjects().Filter(chatTypeFilter).Sort("id").All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]chatNotify, 0, len(rows))
+	for _, row := range rows {
+		entries = append(entries, chatNotify{
+			objectId: string(row.GetStringBytes("id")),
+			mode:     string(row.GetStringBytes(chat.TypeId, chat.PropNotifyMode)),
+		})
+	}
+	return entries, nil
+}
+
+// cachedChatModes returns a space's last-known-good enumeration. ok
+// distinguishes "cached as empty" (a successful zero-chat round —
+// bulk topics are correct) from "never enumerated successfully".
+func (s *Service) cachedChatModes(spaceId string) ([]chatNotify, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, ok := s.lastChatModes[spaceId]
+	return entries, ok
+}
+
+// storeChatModes records a successful enumeration (including empty).
+func (s *Service) storeChatModes(spaceId string, entries []chatNotify) {
+	s.mu.Lock()
+	if s.lastChatModes == nil {
+		s.lastChatModes = make(map[string][]chatNotify)
+	}
+	s.lastChatModes[spaceId] = entries
+	s.mu.Unlock()
+}
+
+// pruneChatModes drops cache entries for spaces that left the active
+// set (deleted / declined / removed) so the cache tracks the space
+// list instead of growing without bound.
+func (s *Service) pruneChatModes(active map[string]bool) {
+	s.mu.Lock()
+	for id := range s.lastChatModes {
+		if !active[id] {
+			delete(s.lastChatModes, id)
+		}
+	}
+	s.mu.Unlock()
 }
 
 // ensureToken re-forwards the persisted device token when the push
@@ -432,21 +589,29 @@ func (s *Service) collectChatModes(ctx context.Context, infos []space.SpaceInfo)
 // SetToken whose synchronous forward failed). Failures stay
 // non-fatal: subscriptions are account-scoped and independent of the
 // token, so the round continues.
+//
+// The forward runs outside the lock, so a concurrent SetToken can
+// replace s.token mid-flight; markForwarded re-checks the snapshot so
+// the stale forward can never mask the newer token (which would
+// otherwise stay un-forwarded forever if its own synchronous forward
+// failed).
 func (s *Service) ensureToken(ctx context.Context) {
 	s.mu.Lock()
-	tok := s.token
+	var snap deviceToken
+	has := s.token != nil
+	if has {
+		snap = *s.token
+	}
 	done := s.tokenForwarded
 	s.mu.Unlock()
-	if tok == nil || done {
+	if !has || done {
 		return
 	}
-	if err := s.sdk.Push().SetToken(ctx, space.PushPlatform(tok.Platform), tok.Token); err != nil {
+	if err := s.push().SetToken(ctx, space.PushPlatform(snap.Platform), snap.Token); err != nil {
 		s.syncFailure(err, "set token")
 		return
 	}
-	s.mu.Lock()
-	s.tokenForwarded = true
-	s.mu.Unlock()
+	s.markForwarded(snap)
 }
 
 // syncFailure classifies a sync-round error: ErrPushNotConfigured is
@@ -464,7 +629,7 @@ func (s *Service) syncFailure(err error, op string) {
 		}
 		return
 	}
-	if s.ctx.Err() != nil {
+	if s.ctx != nil && s.ctx.Err() != nil {
 		return // shutdown, not a failure
 	}
 	s.lg.Warn("push sync: "+op, zap.Error(err))
@@ -520,7 +685,7 @@ func (s *Service) notifyOnce(job notifyJob) error {
 	ctx, cancel := context.WithTimeout(s.ctx, syncRoundBudget)
 	defer cancel()
 	if job.silent {
-		return s.sdk.Push().NotifySilent(ctx, job.spaceId, job.groupId)
+		return s.push().NotifySilent(ctx, job.spaceId, job.groupId)
 	}
-	return s.sdk.Push().Notify(ctx, job.spaceId, job.topics, job.payload, job.groupId)
+	return s.push().Notify(ctx, job.spaceId, job.topics, job.payload, job.groupId)
 }
