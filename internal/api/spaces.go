@@ -56,19 +56,26 @@ type SpaceRegisterIncomingRequest struct {
 // direct chats vs regular spaces client-side. Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
+// Settings is the account-private, client-owned per-space settings
+// object (free-form keys, scalar values — numbers surface as JSON
+// numbers/float64). Written per key via
+// PATCH /v1/spaces/:spaceId/settings; synced across the account's own
+// devices through the tech space, never visible to other members.
+// Omitted when never written.
 type SpaceInfo struct {
-	Id                  string    `json:"id"`
-	Type                string    `json:"type,omitempty"`
-	SpaceType           string    `json:"spaceType,omitempty"`
-	Author              string    `json:"author,omitempty"`
-	Name                string    `json:"name,omitempty"`
-	Description         string    `json:"description,omitempty"`
-	IconCID             string    `json:"iconCid,omitempty"`
-	Status              string    `json:"status"`
-	OwnRole             string    `json:"ownRole"`
-	CreatedAt           time.Time `json:"createdAt"`
-	SpaceIndexObjectId  string    `json:"spaceIndexObjectId,omitempty"`
-	GeneralChatObjectId string    `json:"generalChatObjectId,omitempty"`
+	Id                  string         `json:"id"`
+	Type                string         `json:"type,omitempty"`
+	SpaceType           string         `json:"spaceType,omitempty"`
+	Author              string         `json:"author,omitempty"`
+	Name                string         `json:"name,omitempty"`
+	Description         string         `json:"description,omitempty"`
+	IconCID             string         `json:"iconCid,omitempty"`
+	Status              string         `json:"status"`
+	OwnRole             string         `json:"ownRole"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	Settings            map[string]any `json:"settings,omitempty"`
+	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
+	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
 }
 
 // SpaceUpdateRequest is the body of PATCH /v1/spaces/:spaceId. Pointer
@@ -82,6 +89,20 @@ type SpaceUpdateRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
 	IconCID     *string `json:"iconCid,omitempty"`
+}
+
+// SpaceSettingsPatchRequest is the body of
+// PATCH /v1/spaces/:spaceId/settings — a per-key patch of the
+// account-private `settings` object on the space's tech-space row
+// (deliberately separate from PATCH /v1/spaces/:spaceId, which writes
+// the member-replicated name/description/icon). Keys are the caller's
+// vocabulary: non-empty, dot-free (single level under `settings`).
+// Values are scalars — string, number, or bool. At least one set or
+// unset entry is required; a key may not appear in both. Works on any
+// row the account knows, deleted/tombstoned included.
+type SpaceSettingsPatchRequest struct {
+	Set   map[string]any `json:"set,omitempty"`
+	Unset []string       `json:"unset,omitempty"`
 }
 
 // SpaceListResponse is the body of GET /v1/spaces.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/push"
 )
 
 // stagingPath points at the staging nodeconf fixture at the repo root
@@ -26,6 +27,14 @@ const stagingPath = "../../staging.yml"
 // alongside the repo. Tests that need to trip shutdown mid-handler
 // can call deps.cancelShutdown directly.
 func newTestDeps(t *testing.T) (*deps, func()) {
+	return newTestDepsCfg(t, nil)
+}
+
+// newTestDepsCfg is newTestDeps with a config hook applied before the
+// SDK opens — the way tests opt into config-gated services (e.g.
+// cfg.Push). Mirrors bootEngine's wiring for the services the mutated
+// config enables.
+func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 	t.Helper()
 	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
 		t.Skipf("staging config not available: %v", err)
@@ -41,6 +50,9 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 	cfg := config.Defaults()
 	cfg.DataDir = dataDir
 	cfg.Network.NodeconfPath = stagingPath
+	if mutate != nil {
+		mutate(&cfg)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -70,12 +82,23 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 		cfg:            cfg,
 		runCtx:         context.Background(),
 	}
+	// Mirror bootEngine: the push service exists only when config
+	// names a push node.
+	if cfg.Push.Active() {
+		d.push = push.New(sdk, dataDir)
+		d.push.Start(shutdownCtx)
+	}
 	// Hand-built deps bypass bootAccount; mark the engine live so the
 	// /v1 unauthorized guard lets requests through.
 	d.ready.Store(true)
 	return d, func() {
 		cancelShutdown()
 		d.streamsWG.Wait()
+		if d.push != nil {
+			if err := d.push.Close(); err != nil {
+				t.Logf("push close: %v", err)
+			}
+		}
 		if err := sdk.Close(); err != nil {
 			t.Logf("sdk close: %v", err)
 		}

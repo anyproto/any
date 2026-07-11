@@ -22,6 +22,7 @@ type Config struct {
 	P2P     P2P           `yaml:"p2p"`
 	Index   Index         `yaml:"index"`
 	Files   Files         `yaml:"files"`
+	Push    Push          `yaml:"push"`
 	Log     logger.Config `yaml:"log"`
 }
 
@@ -63,6 +64,43 @@ type Files struct {
 	// default — means NO automatic sweep: reclamation is caller-driven
 	// via POST /v1/files/cache/{free,sweep} and per-file offload.
 	GCInterval string `yaml:"gcInterval"`
+}
+
+// Push configures the push-notification node (SYN-47). The node is a
+// direct out-of-band peer — {peerId, addrs} from config, not from the
+// nodeconf — that fans mobile push notifications out to the account's
+// registered device tokens by topic. Threaded into the SDK's
+// config.Push at OpenSDK; when inactive the SDK's PushAPI returns
+// ErrPushNotConfigured and the /v1/push endpoints return 409
+// push.disabled.
+type Push struct {
+	// Enabled is a tristate: nil (the default) means enabled only when
+	// PeerId is set — configuring a push node is the opt-in. Explicit
+	// false disables push even with a PeerId present; explicit true
+	// without peer info still cannot run (Active() stays false).
+	Enabled *bool `yaml:"enabled"`
+	// PeerId is the push node's peer id (its device key identity).
+	PeerId string `yaml:"peerId"`
+	// Addrs are the node's dial addresses (same forms the nodeconf
+	// uses, e.g. "quic://host:port" or "host:port").
+	Addrs []string `yaml:"addrs"`
+}
+
+// IsEnabled resolves the tristate: an explicit value wins; nil means
+// enabled iff a push node peer id is configured.
+func (p Push) IsEnabled() bool {
+	if p.Enabled != nil {
+		return *p.Enabled
+	}
+	return p.PeerId != ""
+}
+
+// Active reports whether push should actually run: enabled AND the
+// push node's dial info is complete. Gates both the SDK config
+// threading (OpenSDK) and the internal/push service construction
+// (bootEngine).
+func (p Push) Active() bool {
+	return p.IsEnabled() && p.PeerId != "" && len(p.Addrs) > 0
 }
 
 // P2P controls local-network discovery and sync (mDNS + QUIC between

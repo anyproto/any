@@ -8,6 +8,7 @@ require (
 	github.com/anyproto/any-sync v0.13.0-alpha.5
 	github.com/anyproto/any-sync-sdk v0.1.7-0.20260710222548-6ba40819f5c6
 	github.com/anyproto/anytype-agent-runtime v0.1.2
+	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.2
 	github.com/hybridgroup/yzma v1.16.1
@@ -171,3 +172,5 @@ require (
 )
 
 tool github.com/swaggo/swag/cmd/swag
+
+replace github.com/anyproto/any-sync-sdk => /home/che/projects/any-sync-sdk-syn47

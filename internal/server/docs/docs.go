@@ -375,6 +375,128 @@ const docTemplate = `{
                 }
             }
         },
+        "/push/subscriptions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "push"
+                ],
+                "summary": "List the account's push topic subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.PushSubscriptionsResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/push/token": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "push"
+                ],
+                "summary": "This device's push-token status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.PushTokenStatus"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "push"
+                ],
+                "summary": "Register this device's push token",
+                "parameters": [
+                    {
+                        "description": "platform (ios|android) + token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PushTokenSetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "push"
+                ],
+                "summary": "Revoke this device's push token",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/shutdown": {
             "post": {
                 "tags": [
@@ -4145,6 +4267,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/settings": {
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spaces"
+                ],
+                "summary": "Patch the account-private per-space settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Per-key set/unset patch",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.SpaceSettingsPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/sync": {
             "post": {
                 "tags": [
@@ -6028,6 +6202,50 @@ const docTemplate = `{
                 }
             }
         },
+        "api.PushSubscription": {
+            "type": "object",
+            "properties": {
+                "spaceKey": {
+                    "type": "string"
+                },
+                "topic": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PushSubscriptionsResponse": {
+            "type": "object",
+            "properties": {
+                "subscriptions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.PushSubscription"
+                    }
+                }
+            }
+        },
+        "api.PushTokenSetRequest": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PushTokenStatus": {
+            "type": "object",
+            "properties": {
+                "platform": {
+                    "type": "string"
+                },
+                "registered": {
+                    "type": "boolean"
+                }
+            }
+        },
         "api.QueryResponse": {
             "type": "object",
             "properties": {
@@ -6255,6 +6473,10 @@ const docTemplate = `{
                 "ownRole": {
                     "type": "string"
                 },
+                "settings": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "spaceIndexObjectId": {
                     "type": "string"
                 },
@@ -6386,6 +6608,21 @@ const docTemplate = `{
                 },
                 "peerIdentity": {
                     "type": "string"
+                }
+            }
+        },
+        "api.SpaceSettingsPatchRequest": {
+            "type": "object",
+            "properties": {
+                "set": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "unset": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

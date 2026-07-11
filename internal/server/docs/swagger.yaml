@@ -915,6 +915,34 @@ definitions:
           type: string
         type: array
     type: object
+  api.PushSubscription:
+    properties:
+      spaceKey:
+        type: string
+      topic:
+        type: string
+    type: object
+  api.PushSubscriptionsResponse:
+    properties:
+      subscriptions:
+        items:
+          $ref: '#/definitions/api.PushSubscription'
+        type: array
+    type: object
+  api.PushTokenSetRequest:
+    properties:
+      platform:
+        type: string
+      token:
+        type: string
+    type: object
+  api.PushTokenStatus:
+    properties:
+      platform:
+        type: string
+      registered:
+        type: boolean
+    type: object
   api.QueryResponse:
     properties:
       hasNext:
@@ -1076,6 +1104,9 @@ definitions:
         type: string
       ownRole:
         type: string
+      settings:
+        additionalProperties: {}
+        type: object
       spaceIndexObjectId:
         type: string
       spaceType:
@@ -1167,6 +1198,16 @@ definitions:
         $ref: '#/definitions/api.AccountMetadata'
       peerIdentity:
         type: string
+    type: object
+  api.SpaceSettingsPatchRequest:
+    properties:
+      set:
+        additionalProperties: {}
+        type: object
+      unset:
+        items:
+          type: string
+        type: array
     type: object
   api.SpaceSyncStatusResponse:
     properties:
@@ -1501,6 +1542,85 @@ paths:
       summary: Subscribe to identities directory changes (SSE)
       tags:
       - identities
+  /push/subscriptions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PushSubscriptionsResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List the account's push topic subscriptions
+      tags:
+      - push
+  /push/token:
+    delete:
+      responses:
+        "204":
+          description: No Content
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Revoke this device's push token
+      tags:
+      - push
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.PushTokenStatus'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: This device's push-token status
+      tags:
+      - push
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: platform (ios|android) + token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.PushTokenSetRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Register this device's push token
+      tags:
+      - push
   /shutdown:
     post:
       responses:
@@ -3834,6 +3954,40 @@ paths:
       summary: Search the space's local index
       tags:
       - search
+  /spaces/{spaceId}/settings:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Per-key set/unset patch
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.SpaceSettingsPatchRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Patch the account-private per-space settings
+      tags:
+      - spaces
   /spaces/{spaceId}/sync:
     post:
       parameters:

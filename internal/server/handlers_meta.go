@@ -15,6 +15,7 @@ import (
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
+	"github.com/anyproto/any/internal/push"
 	"github.com/anyproto/any/internal/version"
 )
 
@@ -50,6 +51,12 @@ type deps struct {
 	// feed). Nil when index.enabled is false — the search endpoint then
 	// returns index.disabled.
 	indexer *indexer.Indexer
+
+	// push is the push-notification service (device token +
+	// subscription sync + notify queue). Nil when push is disabled or
+	// no push node is configured — the /v1/push endpoints then return
+	// 409 push.disabled.
+	push *push.Service
 
 	// shutdownCtx cancels when graceful teardown begins. Streaming
 	// handlers select on Done to write their final `closed` frame and

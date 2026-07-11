@@ -221,11 +221,94 @@ index:
 	}
 }
 
+// TestLoad_PushFileAndEnv covers the push block: file populates, env
+// wins over file, ANY_PUSH_ADDRS splits on commas, and the
+// enabled-tristate (nil = enabled iff peerId set; explicit false wins
+// even with a peer configured).
+func TestLoad_PushFileAndEnv(t *testing.T) {
+	isolateEnv(t)
+
+	// Defaults: no push node → not enabled, not active.
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Push.IsEnabled() || cfg.Push.Active() {
+		t.Errorf("push should be off by default: %+v", cfg.Push)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+push:
+  peerId: 12D3KooWPush
+  addrs:
+    - quic://push.example:8271
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Push.PeerId != "12D3KooWPush" || len(cfg.Push.Addrs) != 1 || cfg.Push.Addrs[0] != "quic://push.example:8271" {
+		t.Errorf("file values not applied: %+v", cfg.Push)
+	}
+	// nil tristate + peerId present → enabled and active.
+	if !cfg.Push.IsEnabled() || !cfg.Push.Active() {
+		t.Errorf("peerId set should imply enabled+active: %+v", cfg.Push)
+	}
+
+	// Env wins over file; addrs are comma-separated (whitespace and
+	// empty entries dropped).
+	t.Setenv("ANY_PUSH_PEER_ID", "12D3KooWOther")
+	t.Setenv("ANY_PUSH_ADDRS", " quic://a:1 , b:2 ,")
+	cfg, err = Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Push.PeerId != "12D3KooWOther" {
+		t.Errorf("ANY_PUSH_PEER_ID should win: %+v", cfg.Push)
+	}
+	if len(cfg.Push.Addrs) != 2 || cfg.Push.Addrs[0] != "quic://a:1" || cfg.Push.Addrs[1] != "b:2" {
+		t.Errorf("ANY_PUSH_ADDRS should split on commas: %#v", cfg.Push.Addrs)
+	}
+
+	// Explicit false disables even with a peer configured.
+	t.Setenv("ANY_PUSH_ENABLED", "false")
+	cfg, err = Load(Flags{ConfigPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Push.IsEnabled() || cfg.Push.Active() {
+		t.Errorf("ANY_PUSH_ENABLED=false should disable push: %+v", cfg.Push)
+	}
+
+	// Explicit true without peer info is enabled but can't run.
+	t.Setenv("ANY_PUSH_ENABLED", "true")
+	t.Setenv("ANY_PUSH_PEER_ID", "")
+	os.Unsetenv("ANY_PUSH_PEER_ID")
+	t.Setenv("ANY_PUSH_ADDRS", "")
+	os.Unsetenv("ANY_PUSH_ADDRS")
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Push.IsEnabled() {
+		t.Error("explicit true should read as enabled")
+	}
+	if cfg.Push.Active() {
+		t.Error("enabled without peer info must not be active")
+	}
+}
+
 func isolateEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
 		"ANY_DATA_DIR", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
 		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME",
+		"ANY_PUSH_ENABLED", "ANY_PUSH_PEER_ID", "ANY_PUSH_ADDRS",
 		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",
 		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",
 		"ANY_INDEX_OPENAI_BASE_URL", "ANY_INDEX_OPENAI_MODEL",
