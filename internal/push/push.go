@@ -7,8 +7,10 @@
 // constructed by the engine only when config.Push.Active().
 //
 // The SDK owns crypto + transport (space.PushAPI); this package owns
-// the chat-agnostic account policy: WHICH topics, WHEN to re-sync,
-// WHAT survives a restart (the token file).
+// the account policy: WHICH topics (space-level and per-chat modes,
+// topics.go), WHEN to re-sync, WHAT survives a restart (the token
+// file), and the chat notify hooks the HTTP handlers call after
+// send/edit/read (chatpush.go — heart-interoperable payloads).
 package push
 
 import (
@@ -19,12 +21,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/anytype-push-server/pushclient/pushapi"
 	"go.uber.org/zap"
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/chat"
 )
 
 const (
@@ -62,8 +67,9 @@ type notifyJob struct {
 }
 
 // Service is the per-account push service. New → Start → Close; all
-// exported methods are safe for concurrent use. Enqueue is the M4
-// surface (chat send/edit/read hooks) — nothing calls it yet.
+// exported methods are safe for concurrent use. The chat handler
+// hooks (NotifyChatMessage / NotifyChatEdit / NotifyChatRead in
+// chatpush.go) feed Enqueue.
 type Service struct {
 	sdk *anysyncsdk.SDK
 	dir string
@@ -85,8 +91,23 @@ type Service struct {
 	tokenForwarded bool         // token accepted by the push node since it last changed
 	lastSyncedHash string       // desiredHash of the last SUCCESSFUL SubscribeAll round ("" = never)
 	notConfigured  bool         // SDK opened without a push node — loops idle (logged once)
+	capture        CaptureFunc  // test seam — diverts Enqueue, nil in production
 
 	cancelSpaceSub func()
+}
+
+// CaptureFunc receives one would-be-enqueued notification. Test seam;
+// see CaptureNotifications.
+type CaptureFunc func(spaceId string, topics []string, payload []byte, groupId string, silent bool)
+
+// CaptureNotifications diverts every subsequent Enqueue into fn
+// instead of the delivery queue — the test seam for asserting the
+// chat-hook outputs (topics / payload / groupId) without a reachable
+// push node. Pass nil to restore normal delivery.
+func (s *Service) CaptureNotifications(fn CaptureFunc) {
+	s.mu.Lock()
+	s.capture = fn
+	s.mu.Unlock()
 }
 
 // New constructs the service. accountDir is the per-account data dir
@@ -251,8 +272,15 @@ func (s *Service) Subscriptions(ctx context.Context) ([]space.PushSubscription, 
 // (own-devices wakeup; topics ignored). Never blocks: on queue
 // overflow the notification is dropped with a warning — push is a
 // best-effort side channel, the message itself is already synced.
-// This is the M4 chat-hook surface; nothing calls it yet.
+// Fed by the chat handler hooks in chatpush.go.
 func (s *Service) Enqueue(spaceId string, topics []string, payload []byte, groupId string, silent bool) {
+	s.mu.Lock()
+	capture := s.capture
+	s.mu.Unlock()
+	if capture != nil {
+		capture(spaceId, topics, payload, groupId, silent)
+		return
+	}
 	select {
 	case s.notifyQ <- notifyJob{spaceId: spaceId, topics: topics, payload: payload, groupId: groupId, silent: silent}:
 	default:
@@ -312,7 +340,7 @@ func (s *Service) syncOnce() {
 		s.lg.Warn("push sync: list spaces", zap.Error(err))
 		return
 	}
-	subs, register := desiredSubs(infos, s.sdk.Account().Id())
+	subs, register := desiredSubs(infos, s.collectChatModes(ctx, infos), s.sdk.Account().Id())
 	h := desiredHash(register, subs)
 	s.mu.Lock()
 	unchanged := h == s.lastSyncedHash
@@ -336,6 +364,67 @@ func (s *Service) syncOnce() {
 	s.mu.Unlock()
 	s.lg.Debug("push subscriptions synced",
 		zap.Int("spaces", len(subs)), zap.Int("registered", len(register)))
+}
+
+// chatTypeFilter matches objects rows whose `any.types` array carries
+// the chat built-in (any-store Comp semantics: an eq comparison
+// against an array path matches per element — same membership shape
+// ensureType reads back). Static filter — built once, immutable.
+var chatTypeFilter = query.Key{
+	Path:   []string{"any", "types"},
+	Filter: query.NewComp(query.CompOpEq, chat.TypeId),
+}
+
+// collectChatModes enumerates every ACTIVE space's chat objects and
+// their raw `chat.notifyMode` property (read off the objects row,
+// where the account-scoped value is mirrored) — the per-chat input to
+// desiredSubs. Returns nil entries for spaces that contribute
+// nothing.
+//
+// Access pattern: Spaces().Get, the same handle the indexer uses for
+// its per-space workers — for a StatusActive row that's (re)opening
+// local storage, never a network join. Non-active rows are skipped
+// before Get so a pending/deleted row is never force-materialized
+// (desiredSubs ignores them anyway). A space that fails to open or
+// query degrades to its space-level BULK topics for that round (its
+// key stays absent) — benign, retried next kick/tick, so it logs at
+// debug.
+func (s *Service) collectChatModes(ctx context.Context, infos []space.SpaceInfo) map[string][]chatNotify {
+	var out map[string][]chatNotify
+	for _, info := range infos {
+		if info.Status != space.StatusActive {
+			continue
+		}
+		sp, err := s.sdk.Spaces().Get(ctx, info.Id)
+		if err != nil {
+			s.lg.Debug("push sync: open space for chat modes — bulk fallback",
+				zap.String("spaceId", info.Id), zap.Error(err))
+			continue
+		}
+		// Sorted by id so the topic order — and therefore desiredHash —
+		// is deterministic across rounds.
+		rows, err := sp.QueryObjects().Filter(chatTypeFilter).Sort("id").All(ctx)
+		if err != nil {
+			s.lg.Debug("push sync: query chat objects — bulk fallback",
+				zap.String("spaceId", info.Id), zap.Error(err))
+			continue
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		entries := make([]chatNotify, 0, len(rows))
+		for _, row := range rows {
+			entries = append(entries, chatNotify{
+				objectId: string(row.GetStringBytes("id")),
+				mode:     string(row.GetStringBytes(chat.TypeId, chat.PropNotifyMode)),
+			})
+		}
+		if out == nil {
+			out = make(map[string][]chatNotify)
+		}
+		out[info.Id] = entries
+	}
+	return out
 }
 
 // ensureToken re-forwards the persisted device token when the push

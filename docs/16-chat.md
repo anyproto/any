@@ -42,16 +42,17 @@ subscribe frames):
 | `unreadMention: true` | unread mention of you — the message's derived `mentions` contains your identity (a text `any://m/…` link or a reply to your message; see § Mentions). Sets alongside `unread` on new messages, and on its own when an edit adds a mention of you. |
 | `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
-Per chat (local properties on the chat object's row, present in any
+Per chat (properties on the chat object's row, present in any
 object query — this is your chat list). Like every type-declared
 property, the values live under the type's container on the row —
 read them at `chat.<property>`, NOT top-level:
 
-| row path | meaning |
-|---|---|
-| `chat.unreadCount` | unread messages |
-| `chat.unreadMentions` | unread mentions |
-| `chat.unreadReactionsCount` | unread reactions |
+| row path | scope | meaning |
+|---|---|---|
+| `chat.unreadCount` | local | unread messages |
+| `chat.unreadMentions` | local | unread mentions |
+| `chat.unreadReactionsCount` | local | unread reactions |
+| `chat.notifyMode` | account | per-chat push preference: `all` \| `mentions` \| `none`. Client-written via `POST /v1/spaces/:s/properties/:chatObjectId/set/chat`, synced across the account's devices, invisible to other members. Not enum-enforced — treat absent/garbage as "inherit the space-level `settings.notifyMode`" (default `all`). Consumed by the push subscription sync loop (`internal/push`). |
 
 A counter is absent from the row until the SDK first materializes it
 — treat absent as 0. (A top-level `unreadCount` never exists; probing

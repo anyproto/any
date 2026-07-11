@@ -1,6 +1,8 @@
 package push
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -41,7 +43,7 @@ func TestDesiredSubs_Modes(t *testing.T) {
 			if tc.mode != nil {
 				info.Settings = map[string]any{SettingNotifyMode: tc.mode}
 			}
-			subs, _ := desiredSubs([]space.SpaceInfo{info}, testIdentity)
+			subs, _ := desiredSubs([]space.SpaceInfo{info}, nil, testIdentity)
 			if tc.topics == nil {
 				if len(subs) != 0 {
 					t.Fatalf("mode none should yield no subs, got %+v", subs)
@@ -58,6 +60,124 @@ func TestDesiredSubs_Modes(t *testing.T) {
 	}
 }
 
+// sha is the test-local mirror of sha256hex, so expectations spell out
+// the construction independently.
+func sha(id string) string {
+	h := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(h[:])
+}
+
+// TestDesiredSubs_PerChat pins the bulk-vs-per-chat branch (heart's
+// subscribe-side semantics adapted to per-chat notifyMode overrides).
+func TestDesiredSubs_PerChat(t *testing.T) {
+	cases := []struct {
+		name      string
+		spaceMode string // "" = absent settings (defaults to all)
+		chats     []chatNotify
+		topics    []string // nil = no PushSpaceTopics entry for the space
+	}{
+		{
+			name:      "chats without overrides stay bulk",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1"}, {objectId: "c2"}},
+			topics:    []string{TopicChats, testIdentity},
+		},
+		{
+			name:      "garbage-only modes stay bulk (garbage = inherit, not override)",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1", mode: "loud"}, {objectId: "c2", mode: "ALL"}},
+			topics:    []string{TopicChats, testIdentity},
+		},
+		{
+			name:      "one none override flips the whole space to per-chat",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1", mode: ModeNone}, {objectId: "c2"}},
+			topics:    []string{TopicChats + "/" + sha("c2")}, // c1 muted, c2 inherits all
+		},
+		{
+			name:      "mentions override yields the per-chat mention topic",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1", mode: ModeMentions}, {objectId: "c2"}},
+			topics: []string{
+				TopicChats + "/" + sha("c1") + "/" + testIdentity,
+				TopicChats + "/" + sha("c2"),
+			},
+		},
+		{
+			name:      "inherit from space mentions mode",
+			spaceMode: ModeMentions,
+			chats:     []chatNotify{{objectId: "c1", mode: ModeAll}, {objectId: "c2"}},
+			topics: []string{
+				TopicChats + "/" + sha("c1"),
+				TopicChats + "/" + sha("c2") + "/" + testIdentity,
+			},
+		},
+		{
+			name:      "garbage mode inherits inside a per-chat space",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1", mode: "loud"}, {objectId: "c2", mode: ModeNone}},
+			topics:    []string{TopicChats + "/" + sha("c1")},
+		},
+		{
+			name:      "all override un-mutes a chat in a muted space",
+			spaceMode: ModeNone,
+			chats:     []chatNotify{{objectId: "c1", mode: ModeAll}, {objectId: "c2"}},
+			topics:    []string{TopicChats + "/" + sha("c1")}, // c2 inherits none
+		},
+		{
+			name:      "every chat muted → no subscription entry at all",
+			spaceMode: ModeAll,
+			chats:     []chatNotify{{objectId: "c1", mode: ModeNone}, {objectId: "c2", mode: ModeNone}},
+			topics:    nil,
+		},
+		{
+			name:      "absent space mode defaults to all in the per-chat branch",
+			spaceMode: "",
+			chats:     []chatNotify{{objectId: "c1", mode: ModeMentions}, {objectId: "c2"}},
+			topics: []string{
+				TopicChats + "/" + sha("c1") + "/" + testIdentity,
+				TopicChats + "/" + sha("c2"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := activeSpace("sp1", tc.spaceMode)
+			subs, _ := desiredSubs([]space.SpaceInfo{info},
+				map[string][]chatNotify{"sp1": tc.chats}, testIdentity)
+			if tc.topics == nil {
+				if len(subs) != 0 {
+					t.Fatalf("want no subs, got %+v", subs)
+				}
+				return
+			}
+			if len(subs) != 1 || subs[0].SpaceId != "sp1" {
+				t.Fatalf("subs = %+v", subs)
+			}
+			if !reflect.DeepEqual(subs[0].Topics, tc.topics) {
+				t.Errorf("topics = %v, want %v", subs[0].Topics, tc.topics)
+			}
+		})
+	}
+}
+
+// TestDesiredSubs_PerChatScopedToSpace: an override in one space never
+// leaks per-chat behavior into another.
+func TestDesiredSubs_PerChatScopedToSpace(t *testing.T) {
+	infos := []space.SpaceInfo{activeSpace("spA", ModeAll), activeSpace("spB", ModeAll)}
+	chats := map[string][]chatNotify{
+		"spA": {{objectId: "c1", mode: ModeNone}},
+		"spB": {{objectId: "c2"}}, // no override → bulk
+	}
+	subs, _ := desiredSubs(infos, chats, testIdentity)
+	if len(subs) != 1 {
+		t.Fatalf("subs = %+v, want only spB (spA fully muted per-chat)", subs)
+	}
+	if subs[0].SpaceId != "spB" || !reflect.DeepEqual(subs[0].Topics, []string{TopicChats, testIdentity}) {
+		t.Errorf("spB should stay bulk: %+v", subs[0])
+	}
+}
+
 func TestDesiredSubs_SkipsNonActive(t *testing.T) {
 	infos := []space.SpaceInfo{
 		activeSpace("active", ModeAll),
@@ -67,7 +187,7 @@ func TestDesiredSubs_SkipsNonActive(t *testing.T) {
 		{Id: "joining", Status: space.StatusJoining},
 		{Id: "invitePending", Status: space.StatusInvitePending, OwnRole: space.PermissionWriter},
 	}
-	subs, register := desiredSubs(infos, testIdentity)
+	subs, register := desiredSubs(infos, nil, testIdentity)
 	if len(subs) != 1 || subs[0].SpaceId != "active" {
 		t.Errorf("only the active space should subscribe: %+v", subs)
 	}
@@ -87,7 +207,7 @@ func TestDesiredSubs_Register(t *testing.T) {
 	mutedOwned := activeSpace("mutedOwned", ModeNone)
 	mutedOwned.OwnRole = space.PermissionOwner
 
-	subs, register := desiredSubs([]space.SpaceInfo{owned, oneToOne, member, mutedOwned}, testIdentity)
+	subs, register := desiredSubs([]space.SpaceInfo{owned, oneToOne, member, mutedOwned}, nil, testIdentity)
 	if want := []string{"mutedOwned", "one2one", "owned"}; !reflect.DeepEqual(register, want) {
 		t.Errorf("register = %v, want %v", register, want)
 	}
@@ -101,15 +221,15 @@ func TestDesiredHash_StableAndSensitive(t *testing.T) {
 	// Same state, different list order → same hash (desiredSubs sorts).
 	b := []space.SpaceInfo{activeSpace("sp2", ModeMentions), activeSpace("sp1", ModeAll)}
 
-	subsA, regA := desiredSubs(a, testIdentity)
-	subsB, regB := desiredSubs(b, testIdentity)
+	subsA, regA := desiredSubs(a, nil, testIdentity)
+	subsB, regB := desiredSubs(b, nil, testIdentity)
 	if desiredHash(regA, subsA) != desiredHash(regB, subsB) {
 		t.Error("hash should be order-independent")
 	}
 
 	// A mode flip changes the hash.
 	c := []space.SpaceInfo{activeSpace("sp1", ModeNone), activeSpace("sp2", ModeMentions)}
-	subsC, regC := desiredSubs(c, testIdentity)
+	subsC, regC := desiredSubs(c, nil, testIdentity)
 	if desiredHash(regA, subsA) == desiredHash(regC, subsC) {
 		t.Error("hash should change when a space's mode changes")
 	}
@@ -117,9 +237,18 @@ func TestDesiredHash_StableAndSensitive(t *testing.T) {
 	// A register-set change alone changes the hash too.
 	d := []space.SpaceInfo{activeSpace("sp1", ModeAll), activeSpace("sp2", ModeMentions)}
 	d[0].OwnRole = space.PermissionOwner
-	subsD, regD := desiredSubs(d, testIdentity)
+	subsD, regD := desiredSubs(d, nil, testIdentity)
 	if desiredHash(regA, subsA) == desiredHash(regD, subsD) {
 		t.Error("hash should change when the register set changes")
+	}
+
+	// A per-chat override flip alone changes the hash (the sync loop's
+	// re-subscribe trigger when only chat.notifyMode moved).
+	subsE, regE := desiredSubs(a, map[string][]chatNotify{
+		"sp1": {{objectId: "c1", mode: ModeNone}},
+	}, testIdentity)
+	if desiredHash(regA, subsA) == desiredHash(regE, subsE) {
+		t.Error("hash should change when a chat's override changes")
 	}
 
 	if desiredHash(nil, nil) == "" {
