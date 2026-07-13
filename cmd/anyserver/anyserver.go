@@ -53,8 +53,8 @@ const (
 // behind the //export AnyServerStart wrapper: it calls embedded.Start and
 // maps the returned addr->port and err->code, so both halves of the
 // contract are exercised on the host.
-func startServer(dataDir, listenAddr, nodeconfYAML string) int {
-	addr, err := embedded.Start(dataDir, listenAddr, nodeconfYAML)
+func startServer(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) int {
+	addr, err := embedded.Start(dataDir, listenAddr, nodeconfYAML, indexEnabled)
 	if err != nil {
 		return errCode(err)
 	}
@@ -108,13 +108,17 @@ func portOf(addr string) int {
 
 // AnyServerStart boots the embedded server with its data under dataDir,
 // listening on listenAddr (pass "127.0.0.1:0" for an OS-assigned ephemeral
-// port), joining the network described by nodeconfYAML. It blocks until
-// the listener binds, then returns the bound port (positive) or a negative
-// error code (see the const block).
+// port), joining the network described by nodeconfYAML. indexEnabled turns
+// the FTS index on or off: pass false in the share extension (skip indexing
+// for the memory headroom — nothing there searches), true in the app if it
+// wants engine search. A build without the `fts` tag ignores it — the
+// indexer stays dormant regardless. It blocks until the listener binds,
+// then returns the bound port (positive) or a negative error code (see the
+// const block).
 //
 //export AnyServerStart
-func AnyServerStart(dataDir, listenAddr, nodeconfYAML *C.char) C.int {
-	return C.int(startServer(C.GoString(dataDir), C.GoString(listenAddr), C.GoString(nodeconfYAML)))
+func AnyServerStart(dataDir, listenAddr, nodeconfYAML *C.char, indexEnabled C._Bool) C.int {
+	return C.int(startServer(C.GoString(dataDir), C.GoString(listenAddr), C.GoString(nodeconfYAML), bool(indexEnabled)))
 }
 
 // AnyServerStop gracefully stops the server: it cancels the run context,

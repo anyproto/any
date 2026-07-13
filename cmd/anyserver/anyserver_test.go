@@ -54,6 +54,17 @@ func cleanupServer(t *testing.T) {
 	t.Cleanup(func() { stopServer(false) })
 }
 
+// dialPort asserts the port is bound and reachable: a TCP dial to
+// 127.0.0.1:port succeeds. It closes the connection immediately.
+func dialPort(t *testing.T, port int) {
+	t.Helper()
+	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("dial bound port %d: %v", port, err)
+	}
+	conn.Close()
+}
+
 // TestStartServer_SuccessReturnsPort asserts the shim's success path:
 // startServer boots via embedded.Start and returns the bound ephemeral
 // port (positive) parsed from the returned addr, and the port is actually
@@ -61,7 +72,7 @@ func cleanupServer(t *testing.T) {
 func TestStartServer_SuccessReturnsPort(t *testing.T) {
 	cleanupServer(t)
 
-	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t))
+	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
 	if port <= 0 {
 		t.Fatalf("startServer: got %d, want a positive port", port)
 	}
@@ -72,11 +83,7 @@ func TestStartServer_SuccessReturnsPort(t *testing.T) {
 	}
 
 	// The port is bound: a dial succeeds.
-	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		t.Fatalf("dial bound port %d: %v", port, err)
-	}
-	conn.Close()
+	dialPort(t, port)
 
 	stopServer(true)
 
@@ -86,16 +93,33 @@ func TestStartServer_SuccessReturnsPort(t *testing.T) {
 	}
 }
 
+// TestStartServer_IndexDisabledBoots asserts the memory-win path the iOS
+// share extension relies on: booting with indexEnabled=false still brings
+// the server up and binds a reachable port. The gate (indexEnabled && fts)
+// keeps the FTS indexer dormant, but that must never break startup.
+func TestStartServer_IndexDisabledBoots(t *testing.T) {
+	cleanupServer(t)
+
+	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), false)
+	if port <= 0 {
+		t.Fatalf("startServer(indexEnabled=false): got %d, want a positive port", port)
+	}
+
+	dialPort(t, port)
+
+	stopServer(true)
+}
+
 // TestStartServer_AlreadyRunning asserts a second start while one is up
 // maps embedded.ErrAlreadyRunning -> errAlreadyRunning (-1).
 func TestStartServer_AlreadyRunning(t *testing.T) {
 	cleanupServer(t)
 
-	if port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t)); port <= 0 {
+	if port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); port <= 0 {
 		t.Fatalf("first start: got %d, want a positive port", port)
 	}
 
-	if got := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t)); got != errAlreadyRunning {
+	if got := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); got != errAlreadyRunning {
 		t.Fatalf("second start: got %d, want errAlreadyRunning (%d)", got, errAlreadyRunning)
 	}
 }
@@ -108,7 +132,7 @@ func TestStartServer_AlreadyRunning(t *testing.T) {
 func TestStartServer_BadDataDir(t *testing.T) {
 	cleanupServer(t)
 
-	if got := startServer("", loopbackEphemeral, nodeconfFixture(t)); got != errBadDataDir {
+	if got := startServer("", loopbackEphemeral, nodeconfFixture(t), true); got != errBadDataDir {
 		t.Fatalf("empty data dir: got %d, want errBadDataDir (%d)", got, errBadDataDir)
 	}
 
@@ -119,7 +143,7 @@ func TestStartServer_BadDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	under := filepath.Join(file, "child")
-	if got := startServer(under, loopbackEphemeral, nodeconfFixture(t)); got != errBadDataDir {
+	if got := startServer(under, loopbackEphemeral, nodeconfFixture(t), true); got != errBadDataDir {
 		t.Fatalf("data dir under a file: got %d, want errBadDataDir (%d)", got, errBadDataDir)
 	}
 }
@@ -131,7 +155,7 @@ func TestStartServer_BadDataDir(t *testing.T) {
 func TestStartServer_EmptyNodeconfIsBoot(t *testing.T) {
 	cleanupServer(t)
 
-	if got := startServer(t.TempDir(), loopbackEphemeral, ""); got != errBoot {
+	if got := startServer(t.TempDir(), loopbackEphemeral, "", true); got != errBoot {
 		t.Fatalf("empty nodeconf: got %d, want errBoot (%d)", got, errBoot)
 	}
 }
