@@ -16,7 +16,7 @@
 //     Android's low-memory killer);
 //   - config assembly: config.Defaults() + DataDir + Listen.Addr +
 //     Network.Nodeconf + index policy (Embedder="none", Index.Enabled =
-//     the compiled FTS cap);
+//     the compiled FTS cap) + headless (WebUI.Enabled=false, IOS-116);
 //   - the run via main's canonical embedder seam, server.RunWith.
 //
 // It installs NO os/signal handlers — the caller owns the lifecycle.
@@ -168,6 +168,9 @@ func Start(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) (string,
 	cfg.Index.Embedder = "none"
 	fts, _ := indexer.CompiledCaps()
 	cfg.Index.Enabled = indexEnabled && fts
+	// IOS-116: every in-process boot (iOS/iPadOS app, future sharing
+	// extension) is headless — no /ui debug harness, no advertising log.
+	cfg.WebUI.Enabled = false
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

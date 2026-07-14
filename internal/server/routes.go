@@ -135,7 +135,12 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/ui/commands", d.uiCommandPublish)
 	v1.GET("/ui/commands/subscribe", d.uiCommandSubscribe)
 
-	registerUIRoutes(e)
+	// The /ui debug harness is mounted only when enabled (default on).
+	// App-embedded boots run headless (embedded.Start sets this false),
+	// so /ui and /ui/ 404 there. See docs/05-config.md § webUI, IOS-116.
+	if d.cfg.WebUI.Enabled {
+		registerUIRoutes(e)
+	}
 
 	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))
 

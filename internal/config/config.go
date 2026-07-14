@@ -22,11 +22,22 @@ type Config struct {
 	P2P     P2P           `yaml:"p2p"`
 	Index   Index         `yaml:"index"`
 	Files   Files         `yaml:"files"`
+	WebUI   WebUI         `yaml:"webUI"`
 	Log     logger.Config `yaml:"log"`
 }
 
 type Listen struct {
 	Addr string `yaml:"addr"`
+}
+
+// WebUI gates the embedded /ui debug harness (internal/server/web.go).
+// Enabled by default so standalone `any run` is unchanged; app-embedded
+// boots force it off (embedded.Start), so an in-process boot is headless
+// — no /ui routes, no "web ui" advertising log line. The yaml key path
+// `webUI.enabled` is a cross-repo contract: the any-swift subprocess host
+// writes exactly this key into its config.yaml (IOS-116).
+type WebUI struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type Auth struct {
@@ -232,6 +243,7 @@ func Defaults() Config {
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
+		WebUI:   WebUI{Enabled: true},
 		Index: Index{
 			Enabled:  true,
 			Embedder: "auto", // online primary + local fallback (same model)
