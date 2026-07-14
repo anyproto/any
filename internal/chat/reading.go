@@ -158,8 +158,7 @@ func ReadReactions(ctx context.Context, sp space.Space, objectId, msgId string) 
 		return err
 	}
 	var changeIds []string
-	for i := range snapshot {
-		ch := &snapshot[i]
+	for _, ch := range snapshot {
 		if slices.Contains(ch.Tags, TagReaction) && slices.Contains(ch.RecordIds, msgId) {
 			changeIds = append(changeIds, ch.ChangeId)
 		}
