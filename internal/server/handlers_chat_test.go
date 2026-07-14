@@ -293,6 +293,102 @@ func TestServer_Chat_Agent(t *testing.T) {
 	}
 }
 
+// TestServer_Chat_ReactionsRead_NoOp exercises the reactions-read route
+// against a real single-account SDK. Own reactions are born read
+// (docs/16-chat.md), so single-account this is genuinely the no-op path:
+// the message has no unread reaction to clear. The route must still
+// return 204 (idempotent contract — no 404) and must not move the chat
+// row's unreadReactionsCount off zero. The cross-account clearing proof
+// lives in internal/e2e (TestE2E_ChatReactionsRead) — a single account
+// can't hold an unread reaction. Also covers the objectId/msgId param
+// guards, which need a real SDK because resolveSpace runs first.
+func TestServer_Chat_ReactionsRead_NoOp(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	msg := chatSend(t, e, base, "hello", "")
+
+	// No-op reactions-read: 204, and the reaction counter stays 0.
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages/"+msg.Id+"/reactions-read", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("reactions-read: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := chatRowUnreadReactions(t, e, spaceId, objectId); got != 0 {
+		t.Errorf("unreadReactionsCount = %d after no-op reactions-read, want 0", got)
+	}
+
+	// Idempotent: a second call is also a clean 204.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages/"+msg.Id+"/reactions-read", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("second reactions-read: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Param guards (resolveSpace succeeds on the real space, then the
+	// handler's own objectId/msgId check fires). Echo matches empty
+	// middle path params, so these reach the handler.
+	rec = doJSON(t, e, http.MethodPost,
+		"/v1/spaces/"+spaceId+"/objects//chat/messages/"+msg.Id+"/reactions-read", "")
+	if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "request.missing_field" {
+		t.Errorf("empty objectId: got %d %s, want 400 request.missing_field", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost,
+		base+"/chat/messages//reactions-read", "")
+	if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "request.missing_field" {
+		t.Errorf("empty msgId: got %d %s, want 400 request.missing_field", rec.Code, rec.Body.String())
+	}
+}
+
+// TestServer_Chat_ReactionsRead_Routing proves the route is registered
+// without a live SDK: with a bare deps (ready=true clears the auth
+// guard) an empty spaceId reaches resolveSpace and returns 400
+// request.missing_field — a 404 would mean the route isn't wired. Never
+// skips, so it guards the wiring even when the staging fixture is
+// absent. Mirrors the handlers_onetoone_test.go pattern.
+func TestServer_Chat_ReactionsRead_Routing(t *testing.T) {
+	d := &deps{}
+	d.ready.Store(true)
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost,
+		"/v1/spaces//objects/o1/chat/messages/m1/reactions-read", "")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := errEnvCode(t, rec.Body.Bytes()); got != "request.missing_field" {
+		t.Errorf("code = %q, want request.missing_field", got)
+	}
+}
+
+// chatRowUnreadReactions reads the chat object's row via POST
+// /objects/query and returns its unreadReactionsCount counter (stored
+// under the chat type's xKey). Absent decodes as 0.
+func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId string) int {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"filter": map[string]any{"id": objectId}})
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("objects/query: %d %s", rec.Code, rec.Body.String())
+	}
+	var qr struct {
+		Records []struct {
+			Chat struct {
+				UnreadReactionsCount float64 `json:"unreadReactionsCount"`
+			} `json:"chat"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
+		t.Fatalf("decode objects/query: %v", err)
+	}
+	if len(qr.Records) == 0 {
+		return 0
+	}
+	return int(qr.Records[0].Chat.UnreadReactionsCount)
+}
+
 // --- helpers ---------------------------------------------------------------
 
 // setupChatFixture creates a space and an object on it. The object is

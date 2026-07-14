@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"slices"
 
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/handler"
@@ -142,4 +143,29 @@ func Read(ctx context.Context, sp space.Space, objectId, msgId string) error {
 		return ErrNotFound
 	}
 	return sp.ReadState().MarkReadUpTo(ctx, objectId, space.VersionId(verId))
+}
+
+// ReadReactions marks the unread REACTION changes on msgId read,
+// leaving message/mention read state untouched. A reaction carries a
+// version higher than its target message (a separate change written
+// after it), so Read(msgId) — which cuts at the message's own _ver.id —
+// never covers it; a client that has shown the reaction to the user
+// clears it here via MarkRead on the exact reaction change ids.
+// Idempotent: a message with no unread reactions is a no-op (204, not 404).
+func ReadReactions(ctx context.Context, sp space.Space, objectId, msgId string) error {
+	snapshot, _, err := sp.ReadState().UnreadSnapshot(ctx, objectId)
+	if err != nil {
+		return err
+	}
+	var changeIds []string
+	for i := range snapshot {
+		ch := &snapshot[i]
+		if slices.Contains(ch.Tags, TagReaction) && slices.Contains(ch.RecordIds, msgId) {
+			changeIds = append(changeIds, ch.ChangeId)
+		}
+	}
+	if len(changeIds) == 0 {
+		return nil
+	}
+	return sp.ReadState().MarkRead(ctx, objectId, changeIds)
 }

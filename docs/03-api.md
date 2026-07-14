@@ -1168,6 +1168,7 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
 **General chat.** Every space has one deterministic "general" chat
 object, derived from a fixed seed (`chat.GeneralChatSeed`,
@@ -1188,8 +1189,15 @@ locally derived object and the CRDT-replicated one converge.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the
-whole chat. Both return `204`, are idempotent and forward-only (no
-mark-unread), work offline, and sync across the account's devices.
+whole chat. `…/:msgId/reactions-read` clears only the unread
+**reactions** on that message, leaving message/mention read state
+untouched — a reaction is a change ordered *after* its target message,
+so `…/:msgId/read` (which cuts at the message's own `_ver.id`) never
+covers it; this route lets a client that has shown the reaction to the
+user clear exactly that. It is a no-op (still `204`, never `404`) on a
+message with no unread reactions. All three return `204`, are
+idempotent and forward-only (no mark-unread), work offline, and sync
+across the account's devices.
 Read state is private — no read receipts. The SDK materializes
 per-message `unread` / `unreadMention` / `unreadReactions` flags
 (filterable) and per-chat `unreadCount` / `unreadMentions` /

@@ -76,11 +76,12 @@ Rules that follow:
 
 ## Marking read: when and how
 
-Two endpoints:
+Three endpoints:
 
 ```
 POST /v1/spaces/:spaceId/objects/:objectId/chat/read-all
 POST /v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read
+POST /v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read
 ```
 
 `…/:msgId/read` means **"I have seen this message and everything above
@@ -89,6 +90,18 @@ it"** — it covers the message and everything ordered before it
 unread activity targeting older messages (a fresh reaction on a
 message above the line stays unread — correct: the user hasn't seen
 it).
+
+`…/:msgId/reactions-read` clears only the unread **reactions** on that
+one message, leaving message/mention read state alone. It exists
+because a reaction is a change ordered *after* its target message, so
+`…/:msgId/read` (which cuts at the message's own `_ver.id`) can never
+cover a reaction on that same message — without this route, seeing a
+reaction never clears its `unreadReactions` badge; only a *newer*
+message advancing the read cursor past the reaction would. Call it when
+the user has actually seen the reaction (e.g. the reacted message —
+almost always one they authored — scrolled into view). It is a no-op
+(still `204`, never `404`) on a message with no unread reactions, so
+firing it unconditionally for the visible run is safe.
 
 **When to call it — viewport rule.** Mark read what the user has
 actually seen, nothing more:
