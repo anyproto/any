@@ -145,12 +145,23 @@ func Read(ctx context.Context, sp space.Space, objectId, msgId string) error {
 	return sp.ReadState().MarkReadUpTo(ctx, objectId, space.VersionId(verId))
 }
 
-// ReadReactions marks the unread REACTION changes on msgId read,
-// leaving message/mention read state untouched. A reaction carries a
-// version higher than its target message (a separate change written
-// after it), so Read(msgId) — which cuts at the message's own _ver.id —
-// never covers it; a client that has shown the reaction to the user
-// clears it here via MarkRead on the exact reaction change ids.
+// ReadReactions marks the unread REACTION changes on msgId read. A
+// reaction is a separate change written after its target message, so
+// Read(msgId) — which cuts at the message's own _ver.id — never covers
+// it; a client that has shown the reaction to the user clears it here
+// via MarkRead on the reaction change ids.
+//
+// SCOPE (important): MarkRead covers the given changes AND their causal
+// ancestry, so this also marks read any unread MESSAGE the reactor had
+// already seen when they reacted — everything causally before the
+// reaction, not just the reaction itself. Messages that arrived AFTER
+// the reaction stay unread (they aren't ancestors), which is what still
+// separates this from ReadAll. In the target case — a reaction on an
+// already-read message — the ancestry holds no unread rows, so only the
+// reaction clears; when unread messages coexist, the client is expected
+// to have marked the visible ones read (viewport /read) first. The SDK
+// exposes no "mark exactly these rows, no ancestry walk" primitive
+// (MarkRead is ancestry-covering, MarkReadUpTo is range-covering).
 // Idempotent: a message with no unread reactions is a no-op (204, not 404).
 func ReadReactions(ctx context.Context, sp space.Space, objectId, msgId string) error {
 	snapshot, _, err := sp.ReadState().UnreadSnapshot(ctx, objectId)

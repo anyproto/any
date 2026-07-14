@@ -331,12 +331,13 @@ func (d *deps) chatRead(c echo.Context) error {
 }
 
 // chatReadReactions handles POST .../chat/messages/:msgId/reactions-read —
-// mark only the unread reactions on this message read, leaving
-// message/mention read state untouched. A reaction is a change ordered
-// after its target message, so chatRead (which cuts at the message's
-// own version) can never cover it; this route lets a client that has
-// shown the reaction to the user clear exactly that. Idempotent: a
-// message with no unread reactions is a no-op (204).
+// mark this message's unread reactions read. A reaction is a change
+// ordered after its target message, so chatRead (which cuts at the
+// message's own version) can never cover it; this route clears it. Note
+// it also advances message read state: marking a change read covers its
+// causal ancestry, so unread messages the reactor had already seen clear
+// too — see chat.ReadReactions. Idempotent: a message with no unread
+// reactions is a no-op (204).
 //
 //	@Summary	Mark a message's unread reactions read
 //	@Tags		chat

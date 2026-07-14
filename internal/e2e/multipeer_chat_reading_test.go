@@ -330,18 +330,25 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 }
 
 // TestE2E_ChatReactionsRead is the acceptance test for the per-message
-// reaction-read route (POST .../messages/:msgId/reactions-read). It
-// covers the exact gap that `read` and `read-all` can't reach on their
-// own: a reaction is a change ordered AFTER its target message, so
-// marking the message read (up to its own version) never clears the
-// reaction — only marking the reaction change itself does.
+// reaction-read route (POST .../messages/:msgId/reactions-read), and it
+// pins the route's ACTUAL semantics — which are subtler than "clear just
+// the reaction". Marking a reaction change read goes through the SDK's
+// MarkRead, and MarkRead covers the change AND its causal ancestry. So
+// reactions-read on a message clears:
+//
+//   - the unread reaction itself, and
+//   - any unread MESSAGE the reactor had already seen when they reacted
+//     (everything causally before the reaction),
+//
+// while unread messages that arrived AFTER the reaction stay unread —
+// and that surviving tail is what still separates this from read-all.
+// The scenario arranges all three: m2 (written before the reaction, a
+// causal ancestor → cleared), the reaction on m1 (cleared), and m3
+// (written after the reaction, a causal descendant → survives). See
+// chat.ReadReactions / docs/16-chat.md § Scope caveat for the why.
 //
 // Asserted on the OWNER (a reaction badges the reacted-to message's
-// AUTHOR). The distinguishing state is the owner holding BOTH an unread
-// message (a fresh reply from the joiner) AND an unread reaction (the
-// joiner reacting to the owner's own message): reactions-read must clear
-// the reaction and leave the message unread — where read-all would clear
-// everything. Convergence gates on chat_messages predicates
+// AUTHOR). Convergence gates on chat_messages predicates
 // (pollUntilSynced); flag/counter materialization is local and debounced
 // so those use plain pollUntil (the harness caveat baked into this file).
 func TestE2E_ChatReactionsRead(t *testing.T) {
@@ -368,10 +375,10 @@ func TestE2E_ChatReactionsRead(t *testing.T) {
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
-	// Pre-join message authored by the owner. Its ensureType attaches the
-	// chat type before the joiner cold-syncs, and it's the message the
-	// joiner will later react to — the owner authored it, so the owner is
-	// the audience for a reaction on it.
+	// Pre-join message authored by the owner — the one the joiner reacts
+	// to (a reaction badges the message's author, so the owner is the
+	// audience). Its ensureType attaches the chat type before the joiner
+	// cold-syncs.
 	m1 := sendChat(t, ownerBase, `{"text":"owner message"}`)
 	ownerId := m1.Creator
 	if ownerId == "" {
@@ -385,78 +392,82 @@ func TestE2E_ChatReactionsRead(t *testing.T) {
 	}) {
 		t.Fatalf("joiner never converged on the owner's message")
 	}
-	// Baseline the joiner's read state so its own reaction below is the
-	// only thing that can badge the owner.
+	// Baseline the joiner's read state so its own writes below are the
+	// only unread things on the owner.
 	mustStatus(t, http.MethodPost, joinerBase+"/chat/read-all", "", http.StatusNoContent)
 
-	// --- (1) The joiner authors a reply → unread MESSAGE on the owner.
-	m2 := sendChat(t, joinerBase, `{"text":"reply from joiner"}`)
+	// The joiner authors m2, then reacts to m1, then authors m3 — in that
+	// order on the joiner's single node, so the DAG is a linear chain:
+	// m2 is a causal ANCESTOR of the reaction (written before it), and m3
+	// is a causal DESCENDANT (written after it). Both land unread on the
+	// owner alongside the reaction.
+	m2 := sendChat(t, joinerBase, `{"text":"before the reaction"}`)
 	joinerId := m2.Creator
 	if joinerId == "" || joinerId == ownerId {
 		t.Fatalf("creator stamps broken: owner=%q joiner=%q", ownerId, joinerId)
 	}
-	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
-		return findById(chatMessages(t, ownerBase), m2.Id).Id == m2.Id
-	}) {
-		t.Fatalf("owner never converged on the joiner's reply")
-	}
-	if !pollUntil(30*time.Second, func() bool {
-		c := chatRowCounters(t, owner, sp.Id, obj.ObjectId)
-		return findById(chatMessages(t, ownerBase), m2.Id).Unread &&
-			c.messages == 1 && c.reactions == 0
-	}) {
-		t.Fatalf("owner: joiner's reply never went unread")
-	}
-
-	// --- (2) The joiner reacts to the owner's OWN message → unread
-	// REACTION on the owner, message counter untouched. The owner now
-	// holds both an unread message (m2) and an unread reaction (on m1).
 	heart := url.PathEscape("❤️")
 	mustStatus(t, http.MethodPost,
 		joinerBase+"/chat/messages/"+m1.Id+"/reactions/"+heart, "", http.StatusOK)
+	m3 := sendChat(t, joinerBase, `{"text":"after the reaction"}`)
+
+	// Owner converges on all three writes (m2, the reaction, m3).
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
-		_, ok := findById(chatMessages(t, ownerBase), m1.Id).Reactions["❤️"][joinerId]
-		return ok
+		list := chatMessages(t, ownerBase)
+		_, reacted := findById(list, m1.Id).Reactions["❤️"][joinerId]
+		return findById(list, m2.Id).Id != "" && findById(list, m3.Id).Id != "" && reacted
 	}) {
-		t.Fatalf("owner never saw the joiner's ❤️ reaction")
+		t.Fatalf("owner never converged on m2 + reaction + m3")
 	}
+
+	// Owner now holds: 2 unread messages (m2, m3) + 1 unread reaction (m1).
 	var lastList chatListResp
 	var lastCounters rowCounters
 	if !pollUntil(30*time.Second, func() bool {
 		lastList = chatMessages(t, ownerBase)
 		lastCounters = chatRowCounters(t, owner, sp.Id, obj.ObjectId)
 		return findById(lastList, m1.Id).UnreadReactions &&
-			lastCounters.reactions == 1 && lastCounters.messages == 1
+			findById(lastList, m2.Id).Unread &&
+			findById(lastList, m3.Id).Unread &&
+			lastCounters.reactions == 1 && lastCounters.messages == 2
 	}) {
-		t.Fatalf("owner: cross-account reaction never materialized: "+
-			"m1.unreadReactions=%v counters=%v",
-			findById(lastList, m1.Id).UnreadReactions, lastCounters)
+		t.Fatalf("owner: initial unread state never materialized: "+
+			"m1.rx=%v m2.unread=%v m3.unread=%v counters=%v",
+			findById(lastList, m1.Id).UnreadReactions,
+			findById(lastList, m2.Id).Unread,
+			findById(lastList, m3.Id).Unread, lastCounters)
 	}
 
-	// --- (3) reactions-read on m1 clears the reaction, leaves the
-	// message. This is the key assertion: the reaction counter drops to 0
-	// while the message counter stays at 1 — where read-all would clear
-	// both.
+	// reactions-read on m1 clears the reaction AND its causal ancestry:
+	// the reaction goes away, m2 (written before the reaction) is marked
+	// read as an ancestor, and m3 (written after) survives as unread. So
+	// messages drops 2 -> 1, NOT to 0 — that surviving m3 is exactly what
+	// still distinguishes this route from read-all.
 	mustStatus(t, http.MethodPost,
 		ownerBase+"/chat/messages/"+m1.Id+"/reactions-read", "", http.StatusNoContent)
 	if !pollUntil(30*time.Second, func() bool {
 		lastList = chatMessages(t, ownerBase)
 		lastCounters = chatRowCounters(t, owner, sp.Id, obj.ObjectId)
-		return !findById(lastList, m1.Id).UnreadReactions &&
+		return !findById(lastList, m1.Id).UnreadReactions && // reaction cleared
+			!findById(lastList, m2.Id).Unread && //             ancestor cleared
+			findById(lastList, m3.Id).Unread && //              descendant survives
 			lastCounters.reactions == 0 && lastCounters.messages == 1
 	}) {
-		t.Fatalf("owner: reactions-read never cleared the reaction (or touched the "+
-			"message counter): m1.unreadReactions=%v counters=%v",
-			findById(lastList, m1.Id).UnreadReactions, lastCounters)
+		t.Fatalf("owner: reactions-read semantics wrong "+
+			"(want reaction+ancestor cleared, descendant kept): "+
+			"m1.rx=%v m2.unread=%v m3.unread=%v counters=%v",
+			findById(lastList, m1.Id).UnreadReactions,
+			findById(lastList, m2.Id).Unread,
+			findById(lastList, m3.Id).Unread, lastCounters)
 	}
 
-	// --- (4) Idempotency: a second call on m1 is a no-op, and a call on
-	// a message with no unread reactions (m2) is a no-op — both 204, no
-	// state change. The message counter must still read 1.
+	// Idempotency: a second call on m1 (no reaction left) and a call on a
+	// never-reacted message (m3) are both clean 204 no-ops; the surviving
+	// m3 unread must not move.
 	mustStatus(t, http.MethodPost,
 		ownerBase+"/chat/messages/"+m1.Id+"/reactions-read", "", http.StatusNoContent)
 	mustStatus(t, http.MethodPost,
-		ownerBase+"/chat/messages/"+m2.Id+"/reactions-read", "", http.StatusNoContent)
+		ownerBase+"/chat/messages/"+m3.Id+"/reactions-read", "", http.StatusNoContent)
 	// Give the (no-op) marks a beat to fail loudly if they touched state.
 	if !pollUntil(5*time.Second, func() bool {
 		lastCounters = chatRowCounters(t, owner, sp.Id, obj.ObjectId)
