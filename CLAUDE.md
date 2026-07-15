@@ -537,7 +537,7 @@ Implementation slices landed:
 
 21. **Files v2** — wraps the SDK files-v2 surface (`Space.Files()`:
     Attach/Open/Get/Status/SubscribeStatus/Stats/Pin/Retry/Offload/
-    List/Query + SDK-level FileCacheSize/FreeUpFileCache/
+    Delete/List/Query + SDK-level FileCacheSize/FreeUpFileCache/
     SweepFileCache). Files bind to objects; the SDK stores one
     `payloads` row per file on a derived per-object child (cleartext
     rootCid/size/networkSign/objectId + one sealed member-only blob
@@ -557,6 +557,10 @@ Implementation slices landed:
     exported sentinels `space.ErrFileNotBackedUp` /
     `ErrFileNotAvailable` / `ErrFileVariantInvalid` via errors.Is,
     pinned by TestFileErrorMapping);
+    `DELETE …/files/:fileId` — synced row delete (variants cascade;
+    404 `file.not_found` on unknown/already-deleted; local bytes
+    reclaimed by cache GC, no network reclaim — fileprotov2 has no
+    delete RPC yet);
     `GET …/files/subscribe` — FileStatus SSE (streamStatusSSE pattern,
     LOCAL transitions only); `POST …/objects/:o/files/query[/subscribe]`
     — windowed query over one object's payload rows (bridges
@@ -565,7 +569,7 @@ Implementation slices landed:
     `files.{publicReadBaseUrl,gcInterval}` (zero interval = NO
     background cache GC). CLI: `any file
     attach/list/get/download/status/stats/subscribe/pin/retry/offload/
-    query/query-subscribe/cache`. NOT wrapped (broker embedding
+    query/query-subscribe/cache` + `delete --yes`. NOT wrapped (broker embedding
     surfaces): `Space.Payloads()`, `TreeHeads()`, `Track/Evict`,
     `Headless`, `Sync.TreeTypes`. Contract: docs/17-files.md (model),
     docs/03-api.md § Files, docs/04-events.md § File status stream,
@@ -594,6 +598,64 @@ Implementation slices landed:
     SDK contract test e2e/local_scope_records_test.go). `any` tests:
     handlers_modify_scope_test.go. Docs: 03-api.md § Modify records /
     § Datasets / § Types & properties / § Chat.
+23. **Property PATCH + select options** — closes any-ui #252
+    (#1 rename / #2 delete / #3+#5 select-option CRUD + colors + order).
+    Two live endpoints replace the old `501` stubs:
+    - `PATCH /v1/spaces/:spaceId/types/:typeId/properties/:propId` →
+      `TypesAPI.PatchProperty`, a generic `{set, unset}` per-path patch
+      (`api.PropertyPatchRequest`). One endpoint covers rename +
+      option create/rename/recolor/reorder/delete — **zero
+      option-specific methods**, because options are just string leaves
+      under `format.options.<key>.{name,color,pos,meta.<k>}` and the CRDT
+      already merges per-path `$set`/`$unset`. `any` translates wire
+      paths → storage (`xKey`→`x-key`), validates leaf semantics
+      (`format.ui` vocab, `format.filter` parses, strings elsewhere) and
+      rejects pinned paths (`kind`/`scope`/`items`/`properties`/`format`
+      whole/`format.type`) → `400 property.immutable`
+      (`patchPathToStorage`/`patchSetValue` in `propformat.go`). Options
+      are **dangling-tolerant**: delete is a hard `$unset`, values keep
+      an orphan key, membership is not validated (no archive flag).
+    - `DELETE …/properties/:propId` → `TypesAPI.RemoveProperty`
+      (tombstone; values not cleaned up; `404` on unknown).
+    - New `select` (kind=string) / `multiselect` (kind=array)
+      `FormatType`s give options a home; `PropertyFormat.Options`
+      (`map[string]{Name,Color,Pos,Meta}`) + `Meta`. Read-back rides
+      `formatToAPI`. First `any type` CLI surface (`internal/cli/types.go`:
+      `type create/list`, `type property list/add/patch/remove`,
+      `type property option set/delete`) + `internal/client/types.go`.
+    - **#4 (atomic rename/delete a value across N objects) is won't-fix**
+      — impossible in a per-object CRDT, and mooted: values store the
+      immutable option key, so rename is one write / zero object writes;
+      delete is dangling-tolerant.
+    - **SDK prerequisite (shipped in v0.1.5):** `space.PatchProperty` +
+      `PropertyPatch` replace `UpdatePropertyMeta`/`PropertyMetaUpdate`;
+      `RemoveProperty` implemented (was a stub in v0.1.4); `FormatSelect`/
+      `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
+      `PropertyOption`; exported `space.ErrPinnedField` +
+      `typetype.IsPinnedPath`. Docs: 03-api.md § Types, 01-cli.md § Types.
+24. **Per-space general chat** — every space now has one deterministic
+    "general" chat object, derived from a fixed seed
+    (`chat.GeneralChatSeed` = `any/general-chat/v1`, `internal/chat/general.go`)
+    via `Objects().Derive` — the same idempotent primitive
+    `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
+    "the chat for this space" (the only case for a 1-1) otherwise each
+    `Objects().Create` a fresh chat, so a space ends up with two or three
+    parallel chats. Surface: NO bespoke endpoint — the id is delivered
+    through the existing common per-space metadata point:
+    `SpaceInfo.generalChatObjectId`, populated on every single-space
+    response by `spaceToAPI` (takes a ctx, derives best-effort —
+    materializing the object on first sight, chat type attached, so the
+    id accepts `chat/messages` writes immediately) — create / get /
+    one-to-one / join. Omitted on `GET /v1/spaces` list rows (kept a
+    cheap read that never materializes chats), same policy as
+    `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
+    the creator did, so local + CRDT-replicated converge. CLI: read it
+    off `any space get <spaceId>`. Contract: docs/03-api.md § Chat
+    (General chat) + § Spaces, docs/01-cli.md § Chat, docs/16-chat.md
+    § Finding the chat object. Because the tree is materialized locally
+    on every peer (derive → PutTree, never a remote fetch), the general
+    chat cannot hit the joined-space "BuildTree: tree does not exist"
+    mode (fixed separately by the SDK v0.1.6 bump).
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -833,6 +895,7 @@ auto-start.
 | `docs/16-chat.md` | chat client guide — building a messenger UI on `chat_messages`: rendering, liveness, and SDK read-tracking (account-private, forward-only unread state) |
 | `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
+| `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

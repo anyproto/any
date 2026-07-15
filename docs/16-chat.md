@@ -4,6 +4,21 @@ How to build a messenger UI on the chat API: rendering, liveness, and
 — the part that's easy to get wrong — read tracking. Endpoint shapes
 live in `03-api.md § Chat`; this doc is about using them correctly.
 
+## Finding the chat object for a space
+
+Most clients want "the chat for this space" — a single well-known chat,
+not one per client. Read `generalChatObjectId` off any single-space
+response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
+replies — CLI `any space get <spaceId>`); that id is derived
+deterministically from a fixed seed, materialized on the first
+single-space response, and identical for every peer. Use it as the
+`<objectId>` in every endpoint below. Do **not**
+`POST /objects` a fresh chat per client — a space would then carry two
+or three parallel chats depending on who spoke first (the failure mode
+this field exists to prevent, most visible in 1-1 direct spaces).
+Additional, purpose-specific chats are still fine — create them
+explicitly when you actually want more than one.
+
 ## The model in four sentences
 
 Messages are records on the chat object's `chat_messages` dataset,
@@ -25,27 +40,38 @@ subscribe frames):
 |---|---|
 | `unread: true` | the message itself is unread. Absent (not `false`) once read — filter with `{"unread": true}`. |
 | `unreadMention: true` | unread mention of you. (Never set today; arrives with the mentions feature. Wire your badge logic now.) |
-| `unreadReactions: true` | someone reacted to this message and you haven't seen it. |
+| `unreadReactions: true` | someone reacted to this message and you haven't seen it. Only ever sets on messages **you authored** — a reaction is a signal to the message's author, so it badges only them. |
 
 Per chat (local properties on the chat object's row, present in any
-object query — this is your chat list):
+object query — this is your chat list). Like every type-declared
+property, the values live under the type's container on the row —
+read them at `chat.<property>`, NOT top-level:
 
-| property | meaning |
+| row path | meaning |
 |---|---|
-| `unreadCount` | unread messages |
-| `unreadMentions` | unread mentions |
-| `unreadReactionsCount` | unread reactions |
+| `chat.unreadCount` | unread messages |
+| `chat.unreadMentions` | unread mentions |
+| `chat.unreadReactionsCount` | unread reactions |
+
+A counter is absent from the row until the SDK first materializes it
+— treat absent as 0. (A top-level `unreadCount` never exists; probing
+that path reads 0 forever and looks exactly like "counters are
+broken".)
 
 Rules that follow:
 
-- **Never count unread client-side.** Badge from `unreadCount`; filter
-  messages with `{"unread": true}`. The SDK keeps both consistent,
-  including across devices and after deletes.
+- **Never count unread client-side.** Badge from the row's
+  `chat.unreadCount`; filter messages with `{"unread": true}`. The SDK
+  keeps both consistent, including across devices and after deletes.
 - **Your own messages are born read** — on every one of your devices
   (read state is per *account*, not per device). Never call a read
   endpoint after sending.
 - Edits never re-flag a message. Deleting an unread message silently
   drops it from flags and counters.
+- **Reactions badge the message's author, nobody else.** Someone
+  reacting to a third party's message never sets your
+  `unreadReactions` or bumps your `chat.unreadReactionsCount` — the
+  reaction still syncs and renders, it just isn't *your* unread.
 - A reaction added and removed before you looked leaves no trace.
 
 ## Marking read: when and how
@@ -133,10 +159,12 @@ the history is.
 ## Chat list
 
 Query the chat objects as usual; each row already carries
-`unreadCount` / `unreadMentions` / `unreadReactionsCount`, so sorting
-"unread first" or badging is a plain filter/sort on the list query,
-and live updates arrive through the normal objects subscription. No
-per-chat calls, no chat opens — a thousand chats cost one query.
+`chat.unreadCount` / `chat.unreadMentions` /
+`chat.unreadReactionsCount`, so sorting "unread first" or badging is
+a plain filter/sort on the list query (nested paths work everywhere:
+`{"sort": ["-chat.unreadCount"]}`), and live updates arrive through
+the normal objects subscription. No per-chat calls, no chat opens — a
+thousand chats cost one query.
 
 ## Desktop notifications (no per-chat subscriptions, no server help)
 
@@ -151,11 +179,11 @@ subscription covers every chat:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
-{ "filter": {"type": "chat"}, "limit": 0 }
+{ "filter": {"any.types": "chat"}, "limit": 0 }
 ```
 
 Each frame's `updated` entries carry the full row and the ops — watch
-for `unreadCount` (later `unreadMentions`) changes:
+for `chat.unreadCount` (later `chat.unreadMentions`) changes:
 
 - **Counter went up** → new unread in that chat. Fetch what to show:
   `POST /query` on that chat, `{"unread": true}`, sort `-_ver.id`,

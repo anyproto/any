@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/chat"
 )
 
 func registerSpaceRoutes(g *echo.Group, d *deps) {
@@ -43,6 +44,13 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/one-to-one/register-incoming", d.spaceOneToOneRegisterIncoming)
 	g.POST("/spaces/:spaceId/one-to-one/accept", d.spaceOneToOneAccept)
 	g.POST("/spaces/:spaceId/one-to-one/decline", d.spaceOneToOneDecline)
+
+	// Direct-add invites — spaces this account was added to by identity
+	// (ACL add). Sender side is POST /v1/spaces/:spaceId/acl/add; incoming
+	// invites surface via GET /v1/spaces?status=invite_pending — no
+	// bespoke list endpoint, mirroring the 1-1 pattern.
+	g.POST("/spaces/:spaceId/invite/accept", d.spaceInviteAccept)
+	g.POST("/spaces/:spaceId/invite/decline", d.spaceInviteDecline)
 
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
@@ -106,8 +114,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"))
 	g.GET("/spaces/:spaceId/types/:typeId/properties", d.typeProperties)
 	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty)
-	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.RemoveProperty"))
-	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", notImplemented("Types.UpdatePropertyMeta"))
+	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty)
+	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty)
 
 	// Properties. Scoped properties (v0.0.11) unified the former
 	// base/account/device set endpoints into one scope-aware Set — the
@@ -164,6 +172,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/files/:fileId/pin", d.filePin)
 	g.POST("/spaces/:spaceId/files/:fileId/retry", d.fileRetry)
 	g.POST("/spaces/:spaceId/files/:fileId/offload", d.fileOffload)
+	g.DELETE("/spaces/:spaceId/files/:fileId", d.fileDelete)
 
 	// Sync status — per-space rollup + per-object state. The peers
 	// row stays 501 until the SDK exposes a stable per-space peer
@@ -205,7 +214,7 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, "")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(sp))
+	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
 }
 
 // @Summary	List spaces
@@ -238,13 +247,15 @@ func (d *deps) spaceList(c echo.Context) error {
 			continue
 		}
 		row := spaceInfoToAPI(info)
-		// Eagerly-resident spaces (post-boot) give us the
-		// deterministic spaceIndex object id without touching disk.
-		// On a row the SDK can't resolve to a handle (rare —
-		// e.g. tombstoned), skip the lookup and emit the row
-		// without the field.
-		if sp, err := d.sdk.Spaces().Get(ctx, info.Id); err == nil {
-			row.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+		// Resolve the deterministic spaceIndex object id for ACTIVE rows
+		// only. Service.Get materializes the space, so probing every row
+		// would download not-yet-accepted direct-add invites (defeating
+		// the SDK's accept gate) and pointlessly load joining/tombstoned
+		// rows; non-active rows just omit the field.
+		if info.Status == space.StatusActive {
+			if sp, err := d.sdk.Spaces().Get(ctx, info.Id); err == nil {
+				row.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+			}
 		}
 		out = append(out, row)
 	}
@@ -260,11 +271,23 @@ func (d *deps) spaceList(c echo.Context) error {
 // @Router		/spaces/{spaceId} [get]
 func (d *deps) spaceGet(c echo.Context) error {
 	id := c.Param("spaceId")
-	sp, err := d.sdk.Spaces().Get(c.Request().Context(), id)
-	if err != nil {
-		return spaceError(c, err, id)
+	ctx := c.Request().Context()
+	sp, err := d.sdk.Spaces().Get(ctx, id)
+	if err == nil {
+		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(sp))
+	// Rows that must not (pending/declined direct-add invites) or cannot
+	// (tombstoned) be materialized still exist in the index — serve the
+	// row info instead of failing, without loading anything.
+	infos, lErr := d.sdk.Spaces().List(ctx)
+	if lErr == nil {
+		for _, info := range infos {
+			if info.Id == id {
+				return c.JSON(http.StatusOK, spaceInfoToAPI(info))
+			}
+		}
+	}
+	return spaceError(c, err, id)
 }
 
 // spaceUpdate handles PATCH /v1/spaces/:spaceId.
@@ -365,7 +388,7 @@ func (d *deps) spaceOneToOne(c echo.Context) error {
 	if err != nil {
 		return oneToOneError(c, err, "otherIdentity")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(sp))
+	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneAccept handles POST /v1/spaces/:spaceId/one-to-one/accept
@@ -386,7 +409,7 @@ func (d *deps) spaceOneToOneAccept(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(sp))
+	return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneDecline handles POST /v1/spaces/:spaceId/one-to-one/decline
@@ -441,6 +464,94 @@ func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
 		return oneToOneError(c, err, "peerIdentity")
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// spaceInviteAccept handles POST /v1/spaces/:spaceId/invite/accept —
+// Service.AcceptInvite. Approves a direct-add invite: the account is
+// already an ACL member, so accept flips the synced status to active
+// (every device converges) and loads the space. 200 with the loaded
+// space, or 202 when the content isn't pullable yet — loading continues
+// durably in the background; poll GET /v1/spaces/:spaceId for the flip.
+// Idempotent; also overrides a prior decline.
+//
+//	@Summary	Accept a direct-add invite
+//	@Tags		spaces
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID (from an invite_pending row)"
+//	@Success	200		{object}	api.SpaceInfo	"Accepted and loaded"
+//	@Success	202		{object}	api.SpaceInfo	"Accepted; load continues in background"
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invite/accept [post]
+func (d *deps) spaceInviteAccept(c echo.Context) error {
+	id := c.Param("spaceId")
+	sp, err := d.sdk.Spaces().AcceptInvite(c.Request().Context(), id)
+	if err == nil {
+		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
+	}
+	// spaceimpl.ErrInviteAcceptPending is internal-only; match the
+	// documented error string (same pragmatic pattern as spaceJoin).
+	if strings.Contains(err.Error(), "invite accepted; space load pending") {
+		infos, lErr := d.sdk.Spaces().List(c.Request().Context())
+		if lErr == nil {
+			for _, info := range infos {
+				if info.Id == id {
+					return c.JSON(http.StatusAccepted, spaceInfoToAPI(info))
+				}
+			}
+		}
+		return c.JSON(http.StatusAccepted, api.SpaceInfo{
+			Id:     id,
+			Status: api.SpaceStatusActive,
+		})
+	}
+	return inviteStateError(c, err, id)
+}
+
+// spaceInviteDecline handles POST /v1/spaces/:spaceId/invite/decline —
+// Service.DeclineInvite. Rejects a direct-add invite: a synced sticky
+// marker suppresses it on every device; a later accept overrides it. No
+// ACL change happens — the account stays a member on the space's ACL.
+//
+//	@Summary	Decline a direct-add invite
+//	@Tags		spaces
+//	@Param		spaceId	path	string	true	"Space ID (from an invite_pending row)"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/invite/decline [post]
+func (d *deps) spaceInviteDecline(c echo.Context) error {
+	id := c.Param("spaceId")
+	if err := d.sdk.Spaces().DeclineInvite(c.Request().Context(), id); err != nil {
+		return inviteStateError(c, err, id)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// inviteStateError maps the AcceptInvite / DeclineInvite family of SDK
+// errors to the canonical envelope, string-matching the documented
+// messages until the SDK exports errors.Is-able sentinels.
+func inviteStateError(c echo.Context, err error, spaceID string) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "unknown space"):
+		return writeError(c, http.StatusNotFound, "space.not_found",
+			"space not found", map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "is a 1-1 space"):
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"this is a 1-1 space — use the one-to-one accept/decline endpoints",
+			map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "not invite-pending"):
+		return writeError(c, http.StatusConflict, "space.not_invite_pending",
+			"space is not awaiting invite approval", map[string]any{"spaceId": spaceID})
+	case strings.Contains(msg, "is deleted"):
+		return writeError(c, http.StatusConflict, "space.deleted",
+			"space is deleted", map[string]any{"spaceId": spaceID})
+	default:
+		return spaceError(c, err, spaceID)
+	}
 }
 
 // oneToOneError maps the OneToOne / RegisterIncoming family of SDK errors
@@ -502,11 +613,20 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 }
 
 // spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates
-// SpaceIndexObjectId from the resident space handle so single-space
-// responses always carry it.
-func spaceToAPI(sp space.Space) api.SpaceInfo {
+// SpaceIndexObjectId from the resident space handle, plus
+// GeneralChatObjectId by deriving (materializing on first sight) the
+// space's single general chat, so single-space responses always carry
+// both. This is the one place every single-space path (create / get /
+// one-to-one / join) funnels through, so it's where "every space has a
+// chat" is enforced. Derive is best-effort: on failure the field is
+// omitted rather than failing the whole response (mirrors the list
+// path's tolerance for a missing SpaceIndexObjectId).
+func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out := spaceInfoToAPI(sp.Info())
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
+	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
+		out.GeneralChatObjectId = id
+	}
 	return out
 }
 
@@ -526,6 +646,10 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusOneToOnePending
 	case space.StatusOneToOneDeclined:
 		return api.SpaceStatusOneToOneDeclined
+	case space.StatusInvitePending:
+		return api.SpaceStatusInvitePending
+	case space.StatusInviteDeclined:
+		return api.SpaceStatusInviteDeclined
 	default:
 		return api.SpaceStatusUnknown
 	}

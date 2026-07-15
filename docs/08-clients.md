@@ -64,7 +64,7 @@ bind at create for now.)
   Each entry is a `PropertyDef` (`kind`, `required`, nested `items` /
   `properties`). Validate kind and required-ness before writing. Don't rely
   on the server to reject a mismatch today — the SDK-level guards
-  (`property.kind_mismatch`, `property.immutable_field`) are not wired into
+  (`property.kind_mismatch`, `property.immutable`) are not wired into
   the v1 write path, so a malformed write succeeds now and bites later.
 
 ## 3. Reads go through query / subscribe
@@ -107,6 +107,15 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   back as `id`, no compute operators). See `14-aggregation.md`.
 
 ## 4. Chat: newest-first reads and backward pagination
+
+**Where `<chatObjectId>` comes from:** for "the chat of this space" —
+the common case — read `generalChatObjectId` off any single-space
+response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
+replies). It's derived deterministically per space and identical on
+every peer, so all clients share one chat instead of each creating
+their own. Only `POST /objects` a fresh chat object when you
+deliberately want an *additional*, purpose-specific one. Full guidance:
+`16-chat.md` § Finding the chat object.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -284,7 +293,10 @@ POST /v1/spaces/one-to-one
 
 The reply's `spaceType` is `"anytype.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
-but classify on `spaceType`).
+but classify on `spaceType`). The same reply carries
+`generalChatObjectId` — the message thread of the 1-1. Both peers derive
+the identical id, so neither creates a chat object: write and subscribe
+there directly (§ 4).
 
 **Discover incoming requests** — when someone reaches out to you, a
 *pending* row appears (surfaced automatically by the server's inbox
@@ -432,6 +444,12 @@ with names) or live from `POST …/objects/:objId/files/query/subscribe`
 (cleartext rows — join names from a `GET /files` pass). The query path
 404s (`file.not_found`) until the object's first attach — treat that
 as an empty list, not an error.
+
+**Deleting.** `DELETE …/files/:fileId` removes the file for every
+member and cascades to its variants; a live files/query window sees
+the row as a `removed`. It is not idempotent — an already-deleted id
+404s, which a UI retry should treat as success. Local bytes are
+reclaimed by cache GC, not synchronously (`17-files.md` § Delete).
 
 ## 10. Live-surface budget: subscribe to views, not data
 

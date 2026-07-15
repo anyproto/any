@@ -19,6 +19,7 @@ type Config struct {
 	Network Network       `yaml:"network"`
 	Storage Storage       `yaml:"storage"`
 	Sync    Sync          `yaml:"sync"`
+	P2P     P2P           `yaml:"p2p"`
 	Index   Index         `yaml:"index"`
 	Files   Files         `yaml:"files"`
 	Log     logger.Config `yaml:"log"`
@@ -62,6 +63,22 @@ type Files struct {
 	// default — means NO automatic sweep: reclamation is caller-driven
 	// via POST /v1/files/cache/{free,sweep} and per-file offload.
 	GCInterval string `yaml:"gcInterval"`
+}
+
+// P2P controls local-network discovery and sync (mDNS + QUIC between
+// devices on the same LAN). Enabled by default; spaces shared with a
+// discovered peer sync directly, including while sync nodes are
+// unreachable. Surfaced in `any sync-status` (p2p / localPeers) and
+// `any debug p2p`.
+type P2P struct {
+	// Enabled is an opt-out: absent/null = on.
+	Enabled *bool `yaml:"enabled"`
+	// Port fixes the QUIC listen port. 0 (default) = reuse the port
+	// persisted from the previous run, or pick an ephemeral one.
+	Port int `yaml:"port"`
+	// ServiceName overrides the mDNS service type (default "_any._tcp").
+	// Set it to isolate a deployment onto its own discovery namespace.
+	ServiceName string `yaml:"serviceName"`
 }
 
 // Index configures the local search indexer (FTS + vector, see

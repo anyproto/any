@@ -384,6 +384,31 @@ func (d *deps) fileOffload(c echo.Context) error {
 	})
 }
 
+// fileDelete handles DELETE /v1/spaces/:spaceId/files/:fileId.
+//
+// Removes the file: the payload row — and the variant rows attached to
+// it — is deleted in one synced change (every member sees the file
+// disappear), pending background work is cancelled, and the local
+// bytes' ref is released so cache GC reclaims them. The network copy
+// is not reclaimed here (fileprotov2 has no delete RPC yet); the
+// broker's row-driven accounting stops counting the rows once the
+// deletion syncs. 404 file.not_found for an unknown (or already
+// deleted) fileId.
+//
+//	@Summary	Delete a file
+//	@Tags		files
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		fileId	path	string	true	"File ID"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/files/{fileId} [delete]
+func (d *deps) fileDelete(c echo.Context) error {
+	return d.fileAction(c, func(f space.Files, ctx context.Context, fileId string) error {
+		return f.Delete(ctx, fileId)
+	})
+}
+
 // fileAction is the shared shape of the 204 per-file verbs.
 func (d *deps) fileAction(c echo.Context, op func(space.Files, context.Context, string) error) error {
 	sp, fileId, errResp, done := d.resolveSpaceFile(c)

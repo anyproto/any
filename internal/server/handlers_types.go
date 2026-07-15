@@ -139,6 +139,11 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		Scope:       scope,
 	})
 	if err != nil {
+		if errors.Is(err, space.ErrTypeRegistered) {
+			return writeError(c, http.StatusBadRequest, "type.registered",
+				"type is a registered built-in; its properties are statically declared",
+				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
@@ -244,6 +249,125 @@ func (d *deps) typeProperties(c echo.Context) error {
 		out = append(out, propertyDefToAPI(p))
 	}
 	return c.JSON(http.StatusOK, api.PropertiesListResponse{Properties: out})
+}
+
+// typePatchProperty handles PATCH /v1/spaces/:spaceId/types/:typeId/properties/:propId.
+// It wraps TypesAPI.PatchProperty — a generic per-path patch covering
+// rename (#1) and select/multiselect option CRUD + colors + order
+// (#3/#5). Body: {set: {"dotted.path": value}, unset: ["dotted.path"]}.
+// Pinned paths (kind/scope/items/properties, the whole format object,
+// format.type) return 400 property.immutable.
+//
+//	@Summary	Patch a property definition (rename, options, colors, order)
+//	@Tags		types
+//	@Accept		json
+//	@Param		spaceId	path	string						true	"Space ID"
+//	@Param		typeId	path	string						true	"Type ID"
+//	@Param		propId	path	string						true	"Property ID"
+//	@Param		body	body	api.PropertyPatchRequest	true	"set/unset paths"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/properties/{propId} [patch]
+func (d *deps) typePatchProperty(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	propId := c.Param("propId")
+	if typeId == "" || propId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
+	}
+
+	var req api.PropertyPatchRequest
+	if err := c.Bind(&req); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}
+	if len(req.Set) == 0 && len(req.Unset) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"at least one of set/unset is required", nil)
+	}
+
+	patch := space.PropertyPatch{}
+	if len(req.Set) > 0 {
+		patch.Set = make(map[string]any, len(req.Set))
+	}
+	for path, raw := range req.Set {
+		storagePath, code, reason := patchPathToStorage(path, true)
+		if code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+		}
+		val, vcode, reason := patchSetValue(storagePath, raw)
+		if vcode != "" {
+			return writeError(c, http.StatusBadRequest, vcode, reason, map[string]any{"path": path})
+		}
+		patch.Set[storagePath] = val
+	}
+	for _, path := range req.Unset {
+		storagePath, code, reason := patchPathToStorage(path, false)
+		if code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+		}
+		patch.Unset = append(patch.Unset, storagePath)
+	}
+
+	if err := sp.Types().PatchProperty(c.Request().Context(), typeId, propId, patch); err != nil {
+		return d.propertyWriteError(c, err, typeId, propId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// propertyWriteError maps the shared client-error sentinels from
+// PatchProperty / RemoveProperty onto clean 4xx envelopes (never a 500
+// leaking the SDK's internal "typesAPI:" message).
+func (d *deps) propertyWriteError(c echo.Context, err error, typeId, propId string) error {
+	details := map[string]any{"typeId": typeId, "propId": propId}
+	switch {
+	case errors.Is(err, space.ErrNotFound):
+		return writeError(c, http.StatusNotFound, "sdk.not_found", "type or property not found", details)
+	case errors.Is(err, space.ErrPinnedField):
+		return writeError(c, http.StatusBadRequest, "property.immutable", "a patched path is immutable", details)
+	case errors.Is(err, space.ErrPropertyNoFormat):
+		return writeError(c, http.StatusBadRequest, "property.format_invalid",
+			"property has no format; format.* paths require a format declared at creation", details)
+	case errors.Is(err, space.ErrTypeRegistered):
+		return writeError(c, http.StatusBadRequest, "type.registered",
+			"type is a registered built-in; its properties are statically declared", details)
+	default:
+		return sdkOpError(c, err, details)
+	}
+}
+
+// typeRemoveProperty handles DELETE /v1/spaces/:spaceId/types/:typeId/properties/:propId.
+// It wraps TypesAPI.RemoveProperty — a synced tombstone of the property
+// definition. Existing instance values are not cleaned up (dangling-
+// tolerant). Unknown/already-removed propId → 404.
+//
+//	@Summary	Remove a property definition
+//	@Tags		types
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		typeId	path	string	true	"Type ID"
+//	@Param		propId	path	string	true	"Property ID"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/properties/{propId} [delete]
+func (d *deps) typeRemoveProperty(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	propId := c.Param("propId")
+	if typeId == "" || propId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
+	}
+	if err := sp.Types().RemoveProperty(c.Request().Context(), typeId, propId); err != nil {
+		return d.propertyWriteError(c, err, typeId, propId)
+	}
+	return c.NoContent(http.StatusNoContent)
 }
 
 func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {

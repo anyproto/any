@@ -444,8 +444,6 @@ func TestE2E_FullFlow(t *testing.T) {
 		cases := []struct{ method, path string }{
 			{http.MethodPost, "/v1/spaces/derive"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
-			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
-			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
 		for _, tc := range cases {
@@ -693,6 +691,15 @@ func startServerConf(t *testing.T, bin, addr, dataDir string, withInit bool, nod
 		}
 	}
 
+	return execServer(t, bin, cfgPath, dataDir, addr)
+}
+
+// execServer starts `any run` against an existing config.yaml. Split
+// from startServerInit so tests that need a NON-staging config (e.g.
+// the offline p2p cold-restore test) can write their own and still
+// share the process plumbing.
+func execServer(t *testing.T, bin, cfgPath, dataDir, addr string) *runningServer {
+	t.Helper()
 	cmd := exec.Command(bin, "run", "--config", cfgPath, "--data-dir", dataDir, "--addr", addr)
 	// Inherit env but force ANY_DATA_DIR so the binary never picks up the
 	// developer's home dir.

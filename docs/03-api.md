@@ -259,6 +259,8 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/one-to-one/register-incoming` | `Service.RegisterIncoming` — out-of-band incoming |
 | POST   | `/v1/spaces/:spaceId/one-to-one/accept`   | `Service.AcceptOneToOne`            |
 | POST   | `/v1/spaces/:spaceId/one-to-one/decline`  | `Service.DeclineOneToOne`           |
+| POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
+| POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
@@ -297,6 +299,13 @@ on this id to live-update name / description / icon. Single-space responses
 always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
+
+`SpaceInfo` also carries `generalChatObjectId`: the deterministic id of
+the space's single general chat object (see § Chat → General chat).
+Same single-space-only surfacing as `spaceIndexObjectId` — populated on
+create / get / one-to-one / join responses (deriving, i.e.
+materializing, the chat on first sight), omitted on `GET /v1/spaces`
+list rows so listing stays a cheap read.
 
 `SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
@@ -375,6 +384,45 @@ dataset for a live view.
 offload to the account's other devices, but never removes it from the
 nodes — a later `POST /v1/spaces/one-to-one` re-derives and re-materializes
 it from scratch.
+
+#### Direct-add invites (added to a space by identity)
+
+The counterpart of `POST /v1/spaces/:spaceId/acl/add`: when another
+account adds this account to a regular space **by identity** (one ACL
+record per batch — the SDK notifies every added account through the
+coordinator inbox, durably retried), the space surfaces here as a
+**synced** pending row. The account is already a full ACL member; like
+the 1-1 gate, approval only governs whether the space is materialized —
+nothing is downloaded until accepted. Authoritative SDK contract:
+`any-sync-sdk/docs/15-direct-add-invites.md`.
+
+```
+POST /v1/spaces/:spaceId/invite/accept    → 200 SpaceInfo | 202 SpaceInfo
+POST /v1/spaces/:spaceId/invite/decline   → 204
+```
+
+- **Incoming → pending.** The SDK's inbox notifier registers the row
+  autonomously with `status:"invite_pending"` — synced account-wide
+  (unlike the device-local 1-1 pending), carrying the sender-supplied
+  name hint until the real metadata syncs after accept. Discover via
+  `GET /v1/spaces?status=invite_pending` — no bespoke endpoint,
+  mirroring the 1-1 pattern.
+- **Accept** — `POST /v1/spaces/:spaceId/invite/accept`
+  (`Service.AcceptInvite`). Flips the synced status to active (every
+  device converges) and loads the space. `200` with the loaded
+  `SpaceInfo` when content is pullable now; `202` when the accept is
+  recorded but loading continues in the background (crash-safe — poll
+  `GET /v1/spaces/:spaceId` for the flip). Idempotent; also overrides a
+  prior decline. `404 space.not_found` for unknown ids,
+  `409 space.not_invite_pending` when the row isn't awaiting approval,
+  `400 request.invalid_field` for 1-1 rows (use the one-to-one
+  endpoints).
+- **Decline** — `POST /v1/spaces/:spaceId/invite/decline`
+  (`Service.DeclineInvite`). Writes a **synced sticky, non-terminal**
+  marker (`status:"invite_declined"`) suppressing the invite on every
+  device; a later accept overrides it. **No ACL change** — the account
+  remains a member on the space's ACL (self-remove is a follow-up).
+  Returns 204.
 
 #### Query / subscribe the space list
 
@@ -992,7 +1040,7 @@ they want at-least-once semantics across reconnects.
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
-| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.PatchProperty` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -1027,15 +1075,25 @@ property's value convention beyond its structural kind:
 ```
 
 - `format.type` — `links` (array of `any://<objectId>` URI strings),
-  `date` (`2006-01-02` string), `datetime` (RFC 3339 string). `tags` is
-  reserved until the space-level tag table lands. Pinned for the
-  property's life and coupled to `kind` (`links` ⇒ `array`,
-  `date`/`datetime` ⇒ `string`); **`kind` may be omitted** when a format
-  is set — it defaults from the format type.
+  `date` (`2006-01-02` string), `datetime` (RFC 3339 string), `select`
+  (a single option key — string), `multiselect` (an array of option
+  keys). `tags` is reserved until the space-level tag table lands.
+  Pinned for the property's life and coupled to `kind` (`links` /
+  `multiselect` ⇒ `array`, `date`/`datetime`/`select` ⇒ `string`);
+  **`kind` may be omitted** when a format is set — it defaults from the
+  format type.
 - `format.ui` — presentation hint: `select` / `multiselect` / `link` /
   `links`. `date`/`datetime` take no ui.
 - `format.filter` — mongo-style condition over candidate objects
   (`links` only); must parse as a query condition.
+- `format.options` — the enumerated choice set for `select` /
+  `multiselect`, a map keyed by each option's **stable key** (the key IS
+  the value a select/multiselect value stores). Each entry is
+  `{name, color, pos, meta?}` (all strings; `pos` is a lexid display-
+  order key). Usually populated via PATCH (below), not at create.
+  Membership is **not** enforced on value writes (an option may be
+  deleted while values still reference its key — dangling-tolerant).
+- `format.meta` — an opaque format-level string→string config bag.
 
 The SDK stores formats opaquely (structure-only checks); **this server
 is the semantics boundary**. Definition-time violations → `400
@@ -1061,6 +1119,51 @@ parameter: `/set/:typeId` auto-routes by the declared scope (below).
 ```json
 { "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
 ```
+
+**`PATCH …/properties/:propId`** — a generic per-path patch to a property
+definition (`TypesAPI.PatchProperty`). This is the write half of a
+property rename and of select/multiselect option CRUD (create / rename /
+recolor / reorder / delete an option). Body:
+
+```json
+{ "set":   { "format.options.high.name": "High",
+             "format.options.high.color": "red",
+             "format.options.high.pos": "a0" },
+  "unset": [ "format.options.low" ] }
+```
+
+`set` maps a dotted path to its new value; `unset` lists dotted paths to
+remove (naming a whole option key, e.g. `format.options.high`, deletes
+that option). Every value is a JSON **string** except `format.filter`
+(a condition object stored as its JSON text). All ops apply in one CRDT
+change (atomic); each leaf merges per-path, so concurrent edits to
+different options/leaves converge. Deleting then re-adding the same
+option key works (it's a field unset, not a record tombstone).
+
+Mutable paths: `name`, `description`, `xKey`, `xKind`, `meta.<k>`,
+`format.ui`, `format.filter`, `format.meta.<k>`,
+`format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>`.
+A **`set`** must target a scalar leaf; a bare container
+(`meta`, `format.meta`, `format.options`, `format.options.<key>`) is
+rejected on `set` (it would clobber the whole map) but may be **`unset`**
+to clear it (e.g. unset `format.options.<key>` deletes an option).
+Pinned paths (`kind`, `scope`, `items`, `properties`, the whole `format`
+object, `format.type`) → `400 property.immutable`; an unknown/malformed
+path or a non-string value on a non-format leaf → `400
+request.invalid_field`; a format-specific value error (unknown
+`format.ui`, unparseable `format.filter`, `format.*` on a format-less
+property) → `400 property.format_invalid`. PATCH/DELETE on a registered
+built-in type → `400 type.registered`. Returns `204`; `404 sdk.not_found`
+for an unknown type/propId. At least one `set`/`unset` entry is required.
+
+Examples: rename `{ "set": { "name": "Priority" } }`; recolor
+`{ "set": { "format.options.high.color": "blue" } }`; delete an option
+`{ "unset": [ "format.options.high" ] }`.
+
+**`DELETE …/properties/:propId`** (`TypesAPI.RemoveProperty`) tombstones
+the definition and returns `204`. Existing instance values are **not**
+cleaned up — subsequent writes to that propId are dropped op-by-op
+(dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
 
 ### Properties (values on objects)
 
@@ -1093,6 +1196,23 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 
+**General chat.** Every space has one deterministic "general" chat
+object, derived from a fixed seed (`chat.GeneralChatSeed`,
+`any/general-chat/v1`) — the same objects/derive primitive the brain
+(`/agent/brain`) uses. There is no bespoke resolver endpoint: the id is
+delivered as `generalChatObjectId` on every single-space `SpaceInfo`
+response (create / get / one-to-one / join) — the same common point
+that carries `spaceIndexObjectId` (§ Spaces). The first single-space
+response materializes the object (the `chat` type is attached then, so
+the id accepts `chat/messages` writes immediately); it is omitted from
+`GET /v1/spaces` list rows, which stay a cheap read that never
+materializes chats. Clients should write and read this shared chat
+instead of creating their own chat object per client — otherwise a
+space accumulates two or three parallel chats depending on which client
+spoke first, most visibly in 1-1 direct spaces. Deterministic
+derivation means a joiner computes the same id the creator did, so the
+locally derived object and the CRDT-replicated one converge.
+
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the
 whole chat. Both return `204`, are idempotent and forward-only (no
@@ -1100,7 +1220,8 @@ mark-unread), work offline, and sync across the account's devices.
 Read state is private — no read receipts. The SDK materializes
 per-message `unread` / `unreadMention` / `unreadReactions` flags
 (filterable) and per-chat `unreadCount` / `unreadMentions` /
-`unreadReactionsCount` row properties. When to call what — including
+`unreadReactionsCount` row properties (nested under the type
+container on the row: `chat.unreadCount`). When to call what — including
 the viewport rule and the unread divider — is covered in
 `16-chat.md`.
 
@@ -1324,6 +1445,7 @@ non-JSON bodies in the API. Everything else is the usual JSON.
 | POST   | `/v1/spaces/:spaceId/files/:fileId/pin`                       | schedule a full background fetch → 204 |
 | POST   | `/v1/spaces/:spaceId/files/:fileId/retry`                     | make pending background work due now → 204 |
 | POST   | `/v1/spaces/:spaceId/files/:fileId/offload`                   | drop local bytes (keep the file) → 204 |
+| DELETE | `/v1/spaces/:spaceId/files/:fileId`                           | delete the file for every member → 204 |
 | GET    | `/v1/files/cache`                                             | local cache size, all spaces |
 | POST   | `/v1/files/cache/free`                                        | LRU-reclaim `{bytes}` → `{freed}` |
 | POST   | `/v1/files/cache/sweep`                                       | one manual safety sweep → 204 |
@@ -1588,6 +1710,8 @@ object catalog.
   "synced":       1,
   "total":        3,
   "networkPeers": 0,
+  "localPeers":   1,
+  "p2p":          "connected",
   "lastSyncedAt": "0001-01-01T00:00:00Z" }
 
 // GET /v1/spaces/:spaceId/sync-status/objects/:objectId
@@ -1595,6 +1719,14 @@ object catalog.
   "state":      "synced",
   "lastSyncAt": "2026-05-15T12:00:00Z" }
 ```
+
+`networkPeers` counts responsible sync nodes with a live connection;
+`localPeers` counts local-network (LAN) peers sharing this space that
+are connected right now. `p2p` summarizes the local-network state:
+`unknown` / `notpossible` (disabled or no usable interface) /
+`notconnected` / `connected` / `restricted` (OS denied local-network
+access). A space can be `synced` with `networkPeers: 0` when it
+converged entirely over the LAN.
 
 The two `/subscribe` endpoints are SSE streams. Wire shape and
 lifecycle are documented in `04-events.md` § Sync-status streams —
@@ -1628,11 +1760,38 @@ sit outside the space group like `/sync-status/subscribe`.
 |--------|------------------------------------------------------|----------------------------------------|
 | GET    | `/v1/spaces/:spaceId/debug`                          | `Space.Debug().Space()`                |
 | GET    | `/v1/spaces/:spaceId/debug/objects/:objectId`        | `Space.Debug().Object`                 |
+| GET    | `/v1/debug/p2p`                                       | `SDK.P2PStatus()` — account-wide local-network snapshot |
 
 **Diagnostic only — not a stable interface.** The SDK's `DebugAPI` is
 explicitly tagged as "fields and methods may grow or move"; this
 mirror inherits the same churn. Production UI should use
 `/sync-status` instead (501 until the SDK lands it).
+
+`GET /v1/debug/p2p` returns the account-wide local-network layer: this
+device's own peer id, listener state, discovery possibility, and every
+discovered LAN peer with the spaces it shares with this account and
+whether a connection is live. Account-scoped (no `:spaceId`), so it
+sits outside the space group. `spaceIds` is the SHARED set only — the
+space exchange proves membership per space and reveals nothing else, so
+a stranger on the LAN shows up (if it runs any-sync p2p) with an empty
+list. A freshly joined space appears once the joiner's ACL read key
+has synced in — normally within seconds of the join being approved.
+
+```json
+{
+  "peerId":          "12D3Koo…",
+  "enabled":         true,
+  "listenerStarted": true,
+  "port":            56187,
+  "possibility":     "possible",
+  "state":           "connected",
+  "peers": [
+    { "peerId":    "12D3Koo…",
+      "spaceIds":  ["spc_…"],
+      "connected": true }
+  ]
+}
+```
 
 `GET /v1/spaces/:spaceId/debug` returns the per-space outbound
 headsync counters since boot (in-memory; resets on every server

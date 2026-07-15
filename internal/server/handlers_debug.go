@@ -51,6 +51,36 @@ func (d *deps) debugObject(c echo.Context) error {
 	return c.JSON(http.StatusOK, objectDebugToAPI(snap))
 }
 
+// @Summary	Local-network (p2p) layer snapshot (diagnostic, unstable)
+// @Tags		debug
+// @Produce	json
+// @Success	200	{object}	api.P2PStatusResponse
+// @Router		/debug/p2p [get]
+func (d *deps) debugP2P(c echo.Context) error {
+	st := d.sdk.P2PStatus()
+	peers := make([]api.P2PPeerStatus, 0, len(st.Peers))
+	for _, p := range st.Peers {
+		spaceIds := p.SpaceIds
+		if spaceIds == nil {
+			spaceIds = []string{}
+		}
+		peers = append(peers, api.P2PPeerStatus{
+			PeerId:    p.PeerId,
+			SpaceIds:  spaceIds,
+			Connected: p.Connected,
+		})
+	}
+	return c.JSON(http.StatusOK, api.P2PStatusResponse{
+		PeerId:          st.PeerId,
+		Enabled:         st.Enabled,
+		ListenerStarted: st.ListenerStarted,
+		Port:            st.Port,
+		Possibility:     st.Possibility.String(),
+		State:           st.State.String(),
+		Peers:           peers,
+	})
+}
+
 func spaceDebugToAPI(s space.SpaceDebug) api.SpaceDebugResponse {
 	peers := make([]api.PeerSyncStats, 0, len(s.Peers))
 	for _, p := range s.Peers {

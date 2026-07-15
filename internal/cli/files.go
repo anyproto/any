@@ -34,6 +34,7 @@ func newFileCmd() *cobra.Command {
 		newFilePinCmd(),
 		newFileRetryCmd(),
 		newFileOffloadCmd(),
+		newFileDeleteCmd(),
 		newFileQueryCmd(),
 		newFileQuerySubscribeCmd(),
 		newFileCacheCmd(),
@@ -273,6 +274,28 @@ func newFileOffloadCmd() *cobra.Command {
 			return cl.FileOffload(cmd.Context(), args[0], args[1])
 		},
 	}
+}
+
+// newFileDeleteCmd: `any file delete <spaceId> <fileId> --yes` — the
+// deletion syncs to every member (and cascades to the file's variants),
+// so like `any space delete` it refuses to run without the explicit
+// confirmation flag.
+func newFileDeleteCmd() *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "delete <spaceId> <fileId>",
+		Short: "delete a file for every member (irreversible; requires --yes)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible and syncs to every member)", args[1])
+			}
+			cl := client.New(flags.Addr, flags.Timeout)
+			return cl.FileDelete(cmd.Context(), args[0], args[1])
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the irreversible delete")
+	return cmd
 }
 
 func newFileQueryCmd() *cobra.Command {

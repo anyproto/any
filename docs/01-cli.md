@@ -206,6 +206,11 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
+The `<objectId>` for a space's shared general chat is the
+`generalChatObjectId` field of `any space get <spaceId>` — use it
+instead of creating a chat object per client. See `docs/03-api.md`
+§ Chat → General chat.
+
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
 delete only work on your own messages (server returns 403 otherwise).
@@ -235,6 +240,7 @@ any file subscribe <spaceId>
 any file pin      <spaceId> <fileId>
 any file retry    <spaceId> <fileId>
 any file offload  <spaceId> <fileId>
+any file delete   <spaceId> <fileId> --yes
 any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total]
 any file query-subscribe <spaceId> <objectId> [same flags]
 any file cache size | free <bytes> | sweep
@@ -247,7 +253,9 @@ background work; watch `any file subscribe` for the `inflight →
 durable` flip. `download` writes raw bytes to stdout by default (pipe
 them) or to `-o PATH` with a small JSON receipt — the two deliberate
 non-JSON outputs in the CLI. `offload` exits non-zero with
-`file.not_durable` while the local bytes are the only copy. `query` /
+`file.not_durable` while the local bytes are the only copy. `delete`
+removes the file for every member (variants cascade with their
+original) and refuses to run without `--yes`. `query` /
 `query-subscribe` read the cleartext payload rows (docs/17-files.md
 § Reads). See `docs/17-files.md` for the model.
 
@@ -270,18 +278,39 @@ any subscribe $SPID $OBJID --dataset objects \
 `--timeout` does not apply (streams are long-lived). Cancel with
 Ctrl-C. See `04-events.md` for the contract.
 
-### Types & properties (planned)
+### Types & properties
 
 ```
-any type list <spaceId>
-any type create <spaceId> --name "..." [--description "..."]
-any type delete <spaceId> <typeId>
-any type show <spaceId> <typeId>
+any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-cid ...]
+any type list   <spaceId>
 
-any type add-property    <spaceId> <typeId> --name ... --xkey ... --kind string|number|boolean|null|array|object [--items kind]
-any type remove-property <spaceId> <typeId> <propId>
-any type update-property <spaceId> <typeId> <propId> [--name ...] [--description ...] [--xkey ...] [--xkind ...]
+any type property list   <spaceId> <typeId>
+any type property add    <spaceId> <typeId> --name ... [--xkey ...] [--kind ...]
+                         [--format-type links|date|datetime|select|multiselect] [--format-ui ...] [--scope ...]
+any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset <path> ...]
+any type property remove <spaceId> <typeId> <propId>
 
+# option convenience (sugar over `property patch`):
+any type property option set    <spaceId> <typeId> <propId> <key> [--name ...] [--color ...] [--pos ...]
+any type property option delete <spaceId> <typeId> <propId> <key>
+```
+
+`property patch` is the generic `{set, unset}` write covering rename and
+select/multiselect option CRUD (see `03-api.md` § Types). `--set` is a
+JSON map of dotted path → value; `--unset` is a repeatable dotted path.
+Examples:
+
+```
+any type property patch S T P --set '{"name":"Priority"}'
+any type property patch S T P --set '{"format.options.high.name":"High","format.options.high.color":"red","format.options.high.pos":"a0"}'
+any type property patch S T P --unset format.options.high
+any type property option set S T P high --name High --color red --pos a0
+```
+
+Property **value** read/write stays under `any properties …` (values on
+objects), distinct from `any type property …` (the type's definitions):
+
+```
 any properties get         <spaceId> <objectId>
 any properties set         <spaceId> <objectId> <typeId> --patch FILE|-
 any properties attach      <spaceId> <objectId> <typeId>
@@ -300,6 +329,9 @@ any invite create     <spaceId> [--permissions writer|reader]
 any invite list       <spaceId>
 any invite revoke     <spaceId> <recordId>
 any invite revoke-all <spaceId>
+any invite pending                       # direct-add invites awaiting approval
+any invite accept     <spaceId>          # accept a direct-add invite (loads the space)
+any invite decline    <spaceId>          # decline (sticky; accept later overrides)
 
 any join <invite>
 
@@ -307,12 +339,20 @@ any acl accept       <spaceId>
 any acl decline      <spaceId>
 any acl grant        <spaceId> <identity> <permission>
 any acl remove       <spaceId> <identity>...
-any acl add          <spaceId> <identity> <permission>
+any acl add          <spaceId> <identity>[,<identity>...] <permission>
 any acl ownership    <spaceId>
 any acl self-remove  <spaceId>
 any acl cancel-join  <spaceId>
 any acl stop-sharing <spaceId>
 ```
+
+`any acl add` adds accounts **by identity** — the whole comma-separated
+batch lands in one ACL record, and each added account is notified through
+the coordinator inbox (durable, retried): on their side the space shows
+up as an `invite_pending` row (`any invite pending`), which they resolve
+with `any invite accept` / `any invite decline`. Decline is synced +
+sticky account-wide but non-terminal — a later accept overrides it; the
+declined account stays on the ACL (no self-remove in v1).
 
 ### Sync status
 

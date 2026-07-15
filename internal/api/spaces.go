@@ -41,6 +41,15 @@ type SpaceRegisterIncomingRequest struct {
 // clients that want to attach a subscribe stream for live metadata
 // updates. Omitted when the server can't resolve a Space handle for
 // this row (e.g. tombstoned entries in `GET /v1/spaces`).
+//
+// GeneralChatObjectId is the deterministic id of the space's single
+// "general" chat object (see chat.GeneralChatSeed). Populated —
+// materializing the object on first sight — on single-space responses
+// (create / get / one-to-one / join); omitted on the `GET /v1/spaces`
+// list rows, which stay a cheap read that never materializes chats.
+// Clients should write to and read this chat rather than creating
+// their own, so a space keeps exactly one chat.
+//
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
 // "anytype.onetoone", regular spaces "anytype.space". Use it to filter
@@ -48,17 +57,18 @@ type SpaceRegisterIncomingRequest struct {
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
 type SpaceInfo struct {
-	Id                 string    `json:"id"`
-	Type               string    `json:"type,omitempty"`
-	SpaceType          string    `json:"spaceType,omitempty"`
-	Author             string    `json:"author,omitempty"`
-	Name               string    `json:"name,omitempty"`
-	Description        string    `json:"description,omitempty"`
-	IconCID            string    `json:"iconCid,omitempty"`
-	Status             string    `json:"status"`
-	OwnRole            string    `json:"ownRole"`
-	CreatedAt          time.Time `json:"createdAt"`
-	SpaceIndexObjectId string    `json:"spaceIndexObjectId,omitempty"`
+	Id                  string    `json:"id"`
+	Type                string    `json:"type,omitempty"`
+	SpaceType           string    `json:"spaceType,omitempty"`
+	Author              string    `json:"author,omitempty"`
+	Name                string    `json:"name,omitempty"`
+	Description         string    `json:"description,omitempty"`
+	IconCID             string    `json:"iconCid,omitempty"`
+	Status              string    `json:"status"`
+	OwnRole             string    `json:"ownRole"`
+	CreatedAt           time.Time `json:"createdAt"`
+	SpaceIndexObjectId  string    `json:"spaceIndexObjectId,omitempty"`
+	GeneralChatObjectId string    `json:"generalChatObjectId,omitempty"`
 }
 
 // SpaceUpdateRequest is the body of PATCH /v1/spaces/:spaceId. Pointer
@@ -97,6 +107,17 @@ const (
 	// account-wide sticky marker. Hidden from the default list like
 	// deleted; an explicit POST /v1/spaces/one-to-one overrides it.
 	SpaceStatusOneToOneDeclined = "one_to_one_declined"
+	// SpaceStatusInvitePending is a regular space another account added
+	// this account to directly (ACL add by identity). Already a full
+	// member; approval is a local gate — nothing is downloaded until
+	// accepted. Synced account-wide. Discover via
+	// GET /v1/spaces?status=invite_pending, then
+	// POST /v1/spaces/:spaceId/invite/accept or .../invite/decline.
+	SpaceStatusInvitePending = "invite_pending"
+	// SpaceStatusInviteDeclined is a direct-add invite the user declined
+	// — synced, sticky, non-terminal (accept overrides). Hidden from the
+	// default list like deleted.
+	SpaceStatusInviteDeclined = "invite_declined"
 )
 
 // Space permission string values for SpaceInfo.OwnRole. Mirror the
