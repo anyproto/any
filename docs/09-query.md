@@ -68,6 +68,10 @@ This is how amemory does category filtering server-side (categories live in a
 bare `tags` array; `getObjects("agent_memory", {filter:{"agent_memory.tags":{$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
 arg is the type xKey too, and the dotted filter key uses the xKey).
 
+There is deliberately **no `$contains`** — the scalar spelling above already is
+it. Reaching for one gets `400 filter.unknown_operator`, whose message lists the
+whole supported set (`details.operator` carries the token you sent).
+
 ### Two gotchas
 
 1. **Negation matches field-absent rows.** `$ne`, `$nin`, `$not`, and
