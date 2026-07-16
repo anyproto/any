@@ -256,5 +256,5 @@ citations, dataset records) always use the explicit-kind form.
 | Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — the sanctioned scanner, shared by server derivation and clients |
 | Links-format property-value validation | `internal/server/propformat.go` |
 | Backlinks reverse lookup | `internal/api/backlinks.go`, `internal/server/handlers_backlinks.go` |
-| Chat mentions derivation (server-parsed `mentions` field) | SYN-72 — see [docs/16-chat.md](16-chat.md) |
+| Chat mentions derivation (server-parsed `mentions` field) | `internal/chat/handler.go` (`deriveMentions`) — see [docs/16-chat.md](16-chat.md) § Mentions |
 | File links | [docs/17-files.md](17-files.md) |

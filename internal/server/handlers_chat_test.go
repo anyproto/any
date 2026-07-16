@@ -339,6 +339,7 @@ type chatMsg struct {
 	ReplyToMessageId string
 	Agent            *api.ChatAgentMeta
 	Text             string
+	Mentions         []string
 	Attachments      map[string]api.ChatAttachment
 	Reactions        map[string]map[string]int64
 }
@@ -440,6 +441,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		ReplyToMessageId string                        `json:"replyToMessageId"`
 		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
+		Mentions         []string                      `json:"mentions"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
 		Reactions        map[string]map[string]float64 `json:"reactions"`
 	}
@@ -465,6 +467,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		ReplyToMessageId: f.ReplyToMessageId,
 		Agent:            f.Agent,
 		Text:             f.Text,
+		Mentions:         f.Mentions,
 		Attachments:      f.Attachments,
 		Reactions:        reactions,
 	}

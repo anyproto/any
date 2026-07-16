@@ -28,10 +28,12 @@ type chatMsg struct {
 	ReplyToMessageId string
 	Agent            *api.ChatAgentMeta
 	Text             string
+	Mentions         []string
 	Reactions        map[string]map[string]int64
 	// SDK-materialized read-tracking flags (docs/16-chat.md). Absent
 	// on the wire once read, so false means "read".
 	Unread          bool
+	UnreadMention   bool
 	UnreadReactions bool
 }
 
@@ -139,8 +141,10 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		ReplyToMessageId string                        `json:"replyToMessageId"`
 		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
+		Mentions         []string                      `json:"mentions"`
 		Reactions        map[string]map[string]float64 `json:"reactions"`
 		Unread           bool                          `json:"unread"`
+		UnreadMention    bool                          `json:"unreadMention"`
 		UnreadReactions  bool                          `json:"unreadReactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
@@ -167,8 +171,10 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 		ReplyToMessageId: f.ReplyToMessageId,
 		Agent:            f.Agent,
 		Text:             f.Text,
+		Mentions:         f.Mentions,
 		Reactions:        reactions,
 		Unread:           f.Unread,
+		UnreadMention:    f.UnreadMention,
 		UnreadReactions:  f.UnreadReactions,
 	}
 }
