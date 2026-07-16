@@ -119,13 +119,20 @@ func TestServer_PropertyFormat(t *testing.T) {
 		body string
 		want int
 	}{
-		"valid links":         {`{"patch":{"` + relatedProp + `":["any://abc","any://def"]}}`, http.StatusOK},
+		"valid links":         {`{"patch":{"` + relatedProp + `":["any://objabc","any://objdef"]}}`, http.StatusOK},
 		"valid datetime":      {`{"patch":{"` + dueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusOK},
 		"bad datetime":        {`{"patch":{"` + dueProp + `":"tomorrow"}}`, http.StatusBadRequest},
 		"datetime non-string": {`{"patch":{"` + dueProp + `":12345}}`, http.StatusBadRequest},
-		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://abc"}}`, http.StatusBadRequest},
+		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://objabc"}}`, http.StatusBadRequest},
 		"links bad uri":       {`{"patch":{"` + relatedProp + `":["not-a-uri"]}}`, http.StatusBadRequest},
-		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space/obj"]}}`, http.StatusBadRequest},
+		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space1/objabc"]}}`, http.StatusBadRequest},
+		"links typed form":    {`{"patch":{"` + relatedProp + `":["any://o/space1/objabc"]}}`, http.StatusBadRequest},
+		// INTENTIONAL delta vs the pre-anyuri validator: a 1-4 char
+		// lowercase-alphanumeric first segment is the reserved kind-slug
+		// namespace (docs/19-links.md), so pathological short ids like
+		// "any://abc" — accepted before — now reject. Real object ids
+		// are ≥40-char base58; no stored value has this shape.
+		"links short id (kind namespace)": {`{"patch":{"` + relatedProp + `":["any://abc"]}}`, http.StatusBadRequest},
 	} {
 		rec = doJSON(t, e, http.MethodPost, setURL, tc.body)
 		if rec.Code != tc.want {
@@ -184,12 +191,12 @@ func TestPatchPathToStorage(t *testing.T) {
 		{"format.options.high.color", true, "format.options.high.color", ""},
 		{"format.options.high.meta.icon", true, "format.options.high.meta.icon", ""},
 		// Container paths: rejected on set, allowed on unset (clear).
-		{"format.options.high", true, "", "request.invalid_field"},  // whole option not settable
-		{"format.options.high", false, "format.options.high", ""},   // unset deletes the option
-		{"format.options", true, "", "request.invalid_field"},        // whole map not settable
-		{"format.options", false, "format.options", ""},              // unset clears all
-		{"meta", true, "", "request.invalid_field"},                  // whole meta bag not settable
-		{"meta", false, "meta", ""},                                  // unset clears the bag
+		{"format.options.high", true, "", "request.invalid_field"}, // whole option not settable
+		{"format.options.high", false, "format.options.high", ""},  // unset deletes the option
+		{"format.options", true, "", "request.invalid_field"},      // whole map not settable
+		{"format.options", false, "format.options", ""},            // unset clears all
+		{"meta", true, "", "request.invalid_field"},                // whole meta bag not settable
+		{"meta", false, "meta", ""},                                // unset clears the bag
 		{"format.meta", true, "", "request.invalid_field"},
 		{"format.meta", false, "format.meta", ""},
 		// Unknown option leaf.

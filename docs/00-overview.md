@@ -92,6 +92,7 @@ and both are deferred.
 ```
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
+├── anyuri/               PUBLIC: canonical any:// link grammar (19-links.md)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -106,7 +107,11 @@ any/
 └── docs/                 this directory
 ```
 
-Nothing is published as an external Go package.
+Nothing is published as an external Go package, with one deliberate
+exception: `anyuri/` (`github.com/anyproto/any/anyuri`) — the canonical
+`any://` link grammar. `any` owns the format, and clients/agents import
+the Build/Parse rule instead of reimplementing it (see
+[19-links.md](19-links.md)).
 
 ## Relationship to the SDK
 
