@@ -132,7 +132,12 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	// parses it as its port handshake + readiness gate.
 	fmt.Printf("LISTENING %s\n", boundAddr)
 	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()))
-	lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
+	// Gated by the same flag as the /ui route mount (routes.go), so the
+	// advertised URL never outlives the handler. Silent on headless
+	// (app-embedded) boots — IOS-116.
+	if deps.cfg.WebUI.Enabled {
+		lg.Info("web ui", zap.String("url", "http://"+boundAddr+"/ui"))
+	}
 
 	select {
 	case <-ctx.Done():

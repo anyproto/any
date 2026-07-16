@@ -671,7 +671,40 @@ Implementation slices landed:
     on every peer (derive → PutTree, never a remote fetch), the general
     chat cannot hit the joined-space "BuildTree: tree does not exist"
     mode (fixed separately by the SDK v0.1.6 bump).
-25. **Push notifications (SYN-47)** — heart-interoperable mobile chat
+25. **Version history** — read-only HTTP surface over the SDK's
+    `Space.History()` (`internal/server/handlers_history.go`,
+    `internal/api/history.go`; routes wired in `handlers_spaces.go`).
+    Four GETs under `/v1/spaces/:s/objects/:o/history`: bare (`ListChanges`
+    — filters dataset / recordId (requires dataset) / traceId / author,
+    `limit` default 50 capped 200, opaque `cursor`, `coalesce` +
+    `coalesceWindow` grouping consecutive same-author changes into one
+    entry keyed by the group's newest ChangeId), `/diff` (`Diff` — no
+    `base` = per-change effect diff against the version's DAG parents;
+    with `base` = cumulative `base..version`), `/:version` (`ViewAt` —
+    live records at that cut grouped by dataset, raw `/query` row shape)
+    and `/:version/datasets/:d/records/:r` (`RecordAt` — the chat-scale
+    fast path, no full-view materialization). Snapshot-only: **no
+    subscribe variant**. A **version is a ChangeId** — the CID every
+    write already returns as `changeId` — so it resolves on any peer;
+    "state at version X" is X's causal past, not a wall-clock cut, and
+    concurrent branches mean there's no total order (hence DAG order +
+    cursor, not a timestamp range). `timestamp` is the author's clock,
+    display-only — never sort or fence on it. Synced scope only: local /
+    account values never entered the DAG and are excluded from views.
+    Views are request-scoped (open → serialize → `Close()` inside the
+    handler; no long-lived view handles over HTTP in v1). Per the
+    layering rule the SDK owns structure and the server owns semantics:
+    param coupling, limit caps and error mapping live in `historyError`
+    — `ErrVersionNotFound` → `404 history.version_not_found`,
+    `ErrViewTooLarge` → `413 history.view_too_large` ("narrow the
+    scope"), `ErrHistoryTruncated` → `404 history.truncated`. The
+    `HistoryChange.Truncated` field is RESERVED (always false — the SDK
+    keeps full local history; it activates with the future
+    snapshot-horizon contract). Static `diff` registered before the
+    `:version` wildcard. No CLI surface yet. Contract: docs/03-api.md
+    § Version history, docs/06-errors.md, and the SDK's
+    `docs/version-history-proposal.md`.
+26. **Push notifications (SYN-47)** — heart-interoperable mobile chat
     push (same `anytype-push-server` deployment; topics, payload JSON,
     crypto byte-compatible — golden tests pin the wire shapes).
     Sender-pushes, E2E-encrypted: keys derived from ACL state inside
@@ -703,10 +736,10 @@ Implementation slices landed:
     space settings <id> --set/--set-bool/--set-num/--unset`. e2e:
     `internal/e2e/push_test.go`, gated on `ANY_PUSH_E2E_PEER_ID` /
     `ANY_PUSH_E2E_ADDRS` (never stands up the push server's
-    Redis/Mongo). **SDK prerequisite:** `pushclient` component +
-    tech-space `settings` subtree (`SDK.Push()` / `space.PushAPI`,
-    `Spaces().SetSettings`, `ErrPushNotConfigured`,
-    `sdkconfig.Push` — branch `cheggaaa/syn-47-push-client`).
+    Redis/Mongo). **SDK prerequisite (shipped in v0.1.9):** `pushclient`
+    component + tech-space `settings` subtree (`SDK.Push()` /
+    `space.PushAPI`, `Spaces().SetSettings`, `ErrPushNotConfigured`,
+    `sdkconfig.Push`).
     **Deferred:** reactions push, ACL/invite push, desktop receive
     (platform enum is ios/android — desktop is send-only),
     `RemoveSpace` cleanup. Contract: docs/20-push.md, docs/03-api.md
@@ -724,7 +757,10 @@ make build                                        # builds any, bobrik-watch, an
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
-                                                  # warns instead of failing the build
+                                                  # warns instead of failing the build.
+                                                  # GPU-capable bundles (Metal / Vulkan) with
+                                                  # automatic CPU fallback — docs/13-index.md
+                                                  # § GPU offload
 make build-android                                # dist/android/any.aar — arm64-v8a gomobile bind
                                                   # (single ABI), version-
                                                   # stamped via `-ldflags '$(LDFLAGS)'`; CI passes

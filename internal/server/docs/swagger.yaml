@@ -492,6 +492,138 @@ definitions:
       version:
         type: string
     type: object
+  api.HistoryChange:
+    properties:
+      author:
+        type: string
+      dataset:
+        type: string
+      groupSize:
+        type: integer
+      timestamp:
+        description: author clock, Unix seconds — display-only
+        type: integer
+      touched:
+        items:
+          $ref: '#/definitions/api.HistoryTouchedRecord'
+        type: array
+      traceIds:
+        items:
+          type: string
+        type: array
+      truncated:
+        description: |-
+          Truncated is RESERVED (always false today): the SDK keeps full
+          history locally. It becomes meaningful with the future
+          snapshot-horizon contract.
+        type: boolean
+      version:
+        type: string
+    type: object
+  api.HistoryDatasetDiff:
+    properties:
+      dataset:
+        type: string
+      records:
+        items:
+          $ref: '#/definitions/api.HistoryRecordDiff'
+        type: array
+    type: object
+  api.HistoryDiffResponse:
+    properties:
+      base:
+        type: string
+      datasets:
+        items:
+          $ref: '#/definitions/api.HistoryDatasetDiff'
+        type: array
+      version:
+        type: string
+    type: object
+  api.HistoryFieldDiff:
+    properties:
+      after:
+        items:
+          type: integer
+        type: array
+      before:
+        items:
+          type: integer
+        type: array
+      path:
+        items:
+          type: string
+        type: array
+    type: object
+  api.HistoryListResponse:
+    properties:
+      changes:
+        items:
+          $ref: '#/definitions/api.HistoryChange'
+        type: array
+      cursor:
+        description: Cursor resumes the next page; empty = history exhausted.
+        type: string
+    type: object
+  api.HistoryRecordDiff:
+    properties:
+      fields:
+        items:
+          $ref: '#/definitions/api.HistoryFieldDiff'
+        type: array
+      id:
+        type: string
+      kind:
+        type: string
+    type: object
+  api.HistoryRecordResponse:
+    properties:
+      dataset:
+        type: string
+      deleted:
+        type: boolean
+      exists:
+        type: boolean
+      record:
+        items:
+          type: integer
+        type: array
+      recordId:
+        type: string
+      version:
+        type: string
+    type: object
+  api.HistoryTouchedRecord:
+    properties:
+      dataset:
+        type: string
+      ops:
+        items:
+          type: string
+        type: array
+      recordId:
+        type: string
+    type: object
+  api.HistoryViewDataset:
+    properties:
+      dataset:
+        type: string
+      records:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+    type: object
+  api.HistoryViewResponse:
+    properties:
+      datasets:
+        items:
+          $ref: '#/definitions/api.HistoryViewDataset'
+        type: array
+      version:
+        type: string
+    type: object
   api.IdentitiesListResponse:
     properties:
       identities:
@@ -3152,6 +3284,40 @@ paths:
       summary: Edit a chat message (author only)
       tags:
       - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions-read:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID
+        in: path
+        name: msgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark a message's unread reactions read
+      tags:
+      - chat
   /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji}:
     post:
       parameters:
@@ -3631,6 +3797,211 @@ paths:
       summary: Subscribe to one object's file payload rows (SSE)
       tags:
       - files
+  /spaces/{spaceId}/objects/{objectId}/history:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Only changes of this dataset
+        in: query
+        name: dataset
+        type: string
+      - description: Only changes touching this record (requires dataset)
+        in: query
+        name: recordId
+        type: string
+      - description: Only changes carrying this trace id
+        in: query
+        name: traceId
+        type: string
+      - description: Only changes by this identity
+        in: query
+        name: author
+        type: string
+      - description: Page size (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Opaque cursor from the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: Group consecutive same-author changes
+        in: query
+        name: coalesce
+        type: boolean
+      - description: Coalesce window in seconds (default 300, max 86400)
+        in: query
+        name: coalesceWindow
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HistoryListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List an object's change history
+      tags:
+      - history
+  /spaces/{spaceId}/objects/{objectId}/history/{version}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Version (ChangeId)
+        in: path
+        name: version
+        required: true
+        type: string
+      - description: Only this dataset
+        in: query
+        name: dataset
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HistoryViewResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: View an object at a past version
+      tags:
+      - history
+  /spaces/{spaceId}/objects/{objectId}/history/{version}/datasets/{dataset}/records/{recordId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Version (ChangeId)
+        in: path
+        name: version
+        required: true
+        type: string
+      - description: Dataset
+        in: path
+        name: dataset
+        required: true
+        type: string
+      - description: Record ID
+        in: path
+        name: recordId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HistoryRecordResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: View one record at a past version (fast path)
+      tags:
+      - history
+  /spaces/{spaceId}/objects/{objectId}/history/diff:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Newer version (ChangeId)
+        in: query
+        name: version
+        required: true
+        type: string
+      - description: Older version; empty = version's parents (per-change effect diff)
+        in: query
+        name: base
+        type: string
+      - description: Only this dataset
+        in: query
+        name: dataset
+        type: string
+      - description: Comma-separated record ids (requires dataset)
+        in: query
+        name: recordIds
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.HistoryDiffResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Diff two versions of an object
+      tags:
+      - history
   /spaces/{spaceId}/objects/aggregate:
     post:
       consumes:

@@ -23,11 +23,22 @@ type Config struct {
 	Index   Index         `yaml:"index"`
 	Files   Files         `yaml:"files"`
 	Push    Push          `yaml:"push"`
+	WebUI   WebUI         `yaml:"webUI"`
 	Log     logger.Config `yaml:"log"`
 }
 
 type Listen struct {
 	Addr string `yaml:"addr"`
+}
+
+// WebUI gates the embedded /ui debug harness (internal/server/web.go).
+// Enabled by default so standalone `any run` is unchanged; app-embedded
+// boots force it off (embedded.Start), so an in-process boot is headless
+// — no /ui routes, no "web ui" advertising log line. The yaml key path
+// `webUI.enabled` is a cross-repo contract: the any-swift subprocess host
+// writes exactly this key into its config.yaml (IOS-116).
+type WebUI struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type Auth struct {
@@ -234,6 +245,18 @@ type IndexLocal struct {
 	// free). Going beyond the physical core count can regress on
 	// hyperthreaded CPUs.
 	Threads int `yaml:"threads"`
+	// GpuLayers overrides llama.cpp's n_gpu_layers. Absent keeps the
+	// llama.cpp default: offload every layer when a usable GPU backend
+	// is present, CPU otherwise. 0 forces CPU-only inference even with
+	// GPU libs installed — the opt-out for machines where the embedder
+	// shouldn't take VRAM (docs/13-index.md § GPU offload).
+	GpuLayers *int `yaml:"gpuLayers"`
+	// BatchDocs caps how many documents pack into one llama_decode as
+	// parallel sequences (also bounded by ContextSize tokens per
+	// decode). Batching amortizes per-decode overhead — the main
+	// embedding throughput lever, biggest on GPU backends. 0 = default
+	// 16; 1 = one doc per decode (the pre-batching behavior).
+	BatchDocs int `yaml:"batchDocs"`
 }
 
 type IndexVector struct {
@@ -270,6 +293,7 @@ func Defaults() Config {
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
+		WebUI:   WebUI{Enabled: true},
 		Index: Index{
 			Enabled:  true,
 			Embedder: "auto", // online primary + local fallback (same model)

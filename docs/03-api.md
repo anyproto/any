@@ -28,6 +28,11 @@
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
     - [Aggregate](#aggregate)
     - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
+  - [Version history](#version-history)
+    - [List changes](#list-changes)
+    - [View at a version](#view-at-a-version)
+    - [One record at a version](#one-record-at-a-version)
+    - [Diff](#diff)
   - [Types](#types)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (built-in `chat` type)](#chat-built-in-chat-type)
@@ -1046,6 +1051,122 @@ no replay. The bundled `snapshot` frame is the only point-in-time read.
 There is no SSE `id:` — clients fence-and-replay on `versionId` if
 they want at-least-once semantics across reconnects.
 
+### Version history
+
+| Method | Path                                                                                        | Purpose                       |
+|--------|---------------------------------------------------------------------------------------------|-------------------------------|
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history`                                             | `Space.History().ListChanges` |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/diff`                                        | `Space.History().Diff`        |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/:version`                                    | `Space.History().ViewAt`      |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId`| `Space.History().RecordAt`    |
+
+Read-only, per-object, and **snapshot-only** — there is no subscribe
+variant. A **version is a ChangeId**: the content-hash CID of a DAG
+change, which every write already returns as `changeId` in
+[`ModifyResult`](#write-responses). It's stable across peers and
+restarts, so a version handed out by one device resolves on another.
+"State at version X" is the projection of exactly X's causal past —
+not "the object at wall-clock time T". Concurrent branches mean two
+peers can hold versions neither of which precedes the other; there is
+no total order to page through, which is why listing is DAG order plus
+a cursor rather than a timestamp range.
+
+`timestamp` is the **author's clock**, Unix seconds — display-only.
+Never sort or fence on it: it comes from whichever device wrote the
+change, and nothing forces those clocks to agree.
+
+The static `diff` segment is registered before `:version` so it isn't
+swallowed by the wildcard.
+
+#### List changes
+
+`GET …/history` pages an object's changes newest-first. Filters:
+`dataset`, `recordId` (requires `dataset` → else `400
+request.invalid_field`), `traceId`, `author`. Paging: `limit`
+(default 50, capped at 200 — a larger value is clamped, not
+rejected) + the opaque `cursor` echoed from the previous page. An
+empty `cursor` in the response means history is exhausted.
+
+`coalesce=true` groups consecutive same-author changes into one entry
+whose `version` is the group's **newest** ChangeId and whose
+`groupSize` is the member count (1 = ungrouped); `coalesceWindow`
+bounds the gap in seconds (default 300, max 86400 — outside that →
+`400 request.invalid_field`). Grouping follows the DAG: a linear
+same-author chain coalesces, a branch does not.
+
+```json
+{
+  "changes": [
+    { "version":   "bafy…9c",
+      "author":    "A5k…",
+      "timestamp": 1763040000,
+      "dataset":   "editor_blocks",
+      "traceIds":  ["trace_…"],
+      "touched":   [{ "dataset": "editor_blocks", "recordId": "blk_…", "ops": ["$set"] }],
+      "groupSize": 3 }
+  ],
+  "cursor": "eyJ…"
+}
+```
+
+`truncated` is **reserved and always false today** — the SDK keeps
+full local history. It becomes meaningful only with the future
+snapshot-horizon contract.
+
+#### View at a version
+
+`GET …/history/:version` materializes the object's live records at
+that cut, grouped by dataset; records are raw dataset rows, the same
+shape [`/query`](#data-plane) returns. Optional `dataset` narrows to
+one. Empty datasets are omitted unless explicitly requested.
+
+**Synced scope only.** Local and account-scoped values have no
+history (they never entered the DAG) and are excluded — a history
+view is not a substitute for a `/query` read.
+
+The view is request-scoped: the server opens it, serializes, and
+closes it within the request. There are no long-lived view handles
+over HTTP in v1. A version whose materialization exceeds the SDK's
+bound returns `413 history.view_too_large` — narrow with `dataset`,
+or use the record fast path.
+
+#### One record at a version
+
+`GET …/history/:version/datasets/:dataset/records/:recordId` is the
+chat-scale fast path: one record, no full-view materialization, so it
+can't hit `view_too_large`. `exists: false` means the record wasn't
+present at that cut; `deleted: true` means it was tombstoned and
+`record` carries the tombstone row.
+
+#### Diff
+
+`GET …/history/diff` takes a required `version` and an optional
+`base`. **Omit `base`** and you get the per-change *effect* diff —
+`version` against its own DAG parents, i.e. "what did this change
+do". Pass `base` and you get the cumulative `base..version` diff.
+Scope with `dataset` and `recordIds` (comma-separated; requires
+`dataset`).
+
+```json
+{
+  "base":    "",
+  "version": "bafy…9c",
+  "datasets": [
+    { "dataset": "editor_blocks",
+      "records": [
+        { "id":   "blk_…",
+          "kind": "changed",
+          "fields": [
+            { "path": ["text"], "before": "old", "after": "new" }
+          ] } ] } ]
+}
+```
+
+`kind` is one of `added` / `removed` / `changed` / `deleted`. Field
+diffs are leaf-level; an absent side is omitted (`added` has no
+`before`). Peer-local bookkeeping (`_ver` and friends) never appears
+— consistent with [`_ver` staying off the event stream](04-events.md).
+
 ### Types
 
 | Method | Path                                                          | Purpose                |
@@ -1212,6 +1333,7 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
 **General chat.** Every space has one deterministic "general" chat
 object, derived from a fixed seed (`chat.GeneralChatSeed`,
@@ -1232,8 +1354,23 @@ locally derived object and the CRDT-replicated one converge.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the
-whole chat. Both return `204`, are idempotent and forward-only (no
-mark-unread), work offline, and sync across the account's devices.
+whole chat. `…/:msgId/reactions-read` clears the unread **reaction(s)**
+on that message — a reaction is a change ordered *after* its target
+message, so `…/:msgId/read` (which cuts at the message's own `_ver.id`)
+never covers it; this route lets a client that has shown the reaction
+to the user clear it. **Scope caveat:** the underlying `MarkRead` covers
+the reaction **and its causal ancestry**, so it also marks read any
+unread *message* the reactor had already seen when they reacted
+(everything causally before the reaction); messages that arrived *after*
+the reaction stay unread — that surviving tail is what still
+distinguishes it from `read-all`. In the target case (a reaction on an
+already-read message) the ancestry holds nothing unread, so only the
+reaction clears; when unread messages coexist, mark the visible ones
+read first so the only extra thing this clears is messages the user has
+already seen. It is a no-op (still `204`, never `404`) on a message with
+no unread reactions. All three return `204`, are idempotent and
+forward-only (no mark-unread), work offline, and sync across the
+account's devices.
 Read state is private — no read receipts. The SDK materializes
 per-message `unread` / `unreadMention` / `unreadReactions` flags
 (filterable) and per-chat `unreadCount` / `unreadMentions` /
