@@ -25,6 +25,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/query/subscribe", d.spaceListQuerySubscribe)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
+	// Account-private per-space client settings (settings.notifyMode
+	// etc.) — separate from the member-replicated PATCH above.
+	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
 	g.POST("/spaces/:spaceId/search", d.search)
@@ -617,6 +620,7 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		Status:      spaceStatusString(info.Status),
 		OwnRole:     spacePermissionString(info.OwnRole),
 		CreatedAt:   info.CreatedAt,
+		Settings:    info.Settings,
 	}
 }
 

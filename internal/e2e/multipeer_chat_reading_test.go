@@ -322,10 +322,11 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 		t.Fatalf("joiner: read-all never cleared the reaction: counters=%v", lastCounters)
 	}
 
-	// unreadMentions has no producer yet (no mentions feature); pin
-	// that it never moved.
+	// Nothing in this test mentions anybody, so the mention counter
+	// must never have moved — mention badging has its own acceptance
+	// test (TestE2E_MultipeerChatMentions).
 	if lastCounters.mentions != 0 {
-		t.Errorf("unreadMentions moved without a mentions feature: %v", lastCounters)
+		t.Errorf("unreadMentions moved without any mention: %v", lastCounters)
 	}
 }
 

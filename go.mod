@@ -8,6 +8,7 @@ require (
 	github.com/anyproto/any-sync v0.13.0-alpha.6
 	github.com/anyproto/any-sync-sdk v0.1.9
 	github.com/anyproto/anytype-agent-runtime v0.1.2
+	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.3
 	github.com/hybridgroup/yzma v1.16.1
@@ -29,7 +30,6 @@ require (
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b // indirect
-	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23 // indirect
 	github.com/anyproto/go-bip39 v1.0.0 // indirect
 	github.com/anyproto/go-chash v0.1.0 // indirect
 	github.com/anyproto/go-slip10 v1.0.1 // indirect

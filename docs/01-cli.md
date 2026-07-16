@@ -82,6 +82,7 @@ profile decryption key arrives (shared space / 1-1) and resolves.
 ```
 any space get    <spaceId>                          # shipped
 any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shipped (PATCH)
+any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...   # shipped — account-private settings PATCH
 any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
@@ -129,6 +130,19 @@ any space derive [--seed <hex>]
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.
+
+`any space settings` wraps `PATCH /v1/spaces/:id/settings`
+(`Spaces().SetSettings`) — the **account-private** per-space settings
+object on the tech-space row, distinct from `any space update` (which
+writes the member-replicated name/description/icon). Values are
+scalars: `--set` takes the value as a bare string; `--set-bool` /
+`--set-num` are the typed variants (explicit flags, no literal
+sniffing — the string `"true"` stays writable). All four flags repeat;
+keys are single-level (no dots). Push reads `notifyMode`
+(`all | mentions | none`) from here — e.g.
+`any space settings $SPID --set notifyMode=mentions`. Read the object
+back off `any space get` (`settings` field) or the raw
+`any space query` rows. See `docs/20-push.md` § Settings.
 
 `any space delete` wraps `DELETE /v1/spaces/:id` (`Service.Delete`). It
 is irreversible, so it refuses to run without `--yes`. Deletion is
@@ -376,6 +390,27 @@ wrapper as `any subscribe`:
 {"event": "lagged",  "data": {"total": 3}}
 {"event": "closed",  "data": {"reason": "server_shutdown"}}
 ```
+
+### Push notifications
+
+```
+any push token set --platform ios|android --token TOKEN   # POST /v1/push/token
+any push token revoke                                      # DELETE /v1/push/token
+any push token status                                      # GET /v1/push/token (local state)
+any push subscriptions                                     # GET /v1/push/subscriptions
+```
+
+Device-token registration and the account's server-held push topic
+subscriptions (full contract: `docs/20-push.md`). All four need a push
+node configured on the server (`push.peerId` / `push.addrs`) —
+otherwise `409 push.disabled` (exit 1). `token set` / `token revoke`
+print nothing on success; `token status` reports the LOCAL persisted
+state (no push-node round trip); `subscriptions` rows are raw
+`{spaceKey, topic}` pairs — `spaceKey` is the base58 space push public
+key, not a spaceId. Notify preferences are set via
+`any space settings <spaceId> --set notifyMode=…` (per-space default)
+and the `chat.notifyMode` property on a chat object (per-chat
+override).
 
 ### Debug (diagnostic)
 

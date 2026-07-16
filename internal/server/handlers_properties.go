@@ -8,6 +8,7 @@ import (
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/chat"
 )
 
 // propertiesGet handles GET /v1/spaces/:spaceId/properties/:objectId.
@@ -118,6 +119,14 @@ func (d *deps) propertiesSet(c echo.Context) error {
 			"objectId": objectId,
 			"typeId":   typeId,
 		})
+	}
+	// chat.notifyMode rides this generic surface — kick the push
+	// reconcile so a local mute/unmute converges immediately instead of
+	// on the 5-minute tick. Kick is hash-gated and nearly free, so we
+	// don't bother inspecting the patch keys; remote-origin writes
+	// still ride the tick (docs/20-push.md § Settings).
+	if d.push != nil && typeId == chat.TypeId {
+		d.push.Kick()
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }

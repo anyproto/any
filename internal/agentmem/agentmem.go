@@ -136,7 +136,7 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: Dataset, DataVersion: dataVersion, Handler: itemsHandler{}},
+			{Name: Dataset, DataVersion: dataVersion, Handler: itemsHandler{}, Indexes: itemsHandler{}.Indexes()},
 		},
 	}
 }

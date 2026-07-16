@@ -98,6 +98,8 @@ history.truncated                # 404 — the causal past needed is not on this
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 
+push.disabled                    # 409 — push notifications not configured (push.enabled / push.peerId), or the SDK has no push node
+
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
 index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
