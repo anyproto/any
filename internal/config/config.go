@@ -207,6 +207,18 @@ type IndexLocal struct {
 	// free). Going beyond the physical core count can regress on
 	// hyperthreaded CPUs.
 	Threads int `yaml:"threads"`
+	// GpuLayers overrides llama.cpp's n_gpu_layers. Absent keeps the
+	// llama.cpp default: offload every layer when a usable GPU backend
+	// is present, CPU otherwise. 0 forces CPU-only inference even with
+	// GPU libs installed — the opt-out for machines where the embedder
+	// shouldn't take VRAM (docs/13-index.md § GPU offload).
+	GpuLayers *int `yaml:"gpuLayers"`
+	// BatchDocs caps how many documents pack into one llama_decode as
+	// parallel sequences (also bounded by ContextSize tokens per
+	// decode). Batching amortizes per-decode overhead — the main
+	// embedding throughput lever, biggest on GPU backends. 0 = default
+	// 16; 1 = one doc per decode (the pre-batching behavior).
+	BatchDocs int `yaml:"batchDocs"`
 }
 
 type IndexVector struct {

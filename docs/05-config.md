@@ -116,6 +116,12 @@ index:
     queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
     threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
+    gpuLayers: ~                      # n_gpu_layers override; absent = offload all when a GPU
+                                      # backend is usable (Metal/Vulkan ship in the default
+                                      # bundles, CPU fallback automatic); 0 = force CPU
+                                      # (docs/13-index.md § GPU offload)
+    batchDocs: 16                     # docs packed per llama_decode as parallel sequences
+                                      # (also capped by the contextSize token budget); 1 = sequential
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-
