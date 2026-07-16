@@ -512,7 +512,10 @@ definitions:
           type: string
         type: array
       truncated:
-        description: oldest listable entry hit the history horizon
+        description: |-
+          Truncated is RESERVED (always false today): the SDK keeps full
+          history locally. It becomes meaningful with the future
+          snapshot-horizon contract.
         type: boolean
       version:
         type: string

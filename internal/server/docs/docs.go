@@ -5826,7 +5826,7 @@ const docTemplate = `{
                     }
                 },
                 "truncated": {
-                    "description": "oldest listable entry hit the history horizon",
+                    "description": "Truncated is RESERVED (always false today): the SDK keeps full\nhistory locally. It becomes meaningful with the future\nsnapshot-horizon contract.",
                     "type": "boolean"
                 },
                 "version": {

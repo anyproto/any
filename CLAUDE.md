@@ -656,6 +656,39 @@ Implementation slices landed:
     on every peer (derive → PutTree, never a remote fetch), the general
     chat cannot hit the joined-space "BuildTree: tree does not exist"
     mode (fixed separately by the SDK v0.1.6 bump).
+25. **Version history** — read-only HTTP surface over the SDK's
+    `Space.History()` (`internal/server/handlers_history.go`,
+    `internal/api/history.go`; routes wired in `handlers_spaces.go`).
+    Four GETs under `/v1/spaces/:s/objects/:o/history`: bare (`ListChanges`
+    — filters dataset / recordId (requires dataset) / traceId / author,
+    `limit` default 50 capped 200, opaque `cursor`, `coalesce` +
+    `coalesceWindow` grouping consecutive same-author changes into one
+    entry keyed by the group's newest ChangeId), `/diff` (`Diff` — no
+    `base` = per-change effect diff against the version's DAG parents;
+    with `base` = cumulative `base..version`), `/:version` (`ViewAt` —
+    live records at that cut grouped by dataset, raw `/query` row shape)
+    and `/:version/datasets/:d/records/:r` (`RecordAt` — the chat-scale
+    fast path, no full-view materialization). Snapshot-only: **no
+    subscribe variant**. A **version is a ChangeId** — the CID every
+    write already returns as `changeId` — so it resolves on any peer;
+    "state at version X" is X's causal past, not a wall-clock cut, and
+    concurrent branches mean there's no total order (hence DAG order +
+    cursor, not a timestamp range). `timestamp` is the author's clock,
+    display-only — never sort or fence on it. Synced scope only: local /
+    account values never entered the DAG and are excluded from views.
+    Views are request-scoped (open → serialize → `Close()` inside the
+    handler; no long-lived view handles over HTTP in v1). Per the
+    layering rule the SDK owns structure and the server owns semantics:
+    param coupling, limit caps and error mapping live in `historyError`
+    — `ErrVersionNotFound` → `404 history.version_not_found`,
+    `ErrViewTooLarge` → `413 history.view_too_large` ("narrow the
+    scope"), `ErrHistoryTruncated` → `404 history.truncated`. The
+    `HistoryChange.Truncated` field is RESERVED (always false — the SDK
+    keeps full local history; it activates with the future
+    snapshot-horizon contract). Static `diff` registered before the
+    `:version` wildcard. No CLI surface yet. Contract: docs/03-api.md
+    § Version history, docs/06-errors.md, and the SDK's
+    `docs/version-history-proposal.md`.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
