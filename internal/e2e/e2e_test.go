@@ -722,6 +722,11 @@ func (s *runningServer) stop(t *testing.T) {
 	t.Helper()
 	select {
 	case <-s.done:
+		// Already exited (crash, external kill, SIGQUIT dump) — the
+		// buffered output is the most interesting artifact there is.
+		if t.Failed() || os.Getenv("ANY_E2E_DUMP") != "" {
+			t.Logf("server output (exited early):\n%s", s.out.String())
+		}
 		return
 	default:
 	}
