@@ -112,11 +112,12 @@ type serverHandle struct {
 
 // Start boots the embedded server with its data under dataDir, listening
 // on listenAddr (pass "127.0.0.1:0" for an OS-assigned ephemeral port),
-// joining the network described by nodeconfYAML. It blocks until the
+// joining the network described by nodeconfYAML. indexEnabled requests the
+// FTS index (see the index-policy block below). It blocks until the
 // listener binds — returning the bound address — or boot fails, returning
 // one of the package's typed errors (ErrAlreadyRunning, ErrBadDataDir,
 // ErrNodeconfRequired, or a *BootError).
-func Start(dataDir, listenAddr, nodeconfYAML string) (string, error) {
+func Start(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) (string, error) {
 	// Soft memory cap, applied unconditionally at start so it is in force
 	// before the engine allocates. SetMemoryLimit's argument is a soft
 	// GOMEMLIMIT in bytes; -1 leaves it unchanged (used to read it back).
@@ -154,14 +155,19 @@ func Start(dataDir, listenAddr, nodeconfYAML string) (string, error) {
 	cfg.Network.Nodeconf = nodeconfYAML
 	// FTS-only index policy. "none" makes the embedder factory return a
 	// true-nil so the compiled-out local llama.cpp embedder is never
-	// reached. Index.Enabled is set to the compiled FTS cap: config
-	// .Defaults() ships Index.Enabled=true, so this is a LOAD-BEARING
-	// override — on a build without the `fts` tag CompiledCaps()'s fts bit
-	// is false and the dormant indexer never starts; with `fts` it is
-	// true. (capFTS is unexported; CompiledCaps is the exported reader.)
+	// reached. Index.Enabled is gated on BOTH the compiled FTS cap and the
+	// caller's indexEnabled request: config.Defaults() ships
+	// Index.Enabled=true, so this is a LOAD-BEARING override. FTS runs only
+	// when the `fts` tag is compiled in AND the caller opts in — a build
+	// without the tag leaves CompiledCaps()'s fts bit false and the dormant
+	// indexer never starts regardless of indexEnabled; with `fts` the caller
+	// decides. The iOS share extension passes indexEnabled=false to keep the
+	// indexer dormant for the memory headroom (it never searches), the app
+	// passes true if it wants engine search. (capFTS is unexported;
+	// CompiledCaps is the exported reader.)
 	cfg.Index.Embedder = "none"
 	fts, _ := indexer.CompiledCaps()
-	cfg.Index.Enabled = fts
+	cfg.Index.Enabled = indexEnabled && fts
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

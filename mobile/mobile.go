@@ -28,7 +28,9 @@ import (
 // index policy ("none" embedder, FTS off under gomobile) reduces to the same
 // runtime as before — no embedder is linked on the gomobile bind.
 func Start(dataDir, listenAddr, nodeconfYAML string) error {
-	_, err := embedded.Start(dataDir, listenAddr, nodeconfYAML)
+	// indexEnabled=true is a no-op here: gomobile forces capFTS off at
+	// compile time (no `fts` tag), so the core gate stays false regardless.
+	_, err := embedded.Start(dataDir, listenAddr, nodeconfYAML, true)
 	return err
 }
 

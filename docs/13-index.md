@@ -374,6 +374,17 @@ observable, not silent. Tests covering either leg are tagged to match
 (`go test` without tags compiles but skips them; `make test` runs the
 full `fts vector` suite).
 
+On the mobile embed path (`internal/embedded.Start`, exported to iOS as
+`AnyServerStart`) the caller drives `index.enabled` rather than reading
+a config file: the boot gate is `indexEnabled && fts`, where `fts` is the
+compiled cap and `indexEnabled` is the `AnyServerStart` argument. So an
+FTS build can still keep the indexer dormant per engine instance — the
+iOS share extension passes `false` (it never searches, and every MB of
+appex headroom matters), the app passes `true` if it wants engine search.
+`index.embedder` is hard-forced to `"none"` on this path regardless (no
+embedder is ever constructed on mobile). The gomobile/Android bind passes
+a constant `true`, a runtime no-op because `fts` is off there anyway.
+
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
