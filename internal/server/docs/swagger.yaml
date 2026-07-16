@@ -3032,6 +3032,40 @@ paths:
       summary: Edit a chat message (author only)
       tags:
       - chat
+  /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions-read:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Chat object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Message ID
+        in: path
+        name: msgId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Mark a message's unread reactions read
+      tags:
+      - chat
   /spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji}:
     post:
       parameters:

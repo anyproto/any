@@ -329,3 +329,38 @@ func (d *deps) chatRead(c echo.Context) error {
 	}
 	return c.NoContent(http.StatusNoContent)
 }
+
+// chatReadReactions handles POST .../chat/messages/:msgId/reactions-read —
+// mark this message's unread reactions read. A reaction is a change
+// ordered after its target message, so chatRead (which cuts at the
+// message's own version) can never cover it; this route clears it. Note
+// it also advances message read state: marking a change read covers its
+// causal ancestry, so unread messages the reactor had already seen clear
+// too — see chat.ReadReactions. Idempotent: a message with no unread
+// reactions is a no-op (204).
+//
+//	@Summary	Mark a message's unread reactions read
+//	@Tags		chat
+//	@Produce	json
+//	@Param		spaceId		path	string	true	"Space ID"
+//	@Param		objectId	path	string	true	"Chat object ID"
+//	@Param		msgId		path	string	true	"Message ID"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions-read [post]
+func (d *deps) chatReadReactions(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	objectId := c.Param("objectId")
+	msgId := c.Param("msgId")
+	if objectId == "" || msgId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
+	}
+	if err := chat.ReadReactions(c.Request().Context(), sp, objectId, msgId); err != nil {
+		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
