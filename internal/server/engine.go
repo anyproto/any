@@ -14,16 +14,18 @@ import (
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
+	"github.com/anyproto/any/internal/push"
 )
 
 // engine bundles everything that exists only while an account is
-// booted: the per-account pid lock, the SDK and the indexer. One per
-// process; built either directly by server.Run (an identity resolved
-// at boot) or later by POST /v1/auth.
+// booted: the per-account pid lock, the SDK, the indexer and the push
+// service. One per process; built either directly by server.Run (an
+// identity resolved at boot) or later by POST /v1/auth.
 type engine struct {
 	lock    *Lock
 	sdk     *anysyncsdk.SDK
 	indexer *indexer.Indexer
+	push    *push.Service
 	account string
 }
 
@@ -114,7 +116,17 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		ix.Start(streamsCtx)
 	}
 
-	return &engine{lock: lock, sdk: sdk, indexer: ix, account: account}, nil
+	// Push notifications: only when config names a push node (the SDK
+	// side was threaded by OpenSDK under the same gate). Token file
+	// lives in the per-account dir; Start never fails boot — a
+	// persisted token re-registers in the background.
+	var ps *push.Service
+	if cfg.Push.Active() {
+		ps = push.New(sdk, id.Dir)
+		ps.Start(streamsCtx)
+	}
+
+	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account}, nil
 }
 
 // bootAccount boots an engine and publishes it on d. Serialized by
@@ -132,13 +144,15 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.eng = eng
 	d.sdk = eng.sdk
 	d.indexer = eng.indexer
+	d.push = eng.push
 	d.account = eng.account
 	d.ready.Store(true)
 	return eng, nil
 }
 
-// closeEngine tears down the live engine, if any: indexer first so its
-// workers stop reading from the SDK, then the SDK, then the pid lock.
+// closeEngine tears down the live engine, if any: indexer and push
+// first so their workers stop reading from the SDK, then the SDK,
+// then the pid lock.
 func (d *deps) closeEngine(lg logger.CtxLogger) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
@@ -149,6 +163,11 @@ func (d *deps) closeEngine(lg logger.CtxLogger) {
 	if eng.indexer != nil {
 		if err := eng.indexer.Close(); err != nil {
 			lg.Warn("indexer close", zap.Error(err))
+		}
+	}
+	if eng.push != nil {
+		if err := eng.push.Close(); err != nil {
+			lg.Warn("push close", zap.Error(err))
 		}
 	}
 	if err := eng.sdk.Close(); err != nil {

@@ -199,11 +199,14 @@ func NewType() handler.Type {
 		}},
 		// Unread counters materialized onto the chat object's row —
 		// local-scope (device-derived from the synced read frontier,
-		// never written by clients or peers). See reading.go.
+		// never written by clients or peers) — plus the account-scoped
+		// per-chat push preference (client-written, account-synced).
+		// See reading.go.
 		Properties: []handler.PropertyDecl{
 			{Id: PropUnreadCount, Name: "Unread Messages", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
 			{Id: PropUnreadMentions, Name: "Unread Mentions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
 			{Id: PropUnreadReactionsCount, Name: "Unread Reactions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
+			{Id: PropNotifyMode, Name: "Notify Mode", Kind: handler.PropertyKindString, Scope: handler.ScopeAccount},
 		},
 	}
 }

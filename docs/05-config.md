@@ -141,6 +141,18 @@ files:
                                       # background sweep — reclamation stays caller-driven
                                       # via /v1/files/cache/* and per-file offload
 
+# Push-notification node (docs/20-push.md). A DIRECT out-of-band peer
+# ({peerId, addrs} here, not in the nodeconf) that fans mobile push
+# notifications out by topic. Configuring the peer is the opt-in;
+# without it every /v1/push endpoint returns 409 push.disabled and no
+# background push loops run.
+push:
+  enabled: null                       # tristate: null (default) = enabled iff peerId
+                                      # is set; explicit false disables even with a
+                                      # peer configured
+  peerId: ""                          # the push node's peer id
+  addrs: []                           # dial addresses, e.g. ["quic://host:port"]
+
 # Logger — passthrough to any-sync/app/logger.Config.
 log:
   defaultLevel: info
@@ -163,6 +175,10 @@ ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
 
 ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBaseUrl
 ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)
+
+ANY_PUSH_ENABLED=true                 # push.enabled (tristate; unset = iff peerId)
+ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
+ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
 
 ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)

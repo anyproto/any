@@ -671,6 +671,47 @@ Implementation slices landed:
     on every peer (derive → PutTree, never a remote fetch), the general
     chat cannot hit the joined-space "BuildTree: tree does not exist"
     mode (fixed separately by the SDK v0.1.6 bump).
+25. **Push notifications (SYN-47)** — heart-interoperable mobile chat
+    push (same `anytype-push-server` deployment; topics, payload JSON,
+    crypto byte-compatible — golden tests pin the wire shapes).
+    Sender-pushes, E2E-encrypted: keys derived from ACL state inside
+    the SDK, never stored; the push node is a DIRECT out-of-band peer
+    from config, not nodeconf. `internal/push.Service` (indexer twin,
+    built only when `config.Push.Active()`): device-token persistence
+    (`push-token.json`, background re-register), hash-gated
+    subscription sync loop (space-list events + 5m tick →
+    RegisterSpace owned/1-1 + SubscribeAll FULL REPLACE), buffered
+    notify queue (6×10s, break on ErrNoValidTopics). Sender-scoped
+    chat handler hooks (the `/search`-category consumer-side
+    exception — a Changes() feed would double-push remote messages):
+    send → superset topics (`chats`, `chats/<sha256hex(chatId)>`, per
+    mention `chats/<sha>/<id>` + bare `<id>`) with heart's chatpush
+    payload, groupId = sha256hex(chatId); edit → NEWLY-ADDED mentions
+    only; read/read-all → silent own-identity wakeup. Settings:
+    effective mode = `chat.notifyMode` (account-scoped prop on the
+    chat object) ?? `settings.notifyMode` (tech-space row, new
+    guarded `settings` subtree via `PATCH /v1/spaces/:id/settings` →
+    `Spaces().SetSettings`; works with push disabled, tombstoned/
+    pending rows writable, `SpaceInfo.settings` passthrough) ?? all;
+    no valid chat override ⇒ bulk topics, any override ⇒ per-chat
+    topics for every chat. Wire: POST/GET/DELETE `/v1/push/token`,
+    GET `/v1/push/subscriptions` (account-scoped, outside `:spaceId`;
+    409 `push.disabled` when `deps.push == nil`). Config
+    `push.{enabled,peerId,addrs}` / `ANY_PUSH_*` (addrs
+    comma-separated), threaded into the SDK at OpenSDK. CLI: `any
+    push token set/revoke/status`, `any push subscriptions`, `any
+    space settings <id> --set/--set-bool/--set-num/--unset`. e2e:
+    `internal/e2e/push_test.go`, gated on `ANY_PUSH_E2E_PEER_ID` /
+    `ANY_PUSH_E2E_ADDRS` (never stands up the push server's
+    Redis/Mongo). **SDK prerequisite:** `pushclient` component +
+    tech-space `settings` subtree (`SDK.Push()` / `space.PushAPI`,
+    `Spaces().SetSettings`, `ErrPushNotConfigured`,
+    `sdkconfig.Push` — branch `cheggaaa/syn-47-push-client`).
+    **Deferred:** reactions push, ACL/invite push, desktop receive
+    (platform enum is ios/android — desktop is send-only),
+    `RemoveSpace` cleanup. Contract: docs/20-push.md, docs/03-api.md
+    § Push notifications + § Per-space settings, docs/16-chat.md
+    (`chat.notifyMode`), docs/01-cli.md, docs/05-config.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -916,6 +957,7 @@ auto-start.
 | `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
+| `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

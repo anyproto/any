@@ -45,6 +45,24 @@ const (
 	PropUnreadReactionsCount = "unreadReactionsCount"
 )
 
+// PropNotifyMode is the per-chat push-notification preference —
+// an ACCOUNT-scoped string property on the chat object (declared
+// ScopeAccount in NewType().Properties): synced across the account's
+// own devices through the tech space, invisible to other members,
+// and mirrored inline onto the chat object's row, so it reads with
+// the same addressing as the unread counters (`chat.notifyMode` next
+// to `chat.unreadCount` — the docs/16-chat.md row-property
+// convention; badges and prefs ride the same objects /query row).
+//
+// Values: "all" | "mentions" | "none". Deliberately NOT enum-enforced
+// server-side — writes go through the generic properties surface
+// (POST /v1/spaces/:s/properties/:chatObjectId/set/chat), which
+// validates kind, not vocabulary. Consumers (internal/push's
+// desired-topic computation, UIs) treat an absent, non-string, or
+// out-of-vocabulary value as "inherit the space-level mode"
+// (settings.notifyMode on the tech-space row, default "all").
+const PropNotifyMode = "notifyMode"
+
 // classifyRead is the ReadTracking classifier: one verdict per applied
 // record change.
 //

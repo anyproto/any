@@ -135,6 +135,17 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/ui/commands", d.uiCommandPublish)
 	v1.GET("/ui/commands/subscribe", d.uiCommandSubscribe)
 
+	// Account-wide push notifications: device-token registration and
+	// the server-held topic subscriptions (SYN-47). The push server
+	// identifies the caller by account on the secure channel, so the
+	// surface has no :spaceId scope — it sits outside the space group
+	// like sync-status/subscribe. 409 push.disabled when no push node
+	// is configured (deps.push == nil).
+	v1.POST("/push/token", d.pushTokenSet)
+	v1.GET("/push/token", d.pushTokenStatus)
+	v1.DELETE("/push/token", d.pushTokenRevoke)
+	v1.GET("/push/subscriptions", d.pushSubscriptions)
+
 	registerUIRoutes(e)
 
 	e.Any("/debug/pprof/*", echo.WrapHandler(http.DefaultServeMux))

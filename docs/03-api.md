@@ -12,6 +12,7 @@
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
     - [Dataset schema discovery](#dataset-schema-discovery)
     - [Update space metadata](#update-space-metadata)
+    - [Per-space settings (account-private)](#per-space-settings-account-private)
     - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
   - [Objects](#objects)
     - [Blocks](#blocks)
@@ -46,6 +47,7 @@
   - [ACL operations](#acl-operations)
     - [Permission / status strings](#permission--status-strings)
   - [Sync status](#sync-status)
+  - [Push notifications](#push-notifications)
   - [Debug (diagnostic)](#debug-diagnostic)
 - [Body shapes (examples)](#body-shapes-examples)
 - [Middleware](#middleware)
@@ -250,6 +252,7 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
+| PATCH  | `/v1/spaces/:spaceId/settings`  | `Spaces().SetSettings` — account-private settings |
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
@@ -321,6 +324,12 @@ distinct from the on-wire header `type`: a 1-1 space reports
 to tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
+
+`SpaceInfo.settings` is the **account-private, client-owned** per-space
+settings object (free-form single-level keys, scalar values) — written
+per key via `PATCH /v1/spaces/:spaceId/settings` (§ Per-space
+settings), synced across the account's own devices through the tech
+space, never visible to other members. Omitted when never written.
 
 #### One-to-one (direct) spaces
 
@@ -510,6 +519,41 @@ in-line with the local write), an immediate follow-up `GET
 /v1/spaces/:id` may briefly return the pre-patch values. Callers that
 need the converged state poll, or attach a `…/objects/query/subscribe`
 stream filtered on `spaceIndexObjectId`.
+
+#### Per-space settings (account-private)
+
+`PATCH /v1/spaces/:spaceId/settings` → `Spaces().SetSettings`
+
+```json
+{ "set":   { "notifyMode": "mentions" },
+  "unset": [ "someOldKey" ] }
+// → 204
+```
+
+A per-key patch of the `settings` object on the space's **tech-space
+row** — deliberately separate from `PATCH /v1/spaces/:spaceId`, which
+writes the *member-replicated* spaceIndex (name / description / icon).
+Mixing account-private and member-visible writes on one endpoint is a
+trap; these are different scopes with different audiences.
+
+- **Account-private by construction**: the tech space is per-account
+  (owner-only ACL), so settings sync across the account's own devices
+  and are invisible to other space members.
+- **Keys** are the caller's vocabulary — non-empty, single-level (no
+  dots; a dotted key would silently become a deeper CRDT path). Push
+  claims `notifyMode` (`all | mentions | none`, `docs/20-push.md`);
+  other client settings are welcome to live alongside.
+- **Values** are scalars only: string, number, or bool.
+- At least one `set` or `unset` entry is required
+  (`400 request.missing_field`); a key may not appear in both
+  (`400 request.invalid_field`).
+- Works on **any row the account knows** — deleted tombstones and
+  pending 1-1s included (mute a pending 1-1 before accepting). Unknown
+  ids return `404 space.not_found`.
+
+Reads are passthrough — no bespoke read endpoint: `SpaceInfo.settings`
+on `GET /v1/spaces[/:id]`, or the raw rows from
+`POST /v1/spaces/query[/subscribe]` for live cross-device updates.
 
 #### Force a head-sync round (sync now)
 
@@ -1747,6 +1791,54 @@ slug set (`open_space` / `open_object`); `objectId` required iff
 receives only commands published after it connects (no stale replay on
 reconnect). `closed` reasons: `server_shutdown`, `overflow`. Both routes
 sit outside the space group like `/sync-status/subscribe`.
+
+### Push notifications
+
+Mobile push for chat (heart-interoperable; full contract —
+model, topic vocabulary, payload shape, settings, config — in
+`docs/20-push.md`). Account-scoped routes outside the `:spaceId` group,
+behind the `/v1` auth guard. Every route returns `409 push.disabled`
+when the server has no push node configured (`push.peerId` /
+`push.addrs`).
+
+| Method | Path                        | Purpose                                              |
+|--------|-----------------------------|------------------------------------------------------|
+| POST   | `/v1/push/token`            | register this device's mobile push token             |
+| GET    | `/v1/push/token`            | local registration state (no push-node round trip)   |
+| DELETE | `/v1/push/token`            | revoke this device's token                           |
+| GET    | `/v1/push/subscriptions`    | the account's server-held topic set                  |
+
+```json
+// POST /v1/push/token → 204
+{ "platform": "android", "token": "<opaque FCM/APNs token>" }
+
+// GET /v1/push/token
+{ "registered": true, "platform": "android" }
+
+// GET /v1/push/subscriptions
+{ "subscriptions": [
+    { "spaceKey": "<base58 space push pubkey>", "topic": "chats" },
+    { "spaceKey": "<base58 space push pubkey>", "topic": "<identity>" } ] }
+```
+
+- `platform` is `ios | android` — the push server's platform enum has
+  no desktop entry, so desktop/headless servers are **send-only**; the
+  token endpoints back the mobile shells embedding `any.aar` / the
+  xcframework. Re-POST on token rotation; DELETE on logout.
+- The token persist is durable and local
+  (`<account-dir>/push-token.json`); a transient forward failure is
+  retried in the background, so a slow push node never fails the POST.
+  DELETE removes the local file even when the node is unreachable.
+- `spaceKey` is the base58 space push **public key** (the push server's
+  space identifier), not a spaceId; rows come back unsigned (signatures
+  can't round-trip — the server never returns them).
+
+Notification *sending* has no endpoint: it's a sender-scoped side
+effect of the chat write handlers (send / mention-adding edit / read),
+async and best-effort — the consumer-side exception category `/search`
+established. Who-gets-what is controlled by the two `notifyMode` knobs
+(§ Per-space settings + the `chat.notifyMode` property,
+`docs/20-push.md` § Settings).
 
 ### Debug (diagnostic)
 
