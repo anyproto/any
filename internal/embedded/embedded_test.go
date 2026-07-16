@@ -54,7 +54,7 @@ func TestStartAddressStop(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t))
+	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -82,10 +82,10 @@ func TestDoubleStartIsAlreadyRunning(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	if _, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t)); err != nil {
+	if _, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
-	_, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t))
+	_, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("second Start err = %v, want ErrAlreadyRunning", err)
 	}
@@ -96,7 +96,7 @@ func TestBadDataDirIsBadDirError(t *testing.T) {
 	defer resetState(t)
 
 	// Empty data dir is the simplest bad-dir case.
-	if _, err := Start("", loopbackEphemeral, nodeconfFixture(t)); !errors.Is(err, ErrBadDataDir) {
+	if _, err := Start("", loopbackEphemeral, nodeconfFixture(t), true); !errors.Is(err, ErrBadDataDir) {
 		t.Fatalf("empty data dir err = %v, want ErrBadDataDir", err)
 	}
 
@@ -106,7 +106,7 @@ func TestBadDataDirIsBadDirError(t *testing.T) {
 		t.Fatalf("setup file: %v", err)
 	}
 	badPath := filepath.Join(file, "child")
-	if _, err := Start(badPath, loopbackEphemeral, nodeconfFixture(t)); !errors.Is(err, ErrBadDataDir) {
+	if _, err := Start(badPath, loopbackEphemeral, nodeconfFixture(t), true); !errors.Is(err, ErrBadDataDir) {
 		t.Fatalf("uncreatable data dir err = %v, want ErrBadDataDir", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestEmptyNodeconfIsError(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	_, err := Start(t.TempDir(), loopbackEphemeral, "")
+	_, err := Start(t.TempDir(), loopbackEphemeral, "", true)
 	if !errors.Is(err, ErrNodeconfRequired) {
 		t.Fatalf("empty nodeconf err = %v, want ErrNodeconfRequired", err)
 	}
@@ -139,7 +139,7 @@ func TestStartStopRestartNoLeak(t *testing.T) {
 
 	const cycles = 3
 	for i := 0; i < cycles; i++ {
-		addr, err := Start(dataDir, loopbackEphemeral, nodeconf)
+		addr, err := Start(dataDir, loopbackEphemeral, nodeconf, true)
 		if err != nil {
 			t.Fatalf("cycle %d Start: %v", i, err)
 		}
@@ -184,7 +184,7 @@ func TestMemoryLimitApplied(t *testing.T) {
 	prev := debug.SetMemoryLimit(1 << 62)
 	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
 
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t))
+	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

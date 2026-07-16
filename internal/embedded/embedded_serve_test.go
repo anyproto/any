@@ -53,7 +53,7 @@ func TestBootAndServe(t *testing.T) {
 	}
 
 	// --- Sub-check B: headless boot-and-serve over a real socket. ---
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t))
+	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -86,6 +86,20 @@ func TestBootAndServe(t *testing.T) {
 	if h.StartedAt.IsZero() {
 		t.Error("health startedAt is zero, want a boot timestamp")
 	}
-	t.Logf("boot-and-serve OK: bound=%s status=%q account=%q (FTS-only, Embedder==nil)",
+
+	// --- Sub-check C: headless — the /ui debug harness is not mounted. ---
+	// Every in-process boot forces cfg.WebUI.Enabled=false (embedded.Start),
+	// so /ui 404s while the API stays up (IOS-116). Proves acceptance
+	// criterion 1's app-boot side.
+	uiResp, err := client.Get("http://" + addr + "/ui")
+	if err != nil {
+		t.Fatalf("GET /ui over socket: %v", err)
+	}
+	defer uiResp.Body.Close()
+	if uiResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /ui on embedded boot: status %d, want 404 (headless)", uiResp.StatusCode)
+	}
+
+	t.Logf("boot-and-serve OK: bound=%s status=%q account=%q (FTS-only, Embedder==nil, headless /ui)",
 		addr, h.Status, h.Account)
 }
