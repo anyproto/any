@@ -32,6 +32,11 @@ const (
 	// queries carry the task instruction (skipping it costs a few
 	// points of retrieval quality per the model card).
 	localQueryPrefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+	// Docs packed per llama_decode as parallel sequences (also bounded
+	// by nCtx tokens per decode). 16 covers a full 2048-token budget of
+	// typical editor windows (~330 tokens) and amortizes the per-decode
+	// overhead that dominates GPU embedding of short texts.
+	localDefaultBatchDocs = 16
 )
 
 // Local embeds in-process through llama.cpp (yzma purego bindings — no
@@ -44,12 +49,14 @@ const (
 // outage semantics turn into "vectors stay pending, retry on tick" —
 // no special wiring for "model still downloading".
 type Local struct {
-	modelPath   string
-	libDir      string
-	nCtx        int
-	threads     int    // 0 = runtime.NumCPU()-1
-	outDim      int    // 0 = model dim; >0 = Matryoshka truncate + renormalize
-	queryPrefix string
+	modelPath    string
+	libDir       string
+	nCtx         int
+	threads      int // 0 = runtime.NumCPU()-1
+	outDim       int // 0 = model dim; >0 = Matryoshka truncate + renormalize
+	queryPrefix  string
+	gpuLayers    int  // -1 = llama.cpp default (offload all when a GPU is present)
+	batchDocs    int  // max docs packed per llama_decode (≥1)
 	defaultModel bool // pinned Qwen3 (possibly via mirror URL), not a custom GGUF
 
 	dl *modelDownload // nil when modelPath overridden or file already present
@@ -77,10 +84,18 @@ func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string) (*Local,
 		threads:      cfg.Threads,
 		outDim:       cfg.Dim,
 		queryPrefix:  cfg.QueryPrefix,
+		gpuLayers:    -1,
+		batchDocs:    cfg.BatchDocs,
 		defaultModel: cfg.ModelPath == "",
 	}
 	if l.nCtx <= 0 {
 		l.nCtx = localDefaultCtx
+	}
+	if cfg.GpuLayers != nil {
+		l.gpuLayers = *cfg.GpuLayers
+	}
+	if l.batchDocs <= 0 {
+		l.batchDocs = localDefaultBatchDocs
 	}
 
 	l.libDir = cfg.LibDir
@@ -166,7 +181,11 @@ func (l *Local) ensureLoaded() error {
 		return err
 	}
 
-	model, err := llama.ModelLoadFromFile(l.modelPath, llama.ModelDefaultParams())
+	mp := llama.ModelDefaultParams()
+	if l.gpuLayers >= 0 {
+		mp.NGpuLayers = int32(l.gpuLayers)
+	}
+	model, err := llama.ModelLoadFromFile(l.modelPath, mp)
 	if err != nil {
 		return fmt.Errorf("indexer: local embedder: load model %s: %w", l.modelPath, err)
 	}
@@ -177,10 +196,11 @@ func (l *Local) ensureLoaded() error {
 	threads := int32(l.threadCount())
 	cp := llama.ContextDefaultParams()
 	cp.NCtx = uint32(l.nCtx)
-	// Embeddings need the whole input in one logical/physical batch.
+	// Embeddings need the whole input in one logical/physical batch;
+	// a decode packs up to batchDocs sequences into that token budget.
 	cp.NBatch = uint32(l.nCtx)
 	cp.NUbatch = uint32(l.nCtx)
-	cp.NSeqMax = 1
+	cp.NSeqMax = uint32(l.batchDocs)
 	cp.NThreads = threads
 	cp.NThreadsBatch = threads
 	cp.PoolingType = llama.PoolingTypeLast // Qwen3-Embedding pools the trailing EOS
@@ -238,41 +258,86 @@ func l2Normalize(vec []float32) {
 // embedOne runs one text through the context. Caller holds l.mu and has
 // run ensureLoaded.
 func (l *Local) embedOne(text string) ([]float32, error) {
+	vecs, err := l.embedGroup([][]llama.Token{l.tokenize(text)})
+	if err != nil {
+		return nil, err
+	}
+	return vecs[0], nil
+}
+
+// tokenize prepares one text for decoding: never empty, truncated to
+// nCtx with EOS kept terminal (last-token pooling). Caller holds l.mu.
+func (l *Local) tokenize(text string) []llama.Token {
 	eos := llama.VocabEOS(l.vocab)
 	tokens := llama.Tokenize(l.vocab, text, true, true)
 	if len(tokens) == 0 {
 		tokens = []llama.Token{eos}
 	}
-	tokens = truncateTokens(tokens, l.nCtx, eos)
+	return truncateTokens(tokens, l.nCtx, eos)
+}
 
-	// One sequence reused per text — drop the previous text's KV state.
+// groupEnd returns the exclusive end index of the next decode group
+// starting at `start`: greedy in order, bounded by `budget` total tokens
+// and `maxSeqs` sequences. Always advances by at least one (every doc is
+// pre-truncated to the budget).
+func groupEnd(lens []int, start, budget, maxSeqs int) int {
+	end := start
+	for end < len(lens) && end-start < maxSeqs && lens[end] <= budget {
+		budget -= lens[end]
+		end++
+	}
+	return max(end, start+1)
+}
+
+// embedGroup packs the pre-tokenized docs into one llama_decode as
+// parallel sequences and reads one pooled embedding per sequence.
+// len(tokenized) must respect groupEnd's bounds. Caller holds l.mu.
+func (l *Local) embedGroup(tokenized [][]llama.Token) ([][]float32, error) {
+	total := 0
+	for _, tokens := range tokenized {
+		total += len(tokens)
+	}
+
+	batch := llama.BatchInit(int32(total), 0, 1)
+	defer llama.BatchFree(batch)
+	for seq, tokens := range tokenized {
+		for pos, tok := range tokens {
+			batch.Add(tok, llama.Pos(pos), []llama.SeqId{llama.SeqId(seq)}, true)
+		}
+	}
+
+	// Sequences are reused across decodes — drop the previous KV state.
 	if mem, err := llama.GetMemory(l.lctx); err == nil {
 		_ = llama.MemoryClear(mem, true)
 	}
-	ret, err := llama.Decode(l.lctx, llama.BatchGetOne(tokens))
+	ret, err := llama.Decode(l.lctx, batch)
 	if err != nil {
 		return nil, fmt.Errorf("indexer: local embedder: decode: %w", err)
 	}
 	if ret != 0 {
 		return nil, fmt.Errorf("indexer: local embedder: decode returned %d", ret)
 	}
-	raw, err := llama.GetEmbeddingsSeq(l.lctx, 0, l.nEmbd)
-	if err != nil {
-		return nil, fmt.Errorf("indexer: local embedder: get embeddings: %w", err)
-	}
-	if raw == nil {
-		return nil, fmt.Errorf("indexer: local embedder: no embeddings returned")
-	}
 
-	// raw views llama-owned memory — copy before the next decode.
-	vec := make([]float32, len(raw))
-	copy(vec, raw)
-	l2Normalize(vec)
-	if l.outDim > 0 && l.outDim < len(vec) {
-		vec = vec[:l.outDim] // Matryoshka truncation
+	out := make([][]float32, len(tokenized))
+	for seq := range tokenized {
+		raw, err := llama.GetEmbeddingsSeq(l.lctx, llama.SeqId(seq), l.nEmbd)
+		if err != nil {
+			return nil, fmt.Errorf("indexer: local embedder: get embeddings: %w", err)
+		}
+		if raw == nil {
+			return nil, fmt.Errorf("indexer: local embedder: no embeddings returned")
+		}
+		// raw views llama-owned memory — copy before the next decode.
+		vec := make([]float32, len(raw))
+		copy(vec, raw)
 		l2Normalize(vec)
+		if l.outDim > 0 && l.outDim < len(vec) {
+			vec = vec[:l.outDim] // Matryoshka truncation
+			l2Normalize(vec)
+		}
+		out[seq] = vec
 	}
-	return vec, nil
+	return out, nil
 }
 
 func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
@@ -281,16 +346,24 @@ func (l *Local) EmbedDocs(ctx context.Context, texts []string) ([][]float32, err
 	if err := l.ensureLoaded(); err != nil {
 		return nil, err
 	}
+	tokenized := make([][]llama.Token, len(texts))
+	lens := make([]int, len(texts))
+	for i, t := range texts {
+		tokenized[i] = l.tokenize(t)
+		lens[i] = len(tokenized[i])
+	}
 	out := make([][]float32, 0, len(texts))
-	for _, t := range texts {
+	for start := 0; start < len(texts); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		vec, err := l.embedOne(t)
+		end := groupEnd(lens, start, l.nCtx, l.batchDocs)
+		vecs, err := l.embedGroup(tokenized[start:end])
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, vec)
+		out = append(out, vecs...)
+		start = end
 	}
 	return out, nil
 }

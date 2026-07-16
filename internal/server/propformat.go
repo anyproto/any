@@ -1,17 +1,159 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/valyala/fastjson"
 
-	"github.com/anyproto/any-sync-sdk/anyuri"
 	"github.com/anyproto/any-sync-sdk/space"
 
+	"github.com/anyproto/any/anyuri"
 	"github.com/anyproto/any/internal/api"
 )
+
+// Storage field names for the two property-def fields whose wire name
+// differs from their stored name. The SDK's typetype package is internal
+// (not importable), so the wire→storage mapping for PatchProperty lives
+// here; these names are pinned by the SDK's property handler version.
+const (
+	propFieldXKey  = "x-key"
+	propFieldXKind = "x-kind"
+)
+
+// patchPathToStorage validates one wire PATCH path against the mutable
+// allowlist and translates it to the stored path. Returns
+// (storagePath, "", "") on success, else ("", code, reason): pinned
+// paths → property.immutable, unknown/malformed → request.invalid_field.
+//
+// forSet distinguishes $set from $unset. A $set must always target a
+// scalar leaf — setting a bare container (`meta`, `format.meta`,
+// `format.options`, `format.options.<key>`) would store a string over
+// the whole object and silently wipe it, so those are rejected for
+// $set. A $unset may name a container to clear it (e.g. unset a whole
+// option subtree).
+func patchPathToStorage(path string, forSet bool) (storagePath, code, reason string) {
+	const invalid = "request.invalid_field"
+	if path == "" {
+		return "", invalid, "empty patch path"
+	}
+	segs := strings.Split(path, ".")
+	for _, s := range segs {
+		if s == "" {
+			return "", invalid, fmt.Sprintf("path %q has an empty segment", path)
+		}
+	}
+	// bag validates a dotted string-bag path: `<head>` / `<head>.<key>`.
+	// $set must target a key; $unset may name the whole bag (clear).
+	bag := func(depthOfBag int) (string, string, string) {
+		switch {
+		case len(segs) == depthOfBag: // the bare container
+			if forSet {
+				return "", invalid, fmt.Sprintf("path %q: set a key, not the whole map", path)
+			}
+			return path, "", ""
+		case len(segs) == depthOfBag+1: // <container>.<key>
+			return path, "", ""
+		default:
+			return "", invalid, fmt.Sprintf("path %q: this bag is a flat string map", path)
+		}
+	}
+	scalar := func(storage string) (string, string, string) {
+		if len(segs) != 1 {
+			return "", invalid, fmt.Sprintf("path %q takes no subpath", path)
+		}
+		return storage, "", ""
+	}
+	switch segs[0] {
+	case "name", "description":
+		return scalar(path)
+	case "xKey":
+		return scalar(propFieldXKey)
+	case "xKind":
+		return scalar(propFieldXKind)
+	case "meta":
+		return bag(1)
+	case "format":
+		return patchFormatPath(segs, path, forSet, bag)
+	case "kind", "scope", "items", "properties", "key", "id":
+		return "", "property.immutable", fmt.Sprintf("path %q is immutable (define a new property to change it)", path)
+	default:
+		return "", invalid, fmt.Sprintf("unknown property path %q", path)
+	}
+}
+
+// patchFormatPath validates a `format.*` PATCH path. Pinned: the whole
+// `format` object and `format.type`. Scalar leaves: format.ui,
+// format.filter. Bags: format.meta.<k>. Options:
+// format.options.<key>.{name,color,pos} and .meta.<k>; a $set must hit a
+// leaf, a $unset may name a whole option (`format.options.<key>`) or the
+// whole map (`format.options`).
+func patchFormatPath(segs []string, path string, forSet bool, bag func(int) (string, string, string)) (string, string, string) {
+	const invalid = "request.invalid_field"
+	if len(segs) == 1 {
+		return "", "property.immutable", fmt.Sprintf("path %q: the whole format object is immutable; patch a leaf", path)
+	}
+	switch segs[1] {
+	case "type":
+		return "", "property.immutable", fmt.Sprintf("path %q (format.type) is immutable", path)
+	case "ui", "filter":
+		if len(segs) != 2 {
+			return "", invalid, fmt.Sprintf("path %q: format.%s takes no subpath", path, segs[1])
+		}
+		return path, "", ""
+	case "meta":
+		return bag(2)
+	case "options":
+		// format.options[.<key>[.<leaf>]]
+		if len(segs) <= 3 { // whole map (2) or whole option (3)
+			if forSet {
+				return "", invalid, fmt.Sprintf("path %q: set an option leaf (…<key>.name|color|pos|meta.<k>), not a container", path)
+			}
+			return path, "", ""
+		}
+		switch segs[3] {
+		case "name", "color", "pos":
+			if len(segs) != 4 {
+				return "", invalid, fmt.Sprintf("path %q: option %s takes no subpath", path, segs[3])
+			}
+			return path, "", ""
+		case "meta":
+			return bag(4)
+		default:
+			return "", invalid, fmt.Sprintf("path %q: unknown option leaf %q", path, segs[3])
+		}
+	default:
+		return "", invalid, fmt.Sprintf("path %q: unknown format field %q", path, segs[1])
+	}
+}
+
+// patchSetValue decodes/validates one Set value for a stored path. Every
+// leaf is a JSON string except format.filter, which is a condition
+// object stored as its JSON text. Returns (value, "", "") on success or
+// (nil, code, reason). The code is format-specific (property.format_invalid)
+// only for genuine format problems; a plain non-string value on any leaf
+// is request.invalid_field.
+func patchSetValue(storagePath string, raw json.RawMessage) (val any, code, reason string) {
+	if storagePath == "format.filter" {
+		if _, err := query.ParseCondition(string(raw)); err != nil {
+			return nil, "property.format_invalid", fmt.Sprintf("format filter does not parse as a query condition: %v", err)
+		}
+		return string(raw), "", ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, "request.invalid_field", fmt.Sprintf("path %q value must be a JSON string", storagePath)
+	}
+	if storagePath == "format.ui" {
+		if _, ok := formatUIs[s]; !ok {
+			return nil, "property.format_invalid", fmt.Sprintf("unknown format ui %q (want select/multiselect/link/links)", s)
+		}
+	}
+	return s, "", ""
+}
 
 // Property formats: the SDK stores format annotations opaquely and
 // enforces only their structure; THIS server is the semantics boundary.
@@ -49,6 +191,14 @@ func validateFormatSemantics(f *api.PropertyFormat, kind string) string {
 		if kind != "" && kind != api.PropertyKindArray {
 			return fmt.Sprintf("format %q requires kind array (or omit kind); got %q", f.Type, kind)
 		}
+	case api.FormatTypeMultiselect:
+		if kind != "" && kind != api.PropertyKindArray {
+			return fmt.Sprintf("format %q requires kind array (or omit kind); got %q", f.Type, kind)
+		}
+	case api.FormatTypeSelect:
+		if kind != "" && kind != api.PropertyKindString {
+			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
+		}
 	case api.FormatTypeDate, api.FormatTypeDatetime:
 		if kind != "" && kind != api.PropertyKindString {
 			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
@@ -62,7 +212,7 @@ func validateFormatSemantics(f *api.PropertyFormat, kind string) string {
 	case api.FormatTypeTags:
 		return "format \"tags\" is reserved until the space-level tag table lands"
 	default:
-		return fmt.Sprintf("unknown format type %q (want links/date/datetime)", f.Type)
+		return fmt.Sprintf("unknown format type %q (want links/date/datetime/select/multiselect)", f.Type)
 	}
 	if f.UI != "" {
 		if _, ok := formatUIs[f.UI]; !ok {
@@ -84,9 +234,12 @@ func formatDraftFromAPI(f *api.PropertyFormat) *space.PropertyFormatDraft {
 		return nil
 	}
 	ft, _ := space.ParseFormatType(f.Type)
-	draft := &space.PropertyFormatDraft{Type: ft, UI: f.UI}
+	draft := &space.PropertyFormatDraft{Type: ft, UI: f.UI, Meta: f.Meta}
 	if len(f.Filter) > 0 {
 		draft.Filter = string(f.Filter)
+	}
+	if len(f.Options) > 0 {
+		draft.Options = optionsFromAPI(f.Options)
 	}
 	return draft
 }
@@ -98,9 +251,30 @@ func formatToAPI(f *space.PropertyFormat) *api.PropertyFormat {
 	if f == nil {
 		return nil
 	}
-	out := &api.PropertyFormat{Type: f.Type.String(), UI: f.UI}
+	out := &api.PropertyFormat{Type: f.Type.String(), UI: f.UI, Meta: f.Meta}
 	if f.Filter != "" && fastjson.Validate(f.Filter) == nil {
 		out.Filter = []byte(f.Filter)
+	}
+	if len(f.Options) > 0 {
+		out.Options = optionsToAPI(f.Options)
+	}
+	return out
+}
+
+// optionsFromAPI / optionsToAPI translate the select/multiselect option
+// map between the wire and SDK shapes (identical field-for-field).
+func optionsFromAPI(in map[string]api.PropertyOption) map[string]space.PropertyOption {
+	out := make(map[string]space.PropertyOption, len(in))
+	for k, o := range in {
+		out[k] = space.PropertyOption{Name: o.Name, Color: o.Color, Pos: o.Pos, Meta: o.Meta}
+	}
+	return out
+}
+
+func optionsToAPI(in map[string]space.PropertyOption) map[string]api.PropertyOption {
+	out := make(map[string]api.PropertyOption, len(in))
+	for k, o := range in {
+		out[k] = api.PropertyOption{Name: o.Name, Color: o.Color, Pos: o.Pos, Meta: o.Meta}
 	}
 	return out
 }
@@ -182,21 +356,28 @@ func checkFormatValue(ft space.FormatType, v *fastjson.Value) string {
 			if !ok {
 				return "links value must contain only strings"
 			}
-			// Property values use the in-space, fragment-less form.
-			u, err := anyuri.Parse(s)
-			if err != nil || u.SpaceId != "" || u.Fragment != "" {
+			// Property values use the bare in-space, fragment-less
+			// form; typed-kind URIs are rejected here by design.
+			if !anyuri.IsPropertyValueRef(s) {
 				return fmt.Sprintf("link %q must be a plain \"any://<objectId>\" URI", s)
 			}
 		}
-	case space.FormatTags:
+	case space.FormatTags, space.FormatMultiselect:
 		arr, err := v.Array()
 		if err != nil {
-			return "tags value must be an array of tag ids"
+			return "value must be an array of option keys"
 		}
 		for _, el := range arr {
 			if s, ok := fastjsonString(el); !ok || s == "" {
-				return "tags value must contain only non-empty strings"
+				return "value must contain only non-empty option keys"
 			}
+		}
+	case space.FormatSelect:
+		// Shape only — membership in Format.Options is NOT enforced
+		// (dangling-tolerant: an option may be deleted while values
+		// still reference its key).
+		if _, ok := fastjsonString(v); !ok {
+			return "select value must be a string option key"
 		}
 	}
 	return ""

@@ -79,9 +79,12 @@ agent.not_author                 # 403 — evolve/delete by non-creator
 type.not_found
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
+type.registered                  # 400 — add/patch/remove a property on a registered built-in type (properties are static)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
-property.immutable_field         # attempt to update type-shape field
+property.immutable               # 400 — PATCH a pinned path (kind/scope/items/properties, whole `format`, format.type); details.path
+property.format_invalid          # 400 — bad format leaf on create/PATCH (unknown ui, unparseable filter, format.* on a format-less property)
+property.format_violation        # 400 — a property VALUE write violated its declared format (details.propId, format, reason)
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)

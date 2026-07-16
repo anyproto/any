@@ -27,11 +27,13 @@ if [ "$PLATFORM" = host ]; then
 fi
 
 # platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label
+# llama.cpp tokens are the GPU-capable archives (Metal on macOS arm64,
+# Vulkan+CPU-fallback on Linux/Windows) — see fetch-llamacpp.sh.
 case "$PLATFORM" in
 darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 ;;
 darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 ;;
-linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-x64 EXE="" OS=linux ARCH=x86_64 ;;
-windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-cpu-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
+linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 ;;
+windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
 *)
     echo "build-any: unknown platform '$PLATFORM'" >&2
     exit 1

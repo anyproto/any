@@ -444,8 +444,6 @@ func TestE2E_FullFlow(t *testing.T) {
 		cases := []struct{ method, path string }{
 			{http.MethodPost, "/v1/spaces/derive"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
-			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
-			{http.MethodPatch, "/v1/spaces/" + spaceID + "/types/t1/properties/p1"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
 		for _, tc := range cases {

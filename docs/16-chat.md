@@ -4,6 +4,21 @@ How to build a messenger UI on the chat API: rendering, liveness, and
 — the part that's easy to get wrong — read tracking. Endpoint shapes
 live in `03-api.md § Chat`; this doc is about using them correctly.
 
+## Finding the chat object for a space
+
+Most clients want "the chat for this space" — a single well-known chat,
+not one per client. Read `generalChatObjectId` off any single-space
+response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
+replies — CLI `any space get <spaceId>`); that id is derived
+deterministically from a fixed seed, materialized on the first
+single-space response, and identical for every peer. Use it as the
+`<objectId>` in every endpoint below. Do **not**
+`POST /objects` a fresh chat per client — a space would then carry two
+or three parallel chats depending on who spoke first (the failure mode
+this field exists to prevent, most visible in 1-1 direct spaces).
+Additional, purpose-specific chats are still fine — create them
+explicitly when you actually want more than one.
+
 ## The model in four sentences
 
 Messages are records on the chat object's `chat_messages` dataset,
@@ -61,11 +76,12 @@ Rules that follow:
 
 ## Marking read: when and how
 
-Two endpoints:
+Three endpoints:
 
 ```
 POST /v1/spaces/:spaceId/objects/:objectId/chat/read-all
 POST /v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read
+POST /v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read
 ```
 
 `…/:msgId/read` means **"I have seen this message and everything above
@@ -74,6 +90,33 @@ it"** — it covers the message and everything ordered before it
 unread activity targeting older messages (a fresh reaction on a
 message above the line stays unread — correct: the user hasn't seen
 it).
+
+`…/:msgId/reactions-read` clears the unread **reaction(s)** on that one
+message. It exists because a reaction is a change ordered *after* its
+target message, so `…/:msgId/read` (which cuts at the message's own
+`_ver.id`) can never cover a reaction on that same message — without
+this route, seeing a reaction never clears its `unreadReactions` badge;
+only a *newer* message advancing the read cursor past the reaction
+would. Call it when the user has actually seen the reaction (e.g. the
+reacted message — almost always one they authored — scrolled into
+view). It is a no-op (still `204`, never `404`) on a message with no
+unread reactions.
+
+**Scope caveat — it also advances message read state.** Under the hood
+this marks the reaction change read, and marking a change read covers
+its whole causal ancestry — so it *also* clears unread **messages** the
+reactor had already seen when they reacted (everything causally before
+the reaction). Messages that arrived *after* the reaction stay unread
+(they aren't ancestors), which is what still separates it from
+`read-all`. In the target case — a reaction on an already-read message —
+the ancestry holds no unread messages, so only the reaction clears. When
+unread messages coexist, mark the visible ones read first (the viewport
+`/read` rule below) so the only thing this can clear beyond the reaction
+is messages the user has already seen. Concretely: don't jump the user
+to an old reaction and fire `reactions-read` while newer unread messages
+sit below unseen — those get marked read too. It is **not** a way to
+dismiss a reaction while preserving unread messages the reactor had
+already seen.
 
 **When to call it — viewport rule.** Mark read what the user has
 actually seen, nothing more:

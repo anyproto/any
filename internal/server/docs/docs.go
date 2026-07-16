@@ -3083,6 +3083,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions-read": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Mark a message's unread reactions read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Chat object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Message ID",
+                        "name": "msgId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji}": {
             "post": {
                 "produces": [
@@ -4846,6 +4897,118 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/types/{typeId}/properties/{propId}": {
+            "delete": {
+                "tags": [
+                    "types"
+                ],
+                "summary": "Remove a property definition",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Type ID",
+                        "name": "typeId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Property ID",
+                        "name": "propId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "types"
+                ],
+                "summary": "Patch a property definition (rename, options, colors, order)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Type ID",
+                        "name": "typeId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Property ID",
+                        "name": "propId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "set/unset paths",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.PropertyPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/sync-status/subscribe": {
             "get": {
                 "produces": [
@@ -6356,6 +6519,20 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "meta": {
+                    "description": "Meta is an opaque, format-level string config bag.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "options": {
+                    "description": "Options is the enumerated choice set for select / multiselect,\nkeyed by the option's stable key (which IS the stored value).\nRead back on GET; write/mutate via PATCH (format.options.\u003ckey\u003e.*\npaths), not this create body's whole-map form.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/api.PropertyOption"
+                    }
+                },
                 "type": {
                     "description": "Type is one of the FormatType* wire strings.",
                     "type": "string"
@@ -6363,6 +6540,46 @@ const docTemplate = `{
                 "ui": {
                     "description": "UI is one of the FormatUI* wire strings; optional. links accepts\nany UI; date/datetime accept none.",
                     "type": "string"
+                }
+            }
+        },
+        "api.PropertyOption": {
+            "type": "object",
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "meta": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pos": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.PropertyPatchRequest": {
+            "type": "object",
+            "properties": {
+                "set": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "unset": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -6576,6 +6793,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "generalChatObjectId": {
                     "type": "string"
                 },
                 "iconCid": {

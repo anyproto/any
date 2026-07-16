@@ -30,6 +30,14 @@ account: ""
 listen:
   addr: 127.0.0.1:7001
 
+# Embedded /ui debug harness (internal/server/web.go). Default on, so
+# standalone `any run` serves GET /ui as before. App-embedded boots
+# (iOS/iPadOS/macOS via the in-process or subprocess host) force this
+# off, so the server runs headless — /ui 404s and the "web ui" boot log
+# line is silent (IOS-116). Set false to opt a standalone server out too.
+webUI:
+  enabled: true
+
 # Auth — wallet location, optional passkey env var name.
 auth:
   walletPath: ""                      # explicit wallet file = manual mode
@@ -108,6 +116,12 @@ index:
     queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
     threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
+    gpuLayers: ~                      # n_gpu_layers override; absent = offload all when a GPU
+                                      # backend is usable (Metal/Vulkan ship in the default
+                                      # bundles, CPU fallback automatic); 0 = force CPU
+                                      # (docs/13-index.md § GPU offload)
+    batchDocs: 16                     # docs packed per llama_decode as parallel sequences
+                                      # (also capped by the contextSize token budget); 1 = sequential
   vector:
     dim: 0                            # 0 = learned from the first successful embedding
     mode: ivfsq                       # ANN index: ivfsq (default — cheap ingest, churn-

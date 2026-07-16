@@ -299,6 +299,13 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
+`SpaceInfo` also carries `generalChatObjectId`: the deterministic id of
+the space's single general chat object (see § Chat → General chat).
+Same single-space-only surfacing as `spaceIndexObjectId` — populated on
+create / get / one-to-one / join responses (deriving, i.e.
+materializing, the chat on first sight), omitted on `GET /v1/spaces`
+list rows so listing stays a cheap read.
+
 `SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
 at join for a joiner. Immutable once stamped. Rows from before the
@@ -1006,7 +1013,7 @@ they want at-least-once semantics across reconnects.
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
-| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.UpdatePropertyMeta` |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.PatchProperty` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -1041,15 +1048,25 @@ property's value convention beyond its structural kind:
 ```
 
 - `format.type` — `links` (array of `any://<objectId>` URI strings),
-  `date` (`2006-01-02` string), `datetime` (RFC 3339 string). `tags` is
-  reserved until the space-level tag table lands. Pinned for the
-  property's life and coupled to `kind` (`links` ⇒ `array`,
-  `date`/`datetime` ⇒ `string`); **`kind` may be omitted** when a format
-  is set — it defaults from the format type.
+  `date` (`2006-01-02` string), `datetime` (RFC 3339 string), `select`
+  (a single option key — string), `multiselect` (an array of option
+  keys). `tags` is reserved until the space-level tag table lands.
+  Pinned for the property's life and coupled to `kind` (`links` /
+  `multiselect` ⇒ `array`, `date`/`datetime`/`select` ⇒ `string`);
+  **`kind` may be omitted** when a format is set — it defaults from the
+  format type.
 - `format.ui` — presentation hint: `select` / `multiselect` / `link` /
   `links`. `date`/`datetime` take no ui.
 - `format.filter` — mongo-style condition over candidate objects
   (`links` only); must parse as a query condition.
+- `format.options` — the enumerated choice set for `select` /
+  `multiselect`, a map keyed by each option's **stable key** (the key IS
+  the value a select/multiselect value stores). Each entry is
+  `{name, color, pos, meta?}` (all strings; `pos` is a lexid display-
+  order key). Usually populated via PATCH (below), not at create.
+  Membership is **not** enforced on value writes (an option may be
+  deleted while values still reference its key — dangling-tolerant).
+- `format.meta` — an opaque format-level string→string config bag.
 
 The SDK stores formats opaquely (structure-only checks); **this server
 is the semantics boundary**. Definition-time violations → `400
@@ -1075,6 +1092,51 @@ parameter: `/set/:typeId` auto-routes by the declared scope (below).
 ```json
 { "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
 ```
+
+**`PATCH …/properties/:propId`** — a generic per-path patch to a property
+definition (`TypesAPI.PatchProperty`). This is the write half of a
+property rename and of select/multiselect option CRUD (create / rename /
+recolor / reorder / delete an option). Body:
+
+```json
+{ "set":   { "format.options.high.name": "High",
+             "format.options.high.color": "red",
+             "format.options.high.pos": "a0" },
+  "unset": [ "format.options.low" ] }
+```
+
+`set` maps a dotted path to its new value; `unset` lists dotted paths to
+remove (naming a whole option key, e.g. `format.options.high`, deletes
+that option). Every value is a JSON **string** except `format.filter`
+(a condition object stored as its JSON text). All ops apply in one CRDT
+change (atomic); each leaf merges per-path, so concurrent edits to
+different options/leaves converge. Deleting then re-adding the same
+option key works (it's a field unset, not a record tombstone).
+
+Mutable paths: `name`, `description`, `xKey`, `xKind`, `meta.<k>`,
+`format.ui`, `format.filter`, `format.meta.<k>`,
+`format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>`.
+A **`set`** must target a scalar leaf; a bare container
+(`meta`, `format.meta`, `format.options`, `format.options.<key>`) is
+rejected on `set` (it would clobber the whole map) but may be **`unset`**
+to clear it (e.g. unset `format.options.<key>` deletes an option).
+Pinned paths (`kind`, `scope`, `items`, `properties`, the whole `format`
+object, `format.type`) → `400 property.immutable`; an unknown/malformed
+path or a non-string value on a non-format leaf → `400
+request.invalid_field`; a format-specific value error (unknown
+`format.ui`, unparseable `format.filter`, `format.*` on a format-less
+property) → `400 property.format_invalid`. PATCH/DELETE on a registered
+built-in type → `400 type.registered`. Returns `204`; `404 sdk.not_found`
+for an unknown type/propId. At least one `set`/`unset` entry is required.
+
+Examples: rename `{ "set": { "name": "Priority" } }`; recolor
+`{ "set": { "format.options.high.color": "blue" } }`; delete an option
+`{ "unset": [ "format.options.high" ] }`.
+
+**`DELETE …/properties/:propId`** (`TypesAPI.RemoveProperty`) tombstones
+the definition and returns `204`. Existing instance values are **not**
+cleaned up — subsequent writes to that propId are dropped op-by-op
+(dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
 
 ### Properties (values on objects)
 
@@ -1106,11 +1168,44 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji` | toggle own reaction      |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/read-all`                         | mark everything read     |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
+
+**General chat.** Every space has one deterministic "general" chat
+object, derived from a fixed seed (`chat.GeneralChatSeed`,
+`any/general-chat/v1`) — the same objects/derive primitive the brain
+(`/agent/brain`) uses. There is no bespoke resolver endpoint: the id is
+delivered as `generalChatObjectId` on every single-space `SpaceInfo`
+response (create / get / one-to-one / join) — the same common point
+that carries `spaceIndexObjectId` (§ Spaces). The first single-space
+response materializes the object (the `chat` type is attached then, so
+the id accepts `chat/messages` writes immediately); it is omitted from
+`GET /v1/spaces` list rows, which stay a cheap read that never
+materializes chats. Clients should write and read this shared chat
+instead of creating their own chat object per client — otherwise a
+space accumulates two or three parallel chats depending on which client
+spoke first, most visibly in 1-1 direct spaces. Deterministic
+derivation means a joiner computes the same id the creator did, so the
+locally derived object and the CRDT-replicated one converge.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the
-whole chat. Both return `204`, are idempotent and forward-only (no
-mark-unread), work offline, and sync across the account's devices.
+whole chat. `…/:msgId/reactions-read` clears the unread **reaction(s)**
+on that message — a reaction is a change ordered *after* its target
+message, so `…/:msgId/read` (which cuts at the message's own `_ver.id`)
+never covers it; this route lets a client that has shown the reaction
+to the user clear it. **Scope caveat:** the underlying `MarkRead` covers
+the reaction **and its causal ancestry**, so it also marks read any
+unread *message* the reactor had already seen when they reacted
+(everything causally before the reaction); messages that arrived *after*
+the reaction stay unread — that surviving tail is what still
+distinguishes it from `read-all`. In the target case (a reaction on an
+already-read message) the ancestry holds nothing unread, so only the
+reaction clears; when unread messages coexist, mark the visible ones
+read first so the only extra thing this clears is messages the user has
+already seen. It is a no-op (still `204`, never `404`) on a message with
+no unread reactions. All three return `204`, are idempotent and
+forward-only (no mark-unread), work offline, and sync across the
+account's devices.
 Read state is private — no read receipts. The SDK materializes
 per-message `unread` / `unreadMention` / `unreadReactions` flags
 (filterable) and per-chat `unreadCount` / `unreadMentions` /

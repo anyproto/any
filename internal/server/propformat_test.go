@@ -119,13 +119,20 @@ func TestServer_PropertyFormat(t *testing.T) {
 		body string
 		want int
 	}{
-		"valid links":         {`{"patch":{"` + relatedProp + `":["any://abc","any://def"]}}`, http.StatusOK},
+		"valid links":         {`{"patch":{"` + relatedProp + `":["any://objabc","any://objdef"]}}`, http.StatusOK},
 		"valid datetime":      {`{"patch":{"` + dueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusOK},
 		"bad datetime":        {`{"patch":{"` + dueProp + `":"tomorrow"}}`, http.StatusBadRequest},
 		"datetime non-string": {`{"patch":{"` + dueProp + `":12345}}`, http.StatusBadRequest},
-		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://abc"}}`, http.StatusBadRequest},
+		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://objabc"}}`, http.StatusBadRequest},
 		"links bad uri":       {`{"patch":{"` + relatedProp + `":["not-a-uri"]}}`, http.StatusBadRequest},
-		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space/obj"]}}`, http.StatusBadRequest},
+		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space1/objabc"]}}`, http.StatusBadRequest},
+		"links typed form":    {`{"patch":{"` + relatedProp + `":["any://o/space1/objabc"]}}`, http.StatusBadRequest},
+		// INTENTIONAL delta vs the pre-anyuri validator: a 1-4 char
+		// lowercase-alphanumeric first segment is the reserved kind-slug
+		// namespace (docs/19-links.md), so pathological short ids like
+		// "any://abc" — accepted before — now reject. Real object ids
+		// are ≥40-char base58; no stored value has this shape.
+		"links short id (kind namespace)": {`{"patch":{"` + relatedProp + `":["any://abc"]}}`, http.StatusBadRequest},
 	} {
 		rec = doJSON(t, e, http.MethodPost, setURL, tc.body)
 		if rec.Code != tc.want {
@@ -159,5 +166,86 @@ func TestServer_PropertyFormat(t *testing.T) {
 		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+dueProp+`":"2026-01-01T00:00:00Z"}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("initialProperties valid: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPatchPathToStorage covers the wire→storage path translation and
+// the pinned/unknown-path rejections used by PATCH properties. Pure
+// logic — no SDK or network.
+func TestPatchPathToStorage(t *testing.T) {
+	cases := []struct {
+		path        string
+		forSet      bool
+		wantStorage string
+		wantCode    string
+	}{
+		{"name", true, "name", ""},
+		{"description", true, "description", ""},
+		{"xKey", true, "x-key", ""},
+		{"xKind", true, "x-kind", ""},
+		{"meta.index", true, "meta.index", ""},
+		{"format.ui", true, "format.ui", ""},
+		{"format.filter", true, "format.filter", ""},
+		{"format.meta.pattern", true, "format.meta.pattern", ""},
+		{"format.options.high.name", true, "format.options.high.name", ""},
+		{"format.options.high.color", true, "format.options.high.color", ""},
+		{"format.options.high.meta.icon", true, "format.options.high.meta.icon", ""},
+		// Container paths: rejected on set, allowed on unset (clear).
+		{"format.options.high", true, "", "request.invalid_field"}, // whole option not settable
+		{"format.options.high", false, "format.options.high", ""},  // unset deletes the option
+		{"format.options", true, "", "request.invalid_field"},      // whole map not settable
+		{"format.options", false, "format.options", ""},            // unset clears all
+		{"meta", true, "", "request.invalid_field"},                // whole meta bag not settable
+		{"meta", false, "meta", ""},                                // unset clears the bag
+		{"format.meta", true, "", "request.invalid_field"},
+		{"format.meta", false, "format.meta", ""},
+		// Unknown option leaf.
+		{"format.options.high.weight", true, "", "request.invalid_field"},
+		// Pinned.
+		{"kind", true, "", "property.immutable"},
+		{"scope", true, "", "property.immutable"},
+		{"items", true, "", "property.immutable"},
+		{"properties", true, "", "property.immutable"},
+		{"format", true, "", "property.immutable"},
+		{"format.type", true, "", "property.immutable"},
+		// Malformed / unknown.
+		{"", true, "", "request.invalid_field"},
+		{"format..ui", true, "", "request.invalid_field"},
+		{"bogus", true, "", "request.invalid_field"},
+		{"xKey.sub", true, "", "request.invalid_field"},
+	}
+	for _, tc := range cases {
+		gotStorage, gotCode, reason := patchPathToStorage(tc.path, tc.forSet)
+		if gotCode != tc.wantCode {
+			t.Errorf("patchPathToStorage(%q, set=%v) code=%q want %q (reason=%q)", tc.path, tc.forSet, gotCode, tc.wantCode, reason)
+		}
+		if tc.wantCode == "" && gotStorage != tc.wantStorage {
+			t.Errorf("patchPathToStorage(%q, set=%v) storage=%q want %q", tc.path, tc.forSet, gotStorage, tc.wantStorage)
+		}
+	}
+}
+
+// TestPatchSetValue covers value decoding: strings for all leaves,
+// filter parse-check + JSON-text passthrough, ui vocabulary, and the
+// error-code split (format-specific vs generic value error).
+func TestPatchSetValue(t *testing.T) {
+	// String leaf.
+	if v, code, reason := patchSetValue("name", json.RawMessage(`"Priority"`)); code != "" || v != "Priority" {
+		t.Errorf(`name: got (%v,%q,%q), want ("Priority","","")`, v, code, reason)
+	}
+	// Non-string value on a non-format field → generic code.
+	if _, code, _ := patchSetValue("name", json.RawMessage(`42`)); code != "request.invalid_field" {
+		t.Errorf("non-string name: code=%q want request.invalid_field", code)
+	}
+	// format.ui vocabulary → format-specific code.
+	if _, code, _ := patchSetValue("format.ui", json.RawMessage(`"bogus"`)); code != "property.format_invalid" {
+		t.Errorf("bad ui: code=%q want property.format_invalid", code)
+	}
+	if _, code, _ := patchSetValue("format.ui", json.RawMessage(`"select"`)); code != "" {
+		t.Errorf("valid format ui rejected: code=%q", code)
+	}
+	// format.filter: valid condition passes through as JSON text.
+	if v, code, _ := patchSetValue("format.filter", json.RawMessage(`{"type":"page"}`)); code != "" || v != `{"type":"page"}` {
+		t.Errorf(`filter: got (%v,%q)`, v, code)
 	}
 }

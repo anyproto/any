@@ -287,8 +287,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
   `index.local.libDir` (default: `llamacpp/` next to the binary —
   populated by `make llamacpp`, which also runs as a failure-tolerant
-  step of `make build`; macOS arm64 gets Metal, Linux amd64
-  picks the best CPU backend variant). Default model:
+  step of `make build`; GPU-capable with CPU fallback, see § GPU
+  offload below). Default model:
   **Qwen3-Embedding-0.6B Q8_0** (Apache-2.0, 1024-dim Matryoshka,
   last-token pooling, L2-normalized; queries carry the Qwen retrieval
   instruction, docs embed bare). The GGUF (639 MB, sha256-pinned) is
@@ -300,14 +300,47 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   set `index.local.modelPath` (no download is attempted).
   `index.local.dim` truncates output vectors (Matryoshka) to shrink
   the IVF index. One llama context per process, mutex-serialized;
-  texts embed sequentially within a batch (multi-sequence batching is
-  a known follow-up). Compute threads (`NThreads`/`NThreadsBatch`)
+  within an `EmbedDocs` call texts pack into multi-sequence decodes —
+  up to `index.local.batchDocs` docs (default 16) per `llama_decode`,
+  greedy in order under the `contextSize` token budget. Batching
+  amortizes per-decode overhead; how much it buys depends on where the
+  bottleneck sits. Measured on ~330-token docs: GTX 1080 via Vulkan
+  7.4 → 8.5 docs/s (+16%), 24-core CPU 1.8 → 2.0 docs/s (+9%) — both
+  legs are compute-bound there, so the win is modest; hardware where
+  per-decode overhead dominates (fast GPUs on small models) gains
+  more. Batched and single decodes produce identical vectors
+  (TestLocal_BatchedMatchesSingle); `batchDocs: 1` restores
+  one-doc-per-decode. Compute threads
+  (`NThreads`/`NThreadsBatch`)
   default to `runtime.NumCPU()-1` (leave one core free); override with
   `index.local.threads` / `ANY_INDEX_LOCAL_THREADS` — going past the
   physical core count can regress on hyperthreaded CPUs. Loaded cost ≈ 640 MB mmap + ~200 MB context;
   nothing is loaded until the first embed call. Linux needs a system
   `libffi.so.8` (ubiquitous on mainstream distros; NixOS: `nix develop`
   — the flake's dev shell provides it).
+
+### GPU offload (local embedder)
+
+The shipped llama.cpp bundles are **GPU-capable with automatic CPU
+fallback**: macOS arm64 carries the Metal backend; Linux and Windows
+carry the **Vulkan** backend (cross-vendor: NVIDIA / AMD / Intel)
+alongside every `libggml-cpu-*` variant — the Vulkan archives are strict
+supersets of the CPU-only ones. Backend selection happens at model-load
+time through ggml's dynamic backend registry: a backend whose
+driver/loader is missing (no `libvulkan`, no ICD, headless box) simply
+doesn't register, and inference lands on the best CPU variant — same
+mechanism, no config, no error. llama.cpp's default model params offload
+all layers when a usable GPU device exists; `index.local.gpuLayers: 0`
+forces CPU-only inference (the opt-out when the embedder shouldn't take
+VRAM — full offload of the default model costs ~2 GB, dominated by
+compute buffers that scale with `contextSize`). Measured on a GTX 1080
+(478 editor-window docs, ~330 tokens each, `batchDocs` 16): CPU 240 s
+≈ 2.0 docs/s at ~14 cores vs Vulkan 56 s ≈ 8.5 docs/s — a ~4× win with
+the CPU left essentially idle. If a GPU dies mid-run, decodes error and the
+affected docs stay `pending` (standard outage semantics); a restart
+re-selects backends cleanly. CUDA/ROCm builds are deliberately not
+bundled (per-vendor, hundreds of MB, no upstream Linux CUDA prebuilt);
+point `index.local.libDir` at a custom llama.cpp build to use them.
 
 **An unavailable embedder never breaks the pipeline.** There is no
 boot-time probe: whenever an embedder is *configured*, text-bearing
@@ -373,6 +406,17 @@ warning at startup (`indexer.CompiledCaps`) so the empty-result state is
 observable, not silent. Tests covering either leg are tagged to match
 (`go test` without tags compiles but skips them; `make test` runs the
 full `fts vector` suite).
+
+On the mobile embed path (`internal/embedded.Start`, exported to iOS as
+`AnyServerStart`) the caller drives `index.enabled` rather than reading
+a config file: the boot gate is `indexEnabled && fts`, where `fts` is the
+compiled cap and `indexEnabled` is the `AnyServerStart` argument. So an
+FTS build can still keep the indexer dormant per engine instance — the
+iOS share extension passes `false` (it never searches, and every MB of
+appex headroom matters), the app passes `true` if it wants engine search.
+`index.embedder` is hard-forced to `"none"` on this path regardless (no
+embedder is ever constructed on mobile). The gomobile/Android bind passes
+a constant `true`, a runtime no-op because `fts` is off there anyway.
 
 ### Search
 

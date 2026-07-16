@@ -263,3 +263,87 @@ func TestLocal_Integration(t *testing.T) {
 		}
 	}
 }
+
+// Pure packing logic — no llama.cpp needed.
+func TestGroupEnd(t *testing.T) {
+	cases := []struct {
+		name            string
+		lens            []int
+		start           int
+		budget, maxSeqs int
+		want            int
+	}{
+		{"all fit", []int{100, 100, 100}, 0, 2048, 16, 3},
+		{"seq cap", []int{10, 10, 10, 10}, 0, 2048, 2, 2},
+		{"token budget", []int{1000, 1000, 1000}, 0, 2048, 16, 2},
+		{"exact budget", []int{1024, 1024}, 0, 2048, 16, 2},
+		{"oversize doc advances alone", []int{4096, 10}, 0, 2048, 16, 1},
+		{"mid-slice start", []int{1000, 1000, 1000}, 1, 2048, 16, 3},
+		{"sequential mode", []int{5, 5, 5}, 0, 2048, 1, 1},
+	}
+	for _, c := range cases {
+		if got := groupEnd(c.lens, c.start, c.budget, c.maxSeqs); got != c.want {
+			t.Errorf("%s: groupEnd(%v, %d, %d, %d) = %d, want %d",
+				c.name, c.lens, c.start, c.budget, c.maxSeqs, got, c.want)
+		}
+	}
+}
+
+// Batched multi-sequence decode must produce the same embedding a text
+// gets when embedded alone — cross-sequence attention leakage would
+// silently corrupt the index. Gated/opt-in (loads the real model):
+//
+//	ANY_EVAL_LOCAL_MODEL=~/.any/models/<model>.gguf \
+//	ANY_EVAL_LOCAL_LIBDIR=./bin/llamacpp \
+//	go test -tags 'fts vector' -run TestLocal_BatchedMatchesSingle -v ./internal/indexer
+func TestLocal_BatchedMatchesSingle(t *testing.T) {
+	modelPath := os.Getenv("ANY_EVAL_LOCAL_MODEL")
+	libDir := os.Getenv("ANY_EVAL_LOCAL_LIBDIR")
+	if modelPath == "" || libDir == "" {
+		t.Skip("set ANY_EVAL_LOCAL_MODEL + ANY_EVAL_LOCAL_LIBDIR")
+	}
+	ctx := context.Background()
+	texts := []string{
+		"the quick brown fox jumps over the lazy dog",
+		"distributed consensus requires a quorum of replicas to agree",
+		strings.Repeat("a much longer document about vector search and embedding models. ", 20),
+		"short",
+	}
+
+	newLocal := func(batchDocs int) *Local {
+		l, err := NewLocal(config.IndexLocal{
+			ModelPath: modelPath, LibDir: libDir, BatchDocs: batchDocs,
+		}, t.TempDir(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+
+	single := newLocal(1)
+	defer single.Close()
+	batched := newLocal(8)
+	defer batched.Close()
+
+	want := make([][]float32, len(texts))
+	for i, txt := range texts {
+		v, err := single.EmbedDocs(ctx, []string{txt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[i] = v[0]
+	}
+	got, err := batched.EmbedDocs(ctx, texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range texts {
+		var dot float64
+		for j := range want[i] {
+			dot += float64(want[i][j]) * float64(got[i][j])
+		}
+		if dot < 0.999 {
+			t.Errorf("text %d: batched vs single cosine = %f, want ≥0.999", i, dot)
+		}
+	}
+}
