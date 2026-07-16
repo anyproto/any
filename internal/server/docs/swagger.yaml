@@ -1066,6 +1066,14 @@ definitions:
     type: object
   api.SpaceCreateRequest:
     properties:
+      agent_space:
+        description: |-
+          AgentSpace marks this as an agent space: on create the server
+          eagerly materializes the per-space config object (agentconfig)
+          so the harness has it on the very first GET. The config object is
+          also derived idempotently on every single-space GET, so this flag
+          only controls eager provisioning, not whether the id is reported.
+        type: boolean
       description:
         type: string
       iconCid:
@@ -1086,6 +1094,15 @@ definitions:
     type: object
   api.SpaceInfo:
     properties:
+      agentConfigObjectId:
+        description: |-
+          AgentConfigObjectId is the deterministic id of the space's single
+          agent config object (see agentconfig.ConfigObjectSeed). Populated —
+          materializing the object on first sight — on single-space responses
+          (create / get / one-to-one / join), same as GeneralChatObjectId;
+          omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
+          its config cascade against this object.
+        type: string
       author:
         type: string
       createdAt:

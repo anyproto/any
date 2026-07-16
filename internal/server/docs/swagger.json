@@ -6338,6 +6338,10 @@
         "api.SpaceCreateRequest": {
             "type": "object",
             "properties": {
+                "agent_space": {
+                    "description": "AgentSpace marks this as an agent space: on create the server\neagerly materializes the per-space config object (agentconfig)\nso the harness has it on the very first GET. The config object is\nalso derived idempotently on every single-space GET, so this flag\nonly controls eager provisioning, not whether the id is reported.",
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -6369,6 +6373,10 @@
         "api.SpaceInfo": {
             "type": "object",
             "properties": {
+                "agentConfigObjectId": {
+                    "description": "AgentConfigObjectId is the deterministic id of the space's single\nagent config object (see agentconfig.ConfigObjectSeed). Populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join), same as GeneralChatObjectId;\nomitted on the cheap `GET /v1/spaces` list rows. The harness resolves\nits config cascade against this object.",
+                    "type": "string"
+                },
                 "author": {
                     "type": "string"
                 },

@@ -16,6 +16,7 @@ import (
 	"github.com/anyproto/any/internal/agentdebug"
 	"github.com/anyproto/any/internal/agentlog"
 	"github.com/anyproto/any/internal/agentmem"
+	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/agenttrigger"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
@@ -86,6 +87,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			agentlog.NewType(),     // agent_turns + agent_chunks on the chat object
 			agentmem.NewType(),     // agent_memory_items on the per-space brain object
 			agenttrigger.NewType(), // agent_triggers + agent_trigger_runs (harness triggers)
+			agentconfig.NewType(),  // agent_config on the per-space config object
 			nav.NewType(),          // property-only: no dataset, just nav.* schema
 		},
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -627,6 +628,9 @@ func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
 	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
 		out.GeneralChatObjectId = id
+	}
+	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
+		out.AgentConfigObjectId = id
 	}
 	return out
 }
