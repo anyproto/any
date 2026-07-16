@@ -30,6 +30,14 @@ account: ""
 listen:
   addr: 127.0.0.1:7001
 
+# Embedded /ui debug harness (internal/server/web.go). Default on, so
+# standalone `any run` serves GET /ui as before. App-embedded boots
+# (iOS/iPadOS/macOS via the in-process or subprocess host) force this
+# off, so the server runs headless — /ui 404s and the "web ui" boot log
+# line is silent (IOS-116). Set false to opt a standalone server out too.
+webUI:
+  enabled: true
+
 # Auth — wallet location, optional passkey env var name.
 auth:
   walletPath: ""                      # explicit wallet file = manual mode
