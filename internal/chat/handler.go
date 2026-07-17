@@ -176,7 +176,7 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	// A message needs content: text, attachments, or both. Attachment-only
 	// (a photo with no caption) is ordinary; neither is an empty message.
 	if !hasText && !hasAttachments {
-		return rejectCreate("text required")
+		return rejectCreate("text or attachment required")
 	}
 	return nil
 }
