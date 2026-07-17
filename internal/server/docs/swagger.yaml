@@ -1235,6 +1235,13 @@ definitions:
       name:
         type: string
       ownRole:
+        enum:
+        - owner
+        - admin
+        - writer
+        - reader
+        - guest
+        - none
         type: string
       push:
         $ref: '#/definitions/api.SpacePushKeys'
