@@ -182,8 +182,8 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}},
-			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}},
+			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}, Indexes: turnsHandler{}.Indexes()},
+			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}, Indexes: chunksHandler{}.Indexes()},
 		},
 	}
 }

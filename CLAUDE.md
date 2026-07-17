@@ -99,6 +99,21 @@ Implementation slices landed:
    `any chat send --agent-name <name> [--agent-debug-link L]
    [--agent-done=false]`. Contract spec: task-agent-message-field.md +
    ../any-ui/docs/tasks/agent-message-field.md.
+   **Mentions (SYN-72)**: records carry a server-DERIVED `mentions`
+   identity array (ScopeDerived, client writes rejected) — parsed from
+   `any://m/…` links in text via `anyuri.ExtractMentions` plus the
+   replied-to message's creator folded in at materialization
+   (`deriveMentions`, reads the target via the SDK's `ChangeCtx.Get`);
+   edits re-derive ($unset when empty); sparse multikey `idx_mentions`
+   backs `{"mentions": id}` filters. `classifyRead` tags mentions of
+   self (post-apply `ctx.Get`/`ctx.RecordId` read of the derived
+   array), so `unreadMention` + `chat.unreadMentions` are live — a
+   mention-adding edit badges without re-flagging `unread`. The
+   canonical `any://` grammar lives in the public `anyuri/` package
+   (moved from the SDK, SYN-75 — see docs/19-links.md). NOTE: chat /
+   editor / agentlog / agentmem now actually wire `Dataset.Indexes`
+   (the per-handler `Indexes()` methods used to be dead code — no
+   built-in index was ensured before this).
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
@@ -656,6 +671,91 @@ Implementation slices landed:
     on every peer (derive → PutTree, never a remote fetch), the general
     chat cannot hit the joined-space "BuildTree: tree does not exist"
     mode (fixed separately by the SDK v0.1.6 bump).
+25. **Version history** — read-only HTTP surface over the SDK's
+    `Space.History()` (`internal/server/handlers_history.go`,
+    `internal/api/history.go`; routes wired in `handlers_spaces.go`).
+    Four GETs under `/v1/spaces/:s/objects/:o/history`: bare (`ListChanges`
+    — filters dataset / recordId (requires dataset) / traceId / author,
+    `limit` default 50 capped 200, opaque `cursor`, `coalesce` +
+    `coalesceWindow` grouping consecutive same-author changes into one
+    entry keyed by the group's newest ChangeId), `/diff` (`Diff` — no
+    `base` = per-change effect diff against the version's DAG parents;
+    with `base` = cumulative `base..version`), `/:version` (`ViewAt` —
+    live records at that cut grouped by dataset, raw `/query` row shape)
+    and `/:version/datasets/:d/records/:r` (`RecordAt` — the chat-scale
+    fast path, no full-view materialization). Snapshot-only: **no
+    subscribe variant**. A **version is a ChangeId** — the CID every
+    write already returns as `changeId` — so it resolves on any peer;
+    "state at version X" is X's causal past, not a wall-clock cut, and
+    concurrent branches mean there's no total order (hence DAG order +
+    cursor, not a timestamp range). `timestamp` is the author's clock,
+    display-only — never sort or fence on it. Synced scope only: local /
+    account values never entered the DAG and are excluded from views.
+    Views are request-scoped (open → serialize → `Close()` inside the
+    handler; no long-lived view handles over HTTP in v1). Per the
+    layering rule the SDK owns structure and the server owns semantics:
+    param coupling, limit caps and error mapping live in `historyError`
+    — `ErrVersionNotFound` → `404 history.version_not_found`,
+    `ErrViewTooLarge` → `413 history.view_too_large` ("narrow the
+    scope"), `ErrHistoryTruncated` → `404 history.truncated`. The
+    `HistoryChange.Truncated` field is RESERVED (always false — the SDK
+    keeps full local history; it activates with the future
+    snapshot-horizon contract). Static `diff` registered before the
+    `:version` wildcard. No CLI surface yet. Contract: docs/03-api.md
+    § Version history, docs/06-errors.md, and the SDK's
+    `docs/version-history-proposal.md`.
+26. **Push notifications (SYN-47)** — heart-interoperable mobile chat
+    push (same `anytype-push-server` deployment; topics, payload JSON,
+    crypto byte-compatible — golden tests pin the wire shapes).
+    Sender-pushes, E2E-encrypted: keys derived from ACL state inside
+    the SDK, never stored; the push node is a DIRECT out-of-band peer
+    from config, not nodeconf. `internal/push.Service` (indexer twin,
+    built only when `config.Push.Active()`): device-token persistence
+    (`push-token.json`, background re-register), hash-gated
+    subscription sync loop (space-list events + 5m tick →
+    RegisterSpace owned/1-1 + SubscribeAll FULL REPLACE), buffered
+    notify queue (6×10s, break on ErrNoValidTopics). Sender-scoped
+    chat handler hooks (the `/search`-category consumer-side
+    exception — a Changes() feed would double-push remote messages):
+    send → superset topics (`chats`, `chats/<sha256hex(chatId)>`, per
+    mention `chats/<sha>/<id>` + bare `<id>`) with heart's chatpush
+    payload, groupId = sha256hex(chatId); edit → NEWLY-ADDED mentions
+    only; read/read-all → silent own-identity wakeup. Settings:
+    effective mode = `chat.notifyMode` (account-scoped prop on the
+    chat object) ?? `settings.notifyMode` (tech-space row, new
+    guarded `settings` subtree via `PATCH /v1/spaces/:id/settings` →
+    `Spaces().SetSettings`; works with push disabled, tombstoned/
+    pending rows writable, `SpaceInfo.settings` passthrough) ?? all;
+    no valid chat override ⇒ bulk topics, any override ⇒ per-chat
+    topics for every chat. Wire: POST/GET/DELETE `/v1/push/token`,
+    GET `/v1/push/subscriptions` (account-scoped, outside `:spaceId`;
+    409 `push.disabled` when `deps.push == nil`). Config
+    `push.{enabled,peerId,addrs}` / `ANY_PUSH_*` (addrs
+    comma-separated), threaded into the SDK at OpenSDK. CLI: `any
+    push token set/revoke/status`, `any push subscriptions`, `any
+    space settings <id> --set/--set-bool/--set-num/--unset`. e2e:
+    `internal/e2e/push_test.go`, gated on `ANY_PUSH_E2E_PEER_ID` /
+    `ANY_PUSH_E2E_ADDRS` (never stands up the push server's
+    Redis/Mongo). **SDK prerequisite (shipped in v0.1.9):** `pushclient`
+    component + tech-space `settings` subtree (`SDK.Push()` /
+    `space.PushAPI`, `Spaces().SetSettings`, `ErrPushNotConfigured`,
+    `sdkconfig.Push`).
+    **Receiver-side keys**: `SpaceInfo.push` = `{spaceKey, encKey,
+    encKeyId}` — the SDK mirrors the derived push key material onto
+    each tech-space `spaces` row (device-local `push` field: per-space
+    push-key watcher + `aclKickMux` fan-out over syncacl's single
+    AclUpdater slot), so mobile clients cache `{encKeyId → encKey}`
+    natively (append-only — old keys still decrypt late payloads) and
+    decrypt pushes while `any` is down. Plain row field ⇒ present on
+    list rows AND streamed by `/v1/spaces/query/subscribe` (rotation =
+    row update). Encodings heart-compatible
+    (`spacePushNotificationKey`/`...EncryptionKey`). Contract:
+    docs/20-push.md § Receiver-side keys, docs/08-clients.md § 11.
+    **Deferred:** reactions push, ACL/invite push, desktop receive
+    (platform enum is ios/android — desktop is send-only),
+    `RemoveSpace` cleanup. Contract: docs/20-push.md, docs/03-api.md
+    § Push notifications + § Per-space settings, docs/16-chat.md
+    (`chat.notifyMode`), docs/01-cli.md, docs/05-config.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -783,6 +883,7 @@ From `docs/00-overview.md`:
 ```
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
+├── anyuri/               PUBLIC: canonical any:// link grammar (docs/19-links.md)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -792,7 +893,11 @@ any/
 └── docs/
 ```
 
-Nothing is published externally; everything under `internal/`. Request/response
+Everything lives under `internal/` with ONE deliberate exception:
+`anyuri/` is public (`github.com/anyproto/any/anyuri`) — any owns the
+link format and clients/agents import the Build/Parse rule instead of
+reimplementing it (SYN-75). Don't add further public packages without
+the same kind of explicit contract. Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.
 
@@ -899,6 +1004,7 @@ auto-start.
 | `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
+| `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

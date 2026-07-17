@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -83,6 +84,17 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("ANY_FILES_GC_INTERVAL"); v != "" {
 		cfg.Files.GCInterval = v
+	}
+	if v := os.Getenv("ANY_PUSH_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Push.Enabled = &b
+		}
+	}
+	if v := os.Getenv("ANY_PUSH_PEER_ID"); v != "" {
+		cfg.Push.PeerId = v
+	}
+	if v := os.Getenv("ANY_PUSH_ADDRS"); v != "" {
+		cfg.Push.Addrs = splitNonEmpty(v)
 	}
 	if v := os.Getenv("ANY_INDEX_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
@@ -208,6 +220,19 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_SEARCH_DEFAULT_OPERATOR"); v != "" {
 		cfg.Index.Search.DefaultOperator = v
 	}
+}
+
+// splitNonEmpty splits a comma-separated env value into trimmed,
+// non-empty entries (ANY_PUSH_ADDRS).
+func splitNonEmpty(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func applyFlags(cfg *Config, f Flags) {

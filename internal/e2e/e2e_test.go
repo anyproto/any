@@ -11,6 +11,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -248,6 +251,41 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 		if time.Since(ts) > time.Hour {
 			t.Errorf("createdAt = %v, want recent (zero means the stamp is missing)", ts)
+		}
+	})
+
+	t.Run("GET /v1/spaces/:id carries push keys", func(t *testing.T) {
+		// The SDK's push-key mirror (ACL state → tech-space row) runs
+		// async after space load — poll (15s, matching the SDK's own
+		// e2e budget for the same mirror). The `push` object is the
+		// receiver-side cache contract (docs/20-push.md): clients
+		// store {encKeyId → encKey} so they can decrypt push payloads
+		// while `any` is down.
+		var push map[string]any
+		if !pollUntil(15*time.Second, func() bool {
+			var got map[string]any
+			mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID, "", http.StatusOK, &got)
+			p, ok := got["push"].(map[string]any)
+			push = p
+			return ok
+		}) {
+			t.Fatal("push keys never mirrored onto the row")
+		}
+		encKeyB64, _ := push["encKey"].(string)
+		encKeyId, _ := push["encKeyId"].(string)
+		spaceKey, _ := push["spaceKey"].(string)
+		if spaceKey == "" {
+			t.Errorf("push.spaceKey missing: %+v", push)
+		}
+		// encKeyId must be recomputable from encKey alone — hex sha256
+		// of the raw key bytes, the id an incoming push carries.
+		raw, err := base64.StdEncoding.DecodeString(encKeyB64)
+		if err != nil || len(raw) == 0 {
+			t.Fatalf("push.encKey not base64: %q (%v)", encKeyB64, err)
+		}
+		sum := sha256.Sum256(raw)
+		if want := hex.EncodeToString(sum[:]); encKeyId != want {
+			t.Errorf("push.encKeyId = %q, want sha256(encKey) = %q", encKeyId, want)
 		}
 	})
 
@@ -722,6 +760,11 @@ func (s *runningServer) stop(t *testing.T) {
 	t.Helper()
 	select {
 	case <-s.done:
+		// Already exited (crash, external kill, SIGQUIT dump) — the
+		// buffered output is the most interesting artifact there is.
+		if t.Failed() || os.Getenv("ANY_E2E_DUMP") != "" {
+			t.Logf("server output (exited early):\n%s", s.out.String())
+		}
 		return
 	default:
 	}

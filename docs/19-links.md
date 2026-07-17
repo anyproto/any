@@ -6,11 +6,13 @@ file. One grammar, **self-describing** (a reader can tell *what* a URI points at
 without a lookup), extensible without a v2, and small enough to sit unescaped
 inside a markdown link destination.
 
-The format lives in the SDK's `anyuri` package — `Build`/`Parse`/`Validate` —
-and is enforced and consumed by `any`. Clients and agents **import the rule,
-they do not reimplement it**. This doc is the contract the client teams
-(desktop, mobile, bao) consume; the SDK code is the source of truth for the
-grammar, this is the source of truth for the semantics.
+The format lives in the public `anyuri` package of this repo —
+`github.com/anyproto/any/anyuri`, the deliberate exception to the
+everything-under-`internal/` rule: `any` owns the format. Clients and agents
+**import the rule (Build/Parse/IsValid/ExtractMentions), they do not
+reimplement it**. This doc is the contract the client teams (desktop, mobile,
+bao) consume; the package is the source of truth for the grammar, this is the
+source of truth for the semantics.
 
 Mentions (editor + chat) are just one link kind riding on this format — see
 [docs/16-chat.md](16-chat.md) for the chat mentions field. This doc is only the
@@ -48,6 +50,14 @@ one exception, see [Back-compat](#back-compat)).
 
 The kind set is an **open slug set** — new kinds get added here; parsers must
 not assume the table is closed (see [Extension policy](#extension-policy)).
+
+Kind slugs occupy a **reserved lexical namespace**: a first path segment of
+**1-4 lowercase-alphanumeric bytes** (`[a-z0-9]{1,4}`) is always a kind slug;
+anything longer is a legacy bare id (see [Back-compat](#back-compat)). Real
+ids are ≥40-char base58 strings, so no collision is possible. Two
+consequences: a future kind must keep its slug within that shape, and a
+pathological ≤4-char object id no longer parses in the bare form — no real id
+is that short.
 
 ### `o` — objects and their dataset records
 
@@ -186,10 +196,14 @@ The kind registry is open. Adding a kind must not break an existing parser:
 - **Unknown kind ⇒ degrade to a plain link.** A parser that doesn't recognize
   the first segment treats the whole thing as an ordinary (non-magic) link and
   renders the markdown link text. It does **not** error, and it does **not**
-  guess.
+  guess. In the `anyuri` API this is the distinct sentinel `ErrKindUnknown`
+  (degrade) vs `ErrInvalid` (reject) — the two never wrap each other;
+  classify with `errors.Is`.
 - **Unknown param ⇒ ignore it** (above).
 - Prefix-match on the kind, don't heuristically sniff id shapes. The kind is
-  explicit precisely so no consumer has to guess from an id's encoding.
+  explicit precisely so no consumer has to guess from an id's encoding. New
+  slugs must fit the reserved lexical namespace (`[a-z0-9]{1,4}`, see
+  [Kind registry](#kind-registry)).
 
 This is what lets `i` (invite) and future kinds land later without a format v2 or
 a client redeploy.
@@ -212,10 +226,13 @@ These are what's stored today and must keep parsing:
   lookup keyed on that same one-segment form.
 - **Agent `debugLink`** on chat messages: `any://<spaceId>/<objectId>#turn_<n>`.
 
-`Parse` accepts the bare forms as kind `o`; `Build` for a fresh object reference
-still emits the bare property-value form where the stricter consumers require it.
-No stored value is rewritten — the typed grammar is a superset, the bare object
-form is its shorthand. New typed references (mentions, files, property-value
+`Parse` accepts the bare forms as kind `o` (flagged `Legacy: true`);
+`BuildObject` for a fresh object reference still emits the bare property-value
+form where the stricter consumers require it (`IsPropertyValueRef` is that
+strict check). No stored value is rewritten — the typed grammar is a superset,
+the bare object form is its shorthand. Disambiguation is the kind-slug lexical
+rule ([Kind registry](#kind-registry)): a first segment longer than 4 bytes is
+an id, not a kind. New typed references (mentions, files, property-value
 citations, dataset records) always use the explicit-kind form.
 
 ## Explicitly out of scope
@@ -235,8 +252,9 @@ citations, dataset records) always use the explicit-kind form.
 
 | Concern | Location |
 |---------|----------|
-| Grammar (`Build` / `Parse` / `Validate`, kind constants) | SDK `anyuri` package (moving into `any` — SYN-75) |
+| Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/` — public `github.com/anyproto/any/anyuri` |
+| Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — the sanctioned scanner, shared by server derivation and clients |
 | Links-format property-value validation | `internal/server/propformat.go` |
 | Backlinks reverse lookup | `internal/api/backlinks.go`, `internal/server/handlers_backlinks.go` |
-| Chat mentions derivation (server-parsed `mentions` field) | SYN-72 — see [docs/16-chat.md](16-chat.md) |
+| Chat mentions derivation (server-parsed `mentions` field) | `internal/chat/handler.go` (`deriveMentions`) — see [docs/16-chat.md](16-chat.md) § Mentions |
 | File links | [docs/17-files.md](17-files.md) |

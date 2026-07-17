@@ -69,6 +69,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newDebugCmd(),
 		newSyncStatusCmd(),
 		newUICmd(),
+		newPushCmd(),
 		newVersionCmd(),
 	)
 	return root

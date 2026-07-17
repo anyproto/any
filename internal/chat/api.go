@@ -39,7 +39,8 @@ func ensureType(ctx context.Context, sp space.Space, objectId string) error {
 	return err
 }
 
-// SendOpts is the input to Send. Text is required and validated by
+// SendOpts is the input to Send. Text is required only when Attachments
+// is empty (an attachment-only message is valid) and is validated by
 // the handler; ReplyToMessageId is an opaque soft reference; Agent is
 // an optional group marking the message as agent-authored (UI hint,
 // not verified — see chat.go package doc).

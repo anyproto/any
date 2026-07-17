@@ -64,26 +64,63 @@ type SpaceRegisterIncomingRequest struct {
 // direct chats vs regular spaces client-side. Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
+// Settings is the account-private, client-owned per-space settings
+// object (free-form keys, scalar values — numbers surface as JSON
+// numbers/float64). Written per key via
+// PATCH /v1/spaces/:spaceId/settings; synced across the account's own
+// devices through the tech space, never visible to other members.
+// Omitted when never written.
+//
+// Push is the space's push-notification key material (see
+// docs/20-push.md § Receiver-side keys), mirrored from ACL state so a
+// mobile client can cache it and decrypt push payloads while `any` is
+// not running. Populated on list rows AND single-space responses (it's
+// a plain row field — no space load needed); omitted until the SDK's
+// per-space mirror has run, e.g. on a joiner whose access is still
+// pending. Rotation (encKey/encKeyId change) is observed live on the
+// `POST /v1/spaces/query/subscribe` stream.
 type SpaceInfo struct {
-	Id                  string    `json:"id"`
-	Type                string    `json:"type,omitempty"`
-	SpaceType           string    `json:"spaceType,omitempty"`
-	Author              string    `json:"author,omitempty"`
-	Name                string    `json:"name,omitempty"`
-	Description         string    `json:"description,omitempty"`
-	IconCID             string    `json:"iconCid,omitempty"`
-	Status              string    `json:"status"`
-	OwnRole             string    `json:"ownRole"`
-	CreatedAt           time.Time `json:"createdAt"`
-	SpaceIndexObjectId  string    `json:"spaceIndexObjectId,omitempty"`
-	GeneralChatObjectId string    `json:"generalChatObjectId,omitempty"`
+	Id                  string         `json:"id"`
+	Type                string         `json:"type,omitempty"`
+	SpaceType           string         `json:"spaceType,omitempty"`
+	Author              string         `json:"author,omitempty"`
+	Name                string         `json:"name,omitempty"`
+	Description         string         `json:"description,omitempty"`
+	IconCID             string         `json:"iconCid,omitempty"`
+	Status              string         `json:"status"`
+	OwnRole             string         `json:"ownRole"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	Settings            map[string]any `json:"settings,omitempty"`
+	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
+	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
 	// AgentConfigObjectId is the deterministic id of the space's single
 	// agent config object (see agentconfig.ConfigObjectSeed). Populated —
 	// materializing the object on first sight — on single-space responses
 	// (create / get / one-to-one / join), same as GeneralChatObjectId;
 	// omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
 	// its config cascade against this object.
-	AgentConfigObjectId string `json:"agentConfigObjectId,omitempty"`
+	AgentConfigObjectId string         `json:"agentConfigObjectId,omitempty"`
+	Push                *SpacePushKeys `json:"push,omitempty"`
+}
+
+// SpacePushKeys is the per-space key material a push RECEIVER caches —
+// the wire twin of the SDK's space.PushKeys, byte-compatible with
+// anytype-heart's spacePushNotificationKey /
+// spacePushNotificationEncryptionKey space-view details.
+//
+// SpaceKey is base64(std) of the protobuf-marshalled ed25519 private
+// key identifying the space on the push server. EncKey is base64(std)
+// of the raw AES payload key derived from the CURRENT ACL read key;
+// EncKeyId is hex(sha256(raw EncKey bytes)) — the value an incoming
+// push carries as its KeyId. Clients keep an append-only per-space
+// {encKeyId → encKey} cache: EncKey rotates with the ACL read key, and
+// payloads encrypted before a rotation still arrive under the old id.
+// Holding EncKey decrypts push payloads only (one-way derivation from
+// the read key), never space data.
+type SpacePushKeys struct {
+	SpaceKey string `json:"spaceKey"`
+	EncKey   string `json:"encKey"`
+	EncKeyId string `json:"encKeyId"`
 }
 
 // SpaceUpdateRequest is the body of PATCH /v1/spaces/:spaceId. Pointer
@@ -97,6 +134,20 @@ type SpaceUpdateRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
 	IconCID     *string `json:"iconCid,omitempty"`
+}
+
+// SpaceSettingsPatchRequest is the body of
+// PATCH /v1/spaces/:spaceId/settings — a per-key patch of the
+// account-private `settings` object on the space's tech-space row
+// (deliberately separate from PATCH /v1/spaces/:spaceId, which writes
+// the member-replicated name/description/icon). Keys are the caller's
+// vocabulary: non-empty, dot-free (single level under `settings`).
+// Values are scalars — string, number, or bool. At least one set or
+// unset entry is required; a key may not appear in both. Works on any
+// row the account knows, deleted/tombstoned included.
+type SpaceSettingsPatchRequest struct {
+	Set   map[string]any `json:"set,omitempty"`
+	Unset []string       `json:"unset,omitempty"`
 }
 
 // SpaceListResponse is the body of GET /v1/spaces.

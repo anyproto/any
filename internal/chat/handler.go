@@ -3,11 +3,14 @@ package chat
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	anystore "github.com/anyproto/any-store/v2"
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/handler"
+
+	"github.com/anyproto/any/anyuri"
 )
 
 // Indexes declares the any-store indexes ensured on each chat
@@ -25,15 +28,20 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 		{Name: "idx_unread", Fields: []string{FieldUnread, "_ver.id"}, Sparse: true},
 		{Name: "idx_unread_mention", Fields: []string{FieldUnreadMention, "_ver.id"}, Sparse: true},
 		{Name: "idx_unread_reactions", Fields: []string{FieldUnreadReactions, "_ver.id"}, Sparse: true},
+		// mentions is an array field, so the index is multikey (one
+		// entry per mentioned identity) — {"mentions": "<identity>"}
+		// eq-filters are index-backed. Sparse: the handler $unsets the
+		// field when a message mentions nobody.
+		{Name: "idx_mentions", Fields: []string{FieldMentions, "_ver.id"}, Sparse: true},
 	}
 }
 
 // BeforeCreate validates the creation payload, then derives the
-// server-stamped row-root fields (creator, createdAt, modifiedAt)
-// via sink.Derive so they land alongside the user's text /
-// replyToMessageId in one apply step. Chronological order comes from
-// the SDK-managed `_ver.id` creation marker — no chat-side stamp
-// needed.
+// server-stamped row-root fields (creator, createdAt, modifiedAt, and
+// the mentions array — see deriveMentions) via sink.Derive so they
+// land alongside the user's text / replyToMessageId in one apply
+// step. Chronological order comes from the SDK-managed `_ver.id`
+// creation marker — no chat-side stamp needed.
 //
 // The expected creation shape is exactly one multi-field $set op
 // (empty Path, object payload). Any other shape rejects the whole
@@ -70,6 +78,10 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 	}
 
 	stampCreate(ctx, sink)
+	deriveMentions(ctx, sink,
+		op.Payload.GetStringBytes(FieldText),
+		string(op.Payload.GetStringBytes(FieldReplyToMessageId)),
+		false)
 	return nil
 }
 
@@ -114,8 +126,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	}
 
 	var (
-		visitErr error
-		hasText  bool
+		visitErr       error
+		hasText        bool
+		hasAttachments bool
 	)
 	obj.Visit(func(rawKey []byte, v *anyenc.Value) {
 		if visitErr != nil {
@@ -124,20 +137,19 @@ func validateCreatePayload(payload *anyenc.Value) error {
 		key := string(rawKey)
 		switch key {
 		case FieldText:
-			hasText = true
 			if v.Type() != anyenc.TypeString {
 				visitErr = rejectCreate("text must be a string")
 				return
 			}
 			text := v.GetStringBytes()
-			if len(text) == 0 {
-				visitErr = rejectCreate("text required")
-				return
-			}
 			if len(text) > MaxTextBytes {
 				visitErr = rejectCreate(fmt.Sprintf("text too long (%d > %d bytes)", len(text), MaxTextBytes))
 				return
 			}
+			// Emptiness is decided after the visit, not here: whether an
+			// empty text is legal depends on `attachments`, which may not
+			// have been visited yet.
+			hasText = len(text) > 0
 		case FieldReplyToMessageId:
 			if v.Type() != anyenc.TypeString {
 				visitErr = rejectCreate("replyToMessageId must be a string")
@@ -162,6 +174,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 				visitErr = err
 				return
 			}
+			// validateAttachments rejects an empty map, so reaching here
+			// means at least one attachment.
+			hasAttachments = true
 		default:
 			visitErr = rejectCreate("field_not_allowed: " + key)
 			return
@@ -170,8 +185,10 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	if visitErr != nil {
 		return visitErr
 	}
-	if !hasText {
-		return rejectCreate("text required")
+	// A message needs content: text, attachments, or both. Attachment-only
+	// (a photo with no caption) is ordinary; neither is an empty message.
+	if !hasText && !hasAttachments {
+		return rejectCreate("text or attachment required")
 	}
 	return nil
 }
@@ -451,7 +468,67 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 			Payload: a.NewNumberInt(int(ctx.Change.Timestamp)),
 		})
 	}
+	// Re-derive mentions from the new text. replyToMessageId is
+	// create-only, so the pre-op record is authoritative for the reply
+	// fold-in.
+	var replyTo string
+	if ctx != nil && ctx.Before != nil {
+		replyTo = string(ctx.Before.GetStringBytes(FieldReplyToMessageId))
+	}
+	deriveMentions(ctx, sink, text, replyTo, true)
 	return nil
+}
+
+// deriveMentions computes and stamps the derived `mentions` array: the
+// identities mentioned in text (any://m/… links, deduped in
+// first-occurrence order) plus, for replies, the replied-to message's
+// creator — read via ctx.Get, which is replica-deterministic here
+// because `creator` is an immutable create-stamp and the replied-to
+// create is a causal ancestor of this change. Accepted edge: a reply
+// racing a concurrent DELETE of its target reads a creator-less
+// tombstone on replicas that applied the delete first, so their
+// derived array omits the fold-in — display-only divergence (derived
+// ops are local re-derivation, never synced payload).
+//
+// A message with no mentions carries no field: create stamps nothing,
+// an edit $unsets (unconditionally — a no-op when already absent), so
+// the sparse idx_mentions holds only mentioning rows.
+func deriveMentions(ctx *handler.ChangeCtx, sink *handler.Sink, text []byte, replyTo string, isEdit bool) {
+	if sink == nil {
+		return
+	}
+	// Text mentions are capped BEFORE the reply fold-in so the fold-in
+	// can never be the entry truncation drops: the replied-to author is
+	// the one recipient the reply contract guarantees a ping for, and a
+	// link-stuffed reply must not squeeze them out (that would be the
+	// notification-suppression vector this field exists to close). When
+	// the cap is hit, the last text mention yields the slot instead.
+	ids := anyuri.ExtractMentions(string(text))
+	if len(ids) > MaxMentions {
+		ids = ids[:MaxMentions]
+	}
+	if replyTo != "" && ctx != nil && ctx.Get != nil {
+		if rec := ctx.Get(Dataset, replyTo); rec != nil && rec.Get("_deletedAt") == nil {
+			if creator := string(rec.GetStringBytes(FieldCreator)); creator != "" && !slices.Contains(ids, creator) {
+				if len(ids) == MaxMentions {
+					ids = ids[:MaxMentions-1]
+				}
+				ids = append(ids, creator)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		if isEdit {
+			sink.Derive(handler.Op{Type: handler.OpUnset, Path: []string{FieldMentions}})
+		}
+		return
+	}
+	a := &anyenc.Arena{}
+	arr := a.NewArray()
+	for i, id := range ids {
+		arr.SetArrayItem(i, a.NewString(id))
+	}
+	sink.Derive(handler.Op{Type: handler.OpSet, Path: []string{FieldMentions}, Payload: arr})
 }
 
 func isReactionToggle(op *handler.Op) bool {

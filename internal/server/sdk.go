@@ -109,6 +109,14 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		}
 		sdkCfg.Files.GCInterval = d
 	}
+	// Push node (a direct out-of-band peer, not in the nodeconf). Only
+	// threaded when active — the SDK treats an empty config.Push as
+	// "not configured" and its PushAPI then returns
+	// ErrPushNotConfigured, which the /v1/push handlers map to 409
+	// push.disabled.
+	if cfg.Push.Active() {
+		sdkCfg.Push = sdkconfig.Push{PeerId: cfg.Push.PeerId, Addrs: cfg.Push.Addrs}
+	}
 
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
 }

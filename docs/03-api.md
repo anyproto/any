@@ -12,6 +12,7 @@
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
     - [Dataset schema discovery](#dataset-schema-discovery)
     - [Update space metadata](#update-space-metadata)
+    - [Per-space settings (account-private)](#per-space-settings-account-private)
     - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
   - [Objects](#objects)
     - [Blocks](#blocks)
@@ -28,6 +29,11 @@
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
     - [Aggregate](#aggregate)
     - [Subscribe (Server-Sent Events)](#subscribe-server-sent-events)
+  - [Version history](#version-history)
+    - [List changes](#list-changes)
+    - [View at a version](#view-at-a-version)
+    - [One record at a version](#one-record-at-a-version)
+    - [Diff](#diff)
   - [Types](#types)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (built-in `chat` type)](#chat-built-in-chat-type)
@@ -47,6 +53,7 @@
   - [ACL operations](#acl-operations)
     - [Permission / status strings](#permission--status-strings)
   - [Sync status](#sync-status)
+  - [Push notifications](#push-notifications)
   - [Debug (diagnostic)](#debug-diagnostic)
 - [Body shapes (examples)](#body-shapes-examples)
 - [Middleware](#middleware)
@@ -251,6 +258,7 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/query/subscribe`    | `Service.Query` (spaces dataset) subscribe (SSE) |
 | GET    | `/v1/spaces/:spaceId`           | `Space.Info`                        |
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
+| PATCH  | `/v1/spaces/:spaceId/settings`  | `Spaces().SetSettings` — account-private settings |
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
@@ -322,6 +330,23 @@ distinct from the on-wire header `type`: a 1-1 space reports
 to tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
+
+`SpaceInfo.settings` is the **account-private, client-owned** per-space
+settings object (free-form single-level keys, scalar values) — written
+per key via `PATCH /v1/spaces/:spaceId/settings` (§ Per-space
+settings), synced across the account's own devices through the tech
+space, never visible to other members. Omitted when never written.
+
+`SpaceInfo.push` is the space's push-notification key material —
+`{spaceKey, encKey, encKeyId}`, mirrored from ACL state by the SDK so
+mobile clients can cache it and decrypt push payloads while `any` is
+not running. A plain row field, so `GET /v1/spaces` list rows carry it
+too, and the raw rows on `POST /v1/spaces/query[/subscribe]` stream
+rotations live (`encKey`/`encKeyId` change when the ACL read key
+rotates). Omitted until the SDK's per-space mirror has run — e.g. a
+joiner whose access is still pending. Full receiver contract — cache
+rules, keystore placement, decrypt steps — in docs/20-push.md
+§ Receiver-side keys.
 
 #### One-to-one (direct) spaces
 
@@ -511,6 +536,41 @@ in-line with the local write), an immediate follow-up `GET
 /v1/spaces/:id` may briefly return the pre-patch values. Callers that
 need the converged state poll, or attach a `…/objects/query/subscribe`
 stream filtered on `spaceIndexObjectId`.
+
+#### Per-space settings (account-private)
+
+`PATCH /v1/spaces/:spaceId/settings` → `Spaces().SetSettings`
+
+```json
+{ "set":   { "notifyMode": "mentions" },
+  "unset": [ "someOldKey" ] }
+// → 204
+```
+
+A per-key patch of the `settings` object on the space's **tech-space
+row** — deliberately separate from `PATCH /v1/spaces/:spaceId`, which
+writes the *member-replicated* spaceIndex (name / description / icon).
+Mixing account-private and member-visible writes on one endpoint is a
+trap; these are different scopes with different audiences.
+
+- **Account-private by construction**: the tech space is per-account
+  (owner-only ACL), so settings sync across the account's own devices
+  and are invisible to other space members.
+- **Keys** are the caller's vocabulary — non-empty, single-level (no
+  dots; a dotted key would silently become a deeper CRDT path). Push
+  claims `notifyMode` (`all | mentions | none`, `docs/20-push.md`);
+  other client settings are welcome to live alongside.
+- **Values** are scalars only: string, number, or bool.
+- At least one `set` or `unset` entry is required
+  (`400 request.missing_field`); a key may not appear in both
+  (`400 request.invalid_field`).
+- Works on **any row the account knows** — deleted tombstones and
+  pending 1-1s included (mute a pending 1-1 before accepting). Unknown
+  ids return `404 space.not_found`.
+
+Reads are passthrough — no bespoke read endpoint: `SpaceInfo.settings`
+on `GET /v1/spaces[/:id]`, or the raw rows from
+`POST /v1/spaces/query[/subscribe]` for live cross-device updates.
 
 #### Force a head-sync round (sync now)
 
@@ -884,6 +944,13 @@ point-in-time snapshot; `…/query/subscribe` returns the same
 snapshot plus a live SSE stream of windowed transitions. See
 `04-events.md` for the subscribe contract.
 
+A `filter` naming an operator outside the grammar is a caller fault:
+`400 filter.unknown_operator`, with the offending token in
+`details.operator` and the supported set spelled out in the message.
+Note there is no `$contains` — a scalar already compares against array
+elements, so `{"any.types": "chat"}` is the contains spelling. Filter
+grammar and the array rules: `09-query.md`.
+
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
 ```json
@@ -1028,6 +1095,122 @@ Subscriptions deliver events from registration onward only — there is
 no replay. The bundled `snapshot` frame is the only point-in-time read.
 There is no SSE `id:` — clients fence-and-replay on `versionId` if
 they want at-least-once semantics across reconnects.
+
+### Version history
+
+| Method | Path                                                                                        | Purpose                       |
+|--------|---------------------------------------------------------------------------------------------|-------------------------------|
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history`                                             | `Space.History().ListChanges` |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/diff`                                        | `Space.History().Diff`        |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/:version`                                    | `Space.History().ViewAt`      |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId`| `Space.History().RecordAt`    |
+
+Read-only, per-object, and **snapshot-only** — there is no subscribe
+variant. A **version is a ChangeId**: the content-hash CID of a DAG
+change, which every write already returns as `changeId` in
+[`ModifyResult`](#write-responses). It's stable across peers and
+restarts, so a version handed out by one device resolves on another.
+"State at version X" is the projection of exactly X's causal past —
+not "the object at wall-clock time T". Concurrent branches mean two
+peers can hold versions neither of which precedes the other; there is
+no total order to page through, which is why listing is DAG order plus
+a cursor rather than a timestamp range.
+
+`timestamp` is the **author's clock**, Unix seconds — display-only.
+Never sort or fence on it: it comes from whichever device wrote the
+change, and nothing forces those clocks to agree.
+
+The static `diff` segment is registered before `:version` so it isn't
+swallowed by the wildcard.
+
+#### List changes
+
+`GET …/history` pages an object's changes newest-first. Filters:
+`dataset`, `recordId` (requires `dataset` → else `400
+request.invalid_field`), `traceId`, `author`. Paging: `limit`
+(default 50, capped at 200 — a larger value is clamped, not
+rejected) + the opaque `cursor` echoed from the previous page. An
+empty `cursor` in the response means history is exhausted.
+
+`coalesce=true` groups consecutive same-author changes into one entry
+whose `version` is the group's **newest** ChangeId and whose
+`groupSize` is the member count (1 = ungrouped); `coalesceWindow`
+bounds the gap in seconds (default 300, max 86400 — outside that →
+`400 request.invalid_field`). Grouping follows the DAG: a linear
+same-author chain coalesces, a branch does not.
+
+```json
+{
+  "changes": [
+    { "version":   "bafy…9c",
+      "author":    "A5k…",
+      "timestamp": 1763040000,
+      "dataset":   "editor_blocks",
+      "traceIds":  ["trace_…"],
+      "touched":   [{ "dataset": "editor_blocks", "recordId": "blk_…", "ops": ["$set"] }],
+      "groupSize": 3 }
+  ],
+  "cursor": "eyJ…"
+}
+```
+
+`truncated` is **reserved and always false today** — the SDK keeps
+full local history. It becomes meaningful only with the future
+snapshot-horizon contract.
+
+#### View at a version
+
+`GET …/history/:version` materializes the object's live records at
+that cut, grouped by dataset; records are raw dataset rows, the same
+shape [`/query`](#data-plane) returns. Optional `dataset` narrows to
+one. Empty datasets are omitted unless explicitly requested.
+
+**Synced scope only.** Local and account-scoped values have no
+history (they never entered the DAG) and are excluded — a history
+view is not a substitute for a `/query` read.
+
+The view is request-scoped: the server opens it, serializes, and
+closes it within the request. There are no long-lived view handles
+over HTTP in v1. A version whose materialization exceeds the SDK's
+bound returns `413 history.view_too_large` — narrow with `dataset`,
+or use the record fast path.
+
+#### One record at a version
+
+`GET …/history/:version/datasets/:dataset/records/:recordId` is the
+chat-scale fast path: one record, no full-view materialization, so it
+can't hit `view_too_large`. `exists: false` means the record wasn't
+present at that cut; `deleted: true` means it was tombstoned and
+`record` carries the tombstone row.
+
+#### Diff
+
+`GET …/history/diff` takes a required `version` and an optional
+`base`. **Omit `base`** and you get the per-change *effect* diff —
+`version` against its own DAG parents, i.e. "what did this change
+do". Pass `base` and you get the cumulative `base..version` diff.
+Scope with `dataset` and `recordIds` (comma-separated; requires
+`dataset`).
+
+```json
+{
+  "base":    "",
+  "version": "bafy…9c",
+  "datasets": [
+    { "dataset": "editor_blocks",
+      "records": [
+        { "id":   "blk_…",
+          "kind": "changed",
+          "fields": [
+            { "path": ["text"], "before": "old", "after": "new" }
+          ] } ] } ]
+}
+```
+
+`kind` is one of `added` / `removed` / `changed` / `deleted`. Field
+diffs are leaf-level; an absent side is omitted (`added` has no
+`before`). Peer-local bookkeeping (`_ver` and friends) never appears
+— consistent with [`_ver` staying off the event stream](04-events.md).
 
 ### Types
 
@@ -1281,6 +1464,7 @@ body is always read back through the query path.
     "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
   },
   "text":             "**hi** _there_",
+  "mentions":         ["<identity1>", "<identity2>"],
   "attachments": {
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
@@ -1300,6 +1484,24 @@ devices. Filterable like any field: `{"filter":{"unread":true}}`.
 are equal on a never-edited message — clients detect edits by
 comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
+
+`mentions` is server-DERIVED (`x-scope` derived) — never accepted from
+a client: the send route has no such field and a direct `$set` via
+`POST …/modify` is rejected (400 `dataset.validation`). At change
+materialization the handler extracts every mention link
+(`any://m/<spaceId>/<identity>`, docs/19-links.md) from `text`
+(deduped, first-occurrence order, capped at 64 — with the reply
+fold-in always retained: when the cap is hit, the last text mention
+yields the slot, so link-stuffing can't squeeze the replied-to author
+out) and, when
+`replyToMessageId` is set, folds in the replied-to message's creator —
+a reply is a ping to the original author, and folding it in at write
+time keeps every consumer (badge, push, "mentions of me") a single
+indexed field check (`{"filter":{"mentions":"<identity>"}}`,
+sparse multikey index with `_ver.id` tiebreak). Edits re-derive the
+array from the new text. Omitted when the message mentions nobody.
+Reply-derived entries are not distinguished from text mentions.
+Client recipes: docs/16-chat.md § Mentions.
 
 `agent` is an optional, create-only group the sender sets to mark the
 message as written by an agent acting on the signer's behalf (vs typed
@@ -1351,9 +1553,15 @@ See `internal/chat/handler.go`.
   "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
 ```
 
-`text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
+`text` is required unless `attachments` is non-empty — a photo sent
+with no caption is an ordinary message, so an attachment-only send is
+valid and `text` may be `""` or omitted. A message with neither text
+nor attachments carries nothing and is rejected 400
+`chat.text_required`. `text` is ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
-target exists. `agent` is optional (see § Message wire shape for the
+target exists (when it does exist, its creator is folded into the
+derived `mentions` array; when it doesn't, the fold-in is silently
+skipped). `agent` is optional (see § Message wire shape for the
 sub-field rules; 400 `chat.agent_invalid` on violations); immutable
 post-create. Returns 201 with the shared write
 result `{versionId, changeId, recordIds}` — `recordIds[0]` is the
@@ -1769,6 +1977,54 @@ slug set (`open_space` / `open_object`); `objectId` required iff
 receives only commands published after it connects (no stale replay on
 reconnect). `closed` reasons: `server_shutdown`, `overflow`. Both routes
 sit outside the space group like `/sync-status/subscribe`.
+
+### Push notifications
+
+Mobile push for chat (heart-interoperable; full contract —
+model, topic vocabulary, payload shape, settings, config — in
+`docs/20-push.md`). Account-scoped routes outside the `:spaceId` group,
+behind the `/v1` auth guard. Every route returns `409 push.disabled`
+when the server has no push node configured (`push.peerId` /
+`push.addrs`).
+
+| Method | Path                        | Purpose                                              |
+|--------|-----------------------------|------------------------------------------------------|
+| POST   | `/v1/push/token`            | register this device's mobile push token             |
+| GET    | `/v1/push/token`            | local registration state (no push-node round trip)   |
+| DELETE | `/v1/push/token`            | revoke this device's token                           |
+| GET    | `/v1/push/subscriptions`    | the account's server-held topic set                  |
+
+```json
+// POST /v1/push/token → 204
+{ "platform": "android", "token": "<opaque FCM/APNs token>" }
+
+// GET /v1/push/token
+{ "registered": true, "platform": "android" }
+
+// GET /v1/push/subscriptions
+{ "subscriptions": [
+    { "spaceKey": "<base58 space push pubkey>", "topic": "chats" },
+    { "spaceKey": "<base58 space push pubkey>", "topic": "<identity>" } ] }
+```
+
+- `platform` is `ios | android` — the push server's platform enum has
+  no desktop entry, so desktop/headless servers are **send-only**; the
+  token endpoints back the mobile shells embedding `any.aar` / the
+  xcframework. Re-POST on token rotation; DELETE on logout.
+- The token persist is durable and local
+  (`<account-dir>/push-token.json`); a transient forward failure is
+  retried in the background, so a slow push node never fails the POST.
+  DELETE removes the local file even when the node is unreachable.
+- `spaceKey` is the base58 space push **public key** (the push server's
+  space identifier), not a spaceId; rows come back unsigned (signatures
+  can't round-trip — the server never returns them).
+
+Notification *sending* has no endpoint: it's a sender-scoped side
+effect of the chat write handlers (send / mention-adding edit / read),
+async and best-effort — the consumer-side exception category `/search`
+established. Who-gets-what is controlled by the two `notifyMode` knobs
+(§ Per-space settings + the `chat.notifyMode` property,
+`docs/20-push.md` § Settings).
 
 ### Debug (diagnostic)
 

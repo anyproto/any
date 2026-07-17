@@ -142,6 +142,7 @@ func NewType() handler.Type {
 			DataVersion: dataVersion,
 			Handler:     blocksHandler{},
 			Schema:      datasetSchema(),
+			Indexes:     blocksHandler{}.Indexes(),
 		}},
 	}
 }

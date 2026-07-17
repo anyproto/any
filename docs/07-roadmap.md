@@ -185,6 +185,26 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Push notifications (SYN-47)** — chat push interoperating with
+  heart's `anytype-push-server` deployment (topic vocabulary, payload
+  JSON, and crypto byte-compatible). SDK `pushclient` component
+  (`SDK.Push()` / `space.PushAPI`, branch
+  `cheggaaa/syn-47-push-client`: ACL-derived keys, topic/ciphertext
+  signing, DRPC to the direct out-of-band push peer) + `any`'s
+  `internal/push` policy service (token persistence + re-register,
+  hash-gated subscription sync loop, buffered notify queue), the
+  sender-scoped chat handler hooks (send / mention-adding edit /
+  silent read — the `/search`-category consumer-side exception),
+  two `notifyMode` knobs (`settings.notifyMode` on the tech-space row
+  via `PATCH /v1/spaces/:id/settings` + account-scoped
+  `chat.notifyMode` per chat; effective = chat ?? space ?? all),
+  `/v1/push/token[,/subscriptions]` endpoints, `any push …` +
+  `any space settings` CLI, config `push.*` / `ANY_PUSH_*`, gated e2e
+  (`internal/e2e/push_test.go`). Full contract in `docs/20-push.md`.
+  **Remaining:** the staging/production push-node address (infra
+  hand-off, config-only) + running the gated e2e against real infra.
+  **Deferred by design:** reactions push, ACL/invite push, desktop
+  receive (send-only — the push server's platform enum is ios/android).
 - **Files v2** — the SDK's files-v2 work (released in
   `any-sync-sdk v0.1.0-alpha.1`, on `any-sync v0.13.0-alpha.1`) made
   file payloads space
@@ -387,9 +407,10 @@ pluggable embedders, parallel batched pipelines),
   SDK's existing `_ver.id` creation marker; pagination cursors are
   message ids that resolve to that boundary. Liveness reuses the
   generic subscribe primitive with `dataset=chat_messages`. Out of
-  scope for v1: pinned, read tracking / mentions, attachments,
-  blocks (typed text/link/embed/quote), per-emoji-per-identity
-  unread reaction tracking — all live as v1.x followups.
+  scope for v1: pinned, blocks (typed text/link/embed/quote),
+  per-emoji-per-identity unread reaction tracking — v1.x followups.
+  Read tracking, attachments, and mentions (derived `mentions` field
+  + `unreadMention` badging, SYN-72) have since shipped.
 - **Subscriptions over SSE** — `GET /v1/spaces/:id/objects/:objectId/subscribe?dataset=…`
   and `GET /v1/spaces/:id/properties/subscribe` stream CRDT apply
   events as Server-Sent Events. Wire format: `event: ready` →

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -22,9 +24,90 @@ func newSpaceCmd() *cobra.Command {
 		Short: "space-level operations (metadata update, lookup)",
 	}
 
-	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSyncCmd(),
-		newSpaceDeleteCmd(), newSpaceQueryCmd(), newSpaceSubscribeCmd())
+	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSettingsCmd(),
+		newSpaceSyncCmd(), newSpaceDeleteCmd(), newSpaceQueryCmd(),
+		newSpaceSubscribeCmd())
 	return cmd
+}
+
+// newSpaceSettingsCmd: `any space settings <spaceId> --set key=value
+// ... --unset key ...` — PATCH /v1/spaces/:id/settings, the
+// account-private per-space settings patch (Spaces().SetSettings).
+// Values are scalars: --set takes the value as a bare string;
+// --set-bool / --set-num are the typed variants (explicit flags
+// instead of literal-sniffing, so "true" the string stays writable).
+// Keys are single-level (no dots). Prints nothing on success.
+func newSpaceSettingsCmd() *cobra.Command {
+	var (
+		set     []string
+		setBool []string
+		setNum  []string
+		unset   []string
+	)
+	cmd := &cobra.Command{
+		Use:   "settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...",
+		Short: "patch the account-private per-space settings (e.g. notifyMode)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req, err := buildSettingsPatch(set, setBool, setNum, unset)
+			if err != nil {
+				return err
+			}
+			cl := client.New(flags.Addr, flags.Timeout)
+			return cl.SpaceSettingsPatch(cmd.Context(), args[0], req)
+		},
+	}
+	cmd.Flags().StringArrayVar(&set, "set", nil, "set a string value: key=value (repeatable)")
+	cmd.Flags().StringArrayVar(&setBool, "set-bool", nil, "set a boolean value: key=true|false (repeatable)")
+	cmd.Flags().StringArrayVar(&setNum, "set-num", nil, "set a numeric value: key=N (repeatable)")
+	cmd.Flags().StringArrayVar(&unset, "unset", nil, "remove a key (repeatable)")
+	return cmd
+}
+
+// buildSettingsPatch assembles the SpaceSettingsPatchRequest from the
+// typed --set* flag groups. Client-side checks are only the ones the
+// server can't phrase better: entry syntax, typed-value parses, and
+// duplicate keys across the set flags (a map would silently drop one).
+// Everything else (key shape, set/unset overlap) is the server's 400.
+func buildSettingsPatch(set, setBool, setNum, unset []string) (api.SpaceSettingsPatchRequest, error) {
+	req := api.SpaceSettingsPatchRequest{Unset: unset}
+	if len(set)+len(setBool)+len(setNum)+len(unset) == 0 {
+		return req, fmt.Errorf("nothing to do: pass at least one --set / --set-bool / --set-num / --unset")
+	}
+	add := func(entry string, parse func(string) (any, error)) error {
+		key, raw, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			return fmt.Errorf("bad entry %q: want key=value", entry)
+		}
+		val, err := parse(raw)
+		if err != nil {
+			return fmt.Errorf("bad value for %q: %w", key, err)
+		}
+		if req.Set == nil {
+			req.Set = make(map[string]any)
+		}
+		if _, dup := req.Set[key]; dup {
+			return fmt.Errorf("key %q set more than once", key)
+		}
+		req.Set[key] = val
+		return nil
+	}
+	for _, e := range set {
+		if err := add(e, func(raw string) (any, error) { return raw, nil }); err != nil {
+			return req, err
+		}
+	}
+	for _, e := range setBool {
+		if err := add(e, func(raw string) (any, error) { return strconv.ParseBool(raw) }); err != nil {
+			return req, err
+		}
+	}
+	for _, e := range setNum {
+		if err := add(e, func(raw string) (any, error) { return strconv.ParseFloat(raw, 64) }); err != nil {
+			return req, err
+		}
+	}
+	return req, nil
 }
 
 // newSpaceDeleteCmd: `any space delete <spaceId> --yes` — DELETE

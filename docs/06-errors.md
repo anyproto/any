@@ -69,6 +69,8 @@ object.type_required
 dataset.unknown                  # no handler registered
 dataset.validation               # schema or handler rejected ops
 
+filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator); message lists the supported set
+
 agent.seq_required               # turn/chunk append missing the seq ordering key
 agent.turn_invalid               # turn record shape violation (caps, types)
 agent.chunk_invalid              # chunk shape violation (missing/inverted pointers or period)
@@ -91,8 +93,14 @@ file.not_durable                 # 409 — offload refused: local bytes are the 
 file.not_available               # 409 — content not local and not fetchable yet (not durable, or no public read base); retry after the row gains networkSign
 file.variant_invalid             # 400 — variant/variantOf pairing broken, or original on a different object
 
+history.version_not_found        # 404 — unknown version (ChangeId), or not in this object's DAG
+history.view_too_large           # 413 — materializing that version blew the SDK's view bound; narrow with dataset/recordId
+history.truncated                # 404 — the causal past needed is not on this device (reserved; the SDK keeps full history today)
+
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
+
+push.disabled                    # 409 — push notifications not configured (push.enabled / push.peerId), or the SDK has no push node
 
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured

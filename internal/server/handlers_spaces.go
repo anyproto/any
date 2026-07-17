@@ -26,6 +26,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/query/subscribe", d.spaceListQuerySubscribe)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
+	// Account-private per-space client settings (settings.notifyMode
+	// etc.) — separate from the member-replicated PATCH above.
+	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
 	g.POST("/spaces/:spaceId/search", d.search)
@@ -84,6 +87,16 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read", d.chatReadReactions)
+
+	// Version history (SDK Space.History(); SDK
+	// docs/version-history-proposal.md). Read-only; versions are the
+	// ChangeIds every write already returns. The static `diff` segment
+	// is registered before the `:version` matcher so it isn't
+	// swallowed.
+	g.GET("/spaces/:spaceId/objects/:objectId/history", d.historyList)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/diff", d.historyDiff)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt)
 
 	// Agent data layer (built-in types — see internal/agentlog,
 	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
@@ -600,7 +613,7 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 }
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
-	return api.SpaceInfo{
+	out := api.SpaceInfo{
 		Id:          info.Id,
 		Type:        info.Type,
 		SpaceType:   info.SpaceType,
@@ -611,7 +624,16 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		Status:      spaceStatusString(info.Status),
 		OwnRole:     spacePermissionString(info.OwnRole),
 		CreatedAt:   info.CreatedAt,
+		Settings:    info.Settings,
 	}
+	if pk := info.PushKeys; pk != nil {
+		out.Push = &api.SpacePushKeys{
+			SpaceKey: pk.SpaceKey,
+			EncKey:   pk.EncKey,
+			EncKeyId: pk.EncKeyId,
+		}
+	}
+	return out
 }
 
 // spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates

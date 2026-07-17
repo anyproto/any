@@ -38,7 +38,11 @@ func (d *deps) chatSend(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
-	if req.Text == "" {
+	// Text carries the message unless attachments do — a photo sent with
+	// no caption is an ordinary message. Only a payload with neither is
+	// empty, and stays rejected. (Edit below is deliberately stricter:
+	// it replaces text on an existing record and can't clear it.)
+	if req.Text == "" && len(req.Attachments) == 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
 	}
 	if len(req.Text) > chat.MaxTextBytes {
@@ -66,6 +70,13 @@ func (d *deps) chatSend(c echo.Context) error {
 	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	// Push hook (sender-scoped by construction — only this server's own
+	// writes land here). Asynchronous: the read-back for the derived
+	// `mentions` runs on a push-service goroutine, so the response never
+	// waits on it and read failures log-and-skip inside the service.
+	if d.push != nil && len(res.RecordIds) > 0 {
+		d.push.NotifyChatMessage(sp, objectId, res.RecordIds[0])
 	}
 	return c.JSON(http.StatusCreated, modifyResultToAPI(res))
 }
@@ -109,9 +120,23 @@ func (d *deps) chatEdit(c echo.Context) error {
 			map[string]any{"max_bytes": chat.MaxTextBytes, "got_bytes": len(req.Text)})
 	}
 
+	// Pre-edit mention snapshot for the push diff — must happen BEFORE
+	// the edit lands (one cheap local read; skipped when push is off).
+	// A failed snapshot skips the edit push rather than over-notifying.
+	var pushBefore []string
+	pushOk := false
+	if d.push != nil {
+		pushBefore, pushOk = d.push.ChatMentionsBefore(c.Request().Context(), sp, objectId, msgId)
+	}
+
 	res, err := chat.Edit(c.Request().Context(), sp, objectId, msgId, d.account, req.Text)
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	// Push hook: only NEWLY-ADDED mentions are notified (async diff
+	// against the snapshot inside the push service; never blocks).
+	if pushOk {
+		d.push.NotifyChatEdit(sp, objectId, msgId, pushBefore)
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
@@ -297,6 +322,11 @@ func (d *deps) chatReadAll(c echo.Context) error {
 	if err := chat.ReadAll(c.Request().Context(), sp, objectId); err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
+	// Silent push so the account's OTHER devices refresh their badges
+	// (heart hooks its read RPC the same way). Non-blocking.
+	if d.push != nil {
+		d.push.NotifyChatRead(sp.Id(), objectId)
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -326,6 +356,10 @@ func (d *deps) chatRead(c echo.Context) error {
 	}
 	if err := chat.Read(c.Request().Context(), sp, objectId, msgId); err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
+	}
+	// Silent push — same own-devices badge refresh as read-all.
+	if d.push != nil {
+		d.push.NotifyChatRead(sp.Id(), objectId)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

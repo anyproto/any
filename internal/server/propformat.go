@@ -9,9 +9,9 @@ import (
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/valyala/fastjson"
 
-	"github.com/anyproto/any-sync-sdk/anyuri"
 	"github.com/anyproto/any-sync-sdk/space"
 
+	"github.com/anyproto/any/anyuri"
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -356,9 +356,9 @@ func checkFormatValue(ft space.FormatType, v *fastjson.Value) string {
 			if !ok {
 				return "links value must contain only strings"
 			}
-			// Property values use the in-space, fragment-less form.
-			u, err := anyuri.Parse(s)
-			if err != nil || u.SpaceId != "" || u.Fragment != "" {
+			// Property values use the bare in-space, fragment-less
+			// form; typed-kind URIs are rejected here by design.
+			if !anyuri.IsPropertyValueRef(s) {
 				return fmt.Sprintf("link %q must be a plain \"any://<objectId>\" URI", s)
 			}
 		}

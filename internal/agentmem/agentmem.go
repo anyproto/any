@@ -147,7 +147,7 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: Dataset, DataVersion: dataVersion, Handler: itemsHandler{}},
+			{Name: Dataset, DataVersion: dataVersion, Handler: itemsHandler{}, Indexes: itemsHandler{}.Indexes()},
 			{Name: DatasetJobState, DataVersion: "1", Handler: handler.DefaultHandler{}},
 			{Name: DatasetROI, DataVersion: "1", Handler: handler.DefaultHandler{}},
 		},

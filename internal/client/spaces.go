@@ -20,6 +20,17 @@ func (c *Client) SpaceUpdate(ctx context.Context, spaceId string, req api.SpaceU
 	return c.do(ctx, http.MethodPatch, path, req, nil)
 }
 
+// SpaceSettingsPatch patches the account-private per-space settings
+// object (PATCH /v1/spaces/:id/settings → Spaces().SetSettings): a
+// per-key set/unset of scalar values on the space's tech-space row.
+// Deliberately separate from SpaceUpdate, which writes the
+// member-replicated spaceIndex metadata. Works on any known row —
+// deleted tombstones and pending 1-1s included. Returns 204.
+func (c *Client) SpaceSettingsPatch(ctx context.Context, spaceId string, req api.SpaceSettingsPatchRequest) error {
+	path := fmt.Sprintf("/v1/spaces/%s/settings", url.PathEscape(spaceId))
+	return c.do(ctx, http.MethodPatch, path, req, nil)
+}
+
 // SpaceSync forces an immediate head-sync round (POST
 // /v1/spaces/:id/sync → Space.SyncHeads). Blocks until the round
 // completes server-side. Use to converge on demand instead of waiting
