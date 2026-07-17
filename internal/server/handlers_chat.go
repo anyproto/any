@@ -38,7 +38,11 @@ func (d *deps) chatSend(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
-	if req.Text == "" {
+	// Text carries the message unless attachments do — a photo sent with
+	// no caption is an ordinary message. Only a payload with neither is
+	// empty, and stays rejected. (Edit below is deliberately stricter:
+	// it replaces text on an existing record and can't clear it.)
+	if req.Text == "" && len(req.Attachments) == 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
 	}
 	if len(req.Text) > chat.MaxTextBytes {

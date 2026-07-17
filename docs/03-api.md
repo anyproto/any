@@ -1508,7 +1508,11 @@ See `internal/chat/handler.go`.
   "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
 ```
 
-`text` is required, ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
+`text` is required unless `attachments` is non-empty — a photo sent
+with no caption is an ordinary message, so an attachment-only send is
+valid and `text` may be `""` or omitted. A message with neither text
+nor attachments carries nothing and is rejected 400
+`chat.text_required`. `text` is ≤ 32 KiB. `replyToMessageId` is optional, ≤ 256
 bytes, and a soft reference — the server doesn't validate that the
 target exists (when it does exist, its creator is folded into the
 derived `mentions` array; when it doesn't, the fold-in is silently
