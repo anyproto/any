@@ -17,7 +17,8 @@ server verifies the caller's any-sync secure-channel identity plus
 per-topic signatures, then fans opaque ciphertext out to the FCM/APNs
 tokens of accounts subscribed to matching topics. Receive-side
 decryption is a mobile-client concern (iOS NSE / Android extension) —
-`any` owns only the wire contract.
+`any` delivers the key material clients must cache for it
+(§ Receiver-side keys) and owns the wire contract.
 
 Both keys are **derived from ACL state, never stored** (the SDK
 re-derives on demand; see the `PushAPI` doc comments in the SDK's
@@ -85,6 +86,75 @@ The pre-encryption JSON (`internal/push/chatpush.go`, pinned by
 - Read notifications are **silent** (data-only, no payload): the server
   targets only the caller's own-identity topic, waking the account's
   other devices to refresh badges.
+
+## Receiver-side keys — decrypting on mobile while `any` is down
+
+A push arrives when the app — and therefore `any` — may not be running
+(iOS Notification Service Extension, Android
+`FirebaseMessagingService`). The extension cannot ask a dead server to
+decrypt, so clients **cache the per-space key material natively** and
+decrypt on their own. `any` delivers it as the `push` object on space
+info (the heart pattern: heart's clients read the same values off the
+`spacePushNotificationKey` / `spacePushNotificationEncryptionKey`
+space-view details — encodings are byte-compatible, so existing mobile
+decrypt code ports as-is):
+
+```json
+{ "id": "spc_…",
+  "push": {
+    "spaceKey": "<base64 proto-marshalled ed25519 priv>",
+    "encKey":   "<base64 raw AES-256 key>",
+    "encKeyId": "<hex sha256 of the raw key bytes>" } }
+```
+
+Where to read it:
+- `GET /v1/spaces` and `GET /v1/spaces/:id` — `push` is a plain row
+  field, so list rows carry it too (unlike the derive-based ids).
+- `POST /v1/spaces/query/subscribe` — the raw rows stream the same
+  `push` object; a **read-key rotation shows up as a row update**
+  (new `encKey`/`encKeyId`), no extra stream needed.
+
+Omitted until the SDK's mirror has run for that space — e.g. a joiner
+whose access is still pending has no read key and gets `push` only
+after the owner's accept lands.
+
+**Cache contract (per space, in the OS keystore):**
+
+1. Maintain an **append-only** map `{encKeyId → encKey}`. Never evict
+   on rotation: a payload encrypted before the rotation still arrives
+   carrying the old `keyId`, and old keys stay valid for old
+   ciphertext forever.
+2. Store it where the notification-handling process can read it —
+   iOS: a keychain item in an access group shared with the NSE,
+   `kSecAttrAccessibleAfterFirstUnlock` (pushes arrive before first
+   unlock otherwise fail); Android: Keystore-wrapped storage readable
+   from the messaging service (e.g. `EncryptedSharedPreferences`).
+3. Refresh on every app foreground while `any` runs: `GET /v1/spaces`,
+   upsert every `push` you see; hold the space-list subscribe stream
+   while the app is open so rotations land immediately.
+4. `spaceKey` is carried for heart parity (topic identity /
+   server-side registration); decryption needs only `encKey`.
+
+**Handling an incoming push:**
+
+1. Read the message's `keyId` and ciphertext (field names are the
+   push-server transport contract — same as heart's; see
+   anytype-push-server).
+2. Look up `encKey` by `keyId` in the cache. **Miss ⇒ show a generic
+   notification** ("New message") — fresh install or a rotation you
+   haven't cached yet; the real content syncs when the app opens.
+3. Decrypt: AES-256-GCM, the 12-byte nonce is **prefixed** to the
+   ciphertext, no AAD (any-sync `crypto.AESKey` format —
+   `open(key, nonce=ct[:12], data=ct[12:])`).
+4. Parse the payload JSON (§ Payload wire shape) — `spaceId`, `chatId`,
+   `senderName`, `text` are all inside the plaintext; route the
+   notification tap from those.
+
+Security note: `encKey` is a **one-way SLIP-21 derivation from the
+read key** — holding it decrypts push payloads only, never space data.
+That is why exposing it over the localhost API (and parking it in the
+OS keystore) is acceptable while the read key itself never leaves the
+SDK.
 
 ## Triggers (sender-scoped hooks)
 

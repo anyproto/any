@@ -740,6 +740,17 @@ Implementation slices landed:
     component + tech-space `settings` subtree (`SDK.Push()` /
     `space.PushAPI`, `Spaces().SetSettings`, `ErrPushNotConfigured`,
     `sdkconfig.Push`).
+    **Receiver-side keys**: `SpaceInfo.push` = `{spaceKey, encKey,
+    encKeyId}` — the SDK mirrors the derived push key material onto
+    each tech-space `spaces` row (device-local `push` field: per-space
+    push-key watcher + `aclKickMux` fan-out over syncacl's single
+    AclUpdater slot), so mobile clients cache `{encKeyId → encKey}`
+    natively (append-only — old keys still decrypt late payloads) and
+    decrypt pushes while `any` is down. Plain row field ⇒ present on
+    list rows AND streamed by `/v1/spaces/query/subscribe` (rotation =
+    row update). Encodings heart-compatible
+    (`spacePushNotificationKey`/`...EncryptionKey`). Contract:
+    docs/20-push.md § Receiver-side keys, docs/08-clients.md § 11.
     **Deferred:** reactions push, ACL/invite push, desktop receive
     (platform enum is ios/android — desktop is send-only),
     `RemoveSpace` cleanup. Contract: docs/20-push.md, docs/03-api.md

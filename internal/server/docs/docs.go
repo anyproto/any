@@ -7028,6 +7028,9 @@ const docTemplate = `{
                 "ownRole": {
                     "type": "string"
                 },
+                "push": {
+                    "$ref": "#/definitions/api.SpacePushKeys"
+                },
                 "settings": {
                     "type": "object",
                     "additionalProperties": {}
@@ -7103,6 +7106,20 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "otherIdentity": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.SpacePushKeys": {
+            "type": "object",
+            "properties": {
+                "encKey": {
+                    "type": "string"
+                },
+                "encKeyId": {
+                    "type": "string"
+                },
+                "spaceKey": {
                     "type": "string"
                 }
             }

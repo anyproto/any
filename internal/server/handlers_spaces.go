@@ -609,7 +609,7 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 }
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
-	return api.SpaceInfo{
+	out := api.SpaceInfo{
 		Id:          info.Id,
 		Type:        info.Type,
 		SpaceType:   info.SpaceType,
@@ -622,6 +622,14 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		CreatedAt:   info.CreatedAt,
 		Settings:    info.Settings,
 	}
+	if pk := info.PushKeys; pk != nil {
+		out.Push = &api.SpacePushKeys{
+			SpaceKey: pk.SpaceKey,
+			EncKey:   pk.EncKey,
+			EncKeyId: pk.EncKeyId,
+		}
+	}
+	return out
 }
 
 // spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates

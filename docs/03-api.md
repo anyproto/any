@@ -336,6 +336,17 @@ per key via `PATCH /v1/spaces/:spaceId/settings` (§ Per-space
 settings), synced across the account's own devices through the tech
 space, never visible to other members. Omitted when never written.
 
+`SpaceInfo.push` is the space's push-notification key material —
+`{spaceKey, encKey, encKeyId}`, mirrored from ACL state by the SDK so
+mobile clients can cache it and decrypt push payloads while `any` is
+not running. A plain row field, so `GET /v1/spaces` list rows carry it
+too, and the raw rows on `POST /v1/spaces/query[/subscribe]` stream
+rotations live (`encKey`/`encKeyId` change when the ACL read key
+rotates). Omitted until the SDK's per-space mirror has run — e.g. a
+joiner whose access is still pending. Full receiver contract — cache
+rules, keystore placement, decrypt steps — in docs/20-push.md
+§ Receiver-side keys.
+
 #### One-to-one (direct) spaces
 
 A **1-1 (direct) space** is shared by exactly two identities, derived
