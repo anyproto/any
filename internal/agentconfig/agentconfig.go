@@ -32,6 +32,18 @@ const (
 	// Dataset holds one record per dotted config key.
 	Dataset = "agent_config"
 
+	// Record field names (anybao docs/adr 006 §3 cascade:
+	// localValue ?? value ?? default). `key` is the dotted config key;
+	// `value` is the space-scope override (synced across peers); `secret`
+	// marks a key whose value is device-local only (the config helper
+	// refuses synced writes to it); `localValue` is the device-local
+	// override — never synced, the top of the cascade (e.g. the Anthropic
+	// API key persisted on first serve start).
+	FieldKey        = "key"
+	FieldValue      = "value"
+	FieldSecret     = "secret"
+	FieldLocalValue = "localValue"
+
 	// ConfigObjectSeed is the fixed derivation seed for the per-space
 	// config object. Versioned: bumping it mints a fresh config object
 	// (a clean break, not a migration) — only together with a dataset
@@ -40,15 +52,37 @@ const (
 )
 
 // NewType returns the handler.Type to add to config.Config.Types (see
-// internal/server/sdk.go). One DefaultHandler dataset; no declared
-// properties — the record values carry the config key/value/scope.
+// internal/server/sdk.go). One DefaultHandler dataset carrying one record
+// per dotted config key. The keyspace stays Dynamic (undeclared dotted
+// keys remain permitted, synced) — the schema only pins the field CLASSES
+// the cascade depends on: `value` synced (space override), `localValue`
+// ScopeLocal (device-only, never synced). Declaring localValue local-scope
+// is what makes device-local secret persistence writable — an undeclared
+// field on a Dynamic dataset defaults to synced, and the apply path
+// rejects a local write to a synced field. DataVersion stays "1": adding
+// these declarations is additive (existing {key,value} synced records stay
+// valid), so no older writer is rejected and the config object is not
+// re-minted.
 func NewType() handler.Type {
 	return handler.Type{
 		Id:          TypeId,
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: Dataset, DataVersion: "1", Handler: handler.DefaultHandler{}},
+			{
+				Name:        Dataset,
+				DataVersion: "1",
+				Handler:     handler.DefaultHandler{},
+				Schema: handler.Schema{
+					Dynamic: true,
+					Fields: []handler.Field{
+						{Id: FieldKey, Name: "Key", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
+						{Id: FieldValue, Name: "Value", Scope: handler.ScopeSynced},
+						{Id: FieldSecret, Name: "Secret", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeSynced},
+						{Id: FieldLocalValue, Name: "Local Value", Scope: handler.ScopeLocal},
+					},
+				},
+			},
 		},
 	}
 }
