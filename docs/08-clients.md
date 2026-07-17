@@ -501,6 +501,43 @@ counter properties, point queries for toast bodies, a client-local
 last-notified marker as the cursor, snapshot-as-badges on boot. See
 `16-chat.md` § Desktop notifications.
 
+## 11. Mobile push: cache the space keys, decrypt without the server
+
+A push notification arrives when `any` is probably NOT running — the
+OS hands it to your notification extension (iOS NSE / Android
+messaging service), and there is no server process to ask. Everything
+you need to render it must already be cached natively.
+
+Every space row carries the material as `SpaceInfo.push`
+(`{spaceKey, encKey, encKeyId}`; omitted while the SDK hasn't derived
+it yet — e.g. a join still pending):
+
+```
+GET /v1/spaces                        → upsert push of every row
+POST /v1/spaces/query/subscribe       → rotations arrive as row updates
+```
+
+The receiver loop is three rules:
+
+1. **Append-only key cache per space** — `{encKeyId → encKey}` in the
+   OS keystore, readable from the notification process (iOS: shared
+   access group, available after first unlock; Android:
+   Keystore-wrapped prefs). Never delete old keys: late payloads carry
+   the pre-rotation `keyId`.
+2. **Refresh while alive** — upsert on every app foreground from
+   `GET /v1/spaces`; hold the space-list subscribe stream while the
+   app is open so a read-key rotation lands before the next push
+   encrypted under it.
+3. **On push**: look up the message's `keyId` → cache miss ⇒ show a
+   generic "New message" and move on; hit ⇒ AES-256-GCM decrypt
+   (12-byte nonce prefixed to the ciphertext, no AAD) and render from
+   the payload JSON (`spaceId` / `chatId` / `senderName` / `text` are
+   all in the plaintext).
+
+Full contract — payload shape, key derivations, heart compatibility,
+the security bound on a leaked `encKey` — in `20-push.md`
+(§ Receiver-side keys).
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.
@@ -515,3 +552,5 @@ last-notified marker as the cursor, snapshot-as-badges on boot. See
   unread divider, client-side desktop notifications.
 - `17-files.md` — files v2: tiers, durability states, cache/offload,
   variants.
+- `20-push.md` — push notifications: sender model, payload wire shape,
+  receiver-side key cache.

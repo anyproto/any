@@ -1236,6 +1236,8 @@ definitions:
         type: string
       ownRole:
         type: string
+      push:
+        $ref: '#/definitions/api.SpacePushKeys'
       settings:
         additionalProperties: {}
         type: object
@@ -1290,6 +1292,15 @@ definitions:
   api.SpaceOneToOneRequest:
     properties:
       otherIdentity:
+        type: string
+    type: object
+  api.SpacePushKeys:
+    properties:
+      encKey:
+        type: string
+      encKeyId:
+        type: string
+      spaceKey:
         type: string
     type: object
   api.SpaceQueryObjectsRequest:
