@@ -16,8 +16,14 @@
 //     Android's low-memory killer);
 //   - config assembly: config.Defaults() + DataDir + Listen.Addr +
 //     Network.Nodeconf + index policy (Embedder="none", Index.Enabled =
-//     the compiled FTS cap) + headless (WebUI.Enabled=false, IOS-116);
+//     the compiled FTS cap) + headless (WebUI.Enabled=false, IOS-116) +
+//     the push node peer (Options.PushPeerId/PushAddrs → cfg.Push,
+//     SYN-83);
 //   - the run via main's canonical embedder seam, server.RunWith.
+//
+// The embedded path never reads config.yaml or ANY_* env — the host owns
+// every input and passes it explicitly through Options. Env in a mobile
+// app process is not a configuration channel.
 //
 // It installs NO os/signal handlers — the caller owns the lifecycle.
 package embedded
@@ -27,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 
 	"github.com/anyproto/any/internal/config"
@@ -110,14 +117,94 @@ type serverHandle struct {
 	addr   string             // the bound listen address (host:port)
 }
 
-// Start boots the embedded server with its data under dataDir, listening
-// on listenAddr (pass "127.0.0.1:0" for an OS-assigned ephemeral port),
-// joining the network described by nodeconfYAML. indexEnabled requests the
-// FTS index (see the index-policy block below). It blocks until the
-// listener binds — returning the bound address — or boot fails, returning
-// one of the package's typed errors (ErrAlreadyRunning, ErrBadDataDir,
-// ErrNodeconfRequired, or a *BootError).
-func Start(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) (string, error) {
+// Options are the host-supplied inputs for Start. The embedded path has
+// no config file and no env — every knob a host can turn crosses this
+// struct explicitly.
+type Options struct {
+	// DataDir is the server's data root (Context.getFilesDir() on
+	// Android, the app container on iOS). Required.
+	DataDir string
+	// ListenAddr is the loopback listen address; "127.0.0.1:0" lets the
+	// OS pick a free port (read it back with Address()).
+	ListenAddr string
+	// NodeconfYAML is the any-sync network config contents (staging/prod
+	// yml). Required — there is no filesystem fallback on this path.
+	NodeconfYAML string
+	// IndexEnabled requests the FTS index (see the index-policy block in
+	// Start); a build without the `fts` tag ignores it.
+	IndexEnabled bool
+	// PushPeerId is the push node's peer id (SYN-83). The push node is a
+	// direct out-of-band peer, deliberately NOT part of NodeconfYAML —
+	// but it pairs with the nodeconf choice (staging vs prod), so the
+	// host supplies both from the same place. Empty = push stays off
+	// (every /v1/push endpoint returns 409 push.disabled).
+	PushPeerId string
+	// PushAddrs are the push node's dial addresses, comma-separated —
+	// the same format ANY_PUSH_ADDRS parses, e.g.
+	// "quic://host:port" or "host:port,host2:port2". Push activates only
+	// when both PushPeerId and PushAddrs are non-empty.
+	PushAddrs string
+}
+
+// assembleConfig builds the embedded boot config from validated Options.
+// Split from Start so the assembly rules (index policy, headless,
+// push-node threading) are unit-testable without booting an engine.
+func assembleConfig(opts Options) config.Config {
+	cfg := config.Defaults()
+	cfg.DataDir = opts.DataDir
+	cfg.Listen.Addr = opts.ListenAddr
+	cfg.Network.Nodeconf = opts.NodeconfYAML
+	// FTS-only index policy. "none" makes the embedder factory return a
+	// true-nil so the compiled-out local llama.cpp embedder is never
+	// reached. Index.Enabled is gated on BOTH the compiled FTS cap and the
+	// caller's IndexEnabled request: config.Defaults() ships
+	// Index.Enabled=true, so this is a LOAD-BEARING override. FTS runs only
+	// when the `fts` tag is compiled in AND the caller opts in — a build
+	// without the tag leaves CompiledCaps()'s fts bit false and the dormant
+	// indexer never starts regardless of IndexEnabled; with `fts` the caller
+	// decides. The iOS share extension passes IndexEnabled=false to keep the
+	// indexer dormant for the memory headroom (it never searches), the app
+	// passes true if it wants engine search. (capFTS is unexported;
+	// CompiledCaps is the exported reader.)
+	cfg.Index.Embedder = "none"
+	fts, _ := indexer.CompiledCaps()
+	cfg.Index.Enabled = opts.IndexEnabled && fts
+	// IOS-116: every in-process boot (iOS/iPadOS app, future sharing
+	// extension) is headless — no /ui debug harness, no advertising log.
+	cfg.WebUI.Enabled = false
+	// Push node (SYN-83): plain field fill — the config.Push tristate does
+	// the enablement on its own (nil Enabled + non-empty PeerId + addrs ⇒
+	// Active). Empty inputs leave the defaults and push stays off.
+	cfg.Push.PeerId = opts.PushPeerId
+	cfg.Push.Addrs = splitAddrs(opts.PushAddrs)
+	return cfg
+}
+
+// splitAddrs splits a comma-separated address list into trimmed,
+// non-empty entries — the same semantics config's ANY_PUSH_ADDRS
+// parsing applies, kept here so both mobile shims share one
+// implementation instead of each parsing host input.
+func splitAddrs(v string) []string {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Start boots the embedded server with its data under opts.DataDir,
+// listening on opts.ListenAddr, joining the network described by
+// opts.NodeconfYAML (see Options for the full input contract). It blocks
+// until the listener binds — returning the bound address — or boot fails,
+// returning one of the package's typed errors (ErrAlreadyRunning,
+// ErrBadDataDir, ErrNodeconfRequired, or a *BootError).
+func Start(opts Options) (string, error) {
 	// Soft memory cap, applied unconditionally at start so it is in force
 	// before the engine allocates. SetMemoryLimit's argument is a soft
 	// GOMEMLIMIT in bytes; -1 leaves it unchanged (used to read it back).
@@ -139,38 +226,17 @@ func Start(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) (string,
 		<-prev
 	}
 
-	if nodeconfYAML == "" {
+	if opts.NodeconfYAML == "" {
 		return "", ErrNodeconfRequired
 	}
-	if dataDir == "" {
+	if opts.DataDir == "" {
 		return "", ErrBadDataDir
 	}
-	if _, err := config.EnsureDataDir(dataDir); err != nil {
+	if _, err := config.EnsureDataDir(opts.DataDir); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrBadDataDir, err)
 	}
 
-	cfg := config.Defaults()
-	cfg.DataDir = dataDir
-	cfg.Listen.Addr = listenAddr
-	cfg.Network.Nodeconf = nodeconfYAML
-	// FTS-only index policy. "none" makes the embedder factory return a
-	// true-nil so the compiled-out local llama.cpp embedder is never
-	// reached. Index.Enabled is gated on BOTH the compiled FTS cap and the
-	// caller's indexEnabled request: config.Defaults() ships
-	// Index.Enabled=true, so this is a LOAD-BEARING override. FTS runs only
-	// when the `fts` tag is compiled in AND the caller opts in — a build
-	// without the tag leaves CompiledCaps()'s fts bit false and the dormant
-	// indexer never starts regardless of indexEnabled; with `fts` the caller
-	// decides. The iOS share extension passes indexEnabled=false to keep the
-	// indexer dormant for the memory headroom (it never searches), the app
-	// passes true if it wants engine search. (capFTS is unexported;
-	// CompiledCaps is the exported reader.)
-	cfg.Index.Embedder = "none"
-	fts, _ := indexer.CompiledCaps()
-	cfg.Index.Enabled = indexEnabled && fts
-	// IOS-116: every in-process boot (iOS/iPadOS app, future sharing
-	// extension) is headless — no /ui debug harness, no advertising log.
-	cfg.WebUI.Enabled = false
+	cfg := assembleConfig(opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

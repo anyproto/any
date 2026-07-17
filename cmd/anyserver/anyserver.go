@@ -50,11 +50,20 @@ const (
 // startServer boots the embedded server and blocks until the listener
 // binds (returning the bound port, positive) or boot fails (returning a
 // negative error code; see the const block). It is the testable core
-// behind the //export AnyServerStart wrapper: it calls embedded.Start and
-// maps the returned addr->port and err->code, so both halves of the
-// contract are exercised on the host.
-func startServer(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool) int {
-	addr, err := embedded.Start(dataDir, listenAddr, nodeconfYAML, indexEnabled)
+// behind the //export AnyServerStart / AnyServerStartWithPush wrappers:
+// it calls embedded.Start and maps the returned addr->port and
+// err->code, so both halves of the contract are exercised on the host.
+// pushPeerId/pushAddrs configure the push node (SYN-83; addrs
+// comma-separated, see embedded.Options) — empty strings keep push off.
+func startServer(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool, pushPeerId, pushAddrs string) int {
+	addr, err := embedded.Start(embedded.Options{
+		DataDir:      dataDir,
+		ListenAddr:   listenAddr,
+		NodeconfYAML: nodeconfYAML,
+		IndexEnabled: indexEnabled,
+		PushPeerId:   pushPeerId,
+		PushAddrs:    pushAddrs,
+	})
 	if err != nil {
 		return errCode(err)
 	}
@@ -118,7 +127,21 @@ func portOf(addr string) int {
 //
 //export AnyServerStart
 func AnyServerStart(dataDir, listenAddr, nodeconfYAML *C.char, indexEnabled C._Bool) C.int {
-	return C.int(startServer(C.GoString(dataDir), C.GoString(listenAddr), C.GoString(nodeconfYAML), bool(indexEnabled)))
+	return C.int(startServer(C.GoString(dataDir), C.GoString(listenAddr), C.GoString(nodeconfYAML), bool(indexEnabled), "", ""))
+}
+
+// AnyServerStartWithPush is AnyServerStart plus the push-notification
+// node (SYN-83). The push node is a direct out-of-band peer, not part of
+// nodeconfYAML — it pairs with the nodeconf choice (staging vs prod), so
+// the host passes both from the same place. pushPeerId is the node's
+// peer id; pushAddrs its dial addresses, comma-separated (same format
+// ANY_PUSH_ADDRS parses, e.g. "quic://host:port"). Push activates only
+// when both are non-empty; empty strings give the exact AnyServerStart
+// behavior (every /v1/push endpoint returns 409 push.disabled).
+//
+//export AnyServerStartWithPush
+func AnyServerStartWithPush(dataDir, listenAddr, nodeconfYAML *C.char, indexEnabled C._Bool, pushPeerId, pushAddrs *C.char) C.int {
+	return C.int(startServer(C.GoString(dataDir), C.GoString(listenAddr), C.GoString(nodeconfYAML), bool(indexEnabled), C.GoString(pushPeerId), C.GoString(pushAddrs)))
 }
 
 // AnyServerStop gracefully stops the server: it cancels the run context,

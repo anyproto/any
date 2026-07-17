@@ -201,6 +201,11 @@ pluggable embedders, parallel batched pipelines),
   `/v1/push/token[,/subscriptions]` endpoints, `any push …` +
   `any space settings` CLI, config `push.*` / `ANY_PUSH_*`, gated e2e
   (`internal/e2e/push_test.go`). Full contract in `docs/20-push.md`.
+  Embedded servers (any.aar / xcframework) bridge the push node through
+  `embedded.Options` — `mobile.StartWithPush` /
+  `AnyServerStartWithPush`, addrs comma-separated (SYN-83);
+  the host supplies the peer alongside its nodeconf choice, no default
+  shipped.
   **Remaining:** the staging/production push-node address (infra
   hand-off, config-only) + running the gated e2e against real infra.
   **Deferred by design:** reactions push, ACL/invite push, desktop
