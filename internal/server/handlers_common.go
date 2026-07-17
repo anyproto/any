@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -78,7 +79,63 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
+	if op, ok := unknownFilterOperator(err); ok {
+		return unknownFilterOperatorError(c, op, details)
+	}
 	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+}
+
+// filterOperators is the operator vocabulary any-store's filter parser
+// accepts (the opBytes* constants in any-store/v2 query/cond_parse.go).
+// Echoed back on a bad filter so the caller sees the whole grammar at once
+// instead of discovering it one rejected token at a time.
+const filterOperators = "$eq, $ne, $in, $nin, $all, $gt, $gte, $lt, $lte, " +
+	"$exists, $type, $regex, $size, $text, $and, $or, $not, $nor"
+
+// unknownOperatorPrefixes are any-store's message forms for an operator
+// outside the grammar. Both spellings are listed because any-store#132
+// fixes the "unknow" typo and lands after this — see unknownFilterOperator.
+var unknownOperatorPrefixes = []string{"unknown operator: ", "unknow operator: "}
+
+// unknownFilterOperator reports whether err is any-store's filter-parse
+// rejection of an unrecognized operator, and recovers the offending token.
+//
+// STOPGAP: matched on message text. any-store does not export a sentinel
+// for this yet; any-store#132 adds query.ErrUnknownOperator plus
+// UnknownOperatorError{Op}, and the SDK already wraps the parse error with
+// %w (spaceimpl.queryImpl.Filter), so once go.mod moves past that tag the
+// whole function collapses into an errors.As and Op arrives structured. The
+// bump needs no SDK release — `any` pins any-store/v2 directly, and module
+// resolution takes the max of our pin and the SDK's. See SYN-79 / SYN-80.
+func unknownFilterOperator(err error) (op string, ok bool) {
+	msg := err.Error()
+	for _, prefix := range unknownOperatorPrefixes {
+		if i := strings.Index(msg, prefix); i >= 0 {
+			return msg[i+len(prefix):], true
+		}
+	}
+	return "", false
+}
+
+// unknownFilterOperatorError answers a bad filter operator with a typed 400.
+// A filter is caller-supplied, so an operator outside the grammar is a client
+// fault and must not surface as 500 internal — a 500 reads as "the server
+// broke", so callers retry or report a server fault instead of fixing the
+// filter.
+//
+// The message names the offending operator, the full grammar, and the array
+// rule, because the common way to arrive here is reaching for a $contains
+// that does not exist: a scalar already compares against array elements, so
+// {"tags": "x"} *is* contains (any-store Comp.Ok; docs/09-query.md § Arrays).
+func unknownFilterOperatorError(c echo.Context, op string, details map[string]any) error {
+	msg := "unsupported filter operator " + op + "; supported: " + filterOperators +
+		"; note a scalar compares against array elements, so {\"field\": \"value\"}" +
+		" already matches any record whose array field contains that value"
+	if details == nil {
+		details = map[string]any{}
+	}
+	details["operator"] = op
+	return writeError(c, http.StatusBadRequest, "filter.unknown_operator", msg, details)
 }
 
 // sdkValidationError maps the SDK's write-time property schema rejection

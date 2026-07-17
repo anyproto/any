@@ -906,6 +906,13 @@ point-in-time snapshot; `…/query/subscribe` returns the same
 snapshot plus a live SSE stream of windowed transitions. See
 `04-events.md` for the subscribe contract.
 
+A `filter` naming an operator outside the grammar is a caller fault:
+`400 filter.unknown_operator`, with the offending token in
+`details.operator` and the supported set spelled out in the message.
+Note there is no `$contains` — a scalar already compares against array
+elements, so `{"any.types": "chat"}` is the contains spelling. Filter
+grammar and the array rules: `09-query.md`.
+
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
 ```json

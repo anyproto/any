@@ -69,6 +69,8 @@ object.type_required
 dataset.unknown                  # no handler registered
 dataset.validation               # schema or handler rejected ops
 
+filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator); message lists the supported set
+
 agent.seq_required               # turn/chunk append missing the seq ordering key
 agent.turn_invalid               # turn record shape violation (caps, types)
 agent.chunk_invalid              # chunk shape violation (missing/inverted pointers or period)
