@@ -281,7 +281,7 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 				p.Set(FieldText, a.NewString(""))
 				return setRoot(a, p)
 			},
-			wantIn: "text required",
+			wantIn: "text or attachment required",
 		},
 		{
 			name: "missing text",
@@ -290,7 +290,7 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 				p.Set(FieldReplyToMessageId, a.NewString("m"))
 				return setRoot(a, p)
 			},
-			wantIn: "text required",
+			wantIn: "text or attachment required",
 		},
 		{
 			name: "text not a string",
