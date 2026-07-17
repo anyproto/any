@@ -331,6 +331,24 @@ to tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 
+`SpaceInfo.ownRole` is the caller's own role in the space — `owner` /
+`admin` / `writer` / `reader` / `guest` / `none` — mirrored from ACL
+state by the SDK onto the tech-space row: one mirror pass when the
+space loads, then one per applied ACL record (grants, permission
+changes, removals), so a demotion by another peer lands as a row
+update. A plain row field like `push`: `GET /v1/spaces` list rows
+carry it, and the raw rows on `POST /v1/spaces/query[/subscribe]`
+stream role changes live. Use it to gate role-dependent UI straight
+from the space list — no per-space `GET …/members/me` fan-out.
+Two caveats: `"none"` doubles as "not mirrored yet" (a space this
+device hasn't loaded since the field shipped, a pending join, a
+tombstoned row) — treat it as "unknown / no access", with
+`GET /v1/spaces/:spaceId/members/me` as the authoritative per-space
+read when it matters. And on a 1-1 space both participants report
+`writer` (the ACL owner slot is a synthetic shared key nobody holds),
+so don't gate owner-only actions on `ownRole == "owner"` for
+`spaceType:"anytype.onetoone"` rows.
+
 `SpaceInfo.settings` is the **account-private, client-owned** per-space
 settings object (free-form single-level keys, scalar values) — written
 per key via `PATCH /v1/spaces/:spaceId/settings` (§ Per-space
@@ -453,7 +471,8 @@ POST /v1/spaces/:spaceId/invite/decline   → 204
 
 `GET /v1/spaces` (`Service.List`) stays the mapped convenience — it
 returns the public `SpaceInfo` shape (status / ownRole projected from the
-raw tech-index rows). For a **filterable / sortable / live** view, the
+raw tech-index rows — the raw rows carry the same `ownRole` string
+label, device-local). For a **filterable / sortable / live** view, the
 generic windowed primitive reads the tech-space `spaces` dataset
 directly:
 
