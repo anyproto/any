@@ -254,6 +254,32 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("GET /v1/spaces/:id carries ownRole", func(t *testing.T) {
+		// The SDK's ACL mirror (ACL state → tech-space row) runs async
+		// after space load — poll (15s, matching the SDK's own e2e
+		// budget for the same mirror). The creator is the ACL owner,
+		// so the projected role must be "owner", both on the
+		// single-space GET and on the list row — the whole point of
+		// the field is gating role-dependent UI from the list without
+		// a per-space members/me fan-out.
+		if !pollUntil(15*time.Second, func() bool {
+			var got map[string]any
+			mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID, "", http.StatusOK, &got)
+			return got["ownRole"] == "owner"
+		}) {
+			t.Fatal(`ownRole never mirrored onto the row as "owner"`)
+		}
+		var list map[string]any
+		mustJSON(t, http.MethodGet, base+"/v1/spaces", "", http.StatusOK, &list)
+		spaces, _ := list["spaces"].([]any)
+		for _, raw := range spaces {
+			row, _ := raw.(map[string]any)
+			if row["id"] == spaceID && row["ownRole"] != "owner" {
+				t.Errorf("list row ownRole = %v, want owner", row["ownRole"])
+			}
+		}
+	})
+
 	t.Run("GET /v1/spaces/:id carries push keys", func(t *testing.T) {
 		// The SDK's push-key mirror (ACL state → tech-space row) runs
 		// async after space load — poll (15s, matching the SDK's own

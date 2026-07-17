@@ -36,6 +36,15 @@ type SpaceRegisterIncomingRequest struct {
 // are rendered as strings rather than the SDK's uint8 enums; see
 // SpaceStatus / SpacePermission for the mapping.
 //
+// OwnRole is the caller's own role in the space, mirrored from ACL
+// state by the SDK (one pass at space load + one per applied ACL
+// record, so permission changes land as row updates). Present on list
+// rows and single-space responses alike. "none" doubles as "not
+// mirrored yet" — treat it as unknown/no-access, with
+// GET …/members/me as the authoritative per-space read. On a 1-1
+// space participants report "writer", never "owner" (the ACL owner is
+// a synthetic shared key).
+//
 // SpaceIndexObjectId is the deterministic id of the in-space
 // `spaceIndex` derived object — stable across peers, useful for
 // clients that want to attach a subscribe stream for live metadata
@@ -80,7 +89,7 @@ type SpaceInfo struct {
 	Description         string         `json:"description,omitempty"`
 	IconCID             string         `json:"iconCid,omitempty"`
 	Status              string         `json:"status"`
-	OwnRole             string         `json:"ownRole"`
+	OwnRole             string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
 	CreatedAt           time.Time      `json:"createdAt"`
 	Settings            map[string]any `json:"settings,omitempty"`
 	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`

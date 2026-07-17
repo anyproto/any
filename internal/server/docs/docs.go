@@ -7026,7 +7026,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "ownRole": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "owner",
+                        "admin",
+                        "writer",
+                        "reader",
+                        "guest",
+                        "none"
+                    ]
                 },
                 "push": {
                     "$ref": "#/definitions/api.SpacePushKeys"

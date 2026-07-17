@@ -757,6 +757,23 @@ Implementation slices landed:
     § Push notifications + § Per-space settings, docs/16-chat.md
     (`chat.notifyMode`), docs/01-cli.md, docs/05-config.md.
 
+27. **`SpaceInfo.ownRole` is live (SYN-62)** — the SDK (v0.1.11)
+    mirrors the caller's own ACL permission onto each tech-space row
+    (ACL mirror watcher — the generalized push-key watcher: one pass at
+    space load + one per applied ACL record), so `ownRole` on
+    `GET /v1/spaces[/:id]` now reports
+    `owner/admin/writer/reader/guest/none` instead of always `"none"`,
+    and role changes stream as row updates on
+    `POST /v1/spaces/query/subscribe`. Pure passthrough — the bump plus
+    docs (03-api.md § Spaces, OpenAPI enum tag) and a FullFlow e2e
+    subtest; no handler change. `"none"` doubles as "not mirrored yet"
+    (space never loaded on this device, pending join, tombstone) —
+    `members/me` stays the authoritative read; 1-1 participants report
+    `writer`, never `owner`. Side effect: un-breaks the push
+    subscription sync's owned-space `RegisterSpace` gate
+    (internal/push/topics.go reads `OwnRole == PermissionOwner`, which
+    never fired before).
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
