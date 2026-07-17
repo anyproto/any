@@ -256,23 +256,20 @@ func TestE2E_FullFlow(t *testing.T) {
 
 	t.Run("GET /v1/spaces/:id carries push keys", func(t *testing.T) {
 		// The SDK's push-key mirror (ACL state → tech-space row) runs
-		// async after space load — poll briefly. The `push` object is
-		// the receiver-side cache contract (docs/20-push.md): clients
+		// async after space load — poll (15s, matching the SDK's own
+		// e2e budget for the same mirror). The `push` object is the
+		// receiver-side cache contract (docs/20-push.md): clients
 		// store {encKeyId → encKey} so they can decrypt push payloads
 		// while `any` is down.
 		var push map[string]any
-		deadline := time.Now().Add(5 * time.Second)
-		for {
+		if !pollUntil(15*time.Second, func() bool {
 			var got map[string]any
 			mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID, "", http.StatusOK, &got)
-			if p, ok := got["push"].(map[string]any); ok {
-				push = p
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("push keys never mirrored onto the row; last=%+v", got)
-			}
-			time.Sleep(50 * time.Millisecond)
+			p, ok := got["push"].(map[string]any)
+			push = p
+			return ok
+		}) {
+			t.Fatal("push keys never mirrored onto the row")
 		}
 		encKeyB64, _ := push["encKey"].(string)
 		encKeyId, _ := push["encKeyId"].(string)
