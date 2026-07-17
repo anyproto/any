@@ -114,8 +114,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	}
 
 	var (
-		visitErr error
-		hasText  bool
+		visitErr       error
+		hasText        bool
+		hasAttachments bool
 	)
 	obj.Visit(func(rawKey []byte, v *anyenc.Value) {
 		if visitErr != nil {
@@ -124,20 +125,19 @@ func validateCreatePayload(payload *anyenc.Value) error {
 		key := string(rawKey)
 		switch key {
 		case FieldText:
-			hasText = true
 			if v.Type() != anyenc.TypeString {
 				visitErr = rejectCreate("text must be a string")
 				return
 			}
 			text := v.GetStringBytes()
-			if len(text) == 0 {
-				visitErr = rejectCreate("text required")
-				return
-			}
 			if len(text) > MaxTextBytes {
 				visitErr = rejectCreate(fmt.Sprintf("text too long (%d > %d bytes)", len(text), MaxTextBytes))
 				return
 			}
+			// Emptiness is decided after the visit, not here: whether an
+			// empty text is legal depends on `attachments`, which may not
+			// have been visited yet.
+			hasText = len(text) > 0
 		case FieldReplyToMessageId:
 			if v.Type() != anyenc.TypeString {
 				visitErr = rejectCreate("replyToMessageId must be a string")
@@ -162,6 +162,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 				visitErr = err
 				return
 			}
+			// validateAttachments rejects an empty map, so reaching here
+			// means at least one attachment.
+			hasAttachments = true
 		default:
 			visitErr = rejectCreate("field_not_allowed: " + key)
 			return
@@ -170,7 +173,9 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	if visitErr != nil {
 		return visitErr
 	}
-	if !hasText {
+	// A message needs content: text, attachments, or both. Attachment-only
+	// (a photo with no caption) is ordinary; neither is an empty message.
+	if !hasText && !hasAttachments {
 		return rejectCreate("text required")
 	}
 	return nil

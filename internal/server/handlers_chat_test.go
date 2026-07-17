@@ -129,6 +129,54 @@ func TestServer_Chat_RoundTrip(t *testing.T) {
 // chaining /query calls with filters on `_ver.id` (the chronological
 // marker). See docs/03-api.md § Chat for the recipe.
 
+// TestServer_Chat_AttachmentOnlyMessage pins the attachment-only send:
+// a photo with no caption is an ordinary message. Text is required only
+// when the message would otherwise carry nothing at all — the empty
+// case below, and TestServer_Chat_Validation's bare `{"text":""}`.
+func TestServer_Chat_AttachmentOnlyMessage(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	body := `{"text":"","attachments":{"f0":{"type":"image","link":"any://f/` + spaceId + `/file1"}}}`
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("attachment-only send: %d %s", rec.Code, rec.Body.String())
+	}
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if len(res.RecordIds) == 0 {
+		t.Fatalf("attachment-only send: no record id in %+v", res)
+	}
+
+	// The message round-trips: empty text, attachment intact.
+	msg := getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Text != "" {
+		t.Errorf("text = %q, want empty", msg.Text)
+	}
+	att, ok := msg.Attachments["f0"]
+	if !ok {
+		t.Fatalf("attachment f0 missing from %+v", msg.Attachments)
+	}
+	if att.Type != "image" {
+		t.Errorf("attachment type = %q, want %q", att.Type, "image")
+	}
+
+	// Neither text nor attachments — that message carries nothing, and
+	// stays rejected with the same code as before.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"","attachments":{}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty message: %d %s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Error.Code != api.ErrChatTextRequired {
+		t.Errorf("empty message code = %q, want %q", env.Error.Code, api.ErrChatTextRequired)
+	}
+}
+
 // TestServer_Chat_Validation exercises the API-layer 400/403/404
 // envelope.
 func TestServer_Chat_Validation(t *testing.T) {

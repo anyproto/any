@@ -95,6 +95,51 @@ func TestBeforeCreate_AcceptsAttachments(t *testing.T) {
 	}
 }
 
+// A message carrying attachments needs no text — a photo sent with no
+// caption is ordinary messenger behaviour. Text stays required only for
+// a message that would otherwise be empty; see TestBeforeCreate_Rejects
+// ("empty text", "missing text"), which pins that half of the contract.
+func TestBeforeCreate_AcceptsAttachmentOnlyMessage(t *testing.T) {
+	withAttachment := func(a *anyenc.Arena, p *anyenc.Value) *anyenc.Value {
+		atts := a.NewObject()
+		one := a.NewObject()
+		one.Set(FieldAttachmentType, a.NewString("image"))
+		one.Set(FieldAttachmentLink, a.NewString("any://f/space/file1"))
+		atts.Set("f0", one)
+		p.Set(FieldAttachments, atts)
+		return p
+	}
+	cases := []struct {
+		name  string
+		build func(a *anyenc.Arena) *handler.RecordChange
+	}{
+		{
+			name: "empty text with attachment",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString(""))
+				return setRoot(a, withAttachment(a, p))
+			},
+		},
+		{
+			name: "absent text with attachment",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				return setRoot(a, withAttachment(a, p))
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			arena := &anyenc.Arena{}
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			if err := (messagesHandler{}).BeforeCreate(ctx, tc.build(arena), &handler.Sink{}); err != nil {
+				t.Fatalf("BeforeCreate: %v", err)
+			}
+		})
+	}
+}
+
 func TestBeforeCreate_AttachmentRejects(t *testing.T) {
 	cases := []struct {
 		name   string
