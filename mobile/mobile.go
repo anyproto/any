@@ -28,9 +28,28 @@ import (
 // index policy ("none" embedder, FTS off under gomobile) reduces to the same
 // runtime as before — no embedder is linked on the gomobile bind.
 func Start(dataDir, listenAddr, nodeconfYAML string) error {
-	// indexEnabled=true is a no-op here: gomobile forces capFTS off at
+	return StartWithPush(dataDir, listenAddr, nodeconfYAML, "", "")
+}
+
+// StartWithPush is Start plus the push-notification node (SYN-83). The
+// push node is a direct out-of-band peer, not part of nodeconfYAML — it
+// pairs with the nodeconf choice (staging vs prod), so the host passes
+// both from the same place. pushPeerId is the node's peer id; pushAddrs
+// its dial addresses, comma-separated (same format ANY_PUSH_ADDRS
+// parses, e.g. "quic://host:port" or "host:port"). Push activates only
+// when both are non-empty; pass empty strings for the exact Start
+// behavior (every /v1/push endpoint returns 409 push.disabled).
+func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) error {
+	// IndexEnabled=true is a no-op here: gomobile forces capFTS off at
 	// compile time (no `fts` tag), so the core gate stays false regardless.
-	_, err := embedded.Start(dataDir, listenAddr, nodeconfYAML, true)
+	_, err := embedded.Start(embedded.Options{
+		DataDir:      dataDir,
+		ListenAddr:   listenAddr,
+		NodeconfYAML: nodeconfYAML,
+		IndexEnabled: true,
+		PushPeerId:   pushPeerId,
+		PushAddrs:    pushAddrs,
+	})
 	return err
 }
 
