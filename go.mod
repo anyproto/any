@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v0.4.7
-	github.com/anyproto/any-store/v2 v2.0.0-alpha.17
+	github.com/anyproto/any-store/v2 v2.0.0-beta.2
 	github.com/anyproto/any-sync v0.13.0-alpha.6
 	github.com/anyproto/any-sync-sdk v0.1.11
 	github.com/anyproto/anytype-agent-runtime v0.1.2
@@ -90,8 +90,8 @@ require (
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jupiterrider/ffi v0.6.0 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-libp2p v0.48.0 // indirect
@@ -147,7 +147,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
+	golang.org/x/exp v0.0.0-20260709172345-9ea1abe57597 // indirect
 	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect

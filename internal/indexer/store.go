@@ -700,16 +700,13 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 	if err != nil {
 		return nil, err
 	}
-	arena := &anyenc.Arena{}
-	arr := arena.NewArray()
-	for i, f := range vec {
-		arr.SetArrayItem(i, arena.NewNumberFloat64(float64(f)))
-	}
-	var filter query.Filter = query.Key{Path: []string{"vector"}, Filter: query.NewCompValue(query.CompOpEq, arr)}
+	// $k bounds the result set; the scope filter is applied before the
+	// cut-to-k, so every returned hit is in scope.
+	var filter query.Filter = query.Key{Path: []string{"vector"}, Filter: query.NewKnn(vec, limit)}
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
 	}
-	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
+	iter, err := coll.Find(filter).Iter(ctx)
 	if err != nil {
 		return nil, err
 	}
