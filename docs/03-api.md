@@ -297,6 +297,19 @@ state (search index, UI caches) drop it by watching
 `POST /v1/spaces/query/subscribe` and purging on the `removed` frame;
 the server's own search indexer already does this.
 
+**`GET /v1/spaces/:id` materializes only active spaces.** A non-active
+row (joining / one_to_one_pending / one_to_one_declined / invite
+statuses / deleted) is served straight from the tech-space index —
+plain row `SpaceInfo`, no `spaceIndexObjectId` / `generalChatObjectId`,
+nothing loaded. Materializing a pending row would download the space
+before it was accepted: the SDK's load path falls back to a network
+SpacePull when local storage is missing, so a single read on a
+pending-join or incoming-1-1 id used to pull the whole space
+ciphertext ahead of acceptance (and a 1-1's derivation-time read key
+would even decrypt it). The SDK enforces the same guard in
+`Service.Get`; the handler's status check keeps non-active reads
+serving row info instead of surfacing that error.
+
 `SpaceInfo` carries a `spaceIndexObjectId` field: the deterministic id
 of the in-space `spaceIndex` derived object that owns this space's
 metadata. Stable across peers and across SDK reboots — clients
