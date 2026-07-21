@@ -1128,6 +1128,19 @@ change, and nothing forces those clocks to agree.
 The static `diff` segment is registered before `:version` so it isn't
 swallowed by the wildcard.
 
+**Excluded datasets.** `chat_messages` and the agent data datasets —
+`agent_turns`, `agent_chunks`, `agent_debug_log` — opt out of history
+(`handler.Dataset.SkipHistory`). Turns and chunks are append-only
+immutable (every record has exactly one version) and the debug log is
+a machine-written grow-only trace, so a history index would only
+duplicate them; chat clients render live records only (edits show
+current text, deletes tombstone), so nothing reads a per-message
+timeline and the index rows would be dead weight at chat write
+volume. Writes to these datasets succeed as usual but are invisible
+to every history endpoint, filtered or not. The DAG retains
+everything regardless — re-enabling a dataset later only costs a
+backfill.
+
 #### List changes
 
 `GET …/history` pages an object's changes newest-first. Filters:
@@ -1183,8 +1196,8 @@ or use the record fast path.
 #### One record at a version
 
 `GET …/history/:version/datasets/:dataset/records/:recordId` is the
-chat-scale fast path: one record, no full-view materialization, so it
-can't hit `view_too_large`. `exists: false` means the record wasn't
+record-scope fast path: one record, no full-view materialization, so
+it can't hit `view_too_large`. `exists: false` means the record wasn't
 present at that cut; `deleted: true` means it was tombstoned and
 `record` carries the tombstone row.
 

@@ -196,6 +196,12 @@ func NewType() handler.Type {
 			Schema:       datasetSchema(),
 			Indexes:      messagesHandler{}.Indexes(),
 			ReadTracking: readTracking(),
+			// No version history for chat: clients render live records
+			// only (edits show the current text, deletes tombstone) —
+			// nothing reads a per-message timeline, so the index rows
+			// would be dead weight at chat write volume. The DAG keeps
+			// everything; flipping this later only costs a backfill.
+			SkipHistory: true,
 		}},
 		// Unread counters materialized onto the chat object's row —
 		// local-scope (device-derived from the synced read frontier,

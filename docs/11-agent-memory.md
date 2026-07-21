@@ -221,6 +221,14 @@ history) — a dedicated gated chunker is a roadmap item; until then they
 use the indexed recency/period reads. Similarity dedup, link generation,
 and decay passes can now build on `/search` for the item layer.
 
+**No version history:** `agent_turns`, `agent_chunks` and
+`agent_debug_log` set `handler.Dataset.SkipHistory` — turns/chunks are
+append-only immutable and the debug log is grow-only, so every record
+has exactly one version and a history index would just duplicate the
+data. They never appear on the `/history` endpoints (docs/03-api.md
+§ Version history). `agent_memory_items` keeps history: items evolve
+in place, so their per-record timeline is meaningful.
+
 ## Migration from the legacy scheme
 
 Fresh start — deliberate. Old markdown transcript objects and

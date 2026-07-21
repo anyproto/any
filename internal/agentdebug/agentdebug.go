@@ -47,7 +47,10 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: Dataset, DataVersion: "1", Handler: handler.DefaultHandler{}},
+			// SkipHistory: machine-written grow-only trace — a history
+			// index would duplicate the log itself for history nobody
+			// opens.
+			{Name: Dataset, DataVersion: "1", Handler: handler.DefaultHandler{}, SkipHistory: true},
 		},
 	}
 }
