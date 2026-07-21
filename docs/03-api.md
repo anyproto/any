@@ -1862,9 +1862,13 @@ request, no approval, no per-user ACL entry: the space loads read-only
 `DELETE /v1/spaces/:spaceId/guest-key` revokes: the guest identity is
 removed from the ACL and the read key rotates, so every guest copy
 stops receiving new content and flips to `status:"guest_revoked"`
-(local copy stays readable). Guests drop the space with the regular
-`DELETE /v1/spaces/:spaceId`. A later create mints a fresh key — old
+(local copy stays readable). A later create mints a fresh key — old
 tokens die permanently.
+
+Guests drop the space with the regular `DELETE /v1/spaces/:spaceId` —
+for guest spaces the delete marker is non-terminal: a later
+`POST /v1/spaces/join` with a valid guest token re-adds the space
+(state re-pulls from the network).
 
 ### ACL operations
 
