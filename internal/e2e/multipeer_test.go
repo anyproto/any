@@ -170,11 +170,19 @@ func joinSpace(t *testing.T, owner, joiner *peer, spaceID, permission string) {
 		string(accept), http.StatusNoContent)
 
 	// Joiner waits for the accept to propagate back. Plain pollUntil for
-	// the same reason as above.
+	// the same reason as above. Until the accept lands the space is not
+	// materialized on the joiner, so members/me answers 409
+	// space.not_accepted — "not yet", not a failure.
 	if !pollUntil(90*time.Second, func() bool {
+		resp, raw := doRequest(t, http.MethodGet,
+			joiner.base+"/v1/spaces/"+spaceID+"/members/me", "")
+		if resp.StatusCode != http.StatusOK {
+			return false
+		}
 		var me api.Member
-		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+spaceID+"/members/me",
-			"", http.StatusOK, &me)
+		if err := json.Unmarshal(raw, &me); err != nil {
+			t.Fatalf("decode members/me: %v (body %s)", err, raw)
+		}
 		return me.Status == api.MemberStatusActive
 	}) {
 		t.Fatalf("joiner never reached active status")

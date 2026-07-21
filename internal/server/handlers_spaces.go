@@ -603,6 +603,14 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
+	if errors.Is(err, space.ErrSpaceNotAccepted) {
+		var details map[string]any
+		if spaceID != "" {
+			details = map[string]any{"spaceId": spaceID}
+		}
+		return writeError(c, http.StatusConflict, "space.not_accepted",
+			"space join is pending approval; not materialized on this device", details)
+	}
 	details := map[string]any{}
 	if spaceID != "" {
 		details["spaceId"] = spaceID
