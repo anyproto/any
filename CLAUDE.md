@@ -87,6 +87,8 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
+   No version history: `chat_messages` sets `SkipHistory` (SYN-86) —
+   clients render live records only; `/history` never lists chat.
    Optional create-only `agent` group (`{name, debugLink?, done}` —
    replaced the old `fromAgent` string) marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
@@ -682,8 +684,8 @@ Implementation slices landed:
     `base` = per-change effect diff against the version's DAG parents;
     with `base` = cumulative `base..version`), `/:version` (`ViewAt` —
     live records at that cut grouped by dataset, raw `/query` row shape)
-    and `/:version/datasets/:d/records/:r` (`RecordAt` — the chat-scale
-    fast path, no full-view materialization). Snapshot-only: **no
+    and `/:version/datasets/:d/records/:r` (`RecordAt` — the
+    record-scope fast path, no full-view materialization). Snapshot-only: **no
     subscribe variant**. A **version is a ChangeId** — the CID every
     write already returns as `changeId` — so it resolves on any peer;
     "state at version X" is X's causal past, not a wall-clock cut, and

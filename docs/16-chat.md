@@ -326,3 +326,9 @@ Same semantics as the HTTP recipe, one hop closer to the engine.)
   published read state for a chat — or in the rare case its read
   positions haven't synced yet at first open — does it start with
   everything read and converge at the next mark.
+- `chat_messages` has **no version history** (`SkipHistory`, SYN-86):
+  the `/history` endpoints never list chat changes, and there is no
+  per-message edit timeline or "view original" — clients render live
+  records only (an edit replaces `text`, a delete tombstones). The
+  DAG still retains every change, so this is revertible with a
+  backfill if a history UX ever materializes.
