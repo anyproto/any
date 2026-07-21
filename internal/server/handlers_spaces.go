@@ -152,6 +152,12 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
 	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
 
+	// Guest key — public read-only access. Owner mints/revokes; holders
+	// use /v1/spaces/join with the guest token (auto-detected), remove
+	// with the regular DELETE /v1/spaces/:spaceId.
+	g.POST("/spaces/:spaceId/guest-key", d.guestKeyCreate)
+	g.DELETE("/spaces/:spaceId/guest-key", d.guestKeyRevoke)
+
 	// ACL — owner/admin operations on the membership state.
 	g.POST("/spaces/:spaceId/acl/accept", d.aclAccept)
 	g.POST("/spaces/:spaceId/acl/decline", d.aclDecline)
@@ -683,6 +689,8 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusInvitePending
 	case space.StatusInviteDeclined:
 		return api.SpaceStatusInviteDeclined
+	case space.StatusGuestRevoked:
+		return api.SpaceStatusGuestRevoked
 	default:
 		return api.SpaceStatusUnknown
 	}

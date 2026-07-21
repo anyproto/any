@@ -617,13 +617,19 @@ const docTemplate = `{
                         }
                     },
                     "202": {
-                        "description": "Join pending owner approval",
+                        "description": "Join pending owner approval (member) or space load pending (guest)",
                         "schema": {
                             "$ref": "#/definitions/api.SpaceInfo"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "Guest token for a space this account already tracks / deleted",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorEnvelope"
                         }
@@ -2116,6 +2122,74 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/guest-key": {
+            "post": {
+                "description": "Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "invites"
+                ],
+                "summary": "Create (or return) the space's guest key — public read-only access",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/api.InviteCreateResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Removes the shared guest identity from the ACL and rotates the read key: every guest copy stops receiving new content. A later create mints a fresh key, so old tokens die permanently. Owner only.",
+                "tags": [
+                    "invites"
+                ],
+                "summary": "Revoke the space's guest key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "No active guest key",
                         "schema": {
                             "$ref": "#/definitions/api.ErrorEnvelope"
                         }
