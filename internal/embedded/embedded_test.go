@@ -32,6 +32,17 @@ func nodeconfFixture(t *testing.T) string {
 
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
 
+// start is the lifecycle tests' shorthand for the common Options shape:
+// ephemeral loopback listen, index on, no push node.
+func start(dataDir, nodeconfYAML string) (string, error) {
+	return Start(Options{
+		DataDir:      dataDir,
+		ListenAddr:   loopbackEphemeral,
+		NodeconfYAML: nodeconfYAML,
+		IndexEnabled: true,
+	})
+}
+
 // resetState clears any leftover singleton/drain state so a failed test
 // can't poison the next one (the package state is process-global).
 func resetState(t *testing.T) {
@@ -54,7 +65,7 @@ func TestStartAddressStop(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
+	addr, err := start(t.TempDir(), nodeconfFixture(t))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -82,10 +93,10 @@ func TestDoubleStartIsAlreadyRunning(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	if _, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); err != nil {
+	if _, err := start(t.TempDir(), nodeconfFixture(t)); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
-	_, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
+	_, err := start(t.TempDir(), nodeconfFixture(t))
 	if !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("second Start err = %v, want ErrAlreadyRunning", err)
 	}
@@ -96,7 +107,7 @@ func TestBadDataDirIsBadDirError(t *testing.T) {
 	defer resetState(t)
 
 	// Empty data dir is the simplest bad-dir case.
-	if _, err := Start("", loopbackEphemeral, nodeconfFixture(t), true); !errors.Is(err, ErrBadDataDir) {
+	if _, err := start("", nodeconfFixture(t)); !errors.Is(err, ErrBadDataDir) {
 		t.Fatalf("empty data dir err = %v, want ErrBadDataDir", err)
 	}
 
@@ -106,7 +117,7 @@ func TestBadDataDirIsBadDirError(t *testing.T) {
 		t.Fatalf("setup file: %v", err)
 	}
 	badPath := filepath.Join(file, "child")
-	if _, err := Start(badPath, loopbackEphemeral, nodeconfFixture(t), true); !errors.Is(err, ErrBadDataDir) {
+	if _, err := start(badPath, nodeconfFixture(t)); !errors.Is(err, ErrBadDataDir) {
 		t.Fatalf("uncreatable data dir err = %v, want ErrBadDataDir", err)
 	}
 }
@@ -115,7 +126,7 @@ func TestEmptyNodeconfIsError(t *testing.T) {
 	resetState(t)
 	defer resetState(t)
 
-	_, err := Start(t.TempDir(), loopbackEphemeral, "", true)
+	_, err := start(t.TempDir(), "")
 	if !errors.Is(err, ErrNodeconfRequired) {
 		t.Fatalf("empty nodeconf err = %v, want ErrNodeconfRequired", err)
 	}
@@ -139,7 +150,7 @@ func TestStartStopRestartNoLeak(t *testing.T) {
 
 	const cycles = 3
 	for i := 0; i < cycles; i++ {
-		addr, err := Start(dataDir, loopbackEphemeral, nodeconf, true)
+		addr, err := start(dataDir, nodeconf)
 		if err != nil {
 			t.Fatalf("cycle %d Start: %v", i, err)
 		}
@@ -184,7 +195,7 @@ func TestMemoryLimitApplied(t *testing.T) {
 	prev := debug.SetMemoryLimit(1 << 62)
 	t.Cleanup(func() { debug.SetMemoryLimit(prev) })
 
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
+	addr, err := start(t.TempDir(), nodeconfFixture(t))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -196,4 +207,56 @@ func TestMemoryLimitApplied(t *testing.T) {
 	if got := debug.SetMemoryLimit(-1); got != gomemlimitBytes {
 		t.Fatalf("GOMEMLIMIT = %d after Start, want %d (256 MiB)", got, gomemlimitBytes)
 	}
+}
+
+// TestAssembleConfigPush pins the SYN-83 push-node bridge: Options
+// push inputs land on cfg.Push and the config tristate alone decides
+// activation — both fields non-empty ⇒ Active, anything less ⇒ off.
+// Asserted on assembleConfig directly (no engine boot needed).
+func TestAssembleConfigPush(t *testing.T) {
+	base := Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: "nc"}
+
+	t.Run("no push inputs stays off", func(t *testing.T) {
+		cfg := assembleConfig(base)
+		if cfg.Push.Active() {
+			t.Fatal("Push.Active() = true with no push inputs, want false")
+		}
+		if cfg.Push.PeerId != "" || len(cfg.Push.Addrs) != 0 {
+			t.Fatalf("Push = %+v, want zero", cfg.Push)
+		}
+	})
+
+	t.Run("peer id + addrs activates", func(t *testing.T) {
+		opts := base
+		opts.PushPeerId = "12D3KooWTestPushNode"
+		opts.PushAddrs = "quic://host:1101, host2:1102 ,,"
+		cfg := assembleConfig(opts)
+		if !cfg.Push.Active() {
+			t.Fatal("Push.Active() = false, want true (peer id + addrs set)")
+		}
+		if cfg.Push.PeerId != opts.PushPeerId {
+			t.Fatalf("Push.PeerId = %q, want %q", cfg.Push.PeerId, opts.PushPeerId)
+		}
+		// Comma-split with trim, empties dropped — ANY_PUSH_ADDRS semantics.
+		want := []string{"quic://host:1101", "host2:1102"}
+		if len(cfg.Push.Addrs) != len(want) || cfg.Push.Addrs[0] != want[0] || cfg.Push.Addrs[1] != want[1] {
+			t.Fatalf("Push.Addrs = %v, want %v", cfg.Push.Addrs, want)
+		}
+	})
+
+	t.Run("peer id without addrs stays off", func(t *testing.T) {
+		opts := base
+		opts.PushPeerId = "12D3KooWTestPushNode"
+		if cfg := assembleConfig(opts); cfg.Push.Active() {
+			t.Fatal("Push.Active() = true without addrs, want false")
+		}
+	})
+
+	t.Run("addrs without peer id stays off", func(t *testing.T) {
+		opts := base
+		opts.PushAddrs = "quic://host:1101"
+		if cfg := assembleConfig(opts); cfg.Push.Active() {
+			t.Fatal("Push.Active() = true without peer id, want false")
+		}
+	})
 }

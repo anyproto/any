@@ -53,7 +53,7 @@ func TestBootAndServe(t *testing.T) {
 	}
 
 	// --- Sub-check B: headless boot-and-serve over a real socket. ---
-	addr, err := Start(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
+	addr, err := start(t.TempDir(), nodeconfFixture(t))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

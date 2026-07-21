@@ -72,7 +72,7 @@ func dialPort(t *testing.T, port int) {
 func TestStartServer_SuccessReturnsPort(t *testing.T) {
 	cleanupServer(t)
 
-	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true)
+	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true, "", "")
 	if port <= 0 {
 		t.Fatalf("startServer: got %d, want a positive port", port)
 	}
@@ -100,7 +100,7 @@ func TestStartServer_SuccessReturnsPort(t *testing.T) {
 func TestStartServer_IndexDisabledBoots(t *testing.T) {
 	cleanupServer(t)
 
-	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), false)
+	port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), false, "", "")
 	if port <= 0 {
 		t.Fatalf("startServer(indexEnabled=false): got %d, want a positive port", port)
 	}
@@ -115,11 +115,11 @@ func TestStartServer_IndexDisabledBoots(t *testing.T) {
 func TestStartServer_AlreadyRunning(t *testing.T) {
 	cleanupServer(t)
 
-	if port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); port <= 0 {
+	if port := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true, "", ""); port <= 0 {
 		t.Fatalf("first start: got %d, want a positive port", port)
 	}
 
-	if got := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true); got != errAlreadyRunning {
+	if got := startServer(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), true, "", ""); got != errAlreadyRunning {
 		t.Fatalf("second start: got %d, want errAlreadyRunning (%d)", got, errAlreadyRunning)
 	}
 }
@@ -132,7 +132,7 @@ func TestStartServer_AlreadyRunning(t *testing.T) {
 func TestStartServer_BadDataDir(t *testing.T) {
 	cleanupServer(t)
 
-	if got := startServer("", loopbackEphemeral, nodeconfFixture(t), true); got != errBadDataDir {
+	if got := startServer("", loopbackEphemeral, nodeconfFixture(t), true, "", ""); got != errBadDataDir {
 		t.Fatalf("empty data dir: got %d, want errBadDataDir (%d)", got, errBadDataDir)
 	}
 
@@ -143,7 +143,7 @@ func TestStartServer_BadDataDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	under := filepath.Join(file, "child")
-	if got := startServer(under, loopbackEphemeral, nodeconfFixture(t), true); got != errBadDataDir {
+	if got := startServer(under, loopbackEphemeral, nodeconfFixture(t), true, "", ""); got != errBadDataDir {
 		t.Fatalf("data dir under a file: got %d, want errBadDataDir (%d)", got, errBadDataDir)
 	}
 }
@@ -155,7 +155,7 @@ func TestStartServer_BadDataDir(t *testing.T) {
 func TestStartServer_EmptyNodeconfIsBoot(t *testing.T) {
 	cleanupServer(t)
 
-	if got := startServer(t.TempDir(), loopbackEphemeral, "", true); got != errBoot {
+	if got := startServer(t.TempDir(), loopbackEphemeral, "", true, "", ""); got != errBoot {
 		t.Fatalf("empty nodeconf: got %d, want errBoot (%d)", got, errBoot)
 	}
 }

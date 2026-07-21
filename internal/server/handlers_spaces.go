@@ -287,22 +287,27 @@ func (d *deps) spaceList(c echo.Context) error {
 func (d *deps) spaceGet(c echo.Context) error {
 	id := c.Param("spaceId")
 	ctx := c.Request().Context()
-	sp, err := d.sdk.Spaces().Get(ctx, id)
-	if err == nil {
-		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
-	}
-	// Rows that must not (pending/declined direct-add invites) or cannot
-	// (tombstoned) be materialized still exist in the index — serve the
-	// row info instead of failing, without loading anything.
+	// Row status first, Get only for active rows — same care the list
+	// handler takes. Service.Get materializes the space (a missing
+	// local storage triggers any-sync's SpacePull bootstrap), so
+	// calling it on a pending row would download a not-yet-accepted
+	// join / 1-1 / direct-add invite, or pointlessly load a tombstone.
+	// Those rows serve the index row info instead. Unknown (empty
+	// statuses — legacy rows with no info) loads like active, matching
+	// the SDK's own materialization guard.
 	infos, lErr := d.sdk.Spaces().List(ctx)
 	if lErr == nil {
 		for _, info := range infos {
-			if info.Id == id {
+			if info.Id == id && info.Status != space.StatusActive && info.Status != space.StatusUnknown {
 				return c.JSON(http.StatusOK, spaceInfoToAPI(info))
 			}
 		}
 	}
-	return spaceError(c, err, id)
+	sp, err := d.sdk.Spaces().Get(ctx, id)
+	if err != nil {
+		return spaceError(c, err, id)
+	}
+	return c.JSON(http.StatusOK, spaceToAPI(ctx, sp))
 }
 
 // spaceUpdate handles PATCH /v1/spaces/:spaceId.

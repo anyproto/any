@@ -282,6 +282,29 @@ push:
 Env overrides: `ANY_PUSH_ENABLED`, `ANY_PUSH_PEER_ID`,
 `ANY_PUSH_ADDRS` (comma-separated). The staging/production peer
 address is an infra hand-off — config-only, no code change.
+`addrs` entries take the same forms nodeconf uses — `quic://host:port`
+or bare `host:port`.
+
+### Embedded servers (any.aar / xcframework)
+
+The embedded path (SYN-83) reads no config.yaml and no env — the host
+passes the push node explicitly at start:
+
+- **Android (gomobile)**: `mobile.StartWithPush(dataDir, listenAddr,
+  nodeconfYAML, pushPeerId, pushAddrs)` — `pushAddrs` comma-separated,
+  same format `ANY_PUSH_ADDRS` parses. Plain `Start` keeps push off.
+- **iOS (c-archive)**: `AnyServerStartWithPush(dataDir, listenAddr,
+  nodeconfYAML, indexEnabled, pushPeerId, pushAddrs)` — same
+  semantics; `AnyServerStart` keeps push off.
+- **Go hosts**: `embedded.Start(embedded.Options{…, PushPeerId,
+  PushAddrs})`.
+
+Enablement stays config-driven: non-empty peer id + addrs fill
+`cfg.Push` and the tristate activates on its own; empty strings change
+nothing (push endpoints return `409 push.disabled`). The push peer
+pairs with the nodeconf choice (staging vs prod) — the host already
+selects the network via `nodeconfYAML`, so peer id and addrs should
+come from the same place; `any` ships no default.
 
 The device token persists at `<account-dir>/push-token.json` and is
 re-registered in the background on boot; it is **never** a dataset
