@@ -83,8 +83,7 @@ func ensureType(ctx context.Context, sp space.Space, objectId string) error {
 }
 
 // RecordId renders the canonical record id for a seq — zero-padded so
-// lexical id order matches numeric insertion order (the agentdebug
-// trick).
+// lexical id order matches numeric insertion order.
 func RecordId(seq int) string {
 	return fmt.Sprintf("%0*d", SeqPadWidth, seq)
 }

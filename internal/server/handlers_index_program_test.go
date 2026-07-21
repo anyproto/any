@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/anyproto/any/internal/agentdebug"
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/program"
 )
@@ -48,15 +47,16 @@ func setDatasetRecord(t *testing.T, e http.Handler, spaceId, objectId, dataset, 
 	}
 }
 
-// TestIndexer_ProgramDocsAndDebugExclusion pins the index-scope contract:
+// TestIndexer_ProgramDocsExclusion pins the index-scope contract:
 //   - program DESCRIPTION + METHODS are searchable (scope "program"), but
 //     program SOURCE is never indexed (it is code, not knowledge);
-//   - agent_debug_log objects are excluded wholesale — neither their
-//     dataset content (no chunker) nor their prompt-derived name (prop
-//     chunker exclusion) reaches search;
 //   - a normal named object's name IS indexed (the control that proves
 //     the exclusion is selective, not a broken harness).
-func TestIndexer_ProgramDocsAndDebugExclusion(t *testing.T) {
+//
+// (The agent_debug_log wholesale-exclusion scenario left with the type
+// itself — the bobrik-era debug log is gone; anybao traces are
+// device-local. The PropChunker excludeTypes mechanism remains.)
+func TestIndexer_ProgramDocsExclusion(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
@@ -74,11 +74,6 @@ func TestIndexer_ProgramDocsAndDebugExclusion(t *testing.T) {
 		map[string]any{"text": "describes the frobnicator widget tool"})
 	setDatasetRecord(t, e, spaceId, progObj, program.DatasetMethods, "doStuff",
 		map[string]any{"name": "doStuff(x)", "kind": "getter", "text": "performs the zorble operation", "pos": 0})
-
-	// Debug object WITH a name — the prop chunker must NOT index it.
-	dbgObj := mustCreateNamed(t, e, spaceId, []string{agentdebug.TypeId}, "zzdebugname uniquephrase")
-	setDatasetRecord(t, e, spaceId, dbgObj, agentdebug.Dataset, "000000_boot",
-		map[string]any{"seq": 0, "kind": "boot", "prompt": "debugonly content marker"})
 
 	// Control: a plain named object — its name MUST be indexed (scope basic).
 	ctrlObj := mustCreateNamed(t, e, spaceId, nil, "indexablecontrolname")
@@ -124,7 +119,4 @@ func TestIndexer_ProgramDocsAndDebugExclusion(t *testing.T) {
 	// Control object's name IS indexed (proves names reach the index).
 	onlyHit("control name", "indexablecontrolname", "basic", "prop", ctrlObj)
 
-	// Debug object: neither its name nor its dataset content is searchable.
-	noHit("debug object name", "zzdebugname")
-	noHit("debug dataset content", "debugonly")
 }

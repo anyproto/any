@@ -6,7 +6,7 @@
 // `list` query returns the rollup without opening run records. Run records
 // live in a sibling keep-last-N dataset.
 //
-// Mirrors internal/agentdebug/miniapp/program: one built-in type, raw
+// Mirrors internal/miniapp/program: one built-in type, raw
 // DefaultHandler datasets, whole-value $set writes via POST
 // /v1/spaces/:id/modify and reads via POST /v1/spaces/:id/query with the
 // matching dataset. DefaultHandler stores raw values untransformed, so the
