@@ -1,9 +1,9 @@
 // Package anyrt wires the anytype-agent-runtime JS engine to the `any`
 // HTTP API: module resolution (programs import other programs straight from
 // the space, no cache — a program edit is live on the next import) and the
-// standard effect/global setup. Shared by cmd/bobrik-watch (the chat agent)
-// and cmd/any-agent-runtime (the standalone CLI the JS tests run under), so
-// tests resolve imports exactly like production.
+// standard effect/global setup. Used by cmd/any-agent-runtime (the
+// standalone CLI the JS tests run under). The bao agent itself is the
+// anybao runtime now (Rust anyrt) — cmd/bobrik-watch is gone.
 package anyrt
 
 import (
