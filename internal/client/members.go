@@ -84,6 +84,22 @@ func (c *Client) InvitesRevokeAll(ctx context.Context, spaceId string) error {
 	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
+// Guest key (public read-only access) --------------------------------------
+
+func (c *Client) GuestKeyCreate(ctx context.Context, spaceId string) (*api.InviteCreateResponse, error) {
+	var out api.InviteCreateResponse
+	path := "/v1/spaces/" + url.PathEscape(spaceId) + "/guest-key"
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) GuestKeyRevoke(ctx context.Context, spaceId string) error {
+	path := "/v1/spaces/" + url.PathEscape(spaceId) + "/guest-key"
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // Service.Join -------------------------------------------------------------
 
 func (c *Client) SpaceJoin(ctx context.Context, req api.SpaceJoinRequest) (*api.SpaceInfo, error) {

@@ -167,8 +167,10 @@ func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.Q
 // shape. includeTotal mirrors the body flag — when false, Total is
 // nil-pointer and omitted from the JSON; when true, the SDK populates
 // res.Total (-1 only if it failed to count, which currently never
-// happens — we surface the SDK's value verbatim).
-func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool) error {
+// happens — we surface the SDK's value verbatim). strip lists top-level
+// record fields withheld from the wire (key material on tech-space
+// rows — see spaceListStrippedFields).
+func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, strip ...string) error {
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
 	records := make([]json.RawMessage, 0, len(res.Initial))
@@ -177,7 +179,11 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 			records = append(records, json.RawMessage("null"))
 			continue
 		}
-		records = append(records, json.RawMessage(doc.FastJson(fa).MarshalTo(nil)))
+		v := doc.FastJson(fa)
+		for _, key := range strip {
+			v.Del(key)
+		}
+		records = append(records, json.RawMessage(v.MarshalTo(nil)))
 	}
 	out := api.QueryResponse{Records: records}
 	if includeTotal {

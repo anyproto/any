@@ -1814,7 +1814,9 @@ directory, which is account-global and carries no rights.
 | GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
 | DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId`              | `ACL.RevokeInvite`                 |
-| POST   | `/v1/spaces/join`                                    | `Service.Join` — body carries the share token |
+| POST   | `/v1/spaces/join`                                    | `Service.Join` / `Service.JoinGuest` — body carries the share token; guest tokens are auto-detected |
+| POST   | `/v1/spaces/:spaceId/guest-key`                      | `ACL.CreateGuestKey` — public read-only access; idempotent, owner only |
+| DELETE | `/v1/spaces/:spaceId/guest-key`                      | `ACL.RevokeGuestKey` — rotates the read key; old tokens die |
 
 Mint:
 
@@ -1846,6 +1848,23 @@ to `active` after the owner accepts.
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent
 collection to revoke all in one batch.
+
+#### Guest key (public read-only access)
+
+`POST /v1/spaces/:spaceId/guest-key` mints a shared read-only guest
+identity (one per space, idempotent — repeated calls return the same
+token; owner only) and returns the same `{spaceId, inviteToken}` shape.
+Anyone holding the token joins via the regular `POST /v1/spaces/join` —
+the guest kind is encoded in the token and auto-detected. No join
+request, no approval, no per-user ACL entry: the space loads read-only
+(`ownRole:"guest"`); writes return `403 space.read_only`.
+
+`DELETE /v1/spaces/:spaceId/guest-key` revokes: the guest identity is
+removed from the ACL and the read key rotates, so every guest copy
+stops receiving new content and flips to `status:"guest_revoked"`
+(local copy stays readable). Guests drop the space with the regular
+`DELETE /v1/spaces/:spaceId`. A later create mints a fresh key — old
+tokens die permanently.
 
 ### ACL operations
 

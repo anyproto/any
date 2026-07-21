@@ -27,6 +27,13 @@ var spaceListAllowedDatasets = map[string]struct{}{
 	"profile": {},
 }
 
+// spaceListStrippedFields are `spaces`-row fields withheld from the raw
+// query/subscribe wire: both carry a guest identity's PRIVATE key
+// (consumer-side guest-mode key / owner-side issued custody). The
+// mapped GET /v1/spaces omits them by shape; the raw path must strip
+// explicitly — same rationale as the identities symKey allowlist above.
+var spaceListStrippedFields = []string{"guestKey", "issuedGuestKey"}
+
 // spaceListQuery handles POST /v1/spaces/query.
 //
 // The windowed-query counterpart to GET /v1/spaces: a snapshot over the
@@ -54,7 +61,11 @@ func (d *deps) spaceListQuery(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": dataset})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal)
+	strip := spaceListStrippedFields
+	if dataset != SpaceListDataset {
+		strip = nil
+	}
+	return writeQueryResponse(c, res, opts.IncludeTotal, strip...)
 }
 
 // spaceListQuerySubscribe handles POST /v1/spaces/query/subscribe.
@@ -84,7 +95,11 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": dataset})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal)
+	strip := spaceListStrippedFields
+	if dataset != SpaceListDataset {
+		strip = nil
+	}
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
 }
 
 // buildSpaceListQuery assembles the chained Query + QueryOpts for the

@@ -151,6 +151,28 @@ func newInviteCmd() *cobra.Command {
 			},
 		},
 		&cobra.Command{
+			Use:   "guest-key <spaceId>",
+			Short: "mint (or return) the space's public read-only guest key token",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				out, err := cl.GuestKeyCreate(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return printJSON(out)
+			},
+		},
+		&cobra.Command{
+			Use:   "guest-key-revoke <spaceId>",
+			Short: "revoke the guest key (rotates the read key; old tokens die)",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				return cl.GuestKeyRevoke(cmd.Context(), args[0])
+			},
+		},
+		&cobra.Command{
 			Use:   "pending",
 			Short: "list direct-add invites awaiting approval",
 			Args:  cobra.NoArgs,

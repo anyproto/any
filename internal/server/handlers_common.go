@@ -76,6 +76,10 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
+	if errors.Is(err, space.ErrReadOnlySpace) {
+		return writeError(c, http.StatusForbidden, "space.read_only",
+			"space is read-only for this account (guest access or reader role)", details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
