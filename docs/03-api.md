@@ -1128,6 +1128,16 @@ change, and nothing forces those clocks to agree.
 The static `diff` segment is registered before `:version` so it isn't
 swallowed by the wildcard.
 
+**Excluded datasets.** The agent data datasets — `agent_turns`,
+`agent_chunks`, `agent_debug_log` — opt out of history
+(`handler.Dataset.SkipHistory`): turns and chunks are append-only
+immutable (every record has exactly one version) and the debug log is
+a machine-written grow-only trace, so a history index would only
+duplicate them. Writes to these datasets succeed as usual but are
+invisible to every history endpoint, filtered or not. Chat is
+deliberately **not** excluded — per-message history (edit timeline,
+tombstone audit via `RecordAt`) is a first-class chat feature.
+
 #### List changes
 
 `GET …/history` pages an object's changes newest-first. Filters:
