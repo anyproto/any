@@ -52,6 +52,21 @@ func TestServer_GeneralChat_Derive(t *testing.T) {
 	if msg.Id == "" || msg.Text != "hello general" {
 		t.Fatalf("send to general chat: %+v", msg)
 	}
+
+	// Resolving the space must not write: the SDK's Derive is
+	// idempotent in the DAG (types already attached ⇒ no change), so
+	// repeated space GETs leave the chat object's change count alone.
+	debugPath := "/v1/spaces/" + spaceId + "/debug/objects/" + g1.GeneralChatObjectId
+	var before api.ObjectDebugResponse
+	decodeGet(t, e, debugPath, &before)
+	for range 3 {
+		decodeGet(t, e, "/v1/spaces/"+spaceId, &g2)
+	}
+	var after api.ObjectDebugResponse
+	decodeGet(t, e, debugPath, &after)
+	if after.TreeLen != before.TreeLen {
+		t.Fatalf("space GET grew the general chat DAG: treeLen %d -> %d", before.TreeLen, after.TreeLen)
+	}
 }
 
 func decodeGet(t *testing.T, e http.Handler, path string, out any) {
