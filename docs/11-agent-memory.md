@@ -17,7 +17,7 @@ chat object  (multitype: chat + agent_log — attached on first agent write)
 ├── chat_messages       what humans & agents said            (internal/chat)
 ├── agent_turns         one record per agent invocation —    append-only,
 │                       userText / think / replies / effects   never edited,
-│                       / messageIds / debugRef / llm          never deleted
+│                       / messageIds / traceRef / llm          never deleted
 └── agent_chunks        one record per compression event —
                         summary + fromSeq..toSeq + period      immutable
 
@@ -26,10 +26,11 @@ space brain object  (type agent_memory, deterministic derived id)
                         tags/entities/keywords arrays, confidence/
                         importance/salience numbers, edges graph
 
-agent_debug_log  (internal/agentdebug, unchanged)
-                 full per-LLM-turn cells + raw responses, referenced
-                 from turns via debugRef
 ```
+
+Heavy per-LLM-turn diagnostics (tool cells, raw responses) are NOT a
+dataset: the anybao runtime keeps them as device-local trace objects
+(`anyrt trace show/follow`), referenced from turns via `traceRef`.
 
 The agent's boot window is bounded queries (`sort:["-seq"], limit:N`),
 not file size. Compression produces chunks for long-range recall; it
@@ -38,7 +39,7 @@ never mutates or deletes turns. Every layer points at the layer below:
 ```
 chunk{fromSeq,toSeq}  →  agent_turns {seq:{$gte,$lte}}   (same object)
 turn.messageIds       →  chat_messages records           (same object)
-turn.debugRef         →  agent_debug_log page            (full cells)
+turn.traceRef         →  run trace object                (full cells)
 ```
 
 Every hop is an indexed range query; nothing is ever bulk-loaded.
@@ -60,14 +61,14 @@ Every hop is an indexed range query; nothing is ever bulk-loaded.
   "replies":   ["All good.", "Anything else?"],
   "effects":   ["created Book [Dune](any://s/o)"],
   "messageIds":["<chat msg id>"],
-  "debugRef":  "<agent_debug_log object id>",
+  "traceRef":  "<run trace object id>",
   "llm": { "stopReason": "end_turn", "inTokens": 1200, "outTokens": 300,
            "cacheRead": 8000, "cacheWrite": 0, "model": "..." }
 }
 ```
 
 `seq` is required; everything else optional. Heavy per-LLM-turn detail
-(tool cells, raw API responses) deliberately stays in the debug log —
+(tool cells, raw API responses) deliberately stays in the run's trace —
 the turn record is the lean conversation-replay unit. Append-only:
 modify and delete are rejected by the handler. A duplicate-seq append
 turns into a modify and is rejected — callers treat that as a seq
@@ -220,6 +221,14 @@ non-semantic queries.
 history) — a dedicated gated chunker is a roadmap item; until then they
 use the indexed recency/period reads. Similarity dedup, link generation,
 and decay passes can now build on `/search` for the item layer.
+
+**No version history:** `agent_turns` and `agent_chunks` set
+`handler.Dataset.SkipHistory` — turns/chunks are
+append-only immutable, so every record
+has exactly one version and a history index would just duplicate the
+data. They never appear on the `/history` endpoints (docs/03-api.md
+§ Version history). `agent_memory_items` keeps history: items evolve
+in place, so their per-record timeline is meaningful.
 
 ## Migration from the legacy scheme
 

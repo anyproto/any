@@ -1155,6 +1155,19 @@ change, and nothing forces those clocks to agree.
 The static `diff` segment is registered before `:version` so it isn't
 swallowed by the wildcard.
 
+**Excluded datasets.** `chat_messages` and the agent data datasets —
+`agent_turns`, `agent_chunks` — opt out of history
+(`handler.Dataset.SkipHistory`). Turns and chunks are append-only
+immutable (every record has exactly one version), so a history index
+would only
+duplicate them; chat clients render live records only (edits show
+current text, deletes tombstone), so nothing reads a per-message
+timeline and the index rows would be dead weight at chat write
+volume. Writes to these datasets succeed as usual but are invisible
+to every history endpoint, filtered or not. The DAG retains
+everything regardless — re-enabling a dataset later only costs a
+backfill.
+
 #### List changes
 
 `GET …/history` pages an object's changes newest-first. Filters:
@@ -1210,8 +1223,8 @@ or use the record fast path.
 #### One record at a version
 
 `GET …/history/:version/datasets/:dataset/records/:recordId` is the
-chat-scale fast path: one record, no full-view materialization, so it
-can't hit `view_too_large`. `exists: false` means the record wasn't
+record-scope fast path: one record, no full-view materialization, so
+it can't hit `view_too_large`. `exists: false` means the record wasn't
 present at that cut; `deleted: true` means it was tombstoned and
 `record` carries the tombstone row.
 
@@ -1841,7 +1854,9 @@ directory, which is account-global and carries no rights.
 | GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
 | DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId`              | `ACL.RevokeInvite`                 |
-| POST   | `/v1/spaces/join`                                    | `Service.Join` — body carries the share token |
+| POST   | `/v1/spaces/join`                                    | `Service.Join` / `Service.JoinGuest` — body carries the share token; guest tokens are auto-detected |
+| POST   | `/v1/spaces/:spaceId/guest-key`                      | `ACL.CreateGuestKey` — public read-only access; idempotent, owner only |
+| DELETE | `/v1/spaces/:spaceId/guest-key`                      | `ACL.RevokeGuestKey` — rotates the read key; old tokens die |
 
 Mint:
 
@@ -1873,6 +1888,27 @@ to `active` after the owner accepts.
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent
 collection to revoke all in one batch.
+
+#### Guest key (public read-only access)
+
+`POST /v1/spaces/:spaceId/guest-key` mints a shared read-only guest
+identity (one per space, idempotent — repeated calls return the same
+token; owner only) and returns the same `{spaceId, inviteToken}` shape.
+Anyone holding the token joins via the regular `POST /v1/spaces/join` —
+the guest kind is encoded in the token and auto-detected. No join
+request, no approval, no per-user ACL entry: the space loads read-only
+(`ownRole:"guest"`); writes return `403 space.read_only`.
+
+`DELETE /v1/spaces/:spaceId/guest-key` revokes: the guest identity is
+removed from the ACL and the read key rotates, so every guest copy
+stops receiving new content and flips to `status:"guest_revoked"`
+(local copy stays readable). A later create mints a fresh key — old
+tokens die permanently.
+
+Guests drop the space with the regular `DELETE /v1/spaces/:spaceId` —
+for guest spaces the delete marker is non-terminal: a later
+`POST /v1/spaces/join` with a valid guest token re-adds the space
+(state re-pulls from the network).
 
 ### ACL operations
 

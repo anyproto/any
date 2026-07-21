@@ -156,6 +156,12 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
 	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
 
+	// Guest key — public read-only access. Owner mints/revokes; holders
+	// use /v1/spaces/join with the guest token (auto-detected), remove
+	// with the regular DELETE /v1/spaces/:spaceId.
+	g.POST("/spaces/:spaceId/guest-key", d.guestKeyCreate)
+	g.DELETE("/spaces/:spaceId/guest-key", d.guestKeyRevoke)
+
 	// ACL — owner/admin operations on the membership state.
 	g.POST("/spaces/:spaceId/acl/accept", d.aclAccept)
 	g.POST("/spaces/:spaceId/acl/decline", d.aclDecline)
@@ -607,6 +613,14 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
+	if errors.Is(err, space.ErrSpaceNotAccepted) {
+		var details map[string]any
+		if spaceID != "" {
+			details = map[string]any{"spaceId": spaceID}
+		}
+		return writeError(c, http.StatusConflict, "space.not_accepted",
+			"space join is pending approval; not materialized on this device", details)
+	}
 	details := map[string]any{}
 	if spaceID != "" {
 		details["spaceId"] = spaceID
@@ -682,6 +696,8 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusInvitePending
 	case space.StatusInviteDeclined:
 		return api.SpaceStatusInviteDeclined
+	case space.StatusGuestRevoked:
+		return api.SpaceStatusGuestRevoked
 	default:
 		return api.SpaceStatusUnknown
 	}

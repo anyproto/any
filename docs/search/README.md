@@ -45,7 +45,6 @@ this for *why* and *how well*.
 | Editor | one-doc-per-block → coalesced windows (heading + ~1.5 KB budget), `recordId = win_<anchor>` | `internal/editor/window.go`, `chunker.go` |
 | Memory | `agent_memory_items` indexed per-record, scope `agent` | `internal/agentmem/chunker.go` |
 | Programs | `program_description` + `program_methods` indexed (scope `program`); **source not** indexed | `internal/program/chunker.go` |
-| Debug | `agent_debug_log` excluded — no chunker, and prop chunker skips debug objects | `internal/server/sdk.go`, `internal/index/prop.go` |
 | Incremental embed | per-doc content hash → reconcile diff (editor) + per-record no-op skip (chat/memory) | `internal/indexer/{worker,store}.go` |
 | ANN index | configurable `index.vector.mode` (default **IVF-SQ**; btree/hnsw/hybrid/bruteforce) | `internal/indexer/store.go`, `../05-config.md` |
 | Embedder fallback | `embedder: auto` — online primary + local fallback, circuit breaker, same model | `internal/indexer/embed_fallback.go` |

@@ -10,45 +10,47 @@ import (
 )
 
 // TestServer_History drives the version-history surface through echo
-// against a real SDK, using the built-in chat dataset as the workload:
-// send/edit/delete messages, then list history (filters, pagination,
-// coalescing), view past versions (object and record scope), and diff
-// (range, per-change effect, record scope). Versions are the changeIds
-// the write endpoints already return.
+// against a real SDK, using the built-in editor dataset as the
+// workload (chat and the agent datasets opt out of history via
+// SkipHistory): create/patch/delete blocks, then list history
+// (filters, pagination, coalescing), view past versions (object and
+// record scope), and diff (range, per-change effect, record scope).
+// Versions are the changeIds the write endpoints already return.
 func TestServer_History(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 
-	spaceId, objectId := setupChatFixture(t, e)
+	spaceId, objectId := setupBlocksFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 	histBase := base + "/history"
 
-	send := func(text string) (msgId, changeId string) {
+	create := func(text string) (blockId, changeId string) {
 		t.Helper()
-		rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", fmt.Sprintf(`{"text":%q}`, text))
+		rec := doJSON(t, e, http.MethodPost, base+"/editor/blocks",
+			fmt.Sprintf(`{"type":"paragraph","text":%q}`, text))
 		if rec.Code != http.StatusCreated {
-			t.Fatalf("send %q: %d %s", text, rec.Code, rec.Body.String())
+			t.Fatalf("create %q: %d %s", text, rec.Code, rec.Body.String())
 		}
 		res := decodeModifyResult(t, rec.Body.Bytes())
 		if res.ChangeId == "" || len(res.RecordIds) == 0 {
-			t.Fatalf("send %q: missing changeId/recordIds: %+v", text, res)
+			t.Fatalf("create %q: missing changeId/recordIds: %+v", text, res)
 		}
 		return res.RecordIds[0], res.ChangeId
 	}
 
-	msg1, v1 := send("first")
-	msg2, v2 := send("second")
+	blk1, v1 := create("first")
+	blk2, v2 := create("second")
 
-	// Edit msg1.
-	rec := doJSON(t, e, http.MethodPatch, base+"/chat/messages/"+msg1, `{"text":"first (edited)"}`)
+	// Patch blk1.
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+blk1, `{"set":{"text":"first (edited)"}}`)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("edit: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 	}
 	v3 := decodeModifyResult(t, rec.Body.Bytes()).ChangeId
 
-	// Delete msg2.
-	rec = doJSON(t, e, http.MethodDelete, base+"/chat/messages/"+msg2, "")
+	// Delete blk2.
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+blk2, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
@@ -67,10 +69,10 @@ func TestServer_History(t *testing.T) {
 		return out
 	}
 
-	// ---- list: descending, chat dataset only ----
-	list := getHistory(histBase + "?dataset=chat_messages")
+	// ---- list: descending, editor dataset only ----
+	list := getHistory(histBase + "?dataset=editor_blocks")
 	if len(list.Changes) != 4 {
-		t.Fatalf("want 4 chat changes, got %d: %+v", len(list.Changes), list.Changes)
+		t.Fatalf("want 4 editor changes, got %d: %+v", len(list.Changes), list.Changes)
 	}
 	wantOrder := []string{v4, v3, v2, v1}
 	for i, want := range wantOrder {
@@ -86,11 +88,11 @@ func TestServer_History(t *testing.T) {
 	}
 
 	// ---- pagination ----
-	page1 := getHistory(histBase + "?dataset=chat_messages&limit=2")
+	page1 := getHistory(histBase + "?dataset=editor_blocks&limit=2")
 	if len(page1.Changes) != 2 || page1.Cursor == "" {
 		t.Fatalf("page1: %+v", page1)
 	}
-	page2 := getHistory(histBase + "?dataset=chat_messages&limit=10&cursor=" + page1.Cursor)
+	page2 := getHistory(histBase + "?dataset=editor_blocks&limit=10&cursor=" + page1.Cursor)
 	if len(page2.Changes) != 2 || page2.Cursor != "" {
 		t.Fatalf("page2: %+v", page2)
 	}
@@ -99,13 +101,13 @@ func TestServer_History(t *testing.T) {
 	}
 
 	// ---- record filter ----
-	recList := getHistory(histBase + "?dataset=chat_messages&recordId=" + msg1)
+	recList := getHistory(histBase + "?dataset=editor_blocks&recordId=" + blk1)
 	if len(recList.Changes) != 2 {
 		t.Fatalf("record filter: want 2 changes, got %+v", recList.Changes)
 	}
 
 	// ---- coalescing: same author, rapid writes → one group ----
-	grouped := getHistory(histBase + "?dataset=chat_messages&coalesce=true")
+	grouped := getHistory(histBase + "?dataset=editor_blocks&coalesce=true")
 	if len(grouped.Changes) != 1 {
 		t.Fatalf("coalesced: want 1 group, got %d: %+v", len(grouped.Changes), grouped.Changes)
 	}
@@ -113,8 +115,8 @@ func TestServer_History(t *testing.T) {
 		t.Errorf("group = %+v, want head %s size 4", grouped.Changes[0], v4)
 	}
 
-	// ---- ViewAt v2: both messages alive, msg1 unedited ----
-	rec = doJSON(t, e, http.MethodGet, histBase+"/"+v2+"?dataset=chat_messages", "")
+	// ---- ViewAt v2: both blocks alive, blk1 unedited ----
+	rec = doJSON(t, e, http.MethodGet, histBase+"/"+v2+"?dataset=editor_blocks", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("viewAt: %d %s", rec.Code, rec.Body.String())
 	}
@@ -122,7 +124,7 @@ func TestServer_History(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
 		t.Fatalf("decode view: %v", err)
 	}
-	if len(view.Datasets) != 1 || view.Datasets[0].Dataset != "chat_messages" {
+	if len(view.Datasets) != 1 || view.Datasets[0].Dataset != "editor_blocks" {
 		t.Fatalf("view datasets: %+v", view.Datasets)
 	}
 	if len(view.Datasets[0].Records) != 2 {
@@ -139,15 +141,15 @@ func TestServer_History(t *testing.T) {
 		}
 		texts[m.Id] = m.Text
 	}
-	if texts[msg1] != "first" {
-		t.Errorf("msg1 at v2 = %q, want %q (pre-edit)", texts[msg1], "first")
+	if texts[blk1] != "first" {
+		t.Errorf("blk1 at v2 = %q, want %q (pre-edit)", texts[blk1], "first")
 	}
 
 	// ---- RecordAt: pre-edit text; tombstone after delete; absent early ----
 	getRecord := func(version, recordId string) api.HistoryRecordResponse {
 		t.Helper()
 		rec := doJSON(t, e, http.MethodGet,
-			histBase+"/"+version+"/datasets/chat_messages/records/"+recordId, "")
+			histBase+"/"+version+"/datasets/editor_blocks/records/"+recordId, "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("recordAt: %d %s", rec.Code, rec.Body.String())
 		}
@@ -158,29 +160,29 @@ func TestServer_History(t *testing.T) {
 		return out
 	}
 
-	r := getRecord(v2, msg1)
+	r := getRecord(v2, blk1)
 	if !r.Exists || r.Deleted {
-		t.Fatalf("msg1@v2: %+v", r)
+		t.Fatalf("blk1@v2: %+v", r)
 	}
 	var m struct {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(r.Record, &m); err != nil || m.Text != "first" {
-		t.Errorf("msg1@v2 text = %q (err %v), want %q", m.Text, err, "first")
+		t.Errorf("blk1@v2 text = %q (err %v), want %q", m.Text, err, "first")
 	}
 
-	r = getRecord(v4, msg2)
+	r = getRecord(v4, blk2)
 	if !r.Exists || !r.Deleted {
-		t.Errorf("msg2@v4 should be a tombstone: %+v", r)
+		t.Errorf("blk2@v4 should be a tombstone: %+v", r)
 	}
-	r = getRecord(v1, msg2)
+	r = getRecord(v1, blk2)
 	if r.Exists {
-		t.Errorf("msg2@v1 should not exist: %+v", r)
+		t.Errorf("blk2@v1 should not exist: %+v", r)
 	}
 
-	// ---- Diff v2..v4: msg1 changed (text), msg2 deleted ----
+	// ---- Diff v2..v4: blk1 changed (text), blk2 deleted ----
 	rec = doJSON(t, e, http.MethodGet,
-		histBase+"/diff?base="+v2+"&version="+v4+"&dataset=chat_messages", "")
+		histBase+"/diff?base="+v2+"&version="+v4+"&dataset=editor_blocks", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("diff: %d %s", rec.Code, rec.Body.String())
 	}
@@ -195,20 +197,20 @@ func TestServer_History(t *testing.T) {
 	for _, rd := range diff.Datasets[0].Records {
 		kinds[rd.Id] = rd.Kind
 	}
-	if kinds[msg1] != "changed" || kinds[msg2] != "deleted" {
-		t.Errorf("diff kinds = %v, want msg1 changed / msg2 deleted", kinds)
+	if kinds[blk1] != "changed" || kinds[blk2] != "deleted" {
+		t.Errorf("diff kinds = %v, want blk1 changed / blk2 deleted", kinds)
 	}
 
 	// ---- per-change effect diff (base empty) ----
-	rec = doJSON(t, e, http.MethodGet, histBase+"/diff?version="+v3+"&dataset=chat_messages", "")
+	rec = doJSON(t, e, http.MethodGet, histBase+"/diff?version="+v3+"&dataset=editor_blocks", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("effect diff: %d %s", rec.Code, rec.Body.String())
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &diff); err != nil {
 		t.Fatalf("decode effect diff: %v", err)
 	}
-	if len(diff.Datasets) != 1 || len(diff.Datasets[0].Records) != 1 || diff.Datasets[0].Records[0].Id != msg1 {
-		t.Fatalf("effect diff should touch only msg1: %+v", diff.Datasets)
+	if len(diff.Datasets) != 1 || len(diff.Datasets[0].Records) != 1 || diff.Datasets[0].Records[0].Id != blk1 {
+		t.Fatalf("effect diff should touch only blk1: %+v", diff.Datasets)
 	}
 
 	// ---- validation & error mapping ----
@@ -233,5 +235,42 @@ func TestServer_History(t *testing.T) {
 	rec = doJSON(t, e, http.MethodGet, histBase+"?limit=abc", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("bad limit: %d, want 400", rec.Code)
+	}
+
+	// ---- SkipHistory: agent_turns writes leave no history ----
+	// Agent datasets are append-only immutable, so they opt out of the
+	// history index (SYN-86). The write lands (201) but is invisible
+	// both under its dataset filter and in the unfiltered list.
+	rec = doJSON(t, e, http.MethodPost, base+"/agent/turns",
+		`{"seq":0,"userText":"hi","replies":["r"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("append turn: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := getHistory(histBase + "?dataset=agent_turns"); len(got.Changes) != 0 {
+		t.Errorf("agent_turns history should be empty (SkipHistory), got %+v", got.Changes)
+	}
+	for _, c := range getHistory(histBase).Changes {
+		if c.Dataset == "agent_turns" {
+			t.Errorf("unfiltered history leaked a SkipHistory change: %+v", c)
+		}
+	}
+
+	// ---- SkipHistory: chat writes leave no history either ----
+	// Chat renders live records only (SYN-86) — no per-message
+	// timelines, so chat_messages opts out the same way.
+	chatSpace, chatObj := setupChatFixture(t, e)
+	chatBase := "/v1/spaces/" + chatSpace + "/objects/" + chatObj
+	msg := chatSend(t, e, chatBase, "hello", "")
+	if msg.Id == "" {
+		t.Fatalf("chat send failed")
+	}
+	chatHist := chatBase + "/history"
+	if got := getHistory(chatHist + "?dataset=chat_messages"); len(got.Changes) != 0 {
+		t.Errorf("chat_messages history should be empty (SkipHistory), got %+v", got.Changes)
+	}
+	for _, c := range getHistory(chatHist).Changes {
+		if c.Dataset == "chat_messages" {
+			t.Errorf("unfiltered history leaked a chat change: %+v", c)
+		}
 	}
 }

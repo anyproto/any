@@ -8,7 +8,7 @@
 // is a bounded window over recent records, but ALL raw turns are kept
 // append-only forever and every summarization layer carries explicit
 // pointers to the raw range it covers, so a reader can always drill
-// down (chunk → raw turns → chat messages / debug log) via indexed
+// down (chunk → raw turns → chat messages / run trace) via indexed
 // range queries — never a bulk load.
 //
 // Dataset `agent_turns` — one record per agent invocation (human
@@ -182,8 +182,11 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}, Indexes: turnsHandler{}.Indexes()},
-			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}, Indexes: chunksHandler{}.Indexes()},
+			// SkipHistory: turns and chunks are append-only immutable
+			// (modify/delete rejected), so every record has exactly one
+			// version — a history index would be pure dead weight.
+			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}, Indexes: turnsHandler{}.Indexes(), SkipHistory: true},
+			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}, Indexes: chunksHandler{}.Indexes(), SkipHistory: true},
 		},
 	}
 }

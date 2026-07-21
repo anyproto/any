@@ -193,6 +193,11 @@ const (
 	// — synced, sticky, non-terminal (accept overrides). Hidden from the
 	// default list like deleted.
 	SpaceStatusInviteDeclined = "invite_declined"
+	// SpaceStatusGuestRevoked is a guest-key (public-access) space whose
+	// shared guest identity was removed from the ACL — the owner revoked
+	// public access. The local copy stays readable; new content no longer
+	// arrives. Remove with DELETE /v1/spaces/:spaceId.
+	SpaceStatusGuestRevoked = "guest_revoked"
 )
 
 // Space permission string values for SpaceInfo.OwnRole. Mirror the

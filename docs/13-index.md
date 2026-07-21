@@ -119,8 +119,8 @@ id `objectId:prop:<propId>`:
 - **Built-ins `any.name` and `any.description` are always indexed**
   under scope `basic`, reserved recordIds `name` / `description` —
   EXCEPT for objects whose `any.types` names an excluded type. The
-  registry passes `agent_debug_log` as an exclusion, so debug-trace
-  pages (whose name is the raw user prompt) never reach search.
+  exclusion list is currently empty (the bobrik-era `agent_debug_log`
+  type is gone); the mechanism remains for future diagnostic types.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
@@ -169,11 +169,8 @@ content in one call (ADR-006 §2 / the anybao recall tool).
 
 ### Excluded from indexing entirely
 
-`agent_debug_log`, `program_source`, and `miniapp` have **no chunker**;
-`Registry.ForDataset` returns nothing for them. `agent_debug_log` is
-diagnostic data, so it is excluded twice over: no dataset chunker AND the
-prop chunker skips its objects (so the prompt-derived page name stays out
-of search too).
+`program_source` and `miniapp` have **no chunker**;
+`Registry.ForDataset` returns nothing for them.
 
 ## Removal semantics
 

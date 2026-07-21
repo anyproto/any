@@ -87,6 +87,8 @@ Implementation slices landed:
    once on creation, never bumped by edits — same role heart's `_o.id`
    plays). Liveness uses the per-object query/subscribe endpoint with
    `dataset=chat_messages`. CLI: `any chat send/list/edit/delete/react`.
+   No version history: `chat_messages` sets `SkipHistory` (SYN-86) —
+   clients render live records only; `/history` never lists chat.
    Optional create-only `agent` group (`{name, debugLink?, done}` —
    replaced the old `fromAgent` string) marks the message as
    agent-authored (UI hint only, not signature-verified); immutable
@@ -205,7 +207,7 @@ Implementation slices landed:
     THE CHAT OBJECT (multitype chat + agent_log, attached on first
     write): `agent_turns` — one append-only record per agent invocation
     (seq, userText, think, replies[], effects[], messageIds[],
-    debugRef → agent_debug_log page, llm scalars; modify/delete
+    traceRef → the run's trace object, llm scalars; modify/delete
     rejected) — and `agent_chunks` — immutable summaries carrying
     EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
     periodStart/periodEnd unix). `internal/agentmem` (type
@@ -250,7 +252,7 @@ Implementation slices landed:
       per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
       rest synced; editor all synced). `Dynamic: true` keeps undeclared
       keys permitted, mirroring the `objects` dataset. Opaque content
-      datasets (program/miniapp/agentdebug) stay schema-less (default
+      datasets (program/miniapp) stay schema-less (default
       Dynamic).
     - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
       and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
@@ -291,7 +293,7 @@ Implementation slices landed:
       is attached, `Data ""` otherwise (record-level eviction of
       cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `agent_debug_log`, `program`,
+    - Excluded from indexing entirely: `program`,
       `miniapp`, and the agent-data datasets (`agent_turns` /
       `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
       a roadmap item).
@@ -682,8 +684,8 @@ Implementation slices landed:
     `base` = per-change effect diff against the version's DAG parents;
     with `base` = cumulative `base..version`), `/:version` (`ViewAt` —
     live records at that cut grouped by dataset, raw `/query` row shape)
-    and `/:version/datasets/:d/records/:r` (`RecordAt` — the chat-scale
-    fast path, no full-view materialization). Snapshot-only: **no
+    and `/:version/datasets/:d/records/:r` (`RecordAt` — the
+    record-scope fast path, no full-view materialization). Snapshot-only: **no
     subscribe variant**. A **version is a ChangeId** — the CID every
     write already returns as `changeId` — so it resolves on any peer;
     "state at version X" is X's causal past, not a wall-clock cut, and
