@@ -286,13 +286,15 @@ func (d *deps) spaceGet(c echo.Context) error {
 	// Row status first, Get only for active rows — same care the list
 	// handler takes. Service.Get materializes the space (a missing
 	// local storage triggers any-sync's SpacePull bootstrap), so
-	// calling it on a non-active row would download a not-yet-accepted
+	// calling it on a pending row would download a not-yet-accepted
 	// join / 1-1 / direct-add invite, or pointlessly load a tombstone.
-	// Non-active rows serve the index row info instead.
+	// Those rows serve the index row info instead. Unknown (empty
+	// statuses — legacy rows with no info) loads like active, matching
+	// the SDK's own materialization guard.
 	infos, lErr := d.sdk.Spaces().List(ctx)
 	if lErr == nil {
 		for _, info := range infos {
-			if info.Id == id && info.Status != space.StatusActive {
+			if info.Id == id && info.Status != space.StatusActive && info.Status != space.StatusUnknown {
 				return c.JSON(http.StatusOK, spaceInfoToAPI(info))
 			}
 		}
