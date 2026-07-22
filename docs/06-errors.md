@@ -61,6 +61,7 @@ space.not_found
 space.exists                     # create conflict
 space.not_joined                 # operation requires membership
 space.not_accepted               # 409 — join pending approval; space not materialized yet
+space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start
 
 invite.invalid                   # invite token malformed or unrecognized
 

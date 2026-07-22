@@ -24,6 +24,8 @@ func TestSpaceError_Mapping(t *testing.T) {
 	}{
 		{"not accepted", fmt.Errorf("spaceimpl: space %q join is pending owner approval: %w",
 			"s1", space.ErrSpaceNotAccepted), http.StatusConflict, "space.not_accepted"},
+		{"deleted", fmt.Errorf("spaceimpl: space %q: %w",
+			"s1", space.ErrSpaceDeleted), http.StatusConflict, "space.deleted"},
 		{"fallback", errors.New("boom"), http.StatusInternalServerError, "internal"},
 	}
 	for _, tc := range cases {
