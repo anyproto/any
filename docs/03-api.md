@@ -43,6 +43,7 @@
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
   - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
+  - [Enrichment (built-in `enriched_data` + `enrich_proposal` types)](#enrichment-built-in-enriched_data--enrich_proposal-types)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -1690,6 +1691,48 @@ clients call `GET /agent/brain` once to learn the objectId for reads.
 All writes return the shared write result `{versionId, changeId,
 recordIds}`. Errors use the `agent.*` code namespace
 (`docs/06-errors.md`).
+
+### Enrichment (built-in `enriched_data` + `enrich_proposal` types)
+
+Structured, sourced, reviewable enrichment. Two built-in types:
+
+- **`enriched_data`** — a durable, sourced enrichment collection on a
+  target object (multitype-attaches on first write, same pattern as
+  chat/agent_log). One record per fact: `{text, source, target, value,
+  createdBy, createdAt}` — `text` required; `source` is the provenance
+  link (`any://<space>/<transcript>#<blockId>,…`); `target`/`value` are
+  set only for property enrichments (which real property was set, and
+  to what), so the UI can show a property value's source.
+  `createdBy`/`createdAt` are server-stamped (derived; client writes
+  rejected). Records are searchable (indexed under scope `basic`).
+- **`enrich_proposal`** — an ephemeral, reviewable enrichment plan; its
+  `enrich_proposal_items` dataset holds one loose record per proposed
+  item (`text`, `source`, `outcome` enrich|new, `targetObjectId`,
+  `targetKind` collection|property, `targetProperty`
+  `<typeXKey>.<propXKey>`, `value`, `newType`, `newName`). Items are
+  written/edited through the generic `/modify` and read through
+  `/query` — no bespoke item endpoint. Proposals are scaffolding:
+  deleted on apply and excluded from the search index.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/enriched-data` | write one sourced enrichment record (attaches the type first) |
+| POST   | `/v1/spaces/:spaceId/enrich/apply`                    | deterministically apply a reviewed proposal, then delete it |
+
+`POST …/enriched-data` body: `{text, source?, target?, value?}`;
+returns the shared write result (`recordIds[0]` is the derived record
+id). Reads go through `POST /v1/spaces/:id/query` with
+`dataset=enriched_data`.
+
+`POST …/enrich/apply` body: `{proposalId}`. Deterministic (no LLM): per
+item it creates the target object for `new` items (items sharing
+`newType`+`newName` land on ONE object), sets the real property for
+`property` items, and always writes an `enriched_data` record onto the
+target; then deletes the proposal object. Returns `{created,
+propertiesSet, enrichedDataWritten, proposalDeleted, failures[]}` —
+`failures` is per-item; a non-empty list still means the rest applied.
+`404 enrich.empty_proposal` when the proposal has no items (already
+applied, deleted, or empty).
 
 ### Files (files v2)
 
