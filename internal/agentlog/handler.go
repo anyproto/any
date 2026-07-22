@@ -22,11 +22,13 @@ func (turnsHandler) Indexes() []anystore.IndexInfo {
 	}
 }
 
-// Indexes for agent_chunks: `seq` orders chunks (boot loads the last
-// M); `periodEnd` backs "chunks covering period X" range queries.
+// Indexes for agent_chunks: the boot window loads the last M chunks
+// PER LEVEL (hierarchical compression, ADR-006 §2), so the compound
+// [level, seq] index backs "newest chunks at level N"; `periodEnd`
+// backs "chunks covering period X" range queries.
 func (chunksHandler) Indexes() []anystore.IndexInfo {
 	return []anystore.IndexInfo{
-		{Name: "idx_seq", Fields: []string{FieldSeq}},
+		{Name: "idx_level_seq", Fields: []string{FieldLevel, FieldSeq}},
 		{Name: "idx_period_end", Fields: []string{FieldPeriodEnd}},
 	}
 }
@@ -129,7 +131,7 @@ func validateTurnPayload(payload *anyenc.Value) error {
 			visitErr = checkString("turn", key, v, MaxUserTextBytes, true)
 		case FieldThink:
 			visitErr = checkString("turn", key, v, MaxThinkBytes, true)
-		case FieldDebugRef:
+		case FieldTraceRef:
 			visitErr = checkString("turn", key, v, MaxIdBytes, false)
 		case FieldReplies:
 			visitErr = checkStringArray("turn", key, v, MaxReplies, MaxReplyBytes)
@@ -137,6 +139,8 @@ func validateTurnPayload(payload *anyenc.Value) error {
 			visitErr = checkStringArray("turn", key, v, MaxEffects, MaxEffectBytes)
 		case FieldMessageIds:
 			visitErr = checkStringArray("turn", key, v, MaxMessageIds, MaxIdBytes)
+		case FieldInterrupted:
+			visitErr = checkBool("turn", key, v)
 		case FieldLLM:
 			visitErr = validateLLM(v)
 		default:
@@ -173,11 +177,19 @@ func validateLLM(v *anyenc.Value) error {
 		key := string(rawKey)
 		switch key {
 		case FieldLLMStopReason:
-			visitErr = checkString("turn", "llm."+key, val, MaxStopReasonBytes, false)
+			if err := checkString("turn", "llm."+key, val, MaxStopReasonBytes, false); err != nil {
+				visitErr = err
+			} else if s, _ := val.StringBytes(); !StopReasons[string(s)] {
+				visitErr = rejectCreate("turn", "llm.stopReason not in the closed set "+
+					"(done|wrapup|break_soft|break_hard|length|error): "+string(s))
+			}
 		case FieldLLMModel:
 			visitErr = checkString("turn", "llm."+key, val, MaxModelBytes, false)
-		case FieldLLMInTokens, FieldLLMOutTokens, FieldLLMCacheRead, FieldLLMCacheWrite:
+		case FieldLLMInTokens, FieldLLMOutTokens, FieldLLMCacheRead,
+			FieldLLMCacheWrite, FieldLLMFuelUsed, FieldLLMCells:
 			visitErr = checkNonNegInt("turn", "llm."+key, val)
+		case FieldLLMCostUsd:
+			visitErr = checkNonNegNumber("turn", "llm."+key, val)
 		default:
 			visitErr = rejectCreate("turn", "llm: unknown field "+key)
 		}
@@ -193,8 +205,10 @@ func validateChunkPayload(payload *anyenc.Value) error {
 	var (
 		visitErr               error
 		hasSeq, hasSummary     bool
+		hasLevel               bool
 		hasFromSeq, hasToSeq   bool
 		hasPerStart, hasPerEnd bool
+		level                  int
 		fromSeq, toSeq         int
 		periodStart, periodEnd float64
 	)
@@ -207,6 +221,13 @@ func validateChunkPayload(payload *anyenc.Value) error {
 		case FieldSeq:
 			hasSeq = true
 			visitErr = checkSeq("chunk", key, v)
+		case FieldLevel:
+			hasLevel = true
+			if visitErr = checkSeq("chunk", key, v); visitErr == nil {
+				if level, _ = v.Int(); level < 1 {
+					visitErr = rejectCreate("chunk", "level must be ≥ 1")
+				}
+			}
 		case FieldFromAgent:
 			visitErr = checkString("chunk", key, v, MaxFromAgentBytes, false)
 		case FieldSummary:
@@ -244,6 +265,8 @@ func validateChunkPayload(payload *anyenc.Value) error {
 	switch {
 	case !hasSeq:
 		return rejectCreate("chunk", "seq required")
+	case !hasLevel:
+		return rejectCreate("chunk", "level required (≥1)")
 	case !hasSummary:
 		return rejectCreate("chunk", "summary required")
 	case !hasFromSeq || !hasToSeq:
@@ -324,6 +347,13 @@ func checkNonNegNumber(kind, key string, v *anyenc.Value) error {
 	f, err := v.Float64()
 	if err != nil || f < 0 {
 		return rejectCreate(kind, key+" must be ≥ 0")
+	}
+	return nil
+}
+
+func checkBool(kind, key string, v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeTrue && v.Type() != anyenc.TypeFalse {
+		return rejectCreate(kind, key+" must be a boolean")
 	}
 	return nil
 }

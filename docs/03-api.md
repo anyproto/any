@@ -24,6 +24,7 @@
     - [`nav` auto-stamping on `Objects.Create`](#nav-auto-stamping-on-objectscreate)
     - [Moves (drag-and-drop)](#moves-drag-and-drop)
     - [Object deletion](#object-deletion)
+    - [Backlinks](#backlinks)
   - [Data plane](#data-plane)
     - [Snapshot request body (shared by both `…/query` and `…/query/subscribe`)](#snapshot-request-body-shared-by-both-query-and-querysubscribe)
     - [Aggregate](#aggregate)
@@ -686,6 +687,7 @@ change" (`docs/13-index.md`).
 | POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
 | POST   | `/v1/spaces/:spaceId/objects/aggregate`                   | `Space.AggregateObjects` (pipeline) |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | reverse reference lookup (no SDK method) |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown/append`       | append markdown at tail (no read/diff) |
@@ -921,6 +923,31 @@ on the per-space firehose (`dataset=objects`) with the change's
 `versionId` — the canonical signal subscribers use to drop the id
 from local state. See `04-events.md`.
 
+#### Backlinks
+
+`GET /v1/spaces/:spaceId/objects/:objectId/backlinks` answers "which
+objects reference X?" — the reverse direction of links-format property
+values. The SDK exposes no reverse index, so like `/search` this is a
+consumer-side exception to the 1:1 rule: object references are
+properties with `format.type: "links"` (arrays of `"any://<objectId>"`
+URIs), stored at `record[typeId][propId]`; the handler resolves the
+space's links-format property catalog and queries the `objects`
+collection for rows whose arrays contain `"any://<X>"`.
+
+```json
+{"backlinks": [{"objectId": "…", "typeId": "…", "propId": "…"}]}
+```
+
+One entry per (referencing object, property) pair — an object linking
+X through two different links properties appears twice. Only live
+references count: values under a currently detached type are skipped
+(same convention as the search index's prop chunker). No existence
+check on `:objectId` — an unknown or unreferenced id returns
+`{"backlinks": []}`, not 404. Link values carry no index, so this is a
+scan over the objects collection; fine at v1 scale, a reverse index is
+a follow-up. `nav.parentId` (the tree) is not a links property — query
+children directly with `{"filter":{"nav.parentId":"<X>"}}`.
+
 ### Data plane
 
 | Method | Path                                                      | Purpose                              |
@@ -1129,10 +1156,10 @@ The static `diff` segment is registered before `:version` so it isn't
 swallowed by the wildcard.
 
 **Excluded datasets.** `chat_messages` and the agent data datasets —
-`agent_turns`, `agent_chunks`, `agent_debug_log` — opt out of history
+`agent_turns`, `agent_chunks` — opt out of history
 (`handler.Dataset.SkipHistory`). Turns and chunks are append-only
-immutable (every record has exactly one version) and the debug log is
-a machine-written grow-only trace, so a history index would only
+immutable (every record has exactly one version), so a history index
+would only
 duplicate them; chat clients render live records only (edits show
 current text, deletes tombstone), so nothing reads a per-message
 timeline and the index rows would be dead weight at chat write

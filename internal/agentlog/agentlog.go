@@ -8,7 +8,7 @@
 // is a bounded window over recent records, but ALL raw turns are kept
 // append-only forever and every summarization layer carries explicit
 // pointers to the raw range it covers, so a reader can always drill
-// down (chunk → raw turns → chat messages / debug log) via indexed
+// down (chunk → raw turns → chat messages / run trace) via indexed
 // range queries — never a bulk load.
 //
 // Dataset `agent_turns` — one record per agent invocation (human
@@ -17,7 +17,7 @@
 //	{
 //	  "id":        "<zero-padded seq>",   // lexical order == insertion order
 //	  "_ver":      { ... },               // SDK-managed
-//	  "seq":       <int>,                 // per-chat monotonic, caller-assigned
+//	  "seq":       <int>,                 // per-chat monotonic, server-assigned
 //	  "creator":   "<accountId>",         // server-stamped
 //	  "createdAt": <unix-seconds>,        // server-stamped
 //	  "fromAgent": "<opaque>",            // optional, like chat's fromAgent
@@ -27,38 +27,43 @@
 //	  "replies":   ["<bubble>", ...],     // optional
 //	  "effects":   ["<one-liner>", ...],  // optional
 //	  "messageIds":["<chat msg id>",...], // optional, same-object chat_messages refs
-//	  "debugRef":  "<objectId>",          // optional, agent_debug_log page
-//	  "llm": { "stopReason", "inTokens", "outTokens",
-//	           "cacheRead", "cacheWrite", "model" }   // optional scalars
+//	  "traceRef":  "<objectId>",          // optional, the run's trace object
+//	  "interrupted": <bool>,              // optional, invocation was broken/cut
+//	  "llm": { "stopReason", "inTokens", "outTokens", "cacheRead",
+//	           "cacheWrite", "model", "costUsd", "fuelUsed", "cells" }
 //	}
 //
 // The heavy per-LLM-API-turn detail (tool cells, raw responses) is
-// deliberately NOT here — it lives once, in agent_debug_log, reachable
-// via debugRef. The turn record is the conversation-replay unit the
-// agent's boot window reads; it must stay lean.
+// deliberately NOT here — it lives once in the run's trace object,
+// reachable via traceRef. The turn record is the conversation-replay
+// unit the agent's boot window reads; it must stay lean. `stopReason`
+// is a neutral outcome (StopReasons), not a raw provider string.
 //
 // Dataset `agent_chunks` — one record per compression event,
 // immutable post-create:
 //
 //	{
 //	  "id":          "<zero-padded seq>",
-//	  "seq":         <int>,               // chunk counter, caller-assigned
+//	  "seq":         <int>,               // chunk counter, server-assigned
+//	  "level":       <int>,               // 1 = over turns, 2+ = over chunks
 //	  "creator":     "<accountId>",       // server-stamped
 //	  "createdAt":   <unix-seconds>,      // server-stamped
 //	  "fromAgent":   "<opaque>",          // optional
 //	  "summary":     "<dense paragraph>",
 //	  "periodStart": <unix-seconds>,      // indexable range fields
 //	  "periodEnd":   <unix-seconds>,
-//	  "fromSeq":     <int>,               // inclusive pointers into agent_turns
+//	  "fromSeq":     <int>,               // inclusive child pointers (§2)
 //	  "toSeq":       <int>,
 //	  "turnsCovered":<int>                // optional count
 //	}
 //
-// fromSeq/toSeq are the layering contract: a chunk always knows the
-// exact raw range it summarizes, so `{seq:{$gte:fromSeq,$lte:toSeq}}`
-// against agent_turns on the same object reconstructs full fidelity.
-// Compression never mutates or deletes turns — the pointers ARE the
-// "compacted" marker.
+// Hierarchical compression (ADR-006 §2): a level-1 chunk summarizes a
+// contiguous range of agent_turns; a level-N chunk summarizes a
+// contiguous range of level-(N-1) CHUNKS. fromSeq/toSeq point at the
+// child seqs at the level below, so drill-down is recursive
+// (chunk → child chunks → … → raw turns) and never a bulk load.
+// Compression never mutates or deletes what it covers — the pointers
+// ARE the "compacted" marker.
 //
 // Both datasets are append-only in v1: BeforeModify and BeforeDelete
 // reject everything. GC/retention is a deliberate non-feature for now;
@@ -88,18 +93,19 @@ const (
 
 // Field keys on a turn record. Literal strings, matching chat/editor.
 const (
-	FieldSeq        = "seq"
-	FieldCreator    = "creator"
-	FieldCreatedAt  = "createdAt"
-	FieldFromAgent  = "fromAgent"
-	FieldUserName   = "userName"
-	FieldUserText   = "userText"
-	FieldThink      = "think"
-	FieldReplies    = "replies"
-	FieldEffects    = "effects"
-	FieldMessageIds = "messageIds"
-	FieldDebugRef   = "debugRef"
-	FieldLLM        = "llm"
+	FieldSeq         = "seq"
+	FieldCreator     = "creator"
+	FieldCreatedAt   = "createdAt"
+	FieldFromAgent   = "fromAgent"
+	FieldUserName    = "userName"
+	FieldUserText    = "userText"
+	FieldThink       = "think"
+	FieldReplies     = "replies"
+	FieldEffects     = "effects"
+	FieldMessageIds  = "messageIds"
+	FieldTraceRef    = "traceRef"
+	FieldInterrupted = "interrupted"
+	FieldLLM         = "llm"
 )
 
 // Sub-keys of the llm scalar bundle.
@@ -110,11 +116,27 @@ const (
 	FieldLLMCacheRead  = "cacheRead"
 	FieldLLMCacheWrite = "cacheWrite"
 	FieldLLMModel      = "model"
+	FieldLLMCostUsd    = "costUsd"
+	FieldLLMFuelUsed   = "fuelUsed"
+	FieldLLMCells      = "cells"
 )
+
+// StopReasons is the closed set of neutral invocation outcomes
+// (ADR-005 Outcome + ADR-006 §1) — replaces the v1 raw-provider
+// strings ("end_turn"). Every invocation ends in exactly one.
+var StopReasons = map[string]bool{
+	"done":       true,
+	"wrapup":     true,
+	"break_soft": true,
+	"break_hard": true,
+	"length":     true,
+	"error":      true,
+}
 
 // Field keys on a chunk record (seq/creator/createdAt/fromAgent shared
 // with turns above).
 const (
+	FieldLevel        = "level"
 	FieldSummary      = "summary"
 	FieldPeriodStart  = "periodStart"
 	FieldPeriodEnd    = "periodEnd"
@@ -126,8 +148,8 @@ const (
 // Data versions pinned to writes. Bump only when validation must
 // reject older writers.
 const (
-	turnsDataVersion  = "agent_turns-v1"
-	chunksDataVersion = "agent_chunks-v1"
+	turnsDataVersion  = "agent_turns-v2"
+	chunksDataVersion = "agent_chunks-v2"
 )
 
 // Validation limits. Conservative; revisit if real usage hits them.
@@ -139,7 +161,7 @@ const (
 	MaxEffectBytes     = 2 * 1024
 	MaxEffects         = 256
 	MaxMessageIds      = 64
-	MaxIdBytes         = 256 // messageIds entries, debugRef
+	MaxIdBytes         = 256 // messageIds entries, traceRef
 	MaxFromAgentBytes  = 256 // mirrors chat
 	MaxUserNameBytes   = 256
 	MaxStopReasonBytes = 64

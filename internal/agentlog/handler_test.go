@@ -76,20 +76,44 @@ func TestTurnCreate_FullPayload(t *testing.T) {
 	payload.Set(FieldReplies, newStringArray(arena, "All good.", "Anything else?"))
 	payload.Set(FieldEffects, newStringArray(arena, "created Book [Dune](any://s/o)"))
 	payload.Set(FieldMessageIds, newStringArray(arena, "msg1", "msg2"))
-	payload.Set(FieldDebugRef, arena.NewString("debugPage1"))
+	payload.Set(FieldTraceRef, arena.NewString("traceObj1"))
+	payload.Set(FieldInterrupted, arena.NewTrue())
 	llm := arena.NewObject()
-	llm.Set(FieldLLMStopReason, arena.NewString("end_turn"))
+	llm.Set(FieldLLMStopReason, arena.NewString("done"))
 	llm.Set(FieldLLMInTokens, arena.NewNumberInt(1200))
 	llm.Set(FieldLLMOutTokens, arena.NewNumberInt(300))
 	llm.Set(FieldLLMCacheRead, arena.NewNumberInt(8000))
 	llm.Set(FieldLLMCacheWrite, arena.NewNumberInt(0))
 	llm.Set(FieldLLMModel, arena.NewString("claude-sonnet-4-6"))
+	llm.Set(FieldLLMCostUsd, arena.NewNumberFloat64(0.0123))
+	llm.Set(FieldLLMFuelUsed, arena.NewNumberInt(184223))
+	llm.Set(FieldLLMCells, arena.NewNumberInt(3))
 	payload.Set(FieldLLM, llm)
 
 	ctx, sink := ctxAndSink()
 	if err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
+}
+
+func TestTurnCreate_StopReasonEnumEnforced(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalTurn(arena)
+	llm := arena.NewObject()
+	llm.Set(FieldLLMStopReason, arena.NewString("end_turn")) // v1 raw string — now rejected
+	payload.Set(FieldLLM, llm)
+	ctx, sink := ctxAndSink()
+	err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "stopReason not in the closed set")
+}
+
+func TestTurnCreate_InterruptedMustBeBool(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalTurn(arena)
+	payload.Set(FieldInterrupted, arena.NewString("yes"))
+	ctx, sink := ctxAndSink()
+	err := (turnsHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "interrupted must be a boolean")
 }
 
 func TestTurnCreate_MissingSeqRejected(t *testing.T) {
@@ -172,12 +196,41 @@ func TestTurnDelete_Rejected(t *testing.T) {
 func minimalChunk(arena *anyenc.Arena) *anyenc.Value {
 	payload := arena.NewObject()
 	payload.Set(FieldSeq, arena.NewNumberInt(0))
+	payload.Set(FieldLevel, arena.NewNumberInt(1))
 	payload.Set(FieldSummary, arena.NewString("alice asked about X; agent created Y"))
 	payload.Set(FieldPeriodStart, arena.NewNumberInt(1700000000))
 	payload.Set(FieldPeriodEnd, arena.NewNumberInt(1700003600))
 	payload.Set(FieldFromSeq, arena.NewNumberInt(0))
 	payload.Set(FieldToSeq, arena.NewNumberInt(9))
 	return payload
+}
+
+func TestChunkCreate_MissingLevelRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Del(FieldLevel)
+	ctx, sink := ctxAndSink()
+	err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "level required")
+}
+
+func TestChunkCreate_ZeroLevelRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Set(FieldLevel, arena.NewNumberInt(0))
+	ctx, sink := ctxAndSink()
+	err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink)
+	requireValidationErr(t, err, "level must be ≥ 1")
+}
+
+func TestChunkCreate_Level2OK(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Set(FieldLevel, arena.NewNumberInt(2)) // over level-1 chunks
+	ctx, sink := ctxAndSink()
+	if err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
+		t.Fatalf("level-2 chunk should be valid: %v", err)
+	}
 }
 
 func TestChunkCreate_Minimal(t *testing.T) {
@@ -194,6 +247,7 @@ func TestChunkCreate_MissingPointersRejected(t *testing.T) {
 	arena := &anyenc.Arena{}
 	payload := arena.NewObject()
 	payload.Set(FieldSeq, arena.NewNumberInt(0))
+	payload.Set(FieldLevel, arena.NewNumberInt(1))
 	payload.Set(FieldSummary, arena.NewString("s"))
 	payload.Set(FieldPeriodStart, arena.NewNumberInt(1700000000))
 	payload.Set(FieldPeriodEnd, arena.NewNumberInt(1700003600))

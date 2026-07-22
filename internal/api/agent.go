@@ -9,16 +9,21 @@ package api
 // docs/11-agent-memory.md for the layering model.
 
 // LLMStats is the per-turn LLM summary embedded in a turn record.
-// Cheap scalars duplicated from the debug log for convenience — the
-// heavy per-LLM-API-turn detail (cells, raw responses) lives only in
-// agent_debug_log, reachable via the turn's debugRef.
+// Cheap scalars duplicated from the run trace for convenience — the
+// heavy per-LLM-API-turn detail (cells, raw responses) lives in the
+// run trace object, reachable via the turn's traceRef.
+// StopReason is one of the neutral invocation outcomes: done | wrapup |
+// break_soft | break_hard | length | error (agentlog.StopReasons).
 type LLMStats struct {
-	StopReason string `json:"stopReason,omitempty"`
-	InTokens   int    `json:"inTokens,omitempty"`
-	OutTokens  int    `json:"outTokens,omitempty"`
-	CacheRead  int    `json:"cacheRead,omitempty"`
-	CacheWrite int    `json:"cacheWrite,omitempty"`
-	Model      string `json:"model,omitempty"`
+	StopReason string  `json:"stopReason,omitempty"`
+	InTokens   int     `json:"inTokens,omitempty"`
+	OutTokens  int     `json:"outTokens,omitempty"`
+	CacheRead  int     `json:"cacheRead,omitempty"`
+	CacheWrite int     `json:"cacheWrite,omitempty"`
+	Model      string  `json:"model,omitempty"`
+	CostUsd    float64 `json:"costUsd,omitempty"`
+	FuelUsed   int     `json:"fuelUsed,omitempty"`
+	Cells      int     `json:"cells,omitempty"`
 }
 
 // AgentTurnAppendRequest is the body of
@@ -26,21 +31,23 @@ type LLMStats struct {
 //
 // One record per agent invocation (human message → end_turn),
 // append-only and immutable. `seq` is the per-chat monotonic ordering
-// key the caller assigns (last seen + 1); the record id is derived
-// from it (zero-padded) so lexical id order matches insertion order.
-// Server stamps creator / createdAt and rejects client attempts to
-// set them.
+// key; OMIT it and the server allocates max+1 (the normal path,
+// retrying on collision — no client probe/retry). Provide it only to
+// control the seq explicitly (a duplicate then surfaces as an error).
+// The record id is derived from seq (zero-padded) so lexical id order
+// matches insertion order. Server stamps creator / createdAt.
 type AgentTurnAppendRequest struct {
-	Seq        *int      `json:"seq"`
-	FromAgent  string    `json:"fromAgent,omitempty"`
-	UserName   string    `json:"userName,omitempty"`
-	UserText   string    `json:"userText,omitempty"`
-	Think      string    `json:"think,omitempty"`
-	Replies    []string  `json:"replies,omitempty"`
-	Effects    []string  `json:"effects,omitempty"`
-	MessageIds []string  `json:"messageIds,omitempty"`
-	DebugRef   string    `json:"debugRef,omitempty"`
-	LLM        *LLMStats `json:"llm,omitempty"`
+	Seq         *int      `json:"seq,omitempty"`
+	FromAgent   string    `json:"fromAgent,omitempty"`
+	UserName    string    `json:"userName,omitempty"`
+	UserText    string    `json:"userText,omitempty"`
+	Think       string    `json:"think,omitempty"`
+	Replies     []string  `json:"replies,omitempty"`
+	Effects     []string  `json:"effects,omitempty"`
+	MessageIds  []string  `json:"messageIds,omitempty"`
+	TraceRef    string    `json:"traceRef,omitempty"`
+	Interrupted bool      `json:"interrupted,omitempty"`
+	LLM         *LLMStats `json:"llm,omitempty"`
 }
 
 // AgentChunkCreateRequest is the body of
@@ -51,8 +58,13 @@ type AgentTurnAppendRequest struct {
 // dataset — the raw range this summary covers; drill-down is
 // `{seq: {$gte: fromSeq, $lte: toSeq}}`. periodStart/periodEnd are
 // unix seconds so period range filters stay indexable.
+// `level` is the hierarchical-compression tier (ADR-006 §2): 1
+// summarizes agent_turns, 2+ summarizes level-(N-1) chunks. Omit for
+// the common level-1 case (server defaults to 1). fromSeq/toSeq point
+// at the CHILD seqs at the level below.
 type AgentChunkCreateRequest struct {
-	Seq          *int   `json:"seq"`
+	Seq          *int   `json:"seq,omitempty"`
+	Level        *int   `json:"level,omitempty"`
 	FromAgent    string `json:"fromAgent,omitempty"`
 	Summary      string `json:"summary"`
 	PeriodStart  int64  `json:"periodStart"`
@@ -94,7 +106,7 @@ type AgentMemoryCreateRequest struct {
 	Keywords   []string `json:"keywords,omitempty"`
 	Confidence *int     `json:"confidence,omitempty"`
 	Importance *int     `json:"importance,omitempty"`
-	Salience   *int     `json:"salience,omitempty"`
+	Salience   *float64 `json:"salience,omitempty"`
 	ValidFrom  int64    `json:"validFrom,omitempty"`
 	Edges      []Edge   `json:"edges,omitempty"`
 	ChatId     string   `json:"chatId,omitempty"`
@@ -107,7 +119,7 @@ type AgentMemoryCreateRequest struct {
 // server-side. At least one field must be present
 // (400 request.missing_field otherwise).
 type AgentMemoryEvolveRequest struct {
-	Salience    *int      `json:"salience,omitempty"`
+	Salience    *float64  `json:"salience,omitempty"`
 	AccessCount *int      `json:"accessCount,omitempty"`
 	Confidence  *int      `json:"confidence,omitempty"`
 	Importance  *int      `json:"importance,omitempty"`

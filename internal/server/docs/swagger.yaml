@@ -133,6 +133,8 @@ definitions:
         type: string
       fromSeq:
         type: integer
+      level:
+        type: integer
       periodEnd:
         type: integer
       periodStart:
@@ -175,7 +177,7 @@ definitions:
           type: string
         type: array
       salience:
-        type: integer
+        type: number
       tags:
         items:
           type: string
@@ -200,7 +202,7 @@ definitions:
       importance:
         type: integer
       salience:
-        type: integer
+        type: number
       tags:
         items:
           type: string
@@ -208,14 +210,14 @@ definitions:
     type: object
   api.AgentTurnAppendRequest:
     properties:
-      debugRef:
-        type: string
       effects:
         items:
           type: string
         type: array
       fromAgent:
         type: string
+      interrupted:
+        type: boolean
       llm:
         $ref: '#/definitions/api.LLMStats'
       messageIds:
@@ -229,6 +231,8 @@ definitions:
       seq:
         type: integer
       think:
+        type: string
+      traceRef:
         type: string
       userName:
         type: string
@@ -283,6 +287,22 @@ definitions:
         type: array
       authorized:
         type: boolean
+    type: object
+  api.Backlink:
+    properties:
+      objectId:
+        type: string
+      propId:
+        type: string
+      typeId:
+        type: string
+    type: object
+  api.BacklinksResponse:
+    properties:
+      backlinks:
+        items:
+          $ref: '#/definitions/api.Backlink'
+        type: array
     type: object
   api.BlockCreateRequest:
     properties:
@@ -692,6 +712,12 @@ definitions:
       cacheRead:
         type: integer
       cacheWrite:
+        type: integer
+      cells:
+        type: integer
+      costUsd:
+        type: number
+      fuelUsed:
         type: integer
       inTokens:
         type: integer
@@ -1200,6 +1226,14 @@ definitions:
     type: object
   api.SpaceCreateRequest:
     properties:
+      agent_space:
+        description: |-
+          AgentSpace marks this as an agent space: on create the server
+          eagerly materializes the per-space config object (agentconfig)
+          so the harness has it on the very first GET. The config object is
+          also derived idempotently on every single-space GET, so this flag
+          only controls eager provisioning, not whether the id is reported.
+        type: boolean
       description:
         type: string
       iconCid:
@@ -1220,6 +1254,15 @@ definitions:
     type: object
   api.SpaceInfo:
     properties:
+      agentConfigObjectId:
+        description: |-
+          AgentConfigObjectId is the deterministic id of the space's single
+          agent config object (see agentconfig.ConfigObjectSeed). Populated —
+          materializing the object on first sight — on single-space responses
+          (create / get / one-to-one / join), same as GeneralChatObjectId;
+          omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
+          its config cascade against this object.
+        type: string
       author:
         type: string
       createdAt:
@@ -3223,6 +3266,41 @@ paths:
       summary: Append one immutable agent turn record
       tags:
       - agent
+  /spaces/{spaceId}/objects/{objectId}/backlinks:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.BacklinksResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: List objects that reference an object (links-format property values)
+      tags:
+      - objects
   /spaces/{spaceId}/objects/{objectId}/chat/messages:
     post:
       consumes:

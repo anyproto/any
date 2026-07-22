@@ -119,8 +119,8 @@ id `objectId:prop:<propId>`:
 - **Built-ins `any.name` and `any.description` are always indexed**
   under scope `basic`, reserved recordIds `name` / `description` —
   EXCEPT for objects whose `any.types` names an excluded type. The
-  registry passes `agent_debug_log` as an exclusion, so debug-trace
-  pages (whose name is the raw user prompt) never reach search.
+  exclusion list is currently empty (the bobrik-era `agent_debug_log`
+  type is gone); the mechanism remains for future diagnostic types.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
@@ -153,15 +153,24 @@ Hash collisions are astronomically unlikely (64-bit) and the worst case
 is one stale vector. Docs written before the `hash` field existed simply
 miss the map and re-upsert once.
 
+### Agent history (turns + chunks) — scope `history`
+
+`agent_turns` and `agent_chunks` are indexed under scope **`history`**
+by two chunkers on the `agent_log` type (`agentlog.NewTurnChunker` /
+`NewChunkChunker`), gated on agent_log membership like the chat chunker
+(both datasets live on the chat object). Turns index `userText` + joined
+`replies` (Title-boosted on `userText` — the question is the strongest
+recall anchor); chunks index their `summary`. `think` / `effects` /
+scalars are excluded (narration and metadata are recall noise; the raw
+record stays reachable by seq for drill-down). This is what makes deep
+history semantically reachable without exact seqs — `search` with scopes
+`[agent, history, basic]` spans memory, conversation history, and
+content in one call (ADR-006 §2 / the anybao recall tool).
+
 ### Excluded from indexing entirely
 
-`agent_debug_log`, `program_source`, `miniapp`, and the agent turn/chunk
-datasets (`agent_turns` / `agent_chunks`) have **no chunker**;
-`Registry.ForDataset` returns nothing for them. (`agent_memory_items` IS
-now indexed — see the memory chunker above.) `agent_debug_log` is
-diagnostic data, so it is excluded twice over: no dataset chunker AND the
-prop chunker skips its objects (so the prompt-derived page name stays out
-of search too).
+`program_source` and `miniapp` have **no chunker**;
+`Registry.ForDataset` returns nothing for them.
 
 ## Removal semantics
 

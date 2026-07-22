@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -61,6 +62,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.POST("/spaces/:spaceId/objects/aggregate", d.spaceAggregateObjects)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
+	// Reverse reference lookup over links-format property values —
+	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
+	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
 
 	// Editor (built-in type — see internal/editor). Atomic blocks +
 	// markdown bridge, both backed by the per-object editor_blocks
@@ -665,6 +669,9 @@ func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
 	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
 		out.GeneralChatObjectId = id
+	}
+	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
+		out.AgentConfigObjectId = id
 	}
 	return out
 }

@@ -47,7 +47,7 @@ func TestE2E_AgentBinary(t *testing.T) {
 			fmt.Sprintf(`{"seq":%d,"userName":"alice","userText":"msg %d",
 				"think":"thinking about %d","replies":["reply %d"],
 				"effects":["created Thing [x](any://s/o)"],
-				"llm":{"stopReason":"end_turn","inTokens":100,"outTokens":20,"model":"test"}}`,
+				"llm":{"stopReason":"done","inTokens":100,"outTokens":20,"model":"test"}}`,
 				seq, seq, seq, seq),
 			http.StatusCreated, &res)
 		if len(res.RecordIds) != 1 || res.RecordIds[0] != fmt.Sprintf("%08d", seq) {
@@ -85,12 +85,20 @@ func TestE2E_AgentBinary(t *testing.T) {
 		t.Errorf("turn 0 mutated by duplicate append: %+v", turns)
 	}
 
-	// Turn validation envelope: missing seq → 400 agent.seq_required.
+	// Omitted seq → server-assigned: max(seq)+1 after the four appends.
+	var assigned api.ModifyResult
+	mustJSON(t, http.MethodPost, objBase+"/agent/turns",
+		`{"userText":"no seq"}`, http.StatusCreated, &assigned)
+	if len(assigned.RecordIds) != 1 || assigned.RecordIds[0] != "00000004" {
+		t.Errorf("server-assigned seq: recordIds = %v, want [00000004]", assigned.RecordIds)
+	}
+
+	// Turn validation envelope: negative seq → 400 agent.seq_required.
 	var env api.ErrorEnvelope
 	mustJSON(t, http.MethodPost, objBase+"/agent/turns",
-		`{"userText":"no seq"}`, http.StatusBadRequest, &env)
+		`{"seq":-1,"userText":"bad seq"}`, http.StatusBadRequest, &env)
 	if env.Error.Code != api.ErrAgentSeqRequired {
-		t.Errorf("missing seq: code = %q, want %q", env.Error.Code, api.ErrAgentSeqRequired)
+		t.Errorf("negative seq: code = %q, want %q", env.Error.Code, api.ErrAgentSeqRequired)
 	}
 
 	// --- chunks: create one covering turns 0..1, then drill down -----------

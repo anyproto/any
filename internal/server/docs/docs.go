@@ -3087,6 +3087,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/objects/{objectId}/backlinks": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "objects"
+                ],
+                "summary": "List objects that reference an object (links-format property values)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Object ID",
+                        "name": "objectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.BacklinksResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/objects/{objectId}/chat/messages": {
             "post": {
                 "consumes": [
@@ -5519,6 +5572,9 @@ const docTemplate = `{
                 "fromSeq": {
                     "type": "integer"
                 },
+                "level": {
+                    "type": "integer"
+                },
                 "periodEnd": {
                     "type": "integer"
                 },
@@ -5582,7 +5638,7 @@ const docTemplate = `{
                     }
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",
@@ -5620,7 +5676,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "salience": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "tags": {
                     "type": "array",
@@ -5633,9 +5689,6 @@ const docTemplate = `{
         "api.AgentTurnAppendRequest": {
             "type": "object",
             "properties": {
-                "debugRef": {
-                    "type": "string"
-                },
                 "effects": {
                     "type": "array",
                     "items": {
@@ -5644,6 +5697,9 @@ const docTemplate = `{
                 },
                 "fromAgent": {
                     "type": "string"
+                },
+                "interrupted": {
+                    "type": "boolean"
                 },
                 "llm": {
                     "$ref": "#/definitions/api.LLMStats"
@@ -5664,6 +5720,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "think": {
+                    "type": "string"
+                },
+                "traceRef": {
                     "type": "string"
                 },
                 "userName": {
@@ -5734,6 +5793,31 @@ const docTemplate = `{
                 },
                 "authorized": {
                     "type": "boolean"
+                }
+            }
+        },
+        "api.Backlink": {
+            "type": "object",
+            "properties": {
+                "objectId": {
+                    "type": "string"
+                },
+                "propId": {
+                    "type": "string"
+                },
+                "typeId": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.BacklinksResponse": {
+            "type": "object",
+            "properties": {
+                "backlinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.Backlink"
+                    }
                 }
             }
         },
@@ -6347,6 +6431,15 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "cacheWrite": {
+                    "type": "integer"
+                },
+                "cells": {
+                    "type": "integer"
+                },
+                "costUsd": {
+                    "type": "number"
+                },
+                "fuelUsed": {
                     "type": "integer"
                 },
                 "inTokens": {
@@ -7047,6 +7140,10 @@ const docTemplate = `{
         "api.SpaceCreateRequest": {
             "type": "object",
             "properties": {
+                "agent_space": {
+                    "description": "AgentSpace marks this as an agent space: on create the server\neagerly materializes the per-space config object (agentconfig)\nso the harness has it on the very first GET. The config object is\nalso derived idempotently on every single-space GET, so this flag\nonly controls eager provisioning, not whether the id is reported.",
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -7078,6 +7175,10 @@ const docTemplate = `{
         "api.SpaceInfo": {
             "type": "object",
             "properties": {
+                "agentConfigObjectId": {
+                    "description": "AgentConfigObjectId is the deterministic id of the space's single\nagent config object (see agentconfig.ConfigObjectSeed). Populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join), same as GeneralChatObjectId;\nomitted on the cheap ` + "`" + `GET /v1/spaces` + "`" + ` list rows. The harness resolves\nits config cascade against this object.",
+                    "type": "string"
+                },
                 "author": {
                     "type": "string"
                 },

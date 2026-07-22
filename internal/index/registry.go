@@ -22,7 +22,7 @@ func (r *Registry) All() []Chunker {
 // ForDataset returns the chunkers reading the given dataset. Usually one,
 // but the contract allows several (e.g. multiple scopes over one
 // dataset). Empty when no chunker covers the dataset — datasets excluded
-// from indexing (agent_debug_log, program_source, miniapp) return nothing.
+// from indexing (program_source, miniapp) return nothing.
 func (r *Registry) ForDataset(dataset string) []Chunker {
 	var out []Chunker
 	for _, c := range r.chunkers {

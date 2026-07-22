@@ -3,7 +3,7 @@
 #
 # Usage: scripts/build-any.sh <platform> <outdir>
 #   platform ∈ darwin-arm64 | darwin-x64 | linux-x86_64 | windows-x86_64 | host
-#   (the any backend + bobrik-watch are CGO-free, so every target cross-builds
+#   (the any backend is CGO-free, so every target cross-builds
 #    from any host; only the prebuilt llama.cpp libs are platform-specific.)
 #
 # Produces: <outdir>/any-<version>-<os>-<arch>.tar.gz
@@ -63,18 +63,11 @@ LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/versio
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
     go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -o "$STAGE/bobrik-watch$EXE" ./cmd/bobrik-watch
-
+    
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
 
-# bobrik agent assets — read from disk at runtime, so ship the tree.
-mkdir -p "$STAGE/agent"
-cp cmd/bobrik-watch/anyHelper.js "$STAGE/agent/"
-cp -R cmd/bobrik-watch/programs "$STAGE/agent/programs"
-cp -R cmd/bobrik-watch/skills "$STAGE/agent/skills"
-cp -R cmd/bobrik-watch/tool-descriptions "$STAGE/agent/tool-descriptions"
 
 # manifest.json — sha256 of every staged file (relative paths) + metadata.
 sha256_of() {

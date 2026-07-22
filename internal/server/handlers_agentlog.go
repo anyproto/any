@@ -36,9 +36,9 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
-	if req.Seq == nil || *req.Seq < 0 {
+	if req.Seq != nil && *req.Seq < 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentSeqRequired,
-			"seq required (non-negative int)", nil)
+			"seq must be non-negative (omit to let the server assign it)", nil)
 	}
 	if len(req.UserText) > agentlog.MaxUserTextBytes {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentTurnInvalid, "userText too long",
@@ -59,6 +59,12 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 	if len(req.MessageIds) > agentlog.MaxMessageIds {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentTurnInvalid, "too many messageIds",
 			map[string]any{"max": agentlog.MaxMessageIds, "got": len(req.MessageIds)})
+	}
+	if req.LLM != nil && req.LLM.StopReason != "" && !agentlog.StopReasons[req.LLM.StopReason] {
+		return writeError(c, http.StatusBadRequest, api.ErrAgentTurnInvalid,
+			"llm.stopReason not in the closed set "+
+				"(done|wrapup|break_soft|break_hard|length|error)",
+			map[string]any{"got": req.LLM.StopReason})
 	}
 
 	res, err := agentlog.AppendTurn(c.Request().Context(), sp, objectId, req)
@@ -95,9 +101,13 @@ func (d *deps) agentChunkCreate(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
-	if req.Seq == nil || *req.Seq < 0 {
+	if req.Seq != nil && *req.Seq < 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentSeqRequired,
-			"seq required (non-negative int)", nil)
+			"seq must be non-negative (omit to let the server assign it)", nil)
+	}
+	if req.Level != nil && *req.Level < 1 {
+		return writeError(c, http.StatusBadRequest, api.ErrAgentChunkInvalid,
+			"level must be ≥ 1 (omit for the level-1 default)", nil)
 	}
 	if req.Summary == "" {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentChunkInvalid, "summary required", nil)

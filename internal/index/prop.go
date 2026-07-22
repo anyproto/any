@@ -50,9 +50,9 @@ type PropChunker struct {
 	now   func() time.Time
 	cache map[string]*propCatalog // spaceId → snapshot
 	// excludeTypes: objects carrying any of these type ids are skipped
-	// entirely (no name/description/value entries). Used to keep
-	// diagnostic objects — e.g. agent_debug_log pages, whose name is the
-	// raw user prompt — out of search. Empty = index every object.
+	// entirely (no name/description/value entries) — for diagnostic
+	// objects whose names would leak noise into search. Empty = index
+	// every object.
 	excludeTypes map[string]bool
 }
 
@@ -72,7 +72,7 @@ type propCatalog struct {
 
 // NewPropChunker constructs the chunker with an empty catalog cache.
 // excludeTypeIds names types whose objects are skipped entirely (e.g. the
-// agent_debug_log diagnostic type — see PropChunker.excludeTypes).
+// a diagnostic type — see PropChunker.excludeTypes).
 func NewPropChunker(excludeTypeIds ...string) *PropChunker {
 	excl := make(map[string]bool, len(excludeTypeIds))
 	for _, id := range excludeTypeIds {
@@ -159,7 +159,7 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		for _, v := range rec.GetArray("any", "types") {
 			attached[string(v.GetStringBytes())] = true
 		}
-		// Diagnostic objects (e.g. agent_debug_log pages) are excluded
+		// Diagnostic objects are excluded
 		// from search wholesale — their name/description carry debug
 		// content, not knowledge. They are never indexed, so there is
 		// nothing to evict here.

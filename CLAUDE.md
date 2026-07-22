@@ -207,7 +207,7 @@ Implementation slices landed:
     THE CHAT OBJECT (multitype chat + agent_log, attached on first
     write): `agent_turns` — one append-only record per agent invocation
     (seq, userText, think, replies[], effects[], messageIds[],
-    debugRef → agent_debug_log page, llm scalars; modify/delete
+    traceRef → the run's trace object, llm scalars; modify/delete
     rejected) — and `agent_chunks` — immutable summaries carrying
     EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
     periodStart/periodEnd unix). `internal/agentmem` (type
@@ -252,7 +252,7 @@ Implementation slices landed:
       per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
       rest synced; editor all synced). `Dynamic: true` keeps undeclared
       keys permitted, mirroring the `objects` dataset. Opaque content
-      datasets (program/miniapp/agentdebug) stay schema-less (default
+      datasets (program/miniapp) stay schema-less (default
       Dynamic).
     - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
       and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
@@ -293,7 +293,7 @@ Implementation slices landed:
       is attached, `Data ""` otherwise (record-level eviction of
       cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `agent_debug_log`, `program`,
+    - Excluded from indexing entirely: `program`,
       `miniapp`, and the agent-data datasets (`agent_turns` /
       `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
       a roadmap item).
