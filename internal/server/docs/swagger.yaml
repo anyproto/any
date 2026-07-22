@@ -410,6 +410,37 @@ definitions:
       type:
         type: string
     type: object
+  api.EnrichApplyRequest:
+    properties:
+      proposalId:
+        type: string
+    type: object
+  api.EnrichApplyResponse:
+    properties:
+      created:
+        type: integer
+      enrichedDataWritten:
+        type: integer
+      failures:
+        items:
+          type: string
+        type: array
+      propertiesSet:
+        type: integer
+      proposalDeleted:
+        type: boolean
+    type: object
+  api.EnrichedDataCreateRequest:
+    properties:
+      source:
+        type: string
+      target:
+        type: string
+      text:
+        type: string
+      value:
+        type: string
+    type: object
   api.ErrorEnvelope:
     properties:
       error:
@@ -2454,6 +2485,44 @@ paths:
       summary: Delete records from a dataset
       tags:
       - data
+  /spaces/{spaceId}/enrich/apply:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Proposal id
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.EnrichApplyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.EnrichApplyResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Apply a reviewed enrichment proposal and delete it
+      tags:
+      - enrich
   /spaces/{spaceId}/files:
     get:
       parameters:
@@ -3811,6 +3880,45 @@ paths:
       summary: Append markdown content (append-only fast path)
       tags:
       - editor
+  /spaces/{spaceId}/objects/{objectId}/enriched-data:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Target object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Enrichment record
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.EnrichedDataCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api.ModifyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Write one sourced enrichment record onto an object
+      tags:
+      - enrich
   /spaces/{spaceId}/objects/{objectId}/files:
     post:
       consumes:

@@ -13,13 +13,15 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
+	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/agentlog"
 	"github.com/anyproto/any/internal/agentmem"
-	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/agenttrigger"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/enricheddata"
+	"github.com/anyproto/any/internal/enrichproposal"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
@@ -82,11 +84,13 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			chat.NewType(),
 			program.NewType(),
 			miniapp.NewType(),
-			agentlog.NewType(),     // agent_turns + agent_chunks on the chat object
-			agentmem.NewType(),     // agent_memory_items on the per-space brain object
-			agenttrigger.NewType(), // agent_triggers + agent_trigger_runs (harness triggers)
-			agentconfig.NewType(),  // agent_config on the per-space config object
-			nav.NewType(),          // property-only: no dataset, just nav.* schema
+			agentlog.NewType(),       // agent_turns + agent_chunks on the chat object
+			agentmem.NewType(),       // agent_memory_items on the per-space brain object
+			agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
+			agentconfig.NewType(),    // agent_config on the per-space config object
+			enricheddata.NewType(),   // enriched_data collection attached to target objects
+			enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
+			nav.NewType(),            // property-only: no dataset, just nav.* schema
 		},
 	}
 	if cfg.Sync.DialTimeout != "" {
@@ -124,13 +128,14 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 // (internal/indexer) drives it.
 //
 // Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
-// items, agent HISTORY (turns + chunks, scope "history"), object
-// properties (name / description / flagged values), and PROGRAM DOCS
-// (description + per-method docs). Deliberately NOT indexed: program
-// SOURCE (code, not knowledge) and miniapp content — neither has a
-// chunker. (The bobrik-era agent_debug_log type and its wholesale
-// exclusion are gone; the prop chunker's excludeTypes mechanism
-// remains for future diagnostic types.)
+// items, agent HISTORY (turns + chunks, scope "history"), enriched_data
+// facts (sourced enrichment knowledge), object properties (name /
+// description / flagged values), and PROGRAM DOCS (description +
+// per-method docs). Deliberately NOT indexed: program SOURCE (code, not
+// knowledge), miniapp content, and enrich_proposal items (ephemeral
+// review scaffolding, deleted on apply) — none has a chunker.
+// enrich_proposal objects are further excluded from the property chunker
+// so their names never leak into search.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
@@ -138,9 +143,11 @@ func NewIndexRegistry() *index.Registry {
 		agentmem.NewChunker(),
 		agentlog.NewTurnChunker(),
 		agentlog.NewChunkChunker(),
+		enricheddata.NewChunker(), // sourced enrichment facts ARE searchable knowledge
 		program.NewDescriptionChunker(),
 		program.NewMethodsChunker(),
-		index.NewPropChunker(),
+		// enrich_proposal excluded: ephemeral review scaffolding, not knowledge.
+		index.NewPropChunker(enrichproposal.TypeId),
 	)
 }
 
