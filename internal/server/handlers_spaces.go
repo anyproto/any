@@ -621,6 +621,14 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 		return writeError(c, http.StatusConflict, "space.not_accepted",
 			"space join is pending approval; not materialized on this device", details)
 	}
+	if errors.Is(err, space.ErrSpaceDeleted) {
+		var details map[string]any
+		if spaceID != "" {
+			details = map[string]any{"spaceId": spaceID}
+		}
+		return writeError(c, http.StatusConflict, "space.deleted",
+			"space is deleted", details)
+	}
 	details := map[string]any{}
 	if spaceID != "" {
 		details["spaceId"] = spaceID
