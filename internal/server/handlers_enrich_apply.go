@@ -201,10 +201,31 @@ func (d *deps) enrichApply(c echo.Context) error {
 }
 
 // setStringProperty sets one string-valued property, mirroring how propertiesSet
-// passes a *fastjson.Value into Properties().Set.
+// passes a *fastjson.Value into Properties().Set. The SDK rejects value writes
+// for a type the object doesn't implement, so the target's any.types is
+// ensured first — a reviewed "set project.status on X" item must apply to any
+// pre-existing object, not just ones that happen to carry the type (same
+// ensure-on-write pattern as enricheddata.EnsureType).
 func setStringProperty(ctx context.Context, sp space.Space, objectId, typeId, propId, value string) error {
+	if err := ensureTypeAttached(ctx, sp, objectId, typeId); err != nil {
+		return err
+	}
 	arena := &fastjson.Arena{}
 	_, err := sp.Properties().Set(ctx, objectId, typeId, map[string]any{propId: arena.NewString(value)})
+	return err
+}
+
+// ensureTypeAttached attaches typeId to the object's any.types if not already
+// present. Idempotent and cheap.
+func ensureTypeAttached(ctx context.Context, sp space.Space, objectId, typeId string) error {
+	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
+		for _, v := range rec.GetArray("any", "types") {
+			if string(v.GetStringBytes()) == typeId {
+				return nil
+			}
+		}
+	}
+	_, err := sp.Properties().AttachType(ctx, objectId, typeId)
 	return err
 }
 
