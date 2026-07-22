@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
+	"github.com/anyproto/any-sync/commonspace/spacestorage"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
@@ -54,6 +57,15 @@ func (d *deps) enrichApply(c echo.Context) error {
 
 	docs, err := sp.Query(req.ProposalId, enrichproposal.Dataset).Limit(10000).All(ctx)
 	if err != nil {
+		// A deleted proposal (the normal post-apply state — apply deletes it)
+		// or a never-existing id must read as "nothing to apply", not a 500:
+		// real deletion (SDK v0.0.12+) makes Query on a deleted object error
+		// instead of returning zero rows.
+		if errors.Is(err, spacestorage.ErrTreeStorageAlreadyDeleted) || errors.Is(err, treestorage.ErrUnknownTreeId) {
+			return writeError(c, http.StatusNotFound, "enrich.empty_proposal",
+				"no items in proposal (already applied, deleted, or empty)",
+				map[string]any{"proposalId": req.ProposalId})
+		}
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "proposalId": req.ProposalId})
 	}
 	if len(docs) == 0 {
