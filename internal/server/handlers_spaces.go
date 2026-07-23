@@ -34,8 +34,10 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
-	// Space lifecycle the SDK exposes but doesn't implement yet.
-	g.POST("/spaces/derive", notImplemented("Spaces.Derive"))
+	// Service.Derive / DeriveId are deliberately NOT exposed: a
+	// client-supplied seed derives a deterministic space id, so a reused
+	// seed re-creates an existing space's identity — too dangerous for
+	// clients. Derivation stays an in-process SDK surface.
 
 	// One-to-one (direct) spaces — derived 1-1 shared by two identities.
 	// Static `/spaces/one-to-one[...]` segments are registered before the

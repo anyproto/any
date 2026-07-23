@@ -341,7 +341,6 @@ func TestServer_NotImplementedRoutes(t *testing.T) {
 	e := buildEcho(d)
 
 	cases := []struct{ method, path string }{
-		{http.MethodPost, "/v1/spaces/derive"},
 		{http.MethodDelete, "/v1/spaces/spc/types/t1"},
 		{http.MethodGet, "/v1/spaces/spc/sync-status/peers"},
 	}
