@@ -24,8 +24,6 @@
 package nav
 
 import (
-	"fmt"
-
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/lexid"
 
@@ -84,38 +82,6 @@ func NextPos(prev string) string {
 		return lexidGen.Middle()
 	}
 	return lexidGen.Next(prev)
-}
-
-// PrevPos returns a lexid that sorts strictly before `next`. Empty
-// `next` means "the folder is empty" → Middle(). Use this to prepend
-// a row at the head of a folder.
-func PrevPos(next string) string {
-	if next == "" {
-		return lexidGen.Middle()
-	}
-	return lexidGen.Prev(next)
-}
-
-// PosBetween allocates a lexid strictly between `prev` and `next`.
-// Either may be empty: empty `prev` means "before everything else
-// known", empty `next` means "after everything else known". Used by
-// the UI when the user drags a row to a specific position — the
-// caller supplies the bounding siblings.
-func PosBetween(prev, next string) (string, error) {
-	switch {
-	case prev == "" && next == "":
-		return lexidGen.Middle(), nil
-	case next == "":
-		return lexidGen.Next(prev), nil
-	case prev == "":
-		return lexidGen.Prev(next), nil
-	default:
-		id, err := lexidGen.NextBefore(prev, next)
-		if err != nil {
-			return "", fmt.Errorf("nav: PosBetween(prev=%q, next=%q): %w", prev, next, err)
-		}
-		return id, nil
-	}
 }
 
 // TypeInfo returns the wire-shape entry for the virtual nav type. Used

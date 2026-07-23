@@ -32,8 +32,6 @@ func New(addr string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) Addr() string { return c.base }
-
 func (c *Client) Health(ctx context.Context) (*api.HealthResponse, error) {
 	var out api.HealthResponse
 	if err := c.do(ctx, http.MethodGet, "/v1/health", nil, &out); err != nil {

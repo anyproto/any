@@ -4,11 +4,12 @@ package indexer
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -42,11 +43,13 @@ type openaiEmbedRequest struct {
 	Input []string `json:"input"`
 }
 
+type openaiEmbedData struct {
+	Index     int       `json:"index"`
+	Embedding []float32 `json:"embedding"`
+}
+
 type openaiEmbedResponse struct {
-	Data []struct {
-		Index     int       `json:"index"`
-		Embedding []float32 `json:"embedding"`
-	} `json:"data"`
+	Data []openaiEmbedData `json:"data"`
 }
 
 func (c *OpenAI) embed(ctx context.Context, inputs []string) ([][]float32, error) {
@@ -80,7 +83,7 @@ func (c *OpenAI) embed(ctx context.Context, inputs []string) ([][]float32, error
 		return nil, fmt.Errorf("openai embed: got %d embeddings for %d inputs", len(out.Data), len(inputs))
 	}
 	// The API may return entries out of order; index is authoritative.
-	sort.Slice(out.Data, func(i, j int) bool { return out.Data[i].Index < out.Data[j].Index })
+	slices.SortFunc(out.Data, func(a, b openaiEmbedData) int { return cmp.Compare(a.Index, b.Index) })
 	vecs := make([][]float32, len(out.Data))
 	for i, d := range out.Data {
 		vecs[i] = d.Embedding

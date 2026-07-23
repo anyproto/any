@@ -1,10 +1,11 @@
 package indexer
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -385,7 +386,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	}
 	// Single-leg results are already ranked; make the contract explicit.
 	if mode != api.SearchModeHybrid {
-		sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+		slices.SortStableFunc(hits, func(a, b Hit) int { return cmp.Compare(b.Score, a.Score) })
 	}
 
 	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode, VectorStatus: vectorStatus}

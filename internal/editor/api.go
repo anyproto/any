@@ -1,11 +1,12 @@
 package editor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/anyproto/any-store/v2/anyenc"
 
@@ -388,8 +389,8 @@ func treeOrder(blocks []Block) []Block {
 	}
 	for parent := range byParent {
 		children := byParent[parent]
-		sort.SliceStable(children, func(i, j int) bool {
-			return children[i].Nav.Pos < children[j].Nav.Pos
+		slices.SortStableFunc(children, func(a, b Block) int {
+			return cmp.Compare(a.Nav.Pos, b.Nav.Pos)
 		})
 		byParent[parent] = children
 	}

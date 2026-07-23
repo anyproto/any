@@ -15,7 +15,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -99,8 +100,8 @@ func desiredSubs(infos []space.SpaceInfo, chats map[string][]chatNotify, identit
 			subs = append(subs, space.PushSpaceTopics{SpaceId: info.Id, Topics: topics})
 		}
 	}
-	sort.Strings(register)
-	sort.Slice(subs, func(i, j int) bool { return subs[i].SpaceId < subs[j].SpaceId })
+	slices.Sort(register)
+	slices.SortFunc(subs, func(a, b space.PushSpaceTopics) int { return strings.Compare(a.SpaceId, b.SpaceId) })
 	return subs, register
 }
 

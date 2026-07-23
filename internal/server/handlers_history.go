@@ -73,10 +73,7 @@ func (d *deps) historyList(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"limit must be a positive integer", nil)
 		}
-		if n > historyMaxListLimit {
-			n = historyMaxListLimit
-		}
-		limit = n
+		limit = min(n, historyMaxListLimit)
 	}
 
 	if coalesce, _ := strconv.ParseBool(c.QueryParam("coalesce")); coalesce {
