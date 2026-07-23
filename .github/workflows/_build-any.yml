@@ -126,7 +126,7 @@ jobs:
   android:
     needs: version
     if: github.repository == 'anyproto/any'
-    runs-on: [self-hosted, github-runner-ubuntu]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
