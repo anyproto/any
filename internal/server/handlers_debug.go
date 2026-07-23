@@ -36,13 +36,9 @@ func (d *deps) debugSpace(c echo.Context) error {
 // @Failure	500			{object}	api.ErrorEnvelope
 // @Router		/spaces/{spaceId}/debug/objects/{objectId} [get]
 func (d *deps) debugObject(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 	snap, err := sp.Debug().Object(c.Request().Context(), objectId)
 	if err != nil {

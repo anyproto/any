@@ -43,18 +43,14 @@ import (
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [post]
 func (d *deps) blocksCreate(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	var req api.BlockCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.BlockCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Type == "" {
 		return writeError(c, http.StatusBadRequest, api.ErrBlockTypeMissing, "type required", nil)
@@ -93,19 +89,18 @@ func (d *deps) blocksCreate(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [patch]
 func (d *deps) blocksPatch(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
 	blockId := c.Param("blockId")
-	if objectId == "" || blockId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and blockId required", nil)
+	if blockId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "blockId required", nil)
 	}
 
-	var req api.BlockPatchRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.BlockPatchRequest](c)
+	if !ok {
+		return nil
 	}
 
 	res, err := editor.Patch(c.Request().Context(), sp, objectId, blockId, editor.PatchInput{
@@ -131,14 +126,13 @@ func (d *deps) blocksPatch(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [delete]
 func (d *deps) blocksDelete(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
 	blockId := c.Param("blockId")
-	if objectId == "" || blockId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and blockId required", nil)
+	if blockId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "blockId required", nil)
 	}
 	res, err := editor.Delete(c.Request().Context(), sp, objectId, blockId)
 	if err != nil {

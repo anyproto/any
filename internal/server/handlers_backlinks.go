@@ -72,13 +72,9 @@ func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/backlinks [get]
 func (d *deps) objectBacklinks(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 	ctx := c.Request().Context()
 

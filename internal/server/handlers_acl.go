@@ -22,9 +22,9 @@ import (
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
-	var req api.ACLAcceptRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLAcceptRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.RequestRecordId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "requestRecordId required", nil)
@@ -56,9 +56,9 @@ func (d *deps) aclAccept(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/decline [post]
 func (d *deps) aclDecline(c echo.Context) error {
-	var req api.ACLDeclineRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLDeclineRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Identity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identity required", nil)
@@ -85,9 +85,9 @@ func (d *deps) aclDecline(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/permissions [post]
 func (d *deps) aclChangePermissions(c echo.Context) error {
-	var req api.ACLChangePermissionsRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLChangePermissionsRequest](c)
+	if !ok {
+		return nil
 	}
 	if len(req.Changes) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "changes must be non-empty", nil)
@@ -127,9 +127,9 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/remove [post]
 func (d *deps) aclRemove(c echo.Context) error {
-	var req api.ACLRemoveRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLRemoveRequest](c)
+	if !ok {
+		return nil
 	}
 	if len(req.Identities) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "identities must be non-empty", nil)
@@ -156,9 +156,9 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
-	var req api.ACLAddRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLAddRequest](c)
+	if !ok {
+		return nil
 	}
 	if len(req.Accounts) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "accounts must be non-empty", nil)
@@ -206,9 +206,9 @@ func (d *deps) aclAdd(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/ownership [post]
 func (d *deps) aclOwnership(c echo.Context) error {
-	var req api.ACLOwnershipRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ACLOwnershipRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.NewOwner == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "newOwner required", nil)

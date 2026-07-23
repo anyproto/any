@@ -25,18 +25,14 @@ import (
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages [post]
 func (d *deps) chatSend(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	var req api.ChatSendRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ChatSendRequest](c)
+	if !ok {
+		return nil
 	}
 	// Text carries the message unless attachments do — a photo sent with
 	// no caption is an ordinary message. Only a payload with neither is
@@ -98,19 +94,14 @@ func (d *deps) chatSend(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId} [patch]
 func (d *deps) chatEdit(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, msgId, errResp, done := d.resolveSpaceObjectMsg(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	msgId := c.Param("msgId")
-	if objectId == "" || msgId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
-	}
 
-	var req api.ChatEditRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.ChatEditRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Text == "" {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
@@ -154,14 +145,9 @@ func (d *deps) chatEdit(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId} [delete]
 func (d *deps) chatDelete(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, msgId, errResp, done := d.resolveSpaceObjectMsg(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	msgId := c.Param("msgId")
-	if objectId == "" || msgId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
 	}
 
 	res, err := chat.Delete(c.Request().Context(), sp, objectId, msgId, d.account)
@@ -186,16 +172,11 @@ func (d *deps) chatDelete(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions/{emoji} [post]
 func (d *deps) chatReact(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, msgId, errResp, done := d.resolveSpaceObjectMsg(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	msgId := c.Param("msgId")
 	emoji := c.Param("emoji")
-	if objectId == "" || msgId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
-	}
 	if emoji == "" || len(emoji) > chat.MaxEmojiBytes {
 		return writeError(c, http.StatusBadRequest, api.ErrChatEmojiInvalid,
 			"emoji must be non-empty and ≤ 64 bytes", map[string]any{"len": len(emoji)})
@@ -244,7 +225,7 @@ func validateAttachmentsRequest(atts map[string]api.ChatAttachment) error {
 		return fmt.Errorf("attachments: too many entries (max %d, got %d)", chat.MaxAttachments, len(atts))
 	}
 	for id, a := range atts {
-		if !isValidAttachmentId(id) {
+		if !chat.ValidAttachmentId(id) {
 			return fmt.Errorf("attachments: invalid id %q (must match [A-Za-z0-9_-]+, ≤ %d bytes)", id, chat.MaxAttachmentIdBytes)
 		}
 		if a.Type == "" {
@@ -261,24 +242,6 @@ func validateAttachmentsRequest(atts map[string]api.ChatAttachment) error {
 		}
 	}
 	return nil
-}
-
-func isValidAttachmentId(id string) bool {
-	if len(id) == 0 || len(id) > chat.MaxAttachmentIdBytes {
-		return false
-	}
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		switch {
-		case c >= 'A' && c <= 'Z':
-		case c >= 'a' && c <= 'z':
-		case c >= '0' && c <= '9':
-		case c == '_' || c == '-':
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // chatOpError maps chat-package errors to the canonical envelope.
@@ -311,13 +274,9 @@ func chatOpError(c echo.Context, err error, spaceId, objectId string) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/read-all [post]
 func (d *deps) chatReadAll(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 	if err := chat.ReadAll(c.Request().Context(), sp, objectId); err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
@@ -345,14 +304,9 @@ func (d *deps) chatReadAll(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/read [post]
 func (d *deps) chatRead(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, msgId, errResp, done := d.resolveSpaceObjectMsg(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	msgId := c.Param("msgId")
-	if objectId == "" || msgId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
 	}
 	if err := chat.Read(c.Request().Context(), sp, objectId, msgId); err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
@@ -384,14 +338,9 @@ func (d *deps) chatRead(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/chat/messages/{msgId}/reactions-read [post]
 func (d *deps) chatReadReactions(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, msgId, errResp, done := d.resolveSpaceObjectMsg(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	msgId := c.Param("msgId")
-	if objectId == "" || msgId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil)
 	}
 	if err := chat.ReadReactions(c.Request().Context(), sp, objectId, msgId); err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)

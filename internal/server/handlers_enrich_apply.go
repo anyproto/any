@@ -17,6 +17,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/enricheddata"
 	"github.com/anyproto/any/internal/enrichproposal"
+	"github.com/anyproto/any/internal/ensure"
 )
 
 // enrichApply handles POST /v1/spaces/:spaceId/enrich/apply — the deterministic
@@ -47,9 +48,9 @@ func (d *deps) enrichApply(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	var req api.EnrichApplyRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.EnrichApplyRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.ProposalId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "proposalId required", nil)
@@ -212,25 +213,11 @@ func (d *deps) enrichApply(c echo.Context) error {
 // pre-existing object, not just ones that happen to carry the type (same
 // ensure-on-write pattern as enricheddata.EnsureType).
 func setStringProperty(ctx context.Context, sp space.Space, objectId, typeId, propId, value string) error {
-	if err := ensureTypeAttached(ctx, sp, objectId, typeId); err != nil {
+	if err := ensure.TypeAttached(ctx, sp, objectId, typeId); err != nil {
 		return err
 	}
 	arena := &fastjson.Arena{}
 	_, err := sp.Properties().Set(ctx, objectId, typeId, map[string]any{propId: arena.NewString(value)})
-	return err
-}
-
-// ensureTypeAttached attaches typeId to the object's any.types if not already
-// present. Idempotent and cheap.
-func ensureTypeAttached(ctx context.Context, sp space.Space, objectId, typeId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == typeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, typeId)
 	return err
 }
 

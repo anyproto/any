@@ -5,21 +5,14 @@ import (
 	"fmt"
 
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/ensure"
 )
 
-// EnsureType attaches the enriched_data type to the object's any.types if not
-// already present, making the target object multitype (its own types +
-// enriched_data). Idempotent and cheap — same pattern as agentlog.ensureType.
+// EnsureType attaches the enriched_data type to the object's any.types,
+// making the target object multitype (its own types + enriched_data).
 func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == TypeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
-	return err
+	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
 }
 
 // Create writes one enrichment record onto objectId's enriched_data dataset,

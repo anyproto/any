@@ -308,7 +308,7 @@ func validateAttachments(v *anyenc.Value) error {
 			return
 		}
 		id := string(rawId)
-		if !isValidAttachmentId(id) {
+		if !ValidAttachmentId(id) {
 			visitErr = rejectCreate("attachments: invalid id (must match [A-Za-z0-9_-]+, ≤ " +
 				fmt.Sprintf("%d", MaxAttachmentIdBytes) + " bytes): " + id)
 			return
@@ -393,7 +393,10 @@ func validateAttachmentEntry(id string, entry *anyenc.Value) error {
 	return nil
 }
 
-func isValidAttachmentId(id string) bool {
+// ValidAttachmentId reports whether id is a legal attachment key:
+// non-empty, ≤ MaxAttachmentIdBytes, alphabet [A-Za-z0-9_-]. Shared by
+// the handler-side validation and the HTTP layer's pre-flight check.
+func ValidAttachmentId(id string) bool {
 	if len(id) == 0 || len(id) > MaxAttachmentIdBytes {
 		return false
 	}

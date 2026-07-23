@@ -233,9 +233,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 // @Failure	500		{object}	api.ErrorEnvelope
 // @Router		/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
-	var req api.SpaceCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	sp, err := d.sdk.Spaces().Create(c.Request().Context(), space.CreateRequest{
 		Name:        req.Name,
@@ -343,9 +343,9 @@ func (d *deps) spaceUpdate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	var req api.SpaceUpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceUpdateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Name == nil && req.Description == nil && req.IconCID == nil {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
@@ -414,9 +414,9 @@ func (d *deps) spaceDelete(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one [post]
 func (d *deps) spaceOneToOne(c echo.Context) error {
-	var req api.SpaceOneToOneRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceOneToOneRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.OtherIdentity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "otherIdentity required", nil)
@@ -485,9 +485,9 @@ func (d *deps) spaceOneToOneDecline(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one/register-incoming [post]
 func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
-	var req api.SpaceRegisterIncomingRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceRegisterIncomingRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.PeerIdentity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "peerIdentity required", nil)

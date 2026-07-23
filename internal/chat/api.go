@@ -11,6 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/ensure"
 )
 
 // ErrNotFound signals that a referenced messageId does not exist on
@@ -23,20 +24,10 @@ var ErrNotFound = errors.New("chat: message not found")
 // chat.not_author at the HTTP layer.
 var ErrNotAuthor = errors.New("chat: not the message author")
 
-// ensureType attaches the chat type to the object's any.types if not
-// already present, so the membership-gated chat_messages write is
-// admitted by the SDK. Idempotent and cheap: a local read, then
-// AttachType only on first use (subsequent sends find it present).
+// ensureType attaches the chat type to the object's any.types so the
+// membership-gated chat_messages write is admitted by the SDK.
 func ensureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == TypeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
-	return err
+	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
 }
 
 // SendOpts is the input to Send. Text is required only when Attachments

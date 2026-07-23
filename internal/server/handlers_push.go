@@ -66,9 +66,9 @@ func pushError(c echo.Context, err error) error {
 func (d *deps) pushTokenSet(c echo.Context) error {
 	// Body validation before the availability gate so 400s stay 400s
 	// regardless of server config.
-	var req api.PushTokenSetRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.PushTokenSetRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Platform == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "platform required", nil)

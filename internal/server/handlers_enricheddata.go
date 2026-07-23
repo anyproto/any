@@ -26,18 +26,14 @@ import (
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/enriched-data [post]
 func (d *deps) enrichedDataCreate(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	var req api.EnrichedDataCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.EnrichedDataCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Text == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "text required", nil)

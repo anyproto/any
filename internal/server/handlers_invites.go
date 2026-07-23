@@ -223,9 +223,9 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
 func (d *deps) spaceJoin(c echo.Context) error {
-	var req api.SpaceJoinRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceJoinRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.InviteToken == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "inviteToken required", nil)

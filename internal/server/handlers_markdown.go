@@ -46,13 +46,9 @@ import (
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [get]
 func (d *deps) markdownGet(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 	content, err := markdown.Get(c.Request().Context(), sp, objectId)
 	if err != nil {
@@ -79,19 +75,15 @@ func (d *deps) markdownGet(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [put]
 func (d *deps) markdownSet(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
-	var req struct {
+	req, ok := bindBody[struct {
 		Content string `json:"content"`
-	}
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}](c)
+	if !ok {
+		return nil
 	}
 	res, err := markdown.Set(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {
@@ -138,19 +130,15 @@ func (d *deps) markdownSet(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown/append [post]
 func (d *deps) markdownAppend(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
-	var req struct {
+	req, ok := bindBody[struct {
 		Content string `json:"content"`
-	}
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}](c)
+	if !ok {
+		return nil
 	}
 	res, err := markdown.Append(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {

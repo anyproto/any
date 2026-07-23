@@ -8,6 +8,8 @@ import (
 
 	"github.com/anyproto/any-sync-sdk/space"
 
+	"github.com/anyproto/any/internal/ensure"
+
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -67,19 +69,10 @@ func appendSeqAssigned(
 		opName, maxSeqAllocAttempts, lastSeq)
 }
 
-// ensureType attaches the agent_log type to the object's any.types if
-// not already present (making the chat object multitype: chat +
-// agent_log). Idempotent and cheap — same pattern as chat.ensureType.
+// ensureType attaches the agent_log type to the object's any.types
+// (making the chat object multitype: chat + agent_log).
 func ensureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == TypeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
-	return err
+	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
 }
 
 // RecordId renders the canonical record id for a seq — zero-padded so

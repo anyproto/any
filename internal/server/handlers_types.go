@@ -26,9 +26,9 @@ import (
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types [post]
 func (d *deps) typeCreate(c echo.Context) error {
-	var req api.TypesCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.TypesCreateRequest](c)
+	if !ok {
+		return nil
 	}
 
 	// xKey is the only human-supplied handle a type can be resolved by
@@ -96,9 +96,9 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
 
-	var req api.AddPropertyRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AddPropertyRequest](c)
+	if !ok {
+		return nil
 	}
 
 	// Kind may be omitted when a format is declared — the SDK defaults
@@ -281,9 +281,9 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
 	}
 
-	var req api.PropertyPatchRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.PropertyPatchRequest](c)
+	if !ok {
+		return nil
 	}
 	if len(req.Set) == 0 && len(req.Unset) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",

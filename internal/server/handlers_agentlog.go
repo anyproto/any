@@ -23,18 +23,14 @@ import (
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/agent/turns [post]
 func (d *deps) agentTurnAppend(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	var req api.AgentTurnAppendRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AgentTurnAppendRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Seq != nil && *req.Seq < 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentSeqRequired,
@@ -67,7 +63,7 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 			map[string]any{"got": req.LLM.StopReason})
 	}
 
-	res, err := agentlog.AppendTurn(c.Request().Context(), sp, objectId, req)
+	res, err := agentlog.AppendTurn(c.Request().Context(), sp, objectId, *req)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -88,18 +84,14 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/agent/chunks [post]
 func (d *deps) agentChunkCreate(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	var req api.AgentChunkCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AgentChunkCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Seq != nil && *req.Seq < 0 {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentSeqRequired,
@@ -131,7 +123,7 @@ func (d *deps) agentChunkCreate(c echo.Context) error {
 			map[string]any{"periodStart": req.PeriodStart, "periodEnd": req.PeriodEnd})
 	}
 
-	res, err := agentlog.CreateChunk(c.Request().Context(), sp, objectId, req)
+	res, err := agentlog.CreateChunk(c.Request().Context(), sp, objectId, *req)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
