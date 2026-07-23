@@ -58,7 +58,7 @@ only delivery signal; there is no per-UI ack.
 
 Validation (`400`):
 
-- `request.invalid` — body isn't valid JSON.
+- `request.bad_json` — body isn't valid JSON.
 - `request.missing_field` — `action` empty, `spaceId` empty, or `objectId`
   empty when `action == "open_object"`.
 
