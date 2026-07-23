@@ -1736,6 +1736,8 @@ item it creates the target object for `new` items (items sharing
 target; then deletes the proposal object. Returns `{created,
 propertiesSet, enrichedDataWritten, proposalDeleted, failures[]}` —
 `failures` is per-item; a non-empty list still means the rest applied.
+Failure strings are short stable descriptions naming the item/target
+only — raw SDK error text goes to the server log, never the body.
 `404 enrich.empty_proposal` when the proposal has no items (already
 applied, deleted, or empty).
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -567,8 +568,10 @@ func (d *deps) spaceInviteDecline(c echo.Context) error {
 }
 
 // inviteStateError maps the AcceptInvite / DeclineInvite family of SDK
-// errors to the canonical envelope, string-matching the documented
-// messages until the SDK exports errors.Is-able sentinels.
+// errors to the canonical envelope.
+//
+// STOPGAP: matched on message text until the SDK exports errors.Is-able
+// sentinels for this family.
 func inviteStateError(c echo.Context, err error, spaceID string) error {
 	msg := err.Error()
 	switch {
@@ -591,12 +594,14 @@ func inviteStateError(c echo.Context, err error, spaceID string) error {
 }
 
 // oneToOneError maps the OneToOne / RegisterIncoming family of SDK errors
-// to the canonical envelope. The SDK rejects self-pairing and undecodable
-// identities but doesn't yet export errors.Is-able sentinels for them, so
-// we string-match at the boundary (same pragmatic pattern spaceJoin uses
-// for "join pending"). Grow this into an errors.Is map once the SDK
-// exports the sentinels. `field` is the request field the identity came
-// from (otherIdentity / peerIdentity), echoed in details.
+// to the canonical envelope.
+//
+// STOPGAP: matched on message text. The SDK rejects self-pairing and
+// undecodable identities but doesn't yet export errors.Is-able sentinels
+// for them (same pragmatic pattern spaceJoin uses for "join pending").
+// Grow this into an errors.Is map once the SDK exports the sentinels.
+// `field` is the request field the identity came from (otherIdentity /
+// peerIdentity), echoed in details.
 func oneToOneError(c echo.Context, err error, field string) error {
 	msg := err.Error()
 	switch {
@@ -646,7 +651,8 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 	if len(details) == 0 {
 		details = nil
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+	handlerLog.Error("unclassified space error", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "internal error", details)
 }
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {

@@ -7,13 +7,20 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// handlerLog carries the raw errors behind sanitized 500 bodies —
+// clients get code "internal" + a generic message, the log gets the
+// full error.
+var handlerLog = logger.NewNamed("handlers")
 
 // readBody slurps the request body. Echo's BodyLimit middleware enforces
 // the upper bound; we just need the bytes for fastjson's ParseBytes.
@@ -86,7 +93,8 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if op, ok := unknownFilterOperator(err); ok {
 		return unknownFilterOperatorError(c, op, details)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+	handlerLog.Error("unclassified sdk error", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "internal error", details)
 }
 
 // filterOperators is the operator vocabulary any-store's filter parser

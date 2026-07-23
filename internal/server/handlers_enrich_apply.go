@@ -10,6 +10,7 @@ import (
 	"github.com/anyproto/any-sync/commonspace/spacestorage"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -143,7 +144,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 				_ = injectNavDefaults(c, sp, nil, &opts)
 				oid, cerr := sp.Objects().Create(ctx, opts)
 				if cerr != nil {
-					res.Failures = append(res.Failures, "create '"+newName+"' failed: "+cerr.Error())
+					handlerLog.Error("enrich apply: create object", zap.Error(cerr))
+					res.Failures = append(res.Failures, "create '"+newName+"' failed")
 					continue
 				}
 				targetId = oid
@@ -165,7 +167,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 				if propId == "" {
 					res.Failures = append(res.Failures, "resolve property "+targetProperty+" failed")
 				} else if err := setStringProperty(ctx, sp, targetId, typeId, propId, value); err != nil {
-					res.Failures = append(res.Failures, "set "+targetProperty+" on "+targetId+" failed: "+err.Error())
+					handlerLog.Error("enrich apply: set property", zap.Error(err))
+					res.Failures = append(res.Failures, "set "+targetProperty+" on "+targetId+" failed")
 				} else {
 					res.PropertiesSet++
 					recTarget, recValue = targetProperty, value
@@ -184,7 +187,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 			t = "(enrichment)"
 		}
 		if _, eerr := enricheddata.Create(ctx, sp, targetId, t, source, recTarget, recValue); eerr != nil {
-			res.Failures = append(res.Failures, "enriched_data write on "+targetId+" failed: "+eerr.Error())
+			handlerLog.Error("enrich apply: enriched_data write", zap.Error(eerr))
+			res.Failures = append(res.Failures, "enriched_data write on "+targetId+" failed")
 		} else {
 			res.EnrichedDataWritten++
 		}
@@ -192,7 +196,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 
 	// 4. delete the ephemeral proposal.
 	if derr := sp.Objects().Delete(ctx, req.ProposalId); derr != nil {
-		res.Failures = append(res.Failures, "delete proposal failed: "+derr.Error())
+		handlerLog.Error("enrich apply: delete proposal", zap.Error(derr))
+		res.Failures = append(res.Failures, "delete proposal failed")
 	} else {
 		res.ProposalDeleted = true
 	}
