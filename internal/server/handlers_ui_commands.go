@@ -26,7 +26,7 @@ import (
 func (d *deps) uiCommandPublish(c echo.Context) error {
 	var cmd api.UICommand
 	if err := c.Bind(&cmd); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.invalid", "invalid JSON body", nil)
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
 	}
 	if cmd.Action == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "action required", nil)

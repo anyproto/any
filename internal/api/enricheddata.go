@@ -15,3 +15,8 @@ type EnrichedDataCreateRequest struct {
 	Target string `json:"target"`
 	Value  string `json:"value"`
 }
+
+// Error code namespace for enriched-data endpoints.
+const (
+	ErrEnrichedDataTextTooLong = "enricheddata.text_too_long"
+)

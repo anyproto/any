@@ -43,7 +43,7 @@ func (d *deps) enrichedDataCreate(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "text required", nil)
 	}
 	if len(req.Text) > enricheddata.MaxTextBytes {
-		return writeError(c, http.StatusBadRequest, "request.invalid", "text too long",
+		return writeError(c, http.StatusBadRequest, api.ErrEnrichedDataTextTooLong, "text too long",
 			map[string]any{"max_bytes": enricheddata.MaxTextBytes, "got_bytes": len(req.Text)})
 	}
 
