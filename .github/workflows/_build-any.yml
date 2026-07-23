@@ -255,6 +255,27 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: artifacts
+      - name: Install gh CLI
+        # The self-hosted github-runner-ubuntu image ships without gh (the
+        # GitHub-hosted images preinstall it). Both the release-create and the
+        # dispatch steps below need it, so fetch a pinned binary into the
+        # runner temp dir — no sudo, no apt repo setup. Skipped once the
+        # runner image grows its own gh.
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          GH_VERSION=2.96.0
+          GH_SHA256=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
+          curl -fsSL -o "$RUNNER_TEMP/gh.tar.gz" \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz"
+          echo "$GH_SHA256  $RUNNER_TEMP/gh.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gh"
+          tar -xzf "$RUNNER_TEMP/gh.tar.gz" -C "$RUNNER_TEMP/gh" --strip-components=1
+          echo "$RUNNER_TEMP/gh/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gh/bin/gh" --version
       - name: Collect assets + checksums
         id: assets
         run: |
