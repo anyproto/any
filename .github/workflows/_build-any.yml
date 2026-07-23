@@ -48,7 +48,7 @@ jobs:
   version:
     # Never run from a fork; secrets must not be exposed.
     if: github.repository == 'anyproto/any'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 5
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -83,7 +83,7 @@ jobs:
   desktop:
     needs: version
     if: github.repository == 'anyproto/any'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -126,7 +126,7 @@ jobs:
   android:
     needs: version
     if: github.repository == 'anyproto/any'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -239,7 +239,7 @@ jobs:
   publish:
     needs: [version, desktop, android, ios]
     if: github.repository == 'anyproto/any'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 15
     permissions:
       contents: write # only THIS job creates the Release
