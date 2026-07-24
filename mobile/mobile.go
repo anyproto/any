@@ -19,9 +19,13 @@ import (
 // fallback for any-sync's nodeconf.
 //
 // Returns once the server has bound the listener (success) or failed during
-// wallet / SDK / listener setup (error). The error string is suitable for
-// surfacing to the host app — it carries the underlying Go error message.
-// Subsequent calls while a server is running return an error.
+// wallet / SDK-fast-phase / listener setup (error). A nil return means the
+// listener is bound and local reads serve — NOT that the account is
+// sync-converged: embedded boots defer the sync warmup (per-space headsync
+// catch-up) to the background, observable as `warming` on GET /v1/health.
+// The error string is suitable for surfacing to the host app — it carries
+// the underlying Go error message. Subsequent calls while a server is
+// running return an error.
 //
 // The gomobile bind surface keeps the bound address out of the return tuple
 // (a flat `error`-only signature); read it back with Address(). The core's

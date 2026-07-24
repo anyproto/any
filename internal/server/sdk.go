@@ -75,6 +75,10 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
+		// Deferred warmup (embedded/mobile boots): Open returns after
+		// the fast phase; the eager sync warmup runs in the background,
+		// surfaced as `warming` on /v1/health and /v1/auth.
+		DeferWarmup: cfg.DeferWarmup,
 		// Hardcoded types this server adds on top of the SDK's
 		// built-ins. Each entry registers its handler(s) with every
 		// per-object Controller, so writes targeting the type's

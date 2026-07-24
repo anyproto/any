@@ -62,6 +62,25 @@ func TestLoad_EnvOverridesFile(t *testing.T) {
 	}
 }
 
+func TestLoad_DeferWarmupEnv(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeferWarmup {
+		t.Error("deferWarmup must default to false")
+	}
+	t.Setenv("ANY_DEFER_WARMUP", "true")
+	cfg, err = Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.DeferWarmup {
+		t.Error("ANY_DEFER_WARMUP=true should set DeferWarmup")
+	}
+}
+
 func TestLoad_FlagOverridesEnv(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("ANY_LISTEN_ADDR", "127.0.0.1:2222")

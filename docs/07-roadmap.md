@@ -102,6 +102,18 @@ becomes useful. Needs:
 
 Not this repo's work; gate on the SDK:
 
+- **Timeout on cold `Spaces().Get`.** Opening a not-yet-resident space
+  (`commonspace.Init` inside the SDK's space cache) can block
+  indefinitely when the responsible sync-node is unreachable.
+  Pre-existing, but more visible with deferred warmup (the eager-load
+  loop now runs while the app is already interactive — a hung load is
+  cancellable only via shutdown). Wants a deadline/backoff on the SDK's
+  cold-load path.
+- **Deferred-warmup client adoption (any-swift, not SDK).** The
+  embedded `Start` now returns before sync convergence;
+  `ServerLifecycle` should tolerate start≠data-ready and consume the
+  `warming` field (`GET /v1/health`) for a sync-progress affordance.
+
 - **`SyncStatusAPI.Peers` (or equivalent).** No production-grade
   per-space peer list on the SDK today — `/v1/spaces/:id/sync-status/peers`
   stays 501 until the SDK adds it. The diagnostic equivalent is

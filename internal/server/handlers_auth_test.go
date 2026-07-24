@@ -53,6 +53,9 @@ func TestAuth_UnauthorizedGuard(t *testing.T) {
 		if h.Account != "" {
 			t.Errorf("unauthorized health must report empty account, got %q", h.Account)
 		}
+		if h.Warming {
+			t.Error("unauthorized health must report warming=false")
+		}
 	}
 
 	// SDK-backed routes are rejected with auth.required.
@@ -95,7 +98,7 @@ func TestAuth_StatusAndValidation(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Authorized || st.AccountId != "" || len(st.Accounts) != 0 {
+	if st.Authorized || st.AccountId != "" || len(st.Accounts) != 0 || st.Warming {
 		t.Fatalf("fresh root status: %+v", st)
 	}
 
@@ -173,6 +176,9 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 	}
 	if !st.Authorized || st.AccountId != resp.AccountId {
 		t.Fatalf("status after boot: %+v", st)
+	}
+	if st.Warming {
+		t.Error("synchronous (flag-off) boot must never report warming")
 	}
 	if len(st.Accounts) != 1 || st.Accounts[0].Id != resp.AccountId || st.Accounts[0].Default {
 		t.Fatalf("accounts after boot: %+v", st.Accounts)

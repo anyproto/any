@@ -49,7 +49,10 @@ const (
 
 // startServer boots the embedded server and blocks until the listener
 // binds (returning the bound port, positive) or boot fails (returning a
-// negative error code; see the const block). It is the testable core
+// negative error code; see the const block). Embedded boots defer the
+// sync warmup: a positive return means listener bound + local data
+// readable, NOT sync-converged — the background catch-up is reported
+// as `warming` on GET /v1/health. It is the testable core
 // behind the //export AnyServerStart / AnyServerStartWithPush wrappers:
 // it calls embedded.Start and maps the returned addr->port and
 // err->code, so both halves of the contract are exercised on the host.
@@ -123,7 +126,10 @@ func portOf(addr string) int {
 // wants engine search. A build without the `fts` tag ignores it — the
 // indexer stays dormant regardless. It blocks until the listener binds,
 // then returns the bound port (positive) or a negative error code (see the
-// const block).
+// const block). A positive return means the listener is bound and local
+// reads serve — it does NOT imply the account is sync-converged: embedded
+// boots run the sync warmup (per-space headsync catch-up) in the
+// background, observable as `warming` on GET /v1/health.
 //
 //export AnyServerStart
 func AnyServerStart(dataDir, listenAddr, nodeconfYAML *C.char, indexEnabled C._Bool) C.int {

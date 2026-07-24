@@ -776,6 +776,38 @@ Implementation slices landed:
     (internal/push/topics.go reads `OwnRole == PermissionOwner`, which
     never fired before).
 
+28. **Deferred warmup — bind before sync warmup** — new config bool
+    `deferWarmup` / `ANY_DEFER_WARMUP` (default off; **forced on for
+    embedded/mobile boots**, `embedded.assembleConfig`) threads the
+    SDK's new `Config.DeferWarmup`: `Open` returns after the fast
+    phase (store + tech-space open, readSync wired — local reads
+    safe), while the sync warmup (pending-join resume, 1-1 inbox,
+    profile republish, the per-space headsync eager-load loop,
+    read-state reconcile) runs in an SDK-owned background goroutine
+    that `SDK.Close` cancels and joins before teardown. Server side is
+    a pure pass-through: `bootAccount` still runs synchronously before
+    the bind — it just gets fast (~store-open time instead of headsync
+    time; on-device the eager loop was ~1.1s of a ~2s bind on 17
+    spaces), so `ready` semantics, the /v1 guard, and the POST
+    /v1/auth 409 race are untouched. New `warming` bool on `GET
+    /v1/health` + `GET /v1/auth` (deps.warming, `ready && sdk.Warming()`)
+    is true until the SDK's `WarmupDone()` fires; per-space
+    convergence stays on `/v1/sync-status/subscribe`. Embedded/mobile
+    `Start` return now means "listener bound + local reads serve",
+    NOT sync-converged (docstrings updated: anyserver.go, mobile.go,
+    embedded.go). Headless wins over DeferWarmup (warmup skipped
+    permanently). Wallet/store corruption still fails boot
+    synchronously. Tests: handlers_warming_test.go,
+    TestAssembleConfigDeferWarmup, warming asserts in
+    handlers_auth_test.go; SDK-side e2e/defer_warmup_test.go +
+    sdk_defer_warmup_test.go (hook-held mid-warmup Close under -race).
+    **SDK prerequisite:** `Config.DeferWarmup` + `SDK.Warming()` /
+    `WarmupDone()` (SDK PR #78; go.mod pins its branch pseudo-version
+    until the tag lands). Contract: docs/02-server.md
+    § Startup, docs/03-api.md § Meta + § Auth, docs/05-config.md;
+    follow-ups (cold-Get timeout, any-swift adoption) filed in
+    docs/07-roadmap.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

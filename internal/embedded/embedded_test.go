@@ -209,6 +209,16 @@ func TestMemoryLimitApplied(t *testing.T) {
 	}
 }
 
+// TestAssembleConfigDeferWarmup pins the embedded boot policy: every
+// in-process boot defers the sync warmup so the host's first screen
+// never waits on the per-space headsync eager load.
+func TestAssembleConfigDeferWarmup(t *testing.T) {
+	cfg := assembleConfig(Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: "nc"})
+	if !cfg.DeferWarmup {
+		t.Fatal("embedded boots must force DeferWarmup on")
+	}
+}
+
 // TestAssembleConfigPush pins the SYN-83 push-node bridge: Options
 // push inputs land on cfg.Push and the config tristate alone decides
 // activation — both fields non-empty ⇒ Active, anything less ⇒ off.

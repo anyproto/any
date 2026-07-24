@@ -102,6 +102,14 @@ func (d *deps) accountID() string {
 	return d.account
 }
 
+// warming reports whether an authorized deferred-warmup boot is still
+// running its background sync warmup (SDK fast phase done, eager
+// headsync catch-up in flight). Always false while unauthorized and on
+// synchronous boots. Same ready-gate-as-barrier pattern as accountID.
+func (d *deps) warming() bool {
+	return d.ready.Load() && d.sdk.Warming()
+}
+
 // @Summary	Health check
 // @Tags		system
 // @Produce	json
@@ -113,6 +121,7 @@ func (d *deps) health(c echo.Context) error {
 		Version:   version.String(),
 		StartedAt: d.startedAt,
 		Account:   d.accountID(),
+		Warming:   d.warming(),
 	})
 }
 

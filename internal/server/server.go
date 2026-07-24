@@ -37,10 +37,16 @@ type RunOptions struct {
 // When the data dir resolves to an account (root wallet, sole
 // per-account dir, or an explicit selector) its engine — wallet, SDK,
 // indexer — boots before the listener binds, so failures surface
-// before any request is accepted. With no account to boot the server
-// starts UNAUTHORIZED: every /v1 route except health/shutdown/auth
-// returns 401 auth.required until POST /v1/auth creates or selects an
-// account and boots the engine in place.
+// before any request is accepted. With cfg.DeferWarmup (forced on for
+// embedded/mobile boots) only the engine's fast phase — wallet, store
+// + tech-space open, indexer — completes before the bind; the sync
+// warmup (per-space headsync eager load, profile republish, …) keeps
+// running in the background, reported as `warming` on /v1/health and
+// /v1/auth. Local reads and writes work throughout; store/wallet
+// failures still surface synchronously either way. With no account to
+// boot the server starts UNAUTHORIZED: every /v1 route except
+// health/shutdown/auth returns 401 auth.required until POST /v1/auth
+// creates or selects an account and boots the engine in place.
 func Run(ctx context.Context, cfg config.Config) error {
 	return RunWith(ctx, cfg, RunOptions{})
 }

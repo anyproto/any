@@ -5910,6 +5910,10 @@ const docTemplate = `{
                 },
                 "authorized": {
                     "type": "boolean"
+                },
+                "warming": {
+                    "description": "Warming mirrors HealthResponse.Warming: true while an authorized\ndeferred-warmup boot is still running its background sync warmup.",
+                    "type": "boolean"
                 }
             }
         },
@@ -6291,6 +6295,10 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "string"
+                },
+                "warming": {
+                    "description": "Warming is true while a deferred-warmup boot (config\ndeferWarmup, forced on for embedded/mobile) is still running its\nbackground sync warmup — per-space headsync catch-up, profile\nrepublish. Local reads and writes work throughout; clients\nwanting a sync-progress affordance poll this or subscribe to\nGET /v1/sync-status/subscribe for per-space convergence. Always\nfalse on synchronous boots and while unauthorized.",
+                    "type": "boolean"
                 }
             }
         },

@@ -126,6 +126,15 @@ live via `/query/subscribe`). One write shape across the whole API.
 `/v1/health` works on an unauthorized server too — `account` is then
 `""`.
 
+`warming` (bool) is true while a deferred-warmup boot
+(`deferWarmup: true`, forced on for embedded/mobile — see
+`02-server.md` § Startup) is still running its background sync warmup:
+the listener is up and local reads/writes serve, but per-space headsync
+catch-up is in flight. Always false on synchronous boots and while
+unauthorized. It's a boot-scoped signal, not a sync monitor — for
+per-space convergence subscribe to `GET /v1/sync-status/subscribe`
+(`04-events.md`).
+
 ### Auth
 
 | Method | Path        | Purpose                                          |
@@ -142,9 +151,16 @@ restart, and the server stays on that account for its lifetime
 (switching = restart, a second POST returns
 `409 auth.already_authorized`).
 
+On a deferred-warmup boot (`deferWarmup: true`) the listener binds
+after only the engine's fast phase, so `authorized: true` can coexist
+with `warming: true` (background sync warmup still running — same field
+as `/v1/health`). A `POST /v1/auth` during that window gets the normal
+`409 auth.already_authorized`.
+
 ```json
 // GET /v1/auth
 { "authorized": false,
+  "warming": false,
   "accounts": [
     {"id":"A8tR…","default":true},   // legacy root wallet.key
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs

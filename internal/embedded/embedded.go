@@ -172,6 +172,13 @@ func assembleConfig(opts Options) config.Config {
 	// IOS-116: every in-process boot (iOS/iPadOS app, future sharing
 	// extension) is headless — no /ui debug harness, no advertising log.
 	cfg.WebUI.Enabled = false
+	// Deferred warmup: embedded hosts block their first screen on the
+	// listener bind, so an account-selected boot must not wait for the
+	// per-space headsync eager load. The SDK's fast phase (store + tech
+	// space — everything local reads need) stays synchronous; sync
+	// warmup continues in the background, observable as `warming` on
+	// GET /v1/health. Desktop `any run` keeps the default (off).
+	cfg.DeferWarmup = true
 	// Push node (SYN-83): plain field fill — the config.Push tristate does
 	// the enablement on its own (nil Enabled + non-empty PeerId + addrs ⇒
 	// Active). Empty inputs leave the defaults and push stays off.
@@ -204,6 +211,14 @@ func splitAddrs(v string) []string {
 // until the listener binds — returning the bound address — or boot fails,
 // returning one of the package's typed errors (ErrAlreadyRunning,
 // ErrBadDataDir, ErrNodeconfRequired, or a *BootError).
+//
+// Embedded boots run with DeferWarmup: a successful return means the
+// listener is bound and local reads serve, NOT that the account is
+// sync-converged. The engine's fast phase (wallet, store + tech-space
+// open, indexer) still completes — and still fails Start — before the
+// bind; the sync warmup (per-space headsync catch-up, profile
+// republish) continues in the background, observable as `warming` on
+// GET /v1/health and, per space, via GET /v1/sync-status/subscribe.
 func Start(opts Options) (string, error) {
 	// Soft memory cap, applied unconditionally at start so it is in force
 	// before the engine allocates. SetMemoryLimit's argument is a soft

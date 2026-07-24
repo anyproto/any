@@ -35,6 +35,7 @@ func (d *deps) authStatus(c echo.Context) error {
 		Authorized: d.ready.Load(),
 		AccountId:  d.accountID(),
 		Accounts:   []api.AuthAccount{},
+		Warming:    d.warming(),
 	}
 
 	ids, err := config.ListAccounts(d.root)

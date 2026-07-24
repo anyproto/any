@@ -51,6 +51,18 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
    before the listener binds, so boot failures surface immediately.
    `run` does NOT auto-generate a wallet anymore; create accounts with
    `any init` or over HTTP.
+
+   With `deferWarmup: true` (default off; **forced on for
+   embedded/mobile boots**, `embedded.Start`) only the engine's **fast
+   phase** completes before the bind: pid lock, wallet, SDK store +
+   tech-space open, indexer. The **sync warmup** — the per-space
+   headsync eager load, pending-join resume, profile republish,
+   read-state reconcile — continues in the background; local reads and
+   writes work throughout, and `warming: true` on `GET /v1/health` /
+   `GET /v1/auth` reports it until done. Wallet/store corruption still
+   fails boot synchronously either way; only the network-facing
+   catch-up is deferred. Per-space convergence is observable on
+   `GET /v1/sync-status/subscribe`.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores

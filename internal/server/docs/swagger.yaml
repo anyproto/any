@@ -287,6 +287,11 @@ definitions:
         type: array
       authorized:
         type: boolean
+      warming:
+        description: |-
+          Warming mirrors HealthResponse.Warming: true while an authorized
+          deferred-warmup boot is still running its background sync warmup.
+        type: boolean
     type: object
   api.Backlink:
     properties:
@@ -542,6 +547,16 @@ definitions:
         type: string
       version:
         type: string
+      warming:
+        description: |-
+          Warming is true while a deferred-warmup boot (config
+          deferWarmup, forced on for embedded/mobile) is still running its
+          background sync warmup — per-space headsync catch-up, profile
+          republish. Local reads and writes work throughout; clients
+          wanting a sync-progress affordance poll this or subscribe to
+          GET /v1/sync-status/subscribe for per-space convergence. Always
+          false on synchronous boots and while unauthorized.
+        type: boolean
     type: object
   api.HistoryChange:
     properties:

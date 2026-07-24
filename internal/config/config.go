@@ -25,6 +25,17 @@ type Config struct {
 	Push    Push          `yaml:"push"`
 	WebUI   WebUI         `yaml:"webUI"`
 	Log     logger.Config `yaml:"log"`
+	// DeferWarmup makes an account-selected boot bind the listener
+	// after only the SDK's fast phase (store + tech space open — local
+	// reads safe); the sync warmup (per-space headsync eager load,
+	// profile republish, pending-join resume, …) continues in the
+	// background, observable as `warming` on GET /v1/health and
+	// GET /v1/auth. False — the default — keeps the fully synchronous
+	// fail-fast boot; embedded/mobile boots force it on
+	// (embedded.Start), where start latency gates the host app's first
+	// screen. Store/wallet corruption still fails boot synchronously
+	// either way.
+	DeferWarmup bool `yaml:"deferWarmup"`
 }
 
 type Listen struct {

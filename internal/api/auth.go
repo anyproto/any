@@ -14,6 +14,9 @@ type AuthStatusResponse struct {
 	Authorized bool          `json:"authorized"`
 	AccountId  string        `json:"accountId,omitempty"`
 	Accounts   []AuthAccount `json:"accounts"`
+	// Warming mirrors HealthResponse.Warming: true while an authorized
+	// deferred-warmup boot is still running its background sync warmup.
+	Warming bool `json:"warming"`
 }
 
 // AuthRequest is the POST /v1/auth body. Mnemonic and AccountId are

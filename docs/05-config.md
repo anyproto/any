@@ -38,6 +38,16 @@ listen:
 webUI:
   enabled: true
 
+# Deferred warmup. On an account-selected boot, bind the listener after
+# only the SDK fast phase (store + tech space — local reads safe) and
+# run the sync warmup (per-space headsync eager load, profile
+# republish, …) in the background, reported as `warming` on
+# GET /v1/health and GET /v1/auth. Default off — desktop `any run`
+# keeps the fully synchronous fail-fast boot. Embedded/mobile boots
+# force this on (embedded.Start): the host app's first screen blocks on
+# the bind. Wallet/store corruption fails boot synchronously either way.
+deferWarmup: false
+
 # Auth — wallet location, optional passkey env var name.
 auth:
   walletPath: ""                      # explicit wallet file = manual mode
@@ -186,6 +196,7 @@ ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
+ANY_DEFER_WARMUP=true                 # deferWarmup (bind before sync warmup)
 
 ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBaseUrl
 ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)

@@ -85,6 +85,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_FILES_GC_INTERVAL"); v != "" {
 		cfg.Files.GCInterval = v
 	}
+	if v := os.Getenv("ANY_DEFER_WARMUP"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.DeferWarmup = b
+		}
+	}
 	if v := os.Getenv("ANY_PUSH_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Push.Enabled = &b
