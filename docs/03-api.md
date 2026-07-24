@@ -976,6 +976,23 @@ Two query scopes:
   dataset, `editor_blocks`, `chat_messages`, `program_source` /
   `program_description`, `mini_app`, etc.
 
+Every row in the per-space `objects` collection carries SDK-stamped
+row-root fields alongside `id`, all derived/read-only (client writes
+addressing them are rejected):
+
+- `author` — identity that created the object (root-change signer);
+- `createdAt` — object creation time, unix seconds (root-change time);
+- `spaceId`;
+- `modifiedAt` — unix seconds of the latest synced change that touched
+  the row. Any property write bumps it; peers converge on the same
+  value (LWW on the change's DAG order). It is the **author's clock** —
+  sort/display quality, never a fencing token. Local-scope writes
+  (e.g. chat read flags) deliberately don't bump it.
+
+"Recently modified first" is `{"sort": ["-modifiedAt"]}`. Rows last
+written by an SDK older than the stamp lack the field until their next
+synced write — treat absent as "fall back to `createdAt`".
+
 All four take POST (filter/sort body doesn't fit a query string).
 Reads always go through these — the bare `…/query` returns a
 point-in-time snapshot; `…/query/subscribe` returns the same

@@ -776,6 +776,21 @@ Implementation slices landed:
     (internal/push/topics.go reads `OwnRole == PermissionOwner`, which
     never fired before).
 
+28. **Objects `modifiedAt`** — every per-space `objects` row now
+    carries a derived row-root `modifiedAt` (unix seconds), stamped by
+    the SDK's `SystemPropertiesHandler` from the change envelope:
+    seeded at create (= the creating change's time), bumped by every
+    valid synced write, LWW-convergent on the change's DAG order.
+    Author's clock — sort/display quality only. Local/account-scope
+    writes don't bump it; pre-stamp rows lack the field until their
+    next synced write (clients fall back to `createdAt`). Pure
+    passthrough — an SDK bump plus docs (03-api.md § Data plane,
+    08-clients.md § 3, 09-query.md § Paths) and
+    `TestE2E_ObjectsModifiedAt`; no `any` handler change. Client
+    recency ordering: `{"sort": ["-modifiedAt"]}`. SDK prerequisite:
+    anyproto/any-sync-sdk#79 (`modifiedAt` in `anytype.Properties` +
+    `Sink.DeriveOnce`).
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
