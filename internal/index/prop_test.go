@@ -49,6 +49,18 @@ func TestValidScope(t *testing.T) {
 	}
 }
 
+func TestPropChunker_AlwaysExcludesMetaType(t *testing.T) {
+	// Type-definition rows are schema, not knowledge — excluded even
+	// when no caller-supplied exclusions are wired in.
+	if !NewPropChunker().excludeTypes[MetaTypeLabel] {
+		t.Error("NewPropChunker() must exclude MetaTypeLabel")
+	}
+	c := NewPropChunker("customType")
+	if !c.excludeTypes[MetaTypeLabel] || !c.excludeTypes["customType"] {
+		t.Errorf("exclusions = %v, want MetaTypeLabel + customType", c.excludeTypes)
+	}
+}
+
 func TestPropChunker_CatalogTTLAndInvalidate(t *testing.T) {
 	c := NewPropChunker()
 	now := time.Unix(1000, 0)

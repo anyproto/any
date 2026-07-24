@@ -119,8 +119,16 @@ id `objectId:prop:<propId>`:
 - **Built-ins `any.name` and `any.description` are always indexed**
   under scope `basic`, reserved recordIds `name` / `description` —
   EXCEPT for objects whose `any.types` names an excluded type. The
-  exclusion list is currently empty (the bobrik-era `agent_debug_log`
-  type is gone); the mechanism remains for future diagnostic types.
+  exclusion list always contains `__type__` (type-definition rows —
+  schema, not knowledge; their one-word names otherwise win BM25 on
+  field-length normalization and surface as top hits) plus the wired-in
+  `enrich_proposal` (ephemeral review scaffolding).
+- **Short prop docs never embed**: prop-dataset entries under 64 bytes
+  are not marked `pending` and stay FTS-only. Short name-like strings
+  land in a flat cosine band (~0.55–0.62 for relevant and irrelevant
+  queries alike — the `minVectorSim` finding, `docs/search/README.md`),
+  so they fill vector top-N slots without discriminating; BM25 is the
+  right retrieval for lexical labels. Long descriptions still embed.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
@@ -244,11 +252,13 @@ any-store database at `<data-dir>/index/index.db`, plus the
   O(N)/query, small spaces). The index is created lazily
   (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (v3 — editor windows;
-  v2 was one doc per block. An old DB errors at boot with a
-  remove-to-rebuild message, no migration: the index is derived state and
-  re-indexes from the next change) and the vector dimension — changing
-  the embedder dimension is the same kind of boot error.
+  plus a `_meta` row pinning the **schema version** (v5 — type
+  definitions excluded from the prop chunker + short prop docs no longer
+  embedded; v4 = any-store FTS postings v2; v3 = editor windows; v2 =
+  one doc per block. An old DB errors at boot with a remove-to-rebuild
+  message, no migration: the index is derived state and re-indexes from
+  the next change) and the vector dimension — changing the embedder
+  dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
@@ -267,8 +277,9 @@ The single operation is `advance`: page through
    → upserts), then persist the cursor (the page's max `AddSeq`) and
    loop. Eviction rides the same addSeq window as content — no
    out-of-band purge can race the cursor. Crash-safe: re-applying a
-   page is idempotent. Text-bearing upserts land marked `pending` —
-   **FTS is searchable immediately**, never waiting on the embedder.
+   page is idempotent. Text-bearing upserts land marked `pending`
+   (except short prop docs — see the prop chunker above) — **FTS is
+   searchable immediately**, never waiting on the embedder.
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker

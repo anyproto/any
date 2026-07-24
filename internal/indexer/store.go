@@ -30,8 +30,22 @@ const (
 	// indexes have no on-disk back-compat, so the index must be rebuilt).
 	// Mismatch = boot error advising removal; no migration — the index is
 	// derived state (re-indexes on the next change).
-	indexSchemaVersion = 4
+	// v5 = type-definition rows excluded from the prop chunker + short
+	// prop docs no longer embedded — older indexes carry stale type-name
+	// docs and name vectors that only a rebuild purges.
+	indexSchemaVersion = 5
 )
+
+// minPropEmbedBytes gates the vector leg for prop-dataset docs: entries
+// shorter than this (bytes) are never marked pending and stay FTS-only.
+// Short name-like strings embed into a compressed cosine band (~0.55-0.62
+// against relevant and irrelevant queries alike — the minVectorSim
+// finding, docs/search/README.md), so they fill vector top-N slots
+// without discriminating; BM25 is the right retrieval for lexical
+// labels. Scoped to the prop dataset — content datasets embed regardless
+// of length. Byte count, not runes: non-ASCII text trips the gate
+// earlier, erring toward embedding.
+const minPropEmbedBytes = 64
 
 // Store is the indexer-owned any-store database: one collection per
 // space, each carrying a BM25 full-text index on `data` and (when dim >
@@ -480,7 +494,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))
-		case s.markPending && e.Data != "":
+		case s.markPending && shouldEmbed(e):
 			// Awaiting embedding — marked even while the embedder is
 			// down or its dimension unknown, so outages freeze the
 			// vector pipeline without losing work. Empty-text docs have
@@ -497,6 +511,15 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 	return tx.Commit()
+}
+
+// shouldEmbed reports whether an entry's text belongs in the vector leg:
+// non-empty, and — for prop-dataset docs — at least minPropEmbedBytes.
+func shouldEmbed(e index.IndexEntry) bool {
+	if e.Data == "" {
+		return false
+	}
+	return e.Dataset != index.DatasetProp || len(e.Data) >= minPropEmbedBytes
 }
 
 // docHash is the content hash stored alongside each index doc. The

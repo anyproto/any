@@ -226,6 +226,52 @@ func TestStore_VectorMinSimFloor(t *testing.T) {
 	}
 }
 
+func TestStore_ShortPropDocsSkipEmbedding(t *testing.T) {
+	// Prop docs below minPropEmbedBytes stay FTS-only (never pending):
+	// short names embed into a flat cosine band and only pollute the
+	// vector leg. Long prop docs and short content-dataset docs still
+	// queue for embedding.
+	ctx := context.Background()
+	s := mustStore(t, 4)
+	const sp = "space1"
+
+	longDesc := "a description long enough to carry actual semantics for the vector leg"
+	if len(longDesc) < minPropEmbedBytes {
+		t.Fatalf("test fixture too short: %d < %d", len(longDesc), minPropEmbedBytes)
+	}
+	err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "obj1", index.DatasetProp, "name", "Task", 1)},
+		{Entry: entry("basic", "obj1", index.DatasetProp, "description", longDesc, 2)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m1", "ok", 3)},
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ids, _, err := s.Pending(ctx, sp, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"obj1:prop:description": true, "obj2:chat_messages:m1": true}
+	if len(ids) != len(want) {
+		t.Fatalf("pending = %v, want %v", ids, want)
+	}
+	for _, id := range ids {
+		if !want[id] {
+			t.Fatalf("pending = %v, want %v (short prop doc must not queue)", ids, want)
+		}
+	}
+
+	// The short name is still FTS-searchable.
+	hits, err := s.SearchFTS(ctx, sp, "task", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "name" {
+		t.Fatalf("fts hits = %+v, want the name doc", hits)
+	}
+}
+
 func TestStore_VectorPendingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	const dim = 4
