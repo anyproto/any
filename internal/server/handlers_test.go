@@ -74,6 +74,7 @@ func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 		startedAt:      time.Now().UTC(),
 		shutdown:       make(chan struct{}, 1),
 		sdk:            sdk,
+		sdkWarming:     sdk.Warming,
 		chunkers:       NewIndexRegistry(),
 		shutdownCtx:    shutdownCtx,
 		cancelShutdown: cancelShutdown,

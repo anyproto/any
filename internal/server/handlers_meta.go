@@ -78,6 +78,15 @@ type deps struct {
 	// hand must set it (newTestDeps does).
 	ready atomic.Bool
 
+	// sdkWarming probes the live SDK's deferred-warmup state. Set to
+	// eng.sdk.Warming everywhere ready flips true (bootAccount and the
+	// test helpers), so bootState may call it whenever ready holds. A
+	// func seam rather than a direct d.sdk.Warming() call so handler
+	// tests can pin the warming=true wire shape — a real fresh-account
+	// warmup can finish before the first request lands, making that
+	// observable untestable through a live boot.
+	sdkWarming func() bool
+
 	// authMu serializes engine boot (POST /v1/auth vs. server.Run vs.
 	// shutdown). eng tracks the live engine for teardown.
 	authMu sync.Mutex
@@ -102,12 +111,20 @@ func (d *deps) accountID() string {
 	return d.account
 }
 
-// warming reports whether an authorized deferred-warmup boot is still
-// running its background sync warmup (SDK fast phase done, eager
-// headsync catch-up in flight). Always false while unauthorized and on
-// synchronous boots. Same ready-gate-as-barrier pattern as accountID.
-func (d *deps) warming() bool {
-	return d.ready.Load() && d.sdk.Warming()
+// bootState returns one consistent (authorized, account, warming)
+// snapshot for the meta endpoints. warming is true while an authorized
+// deferred-warmup boot is still running its background sync warmup
+// (SDK fast phase done, eager headsync catch-up in flight); always
+// false while unauthorized and on synchronous boots. All three values
+// derive from a SINGLE load of the ready gate — separate loads could
+// tear when a boot completes mid-handler, reporting warming=true
+// alongside authorized=false, a combination the wire contract rules
+// out. Same ready-gate-as-barrier pattern as accountID.
+func (d *deps) bootState() (authorized bool, account string, warming bool) {
+	if !d.ready.Load() {
+		return false, "", false
+	}
+	return true, d.account, d.sdkWarming()
 }
 
 // @Summary	Health check
@@ -116,12 +133,13 @@ func (d *deps) warming() bool {
 // @Success	200	{object}	api.HealthResponse
 // @Router		/health [get]
 func (d *deps) health(c echo.Context) error {
+	_, account, warming := d.bootState()
 	return c.JSON(http.StatusOK, api.HealthResponse{
 		Status:    "ok",
 		Version:   version.String(),
 		StartedAt: d.startedAt,
-		Account:   d.accountID(),
-		Warming:   d.warming(),
+		Account:   account,
+		Warming:   warming,
 	})
 }
 

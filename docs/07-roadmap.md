@@ -108,7 +108,11 @@ Not this repo's work; gate on the SDK:
   Pre-existing, but more visible with deferred warmup (the eager-load
   loop now runs while the app is already interactive — a hung load is
   cancellable only via shutdown). Wants a deadline/backoff on the SDK's
-  cold-load path.
+  cold-load path. The same hang also stalls `SDK.Close`'s warmup join
+  (it cancels the warmup ctx, then waits unboundedly), so a stuck cold
+  load can hold up shutdown past the server's 10s drain deadline —
+  `closeEngine` logs after 15s so the hang is diagnosable, but the
+  bound belongs SDK-side (warmup steps honoring ctx cancel).
 - **Deferred-warmup client adoption (any-swift, not SDK).** The
   embedded `Start` now returns before sync convergence;
   `ServerLifecycle` should tolerate start≠data-ready and consume the

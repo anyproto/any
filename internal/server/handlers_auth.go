@@ -31,11 +31,12 @@ func registerAuthRoutes(g *echo.Group, d *deps) {
 //	@Success	200	{object}	api.AuthStatusResponse
 //	@Router		/auth [get]
 func (d *deps) authStatus(c echo.Context) error {
+	authorized, account, warming := d.bootState()
 	resp := api.AuthStatusResponse{
-		Authorized: d.ready.Load(),
-		AccountId:  d.accountID(),
+		Authorized: authorized,
+		AccountId:  account,
 		Accounts:   []api.AuthAccount{},
-		Warming:    d.warming(),
+		Warming:    warming,
 	}
 
 	ids, err := config.ListAccounts(d.root)

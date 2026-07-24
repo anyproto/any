@@ -59,3 +59,62 @@ func TestDeferWarmup_CloseWithoutWaiting(t *testing.T) {
 	})
 	teardown()
 }
+
+// TestWarming_WireShape pins the warming=true observable on /v1/health
+// and GET /v1/auth — the live-boot test above can't (a fresh account
+// has nothing to eager-load and may finish warmup before the first
+// request lands), so the sdkWarming seam stands in for a held-open
+// warmup. No SDK, no staging gate. Also pins the unauthorized side:
+// ready=false must force warming=false on the wire even when the
+// probe would report true, so an inverted ready gate fails here.
+func TestWarming_WireShape(t *testing.T) {
+	getWarming := func(d *deps) (health api.HealthResponse, auth api.AuthStatusResponse) {
+		t.Helper()
+		e := buildEcho(d)
+		rec := doJSON(t, e, http.MethodGet, "/v1/health", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /v1/health: %d %s", rec.Code, rec.Body.String())
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &health); err != nil {
+			t.Fatal(err)
+		}
+		rec = doJSON(t, e, http.MethodGet, "/v1/auth", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /v1/auth: %d %s", rec.Code, rec.Body.String())
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &auth); err != nil {
+			t.Fatal(err)
+		}
+		return health, auth
+	}
+
+	// Authorized, warmup in flight.
+	d := &deps{
+		account:    "acc-warming",
+		startedAt:  time.Now().UTC(),
+		root:       t.TempDir(),
+		sdkWarming: func() bool { return true },
+	}
+	d.ready.Store(true)
+	h, a := getWarming(d)
+	if !h.Warming || h.Account != "acc-warming" {
+		t.Errorf("health during warmup: warming=%v account=%q, want true/acc-warming", h.Warming, h.Account)
+	}
+	if !a.Authorized || !a.Warming {
+		t.Errorf("auth during warmup: authorized=%v warming=%v, want true/true", a.Authorized, a.Warming)
+	}
+
+	// Unauthorized: warming must be false regardless of the probe.
+	d = &deps{
+		startedAt:  time.Now().UTC(),
+		root:       t.TempDir(),
+		sdkWarming: func() bool { return true },
+	}
+	h, a = getWarming(d)
+	if h.Warming || h.Account != "" {
+		t.Errorf("unauthorized health: warming=%v account=%q, want false/empty", h.Warming, h.Account)
+	}
+	if a.Authorized || a.Warming {
+		t.Errorf("unauthorized auth: authorized=%v warming=%v, want false/false", a.Authorized, a.Warming)
+	}
+}

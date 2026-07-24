@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
@@ -143,6 +144,7 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	}
 	d.eng = eng
 	d.sdk = eng.sdk
+	d.sdkWarming = eng.sdk.Warming
 	d.indexer = eng.indexer
 	d.push = eng.push
 	d.account = eng.account
@@ -170,9 +172,18 @@ func (d *deps) closeEngine(lg logger.CtxLogger) {
 			lg.Warn("push close", zap.Error(err))
 		}
 	}
+	// sdk.Close joins an in-flight deferred warmup; a warmup step stuck
+	// in a non-cancellable cold space load can stall that join past any
+	// shutdown deadline (docs/07-roadmap.md § SDK-side prerequisites).
+	// Log rather than abandon — bailing out would race the store
+	// teardown — so a hung shutdown is at least diagnosable.
+	slowClose := time.AfterFunc(15*time.Second, func() {
+		lg.Warn("sdk close exceeded 15s — likely joining a sync warmup stuck on an unreachable sync node")
+	})
 	if err := eng.sdk.Close(); err != nil {
 		lg.Warn("sdk close", zap.Error(err))
 	}
+	slowClose.Stop()
 	if err := eng.lock.Release(); err != nil {
 		lg.Warn("release pid lock", zap.Error(err))
 	}
