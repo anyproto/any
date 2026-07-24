@@ -125,8 +125,10 @@ Planned (HTTP surface ships; no CLI subcommand yet):
 any space create --name "..."
 any space list
 any space join <invite>
-any space derive [--seed <hex>]
 ```
+
+(`any space derive` was dropped from the plan — `Service.Derive` is
+deliberately not exposed over HTTP; see `docs/03-api.md` § Spaces.)
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.

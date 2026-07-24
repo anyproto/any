@@ -263,7 +263,6 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
-| POST   | `/v1/spaces/derive`             | `Service.Derive` (501, not implemented) |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne` — open a 1-1 (direct) space |
 | POST   | `/v1/spaces/one-to-one/register-incoming` | `Service.RegisterIncoming` — out-of-band incoming |
 | POST   | `/v1/spaces/:spaceId/one-to-one/accept`   | `Service.AcceptOneToOne`            |
@@ -271,6 +270,12 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
 | POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+
+**`Service.Derive` / `DeriveId` are deliberately not exposed.** A
+client-supplied seed derives a deterministic space id, so a reused seed
+re-creates an existing space's identity — too dangerous for clients.
+Derivation stays an in-process SDK surface (used internally for e.g.
+the tech-space); there is no `/v1/spaces/derive` route by design.
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
 It returns `204` as soon as the local half is done — no network round

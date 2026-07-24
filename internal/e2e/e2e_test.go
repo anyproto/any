@@ -506,7 +506,6 @@ func TestE2E_FullFlow(t *testing.T) {
 
 	t.Run("501 routes", func(t *testing.T) {
 		cases := []struct{ method, path string }{
-			{http.MethodPost, "/v1/spaces/derive"},
 			{http.MethodDelete, "/v1/spaces/" + spaceID + "/types/t1"},
 			{http.MethodGet, "/v1/spaces/" + spaceID + "/sync-status/peers"},
 		}
