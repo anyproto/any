@@ -782,8 +782,7 @@ Implementation slices landed:
     seeded at create (= the creating change's time), bumped by every
     valid synced write, LWW-convergent on the change's DAG order.
     Author's clock — sort/display quality only. Local/account-scope
-    writes don't bump it; pre-stamp rows lack the field until their
-    next synced write (clients fall back to `createdAt`). Pure
+    writes don't bump it. Pure
     passthrough — an SDK bump plus docs (03-api.md § Data plane,
     08-clients.md § 3, 09-query.md § Paths) and
     `TestE2E_ObjectsModifiedAt`; no `any` handler change. Client

@@ -105,8 +105,6 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
   synced write to the object and converges across peers, but it's the
   author's wall clock — fine for sorting and display, never a sync fence.
-  Rows untouched since before the stamp existed lack the field; treat
-  absent as "fall back to `createdAt`".
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset

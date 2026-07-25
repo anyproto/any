@@ -989,9 +989,7 @@ addressing them are rejected):
   sort/display quality, never a fencing token. Local-scope writes
   (e.g. chat read flags) deliberately don't bump it.
 
-"Recently modified first" is `{"sort": ["-modifiedAt"]}`. Rows last
-written by an SDK older than the stamp lack the field until their next
-synced write — treat absent as "fall back to `createdAt`".
+"Recently modified first" is `{"sort": ["-modifiedAt"]}`.
 
 All four take POST (filter/sort body doesn't fit a query string).
 Reads always go through these — the bare `…/query` returns a
