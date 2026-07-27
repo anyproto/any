@@ -40,6 +40,27 @@ func TestFuseRRF_LimitAndDeterminism(t *testing.T) {
 	}
 }
 
+func TestFuseRRF_CrossObjectSameRecordId(t *testing.T) {
+	// Two objects whose prop/name records both match — recordIds repeat
+	// across objects (propIds do), so they must stay separate hits, each
+	// capped at the single-doc RRF ceiling of 2/(rrfK+1).
+	o1 := Hit{ObjectId: "obj1", Dataset: "prop", RecordId: "name"}
+	o2 := Hit{ObjectId: "obj2", Dataset: "prop", RecordId: "name"}
+	fts := []Hit{o1, o2}
+	vec := []Hit{o2, o1}
+
+	out := fuseRRF([][]Hit{fts, vec}, nil, 10)
+	if len(out) != 2 {
+		t.Fatalf("fused = %d hits, want 2 (no cross-object collapse): %+v", len(out), out)
+	}
+	ceiling := 2.0 / float64(rrfK+1)
+	for _, h := range out {
+		if h.Score > ceiling {
+			t.Errorf("%s score = %v, above single-doc ceiling %v (colliding contributions summed)", h.ObjectId, h.Score, ceiling)
+		}
+	}
+}
+
 func TestFuseRRF_Empty(t *testing.T) {
 	if out := fuseRRF([][]Hit{nil, {}}, nil, 5); len(out) != 0 {
 		t.Fatalf("empty legs should fuse to nothing: %+v", out)
