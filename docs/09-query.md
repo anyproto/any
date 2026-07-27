@@ -97,7 +97,9 @@ Multi-key sorts apply left-to-right: `["nav.parentId", "nav.pos"]`. A
 
 On the wire, property paths are `<typeId>.<propId>` — both are CID ids — plus
 the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
-`_ver.id`. Through **anyHelper** you use dotted **xKey** paths instead
+`_ver.id`, and the row-root derived stamps `author`, `createdAt`,
+`modifiedAt`, `spaceId` (objects collection only — see `03-api.md`
+§ Data plane; `{"sort": ["-modifiedAt"]}` is the recency ordering). Through **anyHelper** you use dotted **xKey** paths instead
 (`"agent_memory.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
 slug of the name, returned by `createType` as `type.xKey`; builtins use their
 id) plus the *property xKey*. anyHelper resolves these to the server's

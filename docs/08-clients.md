@@ -99,6 +99,13 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   `filter` is mongo-style — operators include `$lt` / `$gt`. On `subscribe`,
   `sort` is required when `limit > 0`.
 
+- **"Recently modified" lists sort on `modifiedAt`.** Every objects-collection
+  row carries the derived row-root stamps `author` / `createdAt` /
+  `modifiedAt` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the recency
+  ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
+  synced write to the object and converges across peers, but it's the
+  author's wall clock — fine for sorting and display, never a sync fence.
+
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
   over HTTP — POST a pipeline to the sibling `…/aggregate` endpoints
