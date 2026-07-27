@@ -1,9 +1,7 @@
 package server
 
 import (
-	"context"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/labstack/echo/v4"
 
@@ -80,29 +78,8 @@ func (d *deps) identityGet(c echo.Context) error {
 //	@Success	200
 //	@Router		/identities/subscribe [get]
 func (d *deps) identitiesSubscribe(c echo.Context) error {
-	events := make(chan space.IdentityListEvent, statusForwardBuffer)
-	var dropped atomic.Uint64
-	cancelSub := d.sdk.Identities().Subscribe(func(evt space.IdentityListEvent) {
-		select {
-		case events <- evt:
-		default:
-			dropped.Add(1)
-		}
-	})
-	defer cancelSub()
-
-	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
-		for {
-			select {
-			case evt := <-events:
-				if err := emit("identities", identityEventToAPI(evt)); err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		}
-	})
+	return forwardSSE(d, c, "identities", d.sdk.Identities().Subscribe,
+		func(evt space.IdentityListEvent) any { return identityEventToAPI(evt) })
 }
 
 // identityInfoToAPI maps the SDK directory row to the wire shape. The

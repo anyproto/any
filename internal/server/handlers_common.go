@@ -7,13 +7,20 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/handler"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// handlerLog carries the raw errors behind sanitized 500 bodies —
+// clients get code "internal" + a generic message, the log gets the
+// full error.
+var handlerLog = logger.NewNamed("handlers")
 
 // readBody slurps the request body. Echo's BodyLimit middleware enforces
 // the upper bound; we just need the bytes for fastjson's ParseBytes.
@@ -24,6 +31,18 @@ func readBody(c echo.Context) ([]byte, error) {
 	}
 	defer r.Close()
 	return io.ReadAll(r)
+}
+
+// bindBody decodes the JSON request body into T. On failure it writes
+// the canonical 400 request.bad_json envelope itself; the caller just
+// returns nil when ok is false.
+func bindBody[T any](c echo.Context) (*T, bool) {
+	req := new(T)
+	if err := c.Bind(req); err != nil {
+		_ = writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+		return nil, false
+	}
+	return req, true
 }
 
 // resolveSpace fetches the Space for the :spaceId path param. On error
@@ -38,6 +57,33 @@ func (d *deps) resolveSpace(c echo.Context) (space.Space, error, bool) {
 		return nil, spaceError(c, err, id), true
 	}
 	return sp, nil, false
+}
+
+// resolveSpaceObject is resolveSpace plus the :objectId param check.
+func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, bool) {
+	objectId := c.Param("objectId")
+	if objectId == "" {
+		return nil, "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
+	}
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return nil, "", errResp, true
+	}
+	return sp, objectId, nil, false
+}
+
+// resolveSpaceObjectMsg is resolveSpaceObject plus the :msgId param
+// check (the chat message routes).
+func (d *deps) resolveSpaceObjectMsg(c echo.Context) (space.Space, string, string, error, bool) {
+	objectId, msgId := c.Param("objectId"), c.Param("msgId")
+	if objectId == "" || msgId == "" {
+		return nil, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and msgId required", nil), true
+	}
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return nil, "", "", errResp, true
+	}
+	return sp, objectId, msgId, nil, false
 }
 
 // modifyResultToAPI normalises space.ModifyResult onto the wire shape.
@@ -86,7 +132,8 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if op, ok := unknownFilterOperator(err); ok {
 		return unknownFilterOperatorError(c, op, details)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+	handlerLog.Error("unclassified sdk error", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "internal error", details)
 }
 
 // filterOperators is the operator vocabulary any-store's filter parser

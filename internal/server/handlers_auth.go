@@ -90,9 +90,9 @@ func (d *deps) rootWalletID(c echo.Context) string {
 //	@Failure	409	{object}	api.ErrorEnvelope
 //	@Router		/auth [post]
 func (d *deps) authorize(c echo.Context) error {
-	var req api.AuthRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AuthRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Mnemonic != "" && req.AccountId != "" {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",

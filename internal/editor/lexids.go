@@ -24,37 +24,6 @@ func NextPos(prev string) string {
 	return lexidGen.Next(prev)
 }
 
-// PrevPos returns a lexid that sorts strictly before `next`. Empty
-// `next` returns Middle(). Use to prepend at the head of a parent.
-func PrevPos(next string) string {
-	if next == "" {
-		return lexidGen.Middle()
-	}
-	return lexidGen.Prev(next)
-}
-
-// PosBetween allocates a lexid strictly between `prev` and `next`.
-// Either may be empty: empty `prev` means "before everything else
-// known", empty `next` means "after everything else known". Used by
-// the markdown refactor and by clients that want to insert at a
-// specific position without round-tripping through the server.
-func PosBetween(prev, next string) (string, error) {
-	switch {
-	case prev == "" && next == "":
-		return lexidGen.Middle(), nil
-	case next == "":
-		return lexidGen.Next(prev), nil
-	case prev == "":
-		return lexidGen.Prev(next), nil
-	default:
-		id, err := lexidGen.NextBefore(prev, next)
-		if err != nil {
-			return "", fmt.Errorf("blocks: PosBetween(prev=%q, next=%q): %w", prev, next, err)
-		}
-		return id, nil
-	}
-}
-
 // AllocateRun returns n lexids that sort strictly between prev and
 // next, in ascending order. Empty prev means "before everything";
 // empty next means "after everything"; both empty seeds from

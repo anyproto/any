@@ -23,13 +23,9 @@ import (
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId} [get]
 func (d *deps) propertiesGet(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 
 	// Get returns the full property record including meta (_ver etc.) —
@@ -69,14 +65,13 @@ func (d *deps) propertiesGet(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/properties/{objectId}/set/{typeId} [post]
 func (d *deps) propertiesSet(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
 	typeId := c.Param("typeId")
-	if objectId == "" || typeId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and typeId required", nil)
+	if typeId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
 
 	body, err := readBody(c)

@@ -1,9 +1,7 @@
 package server
 
 import (
-	"context"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/labstack/echo/v4"
 
@@ -147,29 +145,8 @@ func (d *deps) subscribeMembers(c echo.Context) error {
 	}
 	ensureMembersWatcher(sp)
 
-	events := make(chan space.MemberEvent, statusForwardBuffer)
-	var dropped atomic.Uint64
-	cancelSub := sp.Members().Subscribe(func(evt space.MemberEvent) {
-		select {
-		case events <- evt:
-		default:
-			dropped.Add(1)
-		}
-	})
-	defer cancelSub()
-
-	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
-		for {
-			select {
-			case evt := <-events:
-				if err := emit("member", memberEventToAPI(evt)); err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		}
-	})
+	return forwardSSE(d, c, "member", sp.Members().Subscribe,
+		func(evt space.MemberEvent) any { return memberEventToAPI(evt) })
 }
 
 func memberEventKindString(k space.MemberEventKind) string {

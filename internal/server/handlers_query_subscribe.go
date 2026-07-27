@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/cheggaaa/mb/v3"
@@ -273,15 +274,7 @@ func removedRecordsToAPI(in []space.RemovedRecord) []api.RemovedRecord {
 // whose path targets them (key material on tech-space rows).
 func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, strip ...string) []api.QuerySubscribeRecord {
 	stripped := func(path []string) bool {
-		if len(path) == 0 {
-			return false
-		}
-		for _, key := range strip {
-			if path[0] == key {
-				return true
-			}
-		}
-		return false
+		return len(path) > 0 && slices.Contains(strip, path[0])
 	}
 	if len(in) == 0 {
 		return nil

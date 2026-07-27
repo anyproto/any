@@ -39,9 +39,9 @@ import (
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/settings [patch]
 func (d *deps) spaceSettingsPatch(c echo.Context) error {
-	var req api.SpaceSettingsPatchRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceSettingsPatchRequest](c)
+	if !ok {
+		return nil
 	}
 	if len(req.Set) == 0 && len(req.Unset) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",

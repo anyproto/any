@@ -50,9 +50,9 @@ func (d *deps) agentMemoryCreate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	var req api.AgentMemoryCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AgentMemoryCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Category == "" {
 		return writeError(c, http.StatusBadRequest, api.ErrAgentMemoryInvalid, "category required", nil)
@@ -81,7 +81,7 @@ func (d *deps) agentMemoryCreate(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	res, err := agentmem.CreateItem(c.Request().Context(), sp, brainId, req)
+	res, err := agentmem.CreateItem(c.Request().Context(), sp, brainId, *req)
 	if err != nil {
 		return agentMemOpError(c, err, sp.Id(), brainId)
 	}
@@ -112,16 +112,16 @@ func (d *deps) agentMemoryEvolve(c echo.Context) error {
 	if itemId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "itemId required", nil)
 	}
-	var req api.AgentMemoryEvolveRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AgentMemoryEvolveRequest](c)
+	if !ok {
+		return nil
 	}
 
 	brainId, err := agentmem.DeriveBrainObjectId(c.Request().Context(), sp)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	res, err := agentmem.Evolve(c.Request().Context(), sp, brainId, itemId, d.account, req)
+	res, err := agentmem.Evolve(c.Request().Context(), sp, brainId, itemId, d.account, *req)
 	if err != nil {
 		return agentMemOpError(c, err, sp.Id(), brainId)
 	}

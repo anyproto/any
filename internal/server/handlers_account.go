@@ -50,9 +50,9 @@ func (d *deps) accountGet(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/account/metadata [put]
 func (d *deps) accountUpdateMetadata(c echo.Context) error {
-	var req api.AccountMetadata
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.AccountMetadata](c)
+	if !ok {
+		return nil
 	}
 	if req.Name == "" && req.Description == "" && req.IconCID == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",

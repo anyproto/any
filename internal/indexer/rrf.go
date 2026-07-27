@@ -1,6 +1,9 @@
 package indexer
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // rrfK is the standard reciprocal-rank-fusion damping constant: a doc at
 // rank r contributes 1/(rrfK+r+1). 60 is the value from the original
@@ -76,12 +79,11 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 		a.hit.Score = a.score
 		out = append(out, a.hit)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
-		}
-		return docId(out[i].ObjectId, out[i].Dataset, out[i].RecordId) <
-			docId(out[j].ObjectId, out[j].Dataset, out[j].RecordId)
+	slices.SortFunc(out, func(a, b Hit) int {
+		return cmp.Or(
+			cmp.Compare(b.Score, a.Score),
+			cmp.Compare(docId(a.ObjectId, a.Dataset, a.RecordId), docId(b.ObjectId, b.Dataset, b.RecordId)),
+		)
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]

@@ -50,13 +50,9 @@ const (
 //	@Failure	500				{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/history [get]
 func (d *deps) historyList(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 
 	f := space.HistoryFilter{
@@ -77,10 +73,7 @@ func (d *deps) historyList(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"limit must be a positive integer", nil)
 		}
-		if n > historyMaxListLimit {
-			n = historyMaxListLimit
-		}
-		limit = n
+		limit = min(n, historyMaxListLimit)
 	}
 
 	if coalesce, _ := strconv.ParseBool(c.QueryParam("coalesce")); coalesce {
@@ -137,13 +130,13 @@ func (d *deps) historyList(c echo.Context) error {
 //	@Failure	413			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/history/{version} [get]
 func (d *deps) historyViewAt(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId, version := c.Param("objectId"), c.Param("version")
-	if objectId == "" || version == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and version required", nil)
+	version := c.Param("version")
+	if version == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "version required", nil)
 	}
 
 	view, err := sp.History().ViewAt(c.Request().Context(), objectId, version)
@@ -198,15 +191,15 @@ func (d *deps) historyViewAt(c echo.Context) error {
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/history/{version}/datasets/{dataset}/records/{recordId} [get]
 func (d *deps) historyRecordAt(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId, version := c.Param("objectId"), c.Param("version")
+	version := c.Param("version")
 	dataset, recordId := c.Param("dataset"), c.Param("recordId")
-	if objectId == "" || version == "" || dataset == "" || recordId == "" {
+	if version == "" || dataset == "" || recordId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"objectId, version, dataset and recordId required", nil)
+			"version, dataset and recordId required", nil)
 	}
 
 	rec, err := sp.History().RecordAt(c.Request().Context(), objectId, dataset, recordId, version)
@@ -242,14 +235,13 @@ func (d *deps) historyRecordAt(c echo.Context) error {
 //	@Failure	413			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/history/diff [get]
 func (d *deps) historyDiff(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
 	version := c.QueryParam("version")
-	if objectId == "" || version == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId and version required", nil)
+	if version == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "version required", nil)
 	}
 
 	f := space.DiffFilter{Dataset: c.QueryParam("dataset")}

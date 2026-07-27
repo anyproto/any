@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -49,17 +48,13 @@ import (
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/files [post]
 func (d *deps) fileAttach(c echo.Context) error {
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 	variant := c.QueryParam("variant")
 	variantOf := c.QueryParam("variantOf")
 	if (variant == "") != (variantOf == "") {
 		return writeError(c, http.StatusBadRequest, api.ErrFileVariantInvalid,
 			"variant and variantOf must be set together", nil)
 	}
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
@@ -306,29 +301,8 @@ func (d *deps) fileSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	events := make(chan space.FileStatus, statusForwardBuffer)
-	var dropped atomic.Uint64
-	cancelSub := sp.Files().SubscribeStatus(func(s space.FileStatus) {
-		select {
-		case events <- s:
-		default:
-			dropped.Add(1)
-		}
-	})
-	defer cancelSub()
-
-	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
-		for {
-			select {
-			case s := <-events:
-				if err := emit("status", fileStatusToAPI(s)); err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		}
-	})
+	return forwardSSE(d, c, "status", sp.Files().SubscribeStatus,
+		func(s space.FileStatus) any { return fileStatusToAPI(s) })
 }
 
 // filePin handles POST /v1/spaces/:spaceId/files/:fileId/pin.
@@ -491,11 +465,7 @@ func (d *deps) filesQuerySubscribe(c echo.Context) error {
 // the generic /query, which carries it in the body); the body itself
 // is optional. Mirrors buildSharedQuery's (…, errResp, done) contract.
 func (d *deps) buildFilesQuery(c echo.Context) (space.Space, space.Query, space.QueryOpts, error, bool) {
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return nil, nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
-	}
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return nil, nil, space.QueryOpts{}, errResp, true
 	}

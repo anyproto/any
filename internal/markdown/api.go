@@ -9,15 +9,6 @@ import (
 	"github.com/anyproto/any/internal/editor"
 )
 
-// Block is one rendered markdown block as returned by List. Mirrors
-// the old shape but reads through the editor_blocks dataset, so the id
-// is now the block record's stable id (auto-derived from change CID
-// on first create) rather than a position-bearing lexid.
-type Block struct {
-	Id   string
-	Text string
-}
-
 // SetResult bundles the per-call summary returned by Set, so callers
 // that want to log / surface what changed can inspect it without
 // re-running the diff.
@@ -260,29 +251,6 @@ func Get(ctx context.Context, sp space.Space, objectId string) (string, error) {
 		})
 	}
 	return Join(rendered), nil
-}
-
-// List returns the current top-level blocks of objectId in document
-// (nav.pos ascending) order, with the raw text field. Provided for
-// callers that want the block ids alongside their text without
-// running ParseBlock/RenderBlock.
-func List(ctx context.Context, sp space.Space, objectId string) ([]Block, error) {
-	existing, err := listTopLevel(ctx, sp, objectId)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Block, 0, len(existing))
-	for _, b := range existing {
-		out = append(out, Block{
-			Id: b.Id,
-			Text: RenderBlock(ParsedBlock{
-				Type:  b.Type,
-				Style: b.Style,
-				Text:  b.Text,
-			}),
-		})
-	}
-	return out, nil
 }
 
 // --- helpers ---------------------------------------------------------------

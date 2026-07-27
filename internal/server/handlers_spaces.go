@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -232,9 +233,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 // @Failure	500		{object}	api.ErrorEnvelope
 // @Router		/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
-	var req api.SpaceCreateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceCreateRequest](c)
+	if !ok {
+		return nil
 	}
 	sp, err := d.sdk.Spaces().Create(c.Request().Context(), space.CreateRequest{
 		Name:        req.Name,
@@ -342,9 +343,9 @@ func (d *deps) spaceUpdate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	var req api.SpaceUpdateRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceUpdateRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Name == nil && req.Description == nil && req.IconCID == nil {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
@@ -413,9 +414,9 @@ func (d *deps) spaceDelete(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one [post]
 func (d *deps) spaceOneToOne(c echo.Context) error {
-	var req api.SpaceOneToOneRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceOneToOneRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.OtherIdentity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "otherIdentity required", nil)
@@ -484,9 +485,9 @@ func (d *deps) spaceOneToOneDecline(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one/register-incoming [post]
 func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
-	var req api.SpaceRegisterIncomingRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SpaceRegisterIncomingRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.PeerIdentity == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "peerIdentity required", nil)
@@ -567,8 +568,10 @@ func (d *deps) spaceInviteDecline(c echo.Context) error {
 }
 
 // inviteStateError maps the AcceptInvite / DeclineInvite family of SDK
-// errors to the canonical envelope, string-matching the documented
-// messages until the SDK exports errors.Is-able sentinels.
+// errors to the canonical envelope.
+//
+// STOPGAP: matched on message text until the SDK exports errors.Is-able
+// sentinels for this family.
 func inviteStateError(c echo.Context, err error, spaceID string) error {
 	msg := err.Error()
 	switch {
@@ -591,12 +594,14 @@ func inviteStateError(c echo.Context, err error, spaceID string) error {
 }
 
 // oneToOneError maps the OneToOne / RegisterIncoming family of SDK errors
-// to the canonical envelope. The SDK rejects self-pairing and undecodable
-// identities but doesn't yet export errors.Is-able sentinels for them, so
-// we string-match at the boundary (same pragmatic pattern spaceJoin uses
-// for "join pending"). Grow this into an errors.Is map once the SDK
-// exports the sentinels. `field` is the request field the identity came
-// from (otherIdentity / peerIdentity), echoed in details.
+// to the canonical envelope.
+//
+// STOPGAP: matched on message text. The SDK rejects self-pairing and
+// undecodable identities but doesn't yet export errors.Is-able sentinels
+// for them (same pragmatic pattern spaceJoin uses for "join pending").
+// Grow this into an errors.Is map once the SDK exports the sentinels.
+// `field` is the request field the identity came from (otherIdentity /
+// peerIdentity), echoed in details.
 func oneToOneError(c echo.Context, err error, field string) error {
 	msg := err.Error()
 	switch {
@@ -646,7 +651,8 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 	if len(details) == 0 {
 		details = nil
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(), details)
+	handlerLog.Error("unclassified space error", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "internal error", details)
 }
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {

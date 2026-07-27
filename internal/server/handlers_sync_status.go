@@ -50,13 +50,9 @@ func (d *deps) syncStatusSpaceGet(c echo.Context) error {
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/sync-status/objects/{objectId} [get]
 func (d *deps) syncStatusObjectGet(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
-	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
 	}
 	return c.JSON(http.StatusOK, objectSyncStatusToAPI(sp.SyncStatus().Object(objectId)))
 }
@@ -69,29 +65,8 @@ func (d *deps) syncStatusObjectGet(c echo.Context) error {
 //	@Success	200
 //	@Router		/sync-status/subscribe [get]
 func (d *deps) syncStatusSubscribe(c echo.Context) error {
-	events := make(chan space.SpaceSyncStatus, statusForwardBuffer)
-	var dropped atomic.Uint64
-	cancelSub := d.sdk.Spaces().SubscribeStatus(func(s space.SpaceSyncStatus) {
-		select {
-		case events <- s:
-		default:
-			dropped.Add(1)
-		}
-	})
-	defer cancelSub()
-
-	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
-		for {
-			select {
-			case s := <-events:
-				if err := emit("status", spaceSyncStatusToAPI(s)); err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		}
-	})
+	return forwardSSE(d, c, "status", d.sdk.Spaces().SubscribeStatus,
+		func(s space.SpaceSyncStatus) any { return spaceSyncStatusToAPI(s) })
 }
 
 // syncStatusObjectSubscribe handles GET /v1/spaces/:spaceId/sync-status/objects/:objectId/subscribe.
@@ -106,38 +81,14 @@ func (d *deps) syncStatusSubscribe(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/sync-status/objects/{objectId}/subscribe [get]
 func (d *deps) syncStatusObjectSubscribe(c echo.Context) error {
-	sp, errResp, done := d.resolveSpace(c)
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	objectId := c.Param("objectId")
-	if objectId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
-	}
 
-	events := make(chan space.ObjectSyncStatus, statusForwardBuffer)
-	var dropped atomic.Uint64
-	cancelSub := sp.SyncStatus().SubscribeObject(objectId, func(s space.ObjectSyncStatus) {
-		select {
-		case events <- s:
-		default:
-			dropped.Add(1)
-		}
-	})
-	defer cancelSub()
-
-	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
-		for {
-			select {
-			case s := <-events:
-				if err := emit("status", objectSyncStatusToAPI(s)); err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				return nil
-			}
-		}
-	})
+	return forwardSSE(d, c, "status",
+		func(cb func(space.ObjectSyncStatus)) func() { return sp.SyncStatus().SubscribeObject(objectId, cb) },
+		func(s space.ObjectSyncStatus) any { return objectSyncStatusToAPI(s) })
 }
 
 // streamStatusSSE is the shared SSE driver for sync-status streams.
@@ -221,6 +172,37 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 		flush(w)
 	}
 	return nil
+}
+
+// forwardSSE bridges one SDK callback subscription onto streamStatusSSE:
+// a buffered channel (statusForwardBuffer) fed by a non-blocking send
+// with a dropped counter (surfaced as `lagged` frames), then one `event`
+// frame per delivered value via toAPI. Per-site setup — resolveSpace,
+// param checks, ensureMembersWatcher — stays at the caller.
+func forwardSSE[T any](d *deps, c echo.Context, event string, subscribe func(cb func(T)) (cancel func()), toAPI func(T) any) error {
+	events := make(chan T, statusForwardBuffer)
+	var dropped atomic.Uint64
+	cancelSub := subscribe(func(v T) {
+		select {
+		case events <- v:
+		default:
+			dropped.Add(1)
+		}
+	})
+	defer cancelSub()
+
+	return d.streamStatusSSE(c, &dropped, func(ctx context.Context, emit func(string, any) error) error {
+		for {
+			select {
+			case v := <-events:
+				if err := emit(event, toAPI(v)); err != nil {
+					return err
+				}
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	})
 }
 
 func spaceSyncStatusToAPI(s space.SpaceSyncStatus) api.SpaceSyncStatusResponse {

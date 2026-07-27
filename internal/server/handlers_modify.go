@@ -70,14 +70,14 @@ func (d *deps) spaceDeleteRecords(c echo.Context) error {
 		return errResp
 	}
 
-	var req struct {
+	req, ok := bindBody[struct {
 		ObjectId  string   `json:"objectId"`
 		Dataset   string   `json:"dataset"`
 		RecordIds []string `json:"recordIds"`
 		TraceIds  []string `json:"traceIds"`
-	}
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	}](c)
+	if !ok {
+		return nil
 	}
 	if req.ObjectId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)

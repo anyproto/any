@@ -258,37 +258,6 @@ func TestBeforeDelete_Accepts(t *testing.T) {
 	}
 }
 
-func TestPosBetween(t *testing.T) {
-	mid, err := PosBetween("", "")
-	if err != nil {
-		t.Fatalf("PosBetween empty empty: %v", err)
-	}
-	if mid == "" {
-		t.Fatal("PosBetween empty empty returned empty string")
-	}
-	after, err := PosBetween(mid, "")
-	if err != nil {
-		t.Fatalf("PosBetween mid empty: %v", err)
-	}
-	if !(after > mid) {
-		t.Fatalf("expected after > mid, got after=%q mid=%q", after, mid)
-	}
-	before, err := PosBetween("", mid)
-	if err != nil {
-		t.Fatalf("PosBetween empty mid: %v", err)
-	}
-	if !(before < mid) {
-		t.Fatalf("expected before < mid, got before=%q mid=%q", before, mid)
-	}
-	between, err := PosBetween(before, mid)
-	if err != nil {
-		t.Fatalf("PosBetween before mid: %v", err)
-	}
-	if !(between > before && between < mid) {
-		t.Fatalf("expected before < between < mid, got %q %q %q", before, between, mid)
-	}
-}
-
 func TestAllocateRun_Monotonic(t *testing.T) {
 	ids, err := AllocateRun("", "", 5)
 	if err != nil {

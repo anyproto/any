@@ -1,8 +1,8 @@
 package server
 
 import (
+	"context"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -24,9 +24,9 @@ import (
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Router		/ui/commands [post]
 func (d *deps) uiCommandPublish(c echo.Context) error {
-	var cmd api.UICommand
-	if err := c.Bind(&cmd); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.invalid", "invalid JSON body", nil)
+	cmd, ok := bindBody[api.UICommand](c)
+	if !ok {
+		return nil
 	}
 	if cmd.Action == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "action required", nil)
@@ -38,7 +38,7 @@ func (d *deps) uiCommandPublish(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"objectId required for open_object", nil)
 	}
-	n := d.uiHub().publish(cmd)
+	n := d.uiHub().publish(*cmd)
 	return c.JSON(http.StatusOK, api.UICommandPublishResponse{Subscribers: n})
 }
 
@@ -49,7 +49,8 @@ func (d *deps) uiCommandPublish(c echo.Context) error {
 // (reason server_shutdown) or per-subscriber overflow (reason
 // overflow). There is no snapshot — the channel is in-memory and
 // at-most-once, so a subscriber only sees commands published after it
-// connects. Modeled on streamStatusSSE but simpler (no lag counter).
+// connects. Driven by streamStatusSSE (nil dropped counter — the hub
+// signals overflow by closing the channel instead of lag frames).
 //
 //	@Summary	Subscribe to UI commands (SSE)
 //	@Tags		ui
@@ -57,73 +58,24 @@ func (d *deps) uiCommandPublish(c echo.Context) error {
 //	@Success	200
 //	@Router		/ui/commands/subscribe [get]
 func (d *deps) uiCommandSubscribe(c echo.Context) error {
-	if d.streamsWG != nil {
-		d.streamsWG.Add(1)
-		defer d.streamsWG.Done()
-	}
-
 	id, ch := d.uiHub().subscribe()
 	defer d.uiHub().unsubscribe(id)
 
-	w := c.Response()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	if err := writeSSEEvent(w, "ready", "", api.SubscribeReady{}); err != nil {
-		return nil
-	}
-	w.Flush()
-
-	waitCtx, cancelWait := mergeCtx(c.Request().Context(), d.shutdownCtx)
-	defer cancelWait()
-
-	// Keepalive: commands are sparse, so an idle stream would otherwise
-	// sit silent past middlebox timeouts. Stop alongside the loop.
-	stopKeepalive := make(chan struct{})
-	go func() {
-		t := time.NewTicker(keepaliveInterval)
-		defer t.Stop()
+	return d.streamStatusSSE(c, nil, func(ctx context.Context, emit func(string, any) error) error {
 		for {
 			select {
-			case <-stopKeepalive:
-				return
-			case <-waitCtx.Done():
-				return
-			case <-t.C:
-				if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
-					return
+			case cmd, ok := <-ch:
+				if !ok {
+					// Hub dropped us: our buffer filled. Tell the client to
+					// reconnect for a fresh stream.
+					return emit("closed", api.SubscribeClosed{Reason: api.SubscribeClosedOverflow})
 				}
-				flush(w)
-			}
-		}
-	}()
-	defer close(stopKeepalive)
-
-	for {
-		select {
-		case cmd, ok := <-ch:
-			if !ok {
-				// Hub dropped us: our buffer filled. Tell the client to
-				// reconnect for a fresh stream.
-				_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: api.SubscribeClosedOverflow})
-				flush(w)
+				if err := emit("command", cmd); err != nil {
+					return err
+				}
+			case <-ctx.Done():
 				return nil
 			}
-			if err := writeSSEEvent(w, "command", "", cmd); err != nil {
-				return nil
-			}
-			flush(w)
-		case <-waitCtx.Done():
-			// Shutdown writes a terminal frame; a client disconnect does
-			// not (the peer is already gone).
-			if d.shutdownCtx != nil && d.shutdownCtx.Err() != nil {
-				_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: api.SubscribeClosedServerShutdown})
-				flush(w)
-			}
-			return nil
 		}
-	}
+	})
 }

@@ -1,15 +1,18 @@
 package editor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/ensure"
 )
 
 // ErrNotFound signals that a referenced blockId does not exist on the
@@ -109,20 +112,11 @@ func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, 
 // and allocates the next lexid past it. Concurrent inserts may
 // collide on the same pos — that's OK for sibling ordering; the
 // lexid alphabet has enough headroom for clients to re-rank later.
-// EnsureType attaches the editor type to the object's any.types if not
-// already present, so the membership-gated editor_blocks write is
-// admitted by the SDK. Idempotent and cheap: a local read, then
-// AttachType only on first use. Shared by Create and markdown.Set.
+// EnsureType attaches the editor type to the object's any.types so the
+// membership-gated editor_blocks write is admitted by the SDK. Shared
+// by Create and markdown.Set.
 func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == TypeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, TypeId)
-	return err
+	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
 }
 
 func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput) (space.ModifyResult, error) {
@@ -395,8 +389,8 @@ func treeOrder(blocks []Block) []Block {
 	}
 	for parent := range byParent {
 		children := byParent[parent]
-		sort.SliceStable(children, func(i, j int) bool {
-			return children[i].Nav.Pos < children[j].Nav.Pos
+		slices.SortStableFunc(children, func(a, b Block) int {
+			return cmp.Compare(a.Nav.Pos, b.Nav.Pos)
 		})
 		byParent[parent] = children
 	}

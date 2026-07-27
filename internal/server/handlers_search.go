@@ -34,9 +34,9 @@ const maxSearchLimit = 100
 func (d *deps) search(c echo.Context) error {
 	// Body validation before space resolution so 400s don't pay for a
 	// space lookup.
-	var req api.SearchRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.SearchRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.Query == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "query required", nil)
@@ -77,7 +77,7 @@ func (d *deps) search(c echo.Context) error {
 		return errResp
 	}
 
-	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), req)
+	res, err := d.indexer.Search(c.Request().Context(), sp.Id(), *req)
 	if err != nil {
 		if errors.Is(err, indexer.ErrEmbedderUnavailable) {
 			return writeError(c, http.StatusServiceUnavailable, "index.embedder_unavailable",

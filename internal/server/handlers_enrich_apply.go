@@ -10,12 +10,14 @@ import (
 	"github.com/anyproto/any-sync/commonspace/spacestorage"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/enricheddata"
 	"github.com/anyproto/any/internal/enrichproposal"
+	"github.com/anyproto/any/internal/ensure"
 )
 
 // enrichApply handles POST /v1/spaces/:spaceId/enrich/apply — the deterministic
@@ -46,9 +48,9 @@ func (d *deps) enrichApply(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	var req api.EnrichApplyRequest
-	if err := c.Bind(&req); err != nil {
-		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid request body", nil)
+	req, ok := bindBody[api.EnrichApplyRequest](c)
+	if !ok {
+		return nil
 	}
 	if req.ProposalId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "proposalId required", nil)
@@ -143,7 +145,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 				_ = injectNavDefaults(c, sp, nil, &opts)
 				oid, cerr := sp.Objects().Create(ctx, opts)
 				if cerr != nil {
-					res.Failures = append(res.Failures, "create '"+newName+"' failed: "+cerr.Error())
+					handlerLog.Error("enrich apply: create object", zap.Error(cerr))
+					res.Failures = append(res.Failures, "create '"+newName+"' failed")
 					continue
 				}
 				targetId = oid
@@ -165,7 +168,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 				if propId == "" {
 					res.Failures = append(res.Failures, "resolve property "+targetProperty+" failed")
 				} else if err := setStringProperty(ctx, sp, targetId, typeId, propId, value); err != nil {
-					res.Failures = append(res.Failures, "set "+targetProperty+" on "+targetId+" failed: "+err.Error())
+					handlerLog.Error("enrich apply: set property", zap.Error(err))
+					res.Failures = append(res.Failures, "set "+targetProperty+" on "+targetId+" failed")
 				} else {
 					res.PropertiesSet++
 					recTarget, recValue = targetProperty, value
@@ -184,7 +188,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 			t = "(enrichment)"
 		}
 		if _, eerr := enricheddata.Create(ctx, sp, targetId, t, source, recTarget, recValue); eerr != nil {
-			res.Failures = append(res.Failures, "enriched_data write on "+targetId+" failed: "+eerr.Error())
+			handlerLog.Error("enrich apply: enriched_data write", zap.Error(eerr))
+			res.Failures = append(res.Failures, "enriched_data write on "+targetId+" failed")
 		} else {
 			res.EnrichedDataWritten++
 		}
@@ -192,7 +197,8 @@ func (d *deps) enrichApply(c echo.Context) error {
 
 	// 4. delete the ephemeral proposal.
 	if derr := sp.Objects().Delete(ctx, req.ProposalId); derr != nil {
-		res.Failures = append(res.Failures, "delete proposal failed: "+derr.Error())
+		handlerLog.Error("enrich apply: delete proposal", zap.Error(derr))
+		res.Failures = append(res.Failures, "delete proposal failed")
 	} else {
 		res.ProposalDeleted = true
 	}
@@ -207,25 +213,11 @@ func (d *deps) enrichApply(c echo.Context) error {
 // pre-existing object, not just ones that happen to carry the type (same
 // ensure-on-write pattern as enricheddata.EnsureType).
 func setStringProperty(ctx context.Context, sp space.Space, objectId, typeId, propId, value string) error {
-	if err := ensureTypeAttached(ctx, sp, objectId, typeId); err != nil {
+	if err := ensure.TypeAttached(ctx, sp, objectId, typeId); err != nil {
 		return err
 	}
 	arena := &fastjson.Arena{}
 	_, err := sp.Properties().Set(ctx, objectId, typeId, map[string]any{propId: arena.NewString(value)})
-	return err
-}
-
-// ensureTypeAttached attaches typeId to the object's any.types if not already
-// present. Idempotent and cheap.
-func ensureTypeAttached(ctx context.Context, sp space.Space, objectId, typeId string) error {
-	if rec, err := sp.Properties().Get(ctx, objectId); err == nil && rec != nil {
-		for _, v := range rec.GetArray("any", "types") {
-			if string(v.GetStringBytes()) == typeId {
-				return nil
-			}
-		}
-	}
-	_, err := sp.Properties().AttachType(ctx, objectId, typeId)
 	return err
 }
 
