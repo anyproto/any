@@ -341,10 +341,13 @@ any members me       <spaceId>
 any members get      <spaceId> <identity>
 any members requests <spaceId>
 
-any invite create     <spaceId> [--permissions writer|reader]
-any invite list       <spaceId>
+any invite create     <spaceId>
+any invite list       <spaceId>          # rows carry inviteToken on the minting account
+any invite get        <spaceId> <recordId>
 any invite revoke     <spaceId> <recordId>
 any invite revoke-all <spaceId>
+any invite guest-key        <spaceId>    # mint/return the public read-only token (owner)
+any invite guest-key-revoke <spaceId>    # rotate the read key; old guest tokens die
 any invite pending                       # direct-add invites awaiting approval
 any invite accept     <spaceId>          # accept a direct-add invite (loads the space)
 any invite decline    <spaceId>          # decline (sticky; accept later overrides)

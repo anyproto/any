@@ -6533,6 +6533,10 @@
         "api.InviteInfo": {
             "type": "object",
             "properties": {
+                "inviteToken": {
+                    "description": "InviteToken is the same share token POST /invites returned at\nmint time, recovered from the minting account's synced custody.\nPresent only on that account's devices — other members (any\nrole) never held the private key and get no token. Also omitted\nfor invites minted before custody shipped (regenerate once to\nmake the token durable) and for custody gone stale (invite\nreplaced or revoked on another device).",
+                    "type": "string"
+                },
                 "permission": {
                     "type": "string"
                 },

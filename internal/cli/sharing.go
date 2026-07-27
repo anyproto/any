@@ -133,6 +133,19 @@ func newInviteCmd() *cobra.Command {
 			},
 		},
 		&cobra.Command{
+			Use:   "get <spaceId> <recordId>",
+			Short: "one invite record; includes inviteToken on the minting account's devices",
+			Args:  cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				cl := client.New(flags.Addr, flags.Timeout)
+				out, err := cl.InviteGet(cmd.Context(), args[0], args[1])
+				if err != nil {
+					return err
+				}
+				return printJSON(out)
+			},
+		},
+		&cobra.Command{
 			Use:   "revoke <spaceId> <recordId>",
 			Short: "revoke one invite by record id",
 			Args:  cobra.ExactArgs(2),

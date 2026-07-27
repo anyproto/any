@@ -1917,6 +1917,7 @@ directory, which is account-global and carries no rights.
 |--------|------------------------------------------------------|------------------------------------|
 | POST   | `/v1/spaces/:spaceId/invites`                        | `ACL.CreateInvite` — replaces any prior invite |
 | GET    | `/v1/spaces/:spaceId/invites`                        | `MembersAPI.Invites`               |
+| GET    | `/v1/spaces/:spaceId/invites/:recordId`              | `MembersAPI.Invites` — one record; `404 invite.not_found` |
 | DELETE | `/v1/spaces/:spaceId/invites`                        | `ACL.RevokeAllInvites`             |
 | DELETE | `/v1/spaces/:spaceId/invites/:recordId`              | `ACL.RevokeInvite`                 |
 | POST   | `/v1/spaces/join`                                    | `Service.Join` / `Service.JoinGuest` — body carries the share token; guest tokens are auto-detected |
@@ -1953,6 +1954,24 @@ to `active` after the owner accepts.
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent
 collection to revoke all in one batch.
+
+```json
+// GET /v1/spaces/:id/invites
+// → 200
+{ "invites": [
+  { "recordId":"bafyrei…", "permission":"none", "inviteToken":"5ZHbdx…" }
+] }
+```
+
+`inviteToken` on a read is the SAME string the mint returned, recovered
+from the minting account's synced custody (the ACL record itself
+carries only the invite public key). It is present only on the devices
+of the account that minted the invite — every other member, whatever
+their role, gets the row without it. Two more absence cases: invites
+minted before custody shipped (regenerate once to make the token
+durable across devices), and custody gone stale because the invite was
+replaced or revoked on another device. Clients must treat the field as
+optional and fall back to "regenerate to get a shareable code".
 
 #### Guest key (public read-only access)
 

@@ -73,10 +73,7 @@ func (d *deps) inviteGet(c echo.Context) error {
 	}
 	for _, inv := range invs {
 		if inv.RecordId == recordId {
-			return c.JSON(http.StatusOK, api.InviteInfo{
-				RecordId:   inv.RecordId,
-				Permission: spacePermissionString(inv.Permission),
-			})
+			return c.JSON(http.StatusOK, inviteInfoToAPI(sp.Id(), inv))
 		}
 	}
 	return writeError(c, http.StatusNotFound, "invite.not_found",
@@ -103,12 +100,26 @@ func (d *deps) inviteList(c echo.Context) error {
 	}
 	out := make([]api.InviteInfo, 0, len(invs))
 	for _, inv := range invs {
-		out = append(out, api.InviteInfo{
-			RecordId:   inv.RecordId,
-			Permission: spacePermissionString(inv.Permission),
-		})
+		out = append(out, inviteInfoToAPI(sp.Id(), inv))
 	}
 	return c.JSON(http.StatusOK, api.InvitesListResponse{Invites: out})
+}
+
+// inviteInfoToAPI maps one SDK invite row. When the SDK recovered the
+// invite key from this account's custody, re-encode it to the same
+// share token the mint returned; encode failure just omits the token —
+// the row itself is still valid.
+func inviteInfoToAPI(spaceId string, inv space.InviteInfo) api.InviteInfo {
+	out := api.InviteInfo{
+		RecordId:   inv.RecordId,
+		Permission: spacePermissionString(inv.Permission),
+	}
+	if inv.Key != nil {
+		if token, err := space.EncodeInvite(space.Invite{SpaceId: spaceId, InviteKey: inv.Key}); err == nil {
+			out.InviteToken = token
+		}
+	}
+	return out
 }
 
 // inviteRevoke handles DELETE /v1/spaces/:spaceId/invites/:recordId.
