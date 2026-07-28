@@ -342,6 +342,22 @@ create / get / one-to-one / join responses (deriving, i.e.
 materializing, the chat on first sight), omitted on `GET /v1/spaces`
 list rows so listing stays a cheap read.
 
+`SpaceInfo` also carries `agentConfigObjectId` and
+`agentSecretsObjectId`: the deterministic ids of the space's single
+agent config object (dataset `agent_config`, seed
+`any/agent-config/v1`) and agent secrets object (dataset
+`agent_secrets`, seed `any/agent-secrets/v1`). Same surfacing policy as
+`generalChatObjectId` — populated (materializing on first sight, type
+attached) on single-space responses, omitted on list rows. Both
+datasets are raw harness-owned keyspaces, one record per dotted key /
+secret ref; both declare a device-local field the scoped-modify path
+admits local writes to (`agent_config.localValue`,
+`agent_secrets.value` — see § Modify records). Secrets live on their
+own object, split out of `agent_config`, so the agent runtime can gate
+reads on the whole secrets dataset by object id/name with one
+meaningful authorization error, while `agent_config` stays
+guest-readable.
+
 `SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
 at join for a joiner. Immutable once stamped. Rows from before the

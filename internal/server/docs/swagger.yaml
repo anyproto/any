@@ -1311,6 +1311,17 @@ definitions:
           omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
           its config cascade against this object.
         type: string
+      agentSecretsObjectId:
+        description: |-
+          AgentSecretsObjectId is the deterministic id of the space's single
+          agent secrets object (see agentsecrets.SecretsObjectSeed) — the
+          agent_secrets dataset that carries harness secrets, split out of
+          agent_config so the runtime can gate reads on the whole object.
+          Same surfacing policy as AgentConfigObjectId: populated —
+          materializing the object on first sight — on single-space responses
+          (create / get / one-to-one / join), omitted on the cheap
+          `GET /v1/spaces` list rows.
+        type: string
       author:
         type: string
       createdAt:

@@ -108,8 +108,17 @@ type SpaceInfo struct {
 	// (create / get / one-to-one / join), same as GeneralChatObjectId;
 	// omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
 	// its config cascade against this object.
-	AgentConfigObjectId string         `json:"agentConfigObjectId,omitempty"`
-	Push                *SpacePushKeys `json:"push,omitempty"`
+	AgentConfigObjectId string `json:"agentConfigObjectId,omitempty"`
+	// AgentSecretsObjectId is the deterministic id of the space's single
+	// agent secrets object (see agentsecrets.SecretsObjectSeed) — the
+	// agent_secrets dataset that carries harness secrets, split out of
+	// agent_config so the runtime can gate reads on the whole object.
+	// Same surfacing policy as AgentConfigObjectId: populated —
+	// materializing the object on first sight — on single-space responses
+	// (create / get / one-to-one / join), omitted on the cheap
+	// `GET /v1/spaces` list rows.
+	AgentSecretsObjectId string         `json:"agentSecretsObjectId,omitempty"`
+	Push                 *SpacePushKeys `json:"push,omitempty"`
 }
 
 // SpacePushKeys is the per-space key material a push RECEIVER caches —
