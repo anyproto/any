@@ -129,11 +129,12 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 //
 // Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
 // items, agent HISTORY (turns + chunks, scope "history"), enriched_data
-// facts (sourced enrichment knowledge), object properties (name /
-// description / flagged values), and PROGRAM DOCS (description +
-// per-method docs). Deliberately NOT indexed: program SOURCE (code, not
-// knowledge), miniapp content, and enrich_proposal items (ephemeral
-// review scaffolding, deleted on apply) — none has a chunker.
+// facts (sourced enrichment knowledge), and object properties (name /
+// description / flagged values). Deliberately NOT indexed: program
+// SOURCE and its docstrings (code, not knowledge — anybao ADR-010 §5;
+// discovery is help()/describe() in the guest), miniapp content, and
+// enrich_proposal items (ephemeral review scaffolding, deleted on
+// apply) — none has a chunker.
 // enrich_proposal objects are further excluded from the property chunker
 // so their names never leak into search.
 func NewIndexRegistry() *index.Registry {
@@ -144,8 +145,6 @@ func NewIndexRegistry() *index.Registry {
 		agentlog.NewTurnChunker(),
 		agentlog.NewChunkChunker(),
 		enricheddata.NewChunker(), // sourced enrichment facts ARE searchable knowledge
-		program.NewDescriptionChunker(),
-		program.NewMethodsChunker(),
 		// enrich_proposal excluded: ephemeral review scaffolding, not knowledge.
 		index.NewPropChunker(enrichproposal.TypeId),
 	)
