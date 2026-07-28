@@ -5,23 +5,23 @@ import "github.com/anyproto/any-sync-sdk/handler"
 const (
 	TypeId      = "program"
 	Name        = "Program"
-	Description = "JS program with source, description, and method docs"
+	Description = "guest program: source only — docs live in the source's docstrings"
 
-	DatasetSource      = "program_source"
-	DatasetDescription = "program_description"
-	DatasetMethods     = "program_methods"
+	DatasetSource = "program_source"
 
 	// Property keys on the program namespace (literal, like a builtin). `name`
-	// is the program's identifier (a valid JS module name), `version` its
+	// is the program's identifier (a valid module name), `version` its
 	// version tag (e.g. "v1") — distinct from the object's display name
-	// (any.name). Source + docs live in the datasets above. `any_tool` marks
-	// the program as an agent-callable tool: true iff it carries tool docs
-	// (non-empty program_description + ≥1 program_methods record). Tool
-	// discovery (anyHelper.getTools) gates strictly on it — description
-	// presence alone no longer implies toolhood.
+	// (any.name). `any_tool` marks the program as an agent-callable tool and
+	// `summary` carries its one-liner (the module docstring's first line);
+	// both are DERIVED from the source's shape by deploy — caches of code
+	// shape, never authored metadata (anybao ADR-010 §4). Tool discovery
+	// gates strictly on `any_tool`; everything richer than the summary is
+	// read from the source itself (help()/describe() in the guest kernel).
 	PropName    = "name"
 	PropVersion = "version"
 	PropAnyTool = "any_tool"
+	PropSummary = "summary"
 )
 
 func NewType() handler.Type {
@@ -36,11 +36,10 @@ func NewType() handler.Type {
 			{Id: PropName, Name: "Name", Kind: handler.PropertyKindString},
 			{Id: PropVersion, Name: "Version", Kind: handler.PropertyKindString},
 			{Id: PropAnyTool, Name: "Any Tool", Kind: handler.PropertyKindBoolean},
+			{Id: PropSummary, Name: "Summary", Kind: handler.PropertyKindString},
 		},
 		Datasets: []handler.Dataset{
 			{Name: DatasetSource, DataVersion: "1", Handler: handler.DefaultHandler{}},
-			{Name: DatasetDescription, DataVersion: "1", Handler: handler.DefaultHandler{}},
-			{Name: DatasetMethods, DataVersion: "1", Handler: handler.DefaultHandler{}},
 		},
 	}
 }

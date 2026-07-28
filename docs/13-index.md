@@ -62,8 +62,6 @@ the affected window can't be located incrementally.
 | `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
 | `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
-| `program.NewDescriptionChunker()` | `program_description` | `program` | `program`   | the tool description (`text`) |
-| `program.NewMethodsChunker()`     | `program_methods`     | `program` | `program`   | method signature (`name`) + doc (`text`) |
 | `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | per property     | property values (see below) |
 
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
@@ -94,11 +92,12 @@ the affected window can't be located incrementally.
   content hash unchanged and the indexer skips re-embedding (see below) —
   important because memory items are bumped often (accessCount on recall,
   fields on evolution) but their text rarely changes.
-- **Programs index docs, not code.** The `program` type carries three
-  datasets; only `program_description` (tool description) and
-  `program_methods` (per-method `name` + `text`) are indexed, both under
-  scope `program`. `program_source` has no chunker — it is code, not a
-  search target.
+- **Programs are not indexed.** The `program` type carries only
+  `program_source`, and it has no chunker — code (docstrings included)
+  is not a search target (anybao ADR-010 §5). A program's one-liner
+  lives in its `summary` property (not indexed either — builtin type
+  decls carry no `meta["index"]` flag; revisit only if evidence
+  demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `program` are the
   established vocabulary, and property meta flags can mint new ones.
