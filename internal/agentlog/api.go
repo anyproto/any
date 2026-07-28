@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+
+	"github.com/anyproto/any-store/v2/query"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -13,6 +16,12 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
+// ErrSeqDeleted is returned when a client-provided seq points at a
+// tombstoned record. The store absorbs an upsert onto a tombstone
+// without a rejection (CRDT delete-wins), so without this explicit
+// check the append would report success while writing nothing.
+var ErrSeqDeleted = errors.New("agentlog: seq points at a deleted record")
+
 // maxSeqAllocAttempts bounds the server-assigned-seq retry loop. A
 // collision only happens under concurrent writers to the same chat
 // (rare — one agent writer per chat in practice); the loop re-probes
@@ -20,18 +29,48 @@ import (
 // real error to surface).
 const maxSeqAllocAttempts = 8
 
-// nextSeq returns max(seq)+1 for a dataset, or 0 when empty. Not atomic
-// vs concurrent writers — the Upsert-collision on create is the CAS,
-// and appendServerSeq re-probes on a rejection.
+// nextSeq returns max(seq)+1 for a dataset, or 0 when empty. The probe
+// MUST include tombstones: an upsert onto a deleted id is absorbed by
+// CRDT delete-wins with no rejection, so deriving from live records
+// after a history wipe would restart at 0 and every append would
+// vanish into the wiped range forever. Tombstones lose content fields
+// (seq included) but keep their id, and ids are the zero-padded seq
+// (lexical order == numeric order) — so the max is read off the id.
+// Not atomic vs concurrent writers — the append-only rejection on
+// create is the CAS, and appendSeqAssigned re-probes on a rejection.
 func nextSeq(ctx context.Context, sp space.Space, objectId, dataset string) (int, error) {
-	doc, err := sp.Query(objectId, dataset).Sort("-" + FieldSeq).Limit(1).One(ctx)
+	doc, err := sp.Query(objectId, dataset).
+		Projection(space.ProjectionOpts{IncludeDeleted: true}).
+		Sort("-id").Limit(1).One(ctx)
 	if errors.Is(err, space.ErrNotFound) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	return doc.GetInt(FieldSeq) + 1, nil
+	id := string(doc.GetStringBytes("id"))
+	seq, err := strconv.Atoi(id)
+	if err != nil {
+		return 0, fmt.Errorf("max record id %q is not a seq", id)
+	}
+	return seq + 1, nil
+}
+
+// seqTombstoned reports whether recordId exists as a tombstone in the
+// dataset. Live records don't need this probe — an upsert onto a live
+// id becomes a modify and the append-only handler rejects it loudly.
+func seqTombstoned(ctx context.Context, sp space.Space, objectId, dataset, recordId string) (bool, error) {
+	doc, err := sp.Query(objectId, dataset).
+		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, recordId)}).
+		Projection(space.ProjectionOpts{IncludeDeleted: true}).
+		Limit(1).One(ctx)
+	if errors.Is(err, space.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return doc.Get("_deletedAt") != nil, nil
 }
 
 // appendSeqAssigned writes a seq-keyed record. If reqSeq is non-nil the
@@ -197,7 +236,16 @@ func isSeqCollision(reason string) bool {
 
 // create is tryCreate for the client-provided-seq path: any rejection
 // surfaces (a duplicate seq is a real error; a validation reject too).
+// A tombstoned id is checked up front — that collision produces no
+// rejection (see ErrSeqDeleted), so it must be caught before the write.
 func create(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, error) {
+	tombstoned, err := seqTombstoned(ctx, sp, objectId, dataset, recordId)
+	if err != nil {
+		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: tombstone probe: %w", opName, err)
+	}
+	if tombstoned {
+		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: record %s: %w", opName, recordId, ErrSeqDeleted)
+	}
 	res, reason, err := tryCreate(ctx, sp, objectId, dataset, recordId, payload, opName)
 	if err != nil {
 		return space.ModifyResult{}, err

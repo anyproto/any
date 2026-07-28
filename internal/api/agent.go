@@ -148,4 +148,5 @@ const (
 	ErrAgentMemoryInvalid  = "agent.memory_invalid"
 	ErrAgentMemoryNotFound = "agent.memory_not_found"
 	ErrAgentNotAuthor      = "agent.not_author"
+	ErrAgentSeqDeleted     = "agent.seq_deleted"
 )

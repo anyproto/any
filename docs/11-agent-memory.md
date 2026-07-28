@@ -77,7 +77,14 @@ duplicate-seq append turns into a modify and is rejected — callers
 treat that as a seq collision (probe `sort:["-seq"] limit:1` and
 retry). A wiped seq range leaves chunk `fromSeq`/`toSeq` pointers
 dangling; readers must tolerate sparse ranges (a drill-down over a
-wiped range simply returns fewer/no turns).
+wiped range simply returns fewer/no turns). Wiped seqs are never
+reused: the server-side allocator derives the next seq from the max
+record id including tombstones (the id is the only field a tombstone
+keeps, and it encodes the seq), so post-wipe appends continue the
+counter instead of colliding with the wiped range — an upsert onto a
+tombstoned id is absorbed by CRDT delete-wins with no error and no
+write, which is also why a client-provided seq hitting a tombstone is
+rejected explicitly (`409 agent.seq_deleted`).
 
 Indexes: `(seq)`, `(createdAt)`.
 
