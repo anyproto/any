@@ -126,6 +126,13 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusForbidden, "space.read_only",
 			"space is read-only for this account (guest access or reader role)", details)
 	}
+	// Read-state marks racing a space delete/removal (the space is
+	// unknown, deleted, or pending at mark time) — a caller-visible
+	// state, not a server fault.
+	if errors.Is(err, space.ErrSpaceNotTracked) {
+		return writeError(c, http.StatusNotFound, "space.not_found",
+			"space is not tracked on this device (unknown, deleted, or join pending)", details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}

@@ -123,7 +123,28 @@ type Indexer struct {
 
 	mu             sync.Mutex
 	workers        map[string]*spaceWorker
+	retries        map[string]context.CancelFunc // scheduled spawn retries, keyed by spaceId
 	cancelSpaceSub func()
+
+	// spacesAPI is a test seam overriding sdk.Spaces(); nil in production.
+	spacesAPI space.Service
+}
+
+// spawn retry backoff: a Get failure at spawn is usually the first
+// materialization racing the SDK's background boot pass — transient,
+// but a quiescent space emits no further space-list events to
+// re-trigger the spawn, so it must be retried, not dropped.
+const (
+	spawnRetryInitial = 2 * time.Second
+	spawnRetryMax     = time.Minute
+)
+
+// spaces returns the space service — the SDK's, unless a test injected one.
+func (ix *Indexer) spaces() space.Service {
+	if ix.spacesAPI != nil {
+		return ix.spacesAPI
+	}
+	return ix.sdk.Spaces()
 }
 
 // CompiledCaps reports which search legs were compiled into this binary
@@ -142,6 +163,7 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 		opts:    opts.withDefaults(),
 		lg:      logger.NewNamed("indexer"),
 		workers: map[string]*spaceWorker{},
+		retries: map[string]context.CancelFunc{},
 	}
 }
 
@@ -155,7 +177,7 @@ func (ix *Indexer) HasEmbedder() bool { return ix.opts.Embedder != nil }
 func (ix *Indexer) Start(ctx context.Context) {
 	ix.ctx, ix.cancel = context.WithCancel(ctx)
 
-	infos, err := ix.sdk.Spaces().List(ix.ctx)
+	infos, err := ix.spaces().List(ix.ctx)
 	if err != nil {
 		ix.lg.Warn("list spaces at boot", zap.Error(err))
 	}
@@ -166,7 +188,7 @@ func (ix *Indexer) Start(ctx context.Context) {
 	}
 
 	ix.mu.Lock()
-	ix.cancelSpaceSub = ix.sdk.Spaces().Subscribe(func(ev space.SpaceListEvent) {
+	ix.cancelSpaceSub = ix.spaces().Subscribe(func(ev space.SpaceListEvent) {
 		for _, info := range ev.Added {
 			if indexableStatus(info.Status) {
 				ix.spawnWorker(info.Id)
@@ -218,25 +240,76 @@ func (ix *Indexer) Close() error {
 func (ix *Indexer) spawnWorker(spaceId string) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+	ix.spawnWorkerLocked(spaceId, spawnRetryInitial)
+}
+
+// spawnWorkerLocked opens the space and starts its worker. A Get
+// failure schedules a respawn after backoff (doubling, capped) —
+// dropSpace and Close cancel it, and a fresh spawn request supersedes
+// it (resetting the backoff).
+func (ix *Indexer) spawnWorkerLocked(spaceId string, backoff time.Duration) {
 	if _, ok := ix.workers[spaceId]; ok {
+		ix.cancelRetryLocked(spaceId)
 		return
 	}
 	if ix.ctx == nil || ix.ctx.Err() != nil {
 		return
 	}
-	sp, err := ix.sdk.Spaces().Get(ix.ctx, spaceId)
+	sp, err := ix.spaces().Get(ix.ctx, spaceId)
 	if err != nil {
-		ix.lg.Warn("open space for indexing", zap.String("spaceId", spaceId), zap.Error(err))
+		ix.lg.Warn("open space for indexing",
+			zap.String("spaceId", spaceId), zap.Duration("retryIn", backoff), zap.Error(err))
+		ix.scheduleRetryLocked(spaceId, backoff)
 		return
 	}
+	ix.cancelRetryLocked(spaceId)
 	w := newSpaceWorker(ix, sp)
 	ix.workers[spaceId] = w
 	w.start()
 }
 
-// dropSpace stops the space's worker and removes its index data.
+// scheduleRetryLocked (re)arms the spawn retry for spaceId: wait
+// backoff, then retry the spawn carrying the doubled backoff. At most
+// one scheduled retry per space.
+func (ix *Indexer) scheduleRetryLocked(spaceId string, backoff time.Duration) {
+	ix.cancelRetryLocked(spaceId)
+	ctx, cancel := context.WithCancel(ix.ctx)
+	ix.retries[spaceId] = cancel
+	ix.wg.Add(1)
+	go func() {
+		defer ix.wg.Done()
+		t := time.NewTimer(backoff)
+		defer t.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		ix.mu.Lock()
+		defer ix.mu.Unlock()
+		// Cancelled or superseded while the timer fired / mu was contended.
+		if ctx.Err() != nil {
+			return
+		}
+		delete(ix.retries, spaceId)
+		cancel() // release the timer ctx; the retry below re-arms its own
+		ix.spawnWorkerLocked(spaceId, min(backoff*2, spawnRetryMax))
+	}()
+}
+
+// cancelRetryLocked drops the space's scheduled spawn retry, if any.
+func (ix *Indexer) cancelRetryLocked(spaceId string) {
+	if cancel, ok := ix.retries[spaceId]; ok {
+		cancel()
+		delete(ix.retries, spaceId)
+	}
+}
+
+// dropSpace stops the space's worker (or its pending spawn retry) and
+// removes its index data.
 func (ix *Indexer) dropSpace(spaceId string) {
 	ix.mu.Lock()
+	ix.cancelRetryLocked(spaceId)
 	w := ix.workers[spaceId]
 	delete(ix.workers, spaceId)
 	ix.mu.Unlock()

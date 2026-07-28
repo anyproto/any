@@ -53,6 +53,14 @@ func TestAuth_UnauthorizedGuard(t *testing.T) {
 		if h.Account != "" {
 			t.Errorf("unauthorized health must report empty account, got %q", h.Account)
 		}
+		// bootstrapping must be present and false while unauthorized.
+		var raw map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := raw["bootstrapping"]; !ok || v != false {
+			t.Errorf("unauthorized health must carry bootstrapping=false, got %v (present=%v)", v, ok)
+		}
 	}
 
 	// SDK-backed routes are rejected with auth.required.
@@ -189,5 +197,35 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 	}
 	if env.Error.Code != "auth.already_authorized" {
 		t.Fatalf("second POST code = %q", env.Error.Code)
+	}
+}
+
+// Authorized health: bootstrapping tracks the SDK's background boot
+// pass. Mid-pass true is timing-dependent (not cheaply fakeable — the
+// channel is SDK-internal), so pin the deterministic settled state:
+// false once BootstrapDone closes.
+func TestHealth_BootstrappingFalseAfterBootPass(t *testing.T) {
+	d, closeFn := newTestDeps(t)
+	defer closeFn()
+	e := buildEcho(d)
+
+	select {
+	case <-d.sdk.BootstrapDone():
+	case <-time.After(30 * time.Second):
+		t.Fatal("SDK boot pass did not finish in 30s")
+	}
+	rec := doJSON(t, e, http.MethodGet, "/v1/health", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health: %d %s", rec.Code, rec.Body.String())
+	}
+	var h api.HealthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &h); err != nil {
+		t.Fatal(err)
+	}
+	if h.Bootstrapping {
+		t.Error("bootstrapping must be false after BootstrapDone")
+	}
+	if h.Account == "" {
+		t.Error("authorized health must report the account id")
 	}
 }

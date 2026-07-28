@@ -102,6 +102,22 @@ func (d *deps) accountID() string {
 	return d.account
 }
 
+// bootstrapping reports whether the booted SDK's background boot pass
+// (eager space loading + offline catch-up) is still running. False
+// while unauthorized and once the pass completes. The ready gate is
+// the memory barrier for the sdk field read (see accountID).
+func (d *deps) bootstrapping() bool {
+	if !d.ready.Load() || d.sdk == nil {
+		return false
+	}
+	select {
+	case <-d.sdk.BootstrapDone():
+		return false
+	default:
+		return true
+	}
+}
+
 // @Summary	Health check
 // @Tags		system
 // @Produce	json
@@ -109,10 +125,11 @@ func (d *deps) accountID() string {
 // @Router		/health [get]
 func (d *deps) health(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.HealthResponse{
-		Status:    "ok",
-		Version:   version.String(),
-		StartedAt: d.startedAt,
-		Account:   d.accountID(),
+		Status:        "ok",
+		Version:       version.String(),
+		StartedAt:     d.startedAt,
+		Account:       d.accountID(),
+		Bootstrapping: d.bootstrapping(),
 	})
 }
 

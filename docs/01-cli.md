@@ -149,8 +149,9 @@ back off `any space get` (`settings` field) or the raw
 `any space delete` wraps `DELETE /v1/spaces/:id` (`Service.Delete`). It
 is irreversible, so it refuses to run without `--yes`. Deletion is
 offline-first: the server writes the synced `deleted` tombstone and
-reclaims local storage immediately, then drives the signed coordinator
-delete in the background. The row stays in the space list with
+reclaims local storage (immediately in the normal case; a partial sweep
+failure keeps the storage file so the next boot retries), then drives
+the signed coordinator delete in the background. The row stays in the space list with
 `status:"deleted"` (sticky tombstone), so a subsequent `any space query`
 still shows it.
 

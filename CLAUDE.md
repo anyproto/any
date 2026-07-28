@@ -442,9 +442,11 @@ Implementation slices landed:
 18. **Real space deletion** — `any-sync-sdk v0.0.12` turned
     `Service.Delete` from a local-only soft-delete into an offline-first
     real deletion: it writes the synced `remoteStatus=deleted` tombstone,
-    **offloads all local state immediately** (closes watchers + Store,
-    evicts the any-sync space, drops the per-space CRDT collections and
-    DB file, reclaims disk even offline), and kicks a background
+    **offloads all local state** (closes watchers + Store, evicts the
+    any-sync space, drops the per-space CRDT collections and DB file —
+    immediate in the normal case, reclaiming disk even offline; on a
+    partial sweep failure the storage file is kept so the next boot
+    retries), and kicks a background
     reconciler that sends the signed `coordinator.SpaceDelete` (owner-only;
     a non-owned space offloads locally and the reconciler no-ops) and
     also offloads spaces the coordinator reports gone (deleted on another
@@ -790,6 +792,25 @@ Implementation slices landed:
     recency ordering: `{"sort": ["-modifiedAt"]}`. SDK prerequisite:
     anyproto/any-sync-sdk#79 (`modifiedAt` in `anytype.Properties` +
     `Sink.DeriveOnce`).
+
+29. **SDK boot rework adoption (SYN-99)** — the SDK's `Open` now
+    returns after local wiring; eager space loading + offline catch-up
+    run on one SDK-owned serial background pass, completion exposed as
+    `SDK.BootstrapDone() <-chan struct{}` (pre-closed for headless;
+    also closes when Close cancels the pass). `any` adapts:
+    `GET /v1/health` gains `bootstrapping` (true while an authorized
+    engine's pass runs — serving, catch-up in background; per-space
+    convergence stays on `/sync-status`); the indexer's `spawnWorker`
+    retries a failed `Spaces().Get` with backoff (2s doubling, 1m cap
+    — the failure is the first materialization racing the boot pass,
+    and a quiescent space emits no further list events; cancelled on
+    drop/close, `internal/indexer` spawn_retry_test.go); push gets a
+    `Kick()` on `BootstrapDone` (engine.go) so the first subscription
+    sync doesn't miss offline-created chats until the 5m tick; the
+    SDK's new `space.ErrSpaceNotTracked` (read-state marks racing a
+    space delete/remove) maps to `404 space.not_found` instead of 500
+    (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
+    § Meta.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
