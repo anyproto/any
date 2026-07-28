@@ -48,20 +48,16 @@ func (turnsHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChan
 	return nil
 }
 
-// BeforeModify (turns): every edit op is rejected. The raw layer is
-// immutable history; corrections happen at higher layers (a new turn,
-// a new chunk), never by rewriting. This rejection is also the seq-
-// collision signal AppendTurn relies on (an upsert of an existing id
-// becomes a modify) — keep the "append_only" reason string stable.
+// BeforeModify (turns): records are write-once — every edit op is
+// rejected. The "append_only" reason string is also the duplicate-seq
+// collision signal AppendTurn keys on; keep it stable.
 func (turnsHandler) BeforeModify(_ *handler.ChangeCtx, _ *handler.RecordChange, op *handler.Op, _ *handler.Sink) error {
 	return rejectOp("turn", "append_only: "+pathString(op.Path))
 }
 
 // BeforeDelete (turns): author-only, same rule as chat messages and
-// memory items. Records are never edited, but wiping history must be
-// possible — append-only was about efficient immutable storage, not a
-// retention guarantee. A deleted range leaves chunk seq pointers
-// dangling; readers already tolerate sparse seq ranges.
+// memory items. A deleted range leaves chunk seq pointers dangling;
+// readers tolerate sparse ranges.
 func (turnsHandler) BeforeDelete(ctx *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
 	if !isAuthor(ctx) {
 		return rejectRecord("turn", "not_author")
@@ -83,15 +79,14 @@ func (chunksHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordCha
 	return nil
 }
 
-// BeforeModify (chunks): immutable — a summary is a snapshot of a raw
+// BeforeModify (chunks): write-once — a summary is a snapshot of a raw
 // range; re-summarizing means writing a new chunk. Same "append_only"
-// reason contract as turns (CreateChunk's collision signal).
+// reason contract as turns.
 func (chunksHandler) BeforeModify(_ *handler.ChangeCtx, _ *handler.RecordChange, op *handler.Op, _ *handler.Sink) error {
 	return rejectOp("chunk", "append_only: "+pathString(op.Path))
 }
 
-// BeforeDelete (chunks): author-only, same stance as turns — a history
-// wipe removes the summaries along with the raw range they cover.
+// BeforeDelete (chunks): author-only, same stance as turns.
 func (chunksHandler) BeforeDelete(ctx *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
 	if !isAuthor(ctx) {
 		return rejectRecord("chunk", "not_author")
@@ -373,8 +368,7 @@ func checkBool(kind, key string, v *anyenc.Value) error {
 
 // isAuthor compares the existing creator on the record with the
 // change's signer — same fail-closed contract as chat.isAuthor:
-// false if either side is missing (pre-existing records or hand-built
-// test changes must not pass the author gate).
+// false if either side is missing.
 func isAuthor(ctx *handler.ChangeCtx) bool {
 	if ctx == nil || ctx.Change == nil || ctx.Before == nil {
 		return false

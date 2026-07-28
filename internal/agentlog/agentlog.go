@@ -65,11 +65,10 @@
 // Compression never mutates or deletes what it covers — the pointers
 // ARE the "compacted" marker.
 //
-// Both datasets reject every modify (BeforeModify) — records are
-// write-once; the "append_only" rejection doubles as the duplicate-seq
-// collision signal (api.go). Deletes are allowed author-only (chat/
-// memory rule) so history can be wiped; a wiped range leaves chunk
-// seq pointers dangling, which readers must tolerate (sparse ranges).
+// Both datasets are write-once: every modify is rejected (the
+// "append_only" reason doubles as the duplicate-seq collision signal,
+// api.go); deletes are author-only. A wiped range leaves chunk seq
+// pointers dangling — readers tolerate sparse ranges.
 package agentlog
 
 import (
@@ -184,10 +183,9 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			// SkipHistory: turns and chunks are write-once (modify
-			// rejected; delete = author-only wipe), so every record has
-			// exactly one live version — a history index would be pure
-			// dead weight.
+			// SkipHistory: turns and chunks are write-once, so every
+			// record has exactly one live version — a history index
+			// would be pure dead weight.
 			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}, Indexes: turnsHandler{}.Indexes(), SkipHistory: true},
 			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}, Indexes: chunksHandler{}.Indexes(), SkipHistory: true},
 		},

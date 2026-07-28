@@ -43,8 +43,7 @@ func ctxAndSink() (*handler.ChangeCtx, *handler.Sink) {
 }
 
 // deleteCtxAndSink builds a ChangeCtx for a delete signed by `signer`
-// against an existing record created by alice (ctx.Before carries the
-// stamped creator the author gate compares against).
+// against an existing record created by alice.
 func deleteCtxAndSink(signer string) (*handler.ChangeCtx, *handler.Sink) {
 	arena := &anyenc.Arena{}
 	before := arena.NewObject()
