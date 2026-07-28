@@ -5,8 +5,8 @@
 // agent_log). Scoping is structural: one chat object = one turn log.
 //
 // Layering model (docs/11-agent-memory.md): the agent's live context
-// is a bounded window over recent records, but ALL raw turns are kept
-// append-only forever and every summarization layer carries explicit
+// is a bounded window over recent records, all raw turns are kept
+// (never edited) and every summarization layer carries explicit
 // pointers to the raw range it covers, so a reader can always drill
 // down (chunk → raw turns → chat messages / run trace) via indexed
 // range queries — never a bulk load.
@@ -65,9 +65,10 @@
 // Compression never mutates or deletes what it covers — the pointers
 // ARE the "compacted" marker.
 //
-// Both datasets are append-only in v1: BeforeModify and BeforeDelete
-// reject everything. GC/retention is a deliberate non-feature for now;
-// if it lands, chunk pointers may need id-lists instead of seq ranges.
+// Both datasets are write-once: every modify is rejected (the
+// "append_only" reason doubles as the duplicate-seq collision signal,
+// api.go); deletes are author-only. A wiped range leaves chunk seq
+// pointers dangling — readers tolerate sparse ranges.
 package agentlog
 
 import (
@@ -82,7 +83,7 @@ const TypeId = "agent_log"
 
 const (
 	Name        = "Agent Log"
-	Description = "Agent raw conversation layer: append-only turn records plus compressed chunks with explicit raw-range pointers"
+	Description = "Agent raw conversation layer: write-once turn records plus compressed chunks with explicit raw-range pointers"
 )
 
 // Dataset names. Both attach to the chat object.
@@ -182,9 +183,9 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{
-			// SkipHistory: turns and chunks are append-only immutable
-			// (modify/delete rejected), so every record has exactly one
-			// version — a history index would be pure dead weight.
+			// SkipHistory: turns and chunks are write-once, so every
+			// record has exactly one live version — a history index
+			// would be pure dead weight.
 			{Name: DatasetTurns, DataVersion: turnsDataVersion, Handler: turnsHandler{}, Indexes: turnsHandler{}.Indexes(), SkipHistory: true},
 			{Name: DatasetChunks, DataVersion: chunksDataVersion, Handler: chunksHandler{}, Indexes: chunksHandler{}.Indexes(), SkipHistory: true},
 		},

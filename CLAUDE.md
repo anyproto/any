@@ -205,10 +205,11 @@ Implementation slices landed:
     types replace bobrik's markdown-transcript + runtime-typed memory
     scheme. `internal/agentlog` (type `agent_log`) puts two datasets ON
     THE CHAT OBJECT (multitype chat + agent_log, attached on first
-    write): `agent_turns` — one append-only record per agent invocation
+    write): `agent_turns` — one write-once record per agent invocation
     (seq, userText, think, replies[], effects[], messageIds[],
-    traceRef → the run's trace object, llm scalars; modify/delete
-    rejected) — and `agent_chunks` — immutable summaries carrying
+    traceRef → the run's trace object, llm scalars; modify rejected,
+    delete author-only so history can be wiped via `delete-records`) —
+    and `agent_chunks` — write-once summaries (same delete rule) carrying
     EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
     periodStart/periodEnd unix). `internal/agentmem` (type
     `agent_memory`) puts `agent_memory_items` on a per-space brain

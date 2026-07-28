@@ -140,6 +140,32 @@ func TestE2E_AgentBinary(t *testing.T) {
 		t.Errorf("inverted range: code = %q, want %q", env.Error.Code, api.ErrAgentChunkInvalid)
 	}
 
+	// --- delete: write-once but author-deletable (history wipe) -------------
+	// Deletes ride the generic delete-records route; assert rejections
+	// is empty — the handler signals refusals there, not via status.
+	var delRes api.ModifyResult
+	mustJSON(t, http.MethodPost, spaceBase+"/delete-records",
+		fmt.Sprintf(`{"objectId":%q,"dataset":"agent_turns","recordIds":["00000004"]}`, obj.ObjectId),
+		http.StatusOK, &delRes)
+	if len(delRes.Rejections) != 0 {
+		t.Fatalf("author turn delete rejected: %+v", delRes.Rejections)
+	}
+	turns = queryDataset(t, spaceBase, obj.ObjectId, "agent_turns", map[string]any{}, []string{"seq"})
+	if len(turns) != 4 {
+		t.Fatalf("turns after delete = %d, want 4", len(turns))
+	}
+
+	mustJSON(t, http.MethodPost, spaceBase+"/delete-records",
+		fmt.Sprintf(`{"objectId":%q,"dataset":"agent_chunks","recordIds":["00000000"]}`, obj.ObjectId),
+		http.StatusOK, &delRes)
+	if len(delRes.Rejections) != 0 {
+		t.Fatalf("author chunk delete rejected: %+v", delRes.Rejections)
+	}
+	chunks = queryDataset(t, spaceBase, obj.ObjectId, "agent_chunks", map[string]any{}, []string{"seq"})
+	if len(chunks) != 0 {
+		t.Fatalf("chunks after delete = %d, want 0", len(chunks))
+	}
+
 	// --- brain: deterministic id, stable across calls -----------------------
 	var brain1, brain2 api.AgentBrainResponse
 	mustJSON(t, http.MethodGet, spaceBase+"/agent/brain", "", http.StatusOK, &brain1)
