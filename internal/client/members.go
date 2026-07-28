@@ -73,6 +73,16 @@ func (c *Client) InvitesList(ctx context.Context, spaceId string) (*api.InvitesL
 	return &out, nil
 }
 
+func (c *Client) InviteGet(ctx context.Context, spaceId, recordId string) (*api.InviteInfo, error) {
+	var out api.InviteInfo
+	path := fmt.Sprintf("/v1/spaces/%s/invites/%s",
+		url.PathEscape(spaceId), url.PathEscape(recordId))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) InviteRevoke(ctx context.Context, spaceId, recordId string) error {
 	path := fmt.Sprintf("/v1/spaces/%s/invites/%s",
 		url.PathEscape(spaceId), url.PathEscape(recordId))

@@ -265,6 +265,26 @@ func TestE2E_MultipeerInviteAccept(t *testing.T) {
 	if joinerM.Status != api.MemberStatusActive {
 		t.Errorf("joiner status = %q, want active", joinerM.Status)
 	}
+
+	// Custody boundary on the invite read surface: the owner (minting
+	// account) recovers the token on GET, the joiner sees the same
+	// record without it — their account never held the private key.
+	var ownerInv, joinerInv api.InvitesListResponse
+	mustJSON(t, http.MethodGet, owner.base+"/v1/spaces/"+sp.Id+"/invites",
+		"", http.StatusOK, &ownerInv)
+	if len(ownerInv.Invites) != 1 || ownerInv.Invites[0].InviteToken == "" {
+		t.Errorf("owner invites = %+v, want one row with inviteToken", ownerInv.Invites)
+	}
+	if !pollUntil(60*time.Second, func() bool {
+		mustJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id+"/invites",
+			"", http.StatusOK, &joinerInv)
+		return len(joinerInv.Invites) == 1
+	}) {
+		t.Fatalf("joiner never saw the invite record: %+v", joinerInv.Invites)
+	}
+	if joinerInv.Invites[0].InviteToken != "" {
+		t.Errorf("joiner must not recover the invite token: %+v", joinerInv.Invites[0])
+	}
 }
 
 // TestE2E_MultipeerCRDTConvergence creates a type, property, object, and

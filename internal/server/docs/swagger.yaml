@@ -713,6 +713,16 @@ definitions:
     type: object
   api.InviteInfo:
     properties:
+      inviteToken:
+        description: |-
+          InviteToken is the same share token POST /invites returned at
+          mint time, recovered from the minting account's synced custody.
+          Present only on that account's devices — other members (any
+          role) never held the private key and get no token. Also omitted
+          for invites minted before custody shipped (regenerate once to
+          make the token durable) and for custody gone stale (invite
+          replaced or revoked on another device).
+        type: string
       permission:
         type: string
       recordId:

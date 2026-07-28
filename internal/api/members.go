@@ -61,6 +61,14 @@ type InviteCreateResponse struct {
 type InviteInfo struct {
 	RecordId   string `json:"recordId"`
 	Permission string `json:"permission"`
+	// InviteToken is the same share token POST /invites returned at
+	// mint time, recovered from the minting account's synced custody.
+	// Present only on that account's devices — other members (any
+	// role) never held the private key and get no token. Also omitted
+	// for invites minted before custody shipped (regenerate once to
+	// make the token durable) and for custody gone stale (invite
+	// replaced or revoked on another device).
+	InviteToken string `json:"inviteToken,omitempty"`
 }
 
 // InvitesListResponse is the body of GET /v1/spaces/:spaceId/invites.

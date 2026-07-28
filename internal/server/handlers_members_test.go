@@ -126,6 +126,35 @@ func TestServer_MembersInvites_Owner(t *testing.T) {
 	}
 	recordId := inv.Invites[0].RecordId
 
+	// The read surfaces recover the minted token from custody — the
+	// list row and the single-get both carry it, byte-identical.
+	if inv.Invites[0].InviteToken != minted.InviteToken {
+		t.Errorf("list inviteToken = %q, want the minted token %q",
+			inv.Invites[0].InviteToken, minted.InviteToken)
+	}
+	rec = doJSON(t, e, http.MethodGet,
+		"/v1/spaces/"+sp.Id+"/invites/"+recordId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get invite: %d %s", rec.Code, rec.Body.String())
+	}
+	var single api.InviteInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &single); err != nil {
+		t.Fatalf("decode invite: %v", err)
+	}
+	if single.RecordId != recordId {
+		t.Errorf("single.recordId = %q, want %q", single.RecordId, recordId)
+	}
+	if single.InviteToken != minted.InviteToken {
+		t.Errorf("single inviteToken = %q, want the minted token", single.InviteToken)
+	}
+
+	// GET on an unknown record id → 404 invite.not_found.
+	rec = doJSON(t, e, http.MethodGet,
+		"/v1/spaces/"+sp.Id+"/invites/no-such-record", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get unknown invite: %d %s", rec.Code, rec.Body.String())
+	}
+
 	// DELETE /invites/:recordId → 204.
 	rec = doJSON(t, e, http.MethodDelete,
 		"/v1/spaces/"+sp.Id+"/invites/"+recordId, "")
