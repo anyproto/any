@@ -7346,6 +7346,10 @@
                     "description": "AgentConfigObjectId is the deterministic id of the space's single\nagent config object (see agentconfig.ConfigObjectSeed). Populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join), same as GeneralChatObjectId;\nomitted on the cheap `GET /v1/spaces` list rows. The harness resolves\nits config cascade against this object.",
                     "type": "string"
                 },
+                "agentSecretsObjectId": {
+                    "description": "AgentSecretsObjectId is the deterministic id of the space's single\nagent secrets object (see agentsecrets.SecretsObjectSeed) — the\nagent_secrets dataset that carries harness secrets, split out of\nagent_config so the runtime can gate reads on the whole object.\nSame surfacing policy as AgentConfigObjectId: populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join), omitted on the cheap\n`GET /v1/spaces` list rows.",
+                    "type": "string"
+                },
                 "author": {
                     "type": "string"
                 },

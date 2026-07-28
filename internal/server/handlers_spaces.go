@@ -13,6 +13,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/agentconfig"
+	"github.com/anyproto/any/internal/agentsecrets"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -696,6 +697,9 @@ func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	}
 	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
 		out.AgentConfigObjectId = id
+	}
+	if id, err := agentsecrets.DeriveSecretsObjectId(ctx, sp); err == nil {
+		out.AgentSecretsObjectId = id
 	}
 	return out
 }
