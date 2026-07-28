@@ -42,6 +42,19 @@ func ctxAndSink() (*handler.ChangeCtx, *handler.Sink) {
 	return &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}, &handler.Sink{}
 }
 
+// deleteCtxAndSink builds a ChangeCtx for a delete signed by `signer`
+// against an existing record created by alice (ctx.Before carries the
+// stamped creator the author gate compares against).
+func deleteCtxAndSink(signer string) (*handler.ChangeCtx, *handler.Sink) {
+	arena := &anyenc.Arena{}
+	before := arena.NewObject()
+	before.Set(FieldCreator, arena.NewString(alice))
+	return &handler.ChangeCtx{
+		Change: makeChange(signer, 1700000000),
+		Before: before,
+	}, &handler.Sink{}
+}
+
 func newStringArray(arena *anyenc.Arena, items ...string) *anyenc.Value {
 	arr := arena.NewArray()
 	for i, s := range items {
@@ -176,7 +189,7 @@ func TestTurnCreate_RepliesMustBeStrings(t *testing.T) {
 	requireValidationErr(t, err, "replies[0] must be a string")
 }
 
-// --- turns: append-only ------------------------------------------------------
+// --- turns: write-once + author-only delete ----------------------------------
 
 func TestTurnModify_Rejected(t *testing.T) {
 	ctx, sink := ctxAndSink()
@@ -185,10 +198,25 @@ func TestTurnModify_Rejected(t *testing.T) {
 	requireValidationErr(t, err, "append_only")
 }
 
-func TestTurnDelete_Rejected(t *testing.T) {
-	ctx, sink := ctxAndSink()
+func TestTurnDelete_AuthorAllowed(t *testing.T) {
+	ctx, sink := deleteCtxAndSink(alice)
+	if err := (turnsHandler{}).BeforeDelete(ctx, nil, sink); err != nil {
+		t.Fatalf("author delete should be allowed: %v", err)
+	}
+}
+
+func TestTurnDelete_NonAuthorRejected(t *testing.T) {
+	ctx, sink := deleteCtxAndSink("mallory")
 	err := (turnsHandler{}).BeforeDelete(ctx, nil, sink)
-	requireValidationErr(t, err, "append_only")
+	requireValidationErr(t, err, "not_author")
+}
+
+func TestTurnDelete_MissingCreatorRejected(t *testing.T) {
+	// Fail-closed: a record without a stamped creator is not deletable.
+	ctx, sink := ctxAndSink()
+	ctx.Before = (&anyenc.Arena{}).NewObject()
+	err := (turnsHandler{}).BeforeDelete(ctx, nil, sink)
+	requireValidationErr(t, err, "not_author")
 }
 
 // --- chunks: BeforeCreate ----------------------------------------------------
@@ -282,10 +310,17 @@ func TestChunkModify_Rejected(t *testing.T) {
 	requireValidationErr(t, err, "append_only")
 }
 
-func TestChunkDelete_Rejected(t *testing.T) {
-	ctx, sink := ctxAndSink()
+func TestChunkDelete_AuthorAllowed(t *testing.T) {
+	ctx, sink := deleteCtxAndSink(alice)
+	if err := (chunksHandler{}).BeforeDelete(ctx, nil, sink); err != nil {
+		t.Fatalf("author delete should be allowed: %v", err)
+	}
+}
+
+func TestChunkDelete_NonAuthorRejected(t *testing.T) {
+	ctx, sink := deleteCtxAndSink("mallory")
 	err := (chunksHandler{}).BeforeDelete(ctx, nil, sink)
-	requireValidationErr(t, err, "append_only")
+	requireValidationErr(t, err, "not_author")
 }
 
 // --- shared ------------------------------------------------------------------

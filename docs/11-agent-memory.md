@@ -15,11 +15,11 @@ make every summary drill down to the raw range it covers.**
 ```
 chat object  (multitype: chat + agent_log — attached on first agent write)
 ├── chat_messages       what humans & agents said            (internal/chat)
-├── agent_turns         one record per agent invocation —    append-only,
+├── agent_turns         one record per agent invocation —    write-once,
 │                       userText / think / replies / effects   never edited,
-│                       / messageIds / traceRef / llm          never deleted
+│                       / messageIds / traceRef / llm          author-deletable
 └── agent_chunks        one record per compression event —
-                        summary + fromSeq..toSeq + period      immutable
+                        summary + fromSeq..toSeq + period      write-once
 
 space brain object  (type agent_memory, deterministic derived id)
 └── agent_memory_items  typed memory items: category/context/body,
@@ -69,10 +69,15 @@ Every hop is an indexed range query; nothing is ever bulk-loaded.
 
 `seq` is required; everything else optional. Heavy per-LLM-turn detail
 (tool cells, raw API responses) deliberately stays in the run's trace —
-the turn record is the lean conversation-replay unit. Append-only:
-modify and delete are rejected by the handler. A duplicate-seq append
-turns into a modify and is rejected — callers treat that as a seq
-collision (probe `sort:["-seq"] limit:1` and retry).
+the turn record is the lean conversation-replay unit. Write-once:
+modify is rejected by the handler; delete is allowed **author-only**
+(same rule as chat messages and memory items) so history can be wiped —
+write-once is about immutable records, not a retention guarantee. A
+duplicate-seq append turns into a modify and is rejected — callers
+treat that as a seq collision (probe `sort:["-seq"] limit:1` and
+retry). A wiped seq range leaves chunk `fromSeq`/`toSeq` pointers
+dangling; readers must tolerate sparse ranges (a drill-down over a
+wiped range simply returns fewer/no turns).
 
 Indexes: `(seq)`, `(createdAt)`.
 
@@ -94,7 +99,8 @@ Indexes: `(seq)`, `(createdAt)`.
 ```
 
 Required: seq, summary, periodStart ≤ periodEnd, fromSeq ≤ toSeq.
-Immutable. Indexes: `(seq)`, `(periodEnd)`.
+Write-once (modify rejected; author-only delete, same as turns).
+Indexes: `(seq)`, `(periodEnd)`.
 
 ### `agent_memory_items` — typed memory on the brain object
 
@@ -224,9 +230,9 @@ and decay passes can now build on `/search` for the item layer.
 
 **No version history:** `agent_turns` and `agent_chunks` set
 `handler.Dataset.SkipHistory` — turns/chunks are
-append-only immutable, so every record
-has exactly one version and a history index would just duplicate the
-data. They never appear on the `/history` endpoints (docs/03-api.md
+write-once (never edited; deletes just tombstone), so every record
+has exactly one live version and a history index would just duplicate
+the data. They never appear on the `/history` endpoints (docs/03-api.md
 § Version history). `agent_memory_items` keeps history: items evolve
 in place, so their per-record timeline is meaningful.
 
