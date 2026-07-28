@@ -536,6 +536,13 @@ definitions:
     properties:
       account:
         type: string
+      bootstrapping:
+        description: |-
+          Bootstrapping is true while the booted SDK's background boot pass
+          (eager space loading + offline catch-up) is still running. The
+          server serves throughout; per-space convergence is /sync-status.
+          False when unauthorized and after the pass completes.
+        type: boolean
       startedAt:
         type: string
       status:

@@ -124,6 +124,16 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	if cfg.Push.Active() {
 		ps = push.New(sdk, id.Dir)
 		ps.Start(streamsCtx)
+		// The first subscription sync can run before the SDK's background
+		// boot pass materializes offline-created chats; kick a re-sync once
+		// the pass completes so healing doesn't wait for the periodic tick.
+		go func() {
+			select {
+			case <-sdk.BootstrapDone():
+				ps.Kick()
+			case <-streamsCtx.Done():
+			}
+		}()
 	}
 
 	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account}, nil

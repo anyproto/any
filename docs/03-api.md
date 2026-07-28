@@ -126,6 +126,12 @@ live via `/query/subscribe`). One write shape across the whole API.
 `/v1/health` works on an unauthorized server too — `account` is then
 `""`.
 
+`bootstrapping` (bool): `true` while a booted engine's SDK background
+boot pass (eager space loading + offline catch-up) is still running —
+serving, offline catch-up in background; per-space convergence stays
+on `/sync-status`. `false` when unauthorized and after the pass
+completes. See `02-server.md` § Startup / § Health.
+
 ### Auth
 
 | Method | Path        | Purpose                                          |
@@ -281,9 +287,11 @@ the tech-space); there is no `/v1/spaces/derive` route by design.
 It returns `204` as soon as the local half is done — no network round
 trip on the call path: the SDK writes the synced `remoteStatus=deleted`
 tombstone (propagates to the account's other devices, drives the
-`Subscribe` `Removed` event), offloads all local state immediately
-(reclaims disk even offline — closes watchers + Store, evicts the
-any-sync space, drops the per-space CRDT collections and DB file), and
+`Subscribe` `Removed` event), offloads all local state (closes watchers
++ Store, evicts the any-sync space, drops the per-space CRDT
+collections and DB file — immediate in the normal case, reclaiming disk
+even offline; on a partial sweep failure the storage file is kept so
+the next boot retries), and
 kicks a background reconciler that sends the signed
 `coordinator.SpaceDelete` now (if online) or on a later tick. Owner-only
 on the network side: deleting a non-owned space offloads locally and the
