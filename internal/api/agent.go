@@ -30,7 +30,8 @@ type LLMStats struct {
 // POST /v1/spaces/:spaceId/objects/:objectId/agent/turns.
 //
 // One record per agent invocation (human message → end_turn),
-// append-only and immutable. `seq` is the per-chat monotonic ordering
+// write-once (never edited; author-only delete for history wipes).
+// `seq` is the per-chat monotonic ordering
 // key; OMIT it and the server allocates max+1 (the normal path,
 // retrying on collision — no client probe/retry). Provide it only to
 // control the seq explicitly (a duplicate then surfaces as an error).

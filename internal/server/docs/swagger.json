@@ -6277,6 +6277,10 @@
                 "account": {
                     "type": "string"
                 },
+                "bootstrapping": {
+                    "description": "Bootstrapping is true while the booted SDK's background boot pass\n(eager space loading + offline catch-up) is still running. The\nserver serves throughout; per-space convergence is /sync-status.\nFalse when unauthorized and after the pass completes.",
+                    "type": "boolean"
+                },
                 "startedAt": {
                     "type": "string"
                 },

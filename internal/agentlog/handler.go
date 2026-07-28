@@ -48,17 +48,21 @@ func (turnsHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChan
 	return nil
 }
 
-// BeforeModify (turns): agent_turns is append-only — every edit op is
-// rejected. The raw layer is immutable history; corrections happen at
-// higher layers (a new turn, a new chunk), never by rewriting.
+// BeforeModify (turns): records are write-once — every edit op is
+// rejected. The "append_only" reason string is also the duplicate-seq
+// collision signal AppendTurn keys on; keep it stable.
 func (turnsHandler) BeforeModify(_ *handler.ChangeCtx, _ *handler.RecordChange, op *handler.Op, _ *handler.Sink) error {
 	return rejectOp("turn", "append_only: "+pathString(op.Path))
 }
 
-// BeforeDelete (turns): denied in v1 — turns are kept forever so chunk
-// seq-range pointers stay dense and resolvable.
-func (turnsHandler) BeforeDelete(_ *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
-	return rejectRecord("turn", "append_only")
+// BeforeDelete (turns): author-only, same rule as chat messages and
+// memory items. A deleted range leaves chunk seq pointers dangling;
+// readers tolerate sparse ranges.
+func (turnsHandler) BeforeDelete(ctx *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
+	if !isAuthor(ctx) {
+		return rejectRecord("turn", "not_author")
+	}
+	return nil
 }
 
 // BeforeCreate (chunks) validates the creation payload and stamps
@@ -75,15 +79,19 @@ func (chunksHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordCha
 	return nil
 }
 
-// BeforeModify (chunks): immutable — a summary is a snapshot of a raw
-// range; re-summarizing means writing a new chunk.
+// BeforeModify (chunks): write-once — a summary is a snapshot of a raw
+// range; re-summarizing means writing a new chunk. Same "append_only"
+// reason contract as turns.
 func (chunksHandler) BeforeModify(_ *handler.ChangeCtx, _ *handler.RecordChange, op *handler.Op, _ *handler.Sink) error {
 	return rejectOp("chunk", "append_only: "+pathString(op.Path))
 }
 
-// BeforeDelete (chunks): denied in v1, same stance as turns.
-func (chunksHandler) BeforeDelete(_ *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
-	return rejectRecord("chunk", "append_only")
+// BeforeDelete (chunks): author-only, same stance as turns.
+func (chunksHandler) BeforeDelete(ctx *handler.ChangeCtx, _ *handler.RecordChange, _ *handler.Sink) error {
+	if !isAuthor(ctx) {
+		return rejectRecord("chunk", "not_author")
+	}
+	return nil
 }
 
 // --- create validation ------------------------------------------------------
@@ -356,6 +364,24 @@ func checkBool(kind, key string, v *anyenc.Value) error {
 		return rejectCreate(kind, key+" must be a boolean")
 	}
 	return nil
+}
+
+// isAuthor compares the existing creator on the record with the
+// change's signer — same fail-closed contract as chat.isAuthor:
+// false if either side is missing.
+func isAuthor(ctx *handler.ChangeCtx) bool {
+	if ctx == nil || ctx.Change == nil || ctx.Before == nil {
+		return false
+	}
+	signer := ctx.Change.Creator
+	if signer == "" {
+		return false
+	}
+	creator := ctx.Before.Get(FieldCreator)
+	if creator == nil || creator.Type() != anyenc.TypeString {
+		return false
+	}
+	return string(creator.GetStringBytes()) == signer
 }
 
 // --- stamping & rejection ----------------------------------------------------

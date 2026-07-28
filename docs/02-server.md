@@ -48,9 +48,15 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
      account**.
 3. With an account: boot its engine — pid lock in the account dir, open
    the wallet, derive the account id, open the SDK and the indexer —
-   before the listener binds, so boot failures surface immediately.
+   before the listener binds, so boot FAILURES surface immediately.
    `run` does NOT auto-generate a wallet anymore; create accounts with
    `any init` or over HTTP.
+   SDK `Open` returns after local wiring only: eager space loading and
+   offline catch-up replay run on one SDK-owned serial background pass,
+   so the server serves as soon as the listener binds. Until a space's
+   turn in the pass, reads against it serve the pre-offline state.
+   `GET /v1/health` reports the pass via `bootstrapping` (see § Health);
+   per-space convergence stays on `/sync-status`.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores
@@ -152,16 +158,23 @@ the whole process.
 
 ```json
 {
-  "status":    "ok",
-  "version":   "any v0.1.0 (sdk v0.0.0)",
-  "startedAt": "2026-04-23T18:12:00Z",
-  "account":   "A3...accountId..."
+  "status":        "ok",
+  "version":       "any v0.1.0 (sdk v0.0.0)",
+  "startedAt":     "2026-04-23T18:12:00Z",
+  "account":       "A3...accountId...",
+  "bootstrapping": false
 }
 ```
 
 Does not require SDK state — on an unauthorized server `account` is
 `""` and everything else is live. Used by `any status` and by
 supervisors once we add install/service files.
+
+`bootstrapping` is `true` while a booted engine's SDK background boot
+pass (eager space loading + offline catch-up) is still running: the
+server is serving, catch-up happens in the background. `false` when
+unauthorized and once the pass completes. Per-space convergence stays
+on `/sync-status` — this flag only reports the one-shot boot pass.
 
 ## One server = one account
 
