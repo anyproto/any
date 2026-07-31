@@ -392,8 +392,9 @@ rule for `vector` is stronger than for `fts`:
   compile time. Embedding has no place in the mobile runtime anyway.
 - **`fts` is a plain opt-in flag**, available everywhere including
   mobile (`gomobile bind -tags fts` gives full-text search with no
-  embedder). It is off on mobile only because the mobile bind doesn't
-  pass the tag.
+  embedder). Both mobile binds pass it: iOS `-tags 'mobile fts'`, Android
+  `ANY_TAGS := gomobile fts` (DROID-44). ~3 KB of AAR — any-store's
+  fulltext index links either way, the tag only lifts the gate.
 
 Mechanics (`internal/indexer`):
 - `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
@@ -424,7 +425,8 @@ iOS share extension passes `false` (it never searches, and every MB of
 appex headroom matters), the app passes `true` if it wants engine search.
 `index.embedder` is hard-forced to `"none"` on this path regardless (no
 embedder is ever constructed on mobile). The gomobile/Android bind passes
-a constant `true`, a runtime no-op because `fts` is off there anyway.
+a constant `true` — load-bearing now that it builds with `fts`; Android
+has no share extension that would want the index off.
 
 ### Search
 

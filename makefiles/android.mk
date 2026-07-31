@@ -2,15 +2,8 @@ GOBIN    := $(shell go env GOPATH)/bin
 GOMOBILE := $(GOBIN)/gomobile
 GOBIND   := $(GOBIN)/gobind
 
-# Build tags for the Android bind. `gomobile` selects mobile code paths;
-# the search-index legs are opt-in (docs/13-index.md § build tags):
-#   - vector/embeds are ALWAYS off on mobile (capVector = vector &&
-#     !gomobile), so the llama.cpp ffi bindings are never linked — adding
-#     `vector` here is inert.
-#   - to ship full-text search on mobile, add `fts` (e.g.
-#     `ANY_TAGS := gomobile fts`) AND enable the index in the runtime
-#     config (mobile/mobile.go). Neither tag = no search index.
-ANY_TAGS := gomobile
+# `gomobile` selects mobile code paths; `fts` compiles the BM25 search leg
+ANY_TAGS := gomobile fts
 
 # Build the go.mod-PINNED gomobile + gobind into GOPATH/bin and initialize
 # gomobile. `go build <cmd-pkg>` resolves the commands at the version pinned

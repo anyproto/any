@@ -24,9 +24,9 @@ import (
 // Subsequent calls while a server is running return an error.
 //
 // The gomobile bind surface keeps the bound address out of the return tuple
-// (a flat `error`-only signature); read it back with Address(). The core's
-// index policy ("none" embedder, FTS off under gomobile) reduces to the same
-// runtime as before — no embedder is linked on the gomobile bind.
+// (a flat `error`-only signature); read it back with Address(). Index policy:
+// BM25 on (the bind builds with `fts`), embedder "none" (vector is force-off
+// under gomobile).
 func Start(dataDir, listenAddr, nodeconfYAML string) error {
 	return StartWithPush(dataDir, listenAddr, nodeconfYAML, "", "")
 }
@@ -40,8 +40,9 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 // when both are non-empty; pass empty strings for the exact Start
 // behavior (every /v1/push endpoint returns 409 push.disabled).
 func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) error {
-	// IndexEnabled=true is a no-op here: gomobile forces capFTS off at
-	// compile time (no `fts` tag), so the core gate stays false regardless.
+	// Load-bearing since the bind builds with `fts`: the core gate is
+	// `IndexEnabled && capFTS`. A constant, not a bind parameter — Android
+	// has no share extension that would want the index off.
 	_, err := embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,
