@@ -3,8 +3,6 @@ GOMOBILE := $(GOBIN)/gomobile
 GOBIND   := $(GOBIN)/gobind
 
 # `gomobile` selects mobile code paths; `fts` compiles the BM25 search leg
-# (matches the iOS `-tags 'mobile fts'` bind). Vector/embeds stay force-off
-# under gomobile, so no llama.cpp/ffi is linked. docs/13-index.md § build tags.
 ANY_TAGS := gomobile fts
 
 # Build the go.mod-PINNED gomobile + gobind into GOPATH/bin and initialize
