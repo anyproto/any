@@ -181,14 +181,22 @@ Three granularities, all addSeq-consistent (discovered through the same
 | record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
 | any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
 | type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`) | prefix delete `objectId:dataset:` |
-| object deleted (`Space.Delete` — datasets dropped wholesale) | the indexer (shared objects row tombstoned) | prefix delete `objectId:` |
+| object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
-`Space.Delete` leaves a sticky tombstone: content wiped, `_deletedAt`
-set, the delete's `_addSeq` carried onto the row. The SDK's find path
-normally **skips** tombstones; the chunkers' `RecordsSince` and the
-indexer's objects-row read opt in via `Projection({IncludeDeleted:
-true})`. Removing what was never indexed is a no-op everywhere, so all
-three operations are safe to apply unconditionally. Re-attach after a
+Object deletion leaves **no tombstone**: the SDK purges the shared
+`objects` row and every per-object dataset collection outright, and
+announces the deletion once through the change feed as
+`ObjectChange{Deleted: true}` (with an applySeq strictly greater than
+the object's last content change). Consuming that flag is the ONLY
+eviction signal for the object's index docs — nothing re-streams for a
+purged object, so an indexer that skips it keeps the object's `prop`
+docs (name / description / indexed values) forever
+(`space.ChangeIndexAPI`: "Consuming Deleted is MANDATORY for
+eviction"). Record-level tombstones (a deleted chat message, a cleared
+value) DO survive with `_deletedAt` set; chunkers opt in via
+`Projection({IncludeDeleted: true})` and stream them as `Data == ""`.
+Removing what was never indexed is a no-op everywhere, so all
+operations are safe to apply unconditionally. Re-attach after a
 detach does NOT resurrect rows below the cursor — they index on their
 next write ("index from the next change").
 
@@ -243,21 +251,28 @@ any-store database at `<data-dir>/index/index.db`, plus the
   O(N)/query, small spaces). The index is created lazily
   (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (v3 — editor windows;
-  v2 was one doc per block. An old DB errors at boot with a
-  remove-to-rebuild message, no migration: the index is derived state and
-  re-indexes from the next change) and the vector dimension — changing
-  the embedder dimension is the same kind of boot error.
+  plus a `_meta` row pinning the **schema version** (v5 — eviction on
+  `ObjectChange.Deleted`; earlier versions missed object deletions and
+  may hold stale `prop` docs. v4 was the any-store FTS postings bump,
+  v3 editor windows, v2 one doc per block. An old DB errors at boot with
+  a remove-to-rebuild message, no migration: the index is derived state
+  and re-indexes from the next change) and the vector dimension —
+  changing the embedder dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
 The single operation is `advance`: page through
 `Changes().ChangedSince(cursor, batch)`, and per dirty object:
 
-1. **Read the shared objects row once** (`QueryObjects`,
-   `IncludeDeleted`). Tombstoned ⇒ prefix-delete `objectId:` and skip
-   the chunkers (the SDK drops a deleted object's datasets wholesale,
-   so per-record removals never stream for them).
+1. **Deleted ⇒ evict.** A change with `Deleted: true` prefix-deletes
+   `objectId:` and skips the chunkers entirely — the SDK purged the
+   object's projection (no row, no datasets), so the feed flag is the
+   only signal, and once it surfaces no later content change follows.
+   Collected page-wide before chunking, so a content change and the
+   delete landing in the same page can't upsert past the eviction.
+   For live objects, **read the shared objects row once**
+   (`QueryObjects`, `IncludeDeleted`); a tombstoned row is the
+   belt-and-braces catch for a delete racing the row read.
 2. Otherwise, per registered chunker: a non-empty `TypeId()` not in the
    row's `any.types` ⇒ prefix-delete `objectId:<dataset>:` (type
    detached — idempotent, one btree seek when already empty); else run

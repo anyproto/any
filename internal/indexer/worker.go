@@ -151,6 +151,22 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 			return nil
 		}
 
+		// Deletions first: the SDK purges a deleted object's projection
+		// (no `objects` tombstone survives) and announces it as
+		// ObjectChange{Deleted:true} — consuming that flag is the ONLY
+		// eviction signal for the object's docs (space.ChangeIndexAPI).
+		// Collected before the dedup pass so a content change and the
+		// delete landing in the same page never chunk the object after
+		// (or before — Apply runs prefix deletes ahead of upserts) its
+		// eviction. Once Deleted surfaces no later content change
+		// follows, so skipping the chunkers entirely is safe.
+		deleted := map[string]bool{}
+		for _, ch := range changes {
+			if ch.Deleted {
+				deleted[ch.ObjectId] = true
+			}
+		}
+
 		// Dedup object ids; ChangedSince is ascending, so the last
 		// element carries the page's max ApplySeq.
 		seen := map[string]bool{}
@@ -160,6 +176,10 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 				continue
 			}
 			seen[ch.ObjectId] = true
+			if deleted[ch.ObjectId] {
+				page.prefixDels = append(page.prefixDels, ch.ObjectId+":")
+				continue
+			}
 			if err := w.collectObject(ctx, ch.ObjectId, cursor, &page); err != nil {
 				return err
 			}
@@ -203,15 +223,17 @@ type pageOps struct {
 	prefixDels []string
 }
 
-// collectObject gathers one dirty object's page ops, derived from the
+// collectObject gathers one live object's page ops, derived from the
 // shared objects row inside the same ChangedSince window:
-//   - tombstoned row → whole-object prefix delete (the SDK drops a
-//     deleted object's datasets wholesale; per-record removals never
-//     stream for them);
 //   - gated chunkers whose type is not in any.types → dataset prefix
 //     delete (covers DetachType; idempotent — one btree seek when
 //     already empty);
 //   - everything else → the chunkers' entries.
+//
+// Object deletion never reaches this path — advance evicts on
+// ObjectChange.Deleted before chunking. The tombstoned-row check below
+// is belt-and-braces for a delete racing the row read (the row is
+// already gone or mid-purge by the time we look).
 func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor uint64, page *pageOps) error {
 	row, err := w.objectRow(ctx, objectId)
 	if err != nil {

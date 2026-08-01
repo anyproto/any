@@ -494,3 +494,63 @@ func TestIndexer_RealtimeUpdates(t *testing.T) {
 			return len(r.Hits) == 1 && r.Hits[0].Scope == "basic" && r.Hits[0].ObjectId == edObj
 		}, "appended block indexed")
 }
+
+// TestIndexer_ObjectDeleteEviction: deleting an object purges its
+// projection outright — no `objects` tombstone survives — so the ONLY
+// eviction signal is ObjectChange{Deleted:true} on the change feed.
+// The advance must consume it and prefix-evict `objectId:`; the
+// regression this pins: the ungated prop chunker's docs (name /
+// description) have no other removal path, so skipping the flag leaves
+// stale search hits forever. Also pins the read side: a per-object
+// query on the dead id answers 404 object.not_found, not 500.
+func TestIndexer_ObjectDeleteEviction(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough for eviction
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "DeleteEviction")
+	obj := mustCreateObject(t, e, spaceId,
+		`{"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+	chatBase := "/v1/spaces/" + spaceId + "/objects/" + obj
+	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
+		`{"text":"ephemeral quokka message"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "quokka", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 2 { // prop name doc + chat message
+		t.Fatalf("pre-delete hits = %v, want 2", hitRecordIds(res))
+	}
+
+	rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+obj, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete object: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quokka", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Fatalf("post-delete hits = %v, want none", hitRecordIds(res))
+	}
+
+	// A client following a stale hit into the per-object read path gets
+	// a typed 404, not a 500 (any-sync's deleted-tree sentinel mapped).
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query",
+		`{"objectId":"`+obj+`","dataset":"chat_messages"}`)
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())
+	}
+	if rec.Code != http.StatusNotFound || env.Error.Code != "object.not_found" {
+		t.Fatalf("dead-id query = %d %s, want 404 object.not_found", rec.Code, env.Error.Code)
+	}
+}

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -52,11 +50,7 @@ func (d *deps) markdownGet(c echo.Context) error {
 	}
 	content, err := markdown.Get(c.Request().Context(), sp, objectId)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusOK, api.MarkdownContent{Content: content})
 }
@@ -87,11 +81,7 @@ func (d *deps) markdownSet(c echo.Context) error {
 	}
 	res, err := markdown.Set(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	// Always emit non-nil arrays so the wire shape stays stable —
 	// clients can iterate without nil checks.
@@ -142,11 +132,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	}
 	res, err := markdown.Append(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	// Append only ever inserts; emit the same wire shape as Set with
 	// non-nil arrays so clients can iterate without nil checks.

@@ -1028,6 +1028,14 @@ Note there is no `$contains` — a scalar already compares against array
 elements, so `{"any.types": "chat"}` is the contains spelling. Filter
 grammar and the array rules: `09-query.md`.
 
+A per-object read (`objectId` in the body, and likewise the editor /
+markdown / history routes) that names an object this space doesn't
+have — never created here, or deleted — answers `404 object.not_found`.
+The cross-object `objects/query` has no such failure mode: a filter on
+a dead id just returns zero rows. Search hits can briefly outlive their
+object (the index evicts asynchronously), so a client following a hit
+into `/query` must treat 404 as "stale hit", not an error.
+
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
 ```json

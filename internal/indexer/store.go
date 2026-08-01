@@ -27,10 +27,14 @@ const (
 	// v2 = objectId:dataset:recordId primary keys; v3 = editor_blocks
 	// indexed as coalesced windows (win_<anchor>) instead of one doc per
 	// block; v4 = any-store alpha.15 FTS (postings format v2 — FTS v1
-	// indexes have no on-disk back-compat, so the index must be rebuilt).
+	// indexes have no on-disk back-compat, so the index must be rebuilt);
+	// v5 = eviction on ObjectChange.Deleted — earlier indexers missed
+	// object deletions (the SDK purges the objects row instead of
+	// tombstoning it), so a v4 index may hold stale `prop` docs for
+	// deleted objects; the rebuild re-establishes deletions by absence.
 	// Mismatch = boot error advising removal; no migration — the index is
 	// derived state (re-indexes on the next change).
-	indexSchemaVersion = 4
+	indexSchemaVersion = 5
 )
 
 // Store is the indexer-owned any-store database: one collection per
