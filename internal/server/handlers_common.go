@@ -135,17 +135,10 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "space.not_found",
 			"space is not tracked on this device (unknown, deleted, or join pending)", details)
 	}
-	// Per-object reads/writes build the object's tree; any-sync answers
-	// with these sentinels for a deleted or unknown tree. Both are the
-	// caller naming an object this space doesn't have — a 404, not a
-	// server fault (the common route here: a client following a stale
-	// reference, e.g. a search hit that outlived its object).
-	//
-	// STOPGAP: matched against any-sync's sentinels directly (they are
-	// %w-wrapped through the SDK's BuildTree path, so errors.Is holds).
-	// The clean contract is an SDK-exported space.ErrObjectNotFound
-	// wrapping both — raised on the SDK repo; collapse this to one
-	// errors.Is when it lands.
+	// Deleted or unknown tree on a per-object op: the caller named an
+	// object this space doesn't have (e.g. a stale search hit) — 404,
+	// not a server fault. STOPGAP: any-sync sentinels until the SDK
+	// exports space.ErrObjectNotFound (SYN-117).
 	if errors.Is(err, spacestorage.ErrTreeStorageAlreadyDeleted) || errors.Is(err, treestorage.ErrUnknownTreeId) {
 		return writeError(c, http.StatusNotFound, "object.not_found",
 			"object not found in this space (unknown or deleted)", details)

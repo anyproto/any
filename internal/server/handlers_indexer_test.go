@@ -495,14 +495,12 @@ func TestIndexer_RealtimeUpdates(t *testing.T) {
 		}, "appended block indexed")
 }
 
-// TestIndexer_ObjectDeleteEviction: deleting an object purges its
-// projection outright — no `objects` tombstone survives — so the ONLY
-// eviction signal is ObjectChange{Deleted:true} on the change feed.
-// The advance must consume it and prefix-evict `objectId:`; the
-// regression this pins: the ungated prop chunker's docs (name /
-// description) have no other removal path, so skipping the flag leaves
-// stale search hits forever. Also pins the read side: a per-object
-// query on the dead id answers 404 object.not_found, not 500.
+// TestIndexer_ObjectDeleteEviction: an object delete surfaces only as
+// ObjectChange{Deleted:true} — the advance must prefix-evict
+// `objectId:`, including the ungated prop chunker's docs (name /
+// description), which have no other removal path. Also pins the read
+// side: a per-object query on the dead id answers 404
+// object.not_found, not 500.
 func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

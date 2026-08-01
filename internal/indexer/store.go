@@ -28,12 +28,10 @@ const (
 	// indexed as coalesced windows (win_<anchor>) instead of one doc per
 	// block; v4 = any-store alpha.15 FTS (postings format v2 — FTS v1
 	// indexes have no on-disk back-compat, so the index must be rebuilt);
-	// v5 = eviction on ObjectChange.Deleted — earlier indexers missed
-	// object deletions (the SDK purges the objects row instead of
-	// tombstoning it), so a v4 index may hold stale `prop` docs for
-	// deleted objects; the rebuild re-establishes deletions by absence.
-	// Mismatch = boot error advising removal; no migration — the index is
-	// derived state (re-indexes on the next change).
+	// v5 = eviction keyed on ObjectChange.Deleted (rebuild drops docs of
+	// deleted objects). Mismatch = boot error advising removal; no
+	// migration — the index is derived state (re-indexes on the next
+	// change).
 	indexSchemaVersion = 5
 )
 

@@ -187,11 +187,9 @@ Object deletion leaves **no tombstone**: the SDK purges the shared
 `objects` row and every per-object dataset collection outright, and
 announces the deletion once through the change feed as
 `ObjectChange{Deleted: true}` (with an applySeq strictly greater than
-the object's last content change). Consuming that flag is the ONLY
-eviction signal for the object's index docs — nothing re-streams for a
-purged object, so an indexer that skips it keeps the object's `prop`
-docs (name / description / indexed values) forever
-(`space.ChangeIndexAPI`: "Consuming Deleted is MANDATORY for
+the object's last content change). That flag is the ONLY eviction
+signal for the object's index docs — nothing re-streams for a purged
+object (`space.ChangeIndexAPI`: "Consuming Deleted is MANDATORY for
 eviction"). Record-level tombstones (a deleted chat message, a cleared
 value) DO survive with `_deletedAt` set; chunkers opt in via
 `Projection({IncludeDeleted: true})` and stream them as `Data == ""`.
@@ -251,13 +249,12 @@ any-store database at `<data-dir>/index/index.db`, plus the
   O(N)/query, small spaces). The index is created lazily
   (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (v5 — eviction on
-  `ObjectChange.Deleted`; earlier versions missed object deletions and
-  may hold stale `prop` docs. v4 was the any-store FTS postings bump,
-  v3 editor windows, v2 one doc per block. An old DB errors at boot with
-  a remove-to-rebuild message, no migration: the index is derived state
-  and re-indexes from the next change) and the vector dimension —
-  changing the embedder dimension is the same kind of boot error.
+  plus a `_meta` row pinning the **schema version** (the version ↔
+  layout map lives on `indexSchemaVersion` in `internal/indexer/
+  store.go`; a mismatched DB errors at boot with a remove-to-rebuild
+  message, no migration — the index is derived state and re-indexes
+  from the next change) and the vector dimension — changing the
+  embedder dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
@@ -265,14 +262,12 @@ The single operation is `advance`: page through
 `Changes().ChangedSince(cursor, batch)`, and per dirty object:
 
 1. **Deleted ⇒ evict.** A change with `Deleted: true` prefix-deletes
-   `objectId:` and skips the chunkers entirely — the SDK purged the
-   object's projection (no row, no datasets), so the feed flag is the
-   only signal, and once it surfaces no later content change follows.
-   Collected page-wide before chunking, so a content change and the
-   delete landing in the same page can't upsert past the eviction.
-   For live objects, **read the shared objects row once**
-   (`QueryObjects`, `IncludeDeleted`); a tombstoned row is the
-   belt-and-braces catch for a delete racing the row read.
+   `objectId:` and skips the chunkers — the object's projection is
+   purged and no later content change follows. Collected page-wide
+   before chunking, so a same-page content change can't upsert past
+   the eviction. For live objects, **read the shared objects row once**
+   (`QueryObjects`, `IncludeDeleted`); a tombstoned row only catches a
+   delete racing the row read.
 2. Otherwise, per registered chunker: a non-empty `TypeId()` not in the
    row's `any.types` ⇒ prefix-delete `objectId:<dataset>:` (type
    detached — idempotent, one btree seek when already empty); else run

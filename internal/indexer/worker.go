@@ -151,19 +151,14 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 			return nil
 		}
 
-		// Deletions first: the SDK purges a deleted object's projection
-		// (no `objects` tombstone survives) and announces it as
-		// ObjectChange{Deleted:true} — consuming that flag is the ONLY
-		// eviction signal for the object's docs (space.ChangeIndexAPI).
-		// Collected before the dedup pass so a content change and the
-		// delete landing in the same page never chunk the object after
-		// (or before — Apply runs prefix deletes ahead of upserts) its
-		// eviction. Once Deleted surfaces no later content change
-		// follows, so skipping the chunkers entirely is safe.
-		deleted := map[string]bool{}
+		// Deleted is the only eviction signal for an object — its
+		// projection is purged, nothing re-streams (space.ChangeIndexAPI).
+		// Collected page-wide first so a same-page content change never
+		// chunks an object past its eviction.
+		deleted := map[string]struct{}{}
 		for _, ch := range changes {
 			if ch.Deleted {
-				deleted[ch.ObjectId] = true
+				deleted[ch.ObjectId] = struct{}{}
 			}
 		}
 
@@ -176,7 +171,7 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 				continue
 			}
 			seen[ch.ObjectId] = true
-			if deleted[ch.ObjectId] {
+			if _, del := deleted[ch.ObjectId]; del {
 				page.prefixDels = append(page.prefixDels, ch.ObjectId+":")
 				continue
 			}
@@ -231,9 +226,8 @@ type pageOps struct {
 //   - everything else → the chunkers' entries.
 //
 // Object deletion never reaches this path — advance evicts on
-// ObjectChange.Deleted before chunking. The tombstoned-row check below
-// is belt-and-braces for a delete racing the row read (the row is
-// already gone or mid-purge by the time we look).
+// ObjectChange.Deleted before chunking; the tombstoned-row check below
+// only catches a delete racing the row read.
 func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor uint64, page *pageOps) error {
 	row, err := w.objectRow(ctx, objectId)
 	if err != nil {
