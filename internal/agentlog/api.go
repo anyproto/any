@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anyproto/any-store/v2/query"
-
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/ensure"
@@ -17,9 +15,9 @@ import (
 )
 
 // ErrSeqDeleted is returned when a client-provided seq points at a
-// tombstoned record. The store absorbs an upsert onto a tombstone
-// without a rejection (CRDT delete-wins), so without this explicit
-// check the append would report success while writing nothing.
+// tombstoned record. Record deletion is sticky (CRDT delete-wins) —
+// the id can never be reused; the SDK signals the attempt as a
+// whole-record rejection with ReasonErr space.ErrRecordDeleted.
 var ErrSeqDeleted = errors.New("agentlog: seq points at a deleted record")
 
 // maxSeqAllocAttempts bounds the server-assigned-seq retry loop. A
@@ -56,23 +54,6 @@ func nextSeq(ctx context.Context, sp space.Space, objectId, dataset string) (int
 	return seq + 1, nil
 }
 
-// seqTombstoned reports whether recordId exists as a tombstone in the
-// dataset. Live records don't need this probe — an upsert onto a live
-// id becomes a modify and the append-only handler rejects it loudly.
-func seqTombstoned(ctx context.Context, sp space.Space, objectId, dataset, recordId string) (bool, error) {
-	doc, err := sp.Query(objectId, dataset).
-		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, recordId)}).
-		Projection(space.ProjectionOpts{IncludeDeleted: true}).
-		Limit(1).One(ctx)
-	if errors.Is(err, space.ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return doc.Get("_deletedAt") != nil, nil
-}
-
 // appendSeqAssigned writes a seq-keyed record. If reqSeq is non-nil the
 // caller controls the seq (a collision surfaces as an error). If nil,
 // the server allocates max+1 and retries on collision (ADR-006 §1 —
@@ -90,16 +71,16 @@ func appendSeqAssigned(
 		if err != nil {
 			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: alloc seq: %w", opName, err)
 		}
-		res, reason, err := tryCreate(ctx, sp, objectId, dataset, RecordId(seq), buildPayload(seq), opName)
+		res, rej, err := tryCreate(ctx, sp, objectId, dataset, RecordId(seq), buildPayload(seq), opName)
 		if err != nil {
 			return space.ModifyResult{}, err
 		}
-		if reason == "" {
+		if rej == nil {
 			return res, nil
 		}
-		if !isSeqCollision(reason) {
+		if !isSeqCollision(rej) {
 			// validation rejection — surface immediately, don't retry.
-			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, reason)
+			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, rej.Reason)
 		}
 		lastSeq = seq // collision — re-probe and retry
 	}
@@ -197,11 +178,12 @@ func CreateChunk(ctx context.Context, sp space.Space, objectId string, req api.A
 // tryCreate is the shared single-record write: one multi-field $set
 // with an explicit id, upsert so first-write creates (a second write
 // with the same id becomes a MODIFY and is rejected by the append-only
-// handler — the collision signal, reason "append_only:"). Returns the
-// rejection REASON separately (empty = success) so the caller can tell
-// a seq collision (retry) from a validation rejection (surface): only
-// an "append_only" reason means the id is taken.
-func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, string, error) {
+// handler — the collision signal, reason "append_only:"; a write onto
+// a TOMBSTONED id is rejected by the SDK with ReasonErr
+// space.ErrRecordDeleted). Returns the rejection separately (nil =
+// success) so the caller can tell an id-taken collision (retry /
+// conflict) from a validation rejection of the payload (surface).
+func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, *space.OpRejection, error) {
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
 		Dataset:  dataset,
@@ -216,42 +198,43 @@ func tryCreate(ctx context.Context, sp space.Space, objectId, dataset, recordId 
 		}},
 	})
 	if err != nil {
-		return space.ModifyResult{}, "", fmt.Errorf("agentlog: %s: modify: %w", opName, err)
+		return space.ModifyResult{}, nil, fmt.Errorf("agentlog: %s: modify: %w", opName, err)
 	}
 	if len(res.Rejections) > 0 {
-		return space.ModifyResult{}, res.Rejections[0].Reason, nil
+		return space.ModifyResult{}, &res.Rejections[0], nil
 	}
 	if len(res.RecordIds) == 0 {
-		return space.ModifyResult{}, "", fmt.Errorf("agentlog: %s: empty RecordIds", opName)
+		return space.ModifyResult{}, nil, fmt.Errorf("agentlog: %s: empty RecordIds", opName)
 	}
-	return res, "", nil
+	return res, nil, nil
 }
 
-// isSeqCollision reports whether a rejection reason is the append-only
-// gate firing on an existing id (a seq collision) vs a validation
-// rejection of the payload (which must surface, not retry).
-func isSeqCollision(reason string) bool {
-	return strings.Contains(reason, "append_only")
+// isSeqCollision reports whether a rejection means "this id is taken"
+// — the append-only gate firing on a live record, or the SDK's
+// tombstone rejection (space.ErrRecordDeleted; deleted ids are sticky
+// and never reused) — vs a validation rejection of the payload (which
+// must surface, not retry). Both collision kinds are retryable for
+// the server-assigned path: the re-probe includes tombstones, so it
+// lands past whatever consumed the id.
+func isSeqCollision(rej *space.OpRejection) bool {
+	return errors.Is(rej.ReasonErr, space.ErrRecordDeleted) ||
+		strings.Contains(rej.Reason, "append_only")
 }
 
 // create is tryCreate for the client-provided-seq path: any rejection
 // surfaces (a duplicate seq is a real error; a validation reject too).
-// A tombstoned id is checked up front — that collision produces no
-// rejection (see ErrSeqDeleted), so it must be caught before the write.
+// The SDK's tombstone rejection maps to ErrSeqDeleted so the handler
+// can answer a typed 409 instead of an opaque internal error.
 func create(ctx context.Context, sp space.Space, objectId, dataset, recordId string, payload map[string]any, opName string) (space.ModifyResult, error) {
-	tombstoned, err := seqTombstoned(ctx, sp, objectId, dataset, recordId)
-	if err != nil {
-		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: tombstone probe: %w", opName, err)
-	}
-	if tombstoned {
-		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: record %s: %w", opName, recordId, ErrSeqDeleted)
-	}
-	res, reason, err := tryCreate(ctx, sp, objectId, dataset, recordId, payload, opName)
+	res, rej, err := tryCreate(ctx, sp, objectId, dataset, recordId, payload, opName)
 	if err != nil {
 		return space.ModifyResult{}, err
 	}
-	if reason != "" {
-		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, reason)
+	if rej != nil {
+		if errors.Is(rej.ReasonErr, space.ErrRecordDeleted) {
+			return space.ModifyResult{}, fmt.Errorf("agentlog: %s: record %s: %w", opName, recordId, ErrSeqDeleted)
+		}
+		return space.ModifyResult{}, fmt.Errorf("agentlog: %s: rejected: %s", opName, rej.Reason)
 	}
 	return res, nil
 }

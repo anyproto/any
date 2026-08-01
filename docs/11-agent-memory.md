@@ -81,10 +81,10 @@ wiped range simply returns fewer/no turns). Wiped seqs are never
 reused: the server-side allocator derives the next seq from the max
 record id including tombstones (the id is the only field a tombstone
 keeps, and it encodes the seq), so post-wipe appends continue the
-counter instead of colliding with the wiped range — an upsert onto a
-tombstoned id is absorbed by CRDT delete-wins with no error and no
-write, which is also why a client-provided seq hitting a tombstone is
-rejected explicitly (`409 agent.seq_deleted`).
+counter instead of colliding with the wiped range. Record deletion is
+sticky (CRDT delete-wins) — the SDK rejects any write onto a
+tombstoned id (`space.ErrRecordDeleted`), which a client-provided seq
+surfaces as `409 agent.seq_deleted`.
 
 Indexes: `(seq)`, `(createdAt)`.
 
