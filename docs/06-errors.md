@@ -83,7 +83,7 @@ agent.memory_invalid             # memory item shape violation (category/context
 agent.memory_not_found           # 404 — unknown itemId on evolve/delete
 agent.not_author                 # 403 — evolve/delete by non-creator
 
-type.not_found
+type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
 type.registered                  # 400 — add/patch/remove a property on a registered built-in type (properties are static)
@@ -114,7 +114,7 @@ search.bad_mode                  # 400 — mode not hybrid | fts | vector
 search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], max 64; scopes are an open set)
 
 sdk.not_implemented              # 501 — SDK placeholder (sync-status, some Properties/Types subroutes)
-sdk.not_found                    # 404 — SDK reports the target is gone (deleted, never existed as a type, etc.)
+sdk.not_found                    # 404 — SDK reports the target is gone (deleted object, unknown property, etc.)
 
 server.unavailable               # 503 — request cancelled / server shutting down
 internal                         # catch-all for 500s

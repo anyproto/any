@@ -406,10 +406,9 @@ func TestServer_CrossObjectQueryFlow(t *testing.T) {
 	}
 }
 
-// TestServer_TypeGet_NotFound covers the 404 sdk.not_found path on
+// TestServer_TypeGet_NotFound covers the 404 type.not_found path on
 // Types.Get when the id resolves to an object that isn't tagged as a
-// type. (The SDK currently returns a wrapped store error for ids that
-// aren't objects at all — that path is documented as a roadmap gap.)
+// type.
 func TestServer_TypeGet_NotFound(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -438,8 +437,8 @@ func TestServer_TypeGet_NotFound(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}
-	if env.Error.Code != "sdk.not_found" {
-		t.Errorf("code = %q, want sdk.not_found", env.Error.Code)
+	if env.Error.Code != "type.not_found" {
+		t.Errorf("code = %q, want type.not_found", env.Error.Code)
 	}
 }
 

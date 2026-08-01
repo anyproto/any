@@ -1327,6 +1327,13 @@ the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`chat`, `nav`, …) are registered,
 not created here, and resolve by their literal id.
 
+`GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
+type.not_found` for an unknown typeId (deleted, never existed, or an id
+that resolves to a non-type object). The properties list is
+existence-checked server-side — the SDK's `Properties` returns an empty
+slice for unknown ids — so a `200 []` always means "the type exists and
+has no property definitions yet", never "no such type".
+
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
 `GET …/properties`. It is opaque consumer metadata; the one convention
