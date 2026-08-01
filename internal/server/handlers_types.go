@@ -203,7 +203,7 @@ func (d *deps) typeGet(c echo.Context) error {
 	info, err := sp.Types().Get(c.Request().Context(), typeId)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "sdk.not_found",
+			return writeError(c, http.StatusNotFound, "type.not_found",
 				"type not found",
 				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 		}
@@ -235,10 +235,22 @@ func (d *deps) typeProperties(c echo.Context) error {
 	if typeId == nav.TypeId {
 		return c.JSON(http.StatusOK, api.PropertiesListResponse{Properties: nav.PropertyDefs()})
 	}
+	// The SDK's Properties returns an empty slice for an unknown typeId
+	// (the type's defs collection simply doesn't exist), which is
+	// indistinguishable from "type exists, no properties yet". Check
+	// existence first so a bad id is a typed 404, not a silent 200 [].
+	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
+		if errors.Is(err, space.ErrNotFound) {
+			return writeError(c, http.StatusNotFound, "type.not_found",
+				"type not found",
+				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		}
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+	}
 	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "sdk.not_found",
+			return writeError(c, http.StatusNotFound, "type.not_found",
 				"type not found",
 				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 		}
