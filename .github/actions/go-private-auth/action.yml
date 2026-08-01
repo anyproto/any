@@ -14,8 +14,12 @@ description: >-
 #   two credential sources don't collide. (Used by the desktop, android, and
 #   ios build jobs in _build-any.yml.)
 #
-# GOPRIVATE=github.com/anyproto/* skips the public proxy + checksum DB for the
-# private modules; public deps still go through the proxy untouched.
+# GOPRIVATE is scoped to any-sync-sdk — the only private anyproto module.
+# The PUBLIC anyproto modules (any-sync, any-store, anytype-agent-runtime)
+# must ride the Go proxy + checksum DB like any other dep: resolving them
+# with direct git makes every job hostage to the runner's persistent
+# module/vcs cache — a stale clone there fails new tags with "unknown
+# revision" until someone flushes /root/go/pkg/mod by hand.
 
 inputs:
   token:
@@ -32,5 +36,5 @@ runs:
       env:
         GIT_TOKEN: ${{ inputs.token }}
       run: |
-        echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
+        echo "GOPRIVATE=github.com/anyproto/any-sync-sdk" >> "$GITHUB_ENV"
         git config --global url."https://x-access-token:${GIT_TOKEN}@github.com/anyproto/".insteadOf "https://github.com/anyproto/"
