@@ -173,8 +173,15 @@ const (
 
 // SeqPadWidth is the zero-pad width for record ids derived from seq —
 // wide enough that lexical id order matches numeric insertion order
-// for any realistic log length.
+// for any realistic log length. The pad is load-bearing for the seq
+// allocator: nextSeq reads the max seq off the lexically-greatest
+// record id, so ids longer than the pad would break the ordering.
+// MaxSeq caps seq accordingly (enforced at create).
 const SeqPadWidth = 8
+
+// MaxSeq is the largest storable seq — the widest value the id pad
+// keeps lexically ordered.
+const MaxSeq = 1e8 - 1
 
 // NewType returns the handler.Type to add to config.Config.Types.
 func NewType() handler.Type {

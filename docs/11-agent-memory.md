@@ -84,7 +84,11 @@ keeps, and it encodes the seq), so post-wipe appends continue the
 counter instead of colliding with the wiped range. Record deletion is
 sticky (CRDT delete-wins) — the SDK rejects any write onto a
 tombstoned id (`space.ErrRecordDeleted`), which a client-provided seq
-surfaces as `409 agent.seq_deleted`.
+surfaces as `409 agent.seq_deleted`. The id ↔ seq bond is enforced at
+create: a record whose id is not its zero-padded seq rejects
+(`id_mismatch` — a foreign id, e.g. via generic `POST /modify`, would
+become the lexical max and wedge the allocator), and seq is capped at
+`10^8 - 1` so ids stay inside the pad width.
 
 Indexes: `(seq)`, `(createdAt)`.
 
