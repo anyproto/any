@@ -13,13 +13,6 @@ description: >-
 #   token. Pair this with `persist-credentials: false` on the checkout so the
 #   two credential sources don't collide. (Used by the desktop, android, and
 #   ios build jobs in _build-any.yml.)
-#
-# GOPRIVATE is scoped to any-sync-sdk — the only private anyproto module.
-# The PUBLIC anyproto modules (any-sync, any-store, anytype-agent-runtime)
-# must ride the Go proxy + checksum DB like any other dep: resolving them
-# with direct git makes every job hostage to the runner's persistent
-# module/vcs cache — a stale clone there fails new tags with "unknown
-# revision" until someone flushes /root/go/pkg/mod by hand.
 
 inputs:
   token:
