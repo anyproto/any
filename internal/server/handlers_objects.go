@@ -16,6 +16,11 @@ import (
 	"github.com/anyproto/any/internal/nav"
 )
 
+// objectCreateFieldsHint rides every unknown-field rejection on object
+// create, naming the right home for the most commonly misplaced keys
+// (top-level name / description / a bare type-key group like "any").
+const objectCreateFieldsHint = `object properties (name, description, custom fields) go under initialProperties keyed by type, e.g. {"initialProperties": {"any": {"name": "Dune"}}}`
+
 // objectCreate handles POST /v1/spaces/:spaceId/objects.
 //
 //	@Summary	Create an object
@@ -50,8 +55,28 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 	}
 
+	if errResp, done := checkUnknownFields(c, root, objectCreateFieldsHint, "types", "initialProperties", "nav"); done {
+		return errResp
+	}
+
 	opts := space.CreateObjectOpts{}
 	if root != nil {
+		// The three accepted fields are shape-checked before positive
+		// extraction: a `types` string or an `initialProperties` array
+		// would otherwise be skipped unread — the same silent-drop trap
+		// checkUnknownFields closes for misspelled keys.
+		if v := root.Get("types"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"types must be an array of type ids", nil)
+		}
+		if v := root.Get("nav"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"nav must be an object with optional type / parentId / pos", nil)
+		}
+		if v := root.Get("initialProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
+			return writeError(c, http.StatusBadRequest, "request.schema",
+				"initialProperties must be an object keyed by type id, e.g. {\"any\": {\"name\": \"…\"}}", nil)
+		}
 		if types := root.GetArray("types"); len(types) > 0 {
 			opts.Types = make([]string, 0, len(types))
 			for _, v := range types {
@@ -60,9 +85,11 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 		if ip := root.GetObject("initialProperties"); ip != nil {
 			opts.InitialProperties = map[string]map[string]any{}
+			var badGroup string
 			ip.Visit(func(typeKey []byte, props *fastjson.Value) {
 				obj, err := props.Object()
 				if err != nil {
+					badGroup = string(typeKey)
 					return
 				}
 				kv := map[string]any{}
@@ -71,6 +98,11 @@ func (d *deps) objectCreate(c echo.Context) error {
 				})
 				opts.InitialProperties[string(typeKey)] = kv
 			})
+			if badGroup != "" {
+				return writeError(c, http.StatusBadRequest, "request.schema",
+					fmt.Sprintf("initialProperties.%s must be an object of {propertyId: value}", badGroup),
+					map[string]any{"typeKey": badGroup})
+			}
 		}
 	}
 

@@ -90,6 +90,9 @@ func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryO
 			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
+	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
+		return nil, space.QueryOpts{}, errResp, true
+	}
 	q, opts := applyQueryParams(root, sp.QueryObjects())
 	return q, opts, nil, false
 }
@@ -108,16 +111,31 @@ func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.Que
 	if err != nil {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
+	if errResp, done := checkUnknownFields(c, root, "", append([]string{"objectId", "dataset"}, queryBodyFields...)...); done {
+		return nil, space.QueryOpts{}, "", "", errResp, true
+	}
 	objectId := string(root.GetStringBytes("objectId"))
 	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
+	}
+	if isSerializedNil(objectId) {
+		return nil, space.QueryOpts{}, "", "", serializedNilIdError(c, "objectId", objectId), true
 	}
 	if dataset == "" {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
 	return q, opts, objectId, dataset, nil, false
+}
+
+// queryBodyFields is the closed top-level vocabulary of the windowed
+// query/subscribe request body — applyQueryParams' read set plus the
+// accepted-but-ignored `projection` (docs/07-roadmap.md). Callers of
+// checkUnknownFields append their own extras (objectId, dataset).
+var queryBodyFields = []string{
+	"filter", "sort", "limit", "offset", "includeTotal",
+	"mailboxCapacity", "driftBudgetPercent", "projection",
 }
 
 // applyQueryParams reads filter / sort / limit / offset / includeTotal

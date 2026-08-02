@@ -960,6 +960,17 @@ defaults:
 }
 ```
 
+These three keys are the **whole** create vocabulary. Any other
+top-level key — a bare type group like `"any"`, a top-level `"name"`,
+a typo — is `400 request.unknown_field` naming the accepted set and
+where the value belongs: object properties always ride
+`initialProperties` keyed by type
+(`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
+enforced per field too (`types` an array, `nav` and
+`initialProperties` objects, every `initialProperties` group an
+object of `{propertyId: value}`) → `400 request.schema`. Nothing in
+this body is ever silently dropped.
+
 `nav.pos` defaults to the next lexid after the current max pos in the
 target folder (queried server-side at create time); `Middle()` when
 the folder is empty. Mirrors anytype-heart's `LexId.Next(prev)`
@@ -1105,6 +1116,16 @@ into `/query` must treat 404 as "stale hit", not an error.
   "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
 }
 ```
+
+This field set is **closed**: an unrecognized top-level key answers
+`400 request.unknown_field` listing the accepted vocabulary (so a
+`filters` typo fails loudly instead of silently querying the whole
+space), and a body that isn't a JSON object is `400 request.schema`.
+An `objectId` that is a serialized nil (`"None"`, `"null"`,
+`"undefined"`, …) is `400 object.id_required` — the caller's id
+variable was unset. The same closed set guards the space-list and
+files query/subscribe bodies (plus their own `dataset` / `objectId`
+extras where documented).
 
 **`projection` is not implemented yet.** The field is accepted in the
 body but the server doesn't thread it to `Query.Projection`, and the
@@ -1387,6 +1408,14 @@ type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`chat`, `nav`, …) are registered,
 not created here, and resolve by their literal id.
+
+The create body is strictly `{name?, description?, iconCid?, xKey}` —
+**inline property definitions are not part of type create** (no SDK
+surface accepts them). A `properties` key, or any other unknown
+top-level key, answers `400 request.unknown_field` pointing at the
+per-field route: create the type, then add each property via
+`POST …/types/:typeId/properties` (each add materializes the schema
+immediately).
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id

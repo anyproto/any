@@ -122,6 +122,9 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 			return nil, space.QueryOpts{}, "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
+	if errResp, done := checkUnknownFields(c, root, "", append([]string{"dataset"}, queryBodyFields...)...); done {
+		return nil, space.QueryOpts{}, "", errResp, true
+	}
 	dataset := SpaceListDataset
 	if root != nil {
 		if ds := string(root.GetStringBytes("dataset")); ds != "" {

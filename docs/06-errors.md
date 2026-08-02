@@ -44,9 +44,10 @@ Dotted identifiers grouped by SDK section. Concrete codes are added as
 handlers are implemented; examples:
 
 ```
-request.bad_json                 # request body is not valid JSON
+request.bad_json                 # request body is not valid JSON; message names what failed to parse and the expected field set
 request.schema                   # JSON shape doesn't match endpoint schema
 request.missing_field            # required field absent
+request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). Strict endpoints: POST /objects, the query/subscribe bodies, POST /types.
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — engine already booted; restart to switch
@@ -66,6 +67,7 @@ space.deleted                    # 409 — space is deleted (row is a tombstone)
 invite.invalid                   # invite token malformed or unrecognized
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
+object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 
 dataset.unknown                  # no handler registered
