@@ -17,9 +17,19 @@ endpoints — never through a generic write path:
 
 The handler is what stamps server-owned fields (`creator` / `createdAt` /
 `modifiedAt`), enforces author-only edit/delete, and keys reactions per
-identity. Bypassing it would skip all of that. The lone write-shaped
-exception is `PUT /editor/markdown`, which is a render/import *transform*,
-not a dataset write.
+identity. Bypassing it would skip all of that. The write-shaped
+exceptions are the `…/editor/markdown` routes, which are render/import
+*transforms* over `editor_blocks`, not dataset writes. Pick by change
+shape:
+
+- **Targeted change** ("tick this box", "fix this line") →
+  `PATCH …/editor/markdown` with `{edits: [{oldText, newText}]}`.
+  Never do `GET → string-replace → PUT`: the PATCH matches
+  server-side against the current state, so it can't clobber
+  concurrent edits and a stale quote fails loudly
+  (`markdown.no_match` → re-`GET` and quote the exact text).
+- **Full rewrite / import** → `PUT …/editor/markdown`.
+- **Tail growth** (logs, transcripts) → `POST …/editor/markdown/append`.
 
 Every write returns the shared `api.ModifyResult`
 (`{versionId, changeId, recordIds}`), never the record body —

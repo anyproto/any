@@ -103,6 +103,10 @@ history.version_not_found        # 404 — unknown version (ChangeId), or not in
 history.view_too_large           # 413 — materializing that version blew the SDK's view bound; narrow with dataset/recordId
 history.truncated                # 404 — the causal past needed is not on this device (reserved; the SDK keeps full history today)
 
+markdown.no_match                # 400 — an edits[i].oldText not found in the current rendering (details.editIndex); GET .../editor/markdown and quote exactly
+markdown.ambiguous_match         # 400 — oldText occurs >1 times without replaceAll (details.editIndex, details.occurrences); add context or set replaceAll
+markdown.overlapping_edits       # 400 — two edits matched intersecting text (details.editIndices); merge them into one edit
+
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 

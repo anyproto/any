@@ -720,6 +720,7 @@ change" (`docs/13-index.md`).
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | reverse reference lookup (no SDK method) |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
 | PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | targeted oldText → newText replacements |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown/append`       | append markdown at tail (no read/diff) |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | create one block         |
 | PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | $set / $unset one block  |
@@ -745,6 +746,52 @@ PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
 fire under the hood. `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N}` where the slices
 contain block ids.
+
+`PATCH …/editor/markdown` is the surgical variant of `PUT` — for
+callers (LLM agents above all) that know the *text* they want changed
+but not the block ids. The body is a batch of exact-match
+replacements against the rendered document:
+
+```json
+{ "edits": [
+    { "oldText": "- [ ] Children of Time",
+      "newText": "- [x] Children of Time" },
+    { "oldText": "typo", "newText": "fixed", "replaceAll": true }
+] }
+```
+
+The server renders the current canonical markdown (the exact bytes
+`GET` returns), resolves every edit against it, splices the
+replacements, and feeds the result through `PUT`'s diff pipeline — so
+a checkbox tick lands as a single `$set style.checked` on the matched
+block, ids and untouched blocks stay stable, and the reply is `PUT`'s
+shape. Matching rules:
+
+- Every `oldText` matches against the ORIGINAL document,
+  independently of the other edits; matched regions must not overlap.
+- Without `replaceAll` the match must be unique. `newText` may be
+  empty (deletes the matched text).
+- Exact match first; on zero hits a whole-line fuzzy fallback
+  retries with unicode punctuation folded to ASCII (curly quotes,
+  dash family, NBSP; NFKC) and trailing whitespace ignored. A
+  mid-line fragment is never fuzzy-matched — re-`GET` and quote
+  exactly instead.
+- All-or-nothing: any failing edit rejects the whole request with a
+  `markdown.*` error (400) and nothing is written. Edits that produce
+  byte-identical content are a 200 no-op — ticking an already-ticked
+  box is idempotent.
+
+| Error code | Meaning / recovery |
+|------------|--------------------|
+| `markdown.no_match` | `edits[i].oldText` not in the current rendering — `GET` and quote the exact text (details: `editIndex`) |
+| `markdown.ambiguous_match` | occurs more than once without `replaceAll` — add surrounding context or set `replaceAll` (details: `editIndex`, `occurrences`) |
+| `markdown.overlapping_edits` | two edits matched intersecting text — merge them into one edit (details: `editIndices`) |
+
+Because the match runs server-side against the current state, `PATCH`
+is what replaces the client-side `GET → string-replace → PUT`
+read-modify-write: a stale quote fails loudly instead of silently
+reverting concurrent edits elsewhere in the document, and the caller
+ships O(edit) bytes instead of O(document).
 
 `POST …/editor/markdown/append` is the append-only fast path. It
 parses the supplied `{"content": "..."}`, looks up only the tail
