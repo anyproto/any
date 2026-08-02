@@ -1233,7 +1233,7 @@ definitions:
       scopes:
         description: |-
           Scopes restricts results to the given index scopes (basic, chat,
-          agent). Empty = all scopes.
+          agent, props, …). Empty = all scopes.
         items:
           type: string
         type: array

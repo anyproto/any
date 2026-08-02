@@ -132,7 +132,8 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 // Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
 // items, agent HISTORY (turns + chunks, scope "history"), enriched_data
 // facts (sourced enrichment knowledge), and object properties (name /
-// description / flagged values). Deliberately NOT indexed: program
+// description under "basic"; user values default-on under "props",
+// meta.index overriding — see internal/index/prop.go). Deliberately NOT indexed: program
 // SOURCE and its docstrings (code, not knowledge — anybao ADR-010 §5;
 // discovery is help()/describe() in the guest), miniapp content, and
 // enrich_proposal items (ephemeral review scaffolding, deleted on

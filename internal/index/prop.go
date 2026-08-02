@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -17,10 +18,24 @@ import (
 // dataset called "prop", so it can't collide with real dataset chunks.
 const DatasetProp = "prop"
 
-// MetaIndexKey is the property-definition meta key that marks a
-// property as indexable; the value is the scope slug its entries carry
-// (e.g. meta["index"] = "agent").
+// MetaIndexKey is the property-definition meta key controlling value
+// indexing. Three states: absent/empty → indexed under the default
+// ScopeProps; a scope slug (e.g. "agent") → indexed under that scope;
+// MetaIndexNone → excluded (opt-out for blobs and noisy enums).
 const MetaIndexKey = "index"
+
+// MetaIndexNone is the MetaIndexKey value that excludes a property
+// from indexing. The literal word — an empty string means "default".
+const MetaIndexNone = "none"
+
+// MetaTypeLabel is the SDK's reserved meta-type marker: type-definition
+// objects carry `any.types = ["__type__"]` and their `any.name` is the
+// type name. The SDK keeps the literal internal, but it is wire-visible
+// on every objects-query row, so it is restated here. Type definitions
+// are schema, not knowledge (discovery is `GET /types`) — the prop
+// chunker always excludes them: their one-word names otherwise win
+// BM25 on field-length normalization and surface as top search hits.
+const MetaTypeLabel = "__type__"
 
 // Reserved RecordIds for the always-indexed built-in `any` properties.
 // Both are valid base58, so a collision with a real hash-derived propId
@@ -39,11 +54,15 @@ const propCatalogTTL = 30 * time.Second
 
 // PropChunker indexes property VALUES from the shared `objects`
 // collection: one entry per (object, indexed property), doc id
-// objectId:prop:propId. Which properties are indexed — and under which
-// scope — is declared on the property definitions themselves via
-// meta["index"] = "<scope>" (see the SDK's PropertyDraft.Meta); the
-// built-in any.name and any.description are always indexed under scope
-// "basic". Ungated: it runs for every object.
+// objectId:prop:propId. User properties index BY DEFAULT under the
+// dedicated scope ScopeProps with self-describing entry text
+// ("<prop name>: <value>"); a property definition's
+// meta["index"] = "<scope>" overrides the scope and
+// meta["index"] = "none" opts out (see the SDK's PropertyDraft.Meta).
+// The built-in any.name and any.description are always indexed under
+// scope "basic", raw (no name prefix). Ungated: it runs for every
+// object except type-definition rows (MetaTypeLabel) and the wired-in
+// excludeTypes.
 type PropChunker struct {
 	mu    sync.Mutex
 	ttl   time.Duration
@@ -51,18 +70,19 @@ type PropChunker struct {
 	cache map[string]*propCatalog // spaceId → snapshot
 	// excludeTypes: objects carrying any of these type ids are skipped
 	// entirely (no name/description/value entries) — for diagnostic
-	// objects whose names would leak noise into search. Empty = index
-	// every object.
+	// objects whose names would leak noise into search. Always contains
+	// MetaTypeLabel (type definitions are never indexed).
 	excludeTypes map[string]bool
 }
 
-// indexedProp is one catalog row: where the value lives and the scope
-// its entries carry.
+// indexedProp is one catalog row: where the value lives, the scope its
+// entries carry, and the display name prefixed onto the entry text.
 type indexedProp struct {
 	typeId string
 	propId string
+	name   string
 	scope  string
-	kind   space.PropertyKind // String or Array — others never index
+	kind   space.PropertyKind // String, Array or Number — others never index
 }
 
 type propCatalog struct {
@@ -71,10 +91,12 @@ type propCatalog struct {
 }
 
 // NewPropChunker constructs the chunker with an empty catalog cache.
-// excludeTypeIds names types whose objects are skipped entirely (e.g. the
-// a diagnostic type — see PropChunker.excludeTypes).
+// excludeTypeIds names types whose objects are skipped entirely (e.g. a
+// diagnostic type — see PropChunker.excludeTypes); MetaTypeLabel is
+// always excluded on top of them.
 func NewPropChunker(excludeTypeIds ...string) *PropChunker {
-	excl := make(map[string]bool, len(excludeTypeIds))
+	excl := make(map[string]bool, len(excludeTypeIds)+1)
+	excl[MetaTypeLabel] = true
 	for _, id := range excludeTypeIds {
 		excl[id] = true
 	}
@@ -119,14 +141,9 @@ func (c *PropChunker) catalog(ctx context.Context, sp space.Space) ([]indexedPro
 			return nil, err
 		}
 		for _, d := range defs {
-			scope := d.Meta[MetaIndexKey]
-			if scope == "" || !ValidScope(scope) {
-				continue
+			if p, ok := resolveIndexedProp(t.Id, d); ok {
+				props = append(props, p)
 			}
-			if d.Kind != space.PropertyKindString && d.Kind != space.PropertyKindArray {
-				continue // only text-bearing kinds index
-			}
-			props = append(props, indexedProp{typeId: t.Id, propId: d.Id, scope: scope, kind: d.Kind})
 		}
 	}
 
@@ -134,6 +151,32 @@ func (c *PropChunker) catalog(ctx context.Context, sp space.Space) ([]indexedPro
 	c.cache[spaceId] = &propCatalog{resolvedAt: c.now(), props: props}
 	c.mu.Unlock()
 	return props, nil
+}
+
+// resolveIndexedProp maps one property definition to its catalog row.
+// ok=false when the definition doesn't index: opted out
+// (meta.index "none"), an invalid scope override (a broken override
+// must not silently land in the default scope), or a text-less kind.
+func resolveIndexedProp(typeId string, d space.PropertyDef) (indexedProp, bool) {
+	scope := d.Meta[MetaIndexKey]
+	switch {
+	case scope == MetaIndexNone:
+		return indexedProp{}, false
+	case scope == "":
+		scope = ScopeProps
+	case !ValidScope(scope):
+		return indexedProp{}, false
+	}
+	switch d.Kind {
+	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber:
+	default:
+		return indexedProp{}, false // booleans/null/object carry no discoverable text
+	}
+	name := d.Name
+	if name == "" {
+		name = d.XKey
+	}
+	return indexedProp{typeId: typeId, propId: d.Id, name: name, scope: scope, kind: d.Kind}, true
 }
 
 // ChunksSince streams the object's property entries past the cursor.
@@ -184,7 +227,16 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 		for _, p := range props {
 			e := IndexEntry{Scope: p.scope, ObjectId: objectId, Dataset: DatasetProp, RecordId: p.propId, ApplySeq: seq}
 			if attached[p.typeId] {
-				e.Data = renderPropValue(rec.Get(p.typeId, p.propId), p.kind)
+				// Entry text is self-describing — "<prop name>: <value>"
+				// — so property-NAME search works and bare numbers get
+				// context. Valueless rows stay empty (a removal signal):
+				// the prefix alone would index the name on every object
+				// of the type.
+				if v := renderPropValue(rec.Get(p.typeId, p.propId), p.kind); v != "" && p.name != "" {
+					e.Data = p.name + ": " + v
+				} else {
+					e.Data = v
+				}
 			}
 			if err := yield(e); err != nil {
 				return err
@@ -195,8 +247,10 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 }
 
 // renderPropValue turns a property value into indexable text: strings
-// as-is, arrays as a newline join of their string elements (non-string
-// elements skipped), anything else (or absent) empty.
+// as-is, numbers in canonical JSON rendering (distinctive numerals are
+// real discovery anchors), arrays as a newline join of their string and
+// number elements (other elements skipped), anything else (or absent)
+// empty.
 func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 	if v == nil {
 		return ""
@@ -206,14 +260,32 @@ func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 		if v.Type() == anyenc.TypeString {
 			return string(v.GetStringBytes())
 		}
+	case space.PropertyKindNumber:
+		if v.Type() == anyenc.TypeNumber {
+			return renderNumber(v.GetFloat64())
+		}
 	case space.PropertyKindArray:
 		var parts []string
 		for _, el := range v.GetArray() {
-			if el.Type() == anyenc.TypeString {
+			switch el.Type() {
+			case anyenc.TypeString:
 				parts = append(parts, string(el.GetStringBytes()))
+			case anyenc.TypeNumber:
+				parts = append(parts, renderNumber(el.GetFloat64()))
 			}
 		}
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+// renderNumber is the canonical JSON rendering (integers without a
+// decimal point, shortest round-trip floats). NaN/Inf — unreachable
+// through anyenc — render empty.
+func renderNumber(f float64) string {
+	b, err := json.Marshal(f)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

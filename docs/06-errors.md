@@ -65,7 +65,7 @@ space.deleted                    # 409 — space is deleted (row is a tombstone)
 
 invite.invalid                   # invite token malformed or unrecognized
 
-object.not_found
+object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.type_required
 
 dataset.unknown                  # no handler registered

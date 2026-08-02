@@ -674,6 +674,12 @@ Body:
 }
 ```
 
+User property values index by default under the dedicated scope
+`props` (self-describing `"<prop name>: <value>"` entries; opt-out per
+property via `meta.index: "none"`). Props docs are FTS-only — they
+surface through the FTS leg (hybrid included) but never through
+vector. A content-only search passes `scopes` without `props`.
+
 Reply:
 
 ```json
@@ -1075,6 +1081,14 @@ Note there is no `$contains` — a scalar already compares against array
 elements, so `{"any.types": "chat"}` is the contains spelling. Filter
 grammar and the array rules: `09-query.md`.
 
+A per-object read (`objectId` in the body, and likewise the editor /
+markdown / history routes) that names an object this space doesn't
+have — never created here, or deleted — answers `404 object.not_found`.
+The cross-object `objects/query` has no such failure mode: a filter on
+a dead id just returns zero rows. Search hits can briefly outlive their
+object (the index evicts asynchronously), so a client following a hit
+into `/query` must treat 404 as "stale hit", not an error.
+
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
 ```json
@@ -1384,9 +1398,11 @@ has no property definitions yet", never "no such type".
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
 `GET …/properties`. It is opaque consumer metadata; the one convention
-today is `meta.index = "<scope>"`, which marks the property for the
-search indexer (its value is indexed under that scope — see
-`docs/13-index.md` § prop chunker). Only string / array kinds index.
+today is `meta.index`, which controls how the search indexer treats
+the property's value: absent ⇒ indexed under the default scope
+`props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
+(see `docs/13-index.md` § prop chunker). String / array / number
+kinds index; booleans and null never do.
 
 ```json
 { "name": "context", "kind": "string", "xKey": "context",

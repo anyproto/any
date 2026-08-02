@@ -62,7 +62,7 @@ the affected window can't be located incrementally.
 | `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
 | `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
-| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | per property     | property values (see below) |
+| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
 
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
   message (creator / reactions / attachments excluded — text only).
@@ -99,8 +99,9 @@ the affected window can't be located incrementally.
   decls carry no `meta["index"]` flag; revisit only if evidence
   demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
-  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `program` are the
-  established vocabulary, and property meta flags can mint new ones.
+  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `history` / `props`
+  are the established vocabulary, and property meta flags can mint new
+  ones. `props` is FTS-only (see the prop chunker below).
 - **`TypeId()` gating**: the indexer runs a gated chunker only while the
   type literal is in the object's `any.types`; when it is not, it
   prefix-evicts `objectId:<dataset>:` instead (see eviction below).
@@ -111,21 +112,51 @@ Indexes property VALUES from the shared `objects` collection under the
 virtual dataset `prop` — one entry per (object, indexed property), doc
 id `objectId:prop:<propId>`:
 
-- **Which properties index is declared on the property definitions**:
-  `meta["index"] = "<scope>"` (set at `AddProperty` time — SDK
-  `PropertyDraft.Meta`, HTTP `meta` field). Only string / array kinds
-  index; arrays render as a newline join of their string elements.
+- **User properties index BY DEFAULT under the dedicated scope
+  `props`** — never interleaved with `basic` ranking; a search that
+  wants pure content passes `scopes` without `props`. The property
+  definition's `meta["index"]` (set at `AddProperty` time — SDK
+  `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override:
+  absent/empty ⇒ `props`; `"<scope>"` ⇒ that scope; the literal
+  `"none"` ⇒ excluded (the opt-out for blobs and noisy enums). An
+  invalid slug excludes rather than silently landing in the default.
+- **Entry text is self-describing**: `"<prop name>: <value>"`
+  ("Score: 9", "Publisher: Gollancz") — property-NAME search works
+  (property definitions are indexed nowhere else) and bare numbers get
+  context. The name is the definition's display `name`, falling back
+  to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
+  a bare name prefix.
+- **Kinds**: string; array (newline join of string and number
+  elements); number (canonical JSON rendering — integers without a
+  decimal point; distinctive numerals like 85600 are real discovery
+  anchors, and small-number noise is scope-contained). Booleans, null
+  and object kinds never index.
+- **The `props` scope is FTS-only**: the store never marks props-scope
+  docs pending, so they are never embedded — short "name: value"
+  entries embed badly and would pollute vector recall. A `meta.index`
+  override into another scope re-enters the vector pipeline.
 - **Built-ins `any.name` and `any.description` are always indexed**
-  under scope `basic`, reserved recordIds `name` / `description` —
-  EXCEPT for objects whose `any.types` names an excluded type. The
-  exclusion list is currently empty (the bobrik-era `agent_debug_log`
-  type is gone); the mechanism remains for future diagnostic types.
+  under scope `basic`, reserved recordIds `name` / `description`, raw
+  (no name prefix) — EXCEPT for objects whose `any.types` names an
+  excluded type. The exclusion list always contains `__type__`
+  (type-definition rows — schema, not knowledge; discovery is
+  `GET /types`, and their one-word names otherwise win BM25 on
+  field-length normalization and surface as top hits) plus the
+  wired-in `enrich_proposal` (ephemeral review scaffolding).
+- **Short prop docs never embed**: prop-dataset entries under 64 bytes
+  are not marked `pending` and stay FTS-only, on top of the
+  scope-`props` rule above. Short name-like strings land in a flat
+  cosine band (~0.55–0.62 for relevant and irrelevant queries alike —
+  the `minVectorSim` finding, `docs/search/README.md`), so they fill
+  vector top-N slots without discriminating; BM25 is the right
+  retrieval for lexical labels. Long descriptions and long
+  scope-overridden values still embed.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
   detached-type properties evict record-level, idempotently.
-- The per-space catalog (flagged props across all non-builtin types) is
-  a TTL snapshot (30s): newly flagged properties are picked up within
+- The per-space catalog (indexable props across all non-builtin types)
+  is a TTL snapshot (30s): newly added properties are picked up within
   the TTL — and only affect rows written afterwards anyway ("index from
   the next change"). `Invalidate(spaceId)` drops it (tests/ops).
 
@@ -181,14 +212,20 @@ Three granularities, all addSeq-consistent (discovered through the same
 | record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
 | any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
 | type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`) | prefix delete `objectId:dataset:` |
-| object deleted (`Space.Delete` — datasets dropped wholesale) | the indexer (shared objects row tombstoned) | prefix delete `objectId:` |
+| object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
-`Space.Delete` leaves a sticky tombstone: content wiped, `_deletedAt`
-set, the delete's `_addSeq` carried onto the row. The SDK's find path
-normally **skips** tombstones; the chunkers' `RecordsSince` and the
-indexer's objects-row read opt in via `Projection({IncludeDeleted:
-true})`. Removing what was never indexed is a no-op everywhere, so all
-three operations are safe to apply unconditionally. Re-attach after a
+Object deletion leaves **no tombstone**: the SDK purges the shared
+`objects` row and every per-object dataset collection outright, and
+announces the deletion once through the change feed as
+`ObjectChange{Deleted: true}` (with an applySeq strictly greater than
+the object's last content change). That flag is the ONLY eviction
+signal for the object's index docs — nothing re-streams for a purged
+object (`space.ChangeIndexAPI`: "Consuming Deleted is MANDATORY for
+eviction"). Record-level tombstones (a deleted chat message, a cleared
+value) DO survive with `_deletedAt` set; chunkers opt in via
+`Projection({IncludeDeleted: true})` and stream them as `Data == ""`.
+Removing what was never indexed is a no-op everywhere, so all
+operations are safe to apply unconditionally. Re-attach after a
 detach does NOT resurrect rows below the cursor — they index on their
 next write ("index from the next change").
 
@@ -243,21 +280,25 @@ any-store database at `<data-dir>/index/index.db`, plus the
   O(N)/query, small spaces). The index is created lazily
   (`Store.EnsureVectorIndex`) so the first build sees real data.
 - A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (v3 — editor windows;
-  v2 was one doc per block. An old DB errors at boot with a
-  remove-to-rebuild message, no migration: the index is derived state and
-  re-indexes from the next change) and the vector dimension — changing
-  the embedder dimension is the same kind of boot error.
+  plus a `_meta` row pinning the **schema version** (the version ↔
+  layout map lives on `indexSchemaVersion` in `internal/indexer/
+  store.go`; a mismatched DB errors at boot with a remove-to-rebuild
+  message, no migration — the index is derived state and re-indexes
+  from the next change) and the vector dimension — changing the
+  embedder dimension is the same kind of boot error.
 
 ### Advance loop (FTS path) — per-space worker
 
 The single operation is `advance`: page through
 `Changes().ChangedSince(cursor, batch)`, and per dirty object:
 
-1. **Read the shared objects row once** (`QueryObjects`,
-   `IncludeDeleted`). Tombstoned ⇒ prefix-delete `objectId:` and skip
-   the chunkers (the SDK drops a deleted object's datasets wholesale,
-   so per-record removals never stream for them).
+1. **Deleted ⇒ evict.** A change with `Deleted: true` prefix-deletes
+   `objectId:` and skips the chunkers — the object's projection is
+   purged and no later content change follows. Collected page-wide
+   before chunking, so a same-page content change can't upsert past
+   the eviction. For live objects, **read the shared objects row once**
+   (`QueryObjects`, `IncludeDeleted`); a tombstoned row only catches a
+   delete racing the row read.
 2. Otherwise, per registered chunker: a non-empty `TypeId()` not in the
    row's `any.types` ⇒ prefix-delete `objectId:<dataset>:` (type
    detached — idempotent, one btree seek when already empty); else run
@@ -268,6 +309,8 @@ The single operation is `advance`: page through
    out-of-band purge can race the cursor. Crash-safe: re-applying a
    page is idempotent. Text-bearing upserts land marked `pending` —
    **FTS is searchable immediately**, never waiting on the embedder.
+   Exceptions: `props`-scope docs and short prop-dataset docs are
+   never marked pending (FTS-only — see the prop chunker).
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker

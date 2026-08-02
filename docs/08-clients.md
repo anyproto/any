@@ -277,9 +277,12 @@ Call patterns:
   `name` / `description` for the built-ins — and the value lives on
   the object: `GET /properties/:objectId`.
 - **Scopes are an open set** of slugs: `basic` (blocks, object
-  names/descriptions), `chat`, and whatever scopes property `meta`
-  flags mint (e.g. `agent`). An unknown-but-valid scope returns no
-  hits; a malformed one is `400 search.bad_scope`.
+  names/descriptions), `chat`, `props` (user property values,
+  default-on, FTS-only, `"<prop name>: <value>"` entry text), and
+  whatever scopes property `meta` flags mint (e.g. `agent`). An
+  unknown-but-valid scope returns no hits; a malformed one is `400
+  search.bad_scope`. A content-only search passes `scopes` without
+  `props`.
 - **Scores compare only within one response** (BM25 vs cosine vs RRF
   are different scales across modes). Rank, don't threshold.
 - **Freshness model**: new writes are FTS-searchable within ~the

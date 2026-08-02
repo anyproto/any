@@ -151,6 +151,17 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 			return nil
 		}
 
+		// Deleted is the only eviction signal for an object — its
+		// projection is purged, nothing re-streams (space.ChangeIndexAPI).
+		// Collected page-wide first so a same-page content change never
+		// chunks an object past its eviction.
+		deleted := map[string]struct{}{}
+		for _, ch := range changes {
+			if ch.Deleted {
+				deleted[ch.ObjectId] = struct{}{}
+			}
+		}
+
 		// Dedup object ids; ChangedSince is ascending, so the last
 		// element carries the page's max ApplySeq.
 		seen := map[string]bool{}
@@ -160,6 +171,10 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 				continue
 			}
 			seen[ch.ObjectId] = true
+			if _, del := deleted[ch.ObjectId]; del {
+				page.prefixDels = append(page.prefixDels, ch.ObjectId+":")
+				continue
+			}
 			if err := w.collectObject(ctx, ch.ObjectId, cursor, &page); err != nil {
 				return err
 			}
@@ -203,15 +218,16 @@ type pageOps struct {
 	prefixDels []string
 }
 
-// collectObject gathers one dirty object's page ops, derived from the
+// collectObject gathers one live object's page ops, derived from the
 // shared objects row inside the same ChangedSince window:
-//   - tombstoned row → whole-object prefix delete (the SDK drops a
-//     deleted object's datasets wholesale; per-record removals never
-//     stream for them);
 //   - gated chunkers whose type is not in any.types → dataset prefix
 //     delete (covers DetachType; idempotent — one btree seek when
 //     already empty);
 //   - everything else → the chunkers' entries.
+//
+// Object deletion never reaches this path — advance evicts on
+// ObjectChange.Deleted before chunking; the tombstoned-row check below
+// only catches a delete racing the row read.
 func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor uint64, page *pageOps) error {
 	row, err := w.objectRow(ctx, objectId)
 	if err != nil {

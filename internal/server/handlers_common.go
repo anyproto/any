@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/anyproto/any-sync/app/logger"
+	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
+	"github.com/anyproto/any-sync/commonspace/spacestorage"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 
@@ -132,6 +134,14 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, space.ErrSpaceNotTracked) {
 		return writeError(c, http.StatusNotFound, "space.not_found",
 			"space is not tracked on this device (unknown, deleted, or join pending)", details)
+	}
+	// Deleted or unknown tree on a per-object op: the caller named an
+	// object this space doesn't have (e.g. a stale search hit) — 404,
+	// not a server fault. STOPGAP: any-sync sentinels until the SDK
+	// exports space.ErrObjectNotFound (SYN-117).
+	if errors.Is(err, spacestorage.ErrTreeStorageAlreadyDeleted) || errors.Is(err, treestorage.ErrUnknownTreeId) {
+		return writeError(c, http.StatusNotFound, "object.not_found",
+			"object not found in this space (unknown or deleted)", details)
 	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)

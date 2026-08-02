@@ -494,3 +494,160 @@ func TestIndexer_RealtimeUpdates(t *testing.T) {
 			return len(r.Hits) == 1 && r.Hits[0].Scope == "basic" && r.Hits[0].ObjectId == edObj
 		}, "appended block indexed")
 }
+
+// TestIndexer_ObjectDeleteEviction: an object delete surfaces only as
+// ObjectChange{Deleted:true} — the advance must prefix-evict
+// `objectId:`, including the ungated prop chunker's docs (name /
+// description), which have no other removal path. Also pins the read
+// side: a per-object query on the dead id answers 404
+// object.not_found, not 500.
+func TestIndexer_ObjectDeleteEviction(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough for eviction
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "DeleteEviction")
+	obj := mustCreateObject(t, e, spaceId,
+		`{"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+	chatBase := "/v1/spaces/" + spaceId + "/objects/" + obj
+	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
+		`{"text":"ephemeral quokka message"}`, http.StatusCreated)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "quokka", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 2 { // prop name doc + chat message
+		t.Fatalf("pre-delete hits = %v, want 2", hitRecordIds(res))
+	}
+
+	rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+obj, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete object: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quokka", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Fatalf("post-delete hits = %v, want none", hitRecordIds(res))
+	}
+
+	// A client following a stale hit into the per-object read path gets
+	// a typed 404, not a 500 (any-sync's deleted-tree sentinel mapped).
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query",
+		`{"objectId":"`+obj+`","dataset":"chat_messages"}`)
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())
+	}
+	if rec.Code != http.StatusNotFound || env.Error.Code != "object.not_found" {
+		t.Fatalf("dead-id query = %d %s, want 404 object.not_found", rec.Code, env.Error.Code)
+	}
+}
+
+// TestIndexer_TypeDefinitionsExcluded pins the prop-chunker exclusion of
+// type-definition objects (`any.types = ["__type__"]`): a created type's
+// name must never surface as a search hit — its one-word name otherwise
+// wins BM25 on field-length normalization and shadows real content. The
+// control object proves the exclusion is selective (same token, indexed).
+func TestIndexer_TypeDefinitionsExcluded(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "TypeDefScope")
+
+	// A custom type named with a unique token, and a control object
+	// whose name carries the same token.
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
+		`{"name":"Zebrafinch","xKey":"zebrafinch"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("type create: %d %s", rec.Code, rec.Body.String())
+	}
+	ctrlObj := mustCreateObject(t, e, spaceId,
+		`{"initialProperties":{"any":{"name":"zebrafinch sightings journal"}}}`)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	res := doSearch(t, e, spaceId, api.SearchRequest{Query: "zebrafinch", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 1 {
+		t.Fatalf("hits = %v, want only the control object", hitRecordIds(res))
+	}
+	if h := res.Hits[0]; h.ObjectId != ctrlObj || h.Dataset != "prop" {
+		t.Fatalf("hit = {dataset:%s obj:%s}, want the control's prop/name (obj %s)", h.Dataset, h.ObjectId, ctrlObj)
+	}
+}
+
+// TestIndexer_PropsDefaultOn: a user property with no meta.index is
+// searchable under the dedicated scope "props" end-to-end — catalog
+// resolution, advance loop, self-describing "<name>: <value>" entry
+// text — and a search that excludes the scope never sees it.
+func TestIndexer_PropsDefaultOn(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, fakeEmbedder{dim: 16})
+	defer func() { _ = ix.Close() }()
+
+	spaceId := mustCreateSpace(t, e, "PropsDefaultOn")
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types", `{"name":"Book","xKey":"book"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var tr api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Author","kind":"string","xKey":"author"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create prop: %d %s", rec.Code, rec.Body.String())
+	}
+	var pr api.AddPropertyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &pr); err != nil {
+		t.Fatal(err)
+	}
+	obj := mustCreateObject(t, e, spaceId, `{"types":["`+tr.TypeId+`"]}`)
+	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/properties/"+obj+"/set/"+tr.TypeId,
+		`{"patch":{"`+pr.PropId+`":"Dan Simmons"}}`, http.StatusOK)
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+
+	res := doSearch(t, e, spaceId,
+		api.SearchRequest{Query: "Simmons", Mode: api.SearchModeFTS, Scopes: []string{"props"}, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != pr.PropId || res.Hits[0].Data != "Author: Dan Simmons" {
+		t.Fatalf("props hits = %+v, want one %q", res.Hits, "Author: Dan Simmons")
+	}
+	// A content-only search (scopes without props) never sees property
+	// noise.
+	res = doSearch(t, e, spaceId,
+		api.SearchRequest{Query: "Simmons", Mode: api.SearchModeFTS, Scopes: []string{"basic", "chat"}, Limit: 10}, http.StatusOK)
+	if len(res.Hits) != 0 {
+		t.Fatalf("content-only hits = %v, want none", hitRecordIds(res))
+	}
+}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -58,11 +57,7 @@ func (d *deps) markdownGet(c echo.Context) error {
 	}
 	content, err := markdown.Get(c.Request().Context(), sp, objectId)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusOK, api.MarkdownContent{Content: content})
 }
@@ -93,11 +88,7 @@ func (d *deps) markdownSet(c echo.Context) error {
 	}
 	res, err := markdown.Set(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
 }
@@ -153,11 +144,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	}
 	res, err := markdown.Append(c.Request().Context(), sp, objectId, req.Content)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
-		}
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	// Append only ever inserts; updated/deleted are always empty.
 	return c.JSON(http.StatusOK, markdownSetResponseToAPI(res))
@@ -230,9 +217,9 @@ func markdownEditError(c echo.Context, err error, spaceId, objectId string) erro
 		return writeError(c, http.StatusBadRequest, api.ErrMarkdownOverlap,
 			fmt.Sprintf("edits[%d] and edits[%d] match overlapping text — merge them into one edit", overlap.IndexA, overlap.IndexB),
 			map[string]any{"editIndices": []int{overlap.IndexA, overlap.IndexB}})
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
-	return writeError(c, http.StatusInternalServerError, "internal", err.Error(),
-		map[string]any{"spaceId": spaceId, "objectId": objectId})
+	// Everything else (cancellation, read-only, dead/unknown object →
+	// 404 object.not_found) goes through the shared SDK-op mapping,
+	// same as the other markdown handlers.
+	return sdkOpError(c, err, map[string]any{"spaceId": spaceId, "objectId": objectId})
 }
