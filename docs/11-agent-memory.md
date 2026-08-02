@@ -77,7 +77,18 @@ duplicate-seq append turns into a modify and is rejected — callers
 treat that as a seq collision (probe `sort:["-seq"] limit:1` and
 retry). A wiped seq range leaves chunk `fromSeq`/`toSeq` pointers
 dangling; readers must tolerate sparse ranges (a drill-down over a
-wiped range simply returns fewer/no turns).
+wiped range simply returns fewer/no turns). Wiped seqs are never
+reused: the server-side allocator derives the next seq from the max
+record id including tombstones (the id is the only field a tombstone
+keeps, and it encodes the seq), so post-wipe appends continue the
+counter instead of colliding with the wiped range. Record deletion is
+sticky (CRDT delete-wins) — the SDK rejects any write onto a
+tombstoned id (`space.ErrRecordDeleted`), which a client-provided seq
+surfaces as `409 agent.seq_deleted`. The id ↔ seq bond is enforced at
+create: a record whose id is not its zero-padded seq rejects
+(`id_mismatch` — a foreign id, e.g. via generic `POST /modify`, would
+become the lexical max and wedge the allocator), and seq is capped at
+`10^8 - 1` so ids stay inside the pad width.
 
 Indexes: `(seq)`, `(createdAt)`.
 

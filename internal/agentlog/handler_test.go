@@ -146,6 +146,40 @@ func TestTurnCreate_NegativeSeqRejected(t *testing.T) {
 	requireValidationErr(t, err, "seq must be ≥ 0")
 }
 
+// The record id must be the zero-padded seq — the allocator derives
+// the next seq off the lexically-greatest id, so a foreign id
+// (reachable via generic POST /modify) would wedge allocation.
+func TestTurnCreate_IdSeqMismatchRejected(t *testing.T) {
+	for _, id := range []string{"poison", "00000007", "0"} {
+		arena := &anyenc.Arena{}
+		rec := createRec(minimalTurn(arena)) // seq 0
+		rec.Id = id
+		ctx, sink := ctxAndSink()
+		err := (turnsHandler{}).BeforeCreate(ctx, rec, sink)
+		requireValidationErr(t, err, "id_mismatch")
+	}
+}
+
+func TestTurnCreate_SeqAboveMaxRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldSeq, arena.NewNumberInt(int(MaxSeq)+1))
+	rec := createRec(payload)
+	rec.Id = "100000000"
+	ctx, sink := ctxAndSink()
+	err := (turnsHandler{}).BeforeCreate(ctx, rec, sink)
+	requireValidationErr(t, err, "seq must be ≤")
+}
+
+func TestChunkCreate_IdSeqMismatchRejected(t *testing.T) {
+	arena := &anyenc.Arena{}
+	rec := createRec(minimalChunk(arena))
+	rec.Id = "not-a-seq"
+	ctx, sink := ctxAndSink()
+	err := (chunksHandler{}).BeforeCreate(ctx, rec, sink)
+	requireValidationErr(t, err, "id_mismatch")
+}
+
 func TestTurnCreate_StampedFieldsRejected(t *testing.T) {
 	for _, field := range []string{FieldCreator, FieldCreatedAt} {
 		arena := &anyenc.Arena{}

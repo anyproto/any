@@ -1753,6 +1753,15 @@ through the generic `POST /v1/spaces/:spaceId/delete-records` with
 chunk `fromSeq`/`toSeq` pointers dangling — readers tolerate sparse
 seq ranges (docs/11-agent-memory.md).
 
+Deleted seqs are never reused: server-assigned seq allocation reads
+the max record id **including tombstones** (a tombstone keeps its
+zero-padded-seq id after its content is wiped), so appends after a
+history wipe continue where the counter left off. A client-provided
+`seq` that points at a deleted record returns `409 agent.seq_deleted`
+— the store would otherwise absorb the write without an error
+(CRDT delete-wins) while storing nothing. Omit `seq` to let the
+server pick the next free one.
+
 ### Enrichment (built-in `enriched_data` + `enrich_proposal` types)
 
 Structured, sourced, reviewable enrichment. Two built-in types:

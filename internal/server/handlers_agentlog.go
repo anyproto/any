@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -20,6 +21,7 @@ import (
 //	@Param		body		body		api.AgentTurnAppendRequest	true	"Turn record"
 //	@Success	201			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/agent/turns [post]
 func (d *deps) agentTurnAppend(c echo.Context) error {
@@ -65,7 +67,7 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 
 	res, err := agentlog.AppendTurn(c.Request().Context(), sp, objectId, *req)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return agentAppendError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusCreated, modifyResultToAPI(res))
 }
@@ -81,6 +83,7 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 //	@Param		body		body		api.AgentChunkCreateRequest	true	"Chunk record"
 //	@Success	201			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId}/agent/chunks [post]
 func (d *deps) agentChunkCreate(c echo.Context) error {
@@ -125,7 +128,19 @@ func (d *deps) agentChunkCreate(c echo.Context) error {
 
 	res, err := agentlog.CreateChunk(c.Request().Context(), sp, objectId, *req)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
+		return agentAppendError(c, err, sp.Id(), objectId)
 	}
 	return c.JSON(http.StatusCreated, modifyResultToAPI(res))
+}
+
+// agentAppendError maps turn/chunk append failures. A client-provided
+// seq landing on a tombstoned record is a caller-visible conflict —
+// the id was consumed by a wiped range and can never be reused.
+func agentAppendError(c echo.Context, err error, spaceId, objectId string) error {
+	details := map[string]any{"spaceId": spaceId, "objectId": objectId}
+	if errors.Is(err, agentlog.ErrSeqDeleted) {
+		return writeError(c, http.StatusConflict, api.ErrAgentSeqDeleted,
+			"seq points at a deleted record (history was wiped); omit seq to let the server assign the next one", details)
+	}
+	return sdkOpError(c, err, details)
 }

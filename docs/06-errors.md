@@ -82,6 +82,7 @@ agent.chunk_invalid              # chunk shape violation (missing/inverted point
 agent.memory_invalid             # memory item shape violation (category/context/caps)
 agent.memory_not_found           # 404 — unknown itemId on evolve/delete
 agent.not_author                 # 403 — evolve/delete by non-creator
+agent.seq_deleted                # 409 — client-provided seq points at a tombstoned (wiped) record; deleted seqs are never reused
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
