@@ -138,9 +138,19 @@ id `objectId:prop:<propId>`:
 - **Built-ins `any.name` and `any.description` are always indexed**
   under scope `basic`, reserved recordIds `name` / `description`, raw
   (no name prefix) — EXCEPT for objects whose `any.types` names an
-  excluded type (`NewPropChunker(excl…)`; currently the
-  `enrich_proposal` type — diagnostic objects whose names would leak
-  noise into search).
+  excluded type. The exclusion list always contains `__type__`
+  (type-definition rows — schema, not knowledge; discovery is
+  `GET /types`, and their one-word names otherwise win BM25 on
+  field-length normalization and surface as top hits) plus the
+  wired-in `enrich_proposal` (ephemeral review scaffolding).
+- **Short prop docs never embed**: prop-dataset entries under 64 bytes
+  are not marked `pending` and stay FTS-only, on top of the
+  scope-`props` rule above. Short name-like strings land in a flat
+  cosine band (~0.55–0.62 for relevant and irrelevant queries alike —
+  the `minVectorSim` finding, `docs/search/README.md`), so they fill
+  vector top-N slots without discriminating; BM25 is the right
+  retrieval for lexical labels. Long descriptions and long
+  scope-overridden values still embed.
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
@@ -299,8 +309,8 @@ The single operation is `advance`: page through
    out-of-band purge can race the cursor. Crash-safe: re-applying a
    page is idempotent. Text-bearing upserts land marked `pending` —
    **FTS is searchable immediately**, never waiting on the embedder.
-   Exception: `props`-scope docs are never marked pending (FTS-only —
-   see the prop chunker).
+   Exceptions: `props`-scope docs and short prop-dataset docs are
+   never marked pending (FTS-only — see the prop chunker).
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker

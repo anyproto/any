@@ -293,7 +293,10 @@ Implementation slices landed:
       Kinds: string, array (newline-join of string+number elements),
       number (canonical JSON). Built-ins `any.name` +
       `any.description` always index under `basic` (recordIds `name` /
-      `description`, raw — no name prefix). Per live row it emits
+      `description`, raw — no name prefix; prop-dataset docs < 64 B
+      also skip embedding). Objects carrying an excluded type are
+      skipped wholesale — always `__type__` (type-definition rows)
+      plus the wired-in `enrich_proposal`. Per live row it emits
       entries for every catalog prop unconditionally — value text when
       the type is attached, `Data ""` otherwise (record-level eviction
       of cleared values / detached types). Catalog = per-space TTL

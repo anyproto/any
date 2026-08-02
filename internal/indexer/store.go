@@ -31,8 +31,11 @@ const (
 	// v5 = eviction keyed on ObjectChange.Deleted (rebuild drops docs of
 	// deleted objects) + default-on property indexing under scope
 	// "props" (rebuild backfills "name: value" entries for existing
-	// rows). Mismatch = boot error advising removal; no migration — the
-	// index is derived state (re-indexes on the next change).
+	// rows) + type-definition rows excluded from the prop chunker and
+	// short prop docs no longer embedded (rebuild purges stale
+	// type-name docs and name vectors). Mismatch = boot error advising
+	// removal; no migration — the index is derived state (re-indexes on
+	// the next change).
 	indexSchemaVersion = 5
 )
 
@@ -483,13 +486,11 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))
-		case s.markPending && e.Data != "" && e.Scope != index.ScopeProps:
+		case s.markPending && shouldEmbed(e):
 			// Awaiting embedding — marked even while the embedder is
 			// down or its dimension unknown, so outages freeze the
 			// vector pipeline without losing work. Empty-text docs have
-			// nothing to embed and stay vector-less. Props-scope docs
-			// are FTS-only by design (see index.ScopeProps) and never
-			// enter the embed queue.
+			// nothing to embed and stay vector-less.
 			doc.Set("pending", arena.NewNumberInt(1))
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
@@ -502,6 +503,29 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 	return tx.Commit()
+}
+
+// minPropEmbedBytes gates the vector leg for prop-dataset docs: entries
+// shorter than this (bytes) are never marked pending and stay FTS-only.
+// Short name-like strings embed into a compressed cosine band (~0.55-0.62
+// against relevant and irrelevant queries alike — the minVectorSim
+// finding, docs/search/README.md), so they fill vector top-N slots
+// without discriminating; BM25 is the right retrieval for lexical
+// labels. Scoped to the prop dataset — content datasets embed regardless
+// of length. Byte count, not runes: non-ASCII text trips the gate
+// earlier, erring toward embedding.
+const minPropEmbedBytes = 64
+
+// shouldEmbed reports whether an entry's text belongs in the vector
+// leg: non-empty, not props scope (FTS-only by design — see
+// index.ScopeProps), and — for prop-dataset docs — at least
+// minPropEmbedBytes (so short names/descriptions stay lexical while
+// long descriptions and scope-overridden values still embed).
+func shouldEmbed(e index.IndexEntry) bool {
+	if e.Data == "" || e.Scope == index.ScopeProps {
+		return false
+	}
+	return e.Dataset != index.DatasetProp || len(e.Data) >= minPropEmbedBytes
 }
 
 // docHash is the content hash stored alongside each index doc. The

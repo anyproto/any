@@ -28,6 +28,15 @@ const MetaIndexKey = "index"
 // from indexing. The literal word — an empty string means "default".
 const MetaIndexNone = "none"
 
+// MetaTypeLabel is the SDK's reserved meta-type marker: type-definition
+// objects carry `any.types = ["__type__"]` and their `any.name` is the
+// type name. The SDK keeps the literal internal, but it is wire-visible
+// on every objects-query row, so it is restated here. Type definitions
+// are schema, not knowledge (discovery is `GET /types`) — the prop
+// chunker always excludes them: their one-word names otherwise win
+// BM25 on field-length normalization and surface as top search hits.
+const MetaTypeLabel = "__type__"
+
 // Reserved RecordIds for the always-indexed built-in `any` properties.
 // Both are valid base58, so a collision with a real hash-derived propId
 // is theoretically possible — and harmless: it would merge two text
@@ -52,7 +61,8 @@ const propCatalogTTL = 30 * time.Second
 // meta["index"] = "none" opts out (see the SDK's PropertyDraft.Meta).
 // The built-in any.name and any.description are always indexed under
 // scope "basic", raw (no name prefix). Ungated: it runs for every
-// object.
+// object except type-definition rows (MetaTypeLabel) and the wired-in
+// excludeTypes.
 type PropChunker struct {
 	mu    sync.Mutex
 	ttl   time.Duration
@@ -60,8 +70,8 @@ type PropChunker struct {
 	cache map[string]*propCatalog // spaceId → snapshot
 	// excludeTypes: objects carrying any of these type ids are skipped
 	// entirely (no name/description/value entries) — for diagnostic
-	// objects whose names would leak noise into search. Empty = index
-	// every object.
+	// objects whose names would leak noise into search. Always contains
+	// MetaTypeLabel (type definitions are never indexed).
 	excludeTypes map[string]bool
 }
 
@@ -81,10 +91,12 @@ type propCatalog struct {
 }
 
 // NewPropChunker constructs the chunker with an empty catalog cache.
-// excludeTypeIds names types whose objects are skipped entirely (e.g. the
-// a diagnostic type — see PropChunker.excludeTypes).
+// excludeTypeIds names types whose objects are skipped entirely (e.g. a
+// diagnostic type — see PropChunker.excludeTypes); MetaTypeLabel is
+// always excluded on top of them.
 func NewPropChunker(excludeTypeIds ...string) *PropChunker {
-	excl := make(map[string]bool, len(excludeTypeIds))
+	excl := make(map[string]bool, len(excludeTypeIds)+1)
+	excl[MetaTypeLabel] = true
 	for _, id := range excludeTypeIds {
 		excl[id] = true
 	}
