@@ -39,8 +39,6 @@ func (c *Client) BlocksPatch(ctx context.Context, spaceId, objectId, blockId str
 
 // MarkdownEdit applies targeted oldText → newText replacements
 // against an object's rendered markdown (PATCH .../editor/markdown).
-// All-or-nothing: any edit that fails to match uniquely rejects the
-// whole request with a markdown.* error and nothing is written.
 func (c *Client) MarkdownEdit(ctx context.Context, spaceId, objectId string, req api.MarkdownEditRequest) (*api.MarkdownSetResponse, error) {
 	var out api.MarkdownSetResponse
 	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/markdown",

@@ -9,24 +9,18 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Edit is one targeted replacement against the rendered markdown
-// document. OldText is matched against the current canonical
-// rendering (the exact bytes Get returns); the caller quotes what it
-// wants changed and never addresses lines or block ids.
+// Edit is one targeted replacement against the rendered markdown —
+// the caller quotes text, never lines or block ids.
 type Edit struct {
-	// OldText is the text to replace. Must be non-empty and, unless
-	// ReplaceAll is set, occur exactly once in the rendered document.
+	// OldText must be non-empty and, unless ReplaceAll is set, occur
+	// exactly once in the rendered document.
 	OldText string
 	// NewText replaces OldText. Empty deletes the matched text.
-	NewText string
-	// ReplaceAll replaces every occurrence instead of requiring a
-	// unique match.
+	NewText    string
 	ReplaceAll bool
 }
 
-// NoMatchError reports an edit whose OldText was not found, even by
-// the fuzzy fallback. The right recovery is to re-read the document
-// and quote the exact text.
+// NoMatchError: an edit's OldText was not found, even fuzzily.
 type NoMatchError struct {
 	Index int
 }
@@ -35,9 +29,8 @@ func (e NoMatchError) Error() string {
 	return fmt.Sprintf("edits[%d]: oldText not found in the document", e.Index)
 }
 
-// AmbiguousMatchError reports an edit whose OldText occurs more than
-// once without ReplaceAll. The right recovery is to include more
-// surrounding context, or set ReplaceAll.
+// AmbiguousMatchError: an edit's OldText occurs more than once
+// without ReplaceAll.
 type AmbiguousMatchError struct {
 	Index       int
 	Occurrences int
@@ -47,8 +40,7 @@ func (e AmbiguousMatchError) Error() string {
 	return fmt.Sprintf("edits[%d]: oldText occurs %d times; must be unique", e.Index, e.Occurrences)
 }
 
-// OverlapError reports two edits whose matched regions intersect.
-// The right recovery is to merge them into one edit.
+// OverlapError: two edits matched intersecting regions.
 type OverlapError struct {
 	IndexA int
 	IndexB int
@@ -137,13 +129,12 @@ func exactMatches(content, oldText string) [][2]int {
 	}
 }
 
-// fuzzyMatches is the whole-line fallback for when the exact scan
-// finds nothing: both sides are compared line-by-line in normalized
-// space (NFKC, unicode quotes/dashes → ASCII, trailing whitespace
-// stripped), and a hit spans the matched original lines whole. A
-// mid-line quote that differs only in unicode punctuation is NOT
-// rescued — partial-line matching would need a byte mapping through
-// NFKC; re-reading the document and quoting exactly covers that case.
+// fuzzyMatches is the whole-line fallback when the exact scan finds
+// nothing: both sides compare line-by-line in normalized space
+// (NFKC, unicode quotes/dashes → ASCII, trailing whitespace
+// stripped); a hit spans the matched original lines whole. Mid-line
+// fragments are never fuzzy-matched — that would need a byte mapping
+// through NFKC.
 func fuzzyMatches(content, oldText string) [][2]int {
 	if strings.TrimSpace(oldText) == "" {
 		return nil // all-blank pattern would match every separator
@@ -198,9 +189,8 @@ func normalizeFuzzyLine(s string) string {
 	return strings.TrimRight(s, " \t")
 }
 
-// normalizeLF folds CRLF / CR line endings to LF. The canonical
-// rendering is LF-only; callers pasting from other environments
-// shouldn't miss on line endings alone.
+// normalizeLF folds CRLF / CR line endings to LF (the canonical
+// rendering is LF-only).
 func normalizeLF(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return strings.ReplaceAll(s, "\r", "\n")

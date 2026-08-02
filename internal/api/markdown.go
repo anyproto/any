@@ -1,10 +1,9 @@
 package api
 
 // MarkdownEdit is one targeted replacement against an object's
-// rendered markdown. oldText is matched against the current canonical
-// rendering (the bytes GET .../editor/markdown returns) — exact match
-// first, whole-line fuzzy fallback (unicode punctuation / trailing
-// whitespace tolerant). Without replaceAll the match must be unique.
+// rendered markdown: oldText is matched against the bytes
+// GET .../editor/markdown returns and must be unique unless
+// replaceAll. See docs/03-api.md § Objects for the matching rules.
 type MarkdownEdit struct {
 	OldText    string `json:"oldText"`
 	NewText    string `json:"newText"`
@@ -12,24 +11,15 @@ type MarkdownEdit struct {
 }
 
 // MarkdownEditRequest is the body of PATCH .../editor/markdown. All
-// edits match against the ORIGINAL document independently; matched
-// regions must not overlap. All-or-nothing: any failing edit rejects
-// the whole request and nothing is written.
+// edits match against the original document independently and must
+// not overlap; any failing edit rejects the whole request.
 type MarkdownEditRequest struct {
 	Edits []MarkdownEdit `json:"edits"`
 }
 
 // Error code namespace for the markdown edit endpoint.
 const (
-	// ErrMarkdownNoMatch — an oldText was not found in the current
-	// rendering (even fuzzily). Recovery: GET .../editor/markdown and
-	// quote the exact text.
-	ErrMarkdownNoMatch = "markdown.no_match"
-	// ErrMarkdownAmbiguous — an oldText occurs more than once and
-	// replaceAll is not set. Recovery: include more surrounding
-	// context, or set replaceAll.
-	ErrMarkdownAmbiguous = "markdown.ambiguous_match"
-	// ErrMarkdownOverlap — two edits matched overlapping text.
-	// Recovery: merge them into one edit.
-	ErrMarkdownOverlap = "markdown.overlapping_edits"
+	ErrMarkdownNoMatch   = "markdown.no_match"          // 400 — oldText not found in the current rendering
+	ErrMarkdownAmbiguous = "markdown.ambiguous_match"   // 400 — >1 occurrences without replaceAll
+	ErrMarkdownOverlap   = "markdown.overlapping_edits" // 400 — two edits matched intersecting text
 )

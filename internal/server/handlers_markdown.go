@@ -31,12 +31,11 @@ import (
 // supplied content, diffs against the stored blocks, and emits the
 // same per-record create / update / delete ops the /blocks endpoints
 // would — so the same `editor_blocks` SSE events fire regardless of
-// which path produced the change. PATCH is the surgical variant: the
-// caller quotes oldText → newText replacements against the rendered
-// markdown, the server resolves them against the CURRENT rendering
-// and reuses PUT's diff pipeline — so a targeted edit lands as the
-// minimal block ops and a stale quote fails loudly instead of
-// clobbering concurrent edits. POST .../append is the append-only
+// which path produced the change. PATCH is the surgical variant:
+// oldText → newText replacements resolved against the CURRENT
+// rendering, then fed through PUT's diff — minimal block ops, and a
+// stale quote fails loudly instead of clobbering concurrent edits.
+// POST .../append is the append-only
 // fast path: it skips the read+diff entirely and only creates blocks
 // past the current tail, so its cost is O(appended content) rather
 // than O(document) — see markdown.Append.
