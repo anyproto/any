@@ -166,6 +166,59 @@ func TestE2E_AgentBinary(t *testing.T) {
 		t.Fatalf("chunks after delete = %d, want 0", len(chunks))
 	}
 
+	// --- seq allocation vs tombstones (the post-wipe brick) -----------------
+	// 00000004 is tombstoned. Server-assigned seq must continue past it:
+	// deriving from live records only would re-issue 4, and the upsert
+	// onto the tombstone is absorbed by CRDT delete-wins — 201 with
+	// nothing written.
+	mustJSON(t, http.MethodPost, objBase+"/agent/turns",
+		`{"userText":"after partial wipe"}`, http.StatusCreated, &assigned)
+	if len(assigned.RecordIds) != 1 || assigned.RecordIds[0] != "00000005" {
+		t.Fatalf("post-delete assigned seq: recordIds = %v, want [00000005]", assigned.RecordIds)
+	}
+	turns = queryDataset(t, spaceBase, obj.ObjectId, "agent_turns",
+		map[string]any{"seq": 5}, nil)
+	if len(turns) != 1 || turns[0]["userText"] != "after partial wipe" {
+		t.Fatalf("post-delete append not readable: %+v", turns)
+	}
+
+	// Full history wipe, then append — the rig repro. Pre-fix this
+	// derived seq 0, collided with the 00000000 tombstone, and every
+	// subsequent append vanished forever.
+	mustJSON(t, http.MethodPost, spaceBase+"/delete-records",
+		fmt.Sprintf(`{"objectId":%q,"dataset":"agent_turns",
+			"recordIds":["00000000","00000001","00000002","00000003","00000005"]}`, obj.ObjectId),
+		http.StatusOK, &delRes)
+	if len(delRes.Rejections) != 0 {
+		t.Fatalf("turn wipe rejected: %+v", delRes.Rejections)
+	}
+	mustJSON(t, http.MethodPost, objBase+"/agent/turns",
+		`{"userText":"after full wipe"}`, http.StatusCreated, &assigned)
+	if len(assigned.RecordIds) != 1 || assigned.RecordIds[0] != "00000006" {
+		t.Fatalf("post-wipe assigned seq: recordIds = %v, want [00000006]", assigned.RecordIds)
+	}
+	turns = queryDataset(t, spaceBase, obj.ObjectId, "agent_turns", map[string]any{}, []string{"seq"})
+	if len(turns) != 1 || turns[0]["userText"] != "after full wipe" {
+		t.Fatalf("post-wipe append not readable: %+v", turns)
+	}
+
+	// Explicit seq onto a tombstoned id → loud 409, not a silent 201.
+	mustJSON(t, http.MethodPost, objBase+"/agent/turns",
+		`{"seq":0,"userText":"resurrect attempt"}`, http.StatusConflict, &env)
+	if env.Error.Code != api.ErrAgentSeqDeleted {
+		t.Errorf("tombstoned seq: code = %q, want %q", env.Error.Code, api.ErrAgentSeqDeleted)
+	}
+
+	// Chunks share the allocator: dataset is fully wiped (00000000
+	// tombstoned), server-assigned seq must continue at 1.
+	mustJSON(t, http.MethodPost, objBase+"/agent/chunks",
+		`{"summary":"post-wipe chunk","periodStart":1700000000,"periodEnd":1700003600,
+		  "fromSeq":6,"toSeq":6,"turnsCovered":1}`,
+		http.StatusCreated, &chunkRes)
+	if len(chunkRes.RecordIds) != 1 || chunkRes.RecordIds[0] != "00000001" {
+		t.Fatalf("post-wipe chunk seq: recordIds = %v, want [00000001]", chunkRes.RecordIds)
+	}
+
 	// --- brain: deterministic id, stable across calls -----------------------
 	var brain1, brain2 api.AgentBrainResponse
 	mustJSON(t, http.MethodGet, spaceBase+"/agent/brain", "", http.StatusOK, &brain1)

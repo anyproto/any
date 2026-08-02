@@ -23,7 +23,64 @@ func newEditorCmd() *cobra.Command {
 		Use:   "editor",
 		Short: "atomic blocks + markdown bridge for an object's body",
 	}
-	cmd.AddCommand(newBlocksCmd())
+	cmd.AddCommand(newBlocksCmd(), newEditorEditCmd())
+	return cmd
+}
+
+// newEditorEditCmd is `any editor edit` — targeted oldText → newText
+// replacements against the rendered markdown
+// (PATCH .../editor/markdown). One pair via --old/--new, or a JSON
+// batch via --edits.
+func newEditorEditCmd() *cobra.Command {
+	var (
+		oldText  string
+		newText  string
+		all      bool
+		editsRaw string
+	)
+	cmd := &cobra.Command{
+		Use:   "edit <spaceId> <objectId>",
+		Short: "PATCH the rendered markdown — exact oldText → newText replacements",
+		Long: `Applies targeted replacements against the object's rendered markdown.
+Each oldText must match the current rendering exactly (whole-line
+fuzzy fallback tolerates unicode punctuation and trailing whitespace)
+and, unless --all / "replaceAll" is set, occur exactly once. All
+edits match against the original document and must not overlap;
+any failing edit rejects the whole request.
+
+Examples:
+  any editor edit SPACE OBJ --old '- [ ] buy milk' --new '- [x] buy milk'
+  any editor edit SPACE OBJ --edits '[{"oldText":"a","newText":"b"}]'
+  any editor edit SPACE OBJ --edits @edits.json
+`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var req api.MarkdownEditRequest
+			switch {
+			case editsRaw != "":
+				if oldText != "" || newText != "" || all {
+					return fmt.Errorf("--edits is mutually exclusive with --old/--new/--all")
+				}
+				if err := readJSONBody(editsRaw, &req.Edits); err != nil {
+					return fmt.Errorf("--edits: %w", err)
+				}
+			case oldText != "":
+				req.Edits = []api.MarkdownEdit{{OldText: oldText, NewText: newText, ReplaceAll: all}}
+			default:
+				return fmt.Errorf("supply --old TEXT (with --new) or --edits JSON")
+			}
+			cl := client.New(flags.Addr, flags.Timeout)
+			out, err := cl.MarkdownEdit(cmd.Context(), args[0], args[1], req)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	cmd.Flags().StringVar(&oldText, "old", "", "exact text to replace (must be unique unless --all)")
+	cmd.Flags().StringVar(&newText, "new", "", "replacement text (empty = delete the matched text)")
+	cmd.Flags().BoolVar(&all, "all", false, "replace every occurrence instead of requiring a unique match")
+	cmd.Flags().StringVar(&editsRaw, "edits", "", `JSON array of {"oldText","newText","replaceAll"?} (inline, @FILE, or - for stdin)`)
 	return cmd
 }
 

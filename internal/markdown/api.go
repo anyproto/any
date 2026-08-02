@@ -57,15 +57,16 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
 	}
+	return applyDiff(ctx, sp, objectId, existing, content)
+}
 
-	oldRendered := make([]string, len(existing))
-	for i, b := range existing {
-		oldRendered[i] = RenderBlock(ParsedBlock{
-			Type:  b.Type,
-			Style: b.Style,
-			Text:  b.Text,
-		})
-	}
+// applyDiff is the shared write pipeline behind Set and EditContent:
+// diff content against the already-listed existing blocks, then emit
+// the create / update / delete ops. Taking `existing` (instead of
+// listing internally) lets EditContent resolve matches and diff
+// against the same listing.
+func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []existingBlock, content string) (SetResult, error) {
+	oldRendered := renderExisting(existing)
 
 	rawNew := Split(content)
 	newParsed := make([]ParsedBlock, len(rawNew))
@@ -82,7 +83,7 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 	// the left/right of an insert run).
 	posByNewIdx, err := allocateInsertPositions(existing, plan)
 	if err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Set: allocate pos: %w", err)
+		return SetResult{}, fmt.Errorf("markdown: apply: allocate pos: %w", err)
 	}
 
 	var (
@@ -112,7 +113,7 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 
 	if len(records) > 0 {
 		if err := editor.EnsureType(ctx, sp, objectId); err != nil {
-			return result, fmt.Errorf("markdown: Set: ensure type: %w", err)
+			return result, fmt.Errorf("markdown: apply: ensure type: %w", err)
 		}
 		res, err := sp.Modify(ctx, space.ModifyBatch{
 			ObjectId: objectId,
@@ -120,10 +121,10 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 			Records:  records,
 		})
 		if err != nil {
-			return result, fmt.Errorf("markdown: Set: modify: %w", err)
+			return result, fmt.Errorf("markdown: apply: modify: %w", err)
 		}
 		if len(res.Rejections) > 0 {
-			return result, fmt.Errorf("markdown: Set: rejected: %s", res.Rejections[0].Reason)
+			return result, fmt.Errorf("markdown: apply: rejected: %s", res.Rejections[0].Reason)
 		}
 		// Fill in the auto-derived ids for the Inserted slots, aligned
 		// to records[] by position. result.Inserted's slot-per-insert
@@ -155,7 +156,7 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 			Dataset:   editor.Dataset,
 			RecordIds: ids,
 		}); err != nil {
-			return result, fmt.Errorf("markdown: Set: delete tombstones: %w", err)
+			return result, fmt.Errorf("markdown: apply: delete tombstones: %w", err)
 		}
 	}
 	return result, nil
@@ -242,6 +243,12 @@ func Get(ctx context.Context, sp space.Space, objectId string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return Join(renderExisting(existing)), nil
+}
+
+// renderExisting renders each listed block to its canonical markdown
+// bytes, in document order.
+func renderExisting(existing []existingBlock) []string {
 	rendered := make([]string, len(existing))
 	for i, b := range existing {
 		rendered[i] = RenderBlock(ParsedBlock{
@@ -250,7 +257,7 @@ func Get(ctx context.Context, sp space.Space, objectId string) (string, error) {
 			Text:  b.Text,
 		})
 	}
-	return Join(rendered), nil
+	return rendered
 }
 
 // --- helpers ---------------------------------------------------------------

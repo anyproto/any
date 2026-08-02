@@ -82,6 +82,7 @@ agent.chunk_invalid              # chunk shape violation (missing/inverted point
 agent.memory_invalid             # memory item shape violation (category/context/caps)
 agent.memory_not_found           # 404 — unknown itemId on evolve/delete
 agent.not_author                 # 403 — evolve/delete by non-creator
+agent.seq_deleted                # 409 — client-provided seq points at a tombstoned (wiped) record; deleted seqs are never reused
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
@@ -101,6 +102,10 @@ file.variant_invalid             # 400 — variant/variantOf pairing broken, or 
 history.version_not_found        # 404 — unknown version (ChangeId), or not in this object's DAG
 history.view_too_large           # 413 — materializing that version blew the SDK's view bound; narrow with dataset/recordId
 history.truncated                # 404 — the causal past needed is not on this device (reserved; the SDK keeps full history today)
+
+markdown.no_match                # 400 — an edits[i].oldText not found in the current rendering (details.editIndex); GET .../editor/markdown and quote exactly
+markdown.ambiguous_match         # 400 — oldText occurs >1 times without replaceAll (details.editIndex, details.occurrences); add context or set replaceAll
+markdown.overlapping_edits       # 400 — two edits matched intersecting text (details.editIndices); merge them into one edit
 
 aggregate.bad_pipeline           # 400 — unparseable pipeline, unknown stage, or $text/vector outside the pushdown prefix
 aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)

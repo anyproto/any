@@ -213,6 +213,32 @@ any aggregate $SPID $OBJID --dataset chat_messages \
   --pipeline '[{"$group":{"_id":"$creator","n":{"$count":{}}}},{"$sort":{"n":-1}}]'
 ```
 
+### Editor
+
+```
+any editor blocks create <spaceId> <objectId> --type T [--text "..."] [--style JSON] [--parent ID] [--pos LEXID]
+any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]...
+any editor blocks delete <spaceId> <objectId> <blockId>
+any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all]
+any editor edit          <spaceId> <objectId> --edits JSON|@FILE|-
+```
+
+`editor blocks` maps 1:1 onto the atomic block write endpoints
+(reads go through `any query … --dataset editor_blocks`).
+
+`editor edit` is `PATCH …/editor/markdown` — targeted oldText →
+newText replacements against the rendered markdown. Each `oldText`
+must match the current rendering exactly (whole-line fuzzy fallback
+tolerates unicode punctuation and trailing whitespace) and, unless
+`--all` / `"replaceAll"`, occur exactly once. `--edits` takes a JSON
+array of `{"oldText","newText","replaceAll"?}` for a multi-spot batch;
+all edits match against the original document and any failure rejects
+the whole request. See `docs/03-api.md` § Objects.
+
+```bash
+any editor edit $SPID $OBJID --old '- [ ] buy milk' --new '- [x] buy milk'
+```
+
 ### Chat
 
 ```

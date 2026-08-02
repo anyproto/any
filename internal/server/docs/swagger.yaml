@@ -781,6 +781,22 @@ definitions:
       content:
         type: string
     type: object
+  api.MarkdownEdit:
+    properties:
+      newText:
+        type: string
+      oldText:
+        type: string
+      replaceAll:
+        type: boolean
+    type: object
+  api.MarkdownEditRequest:
+    properties:
+      edits:
+        items:
+          $ref: '#/definitions/api.MarkdownEdit'
+        type: array
+    type: object
   api.MarkdownSetResponse:
     properties:
       deleted:
@@ -3317,6 +3333,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
         "500":
           description: Internal Server Error
           schema:
@@ -3354,6 +3374,10 @@ paths:
             $ref: '#/definitions/api.ModifyResult'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
         "500":
@@ -3829,6 +3853,44 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorEnvelope'
       summary: Get markdown content
+      tags:
+      - editor
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        type: string
+      - description: Targeted replacements
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/api.MarkdownEditRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.MarkdownSetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorEnvelope'
+      summary: Edit markdown content (targeted match/replace)
       tags:
       - editor
     put:

@@ -44,6 +44,9 @@ func (turnsHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChan
 	if err := validateTurnPayload(payload); err != nil {
 		return err
 	}
+	if err := checkRecordId("turn", rec, payload); err != nil {
+		return err
+	}
 	stampCreate(ctx, sink)
 	return nil
 }
@@ -73,6 +76,9 @@ func (chunksHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordCha
 		return err
 	}
 	if err := validateChunkPayload(payload); err != nil {
+		return err
+	}
+	if err := checkRecordId("chunk", rec, payload); err != nil {
 		return err
 	}
 	stampCreate(ctx, sink)
@@ -111,6 +117,26 @@ func createPayload(rec *handler.RecordChange, kind string) (*anyenc.Value, error
 		return nil, rejectCreate(kind, "payload must be a JSON object")
 	}
 	return op.Payload, nil
+}
+
+// checkRecordId enforces the id ↔ seq invariant: a record's id IS its
+// zero-padded seq. The allocator derives the next seq off the
+// lexically-greatest record id (a tombstone keeps only the id), so a
+// foreign id — reachable via generic POST /modify — would sort above
+// every numeric id and wedge allocation permanently: deleting it
+// doesn't heal, the probe includes tombstones. Runs after payload
+// validation, so seq is a present, non-negative integer. MaxSeq keeps
+// the id inside the pad width (a longer id breaks lexical order the
+// same way).
+func checkRecordId(kind string, rec *handler.RecordChange, payload *anyenc.Value) error {
+	seq := payload.GetInt(FieldSeq)
+	if seq > MaxSeq {
+		return rejectCreate(kind, fmt.Sprintf("seq must be ≤ %d", int(MaxSeq)))
+	}
+	if want := RecordId(seq); rec.Id != want {
+		return rejectCreate(kind, fmt.Sprintf("id_mismatch: record id must be the zero-padded seq (%q)", want))
+	}
+	return nil
 }
 
 func validateTurnPayload(payload *anyenc.Value) error {

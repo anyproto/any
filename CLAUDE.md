@@ -131,12 +131,21 @@ Implementation slices landed:
    change CID (same shape chat uses). Reads go through `POST
    /v1/spaces/:id/query` with `dataset=editor_blocks` (sort
    `nav.pos`); liveness through `POST /v1/spaces/:id/query/subscribe`.
-   The markdown bridge — `GET/PUT /editor/markdown` — stays as the
-   one render/import transform exception (LLM tooling and Export/
+   The markdown bridge — `GET/PUT/PATCH /editor/markdown` — stays as
+   the one render/import transform exception (LLM tooling and Export/
    Import .md flows depend on it). GET renders blocks → markdown;
    PUT parses markdown → diffs against the current block tree →
    emits per-record create / update / delete ops, returning
-   `{inserted, updated, deleted, unchanged}`. `POST
+   `{inserted, updated, deleted, unchanged}`. PATCH is the surgical
+   variant: `{edits: [{oldText, newText, replaceAll?}]}` exact-match
+   replacements resolved server-side against the current canonical
+   rendering (whole-line fuzzy fallback for unicode punctuation /
+   trailing whitespace), then fed through PUT's diff — so a checkbox
+   tick lands as one `$set style.checked`, ids stay stable, stale
+   quotes 400 (`markdown.no_match` / `ambiguous_match` /
+   `overlapping_edits`) instead of clobbering concurrent edits
+   (`markdown.EditContent` in `internal/markdown`; CLI `any editor
+   edit`). `POST
    /editor/markdown/append` is the append-only fast path: it parses
    the fragment, looks up only the tail pos (no full-doc read, no
    diff), ensures the `editor` type is attached (one object-record
