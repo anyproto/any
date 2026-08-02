@@ -62,7 +62,7 @@ the affected window can't be located incrementally.
 | `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
 | `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
-| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | per property     | property values (see below) |
+| `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
 
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
   message (creator / reactions / attachments excluded — text only).
@@ -99,8 +99,9 @@ the affected window can't be located incrementally.
   decls carry no `meta["index"]` flag; revisit only if evidence
   demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
-  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `program` are the
-  established vocabulary, and property meta flags can mint new ones.
+  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `history` / `props`
+  are the established vocabulary, and property meta flags can mint new
+  ones. `props` is FTS-only (see the prop chunker below).
 - **`TypeId()` gating**: the indexer runs a gated chunker only while the
   type literal is in the object's `any.types`; when it is not, it
   prefix-evicts `objectId:<dataset>:` instead (see eviction below).
@@ -111,21 +112,41 @@ Indexes property VALUES from the shared `objects` collection under the
 virtual dataset `prop` — one entry per (object, indexed property), doc
 id `objectId:prop:<propId>`:
 
-- **Which properties index is declared on the property definitions**:
-  `meta["index"] = "<scope>"` (set at `AddProperty` time — SDK
-  `PropertyDraft.Meta`, HTTP `meta` field). Only string / array kinds
-  index; arrays render as a newline join of their string elements.
+- **User properties index BY DEFAULT under the dedicated scope
+  `props`** — never interleaved with `basic` ranking; a search that
+  wants pure content passes `scopes` without `props`. The property
+  definition's `meta["index"]` (set at `AddProperty` time — SDK
+  `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override:
+  absent/empty ⇒ `props`; `"<scope>"` ⇒ that scope; the literal
+  `"none"` ⇒ excluded (the opt-out for blobs and noisy enums). An
+  invalid slug excludes rather than silently landing in the default.
+- **Entry text is self-describing**: `"<prop name>: <value>"`
+  ("Score: 9", "Publisher: Gollancz") — property-NAME search works
+  (property definitions are indexed nowhere else) and bare numbers get
+  context. The name is the definition's display `name`, falling back
+  to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
+  a bare name prefix.
+- **Kinds**: string; array (newline join of string and number
+  elements); number (canonical JSON rendering — integers without a
+  decimal point; distinctive numerals like 85600 are real discovery
+  anchors, and small-number noise is scope-contained). Booleans, null
+  and object kinds never index.
+- **The `props` scope is FTS-only**: the store never marks props-scope
+  docs pending, so they are never embedded — short "name: value"
+  entries embed badly and would pollute vector recall. A `meta.index`
+  override into another scope re-enters the vector pipeline.
 - **Built-ins `any.name` and `any.description` are always indexed**
-  under scope `basic`, reserved recordIds `name` / `description` —
-  EXCEPT for objects whose `any.types` names an excluded type. The
-  exclusion list is currently empty (the bobrik-era `agent_debug_log`
-  type is gone); the mechanism remains for future diagnostic types.
+  under scope `basic`, reserved recordIds `name` / `description`, raw
+  (no name prefix) — EXCEPT for objects whose `any.types` names an
+  excluded type (`NewPropChunker(excl…)`; currently the
+  `enrich_proposal` type — diagnostic objects whose names would leak
+  noise into search).
 - Per streamed live row the chunker emits entries for the built-ins and
   for EVERY catalog property, unconditionally: value present and type
   attached ⇒ text; otherwise ⇒ `Data ""` — so cleared values and
   detached-type properties evict record-level, idempotently.
-- The per-space catalog (flagged props across all non-builtin types) is
-  a TTL snapshot (30s): newly flagged properties are picked up within
+- The per-space catalog (indexable props across all non-builtin types)
+  is a TTL snapshot (30s): newly added properties are picked up within
   the TTL — and only affect rows written afterwards anyway ("index from
   the next change"). `Invalidate(spaceId)` drops it (tests/ops).
 
@@ -278,6 +299,8 @@ The single operation is `advance`: page through
    out-of-band purge can race the cursor. Crash-safe: re-applying a
    page is idempotent. Text-bearing upserts land marked `pending` —
    **FTS is searchable immediately**, never waiting on the embedder.
+   Exception: `props`-scope docs are never marked pending (FTS-only —
+   see the prop chunker).
 
 Hot path: `Changes().Subscribe` does a non-blocking send into a cap-1
 dirty channel (the callback runs on the SDK apply path); the worker

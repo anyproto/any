@@ -24,6 +24,11 @@ const (
 	ScopeChat    = "chat"    // chat messages
 	ScopeAgent   = "agent"   // agent memory
 	ScopeHistory = "history" // agent turns + chunks (conversation history)
+	// ScopeProps is the default scope for user property values (see
+	// PropChunker). FTS-only: the indexer never embeds props-scope docs —
+	// short "Name: value" entries embed badly and would pollute vector
+	// recall. A meta.index override into another scope opts back in.
+	ScopeProps = "props"
 )
 
 // ApplySeqField is the reserved record field carrying the per-space

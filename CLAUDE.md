@@ -284,15 +284,19 @@ Implementation slices landed:
       `chat`, scope `chat`, `Data` = message `text` only).
     - `index.NewPropChunker()` (dataset `prop` — VIRTUAL, ungated):
       indexes property VALUES from the shared `objects` collection, one
-      entry per (object, indexed property), recordId = propId. Which
-      props index is declared on the property definitions via
-      `meta["index"] = "<scope>"` (SDK `PropertyDraft.Meta`, HTTP `meta`
-      field; string/array kinds only; arrays newline-join). Built-ins
-      `any.name` + `any.description` always index under `basic`
-      (recordIds `name` / `description`). Per live row it emits entries
-      for every catalog prop unconditionally — value text when the type
-      is attached, `Data ""` otherwise (record-level eviction of
-      cleared values / detached types). Catalog = per-space TTL
+      entry per (object, indexed property), recordId = propId. User
+      props index BY DEFAULT under the dedicated FTS-only scope `props`
+      (never marked pending/embedded), entry text self-describing
+      `"<prop name>: <value>"`; `meta["index"]` (SDK
+      `PropertyDraft.Meta`, HTTP `meta` field) is a 3-state override —
+      absent → `props`, `"<scope>"` → that scope, `"none"` → excluded.
+      Kinds: string, array (newline-join of string+number elements),
+      number (canonical JSON). Built-ins `any.name` +
+      `any.description` always index under `basic` (recordIds `name` /
+      `description`, raw — no name prefix). Per live row it emits
+      entries for every catalog prop unconditionally — value text when
+      the type is attached, `Data ""` otherwise (record-level eviction
+      of cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
     - Excluded from indexing entirely: `program`,
       `miniapp`, and the agent-data datasets (`agent_turns` /

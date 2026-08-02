@@ -238,6 +238,7 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 		{Entry: entry("basic", "obj2", "editor_blocks", "b1", "far away", 2), Vector: []float32{0, 1, 0, 0}},
 		{Entry: entry("chat", "obj1", "chat_messages", "m2", "awaiting embedding", 3)}, // pending
 		{Entry: entry("basic", "obj2", "editor_blocks", "b2", "", 4)},                  // empty text — never pending
+		{Entry: entry("props", "obj3", "prop", "p1", "Author: Frank Herbert", 5)},      // props scope — FTS-only, never pending
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -249,6 +250,14 @@ func TestStore_VectorPendingLifecycle(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != "obj1:chat_messages:m2" || texts[0] != "awaiting embedding" {
 		t.Fatalf("pending = %v / %v, want only obj1:chat_messages:m2", ids, texts)
+	}
+	// The props doc is still FTS-searchable despite skipping the embed queue.
+	ftsHits, err := s.SearchFTSQuery(ctx, sp, FTSQuery{Query: "Herbert"}, []string{"props"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ftsHits) != 1 || ftsHits[0].RecordId != "p1" {
+		t.Fatalf("props fts hits = %+v, want p1", ftsHits)
 	}
 
 	query := []float32{0.9, 0.1, 0, 0}

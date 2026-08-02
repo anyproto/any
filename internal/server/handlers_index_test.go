@@ -117,10 +117,9 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	memTypeId := typeResp.TypeId
 
 	propId := map[string]string{}
-	for _, xkey := range []string{"context", "keywords", "entities"} {
+	addProp := func(body, xkey string) {
 		rec = doJSON(t, e, http.MethodPost,
-			"/v1/spaces/"+spaceId+"/types/"+memTypeId+"/properties",
-			fmt.Sprintf(`{"name":%q,"kind":"string","xKey":%q,"meta":{"index":"agent"}}`, xkey, xkey))
+			"/v1/spaces/"+spaceId+"/types/"+memTypeId+"/properties", body)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create prop %s: %d %s", xkey, rec.Code, rec.Body.String())
 		}
@@ -130,13 +129,21 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		}
 		propId[xkey] = pr.PropId
 	}
+	for _, xkey := range []string{"context", "keywords", "entities"} {
+		addProp(fmt.Sprintf(`{"name":%q,"kind":"string","xKey":%q,"meta":{"index":"agent"}}`, xkey, xkey), xkey)
+	}
+	// Default-on props: no meta ⇒ scope "props"; "none" opts out.
+	addProp(`{"name":"Author","kind":"string","xKey":"author"}`, "author")
+	addProp(`{"name":"Score","kind":"number","xKey":"score"}`, "score")
+	addProp(`{"name":"Secret","kind":"string","xKey":"secret","meta":{"index":"none"}}`, "secret")
 
 	memObj := mustCreateObject(t, e, spaceId, fmt.Sprintf(`{"types":[%q]}`, memTypeId))
-	// Set the three property values (keyed by propId, as the wire demands).
+	// Set the property values (keyed by propId, as the wire demands).
 	mustModify(t, e, http.MethodPost,
 		"/v1/spaces/"+spaceId+"/properties/"+memObj+"/set/"+memTypeId,
-		fmt.Sprintf(`{"patch":{%q:"ctx body",%q:"kw1 kw2",%q:"Alice Bob"}}`,
-			propId["context"], propId["keywords"], propId["entities"]),
+		fmt.Sprintf(`{"patch":{%q:"ctx body",%q:"kw1 kw2",%q:"Alice Bob",%q:"Frank Herbert",%q:85600,%q:"hidden"}}`,
+			propId["context"], propId["keywords"], propId["entities"],
+			propId["author"], propId["score"], propId["secret"]),
 		http.StatusOK)
 	// Set the object name on the built-in `any` type.
 	mustModify(t, e, http.MethodPost,
@@ -167,11 +174,13 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		t.Errorf("editor window entry wrong: %+v", edEntries[0])
 	}
 
-	// Prop chunker: name + description built-ins (scope basic) plus one
-	// entry per meta-flagged property (scope agent), recordId = propId.
+	// Prop chunker: name + description built-ins (scope basic, raw) plus
+	// one self-describing "<name>: <value>" entry per indexed property —
+	// scope-agent overrides and the default-on scope-props pair; the
+	// meta.index="none" prop never enters the catalog.
 	memEntries, memMax := collectChunks(t, ctx, propCh, sdkSpace, memObj, 0)
-	if len(memEntries) != 5 {
-		t.Fatalf("prop entries = %d, want 5 (name+description+3 flagged): %+v", len(memEntries), memEntries)
+	if len(memEntries) != 7 {
+		t.Fatalf("prop entries = %d, want 7 (name+description+3 flagged+2 default): %+v", len(memEntries), memEntries)
 	}
 	byRecord := map[string]index.IndexEntry{}
 	for _, en := range memEntries {
@@ -180,21 +189,26 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		}
 		byRecord[en.RecordId] = en
 	}
+	if _, ok := byRecord[propId["secret"]]; ok {
+		t.Errorf("meta.index=none prop leaked into the catalog: %+v", byRecord[propId["secret"]])
+	}
 	if en := byRecord[index.NamePropRecordId]; en.Scope != index.ScopeBasic || en.Data != "My Memory" {
 		t.Errorf("name entry wrong: %+v", en)
 	}
 	if en := byRecord[index.DescriptionPropRecordId]; en.Scope != index.ScopeBasic || en.Data != "" {
 		t.Errorf("description entry wrong (unset ⇒ removal): %+v", en)
 	}
-	wantProps := map[string]string{
-		propId["context"]:  "ctx body",
-		propId["keywords"]: "kw1 kw2",
-		propId["entities"]: "Alice Bob",
+	wantProps := map[string]struct{ scope, data string }{
+		propId["context"]:  {index.ScopeAgent, "context: ctx body"},
+		propId["keywords"]: {index.ScopeAgent, "keywords: kw1 kw2"},
+		propId["entities"]: {index.ScopeAgent, "entities: Alice Bob"},
+		propId["author"]:   {index.ScopeProps, "Author: Frank Herbert"},
+		propId["score"]:    {index.ScopeProps, "Score: 85600"},
 	}
 	for pid, want := range wantProps {
 		en, ok := byRecord[pid]
-		if !ok || en.Scope != index.ScopeAgent || en.Data != want {
-			t.Errorf("prop %s entry = %+v, want Data %q scope agent", pid, en, want)
+		if !ok || en.Scope != want.scope || en.Data != want.data {
+			t.Errorf("prop %s entry = %+v, want Data %q scope %q", pid, en, want.data, want.scope)
 		}
 	}
 
@@ -267,11 +281,11 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 
 	// --- Non-memory object: every prop entry is a removal (Data "") ---
 	// chatObj has no name/description and doesn't carry the flagged
-	// type, so the prop chunker emits idempotent removals for all five
+	// type, so the prop chunker emits idempotent removals for all seven
 	// records — cleared values and detached types evict record-level.
 	liveNonMem, _ := collectChunks(t, ctx, propCh, sdkSpace, chatObj, 0)
-	if len(liveNonMem) != 5 {
-		t.Fatalf("non-memory prop entries = %d, want 5 removals: %+v", len(liveNonMem), liveNonMem)
+	if len(liveNonMem) != 7 {
+		t.Fatalf("non-memory prop entries = %d, want 7 removals: %+v", len(liveNonMem), liveNonMem)
 	}
 	for _, en := range liveNonMem {
 		if en.Data != "" {

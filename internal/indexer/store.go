@@ -29,9 +29,10 @@ const (
 	// block; v4 = any-store alpha.15 FTS (postings format v2 — FTS v1
 	// indexes have no on-disk back-compat, so the index must be rebuilt);
 	// v5 = eviction keyed on ObjectChange.Deleted (rebuild drops docs of
-	// deleted objects). Mismatch = boot error advising removal; no
-	// migration — the index is derived state (re-indexes on the next
-	// change).
+	// deleted objects) + default-on property indexing under scope
+	// "props" (rebuild backfills "name: value" entries for existing
+	// rows). Mismatch = boot error advising removal; no migration — the
+	// index is derived state (re-indexes on the next change).
 	indexSchemaVersion = 5
 )
 
@@ -482,11 +483,13 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		switch {
 		case up.Vector != nil:
 			doc.Set("vector", arena.NewVectorF32(up.Vector))
-		case s.markPending && e.Data != "":
+		case s.markPending && e.Data != "" && e.Scope != index.ScopeProps:
 			// Awaiting embedding — marked even while the embedder is
 			// down or its dimension unknown, so outages freeze the
 			// vector pipeline without losing work. Empty-text docs have
-			// nothing to embed and stay vector-less.
+			// nothing to embed and stay vector-less. Props-scope docs
+			// are FTS-only by design (see index.ScopeProps) and never
+			// enter the embed queue.
 			doc.Set("pending", arena.NewNumberInt(1))
 		}
 		if err := coll.UpsertOne(tx.Context(), doc); err != nil {
