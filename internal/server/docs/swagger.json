@@ -7224,7 +7224,7 @@
                     }
                 },
                 "scopes": {
-                    "description": "Scopes restricts results to the given index scopes (basic, chat,\nagent). Empty = all scopes.",
+                    "description": "Scopes restricts results to the given index scopes (basic, chat,\nagent, props, …). Empty = all scopes.",
                     "type": "array",
                     "items": {
                         "type": "string"
