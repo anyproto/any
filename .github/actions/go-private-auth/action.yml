@@ -13,9 +13,6 @@ description: >-
 #   token. Pair this with `persist-credentials: false` on the checkout so the
 #   two credential sources don't collide. (Used by the desktop, android, and
 #   ios build jobs in _build-any.yml.)
-#
-# GOPRIVATE=github.com/anyproto/* skips the public proxy + checksum DB for the
-# private modules; public deps still go through the proxy untouched.
 
 inputs:
   token:
@@ -32,5 +29,5 @@ runs:
       env:
         GIT_TOKEN: ${{ inputs.token }}
       run: |
-        echo "GOPRIVATE=github.com/anyproto/*" >> "$GITHUB_ENV"
+        echo "GOPRIVATE=github.com/anyproto/any-sync-sdk" >> "$GITHUB_ENV"
         git config --global url."https://x-access-token:${GIT_TOKEN}@github.com/anyproto/".insteadOf "https://github.com/anyproto/"
