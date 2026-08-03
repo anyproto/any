@@ -42,6 +42,10 @@ var strictBodySchemas = []string{
 	"api.SpaceCreateRequest",
 	"api.SpaceUpdateRequest",
 	"api.AuthRequest",
+	"api.AgentTurnAppendRequest",
+	"api.AgentChunkCreateRequest",
+	"api.AgentMemoryCreateRequest",
+	"api.AgentMemoryEvolveRequest",
 }
 
 // openAPIDoc caches the stamped spec — the generated document is
