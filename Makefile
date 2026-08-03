@@ -11,7 +11,7 @@ LDFLAGS := -s -w \
 	-X $(PKG)/internal/version.Commit=$(COMMIT) \
 	-X $(PKG)/internal/version.BuildDate=$(DATE)
 
-SWAG := go tool swag
+SWAG := go tool github.com/swaggo/swag/v2/cmd/swag
 
 # Search-index build tags (docs/13-index.md § build tags). The desktop
 # binary ships both legs; each is independently selectable so other
@@ -29,7 +29,7 @@ LLAMACPP_VERSION := b9590
 .PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any
 
 swagger:
-	$(SWAG) init -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
+	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
 
 build: swagger llamacpp-soft
 	@mkdir -p $(OUT)

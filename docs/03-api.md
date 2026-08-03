@@ -118,10 +118,22 @@ live via `/query/subscribe`). One write shape across the whole API.
 
 ### Meta
 
-| Method | Path            | Purpose                                |
-|--------|-----------------|----------------------------------------|
-| GET    | `/v1/health`    | server health, version, account id     |
-| POST   | `/v1/shutdown`  | graceful shutdown                      |
+| Method | Path               | Purpose                                |
+|--------|--------------------|----------------------------------------|
+| GET    | `/v1/health`       | server health, version, account id     |
+| POST   | `/v1/shutdown`     | graceful shutdown                      |
+| GET    | `/v1/openapi.json` | the API's OpenAPI 3.1 spec             |
+
+`/v1/openapi.json` serves the **OpenAPI 3.1** document generated from
+the handler annotations and the `internal/api` request structs — the
+discovery surface for spec-reading clients (the UI apps, anybao's
+helper layer, external agents). Schema descriptions come from the
+struct field comments, so they carry the same guidance the error
+messages do. Request schemas whose endpoints enforce the closed body
+vocabulary (`request.unknown_field` — objects create, the
+query/subscribe bodies, types create) are served with
+`additionalProperties: false`, declaring the strictness at discovery
+time. Not available in the mobile build (404).
 
 `/v1/health` works on an unauthorized server too — `account` is then
 `""`.
