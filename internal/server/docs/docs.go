@@ -396,6 +396,23 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AuthRequest": {
+                "properties": {
+                    "accountId": {
+                        "description": "AccountId selects an account that already has a local wallet.",
+                        "type": "string"
+                    },
+                    "index": {
+                        "description": "Index is the account derivation index for Mnemonic. Default 0.",
+                        "type": "integer"
+                    },
+                    "mnemonic": {
+                        "description": "Mnemonic restores (or first-creates) the account derived from\nthis BIP-39 phrase. The device key is always freshly generated.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AuthResponse": {
                 "properties": {
                     "accountId": {
@@ -2502,10 +2519,20 @@ const docTemplate = `{
                     "content": {
                         "application/json": {
                             "schema": {
-                                "type": "object"
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.AuthRequest",
+                                        "summary": "body",
+                                        "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
+                                    }
+                                ]
                             }
                         }
-                    }
+                    },
+                    "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
                 },
                 "responses": {
                     "200": {

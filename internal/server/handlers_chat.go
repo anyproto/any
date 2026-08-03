@@ -30,7 +30,7 @@ func (d *deps) chatSend(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.ChatSendRequest](c)
+	req, ok := bindBodyStrict[api.ChatSendRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (d *deps) chatEdit(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.ChatEditRequest](c)
+	req, ok := bindBodyStrict[api.ChatEditRequest](c, "")
 	if !ok {
 		return nil
 	}

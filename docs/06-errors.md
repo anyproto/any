@@ -47,7 +47,7 @@ handlers are implemented; examples:
 request.bad_json                 # request body is not valid JSON; message names what failed to parse and the expected field set
 request.schema                   # JSON shape doesn't match endpoint schema
 request.missing_field            # required field absent
-request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). Strict endpoints: POST /objects, the query/subscribe bodies, POST /types.
+request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — engine already booted; restart to switch

@@ -80,9 +80,9 @@ func (d *deps) markdownSet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBody[struct {
+	req, ok := bindBodyStrict[struct {
 		Content string `json:"content"`
-	}](c)
+	}](c, "")
 	if !ok {
 		return nil
 	}
@@ -136,9 +136,9 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBody[struct {
+	req, ok := bindBodyStrict[struct {
 		Content string `json:"content"`
-	}](c)
+	}](c, "")
 	if !ok {
 		return nil
 	}
@@ -168,7 +168,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 func (d *deps) markdownEdit(c echo.Context) error {
 	// Body validation runs before resolveSpace so 400s don't pay for
 	// a space lookup.
-	req, ok := bindBody[api.MarkdownEditRequest](c)
+	req, ok := bindBodyStrict[api.MarkdownEditRequest](c, "")
 	if !ok {
 		return nil
 	}

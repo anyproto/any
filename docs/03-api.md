@@ -130,10 +130,10 @@ discovery surface for spec-reading clients (the UI apps, anybao's
 helper layer, external agents). Schema descriptions come from the
 struct field comments, so they carry the same guidance the error
 messages do. Request schemas whose endpoints enforce the closed body
-vocabulary (`request.unknown_field` — objects create, the
-query/subscribe bodies, types create) are served with
-`additionalProperties: false`, declaring the strictness at discovery
-time. Not available in the mobile build (404).
+vocabulary (`request.unknown_field`) are served with
+`additionalProperties: false` — the spec is the authoritative list of
+which endpoints are strict, declared at discovery time. Not available
+in the mobile build (404).
 
 `/v1/health` works on an unauthorized server too — `account` is then
 `""`.

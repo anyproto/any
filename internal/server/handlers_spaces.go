@@ -235,7 +235,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 // @Failure	500		{object}	api.ErrorEnvelope
 // @Router		/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
-	req, ok := bindBody[api.SpaceCreateRequest](c)
+	req, ok := bindBodyStrict[api.SpaceCreateRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -345,7 +345,7 @@ func (d *deps) spaceUpdate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBody[api.SpaceUpdateRequest](c)
+	req, ok := bindBodyStrict[api.SpaceUpdateRequest](c, "")
 	if !ok {
 		return nil
 	}

@@ -103,7 +103,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
 
-	req, ok := bindBody[api.AddPropertyRequest](c)
+	req, ok := bindBodyStrict[api.AddPropertyRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -300,7 +300,7 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
 	}
 
-	req, ok := bindBody[api.PropertyPatchRequest](c)
+	req, ok := bindBodyStrict[api.PropertyPatchRequest](c, "")
 	if !ok {
 		return nil
 	}

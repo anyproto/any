@@ -22,12 +22,26 @@ import (
 // swaggo cannot emit the flag itself, hence the serve-time stamp; a
 // name listed here but absent from the generated spec fails loudly
 // (and TestServeOpenAPI pins the stamped output).
+// Keep in lockstep with the strict endpoints: every checkUnknownFields
+// callsite and every bindBodyStrict flip adds its request schema here.
 var strictBodySchemas = []string{
 	"api.ObjectCreateRequest",
 	"api.SpaceQueryObjectsRequest",
 	"api.SpaceQueryRequest",
 	"api.SpaceListQueryRequest",
 	"api.TypesCreateRequest",
+	"api.AddPropertyRequest",
+	"api.PropertyPatchRequest",
+	"api.ChatSendRequest",
+	"api.ChatEditRequest",
+	"api.BlockCreateRequest",
+	"api.BlockPatchRequest",
+	"api.MarkdownContent",
+	"api.MarkdownEditRequest",
+	"api.SearchRequest",
+	"api.SpaceCreateRequest",
+	"api.SpaceUpdateRequest",
+	"api.AuthRequest",
 }
 
 // openAPIDoc caches the stamped spec — the generated document is

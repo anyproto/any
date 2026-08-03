@@ -75,16 +75,17 @@ func TestServer_Chat_Mentions(t *testing.T) {
 		t.Errorf("edit reply re-fold: mentions = %v, want [%s]", got.Mentions, plain.Creator)
 	}
 
-	// Client-supplied mentions are inert on the typed send route (the
-	// request struct has no such field — unknown JSON keys drop) ...
+	// Client-supplied mentions reject loudly on the typed send route —
+	// the request struct has no such field and the strict bind answers
+	// 400 request.unknown_field, so the derived array can't be smuggled
+	// (and the caller learns it, instead of a silent drop) ...
 	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages",
 		`{"text":"smuggle","mentions":["someone"]}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("send with unknown field: %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("send with unknown field: %d %s, want 400", rec.Code, rec.Body.String())
 	}
-	smuggleId := decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]
-	if got := getChatMsg(t, e, base, smuggleId); got.Mentions != nil {
-		t.Errorf("smuggled mentions landed: %v", got.Mentions)
+	if code := errCode(t, rec.Body.Bytes()); code != "request.unknown_field" {
+		t.Errorf("send with unknown field: code = %q, want request.unknown_field", code)
 	}
 	// ...and rejected outright on the generic modify route — mentions
 	// is ScopeDerived (handler-only), so the local-write validation

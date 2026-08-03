@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/pb33f/libopenapi"
 )
 
 // TestServeOpenAPI pins the served spec artifact: OpenAPI 3.1, every
@@ -47,5 +49,21 @@ func TestServeOpenAPI(t *testing.T) {
 		if ap, ok := schema["additionalProperties"].(bool); !ok || ap {
 			t.Errorf("%s additionalProperties = %v, want false", name, schema["additionalProperties"])
 		}
+	}
+
+	// Structural validity: build the full 3.1 model with a spec-aware
+	// parser, so a generator or stamping regression that still yields
+	// well-formed JSON — a dangling $ref, a malformed operation — fails
+	// here instead of on a spec-reading client.
+	doc, err := libopenapi.NewDocument(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("libopenapi rejected the served spec: %v", err)
+	}
+	model, err := doc.BuildV3Model()
+	if err != nil {
+		t.Fatalf("spec model error: %v", err)
+	}
+	if got := model.Model.Paths.PathItems.Len(); got != len(paths) {
+		t.Errorf("modeled paths = %d, served paths = %d", got, len(paths))
 	}
 }
