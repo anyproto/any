@@ -22,7 +22,7 @@ import (
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
-	req, ok := bindBody[api.ACLAcceptRequest](c)
+	req, ok := bindBodyStrict[api.ACLAcceptRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -56,7 +56,7 @@ func (d *deps) aclAccept(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/decline [post]
 func (d *deps) aclDecline(c echo.Context) error {
-	req, ok := bindBody[api.ACLDeclineRequest](c)
+	req, ok := bindBodyStrict[api.ACLDeclineRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -85,7 +85,7 @@ func (d *deps) aclDecline(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/permissions [post]
 func (d *deps) aclChangePermissions(c echo.Context) error {
-	req, ok := bindBody[api.ACLChangePermissionsRequest](c)
+	req, ok := bindBodyStrict[api.ACLChangePermissionsRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (d *deps) aclChangePermissions(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/remove [post]
 func (d *deps) aclRemove(c echo.Context) error {
-	req, ok := bindBody[api.ACLRemoveRequest](c)
+	req, ok := bindBodyStrict[api.ACLRemoveRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {
-	req, ok := bindBody[api.ACLAddRequest](c)
+	req, ok := bindBodyStrict[api.ACLAddRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -206,7 +206,7 @@ func (d *deps) aclAdd(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/ownership [post]
 func (d *deps) aclOwnership(c echo.Context) error {
-	req, ok := bindBody[api.ACLOwnershipRequest](c)
+	req, ok := bindBodyStrict[api.ACLOwnershipRequest](c, "")
 	if !ok {
 		return nil
 	}

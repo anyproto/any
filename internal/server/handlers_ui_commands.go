@@ -24,7 +24,7 @@ import (
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Router		/ui/commands [post]
 func (d *deps) uiCommandPublish(c echo.Context) error {
-	cmd, ok := bindBody[api.UICommand](c)
+	cmd, ok := bindBodyStrict[api.UICommand](c, "")
 	if !ok {
 		return nil
 	}

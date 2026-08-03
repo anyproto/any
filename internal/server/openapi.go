@@ -46,6 +46,21 @@ var strictBodySchemas = []string{
 	"api.AgentChunkCreateRequest",
 	"api.AgentMemoryCreateRequest",
 	"api.AgentMemoryEvolveRequest",
+	"api.ACLAcceptRequest",
+	"api.ACLAddRequest",
+	"api.ACLChangePermissionsRequest",
+	"api.ACLDeclineRequest",
+	"api.ACLOwnershipRequest",
+	"api.ACLRemoveRequest",
+	"api.SpaceJoinRequest",
+	"api.SpaceSettingsPatchRequest",
+	"api.AccountMetadata",
+	"api.PushTokenSetRequest",
+	"api.SpaceOneToOneRequest",
+	"api.SpaceRegisterIncomingRequest",
+	"api.UICommand",
+	"api.EnrichedDataCreateRequest",
+	"api.EnrichApplyRequest",
 }
 
 // openAPIDoc caches the stamped spec — the generated document is

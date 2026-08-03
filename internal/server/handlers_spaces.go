@@ -416,7 +416,7 @@ func (d *deps) spaceDelete(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one [post]
 func (d *deps) spaceOneToOne(c echo.Context) error {
-	req, ok := bindBody[api.SpaceOneToOneRequest](c)
+	req, ok := bindBodyStrict[api.SpaceOneToOneRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -487,7 +487,7 @@ func (d *deps) spaceOneToOneDecline(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/one-to-one/register-incoming [post]
 func (d *deps) spaceOneToOneRegisterIncoming(c echo.Context) error {
-	req, ok := bindBody[api.SpaceRegisterIncomingRequest](c)
+	req, ok := bindBodyStrict[api.SpaceRegisterIncomingRequest](c, "")
 	if !ok {
 		return nil
 	}
