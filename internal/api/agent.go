@@ -64,15 +64,20 @@ type AgentTurnAppendRequest struct {
 // the common level-1 case (server defaults to 1). fromSeq/toSeq point
 // at the CHILD seqs at the level below.
 type AgentChunkCreateRequest struct {
-	Seq          *int   `json:"seq,omitempty"`
-	Level        *int   `json:"level,omitempty"`
-	FromAgent    string `json:"fromAgent,omitempty"`
-	Summary      string `json:"summary"`
-	PeriodStart  int64  `json:"periodStart"`
-	PeriodEnd    int64  `json:"periodEnd"`
-	FromSeq      *int   `json:"fromSeq"`
-	ToSeq        *int   `json:"toSeq"`
-	TurnsCovered int    `json:"turnsCovered,omitempty"`
+	Seq         *int   `json:"seq,omitempty"`
+	Level       *int   `json:"level,omitempty"`
+	FromAgent   string `json:"fromAgent,omitempty"`
+	Summary     string `json:"summary"`
+	PeriodStart int64  `json:"periodStart"`
+	PeriodEnd   int64  `json:"periodEnd"`
+	FromSeq     *int   `json:"fromSeq"`
+	ToSeq       *int   `json:"toSeq"`
+	// UnitsCovered counts the child units this chunk summarizes —
+	// turns for level 1, level-(N-1) chunks for level 2+ (hence
+	// "units", not "turns"). Optional. The dataset validator also
+	// accepts the legacy stored key `turnsCovered` so pre-rename
+	// records stay applyable on replay.
+	UnitsCovered int `json:"unitsCovered,omitempty"`
 }
 
 // Edge is one typed link between memory items. `strength` is 0..1.
@@ -111,6 +116,22 @@ type AgentMemoryCreateRequest struct {
 	ValidFrom  int64    `json:"validFrom,omitempty"`
 	Edges      []Edge   `json:"edges,omitempty"`
 	ChatId     string   `json:"chatId,omitempty"`
+	// Source names the producing pipeline ("extraction", "reflection",
+	// "user", …) — the machine-vs-user distinction. Free lowercase
+	// slug, create-only (not in the evolve allow-list).
+	Source string `json:"source,omitempty"`
+	// Provenance is the structured drill-back pointer to where the
+	// item was learned. Create-only.
+	Provenance *MemoryProvenance `json:"provenance,omitempty"`
+}
+
+// MemoryProvenance points a memory item back at its origin in the
+// agent log. `fromSeq` is a seq in the chat object's agent_turns
+// dataset (drill back via {"seq": {"$gte": fromSeq}} on the chatId's
+// turns). Extend with new pointer kinds here rather than free-form
+// keys — the dataset validator rejects unknown provenance subkeys.
+type MemoryProvenance struct {
+	FromSeq *int `json:"fromSeq,omitempty"`
 }
 
 // AgentMemoryEvolveRequest is the body of

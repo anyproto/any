@@ -212,7 +212,8 @@ const docTemplate = `{
                     "toSeq": {
                         "type": "integer"
                     },
-                    "turnsCovered": {
+                    "unitsCovered": {
+                        "description": "UnitsCovered counts the child units this chunk summarizes —\nturns for level 1, level-(N-1) chunks for level 2+ (hence\n\"units\", not \"turns\"). Optional. The dataset validator also\naccepts the legacy stored key ` + "`" + `turnsCovered` + "`" + ` so pre-rename\nrecords stay applyable on replay.",
                         "type": "integer"
                     }
                 },
@@ -262,8 +263,15 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
+                    "provenance": {
+                        "$ref": "#/components/schemas/api.MemoryProvenance"
+                    },
                     "salience": {
                         "type": "number"
+                    },
+                    "source": {
+                        "description": "Source names the producing pipeline (\"extraction\", \"reflection\",\n\"user\", …) — the machine-vs-user distinction. Free lowercase\nslug, create-only (not in the evolve allow-list).",
+                        "type": "string"
                     },
                     "tags": {
                         "items": {
@@ -1285,6 +1293,15 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.MemoryProvenance": {
+                "description": "Provenance is the structured drill-back pointer to where the\nitem was learned. Create-only.",
+                "properties": {
+                    "fromSeq": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"

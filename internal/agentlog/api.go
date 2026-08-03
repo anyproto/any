@@ -169,7 +169,7 @@ func CreateChunk(ctx context.Context, sp space.Space, objectId string, req api.A
 			FieldToSeq:       *req.ToSeq,
 		}
 		setIfString(payload, FieldFromAgent, req.FromAgent)
-		setIfInt(payload, FieldTurnsCovered, req.TurnsCovered)
+		setIfInt(payload, FieldUnitsCovered, req.UnitsCovered)
 		return payload
 	}
 	return appendSeqAssigned(ctx, sp, objectId, DatasetChunks, req.Seq, build, "create chunk")

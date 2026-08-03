@@ -105,9 +105,13 @@ Indexes: `(seq)`, `(createdAt)`.
   "periodEnd":   1700003600,
   "fromSeq":     0,                 // INCLUSIVE pointers into agent_turns
   "toSeq":       9,
-  "turnsCovered":10
+  "unitsCovered":10                 // child units: turns (level 1) or
+                                    // chunks (level 2+)
 }
 ```
+
+(The validator also accepts the legacy stored key `turnsCovered` so
+pre-rename records replay; new writes use `unitsCovered`.)
 
 Required: seq, summary, periodStart ≤ periodEnd, fromSeq ≤ toSeq.
 Write-once (modify rejected; author-only delete, same as turns).
@@ -134,7 +138,14 @@ Indexes: `(seq)`, `(periodEnd)`.
   "accessCount": 0,                 // mutable (recall tracking)
   "validFrom":   1700000000,        // defaults to createdAt
   "edges":       [{"to": "<itemId>", "type": "related_to", "strength": 0.8}],
-  "chatId":      "<chat object id>" // optional provenance
+  "chatId":      "<chat object id>",// which chat the item came from
+  "source":      "extraction",      // producing pipeline slug — the
+                                    // machine-vs-user distinction
+                                    // ("extraction", "reflection",
+                                    // "user", …); create-only
+  "provenance":  {"fromSeq": 42}    // structured drill-back pointer into
+                                    // the chat object's agent_turns;
+                                    // create-only, closed subkey set
 }
 ```
 

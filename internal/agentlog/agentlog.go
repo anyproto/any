@@ -54,7 +54,7 @@
 //	  "periodEnd":   <unix-seconds>,
 //	  "fromSeq":     <int>,               // inclusive child pointers (§2)
 //	  "toSeq":       <int>,
-//	  "turnsCovered":<int>                // optional count
+//	  "unitsCovered":<int>                // optional child-unit count
 //	}
 //
 // Hierarchical compression (ADR-006 §2): a level-1 chunk summarizes a
@@ -143,6 +143,11 @@ const (
 	FieldPeriodEnd    = "periodEnd"
 	FieldFromSeq      = "fromSeq"
 	FieldToSeq        = "toSeq"
+	FieldUnitsCovered = "unitsCovered"
+	// FieldTurnsCovered is the LEGACY name of unitsCovered. The
+	// validator still accepts it so records stored under the old key
+	// stay applyable on replay; nothing writes it anymore and it is
+	// undocumented on the wire.
 	FieldTurnsCovered = "turnsCovered"
 )
 

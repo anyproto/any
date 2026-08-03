@@ -144,7 +144,13 @@ components:
           type: string
         toSeq:
           type: integer
-        turnsCovered:
+        unitsCovered:
+          description: |-
+            UnitsCovered counts the child units this chunk summarizes —
+            turns for level 1, level-(N-1) chunks for level 2+ (hence
+            "units", not "turns"). Optional. The dataset validator also
+            accepts the legacy stored key `turnsCovered` so pre-rename
+            records stay applyable on replay.
           type: integer
       type: object
     api.AgentMemoryCreateRequest:
@@ -178,8 +184,16 @@ components:
             type: string
           type: array
           uniqueItems: false
+        provenance:
+          $ref: '#/components/schemas/api.MemoryProvenance'
         salience:
           type: number
+        source:
+          description: |-
+            Source names the producing pipeline ("extraction", "reflection",
+            "user", …) — the machine-vs-user distinction. Free lowercase
+            slug, create-only (not in the evolve allow-list).
+          type: string
         tags:
           items:
             type: string
@@ -893,6 +907,14 @@ components:
             $ref: '#/components/schemas/api.Member'
           type: array
           uniqueItems: false
+      type: object
+    api.MemoryProvenance:
+      description: |-
+        Provenance is the structured drill-back pointer to where the
+        item was learned. Create-only.
+      properties:
+        fromSeq:
+          type: integer
       type: object
     api.ModifyResult:
       properties:
