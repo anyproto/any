@@ -735,11 +735,11 @@
                 "summary": "Query the account's space list (windowed)",
                 "parameters": [
                     {
-                        "description": "Query params (objectId fixed; dataset defaults to spaces)",
+                        "description": "Query params (dataset defaults to spaces)",
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/api.SpaceQueryRequest"
+                            "$ref": "#/definitions/api.SpaceListQueryRequest"
                         }
                     }
                 ],
@@ -779,11 +779,11 @@
                 "summary": "Subscribe to the account's space list (SSE)",
                 "parameters": [
                     {
-                        "description": "Query params (objectId fixed; dataset defaults to spaces)",
+                        "description": "Query params (dataset defaults to spaces)",
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/api.SpaceQueryRequest"
+                            "$ref": "#/definitions/api.SpaceListQueryRequest"
                         }
                     }
                 ],
@@ -6833,6 +6833,7 @@
             "type": "object",
             "properties": {
                 "initialProperties": {
+                    "description": "InitialProperties carries the object's starting property values,\nkeyed by type id then property id — the ONLY home for them:\n{\"initialProperties\": {\"any\": {\"name\": \"Dune\"}}}. A top-level\nname/description/type-group key is rejected.",
                     "type": "object",
                     "additionalProperties": {
                         "type": "object",
@@ -6840,9 +6841,15 @@
                     }
                 },
                 "nav": {
-                    "$ref": "#/definitions/api.ObjectCreateNav"
+                    "description": "Nav overrides the auto-stamped tree placement.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/api.ObjectCreateNav"
+                        }
+                    ]
                 },
                 "types": {
+                    "description": "Types lists the type ids attached at create; `nav` is appended\nserver-side when absent.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -7508,6 +7515,56 @@
                 }
             }
         },
+        "api.SpaceListQueryRequest": {
+            "type": "object",
+            "properties": {
+                "dataset": {
+                    "description": "Dataset defaults to \"spaces\"; \"profile\" is the only other\nreachable value (closed allowlist — identities is deliberately\nexcluded, read it via GET /v1/identities).",
+                    "type": "string",
+                    "enum": [
+                        "spaces",
+                        "profile"
+                    ]
+                },
+                "driftBudgetPercent": {
+                    "description": "DriftBudgetPercent (subscribe only) bounds window drift before\nthe stream closes with reason \"drifted\". Default 30.",
+                    "type": "integer"
+                },
+                "filter": {
+                    "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "includeTotal": {
+                    "description": "IncludeTotal populates `total` + `hasNext` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                    "type": "boolean"
+                },
+                "limit": {
+                    "description": "Limit bounds the window; 0 or absent = unbounded.",
+                    "type": "integer"
+                },
+                "mailboxCapacity": {
+                    "description": "MailboxCapacity (subscribe only) sizes the event mailbox before\nthe stream closes with reason \"overflow\". Default 256, min 16.",
+                    "type": "integer"
+                },
+                "offset": {
+                    "description": "Offset skips past the first N matches of the sorted result.",
+                    "type": "integer"
+                },
+                "projection": {
+                    "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "sort": {
+                    "description": "Sort lists field paths, \"-\" prefix for descending (e.g.\n\"-createdAt\"). Required when limit \u003e 0 on subscribe, so the\nwindow is well-defined.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "api.SpaceListResponse": {
             "type": "object",
             "properties": {
@@ -7575,17 +7632,38 @@
         "api.SpaceQueryObjectsRequest": {
             "type": "object",
             "properties": {
+                "driftBudgetPercent": {
+                    "description": "DriftBudgetPercent (subscribe only) bounds window drift before\nthe stream closes with reason \"drifted\". Default 30.",
+                    "type": "integer"
+                },
                 "filter": {
+                    "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
                     "type": "object",
                     "additionalProperties": {}
                 },
+                "includeTotal": {
+                    "description": "IncludeTotal populates `total` + `hasNext` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                    "type": "boolean"
+                },
                 "limit": {
+                    "description": "Limit bounds the window; 0 or absent = unbounded.",
+                    "type": "integer"
+                },
+                "mailboxCapacity": {
+                    "description": "MailboxCapacity (subscribe only) sizes the event mailbox before\nthe stream closes with reason \"overflow\". Default 256, min 16.",
                     "type": "integer"
                 },
                 "offset": {
+                    "description": "Offset skips past the first N matches of the sorted result.",
                     "type": "integer"
                 },
+                "projection": {
+                    "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "sort": {
+                    "description": "Sort lists field paths, \"-\" prefix for descending (e.g.\n\"-createdAt\"). Required when limit \u003e 0 on subscribe, so the\nwindow is well-defined.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -7597,22 +7675,45 @@
             "type": "object",
             "properties": {
                 "dataset": {
+                    "description": "Dataset names the per-object dataset (chat_messages,\neditor_blocks, …). Required.",
                     "type": "string"
                 },
+                "driftBudgetPercent": {
+                    "description": "DriftBudgetPercent (subscribe only) bounds window drift before\nthe stream closes with reason \"drifted\". Default 30.",
+                    "type": "integer"
+                },
                 "filter": {
+                    "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
                     "type": "object",
                     "additionalProperties": {}
                 },
+                "includeTotal": {
+                    "description": "IncludeTotal populates `total` + `hasNext` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
+                    "type": "boolean"
+                },
                 "limit": {
+                    "description": "Limit bounds the window; 0 or absent = unbounded.",
+                    "type": "integer"
+                },
+                "mailboxCapacity": {
+                    "description": "MailboxCapacity (subscribe only) sizes the event mailbox before\nthe stream closes with reason \"overflow\". Default 256, min 16.",
                     "type": "integer"
                 },
                 "objectId": {
+                    "description": "ObjectId names the object whose dataset is queried. Required.",
                     "type": "string"
                 },
                 "offset": {
+                    "description": "Offset skips past the first N matches of the sorted result.",
                     "type": "integer"
                 },
+                "projection": {
+                    "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "sort": {
+                    "description": "Sort lists field paths, \"-\" prefix for descending (e.g.\n\"-createdAt\"). Required when limit \u003e 0 on subscribe, so the\nwindow is well-defined.",
                     "type": "array",
                     "items": {
                         "type": "string"

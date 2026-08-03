@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 
 	"github.com/labstack/echo/v4"
@@ -15,6 +16,11 @@ import (
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/nav"
 )
+
+// objectCreateFields is the closed create vocabulary, derived from the
+// api request struct — the same source the swagger spec is generated
+// from, so spec and enforcement cannot drift.
+var objectCreateFields = jsonFieldNames(reflect.TypeFor[api.ObjectCreateRequest]())
 
 // objectCreateFieldsHint rides every unknown-field rejection on object
 // create, naming the right home for the most commonly misplaced keys
@@ -55,7 +61,7 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 	}
 
-	if errResp, done := checkUnknownFields(c, root, objectCreateFieldsHint, "types", "initialProperties", "nav"); done {
+	if errResp, done := checkUnknownFields(c, root, objectCreateFieldsHint, objectCreateFields...); done {
 		return errResp
 	}
 

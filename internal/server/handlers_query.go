@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -111,7 +112,7 @@ func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.Que
 	if err != nil {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
-	if errResp, done := checkUnknownFields(c, root, "", append([]string{"objectId", "dataset"}, queryBodyFields...)...); done {
+	if errResp, done := checkUnknownFields(c, root, "", perObjectQueryFields...); done {
 		return nil, space.QueryOpts{}, "", "", errResp, true
 	}
 	objectId := string(root.GetStringBytes("objectId"))
@@ -129,14 +130,17 @@ func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.Que
 	return q, opts, objectId, dataset, nil, false
 }
 
-// queryBodyFields is the closed top-level vocabulary of the windowed
-// query/subscribe request body — applyQueryParams' read set plus the
-// accepted-but-ignored `projection` (docs/07-roadmap.md). Callers of
-// checkUnknownFields append their own extras (objectId, dataset).
-var queryBodyFields = []string{
-	"filter", "sort", "limit", "offset", "includeTotal",
-	"mailboxCapacity", "driftBudgetPercent", "projection",
-}
+// The closed top-level vocabularies of the query/subscribe request
+// bodies, derived from the api request structs so the strict
+// unknown-field gate, the swagger spec, and the error messages'
+// accepted-field enumeration are one artifact and cannot drift.
+// applyQueryParams' read set is api.QueryBodyParams (which also
+// carries the accepted-but-ignored `projection` — docs/07-roadmap.md).
+var (
+	queryBodyFields      = jsonFieldNames(reflect.TypeFor[api.SpaceQueryObjectsRequest]())
+	perObjectQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceQueryRequest]())
+	spaceListQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceListQueryRequest]())
+)
 
 // applyQueryParams reads filter / sort / limit / offset / includeTotal
 // / mailboxCapacity / driftBudgetPercent off root and threads them

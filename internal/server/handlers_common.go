@@ -129,15 +129,15 @@ func jsonFieldNames(t reflect.Type) []string {
 		if !f.IsExported() {
 			continue
 		}
-		if f.Anonymous && (f.Tag.Get("json") == "" || f.Tag.Get("json") == "-") {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if f.Anonymous && name == "" {
 			names = append(names, jsonFieldNames(f.Type)...)
 			continue
 		}
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		switch name {
-		case "-":
-			continue
-		case "":
+		if name == "" {
 			name = f.Name
 		}
 		names = append(names, name)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,6 +112,38 @@ func TestCheckUnknownFields(t *testing.T) {
 	}
 	if !strings.Contains(env.Error.Message, "initialProperties") {
 		t.Errorf("hint missing from message %q", env.Error.Message)
+	}
+}
+
+// The accepted-set vocabularies derive from the api request structs
+// (the same source the swagger spec is generated from). Pin the
+// members a struct refactor could silently drop — losing a tag here
+// would make the server 400 a documented field.
+func TestDerivedAcceptedSets(t *testing.T) {
+	cases := []struct {
+		name   string
+		fields []string
+		want   []string
+	}{
+		{"queryBodyFields", queryBodyFields,
+			[]string{"filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
+		{"perObjectQueryFields", perObjectQueryFields,
+			[]string{"objectId", "dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
+		{"spaceListQueryFields", spaceListQueryFields,
+			[]string{"dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
+		{"objectCreateFields", objectCreateFields,
+			[]string{"types", "initialProperties", "nav"}},
+	}
+	for _, tc := range cases {
+		if len(tc.fields) != len(tc.want) {
+			t.Errorf("%s = %v, want exactly %v", tc.name, tc.fields, tc.want)
+			continue
+		}
+		for _, w := range tc.want {
+			if !slices.Contains(tc.fields, w) {
+				t.Errorf("%s = %v, missing %q", tc.name, tc.fields, w)
+			}
+		}
 	}
 }
 
