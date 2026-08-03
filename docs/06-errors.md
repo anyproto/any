@@ -73,7 +73,8 @@ object.type_required
 dataset.unknown                  # no handler registered
 dataset.validation               # schema or handler rejected ops
 
-filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator); message lists the supported set
+filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
+filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe
 
 enrich.empty_proposal            # 404 — proposal has no items (already applied, deleted, or empty)
 enricheddata.text_too_long       # 400 — enrichment text exceeds the byte cap (details.max_bytes, got_bytes)

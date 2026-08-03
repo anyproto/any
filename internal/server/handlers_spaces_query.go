@@ -137,6 +137,9 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 			"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
 			map[string]any{"dataset": dataset}), true
 	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, space.QueryOpts{}, "", errResp, true
+	}
 	svc := d.sdk.Spaces()
 	q, opts := applyQueryParams(root, svc.Query(svc.SpaceIndexObjectId(), dataset))
 	return q, opts, dataset, nil, false

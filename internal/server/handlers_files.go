@@ -489,6 +489,9 @@ func (d *deps) buildFilesQuery(c echo.Context) (space.Space, space.Query, space.
 	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
 		return nil, nil, space.QueryOpts{}, errResp, true
 	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, nil, space.QueryOpts{}, errResp, true
+	}
 	q, opts := applyQueryParams(root, q)
 	return sp, q, opts, nil, false
 }
