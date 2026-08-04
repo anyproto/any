@@ -60,10 +60,16 @@ go tool swag init -g doc.go -d ./internal/server,./internal/api \
 
 LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/version.Commit=$COMMIT -X $PKG/internal/version.BuildDate=$DATE"
 
+# -tags fts: the BM25 search leg is compile-time opt-in (pure Go, CGO-free).
+# Without it the /search endpoint compiles the index out and silently answers
+# zero hits, so every SDK consumer (desktop sidecar, any-ui dev) shipped with
+# search that looked broken. `vector` is deliberately NOT added here: with it
+# compiled in, the default `auto` embedder auto-downloads the 639 MB GGUF on
+# first boot (docs/13-index.md § local embedder) — shipping that to every
+# desktop user is a product decision, not a build-script default.
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
-CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    
+    go build -trimpath -tags fts -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
+
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
