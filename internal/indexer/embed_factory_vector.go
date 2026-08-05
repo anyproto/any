@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build vector && !gomobile && !mobile
 
 package indexer
 
@@ -17,10 +17,13 @@ import (
 // pre-per-account location (<dataDir>/index/models), used instead when
 // the model file already exists there.
 //
-// This is the `vector && !gomobile` variant — the real switch. The
-// counterpart (embed_factory_novector.go, `!vector || gomobile`) ignores
-// the config and always returns nil so the vector pipeline is compiled
-// out entirely — always the case on mobile.
+// This is the `vector && !gomobile && !mobile` variant — the real
+// switch. The counterpart (embed_factory_novector.go, `!vector ||
+// gomobile || mobile`) ignores the config and always returns nil so the
+// vector pipeline is compiled out entirely — always the case on mobile.
+// The constraint mirrors capVector exactly: the mobile terms must stay
+// on both, or a `mobile` build gets capVector=false while still linking
+// the llama.cpp/ffi bindings this leg pulls in.
 func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder, error) {
 	switch cfg.Embedder {
 	case "", "none":

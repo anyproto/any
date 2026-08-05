@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build vector && !gomobile && !mobile
 
 package indexer
 

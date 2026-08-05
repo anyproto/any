@@ -477,10 +477,16 @@ Mechanics (`internal/indexer`):
   false the store creates no index for that leg (`spaceColl`) and the
   leg's search method short-circuits to no hits (`SearchFTS` /
   `SearchVector` / `EnsureVectorIndex`); `capVector` false also stops
-  docs being marked `pending`, so the embed loop never runs.
+  docs being marked `pending`, so the embed loop never runs. Every
+  embedder implementation carries `capVector`'s constraint verbatim, so
+  no tag combination can leave `capVector` false while the llama.cpp /
+  ffi bindings are still linked — the cap and the import edge move
+  together, which is the point on any platform where merely linking them
+  crashes the process.
 - `NewEmbedder` has two build-tagged variants: the real switch under
-  `vector && !gomobile` (`embed_factory_vector.go`) and a no-op
-  returning `nil` under `!vector || gomobile` (`embed_factory_novector.go`).
+  `vector && !gomobile && !mobile` (`embed_factory_vector.go`) and a
+  no-op returning `nil` under `!vector || gomobile || mobile`
+  (`embed_factory_novector.go`).
 
 Tags decide what is *compiled*; the runtime `index.enabled` /
 `index.embedder` config decides what *runs* on top (there is no per-leg

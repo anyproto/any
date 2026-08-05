@@ -1,4 +1,4 @@
-//go:build fts && vector && !gomobile
+//go:build fts && vector && !gomobile && !mobile
 
 package server
 
