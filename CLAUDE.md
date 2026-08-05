@@ -828,6 +828,19 @@ Implementation slices landed:
     (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
     § Meta.
 
+30. **Built-in `page` type** — `internal/page` registers the marker
+    type `page` (singular, no dataset, no properties): the shared
+    "this object is a document" declaration in `any.types`. Replaces
+    each client minting its own user `pages` type (owner-primary
+    check-then-create still raced across members — real spaces carried
+    up to five parallel "Pages" types). Name via `any.name`, body via
+    `editor_blocks`, tree via `nav.*`. No properties by design: the SDK
+    freezes registered types' property definitions, so built-in
+    selects would have permanently empty option sets. Registration
+    only — no handler/CLI surface; the xKey guard fences `page` from
+    user types. Contract: docs/03-api.md § Types (Built-in `page`
+    type).
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

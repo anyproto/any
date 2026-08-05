@@ -1509,6 +1509,29 @@ the definition and returns `204`. Existing instance values are **not**
 cleaned up — subsequent writes to that propId are dropped op-by-op
 (dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
 
+#### Built-in `page` type
+
+`page` (singular) is the built-in marker for "this object is a
+document". It is a pure declaration — no dataset, no properties: the
+display name lives on `any.name`, the block body on the `editor` type's
+`editor_blocks` dataset (attached on first block write), tree position
+on `nav.*`, recency on the derived `modifiedAt`. Clients file a
+document by creating the object with `{"types": ["page"]}` and list a
+space's documents with `{"filter": {"any.types": "page"}}` on
+`…/objects/query[/subscribe]`.
+
+Being registered (not created), `page` exists in every space by
+construction — the replacement for each client minting its own user
+"pages" type, which raced across members and left spaces with several
+parallel "Pages" types. Existing user `pages` types are not migrated or
+touched; new user types claiming the `page` xKey collide with the
+built-in id (`409 type.xkey_conflict`).
+
+`page` declares no properties **by design**: registered types' property
+definitions are frozen (no add/patch/remove — `400 type.registered`),
+so a built-in select/multiselect would carry a permanently empty,
+uneditable option set. Per-space columns remain a user-type concern.
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
