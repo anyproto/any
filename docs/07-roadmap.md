@@ -97,6 +97,20 @@ becomes useful. Needs:
     the engine down, return to the unauthorized state) is plausible
     but needs every handler and SSE stream to tolerate the SDK going
     away mid-flight — not worth it until a real client asks.
+11. **Strict-bind gaps (deliberate, revisit with the v2 boundary).**
+    Three known soft edges in the request-boundary contract:
+    - `/modify` and `/aggregate` bodies drop unknown top-level keys
+      silently — their fastjson paths hand the parsed body straight to
+      the SDK, and the op/stage vocabulary is SDK-owned, so a strict
+      gate here would have to chase the SDK's grammar. Deferred until
+      the SDK exports that vocabulary.
+    - `bindBodyStrict` rejects unknown keys at any depth, but the 400
+      message and `details.accepted` enumerate top-level fields only —
+      misleading when the offender is nested (e.g. inside chat's
+      `agent` group).
+    - A non-object body maps to `request.schema` on fastjson paths but
+      `request.bad_json` on encoding/json paths — two codes for one
+      fault class; unifying means touching both bind layers.
 
 ## SDK-side prerequisites
 

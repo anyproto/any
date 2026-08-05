@@ -187,9 +187,6 @@ func validateCreatePayload(payload *anyenc.Value) (presentFields, error) {
 	return present, nil
 }
 
-// validateEdges gates the typed-link array: each entry is
-// {to (required id), type (required slug), strength (optional 0..1)};
-// unknown sub-fields reject.
 // validateProvenance checks the structured drill-back pointer: an
 // object whose only known subkey is fromSeq (non-negative int, a seq
 // in the chat object's agent_turns dataset). Unknown subkeys reject —
@@ -215,6 +212,9 @@ func validateProvenance(v *anyenc.Value) error {
 	return visitErr
 }
 
+// validateEdges gates the typed-link array: each entry is
+// {to (required id), type (required slug), strength (optional 0..1)};
+// unknown sub-fields reject.
 func validateEdges(v *anyenc.Value) error {
 	if v.Type() != anyenc.TypeArray {
 		return rejectCreate("edges must be an array")
