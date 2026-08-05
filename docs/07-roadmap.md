@@ -169,6 +169,23 @@ pluggable embedders, parallel batched pipelines),
 - **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
   `index: "<scope>"`) are create-time-only until the SDK implements
   property-meta updates — existing properties can't be re-flagged.
+- **Restore the vector leg on darwin.** The darwin tarballs ship
+  `-tags fts` only, because `vector` links `jupiterrider/ffi`, whose
+  package init `dlopen`s an ad-hoc-signed libffi before `main` — macOS
+  library validation denies that in any sandboxed or hardened host, so
+  the process panics at startup (docs/13-index.md § build tags). macOS
+  therefore has no semantic search at all today, which also costs the
+  ollama/openai embedders and the ANN index, none of which touch ffi.
+  Two routes: split the in-process `local` embedder behind its own tag
+  (`embed_local.go` is the only importer of yzma), or build with `-tags
+  ffi_no_embed` plus `-ldflags -X
+  github.com/jupiterrider/ffi.filename=@executable_path/llamacpp/libffi.8.dylib`
+  and ship a libffi the consumer signs (verified working under hardened
+  runtime when both carry the same Team ID). The second keeps `local`
+  but needs consumers to bundle and sign the dylibs — any-swift skips
+  `llamacpp/` entirely today, so it would still panic. Either way the
+  tarball contract changes, so it needs packaging coordination with
+  any-ui and any-swift.
 - **`agent_memory_items` chunker.** Agent memory now lives in the
   built-in `agent_memory` type's dataset (docs/11-agent-memory.md); a
   dedicated gated chunker (`TypeId() == "agent_memory"`, dataset

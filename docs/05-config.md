@@ -230,8 +230,10 @@ The local embedder is the **fallback** under the default `auto` (and used
 directly with `index.embedder: local`; set `none` for FTS-only). It runs
 llama.cpp in-process (no CGO — yzma dlopens the
 shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
-Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
-vector side just reports `unavailable` until they're met.
+Linux amd64 (CPU). A missing llama.cpp lib or model never breaks boot or
+FTS — the vector side just reports `unavailable` until they're met. The
+one exception is linux's system `libffi.so.8` below, which loads at
+process start rather than on first embed.
 
 - **llama.cpp libs**: `make llamacpp` (also run as part of
   `make build`; a fetch failure there only warns) downloads the pinned
@@ -240,9 +242,12 @@ vector side just reports `unavailable` until they're met.
 - **Model**: downloaded automatically into `<data-dir>/index/models/`
   on first boot (639 MB, progress in the server log; resumable, never
   blocks boot — vector search reports `unavailable` until it lands).
-- **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
-  mainstream distros; on NixOS use `nix develop` — the repo flake's
-  dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
+- **Linux**: a system `libffi.so.8` must be loadable — **a `vector`
+  build panics at startup without it**, since the ffi bindings load it
+  at package init, not on first embed (preinstalled on mainstream
+  distros; on NixOS use `nix develop` — the repo flake's dev shell puts
+  libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`; minimal or musl
+  images must install it).
 
 ### `index.embedder: auto` (online primary + local fallback)
 

@@ -13,12 +13,14 @@ LDFLAGS := -s -w \
 
 SWAG := go tool swag
 
-# Search-index build tags (docs/13-index.md § build tags). The desktop
-# binary ships both legs; each is independently selectable so other
-# builds (e.g. gomobile) can drop one or both — `fts` compiles in the
-# BM25 full-text leg, `vector` the embedding + IVF-SQ ANN leg (and the
-# embedder implementations, including the llama.cpp bindings). Build/test
-# with neither to exclude the whole search index from compilation.
+# Search-index build tags for LOCAL dev builds (docs/13-index.md § build
+# tags). Each leg is independently selectable so other builds can drop
+# one or both — `fts` compiles in the BM25 full-text leg, `vector` the
+# embedding + IVF-SQ ANN leg (and the embedder implementations, including
+# the llama.cpp bindings). Build/test with neither to exclude the whole
+# search index from compilation. The release tarballs do NOT all match
+# this: scripts/build-any.sh picks tags per platform, and darwin ships
+# `fts` only.
 INDEX_TAGS := fts vector
 
 # llama.cpp release pin for the local embedder's shared libs

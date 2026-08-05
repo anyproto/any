@@ -26,15 +26,14 @@ if [ "$PLATFORM" = host ]; then
     esac
 fi
 
-# platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label search-tags
+# platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label
 # llama.cpp tokens are the GPU-capable archives (Metal on macOS arm64,
 # Vulkan+CPU-fallback on Linux/Windows) — see fetch-llamacpp.sh.
-# TAGS is per-platform on purpose — see the build comment below.
 case "$PLATFORM" in
-darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 TAGS=fts ;;
-darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 TAGS=fts ;;
-linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 TAGS=fts,vector ;;
-windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 TAGS=fts,vector ;;
+darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 ;;
+darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 ;;
+linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 ;;
+windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
 *)
     echo "build-any: unknown platform '$PLATFORM'" >&2
     exit 1
@@ -65,39 +64,62 @@ LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/versio
 # `fts` = the BM25 full-text index, `vector` = the embedding + IVF-SQ ANN
 # leg with the embedder implementations. Both are pure Go — the llama.cpp
 # libs are loaded at runtime via purego from the llamacpp/ dir staged
-# below — so CGO_ENABLED=0 cross-builds keep working. With `vector` in,
-# the default `auto` embedder falls back to the local model, downloading
-# its GGUF (~639 MB) into the data dir on first use.
+# below — so CGO_ENABLED=0 cross-builds keep working. With `vector` in
+# (linux/windows), the default `auto` embedder falls back to the local
+# model, downloading its GGUF (~639 MB) into the data dir on first use.
 #
-# DARWIN SHIPS `fts` ONLY. `vector` links internal/indexer/embed_local.go →
-# yzma → jupiterrider/ffi, whose package init unconditionally extracts an
-# ad-hoc-signed libffi.8.dylib into os.UserCacheDir() and dlopens it — on
-# *link*, before main. macOS library validation (App Sandbox, or the
-# hardened runtime without com.apple.security.cs.disable-library-validation)
-# denies that load because the extracted dylib carries no Team ID, and the
-# process panics at startup. FFI_NO_EMBED=1 is not an out: it falls back to
-# dlopen("libffi.8.dylib"), and macOS ships only /usr/lib/libffi.dylib.
-# This is the same load-time-crash class as the gomobile carve-out — a
-# runtime toggle can't prevent it, so the leg is excluded at compile time.
-# Consumers that DO set that entitlement (any-ui) would be fine either way;
-# one tarball per platform has to serve the strictest consumer (any-swift
-# ships App Sandbox / Mac App Store). Restoring the leg on darwin is
-# tracked separately; see docs/13-index.md § build tags.
+# Darwin ships `fts` only: `vector` links embed_local.go → yzma →
+# jupiterrider/ffi, whose package init dlopens an ad-hoc-signed
+# libffi.8.dylib before main, and macOS library validation denies that
+# load — the process panics at startup. (Full mechanism, and why
+# FFI_NO_EMBED is no escape: docs/13-index.md § build tags.) It is a
+# build policy rather than a `capVector` term because the hazard belongs
+# to the artifact, not the platform: `make build` on macOS is unsigned
+# and fine, and consumers that disable library validation (any-ui) would
+# be fine too — but one tarball per platform has to serve the strictest
+# consumer, and any-swift ships App Sandbox / Mac App Store.
+case "$GOOS" in
+darwin) TAGS=fts ;;
+*) TAGS=fts,vector ;;
+esac
+
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
     go build -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
 
-# Guard the carve-out above: the ffi edge is invisible in a stripped binary's
-# symbol table, so match on the embedded cache path instead (grep -a, not
-# `strings`, so this needs no binutils on the runner).
-if [ "$GOOS" = darwin ] && grep -qa 'jupiterrider/ffi/libffi' "$STAGE/any$EXE"; then
-    echo "build-any: darwin binary links jupiterrider/ffi — sandboxed hosts panic at startup (docs/13-index.md § build tags)" >&2
+# Assert what actually got linked, both ways: never an ffi edge in a
+# darwin tarball (it panics sandboxed hosts at startup), always one
+# elsewhere (a silently vector-less tarball is a degraded index that
+# nothing else catches). The expectation is keyed on the platform, NOT
+# on $TAGS — deriving it from the tags would let a well-meaning edit
+# move both sides together and assert nothing, which is exactly the
+# change that shipped the bug this guard exists to prevent.
+#
+# `go version -m` reads the build info Go embeds in every binary — `-s -w`
+# doesn't strip it and it reads cross-compiled output — so this names the
+# real dependency rather than a vendor string that a bump could rename.
+# Matched without a pipe on purpose: `grep -q` exits on first match, and
+# under `pipefail` the resulting SIGPIPE would report "no ffi" for the
+# very builds the guard exists to catch.
+case "$GOOS" in darwin) WANT_FFI=no ;; *) WANT_FFI=yes ;; esac
+BUILDINFO="$(go version -m "$STAGE/any$EXE")"
+case "$BUILDINFO" in *github.com/jupiterrider/ffi*) GOT_FFI=yes ;; *) GOT_FFI=no ;; esac
+if [ "$GOT_FFI" != "$WANT_FFI" ]; then
+    echo "build-any: $PLATFORM built -tags '$TAGS' links jupiterrider/ffi=$GOT_FFI, want $WANT_FFI" >&2
+    if [ "$GOOS" = darwin ]; then
+        echo "build-any: a darwin binary linking ffi panics at startup in any sandboxed or hardened host" >&2
+    else
+        echo "build-any: this tarball would ship with vector search silently compiled out" >&2
+    fi
+    echo "build-any: see docs/13-index.md § build tags" >&2
     exit 1
 fi
 
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
-# Staged on darwin too, where it is inert (no `vector`, so nothing dlopens
-# it) — dropping it there would be a consumer-visible manifest change.
+# Still staged on darwin, where nothing can load it without `vector` — it
+# costs ~4 MiB of every darwin tarball, but any-ui's release.sh copies
+# llamacpp/ out of the extracted tarball unconditionally, so omitting the
+# dir would break that build rather than just slim the download.
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
 
 

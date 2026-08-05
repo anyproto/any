@@ -267,7 +267,10 @@ Call patterns:
   down — results are lexical-only *right now*, retry may differ;
   `disabled` means this server never runs vector search — don't
   retry, adjust your query style to lexical; `skipped` is the echo of
-  your own `mode: "fts"`.
+  your own `mode: "fts"`. Note **every macOS release build is
+  permanently `disabled`** (the vector leg is compiled out —
+  `docs/13-index.md` § build tags), so a macOS client should expect
+  lexical-only recall rather than treating it as a transient state.
 - **Hits carry identity, not full records.** `{scope, objectId,
   dataset, recordId, data, score}` — `data` is the indexed text
   (per-record, short by construction). To hydrate the full record,
