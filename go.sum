@@ -6,10 +6,8 @@ github.com/OneOfOne/xxhash v1.2.2 h1:KMrpdQIwFcEqXDklaen+P1axHaj9BSKzvpUUfnHldSE
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/anyproto/any-store v0.4.7 h1:329NWY/xUzGdwKSqFgjAFaPAVkTJbR+WdJirPrvTm/w=
 github.com/anyproto/any-store v0.4.7/go.mod h1:8cqb52gjZSaYnlybugqpSqSG1RQygY96D2vWMbSJsLo=
-github.com/anyproto/any-store/v2 v2.0.0-beta.4 h1:t7xE/EylcBNByQWLY+4NK1stFmqkjon56bsJSnDhp8Q=
-github.com/anyproto/any-store/v2 v2.0.0-beta.4/go.mod h1:vVxA3PD7k2vAt07zk4n7Zdt6LANmSSIlSWMNuLOLAT0=
-github.com/anyproto/any-store/v2 v2.0.0-beta.4.0.20260803131154-e8926c636df1 h1:DVw2BiNO/pBeZO6PqGsrzDqhKYb+gqjen+JvDbrV9J8=
-github.com/anyproto/any-store/v2 v2.0.0-beta.4.0.20260803131154-e8926c636df1/go.mod h1:vVxA3PD7k2vAt07zk4n7Zdt6LANmSSIlSWMNuLOLAT0=
+github.com/anyproto/any-store/v2 v2.0.0-beta.4.0.20260805190046-209fd3f434c3 h1:x+Hfy0l+MufEkLzUnBs2Wp7tCoKZaplkJQZtFQEutyk=
+github.com/anyproto/any-store/v2 v2.0.0-beta.4.0.20260805190046-209fd3f434c3/go.mod h1:vVxA3PD7k2vAt07zk4n7Zdt6LANmSSIlSWMNuLOLAT0=
 github.com/anyproto/any-sync v0.13.0-alpha.10 h1:1r4bFYTmFNjDAgN4v9+To9hHoUNBGhPpIGBVKRU3JG4=
 github.com/anyproto/any-sync v0.13.0-alpha.10/go.mod h1:wiSsci1MsmRa01NHgfV4a7+ko/pFMcjfuehRHhp0S7U=
 github.com/anyproto/any-sync-sdk v0.1.21 h1:YflKD1njE41XOeYT7DUixdcd+mX5+28JLkPm/Vsiye0=
