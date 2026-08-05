@@ -411,7 +411,9 @@ positive build tags, so a build can ship both, one, or neither:
 
 | Build | Tags | FTS | Vector / embeds |
 |-------|------|-----|------|
-| Desktop / server (`make build`) | `fts vector` | on | on |
+| Local dev / server (`make build`) | `fts vector` | on | on |
+| Release tarball, linux + windows | `fts vector` | on | on |
+| Release tarball, **darwin** | `fts` | on | **off (forced)** |
 | FTS-only | `fts` | on | off |
 | Vector-only | `vector` | off | on |
 | None (default `go build`) | *(none)* | off | off |
@@ -423,24 +425,54 @@ in. `make build` ships both; the default `go build` ships neither. The
 rule for `vector` is stronger than for `fts`:
 
 - **`vector` / embeds are *always* off on mobile, regardless of tags.**
-  `capVector` is `vector && !gomobile`, so even `gomobile bind -tags
-  vector` keeps the whole embedding/ANN leg out — no embedder is
-  constructed, no model is downloaded, and the embedder implementations
-  (ollama, openai, and the in-process llama.cpp `local`) are not linked
-  at all. This is deliberate: the `local` embedder links the yzma /
-  jupiterrider-ffi llama.cpp bindings, whose libffi CIF descriptors
-  resolve `ffi_prep_cif` at package load — a symbol Android doesn't
-  provide, which panics the Go runtime at startup. A runtime toggle
-  can't prevent a load-time crash, so gomobile force-disables the leg at
-  compile time. Embedding has no place in the mobile runtime anyway.
+  `capVector` is `vector && !gomobile && !mobile`, so even `gomobile
+  bind -tags vector` keeps the whole embedding/ANN leg out — no embedder
+  is constructed, no model is downloaded, and the embedder
+  implementations (ollama, openai, and the in-process llama.cpp `local`)
+  are not linked at all. This is deliberate: the `local` embedder links
+  the yzma / jupiterrider-ffi llama.cpp bindings, whose libffi CIF
+  descriptors resolve `ffi_prep_cif` at package load — a symbol Android
+  doesn't provide, which panics the Go runtime at startup. A runtime
+  toggle can't prevent a load-time crash, so gomobile force-disables the
+  leg at compile time. Embedding has no place in the mobile runtime
+  anyway.
+- **`vector` is off in the darwin *release tarballs*** — same failure
+  class, different policy layer. On macOS the ffi bindings link fine,
+  but `jupiterrider/ffi`'s package init extracts an **ad-hoc-signed**
+  `libffi.8.dylib` into `os.UserCacheDir()` and `dlopen`s it, again on
+  link rather than first use. macOS **library validation** — enabled by
+  the App Sandbox and by the hardened runtime unless the host sets
+  `com.apple.security.cs.disable-library-validation` — denies that load
+  (the dylib has no Team ID, and it materializes at runtime, *after* the
+  host app was signed, so no consumer can pre-sign it), and the process
+  panics before `main`. `FFI_NO_EMBED=1` is not an escape hatch: it
+  falls back to `dlopen("libffi.8.dylib")` and macOS ships only
+  `/usr/lib/libffi.dylib`. Unlike the mobile rule this is **not** a
+  `capVector` term — it is a build-script decision in
+  `scripts/build-any.sh` (per-platform `TAGS`, plus a guard that fails
+  the build if the ffi edge reappears in a darwin binary). `make build`
+  on macOS still ships `vector` and still works, because a locally built
+  binary is unsigned and library validation doesn't apply. Restoring the
+  leg on darwin means either splitting the in-process `local` embedder
+  behind its own tag (it is the only importer of yzma) or building with
+  `-tags ffi_no_embed` plus `-ldflags -X
+  github.com/jupiterrider/ffi.filename=@executable_path/llamacpp/libffi.8.dylib`
+  and shipping a libffi the consumer signs — both change the tarball
+  contract, so they are tracked separately.
 - **`fts` is a plain opt-in flag**, available everywhere including
   mobile (`gomobile bind -tags fts` gives full-text search with no
   embedder). Both mobile binds pass it: iOS `-tags 'mobile fts'`, Android
   `ANY_TAGS := gomobile fts` (DROID-44). ~3 KB of AAR — any-store's
   fulltext index links either way, the tag only lifts the gate.
 
+On **linux** the `vector` leg has no embedded libffi at all (the ffi
+package embeds one only for darwin and windows), so the tarball binary
+`dlopen`s the system `libffi.so.8` at package init and panics at startup
+if it is missing. Mainstream distros ship it; minimal or musl-based
+images must install it (or run an `fts`-only build).
+
 Mechanics (`internal/indexer`):
-- `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
+- `capFTS` (`fts`) and `capVector` (`vector && !gomobile && !mobile`) are
   build-tagged constants (`caps_fts_*.go`, `caps_vector_*.go`). When
   false the store creates no index for that leg (`spaceColl`) and the
   leg's search method short-circuits to no hits (`SearchFTS` /

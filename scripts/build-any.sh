@@ -26,14 +26,15 @@ if [ "$PLATFORM" = host ]; then
     esac
 fi
 
-# platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label
+# platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label search-tags
 # llama.cpp tokens are the GPU-capable archives (Metal on macOS arm64,
 # Vulkan+CPU-fallback on Linux/Windows) — see fetch-llamacpp.sh.
+# TAGS is per-platform on purpose — see the build comment below.
 case "$PLATFORM" in
-darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 ;;
-darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 ;;
-linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 ;;
-windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
+darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 TAGS=fts ;;
+darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 TAGS=fts ;;
+linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 TAGS=fts,vector ;;
+windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 TAGS=fts,vector ;;
 *)
     echo "build-any: unknown platform '$PLATFORM'" >&2
     exit 1
@@ -67,11 +68,36 @@ LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/versio
 # below — so CGO_ENABLED=0 cross-builds keep working. With `vector` in,
 # the default `auto` embedder falls back to the local model, downloading
 # its GGUF (~639 MB) into the data dir on first use.
+#
+# DARWIN SHIPS `fts` ONLY. `vector` links internal/indexer/embed_local.go →
+# yzma → jupiterrider/ffi, whose package init unconditionally extracts an
+# ad-hoc-signed libffi.8.dylib into os.UserCacheDir() and dlopens it — on
+# *link*, before main. macOS library validation (App Sandbox, or the
+# hardened runtime without com.apple.security.cs.disable-library-validation)
+# denies that load because the extracted dylib carries no Team ID, and the
+# process panics at startup. FFI_NO_EMBED=1 is not an out: it falls back to
+# dlopen("libffi.8.dylib"), and macOS ships only /usr/lib/libffi.dylib.
+# This is the same load-time-crash class as the gomobile carve-out — a
+# runtime toggle can't prevent it, so the leg is excluded at compile time.
+# Consumers that DO set that entitlement (any-ui) would be fine either way;
+# one tarball per platform has to serve the strictest consumer (any-swift
+# ships App Sandbox / Mac App Store). Restoring the leg on darwin is
+# tracked separately; see docs/13-index.md § build tags.
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -tags fts,vector -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
+    go build -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
+
+# Guard the carve-out above: the ffi edge is invisible in a stripped binary's
+# symbol table, so match on the embedded cache path instead (grep -a, not
+# `strings`, so this needs no binutils on the runner).
+if [ "$GOOS" = darwin ] && grep -qa 'jupiterrider/ffi/libffi' "$STAGE/any$EXE"; then
+    echo "build-any: darwin binary links jupiterrider/ffi — sandboxed hosts panic at startup (docs/13-index.md § build tags)" >&2
+    exit 1
+fi
 
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
+# Staged on darwin too, where it is inert (no `vector`, so nothing dlopens
+# it) — dropping it there would be a consumer-visible manifest change.
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
 
 
