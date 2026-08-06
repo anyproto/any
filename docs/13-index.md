@@ -412,6 +412,7 @@ positive build tags, so a build can ship both, one, or neither:
 | Build | Tags | FTS | Vector / embeds |
 |-------|------|-----|------|
 | Desktop / server (`make build`) | `fts vector` | on | on |
+| Darwin sandbox tarball | `fts vector nolocalembed` | on | on — online embedders only |
 | FTS-only | `fts` | on | off |
 | Vector-only | `vector` | off | on |
 | None (default `go build`) | *(none)* | off | off |
@@ -438,6 +439,21 @@ rule for `vector` is stronger than for `fts`:
   embedder). Both mobile binds pass it: iOS `-tags 'mobile fts'`, Android
   `ANY_TAGS := gomobile fts` (DROID-44). ~3 KB of AAR — any-store's
   fulltext index links either way, the tag only lifts the gate.
+- **`nolocalembed` cuts only the in-process `local` embedder** out of a
+  `vector` build; everything else in the leg stays. The `local` embedder
+  links the yzma / jupiterrider-ffi llama.cpp bindings, whose package
+  init extracts an ad-hoc-signed `libffi.8.dylib` and `dlopen`s it
+  **before `main`** — macOS library validation (the App Sandbox, or a
+  hardened runtime without the
+  `com.apple.security.cs.disable-library-validation` entitlement) denies
+  that load and the process panics at startup: the desktop instance of
+  the same load-time-crash class as the mobile carve-out above, hit by
+  consumers that spawn `any` as a sandboxed helper (`anyproto/any-swift`).
+  With the tag, `index.embedder: local` is a boot error, `auto` runs the
+  online OpenAI-compatible primary alone (no offline fallback, same
+  config), and `ollama` / `openai` / the ANN index / `mode=vector` keep
+  working. The darwin `-sandbox` release tarballs build with it and ship
+  no `llamacpp/` libs (docs/18-ci.md § Tarball layout).
 
 Mechanics (`internal/indexer`):
 - `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
@@ -449,6 +465,14 @@ Mechanics (`internal/indexer`):
 - `NewEmbedder` has two build-tagged variants: the real switch under
   `vector && !gomobile` (`embed_factory_vector.go`) and a no-op
   returning `nil` under `!vector || gomobile` (`embed_factory_novector.go`).
+- `NewLocal` likewise: the yzma-backed implementation plus
+  `hasLocalEmbedder = true` under
+  `vector && !gomobile && !mobile && !nolocalembed` (`embed_local.go`),
+  and an error-returning stub plus `hasLocalEmbedder = false` under
+  `vector && !gomobile && (mobile || nolocalembed)`
+  (`embed_local_off.go`). The stub is what turns `embedder: local` into
+  a boot error; `hasLocalEmbedder` is what degrades `auto` to
+  online-only.
 
 Tags decide what is *compiled*; the runtime `index.enabled` /
 `index.embedder` config decides what *runs* on top (there is no per-leg

@@ -876,7 +876,8 @@ ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 
 CI: one reusable workflow (`.github/workflows/_build-any.yml`, called by
 `release-any.yml` on `v*` tags + `nightly-any.yml` on cron) fans out per-platform
-build jobs (desktop x4 tarballs, Android `any.aar`, iOS `any.xcframework.zip`) and
+build jobs (desktop x6 tarballs — 4 platforms + 2 darwin `-sandbox`
+variants, Android `any.aar`, iOS `any.xcframework.zip`) and
 fans in to a single `publish` job that ships them all in ONE GitHub Release (both
 mobile assets sha256-pinned in the notes) and dispatches the 3 client repos.
 

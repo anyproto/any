@@ -1,4 +1,4 @@
-//go:build vector && !gomobile
+//go:build vector && !gomobile && !mobile && !nolocalembed
 
 package indexer
 
@@ -15,6 +15,11 @@ import (
 
 	"github.com/anyproto/any/internal/config"
 )
+
+// hasLocalEmbedder mirrors this file's build condition for the factory:
+// when false (embed_local_off.go) the "auto" embedder degrades to the
+// online primary alone.
+const hasLocalEmbedder = true
 
 // Pinned zero-config defaults: `index.embedder: local` alone downloads
 // this model into <data-dir>/index/models and embeds with it.

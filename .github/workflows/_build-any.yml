@@ -7,7 +7,8 @@ name: _build-any
 #
 # Shape: fan-out / fan-in (5 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
-#   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
+#   desktop  (ubuntu,  needs: version)     build-any.sh per published target (incl. the
+#                                          darwin -sandbox variants) → upload-artifact tarballs
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
@@ -105,9 +106,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # The darwin -sandbox variants are the App-Sandbox-safe builds
+          # (no in-process local embedder / ffi edge — any-swift's helper);
+          # the plain darwin tarballs stay any-ui's full-featured sidecar.
+          # See docs/18-ci.md § Tarball layout.
           platforms=(
             darwin-arm64
             darwin-x64
+            darwin-arm64-sandbox
+            darwin-x64-sandbox
             linux-x86_64
             windows-x86_64
           )

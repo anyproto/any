@@ -39,10 +39,15 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder,
 		// (fast, batched), fall back to the always-downloaded local model on
 		// an outage. Both MUST be the same model (index.openai.model must
 		// name the same model the local embedder runs) — see fallbackEmbedder.
+		// Builds without the local embedder (nolocalembed) run the online
+		// primary alone: same config, no offline fallback.
 		if cfg.OpenAI.Model == "" {
 			return nil, fmt.Errorf("indexer: auto embedder needs index.openai.model (the online primary, same model as local)")
 		}
 		primary := NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey)
+		if !hasLocalEmbedder {
+			return primary, nil
+		}
 		fallback, err := NewLocal(cfg.Local, modelsDir, legacyModelsDir)
 		if err != nil {
 			return nil, err
