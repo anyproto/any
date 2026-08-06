@@ -833,8 +833,10 @@ Implementation slices landed:
     "this object is a document" declaration in `any.types`. Replaces
     each client minting its own user `pages` type (owner-primary
     check-then-create still raced across members — real spaces carried
-    up to five parallel "Pages" types). Name via `any.name`, body via
-    `editor_blocks`, tree via `nav.*`. No properties by design: the SDK
+    up to five parallel "Pages" types). Name via `any.name`, labels via
+    the built-in `any.tags` (SDK-side free-form string array, this
+    slice's SDK bump), body via `editor_blocks`, tree via `nav.*`. No
+    properties by design: the SDK
     freezes registered types' property definitions, so built-in
     selects would have permanently empty option sets. Registration
     only — no handler/CLI surface; the xKey guard fences `page` from

@@ -2,8 +2,9 @@
 // object is a document".
 //
 // page is a pure declaration: no dataset, no properties. Everything a
-// page needs already lives in other namespaces — display name and
-// description on `any`, the block body on the `editor` type's
+// page needs already lives in other namespaces — display name,
+// description, and free-form labels (`tags`) on `any`, the block body
+// on the `editor` type's
 // `editor_blocks` dataset (attached on first block write via
 // editor.EnsureType), tree position on `nav`, and recency on the
 // derived row-root `modifiedAt`. Its entire footprint is the "page"

@@ -169,11 +169,24 @@ func TestServer_BuiltinPageType(t *testing.T) {
 		t.Errorf("page properties = %v, want []", props.Properties)
 	}
 
-	// 3. Objects can be created typed page.
+	// 3. Objects can be created typed page; labels ride the built-in
+	// `any.tags` property (page itself declares none).
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["page"],"initialProperties":{"any":{"name":"My page"}}}`)
+		`{"types":["page"],"initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create page object: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+		`{"filter":{"any.types":"page","any.tags":"draft"},"limit":10}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query pages by tag: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var qresp api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &qresp); err != nil {
+		t.Fatalf("decode query: %v", err)
+	}
+	if len(qresp.Records) != 1 {
+		t.Errorf("pages tagged draft = %d records, want 1; body=%s", len(qresp.Records), rec.Body.String())
 	}
 
 	// 4. The literal id is fenced off from user xKeys.
