@@ -311,7 +311,7 @@ POST /v1/spaces/one-to-one
 { "otherIdentity": "<peer account id>" }     // → 201 SpaceInfo (status "active")
 ```
 
-The reply's `spaceType` is `"anytype.onetoone"` — that is how you tell a
+The reply's `spaceType` is `"any.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
 but classify on `spaceType`). The same reply carries
 `generalChatObjectId` — the message thread of the 1-1. Both peers derive

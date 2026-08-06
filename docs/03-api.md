@@ -373,9 +373,8 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"anytype.onetoone"`, a created space defaults to `"any.space"`
-(pre-existing ones report `"anytype.space"`) — use it to tell direct
-chats from regular spaces client-side. `author` is the
+`spaceType:"any.onetoone"`, a created space `"any.space"` — use it to
+tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 
@@ -395,7 +394,7 @@ tombstoned row) — treat it as "unknown / no access", with
 read when it matters. And on a 1-1 space both participants report
 `writer` (the ACL owner slot is a synthetic shared key nobody holds),
 so don't gate owner-only actions on `ownRole == "owner"` for
-`spaceType:"anytype.onetoone"` rows.
+`spaceType:"any.onetoone"` rows.
 
 `SpaceInfo.settings` is the **account-private, client-owned** per-space
 settings object (free-form single-level keys, scalar values) — written
@@ -440,7 +439,7 @@ values, not ACL operations:
   (`Service.OneToOne`). Derives the space and activates it immediately
   (implicit self-approval → `status:"active"`). Idempotent; overrides a
   prior local decline (un-decline). Returns 201 with the `SpaceInfo`
-  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  (`type`/`spaceType` = `any.onetoone`). `400 request.missing_field`
   when `otherIdentity` is empty; `400 request.invalid_field` for an
   undecodable identity or self-pairing (`details.reason:"self"`).
 - **Incoming → pending.** When a peer reaches out, the other side learns
