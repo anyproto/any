@@ -32,6 +32,11 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
 }
 ```
 
+The body vocabulary is closed (these fields plus the subscribe-only
+`mailboxCapacity` / `driftBudgetPercent` and the ignored `projection`).
+An unknown key — `"filters"`, say — is `400 request.unknown_field`
+naming the accepted set, never a silently unfiltered full-space query.
+
 Snapshot reply: `{ "records": [ ... ], "total": <int|omitted> }`. Records are the
 raw stored documents (per-object datasets) or computed property rows
 (cross-object). `/subscribe` adds the live frames documented in `docs/04-events.md`.

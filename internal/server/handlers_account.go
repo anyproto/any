@@ -50,7 +50,7 @@ func (d *deps) accountGet(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/account/metadata [put]
 func (d *deps) accountUpdateMetadata(c echo.Context) error {
-	req, ok := bindBody[api.AccountMetadata](c)
+	req, ok := bindBodyStrict[api.AccountMetadata](c, "")
 	if !ok {
 		return nil
 	}

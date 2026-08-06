@@ -97,7 +97,7 @@ func newAgentChunkCreateCmd() *cobra.Command {
 		Short: "POST one immutable compressed-history chunk to the chat object's agent_chunks dataset",
 		Long: `Create one chunk record (api.AgentChunkCreateRequest shape):
   {"seq": 0, "summary": "...", "periodStart": 1700000000, "periodEnd": 1700003600,
-   "fromSeq": 0, "toSeq": 9, "turnsCovered": 10}
+   "fromSeq": 0, "toSeq": 9, "unitsCovered": 10}
 fromSeq/toSeq are the inclusive agent_turns range this chunk summarizes.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

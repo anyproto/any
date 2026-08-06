@@ -44,9 +44,10 @@ Dotted identifiers grouped by SDK section. Concrete codes are added as
 handlers are implemented; examples:
 
 ```
-request.bad_json                 # request body is not valid JSON
+request.bad_json                 # request body is not valid JSON; message names what failed to parse and the expected field set
 request.schema                   # JSON shape doesn't match endpoint schema
 request.missing_field            # required field absent
+request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.already_authorized          # 409 — engine already booted; restart to switch
@@ -66,12 +67,14 @@ space.deleted                    # 409 — space is deleted (row is a tombstone)
 invite.invalid                   # invite token malformed or unrecognized
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
+object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 
 dataset.unknown                  # no handler registered
 dataset.validation               # schema or handler rejected ops
 
-filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator); message lists the supported set
+filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
+filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe
 
 enrich.empty_proposal            # 404 — proposal has no items (already applied, deleted, or empty)
 enricheddata.text_too_long       # 400 — enrichment text exceeds the byte cap (details.max_bytes, got_bytes)

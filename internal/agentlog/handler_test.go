@@ -297,10 +297,22 @@ func TestChunkCreate_Level2OK(t *testing.T) {
 func TestChunkCreate_Minimal(t *testing.T) {
 	arena := &anyenc.Arena{}
 	payload := minimalChunk(arena)
-	payload.Set(FieldTurnsCovered, arena.NewNumberInt(10))
+	payload.Set(FieldUnitsCovered, arena.NewNumberInt(10))
 	ctx, sink := ctxAndSink()
 	if err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
+	}
+}
+
+// Records stored under the legacy turnsCovered key must stay
+// applyable on replay — the validator accepts both names.
+func TestChunkCreate_LegacyTurnsCoveredAccepted(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalChunk(arena)
+	payload.Set(FieldTurnsCovered, arena.NewNumberInt(10))
+	ctx, sink := ctxAndSink()
+	if err := (chunksHandler{}).BeforeCreate(ctx, createRec(payload), sink); err != nil {
+		t.Fatalf("legacy turnsCovered rejected: %v", err)
 	}
 }
 

@@ -66,7 +66,7 @@ func pushError(c echo.Context, err error) error {
 func (d *deps) pushTokenSet(c echo.Context) error {
 	// Body validation before the availability gate so 400s stay 400s
 	// regardless of server config.
-	req, ok := bindBody[api.PushTokenSetRequest](c)
+	req, ok := bindBodyStrict[api.PushTokenSetRequest](c, "")
 	if !ok {
 		return nil
 	}
