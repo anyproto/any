@@ -46,8 +46,8 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 	if aliceSpace.Id == "" {
 		t.Fatalf("alice: empty 1-1 space id")
 	}
-	if aliceSpace.SpaceType != "anytype.onetoone" {
-		t.Errorf("alice: spaceType = %q, want anytype.onetoone", aliceSpace.SpaceType)
+	if aliceSpace.SpaceType != space.SpaceTypeOneToOne {
+		t.Errorf("alice: spaceType = %q, want %q", aliceSpace.SpaceType, space.SpaceTypeOneToOne)
 	}
 	if aliceSpace.Status != api.SpaceStatusActive {
 		t.Errorf("alice: status = %q, want active", aliceSpace.Status)

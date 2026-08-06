@@ -4,9 +4,9 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v0.4.7
-	github.com/anyproto/any-store/v2 v2.0.0-beta.4
-	github.com/anyproto/any-sync v0.13.0-alpha.10
-	github.com/anyproto/any-sync-sdk v0.1.21
+	github.com/anyproto/any-store/v2 v2.0.0-beta.5
+	github.com/anyproto/any-sync v0.13.1
+	github.com/anyproto/any-sync-sdk v0.1.22
 	github.com/anyproto/anytype-agent-runtime v0.1.2
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
 	github.com/anyproto/lexid v0.0.6
@@ -72,7 +72,7 @@ require (
 	github.com/huandu/skiplist v1.2.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/ipfs/bbloom v0.1.0 // indirect
-	github.com/ipfs/boxo v0.42.0 // indirect
+	github.com/ipfs/boxo v0.42.1 // indirect
 	github.com/ipfs/go-bitfield v1.1.0 // indirect
 	github.com/ipfs/go-block-format v0.2.4 // indirect
 	github.com/ipfs/go-cid v0.6.2 // indirect
@@ -94,7 +94,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
-	github.com/libp2p/go-libp2p v0.48.1-0.20260709142922-ec408fcc60c9 // indirect
+	github.com/libp2p/go-libp2p v0.49.0 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
 	"github.com/anyproto/any-sync/commonspace/spacestorage"
@@ -160,27 +160,16 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 const filterOperators = "$eq, $ne, $in, $nin, $all, $gt, $gte, $lt, $lte, " +
 	"$exists, $type, $regex, $size, $text, $and, $or, $not, $nor"
 
-// unknownOperatorPrefixes are any-store's message forms for an operator
-// outside the grammar. Both spellings are listed because any-store#132
-// fixes the "unknow" typo and lands after this — see unknownFilterOperator.
-var unknownOperatorPrefixes = []string{"unknown operator: ", "unknow operator: "}
-
 // unknownFilterOperator reports whether err is any-store's filter-parse
-// rejection of an unrecognized operator, and recovers the offending token.
-//
-// STOPGAP: matched on message text. any-store does not export a sentinel
-// for this yet; any-store#132 adds query.ErrUnknownOperator plus
-// UnknownOperatorError{Op}, and the SDK already wraps the parse error with
-// %w (spaceimpl.queryImpl.Filter), so once go.mod moves past that tag the
-// whole function collapses into an errors.As and Op arrives structured. The
-// bump needs no SDK release — `any` pins any-store/v2 directly, and module
-// resolution takes the max of our pin and the SDK's. See SYN-79 / SYN-80.
+// rejection of an unrecognized operator, and recovers the offending
+// token. Structured since any-store v2 beta.5: every parse rejection is
+// a *query.ParseError with ErrUnknownOperator underneath and Op naming
+// the bad token; the SDK wraps the parse error with %w
+// (spaceimpl.queryImpl.Filter), so errors.As reaches it.
 func unknownFilterOperator(err error) (op string, ok bool) {
-	msg := err.Error()
-	for _, prefix := range unknownOperatorPrefixes {
-		if i := strings.Index(msg, prefix); i >= 0 {
-			return msg[i+len(prefix):], true
-		}
+	var pe *query.ParseError
+	if errors.As(err, &pe) && errors.Is(pe, query.ErrUnknownOperator) {
+		return pe.Op, true
 	}
 	return "", false
 }
