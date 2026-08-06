@@ -24,8 +24,10 @@ type AuthRequest struct {
 	Mnemonic string `json:"mnemonic,omitempty"`
 	// AccountId selects an account that already has a local wallet.
 	AccountId string `json:"accountId,omitempty"`
-	// Index is the account derivation index for Mnemonic. Default 0.
-	Index uint32 `json:"index,omitempty"`
+	// Index is the account derivation index for Mnemonic. Omitted
+	// means 1, the `any` default; pass 0 explicitly to restore an
+	// anytype-derived (or pre-index-1 any) account.
+	Index *uint32 `json:"index,omitempty"`
 }
 
 // AuthResponse is the POST /v1/auth reply.

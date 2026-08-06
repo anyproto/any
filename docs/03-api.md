@@ -156,9 +156,11 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
-{}                                    // generate a fresh account
-{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
-                                      // device key freshly generated
+{}                                    // generate a fresh account (index 1)
+{ "mnemonic":"w1 … w12" }             // restore at the default index (1):
+                                      // same phrase ⇒ same account, device
+                                      // key freshly generated
+{ "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
 
 // → 200
@@ -169,8 +171,10 @@ restart, and the server stays on that account for its lifetime
 
 `index` is the account-derivation index and is valid **only with
 `mnemonic`** (a selected account's index is baked into its wallet; a
-generated one is always 0) — a non-zero `index` without `mnemonic` is
-`400 request.invalid_field`. If the engine fails to boot after a fresh
+generated one is always the `any` default, 1). Omitted means 1; index
+0 is anytype's, passed explicitly to restore an anytype-derived
+account. Any `index` without `mnemonic` — including an explicit 0 —
+is `400 request.invalid_field`. If the engine fails to boot after a fresh
 wallet was created this call (e.g. SDK init error), the half-created
 per-account dir is removed, so a retry — or `generate` getting a new
 phrase — starts clean rather than auto-selecting an un-backed account.
@@ -369,8 +373,9 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
-to tell direct chats from regular spaces client-side. `author` is the
+`spaceType:"anytype.onetoone"`, a created space defaults to `"any.space"`
+(pre-existing ones report `"anytype.space"`) — use it to tell direct
+chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 

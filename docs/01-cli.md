@@ -44,7 +44,11 @@ second device (never copy `wallet.key`: that clones the device key and
 the two peers fight over one network identity). Prefer
 `--mnemonic-stdin`; a `--mnemonic` flag value leaks into shell
 history. `--new` forces an additional fresh account; `--index` selects
-the derivation index for `--mnemonic`.
+the derivation index for `--mnemonic` and defaults to 1 — the `any`
+account index (0 is anytype's, so one phrase serves both products with
+distinct accounts). Restoring an anytype-derived account, or an `any`
+account created before index 1 became the default, needs an explicit
+`--index 0`.
 
 `any run` does NOT create wallets. With no account resolvable (fresh
 root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)

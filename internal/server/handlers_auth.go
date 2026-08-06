@@ -98,10 +98,11 @@ func (d *deps) authorize(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"mnemonic and accountId are mutually exclusive", nil)
 	}
-	if req.Index != 0 && req.Mnemonic == "" {
+	if req.Index != nil && req.Mnemonic == "" {
 		// index is the derivation index for a restored mnemonic; it is
 		// meaningless when selecting an existing account (the index is
-		// baked into its wallet) or generating a fresh one (always 0).
+		// baked into its wallet) or generating a fresh one (always the
+		// any default).
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"index applies only to mnemonic", nil)
 	}
@@ -117,11 +118,15 @@ func (d *deps) authorize(c echo.Context) error {
 	)
 	switch {
 	case req.Mnemonic != "":
-		id, err := auth.AccountId(req.Mnemonic, req.Index)
+		idx := auth.DefaultAccountIndex
+		if req.Index != nil {
+			idx = *req.Index
+		}
+		id, err := auth.AccountId(req.Mnemonic, idx)
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
 		}
-		identity, seed = d.identityForAccount(c, id), walletSeed{mnemonic: req.Mnemonic, index: req.Index}
+		identity, seed = d.identityForAccount(c, id), walletSeed{mnemonic: req.Mnemonic, index: idx}
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -136,14 +141,14 @@ func (d *deps) authorize(c echo.Context) error {
 			authLog.Error("generate mnemonic", zap.Error(err))
 			return writeError(c, http.StatusInternalServerError, "internal", "generate mnemonic", nil)
 		}
-		id, err := auth.AccountId(m, 0)
+		id, err := auth.AccountId(m, auth.DefaultAccountIndex)
 		if err != nil {
 			authLog.Error("derive account id", zap.Error(err))
 			return writeError(c, http.StatusInternalServerError, "internal", "derive account id", nil)
 		}
 		dir := config.AccountDir(d.root, id)
 		identity = &Identity{Account: id, Dir: dir, WalletPath: config.WalletPath(config.Config{}, dir)}
-		seed, generated = walletSeed{mnemonic: m}, m
+		seed, generated = walletSeed{mnemonic: m, index: auth.DefaultAccountIndex}, m
 	}
 
 	_, statErr := os.Stat(identity.WalletPath)
