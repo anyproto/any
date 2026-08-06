@@ -47,7 +47,7 @@ var spaceListStrippedFields = []string{"guestKey", "issuedGuestKey"}
 //	@Tags		spaces
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.SpaceQueryRequest	false	"Query params (objectId fixed; dataset defaults to spaces)"
+//	@Param		body	body		api.SpaceListQueryRequest	false	"Query params (dataset defaults to spaces)"
 //	@Success	200		{object}	api.QueryResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
@@ -81,7 +81,7 @@ func (d *deps) spaceListQuery(c echo.Context) error {
 //	@Tags		spaces
 //	@Accept		json
 //	@Produce	text/event-stream
-//	@Param		body	body	api.SpaceQueryRequest	false	"Query params (objectId fixed; dataset defaults to spaces)"
+//	@Param		body	body	api.SpaceListQueryRequest	false	"Query params (dataset defaults to spaces)"
 //	@Success	200
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -122,6 +122,9 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 			return nil, space.QueryOpts{}, "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
+	if errResp, done := checkUnknownFields(c, root, "", spaceListQueryFields...); done {
+		return nil, space.QueryOpts{}, "", errResp, true
+	}
 	dataset := SpaceListDataset
 	if root != nil {
 		if ds := string(root.GetStringBytes("dataset")); ds != "" {
@@ -133,6 +136,9 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 			"request.invalid_field",
 			"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
 			map[string]any{"dataset": dataset}), true
+	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, space.QueryOpts{}, "", errResp, true
 	}
 	svc := d.sdk.Spaces()
 	q, opts := applyQueryParams(root, svc.Query(svc.SpaceIndexObjectId(), dataset))

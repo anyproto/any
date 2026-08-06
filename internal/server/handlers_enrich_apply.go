@@ -48,7 +48,7 @@ func (d *deps) enrichApply(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBody[api.EnrichApplyRequest](c)
+	req, ok := bindBodyStrict[api.EnrichApplyRequest](c, "")
 	if !ok {
 		return nil
 	}

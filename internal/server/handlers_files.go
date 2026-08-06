@@ -486,6 +486,12 @@ func (d *deps) buildFilesQuery(c echo.Context) (space.Space, space.Query, space.
 			return nil, nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
+	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
+		return nil, nil, space.QueryOpts{}, errResp, true
+	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, nil, space.QueryOpts{}, errResp, true
+	}
 	q, opts := applyQueryParams(root, q)
 	return sp, q, opts, nil, false
 }

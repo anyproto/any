@@ -106,7 +106,7 @@ func TestE2E_AgentBinary(t *testing.T) {
 	mustJSON(t, http.MethodPost, objBase+"/agent/chunks",
 		`{"seq":0,"summary":"alice sent two messages; agent replied",
 		  "periodStart":1700000000,"periodEnd":1700003600,
-		  "fromSeq":0,"toSeq":1,"turnsCovered":2}`,
+		  "fromSeq":0,"toSeq":1,"unitsCovered":2}`,
 		http.StatusCreated, &chunkRes)
 
 	chunks := queryDataset(t, spaceBase, obj.ObjectId, "agent_chunks", map[string]any{}, []string{"seq"})
@@ -213,7 +213,7 @@ func TestE2E_AgentBinary(t *testing.T) {
 	// tombstoned), server-assigned seq must continue at 1.
 	mustJSON(t, http.MethodPost, objBase+"/agent/chunks",
 		`{"summary":"post-wipe chunk","periodStart":1700000000,"periodEnd":1700003600,
-		  "fromSeq":6,"toSeq":6,"turnsCovered":1}`,
+		  "fromSeq":6,"toSeq":6,"unitsCovered":1}`,
 		http.StatusCreated, &chunkRes)
 	if len(chunkRes.RecordIds) != 1 || chunkRes.RecordIds[0] != "00000001" {
 		t.Fatalf("post-wipe chunk seq: recordIds = %v, want [00000001]", chunkRes.RecordIds)

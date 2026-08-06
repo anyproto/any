@@ -34,7 +34,7 @@ const maxSearchLimit = 100
 func (d *deps) search(c echo.Context) error {
 	// Body validation before space resolution so 400s don't pay for a
 	// space lookup.
-	req, ok := bindBody[api.SearchRequest](c)
+	req, ok := bindBodyStrict[api.SearchRequest](c, "")
 	if !ok {
 		return nil
 	}

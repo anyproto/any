@@ -48,7 +48,7 @@ func (d *deps) blocksCreate(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.BlockCreateRequest](c)
+	req, ok := bindBodyStrict[api.BlockCreateRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -98,7 +98,7 @@ func (d *deps) blocksPatch(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "blockId required", nil)
 	}
 
-	req, ok := bindBody[api.BlockPatchRequest](c)
+	req, ok := bindBodyStrict[api.BlockPatchRequest](c, "")
 	if !ok {
 		return nil
 	}

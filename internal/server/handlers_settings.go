@@ -39,7 +39,7 @@ import (
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/settings [patch]
 func (d *deps) spaceSettingsPatch(c echo.Context) error {
-	req, ok := bindBody[api.SpaceSettingsPatchRequest](c)
+	req, ok := bindBodyStrict[api.SpaceSettingsPatchRequest](c, "")
 	if !ok {
 		return nil
 	}

@@ -102,6 +102,38 @@ func TestCreate_FullPayload(t *testing.T) {
 	}
 }
 
+func TestCreate_SourceAndProvenance(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := minimalItem(arena)
+	payload.Set(FieldSource, arena.NewString("extraction"))
+	prov := arena.NewObject()
+	prov.Set(FieldProvFromSeq, arena.NewNumberInt(42))
+	payload.Set(FieldProvenance, prov)
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	if err := (itemsHandler{}).BeforeCreate(ctx, createRec(payload), &handler.Sink{}); err != nil {
+		t.Fatalf("BeforeCreate: %v", err)
+	}
+}
+
+func TestCreate_BadProvenanceRejected(t *testing.T) {
+	// Unknown subkey — the provenance subkey set is closed.
+	arena := &anyenc.Arena{}
+	payload := minimalItem(arena)
+	prov := arena.NewObject()
+	prov.Set("url", arena.NewString("https://example.com"))
+	payload.Set(FieldProvenance, prov)
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	err := (itemsHandler{}).BeforeCreate(ctx, createRec(payload), &handler.Sink{})
+	requireValidationErr(t, err, "provenance: field_not_allowed: url")
+
+	// Non-object provenance.
+	arena = &anyenc.Arena{}
+	payload = minimalItem(arena)
+	payload.Set(FieldProvenance, arena.NewString("turn 42"))
+	err = (itemsHandler{}).BeforeCreate(ctx, createRec(payload), &handler.Sink{})
+	requireValidationErr(t, err, "provenance must be an object")
+}
+
 func TestCreate_MissingCategoryRejected(t *testing.T) {
 	arena := &anyenc.Arena{}
 	payload := arena.NewObject()

@@ -164,6 +164,10 @@ func validateCreatePayload(payload *anyenc.Value) (presentFields, error) {
 			visitErr = checkNonNegNumber(key, v)
 		case FieldEdges:
 			visitErr = validateEdges(v)
+		case FieldSource:
+			visitErr = checkString(key, v, MaxSourceBytes, false)
+		case FieldProvenance:
+			visitErr = validateProvenance(v)
 		default:
 			// Covers server-stamped fields (creator, createdAt,
 			// modifiedAt), the reserved embeddingRef, and anything
@@ -181,6 +185,31 @@ func validateCreatePayload(payload *anyenc.Value) (presentFields, error) {
 		return present, rejectCreate("context required")
 	}
 	return present, nil
+}
+
+// validateProvenance checks the structured drill-back pointer: an
+// object whose only known subkey is fromSeq (non-negative int, a seq
+// in the chat object's agent_turns dataset). Unknown subkeys reject —
+// new pointer kinds are contract changes, mirroring the top-level
+// field allow-list.
+func validateProvenance(v *anyenc.Value) error {
+	obj, err := v.Object()
+	if err != nil {
+		return rejectCreate("provenance must be an object")
+	}
+	var visitErr error
+	obj.Visit(func(rawKey []byte, sub *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		switch key := string(rawKey); key {
+		case FieldProvFromSeq:
+			visitErr = checkIntRange("provenance."+key, sub, 0, math.MaxInt32)
+		default:
+			visitErr = rejectCreate("provenance: field_not_allowed: " + key)
+		}
+	})
+	return visitErr
 }
 
 // validateEdges gates the typed-link array: each entry is

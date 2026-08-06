@@ -2,11 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"reflect"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
@@ -90,6 +93,12 @@ func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryO
 			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
+	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
+		return nil, space.QueryOpts{}, errResp, true
+	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, space.QueryOpts{}, errResp, true
+	}
 	q, opts := applyQueryParams(root, sp.QueryObjects())
 	return q, opts, nil, false
 }
@@ -108,16 +117,63 @@ func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.Que
 	if err != nil {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
+	if errResp, done := checkUnknownFields(c, root, "", perObjectQueryFields...); done {
+		return nil, space.QueryOpts{}, "", "", errResp, true
+	}
 	objectId := string(root.GetStringBytes("objectId"))
 	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
 	}
+	if isSerializedNil(objectId) {
+		return nil, space.QueryOpts{}, "", "", serializedNilIdError(c, "objectId", objectId), true
+	}
 	if dataset == "" {
 		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
+	if errResp, done := checkFilter(c, root); done {
+		return nil, space.QueryOpts{}, "", "", errResp, true
+	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
 	return q, opts, objectId, dataset, nil, false
+}
+
+// The closed top-level vocabularies of the query/subscribe request
+// bodies, derived from the api request structs so the strict
+// unknown-field gate, the swagger spec, and the error messages'
+// accepted-field enumeration are one artifact and cannot drift.
+// applyQueryParams' read set is api.QueryBodyParams (which also
+// carries the accepted-but-ignored `projection` — docs/07-roadmap.md).
+var (
+	queryBodyFields      = jsonFieldNames(reflect.TypeFor[api.SpaceQueryObjectsRequest]())
+	perObjectQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceQueryRequest]())
+	spaceListQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceListQueryRequest]())
+)
+
+// checkFilter parses the body's filter at the request boundary, so a
+// bad filter is a clean 400 tied to the request — never surfacing out
+// of Snapshot, or worst case mid-Subscribe after the SSE stream
+// committed. The parsed form is discarded; the SDK re-parses on
+// Filter() (one extra parse of caller-supplied input, and the builder
+// chain stays 1:1). Same (errResp, done) convention as
+// checkUnknownFields.
+func checkFilter(c echo.Context, root *fastjson.Value) (error, bool) {
+	if root == nil {
+		return nil, false
+	}
+	filter := root.Get("filter")
+	if filter == nil || filter.Type() == fastjson.TypeNull {
+		return nil, false
+	}
+	if _, err := query.ParseCondition(filter); err != nil {
+		var pe *query.ParseError
+		if errors.As(err, &pe) {
+			return filterParseError(c, pe, nil), true
+		}
+		return writeError(c, http.StatusBadRequest, "filter.invalid",
+			"invalid filter: "+err.Error(), nil), true
+	}
+	return nil, false
 }
 
 // applyQueryParams reads filter / sort / limit / offset / includeTotal

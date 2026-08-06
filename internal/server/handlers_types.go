@@ -26,7 +26,14 @@ import (
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types [post]
 func (d *deps) typeCreate(c echo.Context) error {
-	req, ok := bindBody[api.TypesCreateRequest](c)
+	// Strict bind: type create carries NO inline property definitions —
+	// no SDK surface accepts them. A lax bind would drop a `properties`
+	// array silently and read as "properties never sync" (the schema
+	// stays empty forever), so unknown keys reject loudly with the
+	// per-field route named in the hint.
+	req, ok := bindBodyStrict[api.TypesCreateRequest](c,
+		"inline property definitions are not part of type create — create the type, "+
+			"then add each property via POST /v1/spaces/{spaceId}/types/{typeId}/properties")
 	if !ok {
 		return nil
 	}
@@ -96,7 +103,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
 
-	req, ok := bindBody[api.AddPropertyRequest](c)
+	req, ok := bindBodyStrict[api.AddPropertyRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -293,7 +300,7 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and propId required", nil)
 	}
 
-	req, ok := bindBody[api.PropertyPatchRequest](c)
+	req, ok := bindBodyStrict[api.PropertyPatchRequest](c, "")
 	if !ok {
 		return nil
 	}

@@ -234,7 +234,7 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
 func (d *deps) spaceJoin(c echo.Context) error {
-	req, ok := bindBody[api.SpaceJoinRequest](c)
+	req, ok := bindBodyStrict[api.SpaceJoinRequest](c, "")
 	if !ok {
 		return nil
 	}

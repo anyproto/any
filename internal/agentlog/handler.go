@@ -287,7 +287,7 @@ func validateChunkPayload(payload *anyenc.Value) error {
 			if visitErr = checkSeq("chunk", key, v); visitErr == nil {
 				toSeq, _ = v.Int()
 			}
-		case FieldTurnsCovered:
+		case FieldUnitsCovered, FieldTurnsCovered:
 			visitErr = checkNonNegInt("chunk", key, v)
 		default:
 			visitErr = rejectCreate("chunk", "field_not_allowed: "+key)

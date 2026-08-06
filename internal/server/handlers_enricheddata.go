@@ -31,7 +31,7 @@ func (d *deps) enrichedDataCreate(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.EnrichedDataCreateRequest](c)
+	req, ok := bindBodyStrict[api.EnrichedDataCreateRequest](c, "")
 	if !ok {
 		return nil
 	}
