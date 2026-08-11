@@ -153,7 +153,7 @@ long email embeds its head; FTS still covers the full text. See
    POST /v1/spaces/:spaceId/modify
    { "objectId": "<mailboxId>", "dataset": "email_sync_state",
      "records": [{ "id": "<deviceId-or-source>", "upsert": true,
-       "ops": [{ "op": "$set", "path": "",
+       "ops": [{ "type": "$set", "path": "",
          "value": {"historyId": "8023406", "syncedAt": 1786466013} }] }] }
    ```
 
