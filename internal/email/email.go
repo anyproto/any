@@ -36,8 +36,7 @@
 //	  "date":            "<RFC header value>",     // display-only
 //	  "internalDate":    <unix-ms>,                // required — THE sort key
 //	  "snippet":         "...",
-//	  "bodyText":        "<text-extracted body>",  // filtered text only, capped
-//	  "bodyTruncated":   <bool>,                   // optional
+//	  "bodyText":        "<text-extracted body>",  // filtered text only
 //	  "labelIds":        ["INBOX", "UNREAD", ...], // MUTABLE
 //	  "historyId":       "<provider history id>",  // MUTABLE
 //	  "attachments":     [{"filename", "mime", "size", "fileId"?}, ...],
@@ -64,10 +63,13 @@
 // Flip to the reactions-style per-leaf map only if multi-writer label
 // editing becomes real.
 //
-// Bodies are FILTERED TEXT ONLY (bodyText, capped at MaxBodyTextBytes
-// with bodyTruncated marking the cut). Raw HTML / RFC822 is
-// deliberately not stored; attachment bytes go through files v2 with
-// the fileId recorded in the attachments manifest.
+// Bodies are FILTERED TEXT ONLY (bodyText). Extraction/cleanup policy
+// is the rig's pipeline's business, not the handler's — the only
+// bound here is MaxBodyTextBytes, a sanity cap far above real mail.
+// Raw HTML / RFC822 is deliberately not stored; attachment bytes go
+// through files v2 with the fileId recorded in the attachments
+// manifest. Bodies feed the search index (scope "email"), which
+// embeds them for vector/hybrid recall.
 //
 // The sibling `email_sync_state` dataset on the same mailbox object
 // holds sync-pipeline cursors (historyId frontier etc.) — a raw
@@ -118,7 +120,6 @@ const (
 	FieldInternalDate    = "internalDate"
 	FieldSnippet         = "snippet"
 	FieldBodyText        = "bodyText"
-	FieldBodyTruncated   = "bodyTruncated"
 	FieldLabelIds        = "labelIds"
 	FieldHistoryId       = "historyId"
 	FieldAttachments     = "attachments"
@@ -158,7 +159,7 @@ const (
 	MaxSubjectBytes   = 2 * 1024
 	MaxDateBytes      = 256
 	MaxSnippetBytes   = 2 * 1024
-	MaxBodyTextBytes  = 128 * 1024 // filtered text; rigs truncate + set bodyTruncated
+	MaxBodyTextBytes  = 1024 * 1024 // filtered text; sanity bound, not extraction policy
 	MaxLabels         = 128
 	MaxLabelBytes     = 256
 	MaxHistoryIdBytes = 64
@@ -231,7 +232,6 @@ func datasetSchema() handler.Schema {
 			{Id: FieldInternalDate, Name: "Internal Date", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeSynced},
 			{Id: FieldSnippet, Name: "Snippet", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldBodyText, Name: "Body Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
-			{Id: FieldBodyTruncated, Name: "Body Truncated", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeSynced},
 			{Id: FieldLabelIds, Name: "Label IDs", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeSynced},
 			{Id: FieldHistoryId, Name: "History ID", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeSynced},

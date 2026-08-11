@@ -57,7 +57,7 @@ fields:
 | `internalDate` | synced, required | unix ms, provider receipt time — THE sort key |
 | `from` / `to` / `cc` / `bcc` / `replyTo` | synced | parsed `{name?, address}` objects, not raw header strings |
 | `subject`, `date`, `snippet` | synced | `date` is the RFC header value, display-only |
-| `bodyText` (+ `bodyTruncated`) | synced | filtered text ONLY, ≤ 128 KiB — raw HTML / RFC822 is not stored |
+| `bodyText` | synced | filtered text ONLY — raw HTML / RFC822 is not stored; ≤ 1 MiB sanity bound |
 | `labelIds` | synced, **mutable** | whole-array LWW |
 | `historyId` | synced, **mutable** | provider change frontier for this message |
 | `attachments` | synced | `[{filename, mime, size, fileId?}]` — bytes via files v2 |
@@ -109,7 +109,22 @@ Unread badge without transferring rows:
 The email chunker indexes `subject + bodyText` under the dedicated
 scope `email` (subject doubles as the BM25F title field). Addressing,
 labels, and attachment names are not indexed — `participants` filters
-cover the "mail from X" case exactly. See `13-index.md`.
+cover the "mail from X" case exactly.
+
+Mail is a **semantic-search** target: `email` is a regular embedded
+scope (only `props` is FTS-only), so email docs are marked pending,
+embedded by the embed loop, and participate in `hybrid` / `vector`
+`/search` modes with no extra wiring:
+
+```
+POST /v1/spaces/:spaceId/search
+{ "query": "that invoice from the coworking space", "scopes": ["email"] }
+```
+
+Known limit (shared with every scope): the local embedder truncates
+input to `index.local.contextSize` tokens (default 2048), so a very
+long email embeds its head; FTS still covers the full text. See
+`13-index.md`.
 
 ## Sync-rig recipe
 

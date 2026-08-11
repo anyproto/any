@@ -1888,10 +1888,13 @@ mailbox is the assumption). No version history (`SkipHistory`, like
 chat): the provider is the source of truth.
 
 **Bodies are filtered text only.** `bodyText` carries the
-text-extracted body (≤ 128 KiB; set `bodyTruncated` on cut). Raw HTML
-/ RFC822 is deliberately not stored. Attachment bytes go through
-files v2 (§ Files) with the returned `fileId` recorded in the
-`attachments` manifest.
+text-extracted body (≤ 1 MiB — a sanity bound, not extraction policy;
+cleanup is the rig pipeline's business). Raw HTML / RFC822 is
+deliberately not stored. Attachment bytes go through files v2
+(§ Files) with the returned `fileId` recorded in the `attachments`
+manifest. Bodies feed the search index under scope `email`
+(subject + body, embedded — mail participates in hybrid/vector
+`/search`; see `21-email.md` § Search).
 
 **Sync cursors.** The sibling `email_sync_state` dataset on the same
 mailbox object holds the rig's sync frontier (historyId etc.) — raw

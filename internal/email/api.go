@@ -240,9 +240,6 @@ func createPayload(msg *api.EmailMessage) map[string]any {
 	if msg.BodyText != "" {
 		payload[FieldBodyText] = msg.BodyText
 	}
-	if msg.BodyTruncated {
-		payload[FieldBodyTruncated] = true
-	}
 	if len(msg.LabelIds) > 0 {
 		payload[FieldLabelIds] = msg.LabelIds
 	}

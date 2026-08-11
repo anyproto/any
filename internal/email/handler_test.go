@@ -82,7 +82,6 @@ func TestBeforeCreate_AcceptsFullMessage(t *testing.T) {
 	p.Set(FieldDate, a.NewString("Mon, 10 Aug 2026 20:31:30 +0000"))
 	p.Set(FieldSnippet, a.NewString("snip"))
 	p.Set(FieldBodyText, a.NewString("body"))
-	p.Set(FieldBodyTruncated, a.NewFalse())
 	labels := a.NewArray()
 	labels.SetArrayItem(0, a.NewString("INBOX"))
 	p.Set(FieldLabelIds, labels)

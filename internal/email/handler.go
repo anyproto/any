@@ -41,9 +41,8 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 // invariant).
 //
 // Required payload keys: threadId, internalDate. Optional: from, to,
-// cc, bcc, replyTo, subject, date, snippet, bodyText, bodyTruncated,
-// labelIds, historyId, attachments, messageIdHeader, inReplyTo,
-// references. Any other key rejects — server-stamped fields (creator,
+// cc, bcc, replyTo, subject, date, snippet, bodyText, labelIds,
+// historyId, attachments, messageIdHeader, inReplyTo, references. Any other key rejects — server-stamped fields (creator,
 // createdAt, modifiedAt, participants) most of all, defending against
 // spoofed authorship and forged participant entries.
 func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChange, sink *handler.Sink) error {
@@ -143,8 +142,6 @@ func validateCreatePayload(payload *anyenc.Value) error {
 			visitErr = checkString(key, v, MaxSnippetBytes, true)
 		case FieldBodyText:
 			visitErr = checkString(key, v, MaxBodyTextBytes, true)
-		case FieldBodyTruncated:
-			visitErr = checkBool(key, v)
 		case FieldLabelIds:
 			visitErr = checkStringArray(key, v, MaxLabels, MaxLabelBytes)
 		case FieldHistoryId:
@@ -318,13 +315,6 @@ func checkStringArray(key string, v *anyenc.Value, maxItems, maxItemBytes int) e
 		if len(item.GetStringBytes()) > maxItemBytes {
 			return rejectCreate(fmt.Sprintf("%s[%d] too long (> %d bytes)", key, i, maxItemBytes))
 		}
-	}
-	return nil
-}
-
-func checkBool(key string, v *anyenc.Value) error {
-	if v == nil || (v.Type() != anyenc.TypeTrue && v.Type() != anyenc.TypeFalse) {
-		return rejectCreate(key + " must be a boolean")
 	}
 	return nil
 }

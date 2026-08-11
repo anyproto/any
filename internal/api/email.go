@@ -24,10 +24,10 @@ type EmailAttachment struct {
 // — re-ingesting the same id upserts instead of duplicating.
 // `threadId` and `internalDate` (provider receipt time, unix ms — the
 // sort key) are required. `bodyText` is filtered text only (raw HTML
-// is deliberately not stored); set `bodyTruncated` when the rig cut it
-// at the cap. `labelIds` and `historyId` are the mutable provider
-// state — on an existing record they are compared and patched, all
-// other fields are immutable post-create.
+// is deliberately not stored; extraction/cleanup is the rig
+// pipeline's business). `labelIds` and `historyId` are the mutable
+// provider state — on an existing record they are compared and
+// patched, all other fields are immutable post-create.
 type EmailMessage struct {
 	Id              string            `json:"id"`
 	ThreadId        string            `json:"threadId"`
@@ -41,7 +41,6 @@ type EmailMessage struct {
 	InternalDate    int64             `json:"internalDate"`
 	Snippet         string            `json:"snippet,omitempty"`
 	BodyText        string            `json:"bodyText,omitempty"`
-	BodyTruncated   bool              `json:"bodyTruncated,omitempty"`
 	LabelIds        []string          `json:"labelIds,omitempty"`
 	HistoryId       string            `json:"historyId,omitempty"`
 	Attachments     []EmailAttachment `json:"attachments,omitempty"`

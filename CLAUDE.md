@@ -862,7 +862,8 @@ Implementation slices landed:
     `_ver.id`. Indexes: (internalDate), (threadId, internalDate),
     multikey (labelIds), sparse multikey (participants). SkipHistory —
     the provider is the source of truth. Bodies are FILTERED TEXT only
-    (`bodyText` ≤ 128 KiB + bodyTruncated); no raw HTML/RFC822;
+    (`bodyText`, 1 MiB sanity bound — cleanup is the rig pipeline's
+    business); no raw HTML/RFC822;
     attachment bytes via files v2, manifest in `attachments`. Sibling
     raw `email_sync_state` dataset (DefaultHandler) holds rig cursors,
     written via generic `/modify`, one record per sync source. Chunker
