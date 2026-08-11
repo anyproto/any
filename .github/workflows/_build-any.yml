@@ -7,8 +7,7 @@ name: _build-any
 #
 # Shape: fan-out / fan-in (5 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
-#   desktop  (ubuntu,  needs: version)     build-any.sh per published target (incl. the
-#                                          darwin -sandbox variants) → upload-artifact tarballs
+#   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
@@ -106,12 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # The darwin -sandbox variants ship the same payload as the plain
-          # darwin ones but load Apple's /usr/lib/libffi.dylib instead of the
-          # ffi package's runtime-extracted copy, so they survive macOS
-          # library validation in a sandboxed helper (any-swift). The plain
-          # darwin tarballs stay any-ui's sidecar.
-          # See docs/18-ci.md § Tarball layout.
+          # darwin *-sandbox: same payload, system libffi — docs/18-ci.md.
           platforms=(
             darwin-arm64
             darwin-x64
@@ -122,6 +116,9 @@ jobs:
           )
           for p in "${platforms[@]}"; do
             scripts/build-any.sh "$p" dist
+            # The swagger regen is platform-invariant (~6s); the first build
+            # produced it, the rest reuse it.
+            export ANY_SKIP_SWAG=1
           done
           ls -la dist
       - uses: actions/upload-artifact@v7

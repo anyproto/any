@@ -442,28 +442,13 @@ rule for `vector` is stronger than for `fts`:
 - **`ffi_no_embed` is a *packaging* flag, not a capability one.** Unlike
   the mobile rule above it compiles nothing out of the search leg — the
   `local` embedder, the ANN index and every mode keep working. It only
-  changes **where libffi comes from**. By default `jupiterrider/ffi` has
-  two package-level inits that run before `main`: one extracts an
-  ad-hoc-signed `libffi.8.dylib` into the user Caches dir and points
-  ffi's `filename` at it, the other `dlopen`s `filename` and panics if
-  that fails. macOS **library validation** — on under the App Sandbox,
-  and under the hardened runtime unless the host carries
-  `com.apple.security.cs.disable-library-validation` — denies the load:
-  the dylib has no Team ID and materializes *after* the host app was
-  signed, so no consumer can pre-sign it. The tag drops that first init
-  (and the embedded blob); the build then pins the lookup with
-  `-ldflags -X github.com/jupiterrider/ffi.filename=/usr/lib/libffi.dylib`,
-  Apple's shared-cache libffi, which is a platform binary and always
-  validates. `FFI_NO_EMBED=1` at runtime is **not** equivalent — it
-  leaves the bare `"libffi.8.dylib"` name, which macOS does not ship.
-  The darwin `-sandbox` release tarballs are built this way for
-  consumers that spawn `any` as a sandboxed helper (`anyproto/any-swift`);
-  they stage the same `llamacpp/` libs as the plain darwin tarballs,
-  which the consumer re-signs with its own team ID (docs/18-ci.md
-  § Tarball layout). Because the `-X` is a linker override of an
-  unexported upstream var, `build-any.sh` greps the built binary for
-  both halves — the cache path gone, the `/usr/lib` path present — since
-  a rename upstream would make the flag a silent no-op.
+  changes where libffi comes from: the system `/usr/lib/libffi.dylib`
+  (pinned by a companion `-ldflags -X`) instead of the copy
+  `jupiterrider/ffi` extracts into the user Caches dir at package init,
+  which macOS library validation refuses to load. The darwin `-sandbox`
+  release tarballs are built this way; the mechanism, the guard and the
+  consumer contract live in `docs/18-ci.md` § The darwin `-sandbox`
+  variants.
 
 Mechanics (`internal/indexer`):
 - `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are

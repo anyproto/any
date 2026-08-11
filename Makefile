@@ -65,7 +65,8 @@ clean:
 	rm -rf $(OUT) dist
 
 # Build one any payload (host platform by default) into dist/.
-# Override with PLATFORM=darwin-arm64|darwin-x64|linux-x86_64|windows-x86_64.
+# Override with PLATFORM=darwin-arm64|darwin-x64|linux-x86_64|windows-x86_64,
+# optionally with a -sandbox suffix on the darwin ones (docs/18-ci.md).
 any:
 	scripts/build-any.sh $${PLATFORM:-host} dist
 
