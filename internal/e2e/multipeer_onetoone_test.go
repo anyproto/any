@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 )
 
