@@ -99,9 +99,12 @@ the affected window can't be located incrementally.
   decls carry no `meta["index"]` flag; revisit only if evidence
   demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
-  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `history` / `props`
-  are the established vocabulary, and property meta flags can mint new
-  ones. `props` is FTS-only (see the prop chunker below).
+  of `[a-z0-9_-]`); `basic` / `chat` / `email` / `agent` / `history` /
+  `props` are the established vocabulary, and property meta flags can
+  mint new ones. `props` is FTS-only (see the prop chunker below).
+  `email` is the email chunker's scope (`internal/email/chunker.go`):
+  one entry per `email_messages` record, `Data` = subject + bodyText
+  (subject doubles as the BM25F `Title`), gated on the `email` type.
 - **`TypeId()` gating**: the indexer runs a gated chunker only while the
   type literal is in the object's `any.types`; when it is not, it
   prefix-evicts `objectId:<dataset>:` instead (see eviction below).

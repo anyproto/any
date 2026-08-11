@@ -93,6 +93,18 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read", d.chatReadReactions)
 
+	// Email (built-in type — see internal/email and docs/21-email.md).
+	// Writes only here; reads + liveness go through /query and
+	// /query/subscribe with dataset=email_messages (sort -internalDate).
+	// The mailbox object is per-address and derived — GET /email/mailbox
+	// exposes the deterministic id. Sync cursors live on the same object
+	// in the raw email_sync_state dataset, written via the generic
+	// /modify route.
+	g.GET("/spaces/:spaceId/email/mailbox", d.emailMailboxGet)
+	g.POST("/spaces/:spaceId/objects/:objectId/email/messages", d.emailIngest)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/email/messages/:msgId", d.emailPatch)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/email/messages/:msgId", d.emailDelete)
+
 	// Version history (SDK Space.History(); SDK
 	// docs/version-history-proposal.md). Read-only; versions are the
 	// ChangeIds every write already returns. The static `diff` segment

@@ -269,6 +269,29 @@ any subscribe <spaceId> <objectId> --dataset chat_messages
 The SSE stream carries routing tuples; clients re-`list` for the new
 message body when a `changes` frame arrives.
 
+### Email
+
+```
+any email mailbox <spaceId> --address user@example.com
+any email ingest  <spaceId> <objectId> --json BODY|@FILE|-
+any email patch   <spaceId> <objectId> <msgId> [--label L]... [--clear-labels] [--history-id H]
+any email delete  <spaceId> <objectId> <msgId>
+```
+
+`mailbox` resolves (creating on first use) the deterministic
+per-address mailbox object — the `<objectId>` for everything else.
+`ingest` posts one sync page (`api.EmailIngestRequest`, ≤ 256
+messages) and prints the created / updated / unchanged id lists;
+re-running the same page is a no-op. `patch` replaces the whole label
+set (`--label` repeatable; `--clear-labels` sends `[]`). Reads go
+through the generic query path (snapshot frame + live deltas):
+
+```
+any query-subscribe <spaceId> <objectId> --dataset email_messages --sort '-internalDate' --limit 50
+```
+
+See `docs/21-email.md` for the record shape and the sync-rig recipe.
+
 ### Files
 
 ```

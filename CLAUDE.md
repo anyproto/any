@@ -843,6 +843,34 @@ Implementation slices landed:
     user types. Contract: docs/03-api.md § Types (Built-in `page`
     type).
 
+31. **Built-in `email` type** — `internal/email` stores synced mail as
+    one `email_messages` record per message on a per-address mailbox
+    object (derived from seed `any/email-mailbox/v1/<address>`, the
+    brain/general-chat mechanic; `GET /v1/spaces/:id/email/mailbox`
+    resolves it). Record id = the provider message id — the
+    idempotency key. `POST …/objects/:o/email/messages` batch-upserts
+    one sync page (≤ 256) as ONE ModifyBatch: absent ids created,
+    existing ids get labelIds/historyId diffed and patched, identical
+    ids skipped; reply lists created/updated/unchanged (+ rejections,
+    excluded from the outcome lists). Write-once except the mutable
+    allow-list {labelIds (whole-array LWW, single sync writer
+    assumption), historyId} — author-only, modifiedAt bumped;
+    `PATCH`/`DELETE …/email/messages/:msgId` cover label flips and
+    expunge. Server-derived `participants` (normalized from+to+cc,
+    chat-mentions mechanic) backs `{"participants": addr}` filters.
+    Sort key is `internalDate` (provider receipt time), never
+    `_ver.id`. Indexes: (internalDate), (threadId, internalDate),
+    multikey (labelIds), sparse multikey (participants). SkipHistory —
+    the provider is the source of truth. Bodies are FILTERED TEXT only
+    (`bodyText` ≤ 128 KiB + bodyTruncated); no raw HTML/RFC822;
+    attachment bytes via files v2, manifest in `attachments`. Sibling
+    raw `email_sync_state` dataset (DefaultHandler) holds rig cursors,
+    written via generic `/modify`, one record per sync source. Chunker
+    indexes subject+bodyText under new scope `email` (subject =
+    BM25F Title). No thread objects — threads are `threadId` filters /
+    `$group`. CLI: `any email mailbox/ingest/patch/delete`. Contract:
+    docs/21-email.md, docs/03-api.md § Email, docs/13-index.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -1091,6 +1119,7 @@ auto-start.
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
+| `docs/21-email.md` | email — synced-mail dataset model (mailbox derive, id-idempotent batch ingest, mutable-field allow-list, participants index), sync-rig recipe, what's deliberately out of scope |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

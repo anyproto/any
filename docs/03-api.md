@@ -42,6 +42,10 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
+  - [Email (built-in `email` type)](#email-built-in-email-type)
+    - [Message wire shape (read path)](#message-wire-shape-read-path-1)
+    - [Ingest (batch upsert)](#ingest-batch-upsert)
+    - [Patch / delete](#patch--delete)
   - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
   - [Enrichment (built-in `enriched_data` + `enrich_proposal` types)](#enrichment-built-in-enriched_data--enrich_proposal-types)
   - [Files (files v2)](#files-files-v2)
@@ -1845,6 +1849,125 @@ unique per (emoji, identity), two clients toggling at the same time
 can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
+
+### Email (built-in `email` type)
+
+Full model and sync-rig recipe in [`docs/21-email.md`](21-email.md).
+Synced mail mirrored from an external provider (gmail first): one
+mailbox object per address, one `email_messages` record per message.
+Writes only here — reads + liveness go through `/query` and
+`/query/subscribe` with `dataset=email_messages`, sorted
+`-internalDate` (provider receipt time; `_ver.id` is sync order and
+wrong for mail).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET    | `/v1/spaces/:spaceId/email/mailbox?address=…`                    | deterministic mailbox object id |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/email/messages`           | ingest one batch (upsert by provider id) |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/email/messages/:msgId`    | patch mutable fields (labelIds, historyId) |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId/email/messages/:msgId`    | delete (provider-side expunge) |
+
+**Mailbox.** `GET /email/mailbox` derives — creating on first use —
+the per-address mailbox object (seed
+`any/email-mailbox/v1/<normalized address>`, the `/agent/brain`
+mechanic; address is trimmed + lowercased first). Deterministic, so
+every device and every re-bootstrapped sync rig converges on the same
+object. The `email` type is attached at derive; ingest also accepts
+any other object id and attaches the type on first write.
+
+**Record id = provider message id** (`[A-Za-z0-9_-]`, ≤ 64 bytes) —
+the idempotency key. Re-ingesting a page can never duplicate a
+message.
+
+**Mutability.** Messages are write-once except `labelIds` and
+`historyId` (provider state that changes after delivery, author-only,
+`modifiedAt` bumped). Everything else — addressing, body, dates — is
+immutable post-create; a changed message is a new message on the
+provider side too. `labelIds` is whole-array LWW (one sync writer per
+mailbox is the assumption). No version history (`SkipHistory`, like
+chat): the provider is the source of truth.
+
+**Bodies are filtered text only.** `bodyText` carries the
+text-extracted body (≤ 128 KiB; set `bodyTruncated` on cut). Raw HTML
+/ RFC822 is deliberately not stored. Attachment bytes go through
+files v2 (§ Files) with the returned `fileId` recorded in the
+`attachments` manifest.
+
+**Sync cursors.** The sibling `email_sync_state` dataset on the same
+mailbox object holds the rig's sync frontier (historyId etc.) — raw
+records, shape owned by the rig, written through the generic
+`POST /v1/spaces/:spaceId/modify` with `dataset=email_sync_state` and
+explicit record ids (one per sync source/device — concurrent
+multi-device injection then never contends on one record).
+
+#### Message wire shape (read path)
+
+What `/query` returns for an `email_messages` record. Write endpoints
+return the shared write result / ingest outcome, never this.
+
+```json
+{
+  "id":              "19fed5f923c0f962",
+  "creator":         "<accountId>",
+  "createdAt":       1786453796,
+  "modifiedAt":      1786466013,
+  "threadId":        "19fed5f923c0f962",
+  "from":            { "name": "Kleinanzeigen", "address": "noreply@kleinanzeigen.de" },
+  "to":              [{ "address": "user@example.com" }],
+  "subject":         "Neue Treffer zu deiner Suche",
+  "date":            "Mon, 10 Aug 2026 20:31:30 +0000 (UTC)",
+  "internalDate":    1786393890000,
+  "snippet":         "kleinanzeigen | …",
+  "bodyText":        "…filtered text…",
+  "labelIds":        ["CATEGORY_PROMOTIONS", "UNREAD"],
+  "historyId":       "8023406",
+  "attachments":     [{ "filename": "a.pdf", "mime": "application/pdf", "size": 1024, "fileId": "…" }],
+  "participants":    ["noreply@kleinanzeigen.de", "user@example.com"]
+}
+```
+
+`participants` is server-DERIVED (`x-scope` derived, client writes
+rejected): normalized lowercase addresses folded from `from` + `to` +
+`cc` (bcc excluded), deduped in first-occurrence order. A multikey
+index backs `{"filter": {"participants": "a@b"}}` — per-correspondent
+views without per-email contact links. Indexed filters:
+`internalDate` (sort), `threadId` + `internalDate` (thread view),
+`labelIds` (multikey — `{"labelIds": "INBOX"}`), `participants`
+(multikey, sparse). `creator`/`createdAt`/`modifiedAt` are
+server-stamped; `createdAt` is ingest time, distinct from
+`internalDate`.
+
+#### Ingest (batch upsert)
+
+`POST .../email/messages` body `{"messages": [ … ]}` (1..256 — one
+sync page) applies as ONE ModifyBatch, one DAG change. Per id: absent
+→ created (full payload validated: `threadId` + `internalDate`
+required); present → `labelIds`/`historyId` compared against the
+stored record and patched when changed; identical → skipped. Reply:
+
+```json
+{ "versionId": "…", "changeId": "…",
+  "created": ["id1"], "updated": ["id2"], "unchanged": ["id3"],
+  "rejections": [] }
+```
+
+When every id is unchanged, no change is committed (`versionId`
+empty). Handler-refused records surface in `rejections` and are
+excluded from the outcome lists, so a rig only advances its history
+frontier over messages that landed. `400 email.invalid_message` for
+malformed ids / missing required fields, `400 email.batch_too_large`
+past the cap.
+
+#### Patch / delete
+
+`PATCH .../email/messages/:msgId` body
+`{"labelIds": […]?, "historyId": "…"?}` — at least one required;
+`labelIds` present-but-empty (`[]`) clears every label. The
+incremental label-sync path: a history round that flips labels
+without resending the message. `DELETE` mirrors a provider-side
+delete/expunge (tombstone). Both return `200` with the shared write
+result, `403 email.not_author` for non-authors, `404 email.not_found`
+for unknown ids.
 
 ### Agent data layer (built-in `agent_log` + `agent_memory` types)
 

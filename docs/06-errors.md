@@ -87,6 +87,12 @@ agent.memory_not_found           # 404 — unknown itemId on evolve/delete
 agent.not_author                 # 403 — evolve/delete by non-creator
 agent.seq_deleted                # 409 — client-provided seq points at a tombstoned (wiped) record; deleted seqs are never reused
 
+email.invalid_message            # 400 — ingest batch entry malformed (bad/duplicate id, missing threadId/internalDate)
+email.batch_too_large            # 400 — ingest batch over the 256-message cap (details.max, got)
+email.invalid_address            # 400 — mailbox address over the length cap
+email.not_found                  # 404 — unknown msgId on patch/delete
+email.not_author                 # 403 — patch/delete by an account other than the ingesting one
+
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)

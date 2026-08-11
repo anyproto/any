@@ -21,6 +21,7 @@ import (
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
+	"github.com/anyproto/any/internal/email"
 	"github.com/anyproto/any/internal/enricheddata"
 	"github.com/anyproto/any/internal/enrichproposal"
 	"github.com/anyproto/any/internal/index"
@@ -91,6 +92,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
 			agentconfig.NewType(),    // agent_config on the per-space config object
 			agentsecrets.NewType(),   // agent_secrets on the per-space secrets object
+			email.NewType(),          // email_messages + email_sync_state on per-address mailbox objects
 			enricheddata.NewType(),   // enriched_data collection attached to target objects
 			enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
 			nav.NewType(),            // property-only: no dataset, just nav.* schema
@@ -131,7 +133,8 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 // indexed dataset, paralleling the Types list above. The indexer
 // (internal/indexer) drives it.
 //
-// Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
+// Indexed: editor blocks (coalesced windows), chat messages, email
+// messages (subject + body text, scope "email"), agent MEMORY
 // items, agent HISTORY (turns + chunks, scope "history"), enriched_data
 // facts (sourced enrichment knowledge), and object properties (name /
 // description under "basic"; user values default-on under "props",
@@ -146,6 +149,7 @@ func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
+		email.NewChunker(),
 		agentmem.NewChunker(),
 		agentlog.NewTurnChunker(),
 		agentlog.NewChunkChunker(),
