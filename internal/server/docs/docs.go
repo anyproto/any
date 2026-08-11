@@ -411,7 +411,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "index": {
-                        "description": "Index is the account derivation index for Mnemonic. Default 0.",
+                        "description": "Index is the account derivation index for Mnemonic. Omitted\nmeans 1, the ` + "`" + `any` + "`" + ` default; pass 0 explicitly to restore an\nanytype-derived (or pre-index-1 any) account.",
                         "type": "integer"
                     },
                     "mnemonic": {
