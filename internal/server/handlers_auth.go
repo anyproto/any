@@ -84,13 +84,14 @@ func (d *deps) rootWalletID(c echo.Context) string {
 //	@Tags		auth
 //	@Accept		json
 //	@Produce	json
+//	@Param		body	body		api.AuthRequest	false	"Auth mode: empty body generates, mnemonic restores, accountId selects"
 //	@Success	200	{object}	api.AuthResponse
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
 //	@Router		/auth [post]
 func (d *deps) authorize(c echo.Context) error {
-	req, ok := bindBody[api.AuthRequest](c)
+	req, ok := bindBodyStrict[api.AuthRequest](c, "modes: {} generates a new account, {\"mnemonic\": …[, \"index\": N]} restores, {\"accountId\": …} selects a local wallet")
 	if !ok {
 		return nil
 	}

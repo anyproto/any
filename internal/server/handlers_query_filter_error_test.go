@@ -91,6 +91,46 @@ func TestUnknownFilterOperator(t *testing.T) {
 	}
 }
 
+// TestFilterInvalid pins the non-vocabulary grammar violations: since
+// any-store#152 every parse rejection is a structured
+// *query.ParseError, mapped to 400 filter.invalid with the parser's
+// path locating the failure — parsed at the request boundary, before
+// any space or tree work.
+func TestFilterInvalid(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"FilterInvalid"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	_ = json.Unmarshal(rec.Body.Bytes(), &sp)
+
+	cases := []struct {
+		name, body, wantInMsg string
+	}{
+		{"$and not an array", `{"filter":{"$and":{"a":1}}}`, "$and must be an array"},
+		{"bad $regex", `{"filter":{"name":{"$regex":"["}}}`, "name.$regex"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query", tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			apiErr := decodeErrEnvelope(t, rec.Body.Bytes())
+			if apiErr.Code != "filter.invalid" {
+				t.Errorf("code=%q, want filter.invalid (body=%s)", apiErr.Code, rec.Body.String())
+			}
+			if !strings.Contains(apiErr.Message, tc.wantInMsg) {
+				t.Errorf("message %q does not contain %q", apiErr.Message, tc.wantInMsg)
+			}
+		})
+	}
+}
+
 // TestScalarFilterMatchesArrayElement verifies the advice the
 // filter.unknown_operator message gives. The message tells the caller that
 // $contains is absent because a scalar already compares against array

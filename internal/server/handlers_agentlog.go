@@ -30,7 +30,7 @@ func (d *deps) agentTurnAppend(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.AgentTurnAppendRequest](c)
+	req, ok := bindBodyStrict[api.AgentTurnAppendRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -92,7 +92,7 @@ func (d *deps) agentChunkCreate(c echo.Context) error {
 		return errResp
 	}
 
-	req, ok := bindBody[api.AgentChunkCreateRequest](c)
+	req, ok := bindBodyStrict[api.AgentChunkCreateRequest](c, "")
 	if !ok {
 		return nil
 	}

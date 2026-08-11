@@ -98,6 +98,15 @@ const (
 	FieldValidFrom   = "validFrom"
 	FieldEdges       = "edges"
 	FieldChatId      = "chatId"
+	FieldSource      = "source"
+	FieldProvenance  = "provenance"
+)
+
+// Provenance sub-record keys. The set is closed — the validator
+// rejects unknown subkeys, so new pointer kinds are contract changes,
+// not free-form writes.
+const (
+	FieldProvFromSeq = "fromSeq"
 )
 
 // Edge sub-record keys.
@@ -138,6 +147,7 @@ const (
 	MaxEdgeTypeBytes  = 64
 	MaxIdBytes        = 256 // edge.to, chatId
 	MaxFromAgentBytes = 256
+	MaxSourceBytes    = 64 // pipeline slug ("extraction", "user", …)
 )
 
 // NewType returns the handler.Type to add to config.Config.Types.

@@ -50,7 +50,7 @@ func (d *deps) agentMemoryCreate(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	req, ok := bindBody[api.AgentMemoryCreateRequest](c)
+	req, ok := bindBodyStrict[api.AgentMemoryCreateRequest](c, "")
 	if !ok {
 		return nil
 	}
@@ -112,7 +112,7 @@ func (d *deps) agentMemoryEvolve(c echo.Context) error {
 	if itemId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "itemId required", nil)
 	}
-	req, ok := bindBody[api.AgentMemoryEvolveRequest](c)
+	req, ok := bindBodyStrict[api.AgentMemoryEvolveRequest](c, "")
 	if !ok {
 		return nil
 	}

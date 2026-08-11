@@ -27,6 +27,7 @@ import (
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/nav"
+	"github.com/anyproto/any/internal/page"
 	"github.com/anyproto/any/internal/program"
 )
 
@@ -93,6 +94,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 			enricheddata.NewType(),   // enriched_data collection attached to target objects
 			enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
 			nav.NewType(),            // property-only: no dataset, just nav.* schema
+			page.NewType(),           // marker-only: the shared "this object is a document" type
 		},
 	}
 	if cfg.Sync.DialTimeout != "" {

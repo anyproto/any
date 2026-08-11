@@ -112,6 +112,93 @@ func TestServer_TypeProperties_NotFound(t *testing.T) {
 	}
 }
 
+// TestServer_BuiltinPageType covers the built-in `page` marker type:
+// it is present in every space (registered, not created), resolves by
+// its literal id with an empty property list, accepts objects typed
+// under it, and its id is fenced off from user xKeys.
+func TestServer_BuiltinPageType(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"PageDemo"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /v1/spaces: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+
+	// 1. GET /types lists page with BuiltIn=true.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list types: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var list api.TypesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode types: %v", err)
+	}
+	var found *api.TypeInfo
+	for i := range list.Types {
+		if list.Types[i].Id == "page" {
+			found = &list.Types[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("page type missing from list: %s", rec.Body.String())
+	}
+	if !found.BuiltIn || found.Name != "Page" {
+		t.Errorf("page entry = %+v, want BuiltIn=true Name=Page", *found)
+	}
+
+	// 2. Resolves by literal id; declares no properties.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/page", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get page type: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/page/properties", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("page properties: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var props api.PropertiesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &props); err != nil {
+		t.Fatalf("decode properties: %v", err)
+	}
+	if len(props.Properties) != 0 {
+		t.Errorf("page properties = %v, want []", props.Properties)
+	}
+
+	// 3. Objects can be created typed page; labels ride the built-in
+	// `any.tags` property (page itself declares none).
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
+		`{"types":["page"],"initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create page object: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+		`{"filter":{"any.types":"page","any.tags":"draft"},"limit":10}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("query pages by tag: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var qresp api.QueryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &qresp); err != nil {
+		t.Fatalf("decode query: %v", err)
+	}
+	if len(qresp.Records) != 1 {
+		t.Errorf("pages tagged draft = %d records, want 1; body=%s", len(qresp.Records), rec.Body.String())
+	}
+
+	// 4. The literal id is fenced off from user xKeys.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"NotPage","xKey":"page"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("xKey page: status=%d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if code := errCode(t, rec.Body.Bytes()); code != "type.xkey_conflict" {
+		t.Errorf("xKey page code = %q, want type.xkey_conflict", code)
+	}
+}
+
 func errCode(t *testing.T, body []byte) string {
 	t.Helper()
 	var env api.ErrorEnvelope

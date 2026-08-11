@@ -68,6 +68,14 @@ func CreateItem(ctx context.Context, sp space.Space, brainId string, req api.Age
 	if len(req.Edges) > 0 {
 		payload[FieldEdges] = edgesToValues(req.Edges)
 	}
+	if req.Source != "" {
+		payload[FieldSource] = req.Source
+	}
+	if req.Provenance != nil && req.Provenance.FromSeq != nil {
+		payload[FieldProvenance] = map[string]any{
+			FieldProvFromSeq: *req.Provenance.FromSeq,
+		}
+	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: brainId,

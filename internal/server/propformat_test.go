@@ -26,7 +26,7 @@ func TestServer_PropertyFormat(t *testing.T) {
 		t.Fatalf("decode space: %v", err)
 	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Page","xKey":"page"}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Doc","xKey":"doc"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create type: status=%d body=%s", rec.Code, rec.Body.String())
 	}

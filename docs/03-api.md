@@ -118,10 +118,22 @@ live via `/query/subscribe`). One write shape across the whole API.
 
 ### Meta
 
-| Method | Path            | Purpose                                |
-|--------|-----------------|----------------------------------------|
-| GET    | `/v1/health`    | server health, version, account id     |
-| POST   | `/v1/shutdown`  | graceful shutdown                      |
+| Method | Path               | Purpose                                |
+|--------|--------------------|----------------------------------------|
+| GET    | `/v1/health`       | server health, version, account id     |
+| POST   | `/v1/shutdown`     | graceful shutdown                      |
+| GET    | `/v1/openapi.json` | the API's OpenAPI 3.1 spec             |
+
+`/v1/openapi.json` serves the **OpenAPI 3.1** document generated from
+the handler annotations and the `internal/api` request structs — the
+discovery surface for spec-reading clients (the UI apps, anybao's
+helper layer, external agents). Schema descriptions come from the
+struct field comments, so they carry the same guidance the error
+messages do. Request schemas whose endpoints enforce the closed body
+vocabulary (`request.unknown_field`) are served with
+`additionalProperties: false` — the spec is the authoritative list of
+which endpoints are strict, declared at discovery time. Not available
+in the mobile build (404).
 
 `/v1/health` works on an unauthorized server too — `account` is then
 `""`.
@@ -964,6 +976,17 @@ defaults:
 }
 ```
 
+These three keys are the **whole** create vocabulary. Any other
+top-level key — a bare type group like `"any"`, a top-level `"name"`,
+a typo — is `400 request.unknown_field` naming the accepted set and
+where the value belongs: object properties always ride
+`initialProperties` keyed by type
+(`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
+enforced per field too (`types` an array, `nav` and
+`initialProperties` objects, every `initialProperties` group an
+object of `{propertyId: value}`) → `400 request.schema`. Nothing in
+this body is ever silently dropped.
+
 `nav.pos` defaults to the next lexid after the current max pos in the
 target folder (queried server-side at create time); `Middle()` when
 the folder is empty. Mirrors anytype-heart's `LexId.Next(prev)`
@@ -1109,6 +1132,16 @@ into `/query` must treat 404 as "stale hit", not an error.
   "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
 }
 ```
+
+This field set is **closed**: an unrecognized top-level key answers
+`400 request.unknown_field` listing the accepted vocabulary (so a
+`filters` typo fails loudly instead of silently querying the whole
+space), and a body that isn't a JSON object is `400 request.schema`.
+An `objectId` that is a serialized nil (`"None"`, `"null"`,
+`"undefined"`, …) is `400 object.id_required` — the caller's id
+variable was unset. The same closed set guards the space-list and
+files query/subscribe bodies (plus their own `dataset` / `objectId`
+extras where documented).
 
 **`projection` is not implemented yet.** The field is accepted in the
 body but the server doesn't thread it to `Query.Projection`, and the
@@ -1392,6 +1425,14 @@ the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`chat`, `nav`, …) are registered,
 not created here, and resolve by their literal id.
 
+The create body is strictly `{name?, description?, iconCid?, xKey}` —
+**inline property definitions are not part of type create** (no SDK
+surface accepts them). A `properties` key, or any other unknown
+top-level key, answers `400 request.unknown_field` pointing at the
+per-field route: create the type, then add each property via
+`POST …/types/:typeId/properties` (each add materializes the schema
+immediately).
+
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id
 that resolves to a non-type object). The properties list is
@@ -1512,6 +1553,30 @@ Examples: rename `{ "set": { "name": "Priority" } }`; recolor
 the definition and returns `204`. Existing instance values are **not**
 cleaned up — subsequent writes to that propId are dropped op-by-op
 (dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
+
+#### Built-in `page` type
+
+`page` (singular) is the built-in marker for "this object is a
+document". It is a pure declaration — no dataset, no properties: the
+display name lives on `any.name`, labels on the built-in `any.tags`
+(free-form string array — filter with `{"any.tags": "<label>"}`), the
+block body on the `editor` type's `editor_blocks` dataset (attached on
+first block write), tree position on `nav.*`, recency on the derived
+`modifiedAt`. Clients file a document by creating the object with
+`{"types": ["page"]}` and list a space's documents with
+`{"filter": {"any.types": "page"}}` on `…/objects/query[/subscribe]`.
+
+Being registered (not created), `page` exists in every space by
+construction — the replacement for each client minting its own user
+"pages" type, which raced across members and left spaces with several
+parallel "Pages" types. Existing user `pages` types are not migrated or
+touched; new user types claiming the `page` xKey collide with the
+built-in id (`409 type.xkey_conflict`).
+
+`page` declares no properties **by design**: registered types' property
+definitions are frozen (no add/patch/remove — `400 type.registered`),
+so a built-in select/multiselect would carry a permanently empty,
+uneditable option set. Per-space columns remain a user-type concern.
 
 ### Properties (values on objects)
 
