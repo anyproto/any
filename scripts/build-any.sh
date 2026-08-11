@@ -2,11 +2,12 @@
 # Build one any payload for a target platform.
 #
 # Usage: scripts/build-any.sh <platform> <outdir>
-#   platform ∈ darwin-arm64 | darwin-x64 | linux-x86_64 | windows-x86_64 | host
+#   platform ∈ darwin-arm64 | darwin-x64 | linux-x86_64 | windows-x86_64 |
+#              darwin-arm64-sandbox | darwin-x64-sandbox | host
 #   (the any backend is CGO-free, so every target cross-builds
 #    from any host; only the prebuilt llama.cpp libs are platform-specific.)
 #
-# Produces: <outdir>/any-<version>-<os>-<arch>.tar.gz
+# Produces: <outdir>/any-<version>-<os>-<arch>[-sandbox].tar.gz
 set -euo pipefail
 
 PLATFORM="${1:?usage: build-any.sh <platform> <outdir>}"
@@ -29,9 +30,19 @@ fi
 # platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label
 # llama.cpp tokens are the GPU-capable archives (Metal on macOS arm64,
 # Vulkan+CPU-fallback on Linux/Windows) — see fetch-llamacpp.sh.
+#
+# The darwin -sandbox variants carry the SAME payload as their plain siblings
+# — same tags, same llama.cpp libs, full vector leg including the in-process
+# local embedder. They differ only in where libffi comes from (see the build
+# step below): they are for consumers that run `any` as an App-Sandboxed or
+# hardened-runtime helper without the disable-library-validation entitlement
+# (anyproto/any-swift). docs/18-ci.md § Tarball layout.
+VARIANT=""
 case "$PLATFORM" in
 darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 ;;
 darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 ;;
+darwin-arm64-sandbox) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 VARIANT=sandbox ;;
+darwin-x64-sandbox) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 VARIANT=sandbox ;;
 linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 ;;
 windows-x86_64) GOOS=windows GOARCH=amd64 LLAMA=win-vulkan-x64 EXE=".exe" OS=windows ARCH=x86_64 ;;
 *)
@@ -67,11 +78,49 @@ LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/versio
 # below — so CGO_ENABLED=0 cross-builds keep working. With `vector` in,
 # the default `auto` embedder falls back to the local model, downloading
 # its GGUF (~639 MB) into the data dir on first use.
+TAGS=fts,vector
+
+# The sandbox variants: same legs, different libffi. `vector` pulls in
+# yzma → jupiterrider/ffi, which has TWO package-level inits that run before
+# main — embed.go extracts an ad-hoc-signed libffi.8.dylib into the user
+# Caches dir and points ffi's `filename` at it, then init.go dlopens
+# `filename` and panics if it fails. macOS library validation (the App
+# Sandbox, or a hardened runtime without
+# com.apple.security.cs.disable-library-validation) denies that load, so the
+# process dies before main. `ffi_no_embed` compiles embed.go out, and the -X
+# pins `filename` (a plain unexported package var) to Apple's libffi, a
+# platform binary in the dyld shared cache that always validates. FFI_NO_EMBED=1
+# at runtime is NOT equivalent — it leaves the bare "libffi.8.dylib" name,
+# which macOS does not ship. docs/13-index.md § build tags.
+if [ "$VARIANT" = sandbox ]; then
+    TAGS="$TAGS,ffi_no_embed"
+    LDFLAGS="$LDFLAGS -X github.com/jupiterrider/ffi.filename=/usr/lib/libffi.dylib"
+fi
+
 CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
-    go build -trimpath -tags fts,vector -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
+    go build -trimpath -tags "$TAGS" -ldflags "$LDFLAGS" -o "$STAGE/any$EXE" ./cmd/any
+
+# Guard both halves of the sandbox build. It has to be two-sided: `-X` against
+# a symbol that no longer exists is silently ignored by the linker, so an
+# upstream rename of ffi's `filename` would quietly restore the Caches path
+# and panic under the sandbox again. grep -a, not `go tool nm` — these
+# binaries are -s -w stripped, so the edge is invisible in the symbol table.
+if [ "$VARIANT" = sandbox ]; then
+    if grep -aq 'github.com/jupiterrider/ffi/libffi' "$STAGE/any$EXE"; then
+        echo "build-any: $PLATFORM carries the embedded-libffi cache path — the ffi_no_embed tag did not take" >&2
+        exit 1
+    fi
+    if ! grep -aq '/usr/lib/libffi.dylib' "$STAGE/any$EXE"; then
+        echo "build-any: $PLATFORM has no /usr/lib/libffi.dylib string — the -X ffi.filename override did not take (symbol renamed upstream?)" >&2
+        exit 1
+    fi
+fi
 
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
+# Sandbox variants stage them too — a consumer bundling this tarball re-signs
+# the dylibs with its own team ID, which is exactly what library validation
+# wants; only the runtime-extracted libffi was unsignable.
 scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
 
 
@@ -88,15 +137,19 @@ SUMS="$(mktemp)"
         printf '%s  %s\n' "$(sha256_of "$rel")" "$rel"
     done
 ) >"$SUMS"
+# `variant` marks the artifact so a consumer can tell the two darwin builds
+# apart in-band; it is absent (not empty) on the plain ones.
 jq -n \
     --arg version "$VERSION" --arg os "$OS" --arg arch "$ARCH" --arg llama "$LLAMACPP_VERSION" \
+    --arg variant "$VARIANT" \
     --rawfile sums "$SUMS" \
     '{version:$version, os:$os, arch:$arch, llamacpp_version:$llama,
-      sha256: ($sums | rtrimstr("\n") | split("\n") | map(split("  ")) | map({(.[1]): .[0]}) | add // {})}' \
+      sha256: ($sums | rtrimstr("\n") | split("\n") | map(split("  ")) | map({(.[1]): .[0]}) | add // {})}
+     + (if $variant != "" then {variant:$variant} else {} end)' \
     >"$STAGE/manifest.json"
 rm -f "$SUMS"
 
 mkdir -p "$OUTDIR"
-TARBALL="$OUTDIR/any-$VERSION-$OS-$ARCH.tar.gz"
+TARBALL="$OUTDIR/any-$VERSION-$OS-$ARCH${VARIANT:+-$VARIANT}.tar.gz"
 tar -czf "$TARBALL" -C "$STAGE" .
 echo "build-any: → $TARBALL"
