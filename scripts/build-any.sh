@@ -22,30 +22,33 @@ OUTDIR="${2:?usage: build-any.sh <platform> <outdir>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [ "$PLATFORM" = host ]; then
+# Split the optional variant suffix off FIRST, so it composes with `host`
+# too (`host-sandbox` is the natural local invocation on a Mac). A variant
+# never duplicates its platform's row — see the build step for what
+# `sandbox` does.
+case "$PLATFORM" in
+*-sandbox) VARIANT=sandbox ;;
+*) VARIANT="" ;;
+esac
+BASE="${PLATFORM%-sandbox}"
+
+if [ "$BASE" = host ]; then
     case "$(uname -s)-$(uname -m)" in
-    Darwin-arm64) PLATFORM=darwin-arm64 ;;
-    Darwin-x86_64) PLATFORM=darwin-x64 ;;
-    Linux-x86_64) PLATFORM=linux-x86_64 ;;
+    Darwin-arm64) BASE=darwin-arm64 ;;
+    Darwin-x86_64) BASE=darwin-x64 ;;
+    Linux-x86_64) BASE=linux-x86_64 ;;
     *)
         echo "build-any: cannot detect host; pass an explicit platform" >&2
         exit 1
         ;;
     esac
+    PLATFORM="$BASE${VARIANT:+-$VARIANT}"
 fi
-
-# Split the optional variant suffix off before the platform table, so a
-# variant never duplicates its platform's row (see the build step for what
-# `sandbox` does).
-case "$PLATFORM" in
-*-sandbox) VARIANT=sandbox ;;
-*) VARIANT="" ;;
-esac
 
 # platform → GOOS GOARCH llama.cpp-token exe-suffix os-label arch-label
 # llama.cpp tokens are the GPU-capable archives (Metal on macOS arm64,
 # Vulkan+CPU-fallback on Linux/Windows) — see fetch-llamacpp.sh.
-case "${PLATFORM%-sandbox}" in
+case "$BASE" in
 darwin-arm64) GOOS=darwin GOARCH=arm64 LLAMA=macos-arm64 EXE="" OS=darwin ARCH=arm64 ;;
 darwin-x64) GOOS=darwin GOARCH=amd64 LLAMA=macos-x64 EXE="" OS=darwin ARCH=x86_64 ;;
 linux-x86_64) GOOS=linux GOARCH=amd64 LLAMA=ubuntu-vulkan-x64 EXE="" OS=linux ARCH=x86_64 ;;

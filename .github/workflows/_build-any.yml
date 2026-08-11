@@ -5,12 +5,13 @@ name: _build-any
 # (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
 # the client repos.
 #
-# Shape: fan-out / fan-in (5 jobs).
+# Shape: fan-out / fan-in (6 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
+#   desktop-smoke (macos-15, needs: desktop)  run the darwin -sandbox binary for real
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
-#   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
+#   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
 #            download all → sha256 the 2 mobile assets → ONE `gh release create`
 #            → repository_dispatch any-ui + anytype-swift +
 #            any-kotlin (best-effort).
@@ -128,6 +129,41 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Smoke: execute the darwin -sandbox binary on a real Mac under a hardened
+  # runtime. The variant exists precisely so ffi's pre-main dlopen survives
+  # macOS library validation, and that is a RUNTIME property the desktop
+  # job — cross-compiling on Linux, never running what it builds — cannot
+  # see. `any version` is enough: ffi's init runs at process start, so a
+  # missing symbol or a denied load panics before the version prints.
+  #
+  # Ad-hoc signing with --options runtime is what makes this discriminating:
+  # library validation then accepts only platform binaries, which is exactly
+  # what /usr/lib/libffi.dylib is and the extracted copy is not.
+  #
+  # Covers current-macOS arm64 only. The oldest-supported-macOS and x86_64
+  # probes remain open — docs/18-ci.md § The darwin `-sandbox` variants.
+  desktop-smoke:
+    needs: [version, desktop]
+    if: github.repository == 'anyproto/any'
+    runs-on: macos-15
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-tarballs
+          path: dist
+      - name: Run the darwin-arm64-sandbox binary under a hardened runtime
+        run: |
+          set -euo pipefail
+          mkdir -p smoke
+          tar -xzf "dist/any-$VERSION-darwin-arm64-sandbox.tar.gz" -C smoke
+          codesign --force --options runtime -s - smoke/any
+          # A pre-main panic exits non-zero and fails the job here, rather
+          # than in a consumer's signed helper after the release ships.
+          smoke/any version
+
   # Android: arm64-v8a any.aar via gomobile bind (makefiles/android.mk).
   android:
     needs: version
@@ -243,7 +279,7 @@ jobs:
   # Fan-in: download every artifact, publish ONE GitHub Release with all assets,
   # then notify the 3 client repos (best-effort).
   publish:
-    needs: [version, desktop, android, ios]
+    needs: [version, desktop, desktop-smoke, android, ios]
     if: github.repository == 'anyproto/any'
     runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 15
