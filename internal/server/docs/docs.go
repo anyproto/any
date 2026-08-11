@@ -650,6 +650,195 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.EmailAddress": {
+                "properties": {
+                    "address": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailAttachment": {
+                "properties": {
+                    "fileId": {
+                        "type": "string"
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "mime": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailIngestRequest": {
+                "properties": {
+                    "messages": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailMessage"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailIngestResult": {
+                "properties": {
+                    "changeId": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "rejections": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.OpRejection"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "unchanged": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "updated": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "versionId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailMailboxResponse": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailMessage": {
+                "properties": {
+                    "attachments": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailAttachment"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "bcc": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailAddress"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "bodyText": {
+                        "type": "string"
+                    },
+                    "cc": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailAddress"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "date": {
+                        "type": "string"
+                    },
+                    "from": {
+                        "$ref": "#/components/schemas/api.EmailAddress"
+                    },
+                    "historyId": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "inReplyTo": {
+                        "type": "string"
+                    },
+                    "internalDate": {
+                        "type": "integer"
+                    },
+                    "labelIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "messageIdHeader": {
+                        "type": "string"
+                    },
+                    "references": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "replyTo": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailAddress"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "snippet": {
+                        "type": "string"
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "threadId": {
+                        "type": "string"
+                    },
+                    "to": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.EmailAddress"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.EmailPatchRequest": {
+                "properties": {
+                    "historyId": {
+                        "type": "string"
+                    },
+                    "labelIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.EnrichApplyRequest": {
                 "properties": {
                     "proposalId": {
@@ -1467,6 +1656,9 @@ const docTemplate = `{
             },
             "api.OpRejection": {
                 "properties": {
+                    "code": {
+                        "type": "string"
+                    },
                     "opIndex": {
                         "type": "integer"
                     },
@@ -4662,6 +4854,66 @@ const docTemplate = `{
                 ]
             }
         },
+        "/spaces/{spaceId}/email/mailbox": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Mailbox address",
+                        "in": "query",
+                        "name": "address",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EmailMailboxResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Resolve the per-address mailbox object id",
+                "tags": [
+                    "email"
+                ]
+            }
+        },
         "/spaces/{spaceId}/enrich/apply": {
             "post": {
                 "parameters": [
@@ -7757,6 +8009,272 @@ const docTemplate = `{
                 "summary": "Append markdown content (append-only fast path)",
                 "tags": [
                     "editor"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/objects/{objectId}/email/messages": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Mailbox object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.EmailIngestRequest",
+                                        "summary": "body",
+                                        "description": "Messages"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Messages",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EmailIngestResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Ingest a batch of email messages (upsert by provider id)",
+                "tags": [
+                    "email"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/objects/{objectId}/email/messages/{msgId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Mailbox object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Message ID",
+                        "in": "path",
+                        "name": "msgId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ModifyResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Delete a message (ingesting account only)",
+                "tags": [
+                    "email"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Mailbox object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Message ID",
+                        "in": "path",
+                        "name": "msgId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.EmailPatchRequest",
+                                        "summary": "body",
+                                        "description": "Fields to set"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to set",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ModifyResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a message's mutable fields (labelIds, historyId)",
+                "tags": [
+                    "email"
                 ]
             }
         },
