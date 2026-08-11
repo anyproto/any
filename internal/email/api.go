@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
@@ -41,6 +42,31 @@ var ErrNoFields = errors.New("email: no fields to patch")
 // label state does. Handler-refused records surface in
 // Result.Rejections and are excluded from the outcome lists. When
 // nothing needs writing, no change is committed (empty versionId).
+//
+// Every per-record rejection is DETERMINISTIC — re-ingesting the same
+// message yields the same refusal forever — so the sync rig advances
+// its provider frontier over rejected messages (logging them) rather
+// than holding the cursor for a retry that cannot succeed. Rejections
+// carry a Code bucketing the refusal; `tombstoned` is the one worth
+// alerting on when unexpected (see docs/21-email.md § Tombstones).
+// rejectionCode buckets a per-record refusal reason for programmatic
+// handling. The reasons are human text from two layers — this
+// package's handler (structured prefixes) and the SDK's CRDT apply
+// (tombstoned ids) — so classification is substring-based; unknown
+// text falls back to `invalid` (still deterministic, still terminal).
+func rejectionCode(reason string) string {
+	switch {
+	case strings.Contains(reason, "the id cannot be reused"):
+		return "tombstoned"
+	case strings.Contains(reason, "not_author"):
+		return "not_author"
+	case strings.Contains(reason, "field_not_modifiable"):
+		return "immutable_field"
+	default:
+		return "invalid"
+	}
+}
+
 func Ingest(ctx context.Context, sp space.Space, objectId string, msgs []api.EmailMessage) (api.EmailIngestResult, error) {
 	out := api.EmailIngestResult{
 		Created:   []string{},
@@ -119,6 +145,7 @@ func Ingest(ctx context.Context, sp space.Space, objectId string, msgs []api.Ema
 				RecordId:    id,
 				OpIndex:     rej.OpIndex,
 				Reason:      rej.Reason,
+				Code:        rejectionCode(rej.Reason),
 			})
 		}
 		keep := func(ids []string) []string {

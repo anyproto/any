@@ -20,10 +20,15 @@ type ModifyResult struct {
 // and OpIndex are positional; RecordId resolves the auto-derived id
 // for empty-id records; Reason is human-readable text from the
 // handler. OpIndex == -1 means the whole record was rejected
-// (BeforeCreate / BeforeDelete).
+// (BeforeCreate / BeforeDelete). Code, where a route sets it (email
+// ingest), buckets the refusal for programmatic handling; every
+// per-record rejection is deterministic — the same record yields the
+// same refusal forever — so callers advance their bookkeeping over
+// rejected records rather than retrying them.
 type OpRejection struct {
 	RecordIndex int    `json:"recordIndex"`
 	RecordId    string `json:"recordId,omitempty"`
 	OpIndex     int    `json:"opIndex"`
 	Reason      string `json:"reason"`
+	Code        string `json:"code,omitempty"`
 }

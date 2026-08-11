@@ -133,8 +133,14 @@ long email embeds its head; FTS still covers the full text. See
 2. Backfill / incremental sync: page the provider, then
    `POST …/email/messages` with up to 256 messages per call. The
    reply's `created` / `updated` / `unchanged` lists say what
-   happened; `rejections` lists what didn't land — only advance your
-   provider cursor over messages outside `rejections`.
+   happened; `rejections` lists what didn't land. **Rejections are
+   deterministic refusals** (each carries a `code`: `tombstoned`,
+   `not_author`, `immutable_field`, `invalid`) — re-sending the same
+   message yields the same refusal forever, so log them and advance
+   the cursor over them like any handled message; holding the cursor
+   for a rejection wedges the sync permanently. `tombstoned` on a
+   message you didn't delete is the one worth alerting on (see
+   § Tombstones below).
 3. Label-only history rounds: either re-ingest the affected messages
    (the diff writes only the changed labels) or
    `PATCH …/email/messages/:id` per message.
@@ -160,6 +166,21 @@ long email embeds its head; FTS still covers the full text. See
 Attachments: attach bytes to the mailbox object via files v2
 (`POST …/objects/:mailboxId/files?name=…`), then record the returned
 fileId in the message's `attachments` manifest on ingest.
+
+## Tombstones
+
+Deleting a record consumes its id forever: the CRDT tombstones it,
+and a later ingest of the same provider message id is rejected with
+`code: "tombstoned"`. This is the intended semantic — record id =
+provider id is the idempotency contract, and a delete means *this
+provider message is permanently suppressed in this mailbox*. For
+provider-side expunges that is exactly right (the provider won't
+resurface the message). The corollary: **`DELETE` is not a cleanup
+tool** — deleting records the provider still holds makes those
+messages unsyncable into this mailbox object for good (a fallback
+re-list will meet the tombstone and must advance over it, per the
+recipe above). If a mailbox is damaged that way at scale, the reset
+is a new mailbox object, not id gymnastics.
 
 ## Contacts
 

@@ -391,3 +391,19 @@ func TestValidMessageId(t *testing.T) {
 		}
 	}
 }
+
+// --- rejectionCode ----------------------------------------------------------
+
+func TestRejectionCode(t *testing.T) {
+	cases := map[string]string{
+		"crdt: record is deleted; the id cannot be reused": "tombstoned",
+		"not_author":                    "not_author",
+		"field_not_modifiable: subject": "immutable_field",
+		"payload must be a JSON object": "invalid",
+	}
+	for reason, want := range cases {
+		if got := rejectionCode(reason); got != want {
+			t.Errorf("rejectionCode(%q) = %q, want %q", reason, got, want)
+		}
+	}
+}

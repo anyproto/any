@@ -1956,10 +1956,13 @@ stored record and patched when changed; identical → skipped. Reply:
 
 When every id is unchanged, no change is committed (`versionId`
 empty). Handler-refused records surface in `rejections` and are
-excluded from the outcome lists, so a rig only advances its history
-frontier over messages that landed. `400 email.invalid_message` for
-malformed ids / missing required fields, `400 email.batch_too_large`
-past the cap.
+excluded from the outcome lists. Each rejection carries a `code`
+(`tombstoned` | `not_author` | `immutable_field` | `invalid`); all
+of them are deterministic — the same record refuses the same way
+forever — so a rig logs rejections and advances its history frontier
+over them (`21-email.md` § Sync-rig recipe / § Tombstones).
+`400 email.invalid_message` for malformed ids / missing required
+fields, `400 email.batch_too_large` past the cap.
 
 #### Patch / delete
 
