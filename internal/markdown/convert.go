@@ -228,7 +228,10 @@ func parseListItem(line string) (ordered bool, text string, ok bool) {
 	if !m {
 		return false, "", false
 	}
-	body := strings.TrimSpace(line[cont:])
+	// contIndent is the continuation COLUMN (marker end + 2) and may
+	// exceed the line itself when the marker is the whole line ("1.",
+	// "-"): clamp before slicing.
+	body := strings.TrimSpace(line[min(cont, len(line)):])
 	// Marker is at indent[0]; ordered iff the first non-space byte is a
 	// digit.
 	leading := 0
@@ -251,7 +254,7 @@ func parseCheckListItem(line string) (checked bool, text string, ok bool) {
 	if !m {
 		return false, "", false
 	}
-	rest := line[cont:]
+	rest := line[min(cont, len(line)):]
 	if len(rest) < 3 || rest[0] != '[' || rest[2] != ']' {
 		return false, "", false
 	}

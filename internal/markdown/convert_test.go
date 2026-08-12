@@ -235,3 +235,15 @@ func TestRoundTrip_Document(t *testing.T) {
 		})
 	}
 }
+
+func TestParse_BareListMarkerDoesNotPanic(t *testing.T) {
+	// A marker with nothing after it ("1.", "-") is a whole line;
+	// listItemMarker's contIndent (marker end + 2) then exceeds the
+	// line and the item parsers used to slice past the end — a live
+	// PUT /editor/markdown 500 (slice bounds out of range [3:2],
+	// 2026-08-12, real newsletter markdown from clean_html).
+	for _, in := range []string{"1.", "-", "*", "+", "12)", "  1.", "- [", "1. "} {
+		b := ParseBlock(in)
+		assert.NotNil(t, b, in)
+	}
+}
