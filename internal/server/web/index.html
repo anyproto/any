@@ -2397,18 +2397,28 @@
     '</section>';
   }
 
+  // Property lists render in lexicographic name order (id fallback and
+  // tie-break) — same presentation rule as the objects list. The id
+  // tie-break keeps duplicate-name ordinals stable across reloads.
+  function sortedProps(props) {
+    return (props || []).slice().sort((a, b) =>
+      String(a.name || a.id).localeCompare(String(b.name || b.id)) ||
+      String(a.id).localeCompare(String(b.id)));
+  }
+
   function renderTypeItem(t) {
+    const props = sortedProps(t.props);
     const nameCounts = {};
-    for (const p of t.props || []) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
+    for (const p of props) nameCounts[p.name] = (nameCounts[p.name] || 0) + 1;
     const nameOrdinals = {};
     const dupNames = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
     const dupBadge = dupNames.length
       ? ' <span class="pill" style="border-color:var(--warn);color:var(--warn)" title="duplicate property names: ' +
           escapeHTML(dupNames.join(', ')) + '">name collision</span>'
       : '';
-    const propsHTML = (t.props || []).length === 0
+    const propsHTML = props.length === 0
       ? '<p style="color:var(--muted);font-size:12px">no properties.</p>'
-      : '<ul class="prop-list">' + t.props.map(p => {
+      : '<ul class="prop-list">' + props.map(p => {
           let label = escapeHTML(p.name);
           if (nameCounts[p.name] > 1) {
             nameOrdinals[p.name] = (nameOrdinals[p.name] || 0) + 1;
@@ -3034,7 +3044,7 @@
     if (t.id === NAV_TYPE_ID) return ''; // nav is managed by the left tree
     const tnode = rec[t.id] || {};
     const seen = new Set();
-    const props = (t.props || []).filter(p => {
+    const props = sortedProps(t.props).filter(p => {
       if (!p || !p.id || seen.has(p.id)) return false;
       seen.add(p.id);
       return true;
