@@ -37,6 +37,10 @@ type AddPropertyRequest struct {
 	// property definition. meta["index"] = "<scope>" marks the property
 	// for the search indexer (docs/13-index.md).
 	Meta map[string]string `json:"meta,omitempty"`
+	// Pos is the property's lexid display-order key within its type —
+	// the per-definition twin of format.options.<key>.pos. Optional;
+	// reorders go through the property PATCH ({"set": {"pos": …}}).
+	Pos string `json:"pos,omitempty"`
 	// Format declares the property's value convention. format.type is
 	// pinned for the property's life; ui/filter stay mutable.
 	Format *PropertyFormat `json:"format,omitempty"`
@@ -151,6 +155,10 @@ type PropertyDef struct {
 	// Meta is the opaque consumer flag map set at AddProperty time
 	// (e.g. meta["index"] = "<scope>" for the search indexer).
 	Meta map[string]string `json:"meta,omitempty"`
+	// Pos is the lexid display-order key — clients sort a type's
+	// property list by pos ascending (plain lexicographic compare),
+	// name/id fallback for definitions that never set one.
+	Pos string `json:"pos,omitempty"`
 	// Scope is the property's write/sync class (synced / derived /
 	// account / local). Definitions written before scopes existed
 	// read back as "synced".

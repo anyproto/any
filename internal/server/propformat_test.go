@@ -181,6 +181,8 @@ func TestPatchPathToStorage(t *testing.T) {
 	}{
 		{"name", true, "name", ""},
 		{"description", true, "description", ""},
+		{"pos", true, "pos", ""},
+		{"pos.sub", true, "", "request.invalid_field"},
 		{"xKey", true, "x-key", ""},
 		{"xKind", true, "x-kind", ""},
 		{"meta.index", true, "meta.index", ""},

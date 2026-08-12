@@ -68,7 +68,7 @@ func patchPathToStorage(path string, forSet bool) (storagePath, code, reason str
 		return storage, "", ""
 	}
 	switch segs[0] {
-	case "name", "description":
+	case "name", "description", "pos":
 		return scalar(path)
 	case "xKey":
 		return scalar(propFieldXKey)

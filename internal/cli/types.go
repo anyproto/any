@@ -102,13 +102,13 @@ func newTypePropertyListCmd() *cobra.Command {
 }
 
 func newTypePropertyAddCmd() *cobra.Command {
-	var name, xkey, kind, formatType, formatUI, scope string
+	var name, xkey, kind, formatType, formatUI, scope, pos string
 	cmd := &cobra.Command{
 		Use:   "add <spaceId> <typeId>",
 		Short: "add a property (use --format-type select|multiselect for option properties)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := api.AddPropertyRequest{Name: name, XKey: xkey, Kind: kind, Scope: scope}
+			req := api.AddPropertyRequest{Name: name, XKey: xkey, Kind: kind, Scope: scope, Pos: pos}
 			if formatType != "" {
 				req.Format = &api.PropertyFormat{Type: formatType, UI: formatUI}
 			}
@@ -126,6 +126,7 @@ func newTypePropertyAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&formatType, "format-type", "", "format: links/date/datetime/select/multiselect")
 	cmd.Flags().StringVar(&formatUI, "format-ui", "", "presentation hint: select/multiselect/link/links")
 	cmd.Flags().StringVar(&scope, "scope", "", "write/sync class: synced (default) / account / local")
+	cmd.Flags().StringVar(&pos, "pos", "", "lexid display-order key (reorder later via property patch)")
 	return cmd
 }
 

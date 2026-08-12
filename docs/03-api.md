@@ -381,8 +381,9 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
-to tell direct chats from regular spaces client-side. `author` is the
+`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
+to tell direct chats from regular spaces client-side (rows created by
+older builds may carry the legacy `anytype.*` labels). `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 
@@ -402,7 +403,7 @@ tombstoned row) — treat it as "unknown / no access", with
 read when it matters. And on a 1-1 space both participants report
 `writer` (the ACL owner slot is a synthetic shared key nobody holds),
 so don't gate owner-only actions on `ownRole == "owner"` for
-`spaceType:"anytype.onetoone"` rows.
+`spaceType:"any.onetoone"` rows.
 
 `SpaceInfo.settings` is the **account-private, client-owned** per-space
 settings object (free-form single-level keys, scalar values) — written
@@ -447,7 +448,7 @@ values, not ACL operations:
   (`Service.OneToOne`). Derives the space and activates it immediately
   (implicit self-approval → `status:"active"`). Idempotent; overrides a
   prior local decline (un-decline). Returns 201 with the `SpaceInfo`
-  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  (`type`/`spaceType` = `any.onetoone`). `400 request.missing_field`
   when `otherIdentity` is empty; `400 request.invalid_field` for an
   undecodable identity or self-pairing (`details.reason:"self"`).
 - **Incoming → pending.** When a peer reaches out, the other side learns
@@ -1450,6 +1451,25 @@ kinds index; booleans and null never do.
   "meta": { "index": "agent" } }
 ```
 
+`POST …/properties` also accepts an optional **`pos`** — the
+property's lexid display-order key within its type, the same
+drag-n-drop ordering mechanic `nav.pos` gives objects in the tree and
+`format.options.<key>.pos` gives select options. Clients render a
+type's property list sorted by `pos` ascending (plain lexicographic
+string compare — codepoint order, no locale collation), falling back
+to `name` (id tie-break) for definitions that don't carry one; set it
+at create so a new property lands where it belongs (typically a lexid
+after the current max). A drag writes one
+`PATCH …/properties/:propId` `{"set": {"pos": "<lexid>"}}` — a
+per-path CRDT `$set`, so concurrent reorders LWW-converge, and since
+definitions are synced records the order is shared by every member of
+the space. The server neither generates nor validates lexid contents
+(any string sorts); ordering semantics are the client's.
+
+```json
+{ "name": "Status", "kind": "string", "xKey": "status", "pos": "a2" }
+```
+
 `POST …/properties` also accepts an optional **`format`** object — the
 property's value convention beyond its structural kind:
 
@@ -1525,7 +1545,7 @@ change (atomic); each leaf merges per-path, so concurrent edits to
 different options/leaves converge. Deleting then re-adding the same
 option key works (it's a field unset, not a record tombstone).
 
-Mutable paths: `name`, `description`, `xKey`, `xKind`, `meta.<k>`,
+Mutable paths: `name`, `description`, `xKey`, `xKind`, `pos`, `meta.<k>`,
 `format.ui`, `format.filter`, `format.meta.<k>`,
 `format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>`.
 A **`set`** must target a scalar leaf; a bare container

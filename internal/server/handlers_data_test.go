@@ -48,7 +48,7 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	// 3. Add a property to the type.
 	rec = doJSON(t, e, http.MethodPost,
 		fmt.Sprintf("/v1/spaces/%s/types/%s/properties", sp.Id, typeId),
-		`{"name":"Title","kind":"string","xKey":"title"}`)
+		`{"name":"Title","kind":"string","xKey":"title","pos":"a1"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST .../types/.../properties: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -203,11 +203,35 @@ func TestServer_TypesAndPropertiesFlow(t *testing.T) {
 	for _, p := range userProps.Properties {
 		if p.Id == propId && p.Name == "Title" && p.Kind == api.PropertyKindString {
 			sawTitle = true
+			if p.Pos != "a1" {
+				t.Errorf("Title prop pos = %q, want %q (create-time pos must round-trip)", p.Pos, "a1")
+			}
 			break
 		}
 	}
 	if !sawTitle {
 		t.Errorf("Title prop missing: %+v", userProps.Properties)
+	}
+
+	// 9b. Reorder: pos is a mutable leaf on the property PATCH.
+	rec = doJSON(t, e, http.MethodPatch,
+		fmt.Sprintf("/v1/spaces/%s/types/%s/properties/%s", sp.Id, typeId, propId),
+		`{"set":{"pos":"a0"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PATCH .../properties/:propId pos: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+typeId+"/properties", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET .../types/:id/properties after pos patch: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	userProps = api.PropertiesListResponse{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &userProps); err != nil {
+		t.Fatalf("decode user props after pos patch: %v", err)
+	}
+	for _, p := range userProps.Properties {
+		if p.Id == propId && p.Pos != "a0" {
+			t.Errorf("Title prop pos after patch = %q, want %q", p.Pos, "a0")
+		}
 	}
 
 	// 10. Cross-object query for this object id (the per-object

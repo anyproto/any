@@ -153,6 +153,10 @@
                     "name": {
                         "type": "string"
                     },
+                    "pos": {
+                        "description": "Pos is the property's lexid display-order key within its type —\nthe per-definition twin of format.options.\u003ckey\u003e.pos. Optional;\nreorders go through the property PATCH ({\"set\": {\"pos\": …}}).",
+                        "type": "string"
+                    },
                     "scope": {
                         "description": "Scope is the property's write/sync class: \"synced\" (default,\neveryone in the space), \"account\" (this account's devices only),\nor \"local\" (this device only, never synced). \"derived\" is\nreserved for built-ins and rejected. Pinned by the first write,\nlike kind — changing a property's scope means defining a new\nproperty. Property VALUE writes auto-route by the declared scope\n(POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).",
                         "type": "string"
@@ -1602,6 +1606,10 @@
                         "type": "object"
                     },
                     "name": {
+                        "type": "string"
+                    },
+                    "pos": {
+                        "description": "Pos is the lexid display-order key — clients sort a type's\nproperty list by pos ascending (plain lexicographic compare),\nname/id fallback for definitions that never set one.",
                         "type": "string"
                     },
                     "properties": {

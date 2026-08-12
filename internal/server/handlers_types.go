@@ -142,6 +142,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		XKey:        req.XKey,
 		Kind:        kind,
 		Meta:        req.Meta,
+		Pos:         req.Pos,
 		Format:      formatDraftFromAPI(req.Format),
 		Scope:       scope,
 	})
@@ -416,6 +417,7 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 		XKind:       p.XKind,
 		Kind:        propertyKindToString(p.Kind),
 		Meta:        p.Meta,
+		Pos:         p.Pos,
 	}
 	if p.Scope != 0 {
 		out.Scope = p.Scope.String()

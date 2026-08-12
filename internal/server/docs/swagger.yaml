@@ -103,6 +103,12 @@ components:
           type: object
         name:
           type: string
+        pos:
+          description: |-
+            Pos is the property's lexid display-order key within its type —
+            the per-definition twin of format.options.<key>.pos. Optional;
+            reorders go through the property PATCH ({"set": {"pos": …}}).
+          type: string
         scope:
           description: |-
             Scope is the property's write/sync class: "synced" (default,
@@ -1151,6 +1157,12 @@ components:
             (e.g. meta["index"] = "<scope>" for the search indexer).
           type: object
         name:
+          type: string
+        pos:
+          description: |-
+            Pos is the lexid display-order key — clients sort a type's
+            property list by pos ascending (plain lexicographic compare),
+            name/id fallback for definitions that never set one.
           type: string
         properties:
           items:

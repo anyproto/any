@@ -329,7 +329,7 @@ any type list   <spaceId>
 
 any type property list   <spaceId> <typeId>
 any type property add    <spaceId> <typeId> --name ... [--xkey ...] [--kind ...]
-                         [--format-type links|date|datetime|select|multiselect] [--format-ui ...] [--scope ...]
+                         [--format-type links|date|datetime|select|multiselect] [--format-ui ...] [--scope ...] [--pos LEXID]
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset <path> ...]
 any type property remove <spaceId> <typeId> <propId>
 
@@ -345,6 +345,7 @@ Examples:
 
 ```
 any type property patch S T P --set '{"name":"Priority"}'
+any type property patch S T P --set '{"pos":"a2"}'   # reorder the property in its type (lexid, see 03-api.md § Types)
 any type property patch S T P --set '{"format.options.high.name":"High","format.options.high.color":"red","format.options.high.pos":"a0"}'
 any type property patch S T P --unset format.options.high
 any type property option set S T P high --name High --color red --pos a0
