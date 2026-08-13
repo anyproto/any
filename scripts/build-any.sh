@@ -73,12 +73,15 @@ echo "build-any: $PLATFORM  (any $VERSION, llama.cpp $LLAMACPP_VERSION)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE" "${SUMS:-}"' EXIT
 
-# Swagger docs are a build input (matches `make build`); generate once. The
-# output is platform-invariant and takes ~6s, so a caller looping over
-# platforms sets ANY_SKIP_SWAG=1 after the first.
-if [ -z "${ANY_SKIP_SWAG:-}" ]; then
-    go tool swag init -g doc.go -d ./internal/server,./internal/api \
-        -o internal/server/docs --parseDependency --parseInternal >/dev/null
+# Swagger docs are a build input; generate once via the Makefile target so
+# ONE command owns the spec flags (--v3.1 — a divergent regen here would
+# embed a Swagger 2.0 spec while the committed, drift-gated spec is OpenAPI
+# 3.1). The output is platform-invariant and takes ~6s, so a caller looping
+# over platforms sets ANY_SKIP_SWAG=1 after the first.
+if [ "${ANY_SKIP_SWAG:-}" = 1 ]; then
+    echo "build-any: skipping swagger regen (ANY_SKIP_SWAG=1)"
+else
+    make swagger >/dev/null
 fi
 
 LDFLAGS="-s -w -X $PKG/internal/version.Version=$VERSION -X $PKG/internal/version.Commit=$COMMIT -X $PKG/internal/version.BuildDate=$DATE"
@@ -128,7 +131,15 @@ fi
 
 # Per-platform llama.cpp libs into llamacpp/ (embed_local.go's default lookup
 # dir: <dir-of-any-exe>/llamacpp). Stage B overrides via YZMA_LIB in-bundle.
-scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$STAGE/llamacpp" "$LLAMA"
+# Fetch into a per-token dir that OUTLIVES this build so fetch-llamacpp.sh's
+# VERSION short-circuit fires across builds (a CI run builds 6 platforms; the
+# sandbox variants share their base platform's payload byte-for-byte), then
+# copy into the stage. -a keeps symlinks; llamacpp/VERSION ships in the
+# tarball either way.
+LIBDIR="third_party/llamacpp/staged/$LLAMA"
+scripts/fetch-llamacpp.sh "$LLAMACPP_VERSION" "$LIBDIR" "$LLAMA"
+mkdir -p "$STAGE/llamacpp"
+cp -a "$LIBDIR/." "$STAGE/llamacpp/"
 
 
 # manifest.json — sha256 of every staged file (relative paths) + metadata.

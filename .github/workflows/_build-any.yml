@@ -8,7 +8,8 @@ name: _build-any
 # Shape: fan-out / fan-in (6 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
-#   desktop-smoke (macos-15, needs: desktop)  run the darwin -sandbox binary for real
+#   desktop-smoke (macos-15, needs: desktop)  run the darwin binaries for real
+#            (sandbox positive + plain negative control, arm64 + Rosetta x86_64)
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
@@ -128,41 +129,76 @@ jobs:
           path: dist/any-*.tar.gz
           if-no-files-found: error
           retention-days: 7
+      # The darwin subset again under its own name: desktop-smoke consumes 4
+      # of the 6 tarballs and download-artifact cannot filter inside an
+      # artifact — this keeps the linux/windows payloads off the macOS runner
+      # on the publish critical path.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: darwin-tarballs
+          path: dist/any-*-darwin-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
 
-  # Smoke: execute the darwin -sandbox binary on a real Mac under a hardened
-  # runtime. The variant exists precisely so ffi's pre-main dlopen survives
-  # macOS library validation, and that is a RUNTIME property the desktop
-  # job — cross-compiling on Linux, never running what it builds — cannot
-  # see. `any version` is enough: ffi's init runs at process start, so a
-  # missing symbol or a denied load panics before the version prints.
+  # Smoke: execute the darwin binaries on a real Mac under a hardened
+  # runtime. The -sandbox variant exists precisely so ffi's pre-main dlopen
+  # survives macOS library validation, and that is a RUNTIME property the
+  # desktop job — cross-compiling on Linux, never running what it builds —
+  # cannot see. `any version` is enough: ffi's init runs at process start,
+  # so a missing symbol or a denied load panics before the version prints.
   #
-  # Ad-hoc signing with --options runtime is what makes this discriminating:
-  # library validation then accepts only platform binaries, which is exactly
-  # what /usr/lib/libffi.dylib is and the extracted copy is not.
+  # Ad-hoc signing with --options runtime makes library validation accept
+  # only platform binaries — exactly what /usr/lib/libffi.dylib is and ffi's
+  # extracted Caches copy is not. The PLAIN builds are the negative control:
+  # they must panic under the same regime, otherwise the positive checks are
+  # vacuous (a runner image relaxing ad-hoc library validation would turn
+  # this gate silently green for any binary).
   #
-  # Covers current-macOS arm64 only. The oldest-supported-macOS and x86_64
-  # probes remain open — docs/18-ci.md § The darwin `-sandbox` variants.
+  # x86_64 runs under Rosetta 2 (`arch -x86_64`), which keeps the same
+  # library-validation policy and resolves ffi's symbols against the x86_64
+  # shared-cache libffi. Still open: oldest-supported macOS and native
+  # (non-Rosetta) x86_64 — docs/18-ci.md § The darwin `-sandbox` variants.
   desktop-smoke:
-    needs: [version, desktop]
+    needs: desktop
     if: github.repository == 'anyproto/any'
     runs-on: macos-15
     timeout-minutes: 10
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: desktop-tarballs
+          name: darwin-tarballs
           path: dist
-      - name: Run the darwin-arm64-sandbox binary under a hardened runtime
+      - name: Run the darwin binaries under a hardened runtime
         run: |
           set -euo pipefail
-          mkdir -p smoke
-          tar -xzf "dist/any-$VERSION-darwin-arm64-sandbox.tar.gz" -C smoke
-          codesign --force --options runtime -s - smoke/any
-          # A pre-main panic exits non-zero and fails the job here, rather
-          # than in a consumer's signed helper after the release ships.
-          smoke/any version
+          # Globs, not reconstructed names: the darwin-x64 platform token
+          # maps to the x86_64 file label, and desktop built exactly one
+          # version — track whatever it produced.
+          extract() { # <tarball> <dir> — the glob expands at the call site
+            mkdir -p "$2"
+            tar -xzf "$1" -C "$2"
+            codesign --force --options runtime -s - "$2/any"
+          }
+          extract dist/any-*-darwin-arm64-sandbox.tar.gz arm64-sandbox
+          extract dist/any-*-darwin-arm64.tar.gz arm64-plain
+          extract dist/any-*-darwin-x86_64-sandbox.tar.gz x64-sandbox
+          extract dist/any-*-darwin-x86_64.tar.gz x64-plain
+          # Positive: a pre-main panic exits non-zero and fails the job
+          # here, not in a consumer's signed helper after the release ships.
+          arm64-sandbox/any version
+          arch -x86_64 x64-sandbox/any version
+          # Negative control (expected panic output follows): the plain
+          # builds must FAIL under this signing regime — if one runs, the
+          # regime stopped discriminating and the checks above prove
+          # nothing. `!` alone would be skipped by set -e semantics.
+          if arm64-plain/any version; then
+            echo "::error::plain darwin-arm64 ran under the hardened runtime — the smoke regime is no longer discriminating"
+            exit 1
+          fi
+          if arch -x86_64 x64-plain/any version; then
+            echo "::error::plain darwin-x86_64 ran under the Rosetta hardened runtime — the smoke regime is no longer discriminating"
+            exit 1
+          fi
 
   # Android: arm64-v8a any.aar via gomobile bind (makefiles/android.mk).
   android:
