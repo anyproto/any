@@ -9,7 +9,7 @@ name: _build-any
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
 #   desktop-smoke (macos-15, needs: desktop)  run the darwin binaries for real
-#            (sandbox positive + plain negative control, arm64 + Rosetta x86_64)
+#            (sandbox runs + no-Caches-extraction probe, arm64 + Rosetta x86_64)
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
 #   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
@@ -140,24 +140,28 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Smoke: execute the darwin binaries on a real Mac under a hardened
-  # runtime. The -sandbox variant exists precisely so ffi's pre-main dlopen
-  # survives macOS library validation, and that is a RUNTIME property the
-  # desktop job — cross-compiling on Linux, never running what it builds —
-  # cannot see. `any version` is enough: ffi's init runs at process start,
-  # so a missing symbol or a denied load panics before the version prints.
+  # Smoke: execute the darwin binaries on a real Mac. The -sandbox variant
+  # exists precisely so ffi's pre-main dlopen survives macOS library
+  # validation, and that is a RUNTIME property the desktop job — cross-
+  # compiling on Linux, never running what it builds — cannot see. `any
+  # version` is enough: ffi's init runs at process start, so a missing
+  # symbol or a failed load panics before the version prints.
   #
-  # Ad-hoc signing with --options runtime makes library validation accept
-  # only platform binaries — exactly what /usr/lib/libffi.dylib is and ffi's
-  # extracted Caches copy is not. The PLAIN builds are the negative control:
-  # they must panic under the same regime, otherwise the positive checks are
-  # vacuous (a runner image relaxing ad-hoc library validation would turn
-  # this gate silently green for any binary).
+  # Asserted: both -sandbox binaries run (arm64 natively, x86_64 under
+  # Rosetta 2, which resolves ffi's symbols against the x86_64 shared-cache
+  # libffi) and never create ffi's Caches extraction dir — extract-and-
+  # dlopen is exactly what breaks sandboxed consumers. The plain binary is
+  # the probe's control: it must create that dir, or the probe is watching
+  # a stale path.
   #
-  # x86_64 runs under Rosetta 2 (`arch -x86_64`), which keeps the same
-  # library-validation policy and resolves ffi's symbols against the x86_64
-  # shared-cache libffi. Still open: oldest-supported macOS and native
-  # (non-Rosetta) x86_64 — docs/18-ci.md § The darwin `-sandbox` variants.
+  # NOT asserted: a library-validation denial. The GH macOS images do not
+  # enforce it for an ad-hoc host — an ad-hoc hardened-runtime binary
+  # dlopens the ad-hoc extracted dylib there without complaint (probed
+  # 2026-08-13) — so a plain-binary panic cannot be required in CI. The
+  # real consumer regime (a Team-ID-signed, App-Sandboxed helper) is
+  # covered by any-swift's own in-sandbox verification. Still open:
+  # oldest-supported macOS and native (non-Rosetta) x86_64 —
+  # docs/18-ci.md § The darwin `-sandbox` variants.
   desktop-smoke:
     needs: desktop
     if: github.repository == 'anyproto/any'
@@ -168,9 +172,12 @@ jobs:
         with:
           name: darwin-tarballs
           path: dist
-      - name: Run the darwin binaries under a hardened runtime
+      - name: Run the darwin binaries, probe ffi's extraction dir
         run: |
           set -euo pipefail
+          # For the record alongside the probes below (library-validation
+          # enforcement rides on SIP).
+          csrutil status || true
           # Globs, not reconstructed names: the darwin-x64 platform token
           # maps to the x86_64 file label, and desktop built exactly one
           # version — track whatever it produced.
@@ -180,23 +187,25 @@ jobs:
             codesign --force --options runtime -s - "$2/any"
           }
           extract dist/any-*-darwin-arm64-sandbox.tar.gz arm64-sandbox
-          extract dist/any-*-darwin-arm64.tar.gz arm64-plain
           extract dist/any-*-darwin-x86_64-sandbox.tar.gz x64-sandbox
-          extract dist/any-*-darwin-x86_64.tar.gz x64-plain
+          extract dist/any-*-darwin-arm64.tar.gz arm64-plain
+          FFI_CACHE="$HOME/Library/Caches/github.com/jupiterrider"
+          rm -rf "$FFI_CACHE"
           # Positive: a pre-main panic exits non-zero and fails the job
           # here, not in a consumer's signed helper after the release ships.
           arm64-sandbox/any version
           arch -x86_64 x64-sandbox/any version
-          # Negative control (expected panic output follows): the plain
-          # builds must FAIL under this signing regime — if one runs, the
-          # regime stopped discriminating and the checks above prove
-          # nothing. `!` alone would be skipped by set -e semantics.
-          if arm64-plain/any version; then
-            echo "::error::plain darwin-arm64 ran under the hardened runtime — the smoke regime is no longer discriminating"
+          # ...and both must have run WITHOUT ffi's extract-and-dlopen path.
+          if [ -e "$FFI_CACHE" ]; then
+            echo "::error::a sandbox binary extracted libffi into Caches — ffi_no_embed did not take at runtime"
             exit 1
           fi
-          if arch -x86_64 x64-plain/any version; then
-            echo "::error::plain darwin-x86_64 ran under the Rosetta hardened runtime — the smoke regime is no longer discriminating"
+          # Probe control: the plain binary must create the dir (on an
+          # LV-enforcing host it also panics right after — not asserted
+          # here, see the job comment).
+          arm64-plain/any version || true
+          if [ ! -e "$FFI_CACHE" ]; then
+            echo "::error::the plain binary did not create ffi's Caches dir — the extraction probe is watching a stale path"
             exit 1
           fi
 
