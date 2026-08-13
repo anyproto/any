@@ -243,6 +243,11 @@ vector side just reports `unavailable` until they're met.
 - **Linux**: a system `libffi.so.8` must be loadable (preinstalled on
   mainstream distros; on NixOS use `nix develop` — the repo flake's
   dev shell puts libffi and libstdc++/libgomp on `LD_LIBRARY_PATH`).
+- **macOS**: libffi rides along in the binary (extracted to the user
+  Caches dir on first run). The `-sandbox` release tarballs instead
+  load the system `/usr/lib/libffi.dylib`, so they work inside an
+  App-Sandboxed / hardened-runtime host — see `docs/18-ci.md`
+  § The darwin `-sandbox` variants.
 
 ### `index.embedder: auto` (online primary + local fallback)
 

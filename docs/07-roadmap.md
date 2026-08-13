@@ -111,6 +111,20 @@ becomes useful. Needs:
     - A non-object body maps to `request.schema` on fastjson paths but
       `request.bad_json` on encoding/json paths — two codes for one
       fault class; unifying means touching both bind layers.
+12. **Collapsing the darwin `-sandbox` fork.** The sandbox flags
+    (system libffi, `docs/18-ci.md` § The darwin `-sandbox` variants)
+    are the strictly more conservative macOS behavior, so the end
+    state is ONE darwin build using them — which would also let
+    any-ui drop `disable-library-validation`. Gates: any-swift's
+    in-sandbox verification passing, plus a `/usr/lib/libffi.dylib`
+    probe on the **oldest supported macOS** (CI's `desktop-smoke`
+    covers current macOS only — arm64 natively, x86_64 via Rosetta;
+    native x86_64 also stays unprobed). Related: an upstream
+    `jupiterrider/ffi` PR making the `-X filename` override a
+    documented contract (an exported `Filename`), which would retire
+    build-any.sh's string guards; and promoting `ffi` to a direct
+    `require` so the version the build script reaches into is visible
+    where versions get reviewed.
 
 ## SDK-side prerequisites
 

@@ -5,12 +5,14 @@ name: _build-any
 # (any.xcframework.zip) — then publish them all in ONE GitHub Release and notify
 # the client repos.
 #
-# Shape: fan-out / fan-in (5 jobs).
+# Shape: fan-out / fan-in (6 jobs).
 #   version  (ubuntu)                      resolve vX.Y.Z | v<base>-nightly.<date>.<n>
 #   desktop  (ubuntu,  needs: version)     build-any.sh per published target → upload-artifact tarballs
+#   desktop-smoke (macos-15, needs: desktop)  run the darwin binaries for real
+#            (sandbox runs + no-Caches-extraction probe, arm64 + Rosetta x86_64)
 #   android  (ubuntu,  needs: version)     NDK + make build-android → upload-artifact any.aar
 #   ios      (macos-15, needs: version)    build-xcframework.sh   → upload-artifact any.xcframework.zip
-#   publish  (ubuntu,  needs: [desktop,android,ios], contents:write)
+#   publish  (ubuntu,  needs: [desktop,desktop-smoke,android,ios], contents:write)
 #            download all → sha256 the 2 mobile assets → ONE `gh release create`
 #            → repository_dispatch any-ui + anytype-swift +
 #            any-kotlin (best-effort).
@@ -105,14 +107,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # darwin *-sandbox: same payload, system libffi — docs/18-ci.md.
           platforms=(
             darwin-arm64
             darwin-x64
+            darwin-arm64-sandbox
+            darwin-x64-sandbox
             linux-x86_64
             windows-x86_64
           )
           for p in "${platforms[@]}"; do
             scripts/build-any.sh "$p" dist
+            # The swagger regen is platform-invariant (~6s); the first build
+            # produced it, the rest reuse it.
+            export ANY_SKIP_SWAG=1
           done
           ls -la dist
       - uses: actions/upload-artifact@v7
@@ -121,6 +129,85 @@ jobs:
           path: dist/any-*.tar.gz
           if-no-files-found: error
           retention-days: 7
+      # The darwin subset again under its own name: desktop-smoke consumes 4
+      # of the 6 tarballs and download-artifact cannot filter inside an
+      # artifact — this keeps the linux/windows payloads off the macOS runner
+      # on the publish critical path.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: darwin-tarballs
+          path: dist/any-*-darwin-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Smoke: execute the darwin binaries on a real Mac. The -sandbox variant
+  # exists precisely so ffi's pre-main dlopen survives macOS library
+  # validation, and that is a RUNTIME property the desktop job — cross-
+  # compiling on Linux, never running what it builds — cannot see. `any
+  # version` is enough: ffi's init runs at process start, so a missing
+  # symbol or a failed load panics before the version prints.
+  #
+  # Asserted: both -sandbox binaries run (arm64 natively, x86_64 under
+  # Rosetta 2, which resolves ffi's symbols against the x86_64 shared-cache
+  # libffi) and never create ffi's Caches extraction dir — extract-and-
+  # dlopen is exactly what breaks sandboxed consumers. The plain binary is
+  # the probe's control: it must create that dir, or the probe is watching
+  # a stale path.
+  #
+  # NOT asserted: a library-validation denial. The GH macOS images do not
+  # enforce it for an ad-hoc host — an ad-hoc hardened-runtime binary
+  # dlopens the ad-hoc extracted dylib there without complaint (probed
+  # 2026-08-13) — so a plain-binary panic cannot be required in CI. The
+  # real consumer regime (a Team-ID-signed, App-Sandboxed helper) is
+  # covered by any-swift's own in-sandbox verification. Still open:
+  # oldest-supported macOS and native (non-Rosetta) x86_64 —
+  # docs/18-ci.md § The darwin `-sandbox` variants.
+  desktop-smoke:
+    needs: desktop
+    if: github.repository == 'anyproto/any'
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: darwin-tarballs
+          path: dist
+      - name: Run the darwin binaries, probe ffi's extraction dir
+        run: |
+          set -euo pipefail
+          # For the record alongside the probes below (library-validation
+          # enforcement rides on SIP).
+          csrutil status || true
+          # Globs, not reconstructed names: the darwin-x64 platform token
+          # maps to the x86_64 file label, and desktop built exactly one
+          # version — track whatever it produced.
+          extract() { # <tarball> <dir> — the glob expands at the call site
+            mkdir -p "$2"
+            tar -xzf "$1" -C "$2"
+            codesign --force --options runtime -s - "$2/any"
+          }
+          extract dist/any-*-darwin-arm64-sandbox.tar.gz arm64-sandbox
+          extract dist/any-*-darwin-x86_64-sandbox.tar.gz x64-sandbox
+          extract dist/any-*-darwin-arm64.tar.gz arm64-plain
+          FFI_CACHE="$HOME/Library/Caches/github.com/jupiterrider"
+          rm -rf "$FFI_CACHE"
+          # Positive: a pre-main panic exits non-zero and fails the job
+          # here, not in a consumer's signed helper after the release ships.
+          arm64-sandbox/any version
+          arch -x86_64 x64-sandbox/any version
+          # ...and both must have run WITHOUT ffi's extract-and-dlopen path.
+          if [ -e "$FFI_CACHE" ]; then
+            echo "::error::a sandbox binary extracted libffi into Caches — ffi_no_embed did not take at runtime"
+            exit 1
+          fi
+          # Probe control: the plain binary must create the dir (on an
+          # LV-enforcing host it also panics right after — not asserted
+          # here, see the job comment).
+          arm64-plain/any version || true
+          if [ ! -e "$FFI_CACHE" ]; then
+            echo "::error::the plain binary did not create ffi's Caches dir — the extraction probe is watching a stale path"
+            exit 1
+          fi
 
   # Android: arm64-v8a any.aar via gomobile bind (makefiles/android.mk).
   android:
@@ -237,7 +324,7 @@ jobs:
   # Fan-in: download every artifact, publish ONE GitHub Release with all assets,
   # then notify the 3 client repos (best-effort).
   publish:
-    needs: [version, desktop, android, ios]
+    needs: [version, desktop, desktop-smoke, android, ios]
     if: github.repository == 'anyproto/any'
     runs-on: [self-hosted, github-runner-ubuntu]
     timeout-minutes: 15

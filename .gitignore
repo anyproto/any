@@ -10,8 +10,10 @@
 /build/
 /any.xcframework/
 
-# Cached llama.cpp release tarballs (make llamacpp)
+# Cached llama.cpp release tarballs (make llamacpp) + per-platform extracted
+# lib sets build-any.sh stages tarball payloads from
 /third_party/llamacpp/cache/
+/third_party/llamacpp/staged/
 
 # Go test/coverage artifacts
 *.test

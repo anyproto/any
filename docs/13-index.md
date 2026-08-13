@@ -412,6 +412,7 @@ positive build tags, so a build can ship both, one, or neither:
 | Build | Tags | FTS | Vector / embeds |
 |-------|------|-----|------|
 | Desktop / server (`make build`) | `fts vector` | on | on |
+| Darwin `-sandbox` tarball | `fts vector ffi_no_embed` | on | on (full, incl. `local`) |
 | FTS-only | `fts` | on | off |
 | Vector-only | `vector` | off | on |
 | None (default `go build`) | *(none)* | off | off |
@@ -438,6 +439,16 @@ rule for `vector` is stronger than for `fts`:
   embedder). Both mobile binds pass it: iOS `-tags 'mobile fts'`, Android
   `ANY_TAGS := gomobile fts` (DROID-44). ~3 KB of AAR — any-store's
   fulltext index links either way, the tag only lifts the gate.
+- **`ffi_no_embed` is a *packaging* flag, not a capability one.** Unlike
+  the mobile rule above it compiles nothing out of the search leg — the
+  `local` embedder, the ANN index and every mode keep working. It only
+  changes where libffi comes from: the system `/usr/lib/libffi.dylib`
+  (pinned by a companion `-ldflags -X`) instead of the copy
+  `jupiterrider/ffi` extracts into the user Caches dir at package init,
+  which macOS library validation refuses to load. The darwin `-sandbox`
+  release tarballs are built this way; the mechanism, the guard and the
+  consumer contract live in `docs/18-ci.md` § The darwin `-sandbox`
+  variants.
 
 Mechanics (`internal/indexer`):
 - `capFTS` (`fts`) and `capVector` (`vector && !gomobile`) are
