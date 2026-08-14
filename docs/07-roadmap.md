@@ -211,7 +211,44 @@ pluggable embedders, parallel batched pipelines),
 - Keep the v1 goal list honest — if we cut something, strike it here
   so a reader knows scope moved.
 
+## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
+
+- **Dogfood the generic schema handler.** Collapse the zero-logic
+  compiled-in handlers (agentconfig, agentsecrets, enrichproposal;
+  parts of agentmem/agentlog/enricheddata) to pure declarations
+  (`Handler: nil` + behavioral schema). Requires a per-dataset
+  mutability audit first: the zero-value `MutableBy` is write-once, so
+  every currently-mutable field needs an explicit `MutableByAnyone` /
+  `MutableByAuthor` (+ a creator stamp where author-gated). Chat keeps
+  its bespoke handler — mentions derivation and reaction-leaf
+  authorization are cross-field rules the vocabulary deliberately
+  excludes.
+- **Index sweep for removed definitions.** Definition-removal eviction
+  is lazy and process-scoped (docs/13-index.md § Removal semantics);
+  a boot-time per-space sweep of stored dataset segments against the
+  current catalog closes both residual leaks.
+- **SDK sentinels for dataset CRUD errors.** Name conflicts and
+  declaration validation surface as `fmt.Errorf` strings today —
+  `any` preflights names and STOPGAP-matches decl messages
+  (`datasetWriteError`). Wanted: exported `errors.Is`-able sentinels
+  (decl invalid, name conflict), plus a retired-name signal for the
+  index sweep (preserve `name` on the removed def tombstone), and
+  reserving the consumer virtual dataset names (`prop`, `schema`)
+  SDK-side.
+
 ## Done
+
+- **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
+  user-space dataset schemas (`TypesAPI` dataset CRUD, generic
+  `SchemaHandler`, `Space.Upsert`): type-scoped endpoints
+  `…/types/:typeId/datasets[/:defId[/fields[/:fieldId]]]`,
+  `POST /v1/spaces/:id/upsert` (the surface's first idempotent write),
+  discovery `typeId` + behavioral `x-*` keywords passthrough, the
+  schema-driven search chunker (`index.SchemaChunker` +
+  `DynamicChunker` worker capability, scope `basic`), `any type
+  dataset …` / `any upsert` CLI. Contract: docs/03-api.md § Runtime
+  dataset schemas + § Upsert records, docs/13-index.md § Schema
+  chunker. Follow-ups above.
 
 - **Push notifications (SYN-47)** — chat push interoperating with
   heart's `anytype-push-server` deployment (topic vocabulary, payload

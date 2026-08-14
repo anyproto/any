@@ -70,8 +70,15 @@ object.not_found                 # 404 — objectId unknown or deleted in this s
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 
-dataset.unknown                  # no handler registered
+dataset.unknown                  # no handler or runtime definition registered
 dataset.validation               # schema or handler rejected ops
+dataset.name_conflict            # 409 — AddDataset name already in use in the space (built-in, handler dataset, or another runtime definition; details.name)
+dataset.decl_invalid             # 400 — malformed dataset declaration (author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
+dataset.immutable                # 400 — PATCH a pinned dataset-def path (mutable: name, description, displayName, search.title, search.text); details.path
+
+upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRule "user"
+# per-record rejection codes inside the 200 body's rejections[] (never HTTP errors):
+#   upsert.immutable_field / upsert.not_author / upsert.record_deleted / upsert.rejected
 
 filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
 filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe
@@ -90,7 +97,7 @@ agent.seq_deleted                # 409 — client-provided seq points at a tombs
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
-type.registered                  # 400 — add/patch/remove a property on a registered built-in type (properties are static)
+type.registered                  # 400 — add/patch/remove a property or dataset on a registered built-in type (declarations are static)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.immutable               # 400 — PATCH a pinned path (kind/scope/items/properties, whole `format`, format.type); details.path

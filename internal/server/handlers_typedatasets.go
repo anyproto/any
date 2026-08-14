@@ -1,0 +1,636 @@
+package server
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/anyproto/any-sync-sdk/handler"
+	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
+)
+
+// Runtime dataset schemas on user types (SDK TypesAPI dataset CRUD).
+// A declaration alone gives a dataset enforced semantics — required
+// fields, write-once vs author-mutable fields, author-only delete,
+// derived creator/time stamps, user-supplied record ids — applied by
+// the SDK's generic schema handler on every peer as the definition
+// syncs. Behavioral parts are pinned first-write; display parts patch.
+
+// typeDatasets handles GET /v1/spaces/:spaceId/types/:typeId/datasets.
+//
+//	@Summary	List a type's runtime dataset definitions
+//	@Tags		types
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Param		typeId	path		string	true	"Type ID"
+//	@Success	200		{object}	api.TypeDatasetsListResponse
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets [get]
+func (d *deps) typeDatasets(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	if typeId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	}
+	// Datasets returns an empty slice for an unknown typeId (same as
+	// Properties) — check existence first so a bad id is a typed 404.
+	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
+		if errors.Is(err, space.ErrNotFound) {
+			return writeError(c, http.StatusNotFound, "type.not_found",
+				"type not found",
+				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		}
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+	}
+	defs, err := sp.Types().Datasets(c.Request().Context(), typeId)
+	if err != nil {
+		return d.datasetWriteError(c, err, typeId, "")
+	}
+	out := make([]api.DatasetDefResponse, 0, len(defs))
+	for _, def := range defs {
+		out = append(out, datasetDefToAPI(def))
+	}
+	return c.JSON(http.StatusOK, api.TypeDatasetsListResponse{Datasets: out})
+}
+
+// typeAddDataset handles POST /v1/spaces/:spaceId/types/:typeId/datasets.
+//
+//	@Summary	Define a dataset on a type
+//	@Tags		types
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		typeId	path		string					true	"Type ID"
+//	@Param		body	body		api.DatasetDraftRequest	true	"Dataset draft"
+//	@Success	201		{object}	api.AddDatasetResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets [post]
+func (d *deps) typeAddDataset(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	if typeId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	}
+	req, ok := bindBodyStrict[api.DatasetDraftRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if req.Name == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "name required", nil)
+	}
+	// The index store keys documents objectId:<dataset>:<recordId>
+	// under the search indexer's virtual chunker names — a user dataset
+	// claiming one would collide with their doc-id namespaces.
+	if req.Name == index.DatasetProp || req.Name == index.DatasetSchemaVirtual {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"dataset name is reserved by the search indexer",
+			map[string]any{"name": req.Name})
+	}
+	// Name-conflict preflight against everything this space already
+	// hosts (built-ins, handler datasets, other runtime definitions) —
+	// the SDK rejects these too but without an errors.Is-able sentinel.
+	for _, ds := range sp.Datasets() {
+		if ds.Name == req.Name {
+			return writeError(c, http.StatusConflict, "dataset.name_conflict",
+				"dataset name already in use in this space",
+				map[string]any{"name": req.Name, "typeId": ds.TypeId})
+		}
+	}
+
+	draft, code, reason := datasetDraftFromAPI(*req)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, nil)
+	}
+	defId, err := sp.Types().AddDataset(c.Request().Context(), typeId, draft)
+	if err != nil {
+		return d.datasetWriteError(c, err, typeId, "")
+	}
+	return c.JSON(http.StatusCreated, api.AddDatasetResponse{DatasetDefId: defId})
+}
+
+// typeAddDatasetField handles POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields.
+//
+//	@Summary	Add a field to a dataset definition (additive evolution)
+//	@Tags		types
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string					true	"Space ID"
+//	@Param		typeId	path		string					true	"Type ID"
+//	@Param		defId	path		string					true	"Dataset definition ID"
+//	@Param		body	body		api.DatasetFieldDraft	true	"Field draft"
+//	@Success	201		{object}	api.AddDatasetFieldResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields [post]
+func (d *deps) typeAddDatasetField(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	defId := c.Param("defId")
+	if typeId == "" || defId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
+	}
+	req, ok := bindBodyStrict[api.DatasetFieldDraft](c, "")
+	if !ok {
+		return nil
+	}
+	fieldDraft, code, reason := datasetFieldDraftFromAPI(*req)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"key": req.Key})
+	}
+	fieldId, err := sp.Types().AddDatasetField(c.Request().Context(), typeId, defId, fieldDraft)
+	if err != nil {
+		return d.datasetWriteError(c, err, typeId, defId)
+	}
+	return c.JSON(http.StatusCreated, api.AddDatasetFieldResponse{FieldDefId: fieldId})
+}
+
+// datasetDefMutablePaths are the wire (== storage) paths PATCH accepts;
+// every mutable leaf is a plain string. Everything else on a dataset
+// definition is pinned — remove and re-add to change it.
+var datasetDefMutablePaths = map[string]struct{}{
+	"name":         {},
+	"description":  {},
+	"displayName":  {},
+	"search.title": {},
+	"search.text":  {},
+}
+
+// typePatchDataset handles PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
+// Mutable paths: name, description, displayName, search.title,
+// search.text. Pinned paths return 400 dataset.immutable.
+//
+//	@Summary	Patch a dataset definition's display fields
+//	@Tags		types
+//	@Accept		json
+//	@Param		spaceId	path	string					true	"Space ID"
+//	@Param		typeId	path	string					true	"Type ID"
+//	@Param		defId	path	string					true	"Dataset definition ID"
+//	@Param		body	body	api.DatasetPatchRequest	true	"set/unset paths"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId} [patch]
+func (d *deps) typePatchDataset(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	defId := c.Param("defId")
+	if typeId == "" || defId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
+	}
+	req, ok := bindBodyStrict[api.DatasetPatchRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if len(req.Set) == 0 && len(req.Unset) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"at least one of set/unset is required", nil)
+	}
+
+	patch := space.DatasetDefPatch{}
+	if len(req.Set) > 0 {
+		patch.Set = make(map[string]any, len(req.Set))
+	}
+	for path, raw := range req.Set {
+		if _, mutable := datasetDefMutablePaths[path]; !mutable {
+			return writeError(c, http.StatusBadRequest, "dataset.immutable",
+				"path is pinned; mutable paths: name, description, displayName, search.title, search.text",
+				map[string]any{"path": path})
+		}
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"value must be a JSON string", map[string]any{"path": path})
+		}
+		patch.Set[path] = val
+	}
+	for _, path := range req.Unset {
+		if _, mutable := datasetDefMutablePaths[path]; !mutable {
+			return writeError(c, http.StatusBadRequest, "dataset.immutable",
+				"path is pinned; mutable paths: name, description, displayName, search.title, search.text",
+				map[string]any{"path": path})
+		}
+		patch.Unset = append(patch.Unset, path)
+	}
+
+	if err := sp.Types().PatchDataset(c.Request().Context(), typeId, defId, patch); err != nil {
+		return d.datasetWriteError(c, err, typeId, defId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// typeRemoveDataset handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
+// Tombstones the definition; existing record data is NOT cleaned up
+// (the property-removal stance) — subsequent writes drop once peers
+// apply the removal.
+//
+//	@Summary	Remove a dataset definition
+//	@Tags		types
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		typeId	path	string	true	"Type ID"
+//	@Param		defId	path	string	true	"Dataset definition ID"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId} [delete]
+func (d *deps) typeRemoveDataset(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	defId := c.Param("defId")
+	if typeId == "" || defId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
+	}
+	if err := sp.Types().RemoveDataset(c.Request().Context(), typeId, defId); err != nil {
+		return d.datasetWriteError(c, err, typeId, defId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// typeRemoveDatasetField handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId.
+// The SDK keys field definitions by (typeId, fieldId); defId rides the
+// URI for hierarchy only. Existing values stay stored; subsequent
+// writes to the field are rejected as undeclared (non-dynamic datasets).
+//
+//	@Summary	Remove a dataset field definition
+//	@Tags		types
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		typeId	path	string	true	"Type ID"
+//	@Param		defId	path	string	true	"Dataset definition ID"
+//	@Param		fieldId	path	string	true	"Field definition ID"
+//	@Success	204
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields/{fieldId} [delete]
+func (d *deps) typeRemoveDatasetField(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	fieldId := c.Param("fieldId")
+	if typeId == "" || fieldId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and fieldId required", nil)
+	}
+	if err := sp.Types().RemoveDatasetField(c.Request().Context(), typeId, fieldId); err != nil {
+		return d.datasetWriteError(c, err, typeId, fieldId)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// spaceUpsert handles POST /v1/spaces/:spaceId/upsert — schema-driven
+// batch ingest into an id:user dataset (Space.Upsert). Partial success
+// is 200 with rejections[] populated, same stance as /modify.
+//
+//	@Summary	Upsert records into an id:user dataset
+//	@Tags		data
+//	@Accept		json
+//	@Produce	json
+//	@Param		spaceId	path		string				true	"Space ID"
+//	@Param		body	body		api.UpsertRequest	true	"Upsert batch"
+//	@Success	200		{object}	api.UpsertResult
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	500		{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/upsert [post]
+func (d *deps) spaceUpsert(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	req, ok := bindBodyStrict[api.UpsertRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if req.ObjectId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil)
+	}
+	if req.Dataset == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil)
+	}
+	if len(req.Records) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "records required", nil)
+	}
+
+	batch := space.UpsertBatch{
+		ObjectId: req.ObjectId,
+		Dataset:  req.Dataset,
+		PageSize: req.PageSize,
+		TraceIds: req.TraceIds,
+		Records:  make([]space.UpsertRecord, 0, len(req.Records)),
+	}
+	for _, r := range req.Records {
+		batch.Records = append(batch.Records, space.UpsertRecord{Id: r.Id, Fields: r.Fields})
+	}
+
+	res, err := sp.Upsert(c.Request().Context(), batch)
+	if err != nil {
+		details := map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId, "dataset": req.Dataset}
+		msg := err.Error()
+		switch {
+		case errors.Is(err, space.ErrUpsertRequiresUserIds):
+			return writeError(c, http.StatusBadRequest, "upsert.requires_user_ids",
+				"upsert serves only datasets declared with id rule \"user\" — the record id is the idempotency key",
+				details)
+		// STOPGAP: matched on message text until the SDK exports
+		// sentinels (the oneToOneError pattern).
+		case strings.Contains(msg, "unknown dataset"), strings.Contains(msg, "SDK-internal"):
+			return writeError(c, http.StatusBadRequest, "dataset.unknown",
+				"dataset is not defined in this space", details)
+		default:
+			return sdkOpError(c, err, details)
+		}
+	}
+	return c.JSON(http.StatusOK, upsertResultToAPI(res))
+}
+
+func upsertResultToAPI(r space.UpsertResult) api.UpsertResult {
+	out := api.UpsertResult{
+		Pages:   make([]api.ModifyResult, 0, len(r.Pages)),
+		Created: r.Created,
+		Updated: r.Updated,
+		Skipped: r.Skipped,
+	}
+	for _, p := range r.Pages {
+		out.Pages = append(out.Pages, modifyResultToAPI(p))
+	}
+	for _, rej := range r.Rejections {
+		code := "upsert.rejected"
+		switch {
+		case errors.Is(rej.Err, space.ErrImmutableFieldChanged):
+			code = "upsert.immutable_field"
+		case errors.Is(rej.Err, space.ErrUpsertNotAuthor):
+			code = "upsert.not_author"
+		case errors.Is(rej.Err, space.ErrRecordDeleted):
+			code = "upsert.record_deleted"
+		}
+		out.Rejections = append(out.Rejections, api.UpsertRejection{
+			Index:  rej.Index,
+			Id:     rej.Id,
+			Code:   code,
+			Reason: sanitizeSDKMessage(rej.Err),
+		})
+	}
+	return out
+}
+
+// datasetWriteError maps TypesAPI dataset-CRUD errors onto clean 4xx
+// envelopes. Sentinels first; declaration errors are STOPGAP-matched on
+// message text until the SDK exports errors.Is-able sentinels for them
+// (the oneToOneError pattern).
+func (d *deps) datasetWriteError(c echo.Context, err error, typeId, defId string) error {
+	details := map[string]any{"typeId": typeId}
+	if defId != "" {
+		details["defId"] = defId
+	}
+	msg := err.Error()
+	switch {
+	case errors.Is(err, space.ErrTypeRegistered):
+		return writeError(c, http.StatusBadRequest, "type.registered",
+			"type is a registered built-in; its datasets are statically declared", details)
+	case errors.Is(err, space.ErrPinnedField):
+		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
+	case errors.Is(err, space.ErrNotFound):
+		return writeError(c, http.StatusNotFound, "sdk.not_found", "type or dataset definition not found", details)
+	case errors.Is(err, handler.ErrValidation):
+		return sdkValidationError(c, err, details)
+	case strings.Contains(msg, "already registered"), strings.Contains(msg, "already defined on type"):
+		return writeError(c, http.StatusConflict, "dataset.name_conflict",
+			"dataset name already in use in this space", details)
+	case strings.Contains(msg, "not found on type"):
+		return writeError(c, http.StatusNotFound, "sdk.not_found", "dataset definition not found on this type", details)
+	case strings.Contains(msg, "invalid dataset declaration"),
+		strings.Contains(msg, "invalid dataset definition"),
+		strings.Contains(msg, "cannot be required"),
+		strings.Contains(msg, "already declares field"),
+		strings.Contains(msg, "would invalidate dataset"),
+		strings.Contains(msg, "Kind required"),
+		strings.Contains(msg, "Kind and Shape.Kind disagree"):
+		return writeError(c, http.StatusBadRequest, "dataset.decl_invalid",
+			sanitizeSDKMessage(err), details)
+	default:
+		return sdkOpError(c, err, details)
+	}
+}
+
+// sanitizeSDKMessage strips SDK package prefixes from an error message
+// before it rides an envelope. The remaining text names only
+// caller-supplied fields and declaration rules.
+func sanitizeSDKMessage(err error) string {
+	msg := err.Error()
+	for _, p := range []string{"typesAPI: ", "spaceimpl: Upsert: ", "spaceimpl: ", "schema: ", "crdt: ", "upsert: "} {
+		msg = strings.ReplaceAll(msg, p, "")
+	}
+	return msg
+}
+
+// datasetDraftFromAPI converts the wire draft to space.DatasetDraft,
+// parsing enum labels. Returns ("", "") code/reason on success.
+func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, string, string) {
+	draft := space.DatasetDraft{
+		Name:        req.Name,
+		DisplayName: req.DisplayName,
+		Description: req.Description,
+		Dynamic:     req.Dynamic,
+		IdPattern:   req.IdPattern,
+		IdMaxLen:    req.IdMaxLen,
+		SkipHistory: req.SkipHistory,
+	}
+	var ok bool
+	if draft.IdRule, ok = parseIdRule(req.IdRule); !ok {
+		return draft, "request.invalid_field", `idRule must be "auto" or "user"`
+	}
+	if draft.DeleteBy, ok = parseDeletePolicy(req.DeleteBy); !ok {
+		return draft, "request.invalid_field", `deleteBy must be "anyone" or "author"`
+	}
+	if req.Search != nil {
+		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: req.Search.Text}
+	}
+	for _, f := range req.Fields {
+		fd, code, reason := datasetFieldDraftFromAPI(f)
+		if code != "" {
+			return draft, code, "field " + f.Key + ": " + reason
+		}
+		draft.Fields = append(draft.Fields, fd)
+	}
+	return draft, "", ""
+}
+
+func datasetFieldDraftFromAPI(req api.DatasetFieldDraft) (space.DatasetFieldDraft, string, string) {
+	if req.Key == "" {
+		return space.DatasetFieldDraft{}, "request.missing_field", "key required"
+	}
+	draft := space.DatasetFieldDraft{
+		Key:         req.Key,
+		Name:        req.Name,
+		Description: req.Description,
+		Required:    req.Required,
+	}
+	var ok bool
+	if req.Kind != "" {
+		if draft.Kind, ok = propertyKindFromString(req.Kind); !ok {
+			return draft, "request.invalid_field", "unknown kind " + req.Kind
+		}
+	}
+	if draft.Shape, ok = datasetShapeFromAPI(req.Shape); !ok {
+		return draft, "request.invalid_field", "shape has an unknown kind"
+	}
+	if req.Scope != "" {
+		if draft.Scope, ok = space.ParseScope(req.Scope); !ok {
+			return draft, "request.invalid_field", "unknown scope " + req.Scope
+		}
+	}
+	if draft.MutableBy, ok = parseMutability(req.MutableBy); !ok {
+		return draft, "request.invalid_field", `mutableBy must be "never", "author" or "any"`
+	}
+	if draft.Stamp, ok = parseStamp(req.Stamp); !ok {
+		return draft, "request.invalid_field", `stamp must be "creator", "createTime" or "modifyTime"`
+	}
+	return draft, "", ""
+}
+
+// datasetShapeFromAPI converts the recursive wire shape. nil is valid
+// (no shape declared).
+func datasetShapeFromAPI(s *api.DatasetFieldShape) (*handler.FieldShape, bool) {
+	if s == nil {
+		return nil, true
+	}
+	kind, ok := propertyKindFromString(s.Kind)
+	if !ok {
+		return nil, false
+	}
+	sh := handler.Leaf(handler.PropertyKind(kind))
+	if s.Items != nil {
+		child, ok := datasetShapeFromAPI(s.Items)
+		if !ok {
+			return nil, false
+		}
+		sh.Items = child
+	}
+	if len(s.Properties) > 0 {
+		props := make(map[string]*handler.FieldShape, len(s.Properties))
+		for k, sub := range s.Properties {
+			child, ok := datasetShapeFromAPI(sub)
+			if !ok {
+				return nil, false
+			}
+			props[k] = child
+		}
+		sh.Properties = props
+	}
+	return sh, true
+}
+
+func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
+	out := api.DatasetDefResponse{
+		Id:            def.Id,
+		Name:          def.Name,
+		DisplayName:   def.DisplayName,
+		Description:   def.Description,
+		Dynamic:       def.Dynamic,
+		IdRule:        def.IdRule.String(),
+		IdPattern:     def.IdPattern,
+		IdMaxLen:      def.IdMaxLen,
+		DeleteBy:      def.DeleteBy.String(),
+		SkipHistory:   def.SkipHistory,
+		Fields:        make([]api.DatasetFieldDef, 0, len(def.Fields)),
+		Invalid:       def.Invalid,
+		InvalidReason: def.InvalidReason,
+	}
+	if def.Search != nil {
+		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: def.Search.Text}
+	}
+	for _, f := range def.Fields {
+		scope := f.Scope
+		if scope == 0 {
+			scope = space.ScopeSynced
+		}
+		fd := api.DatasetFieldDef{
+			Id:        f.Id,
+			Key:       f.Key,
+			Name:      f.Name,
+			Kind:      propertyKindToString(f.Kind),
+			Scope:     scope.String(),
+			Required:  f.Required,
+			MutableBy: f.MutableBy.String(),
+		}
+		if f.Stamp != space.StampNone {
+			fd.Stamp = f.Stamp.String()
+		}
+		out.Fields = append(out.Fields, fd)
+	}
+	return out
+}
+
+func parseMutability(s string) (space.Mutability, bool) {
+	switch s {
+	case "", api.MutableNever:
+		return space.MutableNever, true
+	case api.MutableByAuthor:
+		return space.MutableByAuthor, true
+	case api.MutableByAnyone:
+		return space.MutableByAnyone, true
+	default:
+		return 0, false
+	}
+}
+
+func parseStamp(s string) (space.Stamp, bool) {
+	switch s {
+	case "":
+		return space.StampNone, true
+	case api.StampCreator:
+		return space.StampCreator, true
+	case api.StampCreateTime:
+		return space.StampCreateTime, true
+	case api.StampModifyTime:
+		return space.StampModifyTime, true
+	default:
+		return 0, false
+	}
+}
+
+func parseIdRule(s string) (space.IdRule, bool) {
+	switch s {
+	case "", api.IdRuleAuto:
+		return space.IdAuto, true
+	case api.IdRuleUser:
+		return space.IdUser, true
+	default:
+		return 0, false
+	}
+}
+
+func parseDeletePolicy(s string) (space.DeletePolicy, bool) {
+	switch s {
+	case "", api.DeleteByAnyone:
+		return space.DeleteByAnyone, true
+	case api.DeleteByAuthor:
+		return space.DeleteByAuthor, true
+	default:
+		return 0, false
+	}
+}

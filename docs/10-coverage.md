@@ -15,6 +15,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Properties | `GET /properties/:o`, `POST /properties/:o/set/:typeId` | `getObject`, `createObject`/`updateObject` (nested type groups: `{ book: { author } }`) |
 | Query | `POST /objects/query`, `POST /query` | `getObjects` (cross-object AND per-object dataset modes) |
 | Datasets | `POST /modify`, `POST /delete-records` | `setRecord`, `deleteRecord` |
+| Dataset schemas + upsert | `GET`/`POST`/`PATCH`/`DELETE /types/:id/datasets[/…]`, `POST /upsert` | via `client.api(...)` (no dedicated wrappers yet; reads via `getObjects` dataset mode) |
 | Editor (md) | `GET`/`PUT`/`POST …/editor/markdown[/append]` | `getObject`, `updateObject`, `appendToObject`, `editObject` |
 | Types | `GET`/`POST /types`, `GET /types/:id/properties`, `POST …/properties` | `getTypes`/`createType`, `getProperties`/`getProperty`/`describeType` (catalog-backed) |
 | Members (read) | `GET /members`, `GET /members/:identity` | `listSpaceMembers`, `getSpaceMember` |
