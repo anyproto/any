@@ -148,6 +148,40 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		}
 	})
 
+	t.Run("cleared x-search evicts on next dirty", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
+			"name": "clippings", "idRule": "user",
+			"search": {"text": "quote"},
+			"fields": [{"key": "quote", "kind": "string", "mutableBy": "any"}]}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("add clippings: %d %s", rec.Code, rec.Body.String())
+		}
+		var clip api.AddDatasetResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &clip); err != nil {
+			t.Fatal(err)
+		}
+		upsert(`{"objectId":"` + objectId + `","dataset":"clippings","records":[
+			{"id":"c1","fields":{"quote":"antikythera mechanism fragment"}}]}`)
+		sync()
+		if res := search("antikythera"); len(res.Hits) != 1 {
+			t.Fatalf("clipping not indexed: %v", hitRecordIds(res))
+		}
+
+		// Clearing the annotation makes the dataset unsearchable — its
+		// docs must evict on the object's next dirty tick, not go stale.
+		rec = doJSON(t, e, http.MethodPatch, base+"/types/"+typeId+"/datasets/"+clip.DatasetDefId,
+			`{"unset":["search.text"]}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("clear x-search: %d %s", rec.Code, rec.Body.String())
+		}
+		upsert(`{"objectId":"` + objectId + `","dataset":"silent","records":[
+			{"id":"s-touch","fields":{"note":"tick"}}]}`)
+		sync()
+		if res := search("antikythera"); len(res.Hits) != 0 {
+			t.Fatalf("cleared x-search docs still indexed: %v", hitRecordIds(res))
+		}
+	})
+
 	t.Run("definition removal evicts on next dirty", func(t *testing.T) {
 		rec := doJSON(t, e, http.MethodDelete, base+"/types/"+typeId+"/datasets/"+added.DatasetDefId, "")
 		if rec.Code != http.StatusNoContent {

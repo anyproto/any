@@ -318,7 +318,7 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
-		Long: `Mutable paths: name, description, displayName, search.title,
+		Long: `Mutable paths: description, displayName, search.title,
 search.text. Everything else is pinned — remove and re-add.
 
 Example:

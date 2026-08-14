@@ -853,7 +853,7 @@ Implementation slices landed:
     (`mutableBy`), author-only delete (needs a `stamp:creator` field),
     derived creator/createTime/modifyTime stamps, id rule
     (`auto`|`user` + pattern/maxLen). Behavioral parts pin first-write;
-    display leaves (`name`/`description`/`displayName`/`search.title`/
+    display leaves (`description`/`displayName`/`search.title`/
     `search.text`) patch via `{set,unset}`; evolution is additive-only
     (added fields never `required`). Data rides the existing
     modify/query surface; `POST /v1/spaces/:s/upsert` (`Space.Upsert`,

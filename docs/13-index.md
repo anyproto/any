@@ -188,11 +188,16 @@ user dataset names at the creation API.
   advances past them.
 - **Gating is per dataset, self-applied**: the chunker implements
   `index.DynamicChunker` — the worker asks it for the object's
-  eviction set (`EvictDatasets`: catalog datasets whose owning
-  `TypeId` is not attached, plus retired names) and prefix-deletes
+  eviction set (`EvictDatasets`: searchable catalog datasets whose
+  owning `TypeId` is not attached, every runtime dataset WITHOUT a
+  usable x-search — covering a cleared annotation, whose docs would
+  otherwise go stale forever — plus retired names) and prefix-deletes
   `objectId:<dataset>:` for each in the same page transaction, then
   streams normally; the chunker skips non-attached datasets itself, so
-  an evicted dataset is never also upserted in the page.
+  an evicted dataset is never also upserted in the page. One catalog
+  resolve serves the paired EvictDatasets + ChunksSince calls (a
+  one-shot per-space handoff; each space has a single advance
+  goroutine).
 - **Static skip set**: every compiled-in dataset name (from the
   server's `handler.Type` list) plus the virtual names is never
   treated as runtime — belt-and-braces against definitions synced from

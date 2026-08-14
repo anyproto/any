@@ -47,6 +47,24 @@ type SchemaChunker struct {
 	// names that later vanished from it (definition removed).
 	known   map[string]map[string]bool
 	retired map[string]map[string]bool
+	// pending: per space, the catalog resolved by the last EvictDatasets,
+	// handed to the paired ChunksSince (the worker calls them
+	// back-to-back per object) so one advance step costs one resolve,
+	// not two. One-shot: ChunksSince consumes it; an unpaired call
+	// resolves fresh. Safe because each space has a single advance
+	// goroutine.
+	pending map[string]*schemaCatalog
+}
+
+// schemaCatalog is one resolved catalog snapshot.
+type schemaCatalog struct {
+	searchable []schemaDataset
+	// unsearchable: runtime names in the catalog WITHOUT a usable
+	// x-search mapping. Always evicted — covers a cleared/removed
+	// x-search annotation (previously indexed docs would otherwise go
+	// stale forever); for the never-searchable majority the prefix
+	// delete is an idempotent single seek.
+	unsearchable []string
 }
 
 // schemaDataset is one resolved runtime dataset with a search mapping.
@@ -69,43 +87,49 @@ func NewSchemaChunker(staticDatasets ...string) *SchemaChunker {
 		skip:    skip,
 		known:   map[string]map[string]bool{},
 		retired: map[string]map[string]bool{},
+		pending: map[string]*schemaCatalog{},
 	}
 }
 
 func (c *SchemaChunker) Dataset() string { return DatasetSchemaVirtual }
 func (c *SchemaChunker) TypeId() string  { return "" } // self-gated per dataset
 
-// resolve returns the space's current searchable runtime datasets and,
-// as a side effect, folds catalog disappearances into the retired set.
-func (c *SchemaChunker) resolve(sp space.Space) []schemaDataset {
-	searchable, allNames := parseSchemaDatasets(sp.Datasets(), c.skip)
+// resolve returns the space's current catalog and, as a side effect,
+// folds catalog disappearances into the retired set.
+func (c *SchemaChunker) resolve(sp space.Space) *schemaCatalog {
+	searchable, unsearchable := parseSchemaDatasets(sp.Datasets(), c.skip)
+	allNames := make([]string, 0, len(searchable)+len(unsearchable))
+	for _, ds := range searchable {
+		allNames = append(allNames, ds.name)
+	}
+	allNames = append(allNames, unsearchable...)
 	c.trackRetired(sp.Id(), allNames)
-	return searchable
+	return &schemaCatalog{searchable: searchable, unsearchable: unsearchable}
 }
 
 // parseSchemaDatasets splits a catalog snapshot into the searchable
-// runtime datasets (x-search declared) and the full runtime name set.
-// Runtime entries are the type-owned names outside the static skip set;
-// only searchable ones are streamed, but ALL names are tracked for
-// retirement — a dataset without search never indexed anything, so its
-// retirement eviction is a harmless idempotent seek.
-func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (searchable []schemaDataset, allNames []string) {
+// runtime datasets (x-search declared) and the unsearchable runtime
+// name set. Runtime entries are the type-owned names outside the
+// static skip set; only searchable ones are streamed, but every name is
+// tracked for retirement and unsearchable ones are always evicted (see
+// schemaCatalog).
+func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (searchable []schemaDataset, unsearchable []string) {
 	for _, ds := range list {
 		if ds.TypeId == "" || skip[ds.Name] || strings.Contains(ds.Name, ":") {
 			continue
 		}
-		allNames = append(allNames, ds.Name)
 		var doc struct {
 			Search struct {
 				Title string `json:"title"`
 				Text  string `json:"text"`
 			} `json:"x-search"`
 		}
-		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil {
-			continue // malformed schema doc — nothing to index
-		}
-		if doc.Search.Title == "" && doc.Search.Text == "" {
-			continue // no search annotation — not indexed
+		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil ||
+			(doc.Search.Title == "" && doc.Search.Text == "") {
+			// Malformed schema doc or no search annotation — not indexed,
+			// evicted unconditionally.
+			unsearchable = append(unsearchable, ds.Name)
+			continue
 		}
 		searchable = append(searchable, schemaDataset{
 			name:       ds.Name,
@@ -114,7 +138,7 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 			textField:  doc.Search.Text,
 		})
 	}
-	return searchable, allNames
+	return searchable, unsearchable
 }
 
 // trackRetired diffs the current runtime name set against everything
@@ -146,19 +170,25 @@ func (c *SchemaChunker) trackRetired(spaceId string, allNames []string) {
 	c.mu.Unlock()
 }
 
-// EvictDatasets implements DynamicChunker: catalog datasets whose
-// owning type is not attached to this object, plus every retired name.
+// EvictDatasets implements DynamicChunker: searchable catalog datasets
+// whose owning type is not attached to this object, every unsearchable
+// runtime name (x-search absent or cleared), and every retired name.
+// The resolved catalog is stashed for the paired ChunksSince.
 func (c *SchemaChunker) EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error) {
+	cat := c.resolve(sp)
 	var out []string
-	for _, ds := range c.resolve(sp) {
+	for _, ds := range cat.searchable {
 		if !attached[ds.typeId] {
 			out = append(out, ds.name)
 		}
 	}
+	out = append(out, cat.unsearchable...)
+	spaceId := sp.Id()
 	c.mu.Lock()
-	for name := range c.retired[sp.Id()] {
+	for name := range c.retired[spaceId] {
 		out = append(out, name)
 	}
+	c.pending[spaceId] = cat
 	c.mu.Unlock()
 	return out, nil
 }
@@ -170,7 +200,16 @@ func (c *SchemaChunker) EvictDatasets(ctx context.Context, sp space.Space, attac
 // entries (Data == ""). Datasets the worker just evicted (type not
 // attached) are never streamed in the same page.
 func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectId string, since uint64, yield func(IndexEntry) error) error {
-	dss := c.resolve(sp)
+	// Consume the catalog the paired EvictDatasets resolved (one-shot);
+	// an unpaired call resolves fresh.
+	c.mu.Lock()
+	cat := c.pending[sp.Id()]
+	delete(c.pending, sp.Id())
+	c.mu.Unlock()
+	if cat == nil {
+		cat = c.resolve(sp)
+	}
+	dss := cat.searchable
 	if len(dss) == 0 {
 		return nil
 	}

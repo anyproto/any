@@ -74,7 +74,7 @@ dataset.unknown                  # no handler or runtime definition registered
 dataset.validation               # schema or handler rejected ops
 dataset.name_conflict            # 409 — AddDataset name already in use in the space (built-in, handler dataset, or another runtime definition; details.name)
 dataset.decl_invalid             # 400 — malformed dataset declaration (author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
-dataset.immutable                # 400 — PATCH a pinned dataset-def path (mutable: name, description, displayName, search.title, search.text); details.path
+dataset.immutable                # 400 — PATCH a pinned dataset-def path (mutable: description, displayName, search.title, search.text); details.path
 
 upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRule "user"
 # per-record rejection codes inside the 200 body's rejections[] (never HTTP errors):

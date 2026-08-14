@@ -363,13 +363,26 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 
 	t.Run("patch display leaves", func(t *testing.T) {
 		rec := doJSON(t, e, http.MethodPatch, base+"/"+defId,
-			`{"set":{"displayName":"Posts","search.title":"headline"}}`)
+			`{"set":{"displayName":"Posts","search.title":"headline","description":"tmp"}}`)
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+		}
+		// Unset round-trip on a mutable leaf.
+		rec = doJSON(t, e, http.MethodPatch, base+"/"+defId, `{"unset":["description"]}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("unset: %d %s", rec.Code, rec.Body.String())
 		}
 		rec = doJSON(t, e, http.MethodPatch, base+"/"+defId, `{"set":{"idRule":"auto"}}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("pinned path: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "dataset.immutable")
+		// The collection name is pinned — the head record's storage
+		// "name" slot is a dead lever nothing reads back, so it must
+		// reject, not silently no-op.
+		rec = doJSON(t, e, http.MethodPatch, base+"/"+defId, `{"set":{"name":"posts"}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("name path: %d %s", rec.Code, rec.Body.String())
 		}
 		assertErrorCode(t, rec, "dataset.immutable")
 
@@ -379,8 +392,58 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		def := list.Datasets[0]
-		if def.DisplayName != "Posts" || def.Search == nil || def.Search.Title != "headline" {
+		if def.Name != "articles" || def.DisplayName != "Posts" ||
+			def.Description != "" || def.Search == nil || def.Search.Title != "headline" {
 			t.Errorf("patched def = %+v", def)
+		}
+	})
+
+	t.Run("unknown defId is 404, not a silent no-op", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPatch, base+"/dsdnope",
+			`{"set":{"displayName":"X"}}`)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("patch unknown defId: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "sdk.not_found")
+		rec = doJSON(t, e, http.MethodDelete, base+"/dsdnope", "")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("delete unknown defId: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "sdk.not_found")
+	})
+
+	t.Run("non-type typeId is 404 on writes", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types/"+objectId+"/datasets",
+			`{"name":"orphaned"}`)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("add dataset on non-type: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "type.not_found")
+	})
+
+	t.Run("multi-page upsert", func(t *testing.T) {
+		// pageSize 1 forces one change per record; the batch mixes an
+		// identical skip (a1 unchanged), a create, and an
+		// immutable-field rejection — counters and the rejection's
+		// ABSOLUTE index must survive the paging.
+		body := `{"objectId":"` + objectId + `","dataset":"articles","pageSize":1,"records":[
+			{"id":"a1","fields":{"title":"Hello v2","body":"first body","slug":"hello"}},
+			{"id":"p1","fields":{"title":"Paged","body":"fresh","slug":"paged"}},
+			{"id":"a2","fields":{"title":"World","body":"second body","slug":"drifted"}}]}`
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/upsert", body)
+		var out api.UpsertResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Created != 1 || out.Updated != 0 || out.Skipped != 1 {
+			t.Fatalf("counters = %+v", out)
+		}
+		if len(out.Rejections) != 1 || out.Rejections[0].Index != 2 ||
+			out.Rejections[0].Id != "a2" || out.Rejections[0].Code != "upsert.immutable_field" {
+			t.Fatalf("rejections = %+v", out.Rejections)
+		}
+		if len(out.Pages) != 1 {
+			t.Fatalf("pages = %+v, want exactly the create page (skip and rejection pages are empty)", out.Pages)
 		}
 	})
 

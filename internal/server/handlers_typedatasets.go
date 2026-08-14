@@ -42,19 +42,12 @@ func (d *deps) typeDatasets(c echo.Context) error {
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
-	// Datasets returns an empty slice for an unknown typeId (same as
-	// Properties) — check existence first so a bad id is a typed 404.
-	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
-		if errors.Is(err, space.ErrNotFound) {
-			return writeError(c, http.StatusNotFound, "type.not_found",
-				"type not found",
-				map[string]any{"spaceId": sp.Id(), "typeId": typeId})
-		}
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
 	}
 	defs, err := sp.Types().Datasets(c.Request().Context(), typeId)
 	if err != nil {
-		return d.datasetWriteError(c, err, typeId, "")
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId})
 	}
 	out := make([]api.DatasetDefResponse, 0, len(defs))
 	for _, def := range defs {
@@ -90,6 +83,12 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	if !ok {
 		return nil
 	}
+	// Existence preflight: the SDK writes to whatever object :typeId
+	// names, so without it a non-type objectId gets a 201 and a
+	// definition nothing can read back.
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
+	}
 	if req.Name == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "name required", nil)
 	}
@@ -118,7 +117,7 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	}
 	defId, err := sp.Types().AddDataset(c.Request().Context(), typeId, draft)
 	if err != nil {
-		return d.datasetWriteError(c, err, typeId, "")
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId})
 	}
 	return c.JSON(http.StatusCreated, api.AddDatasetResponse{DatasetDefId: defId})
 }
@@ -156,27 +155,35 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 	if code != "" {
 		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"key": req.Key})
 	}
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
+	}
 	fieldId, err := sp.Types().AddDatasetField(c.Request().Context(), typeId, defId, fieldDraft)
 	if err != nil {
-		return d.datasetWriteError(c, err, typeId, defId)
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId})
 	}
 	return c.JSON(http.StatusCreated, api.AddDatasetFieldResponse{FieldDefId: fieldId})
 }
 
 // datasetDefMutablePaths are the wire (== storage) paths PATCH accepts;
 // every mutable leaf is a plain string. Everything else on a dataset
-// definition is pinned — remove and re-add to change it.
+// definition is pinned — remove and re-add to change it. The wire
+// `name` (the collection name) is NOT here: it lives under the pinned
+// storage field `collection`, and the head record's storage `name`
+// slot is a field-record display label nothing reads back — accepting
+// it would be a silent no-op.
 var datasetDefMutablePaths = map[string]struct{}{
-	"name":         {},
 	"description":  {},
 	"displayName":  {},
 	"search.title": {},
 	"search.text":  {},
 }
 
+const datasetDefMutableHint = "path is pinned; mutable paths: description, displayName, search.title, search.text"
+
 // typePatchDataset handles PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
-// Mutable paths: name, description, displayName, search.title,
-// search.text. Pinned paths return 400 dataset.immutable.
+// Mutable paths: description, displayName, search.title, search.text.
+// Pinned paths return 400 dataset.immutable.
 //
 //	@Summary	Patch a dataset definition's display fields
 //	@Tags		types
@@ -216,8 +223,7 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 	for path, raw := range req.Set {
 		if _, mutable := datasetDefMutablePaths[path]; !mutable {
 			return writeError(c, http.StatusBadRequest, "dataset.immutable",
-				"path is pinned; mutable paths: name, description, displayName, search.title, search.text",
-				map[string]any{"path": path})
+				datasetDefMutableHint, map[string]any{"path": path})
 		}
 		var val string
 		if err := json.Unmarshal(raw, &val); err != nil {
@@ -229,14 +235,20 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 	for _, path := range req.Unset {
 		if _, mutable := datasetDefMutablePaths[path]; !mutable {
 			return writeError(c, http.StatusBadRequest, "dataset.immutable",
-				"path is pinned; mutable paths: name, description, displayName, search.title, search.text",
-				map[string]any{"path": path})
+				datasetDefMutableHint, map[string]any{"path": path})
 		}
 		patch.Unset = append(patch.Unset, path)
 	}
 
+	// Existence preflight: the SDK's PatchDataset silently no-ops on an
+	// unknown defId (the strict-modify miss rides a discarded
+	// rejection), so without it a stale defId gets a 204 and nothing
+	// applied.
+	if errResp, done := requireDatasetDef(c, d, sp, typeId, defId); done {
+		return errResp
+	}
 	if err := sp.Types().PatchDataset(c.Request().Context(), typeId, defId, patch); err != nil {
-		return d.datasetWriteError(c, err, typeId, defId)
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -265,8 +277,14 @@ func (d *deps) typeRemoveDataset(c echo.Context) error {
 	if typeId == "" || defId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
 	}
+	// Existence preflight: the SDK's RemoveDataset would otherwise mint
+	// a synced tombstone + removal row for an id that never existed and
+	// answer 204.
+	if errResp, done := requireDatasetDef(c, d, sp, typeId, defId); done {
+		return errResp
+	}
 	if err := sp.Types().RemoveDataset(c.Request().Context(), typeId, defId); err != nil {
-		return d.datasetWriteError(c, err, typeId, defId)
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId})
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -296,10 +314,51 @@ func (d *deps) typeRemoveDatasetField(c echo.Context) error {
 	if typeId == "" || fieldId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and fieldId required", nil)
 	}
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp
+	}
 	if err := sp.Types().RemoveDatasetField(c.Request().Context(), typeId, fieldId); err != nil {
-		return d.datasetWriteError(c, err, typeId, fieldId)
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "fieldId": fieldId})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// requireType 404s when :typeId doesn't resolve to a type in the space
+// (the SDK's dataset CRUD writes to whatever object the id names, so a
+// bad id would otherwise succeed and be unreadable). done=true means
+// the response was written.
+func requireType(c echo.Context, sp space.Space, typeId string) (errResp error, done bool) {
+	if _, err := sp.Types().Get(c.Request().Context(), typeId); err != nil {
+		if errors.Is(err, space.ErrNotFound) {
+			return writeError(c, http.StatusNotFound, "type.not_found",
+				"type not found",
+				map[string]any{"spaceId": sp.Id(), "typeId": typeId}), true
+		}
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId}), true
+	}
+	return nil, false
+}
+
+// requireDatasetDef 404s when defId isn't a dataset definition on the
+// type — the SDK's PatchDataset/RemoveDataset don't check existence
+// themselves (a patch no-ops, a remove mints a tombstone for the
+// garbage id). Subsumes requireType: an unknown type has no defs.
+func requireDatasetDef(c echo.Context, d *deps, sp space.Space, typeId, defId string) (errResp error, done bool) {
+	if errResp, done := requireType(c, sp, typeId); done {
+		return errResp, true
+	}
+	defs, err := sp.Types().Datasets(c.Request().Context(), typeId)
+	if err != nil {
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId}), true
+	}
+	for _, def := range defs {
+		if def.Id == defId {
+			return nil, false
+		}
+	}
+	return writeError(c, http.StatusNotFound, "sdk.not_found",
+		"dataset definition not found on this type",
+		map[string]any{"typeId": typeId, "defId": defId}), true
 }
 
 // spaceUpsert handles POST /v1/spaces/:spaceId/upsert — schema-driven
@@ -400,12 +459,9 @@ func upsertResultToAPI(r space.UpsertResult) api.UpsertResult {
 // datasetWriteError maps TypesAPI dataset-CRUD errors onto clean 4xx
 // envelopes. Sentinels first; declaration errors are STOPGAP-matched on
 // message text until the SDK exports errors.Is-able sentinels for them
-// (the oneToOneError pattern).
-func (d *deps) datasetWriteError(c echo.Context, err error, typeId, defId string) error {
-	details := map[string]any{"typeId": typeId}
-	if defId != "" {
-		details["defId"] = defId
-	}
+// (the oneToOneError pattern). details carries the caller's ids
+// (typeId, defId or fieldId).
+func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]any) error {
 	msg := err.Error()
 	switch {
 	case errors.Is(err, space.ErrTypeRegistered):
@@ -436,13 +492,28 @@ func (d *deps) datasetWriteError(c echo.Context, err error, typeId, defId string
 	}
 }
 
-// sanitizeSDKMessage strips SDK package prefixes from an error message
-// before it rides an envelope. The remaining text names only
-// caller-supplied fields and declaration rules.
+// sdkMessagePrefixes are the SDK package prefixes stripped off error
+// messages before they ride an envelope. Stripped iteratively from the
+// front only (wrap chains stack several), so mid-message text — field
+// names, quoted values — is never touched.
+var sdkMessagePrefixes = []string{
+	"typesAPI: ", "spaceimpl: ", "Upsert: ", "schema: ", "crdt: ",
+	"upsert: ", "space: ", "typetype: ",
+}
+
+// sanitizeSDKMessage strips SDK package prefixes from an error message.
+// The remaining text names only caller-supplied fields and declaration
+// rules.
 func sanitizeSDKMessage(err error) string {
 	msg := err.Error()
-	for _, p := range []string{"typesAPI: ", "spaceimpl: Upsert: ", "spaceimpl: ", "schema: ", "crdt: ", "upsert: "} {
-		msg = strings.ReplaceAll(msg, p, "")
+	for stripped := true; stripped; {
+		stripped = false
+		for _, p := range sdkMessagePrefixes {
+			if rest, ok := strings.CutPrefix(msg, p); ok {
+				msg = rest
+				stripped = true
+			}
+		}
 	}
 	return msg
 }

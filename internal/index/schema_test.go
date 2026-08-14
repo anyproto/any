@@ -36,7 +36,7 @@ func TestParseSchemaDatasets(t *testing.T) {
 		{Name: "broken", TypeId: "t2", JSONSchema: json.RawMessage(`{"x-search": 42}`)},                              // malformed: tracked, not searchable
 		{Name: "odd:name", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]string{"text": "x"})},                   // colon: ignored entirely
 	}
-	searchable, allNames := parseSchemaDatasets(list, skip)
+	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
 	want := []schemaDataset{
 		{name: "articles", typeId: "t1", titleField: "title", textField: "body"},
@@ -46,10 +46,11 @@ func TestParseSchemaDatasets(t *testing.T) {
 	if !reflect.DeepEqual(searchable, want) {
 		t.Errorf("searchable = %+v, want %+v", searchable, want)
 	}
-	sort.Strings(allNames)
-	wantNames := []string{"articles", "broken", "headlines", "notes", "plain"}
-	if !reflect.DeepEqual(allNames, wantNames) {
-		t.Errorf("allNames = %v, want %v", allNames, wantNames)
+	// No-x-search and malformed docs land in the always-evicted set.
+	sort.Strings(unsearchable)
+	wantNames := []string{"broken", "plain"}
+	if !reflect.DeepEqual(unsearchable, wantNames) {
+		t.Errorf("unsearchable = %v, want %v", unsearchable, wantNames)
 	}
 }
 

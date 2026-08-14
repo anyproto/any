@@ -151,11 +151,11 @@ type AddDatasetFieldResponse struct {
 // /v1/spaces/:spaceId/types/:typeId/datasets/:defId — a per-path patch
 // over a dataset definition's mutable leaves (space.DatasetDefPatch).
 //
-// Mutable paths: name, description, displayName, search.title,
-// search.text (string leaves; a whole `search` replace is pinned).
-// Everything else — the collection name, id rule, delete gate, field
-// kinds/flags — is pinned and rejected with 400 dataset.immutable.
-// At least one entry across Set/Unset required.
+// Mutable paths: description, displayName, search.title, search.text
+// (string leaves; a whole `search` replace is pinned). Everything else
+// — the collection name, id rule, delete gate, field kinds/flags — is
+// pinned and rejected with 400 dataset.immutable. At least one entry
+// across Set/Unset required.
 type DatasetPatchRequest struct {
 	Set   map[string]json.RawMessage `json:"set,omitempty"`
 	Unset []string                   `json:"unset,omitempty"`

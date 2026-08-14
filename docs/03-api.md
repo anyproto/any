@@ -1627,15 +1627,18 @@ A malformed declaration (unknown enum labels, `mutableBy: author`
 without a creator stamp, duplicate stamp kinds, …) → `400
 request.invalid_field` or `400 dataset.decl_invalid`.
 
-**Semantics of the pinning model:** behavioral parts — `name`,
-`dynamic`, `idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`,
-field `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
+**Semantics of the pinning model:** behavioral parts — `name` (the
+collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
+`deleteBy`, `skipHistory`, field
+`key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
-property patch over the mutable string leaves `name`, `description`,
+property patch over the mutable string leaves `description`,
 `displayName`, `search.title`, `search.text` (a whole `search` replace
-is pinned). Pinned path → `400 dataset.immutable`.
+is pinned). Pinned path → `400 dataset.immutable`; unknown
+`defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
+would silently no-op).
 
 **Evolution is additive**: `POST …/datasets/:defId/fields` → `201
 {fieldDefId}` appends a field (never `required`);
@@ -1656,9 +1659,10 @@ only). Runtime datasets also appear in the space's discovery document
 (§ Dataset schema discovery) with `typeId` and the behavioral `x-*`
 keywords.
 
-`DELETE …/datasets/:defId` tombstones the definition. Existing record
-data is **not** cleaned up (the property-removal stance); subsequent
-writes drop once peers apply the removal; the search index evicts the
+`DELETE …/datasets/:defId` tombstones the definition (unknown defId →
+`404 sdk.not_found`, existence-preflighted). Existing record data is
+**not** cleaned up (the property-removal stance); subsequent writes
+drop once peers apply the removal; the search index evicts the
 dataset's docs lazily (docs/13-index.md § Removal semantics).
 
 **Data path:** the existing dataset-parameterized surface works as-is —
