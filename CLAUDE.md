@@ -875,9 +875,11 @@ Implementation slices landed:
     with the dogfood handler-collapse audit and the removed-def index
     sweep). CLI: `any type dataset …`, `any upsert`. Contract:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
-    docs/13-index.md § Schema chunker, docs/06-errors.md. **SDK
-    prerequisite:** branch `cheggaaa/syn-147-user-space-dataset-schemas`
-    (PR #95; re-pin to the release tag once merged).
+    docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
+    docs/17-user-datasets.md (vocabulary, convergence rules, storage
+    model). **SDK prerequisite:** branch
+    `cheggaaa/syn-147-user-space-dataset-schemas` (PR #95; re-pin to
+    the release tag once merged).
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

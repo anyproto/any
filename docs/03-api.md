@@ -1582,7 +1582,9 @@ compiled-in handler: required fields, write-once vs author-mutable
 fields, author-only delete, derived creator/time stamps, user-supplied
 record ids, search extraction. Registered built-in types (`chat`,
 `editor`, …) refuse (`400 type.registered`) — their datasets are
-statically declared.
+statically declared. SDK contract (vocabulary, convergence rules,
+storage model, runtime registration): the SDK's
+`docs/17-user-datasets.md`.
 
 `POST …/types/:typeId/datasets` → `201 {datasetDefId}`:
 
@@ -1601,7 +1603,11 @@ statically declared.
 - `name` — the dataset's collection name; pinned, space-unique (`409
   dataset.name_conflict` against built-ins, handler datasets and other
   runtime definitions; `prop` / `schema` are reserved by the search
-  indexer → `400 request.invalid_field`).
+  indexer → `400 request.invalid_field`). The preflight fast-fails the
+  local case only — definitions racing in from other members resolve
+  deterministically SDK-side (smallest definition id wins; built-in and
+  compiled-in names always win; the loser stays listed but never
+  registers).
 - `idRule` — `auto` (default; record ids derived from the change,
   explicit client ids rejected) or `user` (caller-supplied ids under
   `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
@@ -1621,7 +1627,8 @@ statically declared.
 - `search` — the x-search extraction mapping (docs/13-index.md
   § Schema chunker); either field optional.
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
-  compiled-in declarations.
+  compiled-in declarations. (`skipHistory` declared after the history
+  index opened applies from the next index open — SDK limitation.)
 
 A malformed declaration (unknown enum labels, `mutableBy: author`
 without a creator stamp, duplicate stamp kinds, …) → `400
@@ -1644,8 +1651,13 @@ would silently no-op).
 {fieldDefId}` appends a field (never `required`);
 `DELETE …/datasets/:defId/fields/:fieldId` drops one field definition
 (values stay stored; subsequent writes to the field are rejected as
-undeclared on non-dynamic datasets). The SDK keys field definitions by
-(typeId, fieldId) — `:defId` rides the URI for hierarchy only.
+undeclared on non-dynamic datasets; a removal that would invalidate
+the remaining declaration — e.g. the creator stamp of an author-gated
+dataset — is refused). The SDK keys field definitions by (typeId,
+fieldId) — `:defId` rides the URI for hierarchy only. Field records
+also carry SDK-mutable display labels (`name`/`description`), but v1
+exposes no field-scoped PATCH — the head-record patch above is the
+only definition-edit surface.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
 `{datasets: [{id, name, displayName?, description?, dynamic?, idRule,
@@ -1692,8 +1704,8 @@ batch is a no-op — **the first genuinely idempotent write** on the
 surface. One CRDT change per page (`pageSize` default 500). Not
 transactional against concurrent writers; the intended deployment is a
 single ingest writer per dataset (concurrent creates of the same id by
-different members are outside the convergence contract — see the SDK's
-UpsertBatch doc).
+different members are outside the convergence contract — the SDK's
+`docs/17-user-datasets.md` § The IdRule: user contract).
 
 Response (200 even with rejections — the `/modify` partial-success
 stance):

@@ -248,7 +248,7 @@ pluggable embedders, parallel batched pipelines),
   `DynamicChunker` worker capability, scope `basic`), `any type
   dataset …` / `any upsert` CLI. Contract: docs/03-api.md § Runtime
   dataset schemas + § Upsert records, docs/13-index.md § Schema
-  chunker. Follow-ups above.
+  chunker, the SDK's docs/17-user-datasets.md. Follow-ups above.
 
 - **Push notifications (SYN-47)** — chat push interoperating with
   heart's `anytype-push-server` deployment (topic vocabulary, payload

@@ -164,8 +164,8 @@ id `objectId:prop:<propId>`:
 ### The schema chunker (`internal/index/schema.go`)
 
 Indexes records of **runtime-defined datasets** (docs/03-api.md
-§ Runtime dataset schemas) by their declaration's `x-search {title,
-text}` mapping — one registered chunker covers every searchable runtime
+§ Runtime dataset schemas; SDK contract: its docs/17-user-datasets.md
+§ Discovery) by their declaration's `x-search {title, text}` mapping — one registered chunker covers every searchable runtime
 dataset in every space. Entries carry the REAL dataset name (doc ids
 `objectId:<dataset>:<recordId>`) under scope `basic` — runtime records
 are user content on par with editor blocks, so they embed normally.
