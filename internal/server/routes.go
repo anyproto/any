@@ -127,13 +127,14 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/files/cache/free", d.fileCacheFree)
 	v1.POST("/files/cache/sweep", d.fileCacheSweep)
 
-	// Account-wide UI command channel: an in-memory broadcast from the
-	// agent to connected UI windows ("open this space/object"). Not
-	// space data — no :spaceId scope, no SDK/dataset backing, nothing
-	// stored. Sits outside the space group like sync-status/subscribe.
-	// See docs/15-ui-commands.md.
-	v1.POST("/ui/commands", d.uiCommandPublish)
-	v1.GET("/ui/commands/subscribe", d.uiCommandSubscribe)
+	// Account-wide event bus: an in-memory, at-most-once broadcast
+	// channel (agent → UI navigation, process progress, …). Not space
+	// data — no :spaceId scope, no SDK/dataset backing, nothing stored;
+	// account/space scopes bridge onto the SDK pub/sub (SYN-152). Sits
+	// outside the space group like sync-status/subscribe. See
+	// docs/21-events.md.
+	v1.POST("/events", d.eventsPublish)
+	v1.GET("/events/subscribe", d.eventsSubscribe)
 
 	// Account-wide push notifications: device-token registration and
 	// the server-held topic subscriptions (SYN-47). The push server

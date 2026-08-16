@@ -480,30 +480,33 @@ Implementation slices landed:
     alignment (docs/01-cli.md, docs/03-api.md § Spaces). SDK contract:
     its `docs/03-space.md` § Space Lifecycle.
 
-18. **UI command channel** — an account-wide, **in-memory** control
-    channel that lets an agent drive a connected any-ui window
-    (*"open this space / open this object"*), extensible to other
-    UI-side ops. Deliberately NOT a dataset: a UI command is a
-    transient directive to this device's window, not synced space data
-    — so it goes through an in-process broadcaster, not the
-    SDK/handler/CRDT machinery (same kind of consumer-side exception as
-    `/search`). `POST /v1/ui/commands` (`{action, spaceId, objectId?,
-    source?}`; `action` an open slug set — `open_space` / `open_object`)
-    fans the command out to every connected subscriber and returns
-    `{subscribers: n}` (0 = nobody listening; still 2xx,
-    fire-and-forget). `GET /v1/ui/commands/subscribe` is the SSE stream:
-    `ready` → `command` per publish → `closed{reason}`
-    (`server_shutdown` / `overflow`). **No snapshot, at-most-once** —
-    a subscriber sees only commands published after it connects, so
-    there is no stale-replay on reconnect and nothing accumulates.
-    Both routes are account-scoped, sitting outside the `:spaceId`
-    group like `/sync-status/subscribe`, behind the `/v1` auth guard.
-    `internal/server/uicmd_hub.go` (the broadcaster; non-blocking
-    publish drops slow subscribers) + `handlers_ui_commands.go` +
-    `internal/api/uicommand.go`. CLI: `any ui
-    open-space/open-object/subscribe`. Contract: docs/15-ui-commands.md.
-    Consumers: the bobrik `ui` tool (`cmd/bobrik-watch/`) and any-ui
-    (`../any-ui/docs/tasks/ui-commands.md`).
+18. **Event bus (SYN-151)** — the account-wide **ephemeral** event bus
+    that generalized (and replaced) the UI command channel:
+    `POST /v1/events` publish + `GET /v1/events/subscribe` filtered
+    SSE. Envelope `{type, scope, spaceId?, target?, data?, sender}` —
+    `type` an open dotted slug set (`ui.open_space` / `ui.open_object`
+    are the migrated UI vocabulary, target space/object in `data`);
+    `scope` ∈ device/account/space (`spaceId` iff space); `sender`
+    server-stamped, rejected in the body; `data` ≤ 64 KiB
+    (`events.payload_too_large`); `sessionId` reserved. Deliberately
+    NOT a dataset — transient signals go through an in-process
+    filtered broadcaster, not the SDK/handler/CRDT machinery (same
+    consumer-side exception as `/search`). **At-most-once, no
+    snapshot/replay**; publish returns `{subscribers: n}` (local
+    matches; 0 = nobody listening, still 2xx); slow subscribers are
+    dropped with `closed{reason:overflow}`. Subscribe filters:
+    repeatable `scope`/`spaceId`/`type` (exact or `x.*` prefix)/
+    `target` params — AND across dimensions, OR within one. Frames
+    `ready` → `event` → `closed{reason}` on the shared reason set.
+    **Device scope only** — account/space answer `501` until the SDK
+    pub/sub bridge (SYN-152, needs SYN-150). Account-scoped routes
+    outside the `:spaceId` group, behind the `/v1` auth guard.
+    `internal/server/events_hub.go` (filtered broadcaster; internal
+    producers publish through `deps.eventsHub()` — none wired yet) +
+    `handlers_events.go` + `internal/api/event.go`. CLI: `any events
+    publish/subscribe` (replaced `any ui`; `/v1/ui/commands[/subscribe]`
+    and docs/15-ui-commands.md are gone). Contract: docs/21-events.md.
+    Consumers migrate per `../any-ui/docs/tasks/events-migration.md`.
 
 19. **One-to-one (direct) spaces** — wraps the SDK's derived 1-1 space
     surface. A 1-1 is shared by exactly
@@ -1086,12 +1089,12 @@ auto-start.
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
-| `docs/15-ui-commands.md` | UI command channel — account-wide in-memory agent→any-ui control (`/v1/ui/commands[/subscribe]`), at-most-once, command shape, SSE frames |
 | `docs/16-chat.md` | chat client guide — building a messenger UI on `chat_messages`: rendering, liveness, and SDK read-tracking (account-private, forward-only unread state) |
 | `docs/17-files.md` | files v2 — storage tiers, durability states, cache/offload/pin, variants, read paths, what's deliberately not wrapped |
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
+| `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
