@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
+
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -120,12 +123,7 @@ func (b *eventsBridge) acquireScope(ctx context.Context, key string, patterns []
 		sc.desired[p]++
 	}
 	if err := b.resyncLocked(key, sc); err != nil {
-		for _, p := range patterns {
-			if sc.desired[p]--; sc.desired[p] <= 0 {
-				delete(sc.desired, p)
-			}
-		}
-		_ = b.resyncLocked(key, sc) // best-effort restore
+		b.releaseLocked(key, patterns) // roll back, sweeping the scope if now empty
 		return err
 	}
 	return nil
@@ -141,7 +139,12 @@ func (b *eventsBridge) releaseLocked(key string, patterns []string) {
 			delete(sc.desired, p)
 		}
 	}
-	_ = b.resyncLocked(key, sc)
+	// A failed re-subscribe here strands the remaining subscribers with
+	// no active interest and no wire signal — surface it in the log.
+	if err := b.resyncLocked(key, sc); err != nil {
+		handlerLog.Error("events bridge resubscribe failed; remaining subscribers may miss network events",
+			zap.String("spaceId", key), zap.Error(err))
+	}
 	if len(sc.desired) == 0 {
 		delete(b.scopes, key)
 	}
@@ -189,6 +192,12 @@ func (b *eventsBridge) deliver(key string) func(space.PubSubMessage) {
 			return
 		}
 		if w.Target != "" && !eventTargetRe.MatchString(w.Target) {
+			return
+		}
+		// A self-owned type is only trusted from its acc/ namespace —
+		// a payload claiming one on a plain ev/ topic (reachable via a
+		// broad local interest) would bypass the ownership guarantee.
+		if selfOwnedEventTypes[w.Type] && !strings.HasPrefix(msg.Topic, eventAccTopicPrefix) {
 			return
 		}
 		ev := api.Event{

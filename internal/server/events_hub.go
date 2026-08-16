@@ -134,17 +134,24 @@ func (h *eventHub) publish(ev api.Event) int {
 }
 
 // matchCount returns how many current subscribers' filters match ev
-// without delivering anything. Used for the publish reply on network
-// scopes, where delivery rides the SDK's loopback instead of a direct
-// fan-out.
+// AND can actually be reached by it. Used for the publish reply on
+// network scopes, where delivery rides the SDK's loopback instead of
+// a direct fan-out: a space-scope event only reaches subscribers whose
+// filter names the space (only those hold a pub/sub interest on it —
+// there is no "all spaces" interest), so a catch-all subscriber that
+// merely matches is not counted.
 func (h *eventHub) matchCount(ev *api.Event) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	n := 0
 	for _, s := range h.subs {
-		if s.filter.matches(ev) {
-			n++
+		if !s.filter.matches(ev) {
+			continue
 		}
+		if ev.Scope == api.EventScopeSpace && !slices.Contains(s.filter.spaceIds, ev.SpaceId) {
+			continue
+		}
+		n++
 	}
 	return n
 }

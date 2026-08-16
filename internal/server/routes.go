@@ -130,9 +130,8 @@ func buildEcho(d *deps) *echo.Echo {
 	// Account-wide event bus: an in-memory, at-most-once broadcast
 	// channel (agent → UI navigation, process progress, …). Not space
 	// data — no :spaceId scope, no SDK/dataset backing, nothing stored;
-	// account/space scopes bridge onto the SDK pub/sub (SYN-152). Sits
-	// outside the space group like sync-status/subscribe. See
-	// docs/21-events.md.
+	// account/space scopes bridge onto the SDK pub/sub. Sits outside
+	// the space group like sync-status/subscribe. See docs/21-events.md.
 	v1.POST("/events", d.eventsPublish)
 	v1.GET("/events/subscribe", d.eventsSubscribe)
 

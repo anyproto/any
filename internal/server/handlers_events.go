@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any-sync/commonspace/pubsub"
+
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
@@ -24,9 +26,10 @@ import (
 const eventDataLimit = 64 * 1024
 
 // Grammar of the event vocabulary. Type segments are lowercase slugs
-// joined by dots; the charset keeps the SYN-152 topic mapping (dots →
-// `/` segments, target appended as one segment) collision-free, and
-// the length bounds fit the pub/sub topic budget (256 bytes total).
+// joined by dots; the charset keeps the topic mapping (dots → `/`
+// segments, target appended as one segment) collision-free. Length is
+// bounded per field here; the combined pub/sub topic budget (256
+// bytes / 16 segments) is enforced on the rendered topic at publish.
 var (
 	eventTypeRe   = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]+)*$`)
 	eventFilterRe = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$`)
@@ -88,6 +91,12 @@ func (d *deps) eventsPublish(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "events.payload_too_large",
 			"data exceeds the 64 KiB event payload cap", nil)
 	}
+	// Enforce the combined topic budget on every scope — device included —
+	// so a producer doesn't break when it switches to a network scope.
+	if err := pubsub.ValidateTopic(eventTopic(req.Type, req.Target, d.sdk.Account().Id())); err != nil {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"type + target exceed the pub/sub topic budget (256 bytes / 16 segments)", nil)
+	}
 
 	ev := api.Event{
 		Type:    req.Type,
@@ -116,9 +125,10 @@ func (d *deps) eventsPublish(c echo.Context) error {
 // publishNetworkEvent sends ev over the SDK pub/sub. Local delivery is
 // NOT fanned out here — the SDK delivers the publish synchronously to
 // matching local subscriptions (Self loopback), which the bridge feeds
-// into the hub; a matching bridge interest exists exactly when a
-// matching local subscriber does. The reply's subscribers count is the
-// hub's current match count — approximate by design (fire-and-forget).
+// into the hub. The reply's subscribers count is the hub's current
+// reachable-match count (matchCount excludes subscribers holding no
+// interest on the event's space) — approximate by design
+// (fire-and-forget).
 func (d *deps) publishNetworkEvent(c echo.Context, ev api.Event, ps space.PubSubAPI) error {
 	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
 	if err != nil {
@@ -132,12 +142,21 @@ func (d *deps) publishNetworkEvent(c echo.Context, ev api.Event, ps space.PubSub
 	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: d.eventsHub().matchCount(&ev)})
 }
 
+// pubsubSentinels is the one list of SDK pub/sub sentinels this file
+// maps — shared by pubsubError and errorsIsPubSub so the two can't
+// drift.
+var pubsubSentinels = []error{
+	space.ErrPubSubPayloadTooLarge, space.ErrPubSubNoReadKey,
+	space.ErrPubSubTooManyPatterns, space.ErrPubSubTopicNotOwned,
+	space.ErrPubSubInvalidTopic,
+}
+
 // pubsubError maps the SDK pub/sub sentinels onto the canonical
-// envelope.
+// envelope; anything else falls through to the generic SDK-error
+// mapper so shared sentinels (cancellation, ErrSpaceNotTracked, …)
+// classify like every other surface.
 func pubsubError(c echo.Context, err error) error {
 	switch {
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	case errors.Is(err, space.ErrPubSubPayloadTooLarge):
 		return writeError(c, http.StatusBadRequest, "events.payload_too_large",
 			"event exceeds the 64 KiB pub/sub message cap", nil)
@@ -154,19 +173,14 @@ func pubsubError(c echo.Context, err error) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"type + target render an invalid pub/sub topic (256-byte / 16-segment budget)", nil)
 	}
-	handlerLog.Error("unclassified pubsub error", zap.Error(err))
-	return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
+	return sdkOpError(c, err, nil)
 }
 
 // errorsIsPubSub distinguishes the pub/sub sentinels from space
 // resolution errors on the subscribe path, where either can surface
 // from acquire.
 func errorsIsPubSub(err error) bool {
-	for _, s := range []error{
-		space.ErrPubSubInvalidTopic, space.ErrPubSubPayloadTooLarge,
-		space.ErrPubSubTopicNotOwned, space.ErrPubSubNoReadKey,
-		space.ErrPubSubTooManyPatterns,
-	} {
+	for _, s := range pubsubSentinels {
 		if errors.Is(err, s) {
 			return true
 		}
@@ -230,16 +244,25 @@ func (d *deps) eventsSubscribe(c echo.Context) error {
 
 	// Network scopes pull through refcounted pub/sub interests. With no
 	// scope filter the subscription is a catch-all: account interests
-	// always, space interests for every explicitly listed spaceId (there
-	// is no "all spaces" interest — pub/sub is per-space). An explicit
-	// space-scope subscription therefore must name its spaces.
+	// (unless a spaceId filter rules account events out — they carry no
+	// spaceId), space interests for every explicitly listed spaceId
+	// (there is no "all spaces" interest — pub/sub is per-space). An
+	// explicit space-scope subscription therefore must name its spaces.
 	catchAll := len(f.scopes) == 0
-	wantAccount := catchAll || slices.Contains(f.scopes, api.EventScopeAccount)
-	wantSpace := catchAll || slices.Contains(f.scopes, api.EventScopeSpace)
-	if !catchAll && slices.Contains(f.scopes, api.EventScopeSpace) && len(f.spaceIds) == 0 {
+	hasSpaceScope := slices.Contains(f.scopes, api.EventScopeSpace)
+	if hasSpaceScope && len(f.spaceIds) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
 			"scope=space subscription requires at least one spaceId filter", nil)
 	}
+	// A spaceId filter admits space-scope events only (device/account
+	// events carry no spaceId) — reject combinations that can never
+	// match anything, mirroring the publish-side scope/spaceId check.
+	if len(f.spaceIds) > 0 && !catchAll && !hasSpaceScope {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"spaceId filter matches space-scope events only — add scope=space or drop the spaceId filter", nil)
+	}
+	wantAccount := (catchAll || slices.Contains(f.scopes, api.EventScopeAccount)) && len(f.spaceIds) == 0
+	wantSpace := catchAll || hasSpaceScope
 	var netSpaceIds []string
 	if wantSpace {
 		netSpaceIds = f.spaceIds

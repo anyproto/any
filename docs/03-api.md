@@ -382,9 +382,13 @@ mixed SDK versions) — good for ordering, not for equality checks.
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
 `spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
-to tell direct chats from regular spaces client-side. `author` is the
-space owner's account identity, resolved best-effort from the ACL (empty
-when the ACL isn't loadable). Both are omitted when empty.
+to tell direct chats from regular spaces client-side. The value is
+pinned at space creation, so spaces created before the vocabulary
+rename report the legacy `"anytype.space"` / `"anytype.onetoone"`
+forever — classify by suffix (or match both prefixes), not by exact
+string. `author` is the space owner's account identity, resolved
+best-effort from the ACL (empty when the ACL isn't loadable). Both are
+omitted when empty.
 
 `SpaceInfo.ownRole` is the caller's own role in the space — `owner` /
 `admin` / `writer` / `reader` / `guest` / `none` — mirrored from ACL

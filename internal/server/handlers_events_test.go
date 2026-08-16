@@ -31,6 +31,7 @@ func TestServer_EventsPublishValidation(t *testing.T) {
 		{"space scope needs spaceId", `{"type":"test.ping","scope":"space"}`, "request.missing_field"},
 		{"spaceId only with space scope", `{"type":"test.ping","scope":"device","spaceId":"sp1"}`, "request.invalid_field"},
 		{"bad target", `{"type":"test.ping","scope":"device","target":"a/b"}`, "request.invalid_field"},
+		{"topic over budget", `{"type":"` + strings.Repeat("a", 128) + `","scope":"device","target":"` + strings.Repeat("b", 128) + `"}`, "request.invalid_field"},
 		{"sender is server-stamped", `{"type":"test.ping","scope":"device","sender":{"identity":"x","self":true}}`, "request.unknown_field"},
 	}
 	for _, tc := range cases {
@@ -77,7 +78,8 @@ func TestServer_EventsSubscribeParamValidation(t *testing.T) {
 	defer teardown()
 	e := buildEcho(d)
 
-	for _, q := range []string{"scope=global", "type=Process.*", "type=*", "target=a/b", "scope=space"} {
+	for _, q := range []string{"scope=global", "type=Process.*", "type=*", "target=a/b", "scope=space",
+		"scope=account&spaceId=sp1", "scope=device&spaceId=sp1"} {
 		rec := doJSON(t, e, http.MethodGet, "/v1/events/subscribe?"+q, "")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status=%d, want 400; body=%s", q, rec.Code, rec.Body.String())

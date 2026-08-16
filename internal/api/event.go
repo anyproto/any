@@ -48,8 +48,8 @@ const (
 	EventScopeSpace = "space"
 )
 
-// UI event types — the device-scope vocabulary that replaced the
-// /v1/ui/commands channel. Data carries {spaceId, objectId?, source?}:
+// UI event types — the device-scope vocabulary UI windows subscribe to
+// for navigation. Data carries {spaceId, objectId?, source?}:
 // spaceId is the *target* space to open (independent of the envelope's
 // scope routing), objectId is required for EventUIOpenObject, source is
 // a free-form publisher hint (UI display only). An open set — new UI

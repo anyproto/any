@@ -89,8 +89,11 @@ Validation (`400`):
 - `request.unknown_field` — unknown top-level key (including `sender`).
 - `request.missing_field` — `type` or `scope` empty, or `spaceId` empty with
   `scope == "space"`.
-- `request.invalid_field` — bad `type`/`target` grammar, unknown `scope`, or
-  `spaceId` present on a non-space scope.
+- `request.invalid_field` — bad `type`/`target` grammar, unknown `scope`,
+  `spaceId` present on a non-space scope, or `type` + `target` rendering a
+  topic over the pub/sub budget (256 bytes / 16 segments — enforced on
+  every scope, device included, so a producer doesn't break when it
+  switches to a network scope).
 - `events.payload_too_large` — `data` exceeds 64 KiB.
 
 Network scopes add (from the SDK pub/sub sentinels): `409
@@ -147,7 +150,11 @@ Network-scope subscriptions have two extra rules:
   `spaceId` filter (`400 request.missing_field`) — pub/sub interest is
   per-space, there is no "all spaces" subscription. A catch-all (no
   `scope` param) doesn't error: it covers device + account, plus any
-  space listed in a `spaceId` filter.
+  space listed in a `spaceId` filter. A `spaceId` filter admits
+  space-scope events **only** (device/account events carry no spaceId),
+  so combining it with a scope list that excludes `space` is `400
+  request.invalid_field`, and its presence skips the account interests
+  a catch-all would otherwise acquire.
 - Subscribe can answer `409 events.too_many_patterns` when the space's
   pub/sub pattern budget (100) is exhausted — narrow the type filters or
   share them across subscribers (identical filters share one interest).
@@ -225,8 +232,10 @@ anything a payload claims about its sender is discarded. `sender.self`
 is the SDK's loopback flag: true on every device of the publishing
 account. A network-scope publish reaches local subscribers through that
 loopback (synchronous on publish), not a second local fan-out, so the
-reply's `subscribers` count is the hub's current match count —
-approximate by design.
+reply's `subscribers` count is the hub's current match count, restricted
+to subscribers the event can actually reach — for `scope: space`, those
+naming the space in a `spaceId` filter (only they hold a pub/sub
+interest on it). Approximate by design.
 
 ### Constraints
 
