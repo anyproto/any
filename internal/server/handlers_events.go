@@ -2,10 +2,16 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
+
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -31,10 +37,11 @@ const eventTypeMaxLen = 128
 
 // eventsPublish handles POST /v1/events. It validates the envelope,
 // stamps the sender, and routes by scope: device fans out to local
-// subscribers over the in-memory hub; account and space answer 501
-// until the SDK pub/sub bridge lands. Fire-and-forget: the response
-// reports how many local subscribers matched (0 = nobody listening)
-// but a valid publish always succeeds. See docs/21-events.md.
+// subscribers over the in-memory hub; account and space publish on the
+// SDK pub/sub (tech space / target space) and reach local subscribers
+// via its Self loopback through the bridge. Fire-and-forget: the
+// response reports how many local subscribers matched (0 = nobody
+// listening) but a valid publish always succeeds. See docs/21-events.md.
 //
 //	@Summary	Publish an event
 //	@Tags		events
@@ -95,10 +102,76 @@ func (d *deps) eventsPublish(c echo.Context) error {
 	case api.EventScopeDevice:
 		n := d.eventsHub().publish(ev)
 		return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: n})
-	default:
-		// account/space ride the SDK pub/sub bridge (SYN-152).
-		return notImplemented("Space.PubSub")(c)
+	case api.EventScopeAccount:
+		return d.publishNetworkEvent(c, ev, d.sdk.PubSub())
+	default: // space
+		sp, err := d.sdk.Spaces().Get(c.Request().Context(), ev.SpaceId)
+		if err != nil {
+			return spaceError(c, err, ev.SpaceId)
+		}
+		return d.publishNetworkEvent(c, ev, sp.PubSub())
 	}
+}
+
+// publishNetworkEvent sends ev over the SDK pub/sub. Local delivery is
+// NOT fanned out here — the SDK delivers the publish synchronously to
+// matching local subscriptions (Self loopback), which the bridge feeds
+// into the hub; a matching bridge interest exists exactly when a
+// matching local subscriber does. The reply's subscribers count is the
+// hub's current match count — approximate by design (fire-and-forget).
+func (d *deps) publishNetworkEvent(c echo.Context, ev api.Event, ps space.PubSubAPI) error {
+	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
+	if err != nil {
+		handlerLog.Error("marshal event payload", zap.Error(err))
+		return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
+	}
+	topic := eventTopic(ev.Type, ev.Target, d.sdk.Account().Id())
+	if err := ps.Publish(c.Request().Context(), topic, payload); err != nil {
+		return pubsubError(c, err)
+	}
+	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: d.eventsHub().matchCount(&ev)})
+}
+
+// pubsubError maps the SDK pub/sub sentinels onto the canonical
+// envelope.
+func pubsubError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	case errors.Is(err, space.ErrPubSubPayloadTooLarge):
+		return writeError(c, http.StatusBadRequest, "events.payload_too_large",
+			"event exceeds the 64 KiB pub/sub message cap", nil)
+	case errors.Is(err, space.ErrPubSubNoReadKey):
+		return writeError(c, http.StatusConflict, "events.no_read_key",
+			"no read key for the space (keyless or guest access) — network events need full membership", nil)
+	case errors.Is(err, space.ErrPubSubTooManyPatterns):
+		return writeError(c, http.StatusConflict, "events.too_many_patterns",
+			"the space's pub/sub subscription pattern budget is exhausted; narrow or share filters", nil)
+	case errors.Is(err, space.ErrPubSubTopicNotOwned):
+		return writeError(c, http.StatusForbidden, "events.topic_not_owned",
+			"the type maps into another account's self-owned topic namespace", nil)
+	case errors.Is(err, space.ErrPubSubInvalidTopic):
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"type + target render an invalid pub/sub topic (256-byte / 16-segment budget)", nil)
+	}
+	handlerLog.Error("unclassified pubsub error", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
+}
+
+// errorsIsPubSub distinguishes the pub/sub sentinels from space
+// resolution errors on the subscribe path, where either can surface
+// from acquire.
+func errorsIsPubSub(err error) bool {
+	for _, s := range []error{
+		space.ErrPubSubInvalidTopic, space.ErrPubSubPayloadTooLarge,
+		space.ErrPubSubTopicNotOwned, space.ErrPubSubNoReadKey,
+		space.ErrPubSubTooManyPatterns,
+	} {
+		if errors.Is(err, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // eventsSubscribe handles GET /v1/events/subscribe. It streams
@@ -153,6 +226,33 @@ func (d *deps) eventsSubscribe(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"target must be 1-128 chars of [A-Za-z0-9._-]", nil)
 		}
+	}
+
+	// Network scopes pull through refcounted pub/sub interests. With no
+	// scope filter the subscription is a catch-all: account interests
+	// always, space interests for every explicitly listed spaceId (there
+	// is no "all spaces" interest — pub/sub is per-space). An explicit
+	// space-scope subscription therefore must name its spaces.
+	catchAll := len(f.scopes) == 0
+	wantAccount := catchAll || slices.Contains(f.scopes, api.EventScopeAccount)
+	wantSpace := catchAll || slices.Contains(f.scopes, api.EventScopeSpace)
+	if !catchAll && slices.Contains(f.scopes, api.EventScopeSpace) && len(f.spaceIds) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"scope=space subscription requires at least one spaceId filter", nil)
+	}
+	var netSpaceIds []string
+	if wantSpace {
+		netSpaceIds = f.spaceIds
+	}
+	if wantAccount || len(netSpaceIds) > 0 {
+		release, err := d.eventsNet().acquire(c.Request().Context(), wantAccount, netSpaceIds, filterPatterns(&f))
+		if err != nil {
+			if len(netSpaceIds) > 0 && !errorsIsPubSub(err) {
+				return spaceError(c, err, "")
+			}
+			return pubsubError(c, err)
+		}
+		defer release()
 	}
 
 	id, ch := d.eventsHub().subscribe(f)

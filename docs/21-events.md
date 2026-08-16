@@ -14,11 +14,12 @@ deliberately does **not** go through the dataset/handler/CRDT machinery.
 Scopes:
 
 - `device` — this process only: local in-memory fan-out, never leaves the
-  machine. **Implemented.**
-- `account` — every device of this account. **`501` until the SDK pub/sub
-  bridge lands (SYN-152, needs SYN-150).**
-- `space` — every member of the space named by `spaceId`. **`501`, same
-  prerequisite.**
+  machine.
+- `account` — every device of this account, over the SDK pub/sub bound to
+  the tech space (whose owner-only ACL means its peers are exactly the
+  account's own devices).
+- `space` — every member of the space named by `spaceId`, over that
+  space's pub/sub.
 
 ## Why in-memory (not a dataset)
 
@@ -92,7 +93,11 @@ Validation (`400`):
   `spaceId` present on a non-space scope.
 - `events.payload_too_large` — `data` exceeds 64 KiB.
 
-`scope: account | space` → `501 sdk.not_implemented` until SYN-152.
+Network scopes add (from the SDK pub/sub sentinels): `409
+events.no_read_key` (keyless/guest access — network events need full
+membership), `403 events.topic_not_owned` (defensive — can't occur with
+the server-side topic mapping), and the space-resolution errors
+(`404`/`409 space.*`) for `scope: space`.
 
 ### `GET /v1/events/subscribe` — subscribe (SSE)
 
@@ -136,6 +141,17 @@ data: {"reason":"server_shutdown"}
   branch on one reason set. A plain client disconnect writes no frame (the
   peer is already gone).
 
+Network-scope subscriptions have two extra rules:
+
+- An **explicit** `scope=space` subscription must name at least one
+  `spaceId` filter (`400 request.missing_field`) — pub/sub interest is
+  per-space, there is no "all spaces" subscription. A catch-all (no
+  `scope` param) doesn't error: it covers device + account, plus any
+  space listed in a `spaceId` filter.
+- Subscribe can answer `409 events.too_many_patterns` when the space's
+  pub/sub pattern budget (100) is exhausted — narrow the type filters or
+  share them across subscribers (identical filters share one interest).
+
 ## Event types
 
 ### `ui.*` — UI navigation (device scope)
@@ -158,6 +174,76 @@ publisher hint, UI display only. A UI window mounts one
 `EventSource('/v1/events/subscribe?scope=device&type=ui.*')` and dispatches
 `event` frames into navigation; unknown `ui.*` types are ignored.
 
+## Scopes over the network
+
+`account` and `space` events ride the SDK's ephemeral pub/sub
+(`SDK.PubSub()` / `Space.PubSub()`): read-key-encrypted, per-message
+signed, fanned out via the responsible sync nodes and direct LAN peers.
+Same delivery contract as the local hub — fire-and-forget, at-most-once,
+no persistence; offline members simply miss events.
+
+### Topic mapping
+
+Events map onto pub/sub topics so a device pulls only what someone
+locally subscribed to. Dotted `type` → slash segments under the `ev/`
+root, with the target **always** appended as exactly one segment (`-`
+when absent):
+
+| Event                              | Topic                            |
+|------------------------------------|----------------------------------|
+| `process.progress`, target `p1`    | `ev/process/progress/p1`         |
+| `process.progress`, no target      | `ev/process/progress/-`          |
+| `editor.cursor`, target `o1`, by A | `acc/ev/editor/cursor/o1/<A>`    |
+
+Types designated **self-owned** (registry `selfOwnedEventTypes` in
+`internal/server/events_topics.go`; v1: `editor.cursor`) map into
+pub/sub's reserved `acc/…/<accountId>` namespace — only that account can
+publish there (enforced at publisher, relay and receiver), making
+presence-style signals spoof-proof. Anyone may subscribe; the fan-in
+pattern covers the target + account tail. Add a type to the registry to
+make it self-owned — a coordinated change, since every peer must map the
+type the same way.
+
+SSE filters become NATS-style interest patterns: `type=process.*` →
+`ev/process/>`, exact type → `ev/…/<target>` or `ev/…/*`, no type filter
+→ `ev/>` + `acc/ev/>`. Patterns are a coarse pull filter only — the hub
+re-filters every delivery against the full subscription filter.
+
+### Interests and refcounting
+
+The first local subscriber whose filter needs a pattern on a scope
+subscribes it with the SDK; the last drops it. Idle spaces cost nothing,
+and N identical filters share one SDK subscription. Because the SDK
+fires every subscription matching a message, the bridge subscribes only
+the maximal (pairwise-disjoint) cover of the wanted pattern set — one
+message is never delivered twice (`internal/server/events_bridge.go`).
+
+### Sender, loopback, delivery
+
+`sender.identity` is stamped from the pub/sub message **signature** —
+anything a payload claims about its sender is discarded. `sender.self`
+is the SDK's loopback flag: true on every device of the publishing
+account. A network-scope publish reaches local subscribers through that
+loopback (synchronous on publish), not a second local fan-out, so the
+reply's `subscribers` count is the hub's current match count —
+approximate by design.
+
+### Constraints
+
+- **Payload ≤ 64 KiB** per message (enforced at publish, `400
+  events.payload_too_large`).
+- **~30 msg/s per-peer publish budget** (burst 60; any-sync's pub/sub
+  rate limit). Coalesce high-frequency producers: token-level agent
+  output at ~4 Hz, cursor positions at ≤ 10 Hz are fine.
+- **100 interest patterns per space** (shared across the process — `409
+  events.too_many_patterns`).
+- Relay through sync nodes needs a network whose nodes carry
+  `pubsubrelay` (staging does, any-sync-node ≥ v0.13.1); against older
+  nodes events still flow between directly connected LAN peers.
+- Guest-mode (public access) spaces are unsupported — the transport
+  signs as the account identity, which a guest ACL doesn't contain
+  (`409 events.no_read_key`).
+
 ## Server implementation
 
 - `internal/server/events_hub.go` — `eventHub`, a process-global filtered
@@ -170,6 +256,11 @@ publisher hint, UI display only. A UI window mounts one
   validate → stamp sender → route by scope) and `eventsSubscribe` (parse
   filters → the shared `streamStatusSSE` driver: `ready`, keepalive,
   terminal `closed`, registered with `streamsWG` so graceful shutdown waits).
+- `internal/server/events_topics.go` — the type↔topic mapping, the
+  self-owned registry, filter→pattern derivation and the
+  pattern-subsumption cover used by the bridge.
+- `internal/server/events_bridge.go` — the refcounted pub/sub bridge for
+  the network scopes.
 - `internal/api/event.go` — `Event`, `EventSender`, `EventPublishRequest`/
   `Response`, the scope and `ui.*` constants.
 - Routes registered in `internal/server/routes.go`.
@@ -187,13 +278,8 @@ any events subscribe [--scope S]... [--type T]... [--space ID]... [--target X]..
 
 - Fire-and-forget, at-most-once. No persistence, no replay, no retry, no ack
   beyond the local `subscribers` count. Intentional — see "Why in-memory".
-- `data` ≤ 64 KiB. Network scopes will add a ~30 msg/s per-peer publish
-  budget (any-sync pub/sub rate limit) — coalesce high-frequency producers.
 - Single account per server ⇒ the hub is genuinely global. If
   multi-account-per-process ever lands, key the hub by account.
-- `account`/`space` scopes: SYN-152 maps types onto SDK pub/sub topics
-  (dotted `type` → slash segments, target appended; designated self-owned
-  types into the spoof-proof `acc/…` namespace) with refcounted
-  subscribe-side interests. This doc gains a § Scopes over the network
-  section when it lands.
 - New event kinds = new `type` values; document the contracts here.
+  `any`-internal producers (indexer progress, sync milestones) publish
+  through `deps.eventsHub()` directly — none wired yet.

@@ -498,15 +498,37 @@ Implementation slices landed:
     repeatable `scope`/`spaceId`/`type` (exact or `x.*` prefix)/
     `target` params — AND across dimensions, OR within one. Frames
     `ready` → `event` → `closed{reason}` on the shared reason set.
-    **Device scope only** — account/space answer `501` until the SDK
-    pub/sub bridge (SYN-152, needs SYN-150). Account-scoped routes
+    **Account/space scopes ride the SDK pub/sub (SYN-152, SDK's
+    SYN-150 `Space.PubSub()`/`SDK.PubSub()`)**: dotted type → slash
+    topic under `ev/` with the target always one segment (`-` when
+    absent); self-owned types (registry in events_topics.go, v1:
+    `editor.cursor`) go into the spoof-proof `acc/…/<accountId>`
+    namespace; SSE filters become NATS-style interests, refcounted
+    per (scope, pattern) with only the maximal pairwise-disjoint
+    cover subscribed so overlapping patterns never double-deliver
+    (events_bridge.go); local delivery of a network publish is the
+    SDK's synchronous Self loopback through the bridge (no second
+    fan-out; `subscribers` = hub match count, approximate);
+    `sender.identity` comes from the message signature, payload
+    sender claims discarded. Explicit `scope=space` subscribe
+    requires a `spaceId` filter (interest is per-space). Pub/sub
+    sentinels map to `events.no_read_key` / `events.too_many_patterns`
+    / `events.topic_not_owned`. Constraints: 64 KiB payload, ~30
+    msg/s per-peer, 100 patterns/space. Account-scoped routes
     outside the `:spaceId` group, behind the `/v1` auth guard.
     `internal/server/events_hub.go` (filtered broadcaster; internal
     producers publish through `deps.eventsHub()` — none wired yet) +
-    `handlers_events.go` + `internal/api/event.go`. CLI: `any events
-    publish/subscribe` (replaced `any ui`; `/v1/ui/commands[/subscribe]`
-    and docs/15-ui-commands.md are gone). Contract: docs/21-events.md.
+    `events_topics.go` + `events_bridge.go` + `handlers_events.go` +
+    `internal/api/event.go`. CLI: `any events publish/subscribe`
+    (replaced `any ui`; `/v1/ui/commands[/subscribe]` and
+    docs/15-ui-commands.md are gone). Contract: docs/21-events.md.
     Consumers migrate per `../any-ui/docs/tasks/events-migration.md`.
+    e2e: internal/e2e/multipeer_events_test.go. **SDK prerequisite
+    (branch syn-150, pseudo-versioned)**: `Space.PubSub()` +
+    `SDK.PubSub()`; the same bump renames the spaceType vocabulary
+    (`anytype.space`/`anytype.onetoone` → `any.space`/`any.onetoone`,
+    passthrough wire change) and drags any-sync v0.13.1 +
+    any-store/v2 beta.5.
 
 19. **One-to-one (direct) spaces** — wraps the SDK's derived 1-1 space
     surface. A 1-1 is shared by exactly
@@ -523,7 +545,7 @@ Implementation slices landed:
     /v1/spaces/one-to-one/register-incoming` (`{peerIdentity,
     displayHint?}` → `RegisterIncoming`, the out-of-band discovery path,
     204, idempotent). New `SpaceInfo` fields `spaceType` (=
-    `anytype.onetoone`) + `author`, and status strings
+    `any.onetoone`) + `author`, and status strings
     `one_to_one_pending` / `one_to_one_declined`
     (`spaceInfoToAPI`/`spaceStatusString`). **Discovery has no bespoke
     endpoint** — incoming requests are the space list filtered on `GET

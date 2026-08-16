@@ -433,8 +433,9 @@ any events subscribe [--scope S]... [--type T]... [--space ID]... [--target X]..
 ```
 
 The account-wide ephemeral event bus (full contract:
-`docs/21-events.md`). `--scope` defaults to `device`; account/space
-answer `501` until the SDK pub/sub bridge lands. `publish` prints the
+`docs/21-events.md`). `--scope` defaults to `device`; `account` reaches
+every device of the account, `space` (with `--space`) every member of
+the space, both over the SDK pub/sub. `publish` prints the
 `{subscribers}` reply (local matches; 0 = nobody listening, still
 success). `subscribe` filter flags are repeatable — AND across
 dimensions, OR within one; `--type` takes an exact type or a `x.*`

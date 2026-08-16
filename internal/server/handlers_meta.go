@@ -47,6 +47,12 @@ type deps struct {
 	eventsOnce sync.Once
 	events     *eventHub
 
+	// bridge refcounts SSE event filters into SDK pub/sub interests for
+	// the account/space scopes (created lazily via eventsNet — only
+	// reached behind the ready guard, so sdk is non-nil).
+	bridgeOnce sync.Once
+	bridge     *eventsBridge
+
 	// indexer is the search indexer (FTS + vector over the chunker
 	// feed). Nil when index.enabled is false — the search endpoint then
 	// returns index.disabled.

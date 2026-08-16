@@ -381,7 +381,7 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
+`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
 to tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
@@ -402,7 +402,7 @@ tombstoned row) — treat it as "unknown / no access", with
 read when it matters. And on a 1-1 space both participants report
 `writer` (the ACL owner slot is a synthetic shared key nobody holds),
 so don't gate owner-only actions on `ownRole == "owner"` for
-`spaceType:"anytype.onetoone"` rows.
+`spaceType:"any.onetoone"` rows.
 
 `SpaceInfo.settings` is the **account-private, client-owned** per-space
 settings object (free-form single-level keys, scalar values) — written
@@ -447,7 +447,7 @@ values, not ACL operations:
   (`Service.OneToOne`). Derives the space and activates it immediately
   (implicit self-approval → `status:"active"`). Idempotent; overrides a
   prior local decline (un-decline). Returns 201 with the `SpaceInfo`
-  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  (`type`/`spaceType` = `any.onetoone`). `400 request.missing_field`
   when `otherIdentity` is empty; `400 request.invalid_field` for an
   undecodable identity or self-pairing (`details.reason:"self"`).
 - **Incoming → pending.** When a peer reaches out, the other side learns
@@ -2312,8 +2312,11 @@ within one. **At-most-once, no snapshot** — a subscriber receives only
 events published after it connects (no stale replay on reconnect).
 `closed` reasons: `server_shutdown`, `overflow`. Both routes sit
 outside the space group like `/sync-status/subscribe`.
-`scope: account | space` answer `501 sdk.not_implemented` until the
-SDK pub/sub bridge (SYN-152) lands.
+`scope: account | space` ride the SDK pub/sub (tech space / target
+space) with refcounted subscribe-side interests; an explicit
+`scope=space` subscription must name at least one `spaceId` filter.
+Network errors: `events.no_read_key`, `events.too_many_patterns`,
+`events.topic_not_owned` (docs/06-errors.md).
 
 ### Push notifications
 
