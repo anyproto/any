@@ -6056,6 +6056,33 @@ paths:
       summary: Subscribe to object sync status (SSE)
       tags:
       - sync
+  /spaces/{spaceId}/track:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Track a space id in the local index (open it with a later GET)
+      tags:
+      - spaces
   /spaces/{spaceId}/types:
     get:
       parameters:

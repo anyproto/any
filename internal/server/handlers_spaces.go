@@ -33,6 +33,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
+	g.POST("/spaces/:spaceId/track", d.spaceTrack)
 	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
@@ -392,6 +393,41 @@ func (d *deps) spaceSync(c echo.Context) error {
 	}
 	if err := sp.SyncHeads(c.Request().Context()); err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// spaceTrack handles POST /v1/spaces/:spaceId/track — Spaces.Track:
+// registers a spaceId in the local space index WITHOUT joining it, so
+// a later GET /v1/spaces/:spaceId can open it (any-sync bootstraps
+// the storage from the responsible nodes when it's missing locally).
+// Deliberately no resolveSpace — bypassing Get's row gate is the whole
+// point. Two callers: the broker path (foreign space, no keys —
+// synced content stays sealed) and re-init recovery of the account's
+// OWN created spaces (the identity is already in the ACL, so the
+// pulled ACL grants the keys; ownRole/type/name backfill on first
+// load). Idempotent; never downgrades an existing row.
+//
+// @Summary	Track a space id in the local index (open it with a later GET)
+// @Tags		spaces
+// @Param		spaceId	path	string	true	"Space ID"
+// @Success	204
+// @Failure	400	{object}	api.ErrorEnvelope
+// @Failure	500	{object}	api.ErrorEnvelope
+// @Router		/spaces/{spaceId}/track [post]
+func (d *deps) spaceTrack(c echo.Context) error {
+	id := c.Param("spaceId")
+	if err := d.sdk.Spaces().Track(c.Request().Context(), id); err != nil {
+		// The malformed-id rejection has no exported sentinel
+		// (fmt.Errorf in spaceimpl.validateSpaceId) — string-match,
+		// same pragmatic pattern as the create SpaceType case.
+		if strings.Contains(err.Error(), "invalid spaceId") ||
+			strings.Contains(err.Error(), "cannot track the tech space") {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"spaceId must be a valid <cid>.<replication key> space id",
+				map[string]any{"spaceId": id})
+		}
+		return spaceError(c, err, id)
 	}
 	return c.NoContent(http.StatusNoContent)
 }

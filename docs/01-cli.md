@@ -104,6 +104,7 @@ any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shi
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...   # shipped — account-private settings PATCH
 any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
+any space track  <spaceId>                          # shipped — index a space id; a later get opens it
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)

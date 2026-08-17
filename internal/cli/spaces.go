@@ -25,7 +25,7 @@ func newSpaceCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSettingsCmd(),
-		newSpaceSyncCmd(), newSpaceDeleteCmd(), newSpaceQueryCmd(),
+		newSpaceSyncCmd(), newSpaceTrackCmd(), newSpaceDeleteCmd(), newSpaceQueryCmd(),
 		newSpaceSubscribeCmd())
 	return cmd
 }
@@ -264,6 +264,22 @@ func newSpaceSyncCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, flags.Timeout)
 			return cl.SpaceSync(cmd.Context(), args[0])
+		},
+	}
+}
+
+// newSpaceTrackCmd: `any space track <spaceId>` — register a space id
+// in the local index without joining it; a following `any space get`
+// opens it (the SDK pulls missing storage from the responsible nodes).
+// The re-init recovery path for the account's own created spaces.
+func newSpaceTrackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "track <spaceId>",
+		Short: "register a space id in the local index (open it with a later get)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := client.New(flags.Addr, flags.Timeout)
+			return cl.SpaceTrack(cmd.Context(), args[0])
 		},
 	}
 }
