@@ -111,6 +111,22 @@ func TestServer_ProcessRoundTrip(t *testing.T) {
 		t.Errorf("after progress = %+v", p)
 	}
 
+	// A bare heartbeat keeps every field; an explicit zero clears.
+	rec = doJSON(t, e, http.MethodPost, "/v1/processes/run1/progress", `{}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("heartbeat: %d %s", rec.Code, rec.Body.String())
+	}
+	if p = listOne(); p.Done != 3 || p.Total != 9 || p.Message != "step 3" {
+		t.Errorf("after bare heartbeat = %+v, want state kept", p)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/processes/run1/progress", `{"done":4,"total":0}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clearing progress: %d %s", rec.Code, rec.Body.String())
+	}
+	if p = listOne(); p.Done != 4 || p.Total != 0 || p.Message != "step 3" {
+		t.Errorf("after explicit clear = %+v, want done=4 total cleared message kept", p)
+	}
+
 	// The owner's cancel channel: an SSE subscription on process.cancel.
 	frames := make(chan client.SSEFrame, 16)
 	go func() {

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -97,6 +98,21 @@ func (r *processRegistry) apply(ev *api.Event) {
 	}
 	var data processEventData
 	_ = json.Unmarshal(ev.Data, &data)
+	// Sanitize before storing: rows can materialize from hand-emitted
+	// or remote payloads the register endpoint never validated, and
+	// progress/finish re-emit the stored descriptor — nothing
+	// grammar-violating or oversized may enter the view.
+	if data.Kind != "" && !eventTargetRe.MatchString(data.Kind) {
+		data.Kind = ""
+	}
+	if data.Target != "" && !eventTargetRe.MatchString(data.Target) {
+		data.Target = ""
+	}
+	data.Title = clipUTF8(data.Title, processTitleMaxLen)
+	data.Message = clipUTF8(data.Message, processMessageMaxLen)
+	if data.Error != nil {
+		data.Error.Message = clipUTF8(data.Error.Message, processMessageMaxLen)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -133,12 +149,28 @@ func (r *processRegistry) apply(ev *api.Event) {
 		p.Total = data.Total
 		p.Message = data.Message
 	}
+	// Only failed carries an error; every other event clears it, so a
+	// row resurrected to running (a late heartbeat after finish) or
+	// re-finished after a failure never shows a stale outcome.
 	if ev.Type == api.EventProcessFailed {
 		p.Error = data.Error
+	} else {
+		p.Error = nil
 	}
 	p.UpdatedAt = now.Unix()
 	e.seen = now
 	r.sweepLocked(now)
+}
+
+// clipUTF8 bounds s to max bytes without bisecting a rune.
+func clipUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
 }
 
 // expired reports whether e is past its staleness budget at t.

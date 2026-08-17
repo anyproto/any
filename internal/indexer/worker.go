@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -380,32 +381,55 @@ func typeSet(row *anyenc.Value) map[string]bool {
 
 // drainPending wraps drainRounds with embed-process reporting
 // (Options.OnProcess, nil = off): a drain that finds pending docs
-// reports started, progress per landed batch, then done or failed —
-// except on context cancellation, where shutdown isn't a failure.
+// reports started, progress per landed batch — with a periodic
+// heartbeat while an embed call runs longer than the view's staleness
+// budget — then exactly one terminal: done, failed, or cancelled when
+// the worker context ends mid-drain (space dropped, shutdown), so no
+// ghost running row outlives the drain.
 func (w *spaceWorker) drainPending(ctx context.Context) error {
-	var embedded int64
-	started := false
+	if w.ix.opts.OnProcess == nil {
+		return w.drainRounds(ctx, func(int) {})
+	}
+	var embedded atomic.Int64
 	report := func(phase, msg string) {
-		if w.ix.opts.OnProcess == nil {
+		w.ix.opts.OnProcess(ProcessUpdate{SpaceId: w.sp.Id(), Phase: phase, Done: embedded.Load(), Message: msg})
+	}
+	started := false
+	stopHeartbeat := func() {}
+	err := w.drainRounds(ctx, func(landed int) {
+		if landed > 0 {
+			embedded.Add(int64(landed))
+			report(ProcessProgress, "")
 			return
 		}
-		w.ix.opts.OnProcess(ProcessUpdate{SpaceId: w.sp.Id(), Phase: phase, Done: embedded, Message: msg})
-	}
-	err := w.drainRounds(ctx, func(landed int) {
-		if !started {
-			started = true
-			report(ProcessStarted, "")
+		if started {
+			return
 		}
-		if landed > 0 {
-			embedded += int64(landed)
-			report(ProcessProgress, "")
-		}
+		started = true
+		report(ProcessStarted, "")
+		hbCtx, cancel := context.WithCancel(ctx)
+		stopHeartbeat = cancel
+		go func() {
+			t := time.NewTicker(embedProcessHeartbeat)
+			defer t.Stop()
+			for {
+				select {
+				case <-hbCtx.Done():
+					return
+				case <-t.C:
+					report(ProcessProgress, "")
+				}
+			}
+		}()
 	})
+	stopHeartbeat()
 	if started {
 		switch {
 		case err == nil:
 			report(ProcessDone, "")
-		case ctx.Err() == nil:
+		case ctx.Err() != nil:
+			report(ProcessCancelled, "")
+		default:
 			report(ProcessFailed, err.Error())
 		}
 	}

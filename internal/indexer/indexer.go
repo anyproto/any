@@ -84,13 +84,22 @@ type Options struct {
 }
 
 // ProcessUpdate phases — one embed drain reports started once, then
-// progress per landed batch, then exactly one of done/failed.
+// progress per landed batch (plus a periodic heartbeat while an embed
+// call runs long), then exactly one of done/failed/cancelled —
+// cancelled when the worker context ends mid-drain (space dropped,
+// shutdown).
 const (
-	ProcessStarted  = "started"
-	ProcessProgress = "progress"
-	ProcessDone     = "done"
-	ProcessFailed   = "failed"
+	ProcessStarted   = "started"
+	ProcessProgress  = "progress"
+	ProcessDone      = "done"
+	ProcessFailed    = "failed"
+	ProcessCancelled = "cancelled"
 )
+
+// embedProcessHeartbeat paces the mid-drain progress heartbeat: one
+// EmbedDocs call on a slow local model can exceed the process view's
+// staleness budget, and a stale row would flicker out mid-drain.
+const embedProcessHeartbeat = 10 * time.Second
 
 // ProcessUpdate is one Options.OnProcess report. Done counts docs
 // embedded so far in the current drain (the total backlog is unknown

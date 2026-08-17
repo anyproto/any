@@ -879,15 +879,25 @@ Implementation slices landed:
     cancel resolves the composite key (`404 process.not_found` /
     `409 process.ambiguous` + `details.identities`), emits
     `process.cancel {identity}` on the process's own scope, never
-    mutates state — the owner reacts and finishes. Registry =
-    synchronous `eventHub.addTap` observer (loss-free, created in the
-    hub's once); network-scope emits also apply directly (Self
-    loopback needs an interest). Remote visibility: standing
-    account-scope `ev/process/>` interest acquired at engine boot
-    (release on close); space scope only while a local subscriber
-    holds the space interest. First internal producer: indexer embed
-    drain (`indexer.Options.OnProcess` → `deps.indexEmbedProcess`,
-    device scope, id `index.embed.<spaceId>`; cancel ignored). CLI:
+    mutates state — the owner reacts and finishes. Progress fields are
+    all-optional (absent = keep, `{}` = pure heartbeat); non-failed
+    events clear a stored error; unvalidated remote payload fields
+    are sanitized before entering the view. Registry = synchronous
+    construction-time hub tap (loss-free); EVERY network-scope bus
+    publish (`/v1/processes` and raw `/v1/events` alike,
+    `publishNetworkEvent`) applies directly to the view (Self
+    loopback needs an interest). Shared bus plumbing: `publishScoped`
+    / `validateEventScope` / `validTargetToken` (handlers_events.go)
+    serve both surfaces. Remote visibility: standing account-scope
+    `ev/process/>` interest acquired at boot with backoff-retry
+    (release on close; the bridge retries failed re-subscribes —
+    `bridgeResyncRetry`); space scope only while a local subscriber
+    holds an interest covering `process.*` on the space. First
+    internal producer: indexer embed drain
+    (`indexer.Options.OnProcess` → `deps.indexEmbedProcess`, device
+    scope, id `index.embed.<spaceId>`; 10s mid-drain heartbeat,
+    worker-cancel → cancelled, generic failure message — no fs paths
+    on the wire; cancel requests ignored). CLI:
     `any process list/cancel`. Files: internal/server/processes.go +
     handlers_processes.go, api/process.go; e2e
     internal/e2e/multipeer_processes_test.go. Contract:

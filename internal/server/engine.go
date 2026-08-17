@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
@@ -162,17 +163,49 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.push = eng.push
 	d.account = eng.account
 	d.ready.Store(true)
-	// Standing account-scope interest for process.* broadcasts, so this
-	// account's other devices' processes materialize in the view with
-	// no local SSE subscriber. Space-scope coverage stays subscriber-
-	// driven (docs/22-processes.md § Remote visibility). Best-effort:
-	// local + account publishing works without it.
-	if release, aerr := d.eventsNet().acquire(d.runCtx, true, nil, []string{eventTopicPrefix + "process/>"}); aerr != nil {
-		handlerLog.Warn("process event interest not acquired; remote processes won't materialize", zap.Error(aerr))
-	} else {
-		eng.procRelease = release
-	}
+	go d.holdProcessInterest()
 	return eng, nil
+}
+
+// holdProcessInterest acquires the standing account-scope interest for
+// process.* broadcasts (ev/process/>), so this account's other
+// devices' processes materialize in the view with no local SSE
+// subscriber. Space-scope coverage stays subscriber-driven
+// (docs/22-processes.md § Remote visibility). Retries with backoff
+// until acquired or shutdown — unlike an SSE client, this interest
+// has no reconnect path, so a one-shot attempt could silently cost
+// remote visibility for the whole process lifetime.
+func (d *deps) holdProcessInterest() {
+	ctx := d.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var done <-chan struct{}
+	if d.shutdownCtx != nil {
+		done = d.shutdownCtx.Done()
+	}
+	backoff := 2 * time.Second
+	for {
+		release, err := d.eventsNet().acquire(ctx, true, nil, []string{eventTopicPrefix + "process/>"})
+		if err == nil {
+			d.authMu.Lock()
+			if d.eng != nil {
+				d.eng.procRelease = release
+				d.authMu.Unlock()
+				return
+			}
+			d.authMu.Unlock()
+			release() // engine already torn down
+			return
+		}
+		handlerLog.Warn("process event interest not acquired; retrying", zap.Error(err))
+		select {
+		case <-done:
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, time.Minute)
+	}
 }
 
 // indexEmbedProcess bridges indexer embed-drain updates onto the
@@ -181,7 +214,11 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 // copy, other devices don't care. Updates arriving before the engine
 // is published (the boot pass can start drains first) are dropped —
 // every frame carries the full descriptor, so the view recovers from
-// any later one. Cancel is ignored by this producer.
+// any later one. Cancel is ignored by this producer; a worker stopped
+// mid-drain (space dropped) reports cancelled. The failure message is
+// deliberately generic — indexer errors carry filesystem paths and
+// upstream response bodies, which never go on the wire; the detail is
+// in the server log (the embed loop logs every failed drain).
 func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
 	if !d.ready.Load() {
 		return
@@ -195,13 +232,12 @@ func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
 		typ = api.EventProcessProgress
 	case indexer.ProcessDone:
 		typ = api.EventProcessDone
+	case indexer.ProcessCancelled:
+		typ = api.EventProcessCancelled
 	case indexer.ProcessFailed:
 		typ = api.EventProcessFailed
-		msg := u.Message
-		if len(msg) > processMessageMaxLen {
-			msg = msg[:processMessageMaxLen]
-		}
-		data.Error = &api.ProcessError{Code: "index.embed_failed", Message: msg}
+		data.Error = &api.ProcessError{Code: "index.embed_failed",
+			Message: "embedding failed; retrying on the next tick — see server log"}
 	default:
 		return
 	}

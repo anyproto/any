@@ -86,14 +86,17 @@ type ProcessRegisterRequest struct {
 }
 
 // ProcessProgressRequest is the body of POST /v1/processes/:id/progress.
-// Done/Total are free-unit counters (Total 0/absent = unknown);
-// Message is a short human-readable status line. Owners re-POST
-// progress at least every 15s as heartbeat even when idle — a running
+// Every field is optional: an absent field keeps its current value
+// (the server folds the stored state into the emitted frame), an
+// explicit value sets it — total 0 back to unknown, message "" blank.
+// A bare {} is therefore a pure heartbeat. Done/Total are free-unit
+// counters; Message is a short human-readable status line. Owners
+// re-POST progress at least every 15s even when idle — a running
 // process not heard from for 45s expires from the view. Strict-bound.
 type ProcessProgressRequest struct {
-	Done    int64  `json:"done"`
-	Total   int64  `json:"total,omitempty"`
-	Message string `json:"message,omitempty"`
+	Done    *int64  `json:"done,omitempty"`
+	Total   *int64  `json:"total,omitempty"`
+	Message *string `json:"message,omitempty"`
 }
 
 // ProcessFinishRequest is the body of POST /v1/processes/:id/finish.

@@ -2337,7 +2337,7 @@ terminal event. Full contract in `docs/22-processes.md`.
 |--------|-------------------------------|------------------------------------------------------------|
 | GET    | `/v1/processes`               | live view — `{processes: [...]}`, expired entries swept    |
 | POST   | `/v1/processes`               | register `{id, kind, title, scope, spaceId?, target?}` → emits `process.started` |
-| POST   | `/v1/processes/:id/progress`  | `{done, total?, message?}` → `process.progress` (heartbeat: ≤ every 15s) |
+| POST   | `/v1/processes/:id/progress`  | `{done?, total?, message?}` → `process.progress` (heartbeat: ≤ every 15s; absent fields keep their values, `{}` = pure heartbeat) |
 | POST   | `/v1/processes/:id/finish`    | `{status: done\|failed\|cancelled, error?}` → terminal event (`error` required iff failed) |
 | POST   | `/v1/processes/:id/cancel`    | `{identity?}` → `process.cancel` toward the owner (no state change) |
 
@@ -2350,7 +2350,8 @@ same-id publishers answer `409 process.ambiguous`
 (`details.identities`). Remote coverage: account-scope processes of
 this account's other devices always (standing `ev/process/>`
 interest); space-scope processes only while some local subscriber
-holds that space's event interest. No `/processes/subscribe` — watch
+holds an interest on that space **covering `process.*`** (a stream
+filtered to other types doesn't count). No `/processes/subscribe` — watch
 raw frames via `GET /v1/events/subscribe?type=process.*`. Routes sit
 outside the space group like `/v1/events`.
 

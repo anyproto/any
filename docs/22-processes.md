@@ -46,6 +46,10 @@ process id** (the id therefore follows the event-target grammar
   distinct from the envelope target, which carries the process id.
 - `done`/`total` are free-unit counters (`total` absent = unknown);
   `message` is a short status line (≤ 1024 bytes).
+- Frames from non-`any` publishers are sanitized before entering the
+  view: grammar-violating `kind`/`target` are dropped, oversized
+  `title`/`message` clipped — the helper endpoints re-emit stored
+  descriptor values, so nothing invalid is ever stored or relayed.
 
 The helper endpoints below emit these for you; a non-`any` publisher
 in the same space can emit them by hand through the bus and shows up
@@ -54,7 +58,14 @@ in everyone's view identically.
 ## Heartbeat and staleness
 
 - Owners re-POST progress at least every **15s**, even when idle —
-  progress doubles as the heartbeat.
+  progress doubles as the heartbeat, and a bare `{}` body is a pure
+  heartbeat: absent fields keep their current values (the server
+  folds the stored state into the emitted frame), explicit values
+  set them (`total: 0` back to unknown, `message: ""` blank).
+- Stop heartbeating **before** finishing: a progress frame landing
+  after the terminal event resurrects the row to `running`
+  (last-event-wins; any stored error is cleared) until the next
+  finish or expiry.
 - A **running** row not heard from for **45s** expires from the view
   (owner presumed dead). No synthesized event — it just vanishes; the
   owner's next progress POST answers `404 process.not_found` and it
@@ -99,10 +110,13 @@ row — the supported owner-restart path.
 
 ### `POST /v1/processes/:id/progress` — progress / heartbeat
 
-Body `{done, total?, message?}`. Requires the process live in the
-view under this account's identity, else `404 process.not_found`
-(register first). The server folds the registered descriptor into the
-emitted frame.
+Body `{done?, total?, message?}` — every field optional, absent =
+keep current value, explicit = set (so `{}` is a pure heartbeat and a
+partial update never wipes the rest). Requires the process live in
+the view under this account's identity, else `404 process.not_found`
+(register first). The server folds the registered descriptor and the
+current progress state into the emitted frame, so every frame carries
+the full picture.
 
 ### `POST /v1/processes/:id/finish` — terminal event
 
@@ -134,13 +148,17 @@ startedAt, updatedAt}` — `startedAt`/`updatedAt` are unix seconds of
   standing account-scope interest (`ev/process/>`) on the tech space,
   so account-scope processes of this account's other devices
   materialize with no local subscriber.
-- **Space members (space scope): while an interest is held.** Pub/sub
-  interest is per-space; a space's process broadcasts reach this
-  device only while some local subscriber names the space (e.g. a
-  progress UI's `/v1/events/subscribe?scope=space&spaceId=…&type=process.*`
-  stream — which a client showing progress holds anyway). Expect the
-  view to fill within one heartbeat (≤ 15s) of acquiring the
-  interest. Best-effort by design.
+- **Space members (space scope): while a covering interest is held.**
+  Pub/sub interest is per-space AND derived from the subscription's
+  type filters: the broadcasts reach this device only while some
+  local subscriber names the space with a filter that covers
+  `process.*` — i.e. `type=process.*` (or a subset like
+  `type=process.cancel`), or no type filter at all. A stream filtered
+  to, say, `ui.*` holds no process interest and feeds nothing into
+  the view. A progress UI holds
+  `/v1/events/subscribe?scope=space&spaceId=…&type=process.*` anyway;
+  expect the view to fill within one heartbeat (≤ 15s) of acquiring
+  it. Best-effort by design.
 - **Device scope** never leaves the machine.
 
 ## Internal producers
@@ -150,9 +168,14 @@ in-process hub — no HTTP). Wired today:
 
 - **Indexer embed drain** — id `index.embed.<spaceId>`, kind
   `index.embed`, target the spaceId. One started → progress-per-batch
-  → done/failed sequence per drain that found pending docs (`total`
-  unknown — pending is paged). Cancel is ignored by this producer: a
-  cancelled drain would just restart on the next tick.
+  → done/failed/cancelled sequence per drain that found pending docs
+  (`total` unknown — pending is paged); a 10s heartbeat keeps the row
+  alive through long embed calls, and a worker stopped mid-drain
+  (space dropped, shutdown) finishes as `cancelled` rather than
+  leaving a ghost running row. The failure message is generic —
+  indexer errors carry filesystem paths, which never go on the wire;
+  detail is in the server log. Cancel requests are ignored by this
+  producer: a cancelled drain would just restart on the next tick.
 
 ## Errors
 
@@ -167,19 +190,22 @@ in-process hub — no HTTP). Wired today:
 
 - `internal/server/processes.go` — `processRegistry`, the
   last-event-wins view: keyed map + lazy sweep (no janitor
-  goroutine), fed by a synchronous hub tap (`eventHub.addTap`) so it
+  goroutine), fed by a synchronous construction-time hub tap so it
   observes every publish loss-free — local emits and bridged network
   broadcasts alike. Created in the same once as the hub.
-- `internal/server/handlers_processes.go` — the five handlers + the
-  emit helper. Network-scope emits also apply to the registry
-  directly after a confirmed publish: the SDK's Self loopback
-  re-enters the hub only when a local interest covers the topic, and
-  the local view must not depend on interests (the tap upsert is
-  idempotent, double-apply is harmless).
+- `internal/server/handlers_processes.go` — the five handlers over
+  the shared bus emit path (`publishScoped` /
+  `publishNetworkEvent` in handlers_events.go). Every network-scope
+  publish — the process endpoints AND raw `POST /v1/events` — applies
+  to the registry directly after a confirmed send: the SDK's Self
+  loopback re-enters the hub only when a local interest covers the
+  topic, and the local view must not depend on interests (the tap
+  upsert is idempotent, double-apply is harmless).
 - `internal/server/engine.go` — the standing account interest
-  (acquired best-effort at boot, released on engine close) and
-  `indexEmbedProcess`, the indexer bridge
-  (`indexer.Options.OnProcess`).
+  (acquired at boot with backoff-retry, released on engine close;
+  the bridge additionally retries a failed re-subscribe so the
+  interest survives pattern-cover churn) and `indexEmbedProcess`,
+  the indexer bridge (`indexer.Options.OnProcess`).
 - `internal/api/process.go` — wire types + state/event-type consts.
 - Routes in `internal/server/routes.go`.
 

@@ -91,3 +91,43 @@ func TestEmbedDrainOnProcess(t *testing.T) {
 		t.Errorf("failing drain reported %+v, want started+failed{message}", updates)
 	}
 }
+
+// cancellingEmbedder cancels its context on first use — simulates the
+// worker being stopped (space dropped) mid-drain.
+type cancellingEmbedder struct{ cancel context.CancelFunc }
+
+func (e cancellingEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
+	e.cancel()
+	return nil, ctx.Err()
+}
+func (e cancellingEmbedder) EmbedQuery(ctx context.Context, _ string) ([]float32, error) {
+	return nil, ctx.Err()
+}
+func (e cancellingEmbedder) Dim(context.Context) (int, error) { return 4, nil }
+
+// A drain interrupted by worker-context cancellation reports a
+// terminal cancelled — never a silent exit that leaves a ghost
+// running row, and never failed (shutdown isn't a failure).
+func TestEmbedDrainOnProcessCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	st := mustStore(t, 4)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, opts: Options{
+		Embedder:  cancellingEmbedder{cancel: cancel},
+		OnProcess: func(u ProcessUpdate) { updates = append(updates, u) },
+	}.withDefaults()}
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+
+	if err := st.Apply(context.Background(), "sp1", []DocUpsert{
+		{Entry: entry("chat", "o1", "chat_messages", "m1", "doomed doc", 1)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.drainPending(ctx); err == nil {
+		t.Fatal("cancelled drain returned nil")
+	}
+	if len(updates) != 2 || updates[0].Phase != ProcessStarted || updates[1].Phase != ProcessCancelled {
+		t.Errorf("cancelled drain reported %+v, want started+cancelled", updates)
+	}
+}

@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -73,6 +75,42 @@ func TestProcessRegistry_IgnoresCancelAndForeignTypes(t *testing.T) {
 		Sender: &api.EventSender{Identity: "acctA"}})
 	if got := r.list(); len(got) != 0 {
 		t.Fatalf("list = %+v, want empty", got)
+	}
+}
+
+// A terminal error never survives a state change: progress after
+// failed resurrects the row to running with the error cleared, and a
+// later non-failed terminal clears it too.
+func TestProcessRegistry_ErrorCleared(t *testing.T) {
+	r, _ := testRegistry()
+	fail := processEventData{Kind: "k", Title: "t", Error: &api.ProcessError{Code: "x", Message: "m"}}
+	r.apply(procEvent(api.EventProcessFailed, "a", "p1", false, fail))
+	r.apply(procEvent(api.EventProcessProgress, "a", "p1", false, processEventData{Kind: "k", Title: "t", Done: 1}))
+	if p := r.list()[0]; p.State != api.ProcessStateRunning || p.Error != nil {
+		t.Errorf("after resurrect = %+v, want running with no error", p)
+	}
+	r.apply(procEvent(api.EventProcessFailed, "a", "p1", false, fail))
+	r.apply(procEvent(api.EventProcessDone, "a", "p1", false, processEventData{Kind: "k", Title: "t"}))
+	if p := r.list()[0]; p.State != api.ProcessStateDone || p.Error != nil {
+		t.Errorf("after done = %+v, want done with no error", p)
+	}
+}
+
+// Rows can materialize from unvalidated remote/hand-emitted payloads;
+// grammar-violating descriptor fields are dropped and oversized text
+// clipped rune-safely before entering the view (progress/finish
+// re-emit stored values, so nothing invalid may be stored).
+func TestProcessRegistry_SanitizesData(t *testing.T) {
+	r, _ := testRegistry()
+	long := strings.Repeat("é", 300) // 600 bytes, multi-byte runes
+	r.apply(procEvent(api.EventProcessStarted, "a", "p1", false,
+		processEventData{Kind: "bad kind!", Title: long, Target: "sp ace"}))
+	p := r.list()[0]
+	if p.Kind != "" || p.Target != "" {
+		t.Errorf("invalid kind/target stored: %+v", p)
+	}
+	if len(p.Title) > processTitleMaxLen || !utf8.ValidString(p.Title) || p.Title == "" {
+		t.Errorf("title not clipped rune-safely: %d bytes, valid=%v", len(p.Title), utf8.ValidString(p.Title))
 	}
 }
 

@@ -80,15 +80,15 @@ type eventHub struct {
 	subs map[int]eventSub
 	// taps are synchronous observers invoked on every publish,
 	// regardless of subscriber filters — loss-free, unlike a
-	// subscription (whose buffer can overflow). Registered once at
-	// construction time (before any publish), never removed. A tap
+	// subscription (whose buffer can overflow). Fixed at construction
+	// (late registration would race publish), never removed. A tap
 	// must be fast and non-blocking: publishes arrive from HTTP
 	// handlers and the SDK's pub/sub dispatch goroutine.
 	taps []func(*api.Event)
 }
 
-func newEventHub() *eventHub {
-	return &eventHub{subs: make(map[int]eventSub)}
+func newEventHub(taps ...func(*api.Event)) *eventHub {
+	return &eventHub{subs: make(map[int]eventSub), taps: taps}
 }
 
 // subscribe registers a new subscriber and returns its id and event
@@ -115,13 +115,6 @@ func (h *eventHub) unsubscribe(id int) {
 		close(s.ch)
 	}
 	h.mu.Unlock()
-}
-
-// addTap registers a synchronous publish observer. Call before the
-// hub sees its first publish (i.e. inside the deps once-constructor) —
-// there is no removal and no locking around registration.
-func (h *eventHub) addTap(fn func(*api.Event)) {
-	h.taps = append(h.taps, fn)
 }
 
 // publish fans ev out to every subscriber whose filter matches and
@@ -184,14 +177,13 @@ func (h *eventHub) matchCount(ev *api.Event) int {
 // helpers) gets a working hub with no explicit wiring — the hub has no
 // engine or SDK dependency. Internal producers (indexer, sync
 // milestones) publish through it directly.
-// The process registry is created in the same once so its tap is
-// registered before the hub sees any publish — every process.* event
-// (local or bridged) reaches the view.
+// The process registry is created in the same once and passed as a
+// construction-time tap, so every process.* event (local or bridged)
+// reaches the view from the hub's first publish on.
 func (d *deps) eventsHub() *eventHub {
 	d.eventsOnce.Do(func() {
-		d.events = newEventHub()
 		d.procs = newProcessRegistry()
-		d.events.addTap(d.procs.apply)
+		d.events = newEventHub(d.procs.apply)
 	})
 	return d.events
 }
