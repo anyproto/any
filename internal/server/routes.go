@@ -119,6 +119,13 @@ func buildEcho(d *deps) *echo.Echo {
 	// so like sync-status/subscribe it sits outside the space group.
 	registerIdentitiesRoutes(v1, d)
 
+	// Account-global device registry: one tech-space row per device
+	// (peer) of this account, with per-app install flags and the
+	// active-instance claims (SYN-165). Account-scoped — no :spaceId —
+	// so like sync-status/subscribe it sits outside the space group.
+	// See docs/21-devices.md.
+	registerDevicesRoutes(v1, d)
+
 	// Account-wide file-cache controls: local bytes held by file
 	// content across ALL spaces (SDK-level, not per-space), so like
 	// sync-status/subscribe they sit outside the space group. See

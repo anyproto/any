@@ -843,6 +843,35 @@ Implementation slices landed:
     user types. Contract: docs/03-api.md § Types (Built-in `page`
     type).
 
+31. **Devices registry + active-app election (SYN-165)** — the
+    account's device list in the tech-space system dataset `devices`
+    (row id = peerId, all synced: name/os/version, `apps` open-slug
+    install flags, `activeClaims` per-slug `{seq, at}`), wrapping the
+    SDK's typed surface (`Spaces().SetDevice/ClaimActive/DeleteDevice/
+    ListDevices`, `SDK.PeerId()`, `space.ActiveDevice`). Election is
+    reader-side and deterministic on writer-supplied claim data —
+    highest `seq`, tie highest `at`, tie largest peerId, candidates
+    only rows still carrying the slug under `apps` — NEVER on `_ver`
+    (versionIds are peer-local). The SDK's `space.ActiveDevice` is the
+    single implementation; `GET /v1/devices` returns it pre-resolved
+    as `active: {slug: peerId}` plus `self` (this server's peerId) so
+    UI and runtimes never reimplement the rule. Account-scoped routes
+    (`handlers_devices.go`): GET `/v1/devices`, POST
+    `/v1/devices/query[/subscribe]` (raw windowed primitive, dataset
+    fixed), PUT `/v1/devices/me` (self-row `{name?, apps?}`,
+    `"apps":{"slug":null}` uninstalls), POST `/v1/devices/activate`
+    (`{app}`, self-heals the install flag), DELETE
+    `/v1/devices/:peerId` (404 `device.not_found`; sticky tombstone —
+    a pruned peerId can never re-register). Engine boot upserts the
+    self row (os/version each boot; hostname name only on first
+    registration — `registerDevice` in engine.go). CLI: `any devices
+    list/register/activate/remove/query/subscribe`. e2e:
+    `internal/e2e/multipeer_devices_test.go` (two devices, same
+    mnemonic: concurrent claims converge to one winner on both
+    readers; uninstall moves the role; prune). Contract:
+    docs/21-devices.md (model + election + decision matrix),
+    docs/03-api.md § Devices, docs/01-cli.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -1092,6 +1121,7 @@ auto-start.
 | `docs/18-ci.md` | the `any` artifact + CI — tarball layout, manifest, published platforms, the `ANY_CI_TOKEN` secret, build/publish/dispatch flow |
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
+| `docs/21-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

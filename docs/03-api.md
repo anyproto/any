@@ -8,6 +8,7 @@
   - [Meta](#meta)
   - [Auth](#auth)
   - [Account](#account)
+  - [Devices (device registry & active-app election)](#devices-device-registry--active-app-election)
   - [Spaces](#spaces)
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
     - [Dataset schema discovery](#dataset-schema-discovery)
@@ -266,6 +267,57 @@ space; there is no cross-space role rollup. See
 `event: identities` frames carrying `{added, updated, removed}` batches
 (same `ready` → … → `closed` envelope and reason set as the sync-status
 streams — see [events](04-events.md)).
+
+### Devices (device registry & active-app election)
+
+| Method | Path                             | Purpose                                      |
+|--------|----------------------------------|----------------------------------------------|
+| GET    | `/v1/devices`                    | mapped rows + per-app `active` winners + `self` |
+| POST   | `/v1/devices/query`              | raw windowed snapshot (standard query body)  |
+| POST   | `/v1/devices/query/subscribe`    | raw windowed live view (SSE)                 |
+| PUT    | `/v1/devices/me`                 | `Spaces.SetDevice` — self-row `{name?, apps?}` |
+| POST   | `/v1/devices/activate`           | `Spaces.ClaimActive` — `{app}`               |
+| DELETE | `/v1/devices/:peerId`            | `Spaces.DeleteDevice` — prune a row          |
+
+The account's device registry: one row per device (peer) in the
+tech-space system dataset `devices` (row id = peer id, all fields
+synced), with per-app install flags (`apps`, an open slug set) and
+active-instance claims. Account-scoped — these routes sit outside the
+`:spaceId` group. The full model, the election rule and the
+runtime-vs-UI decision matrix live in [devices](21-devices.md).
+
+```json
+// GET /v1/devices → 200
+{ "devices": [
+    { "peerId":"12D3KooWA…", "name":"workstation", "os":"linux",
+      "version":"0.9.1",
+      "apps": { "bao": { "version":"1.2" } },
+      "activeClaims": { "bao": { "seq":3, "at":1755450000 } } },
+    { "peerId":"12D3KooWB…", "name":"laptop", "os":"darwin",
+      "version":"0.9.1" } ],
+  "active": { "bao": "12D3KooWA…" },
+  "self":   "12D3KooWB…" }
+```
+
+`active` maps each claimed app slug to its winning peer id, resolved
+server-side by the SDK's canonical election rule (highest claim `seq`,
+tie → highest `at`, tie → largest peer id; candidates limited to rows
+that still carry the slug under `apps`). Consumers — the UI and agent
+runtimes alike — read this map instead of reimplementing the rule.
+`self` is this server's own peer id, so a consumer can tell whether it
+IS the active device without a separate identity call.
+
+Writes are structurally self-scoped: the SDK resolves its own peer id
+for `PUT /me` and `activate`, so they can never touch another device's
+row. The server refreshes its own row on every engine boot (`os` /
+`version`; `name` seeded from the hostname only on first
+registration). In `PUT /me`, `"apps": {"<slug>": null}` uninstalls the
+slug; `activate` self-heals `apps.<app>` so a claim never dangles.
+
+`DELETE /v1/devices/:peerId` is **permanent for that peer id** —
+record tombstones are sticky, so a pruned device can never re-register
+until it derives fresh peer keys (a new `any init`). 404
+`device.not_found` on an unknown or already-pruned id.
 
 ### Spaces
 

@@ -5,16 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/push"
+	"github.com/anyproto/any/internal/version"
 )
 
 // engine bundles everything that exists only while an account is
@@ -107,6 +110,13 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		}
 	}()
 
+	// Refresh this device's registry row (SYN-165): os/version are
+	// server-stamped so every boot keeps them current; the display name
+	// is seeded from the hostname only on first registration so a
+	// user-set name is never clobbered. Best-effort — the registry is
+	// convenience metadata and must never block boot.
+	registerDevice(ctx, sdk)
+
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
 		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers)
@@ -137,6 +147,36 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	}
 
 	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account}, nil
+}
+
+// engineLog covers engine lifecycle noise that has no request context.
+var engineLog = logger.NewNamed("engine")
+
+// registerDevice upserts THIS device's row in the account's tech-space
+// devices registry (docs/21-devices.md): os and version are stamped
+// fresh on every boot, the display name is seeded from the hostname
+// only when the row doesn't exist yet (PUT /v1/devices/me owns it
+// afterwards). Failures are logged, never fatal.
+func registerDevice(ctx context.Context, sdk *anysyncsdk.SDK) {
+	up := space.DeviceUpsert{OS: runtime.GOOS, Version: version.Version}
+	if devices, err := sdk.Spaces().ListDevices(ctx); err == nil {
+		self := sdk.PeerId()
+		known := false
+		for _, dev := range devices {
+			if dev.PeerId == self {
+				known = true
+				break
+			}
+		}
+		if !known {
+			if host, err := os.Hostname(); err == nil {
+				up.Name = host
+			}
+		}
+	}
+	if err := sdk.Spaces().SetDevice(ctx, up); err != nil {
+		engineLog.Warn("device registry upsert failed", zap.Error(err))
+	}
 }
 
 // bootAccount boots an engine and publishes it on d. Serialized by
