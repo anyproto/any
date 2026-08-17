@@ -331,7 +331,6 @@ until it derives fresh peer keys (a new `any init`). 404
 | PATCH  | `/v1/spaces/:spaceId`           | `Space.SetMetadata`                 |
 | PATCH  | `/v1/spaces/:spaceId/settings`  | `Spaces().SetSettings` — account-private settings |
 | POST   | `/v1/spaces/:spaceId/sync`      | `Space.SyncHeads`                   |
-| POST   | `/v1/spaces/:spaceId/track`     | `Service.Track` — index a space id so GET can open it |
 | DELETE | `/v1/spaces/:spaceId`           | `Service.Delete`                    |
 | POST   | `/v1/spaces/join`               | `Service.Join`                      |
 | POST   | `/v1/spaces/one-to-one`         | `Service.OneToOne` — open a 1-1 (direct) space |
@@ -698,33 +697,6 @@ trap; these are different scopes with different audiences.
 Reads are passthrough — no bespoke read endpoint: `SpaceInfo.settings`
 on `GET /v1/spaces[/:id]`, or the raw rows from
 `POST /v1/spaces/query[/subscribe]` for live cross-device updates.
-
-#### Track a space by id (adopt into the list)
-
-`POST /v1/spaces/:spaceId/track`
-
-```
-// → 204 (no body); 400 request.invalid_field on a malformed id
-```
-
-Wraps `Service.Track`: registers a space id in the local space index
-without joining it, so a later `GET /v1/spaces/:spaceId` can open it —
-any-sync bootstraps the storage from the responsible nodes when it is
-missing locally. Idempotent; never downgrades an existing row. Two
-callers:
-
-- **Broker path** (foreign space): the caller holds no keys, synced
-  content stays sealed; useful for payload-level relaying only.
-- **Re-init recovery** (own created spaces): after `any init
-  --mnemonic` the fresh tech space lists nothing, and created spaces
-  have no other way back in (`GET` gates on the row, a sole-member
-  account cannot invite itself). Track each recorded space id, then
-  GET it — the identity is already in the ACL, so the pulled ACL
-  grants the keys: content decrypts, `ownRole`/type backfill on first
-  load, and the name mirror restores `name`/icon from the in-space
-  spaceIndex. Space ids are recoverable from the old data dir
-  (`sdk/anysync/<spaceId>.db`). Skip the old tech-space id — it would
-  be adopted as an ordinary (unnamed) space row.
 
 #### Force a head-sync round (sync now)
 

@@ -134,15 +134,6 @@ func (c *Client) SpaceInviteDecline(ctx context.Context, spaceId string) error {
 	return c.do(ctx, http.MethodPost, path, nil, nil)
 }
 
-// SpaceTrack registers a spaceId in the local space index without
-// joining it, so a later SpaceGet can open it (the SDK bootstraps
-// missing storage from the responsible nodes). The re-init recovery
-// path for the account's own created spaces, and the broker path for
-// foreign ones. POST /v1/spaces/:spaceId/track.
-func (c *Client) SpaceTrack(ctx context.Context, spaceId string) error {
-	return c.do(ctx, http.MethodPost, "/v1/spaces/"+url.PathEscape(spaceId)+"/track", nil, nil)
-}
-
 // SpaceListQuery runs a windowed snapshot over the account's space list
 // (POST /v1/spaces/query → Service.Query on the `spaces` dataset). body
 // carries the standard query fields (filter / sort / limit / offset /
