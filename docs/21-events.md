@@ -181,6 +181,16 @@ publisher hint, UI display only. A UI window mounts one
 `EventSource('/v1/events/subscribe?scope=device&type=ui.*')` and dispatches
 `event` frames into navigation; unknown `ui.*` types are ignored.
 
+### `process.*` — the process helper (doc 22)
+
+Long-running operations broadcast their lifecycle as `process.started`
+/ `process.progress` / `process.done|failed|cancelled`, with
+`process.cancel` as the owner-addressed cancellation directive. The
+envelope target carries the process id; the `/v1/processes` endpoints
+emit the frames and an in-memory registry taps the hub to serve the
+live view. Full convention — data shapes, composite key, heartbeat and
+staleness rules — in `docs/22-processes.md`.
+
 ## Scopes over the network
 
 `account` and `space` events ride the SDK's ephemeral pub/sub
@@ -290,5 +300,6 @@ any events subscribe [--scope S]... [--type T]... [--space ID]... [--target X]..
 - Single account per server ⇒ the hub is genuinely global. If
   multi-account-per-process ever lands, key the hub by account.
 - New event kinds = new `type` values; document the contracts here.
-  `any`-internal producers (indexer progress, sync milestones) publish
-  through `deps.eventsHub()` directly — none wired yet.
+  `any`-internal producers publish through `deps.eventsHub()` directly
+  — first one wired: the indexer's embed drain, reporting as a
+  device-scope process (docs/22-processes.md § Internal producers).

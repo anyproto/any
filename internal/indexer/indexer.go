@@ -50,6 +50,12 @@ type Options struct {
 	// PendingEvery is the embed loop's catch-up/retry tick (the nudge
 	// channel covers the normal path). Default 1m.
 	PendingEvery time.Duration
+	// OnProcess, when set, receives embed-drain lifecycle updates —
+	// one started/progress*/done|failed sequence per drain that found
+	// pending docs. The server bridges these onto the process view
+	// (docs/22-processes.md); nil = no reporting. Called from the
+	// per-space embed goroutine — must not block.
+	OnProcess func(ProcessUpdate)
 
 	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
 
@@ -75,6 +81,26 @@ type Options struct {
 	// vector leg always gets the full query). Default off in the zero
 	// Options; OpenIndexer turns it on unless config disables it.
 	StopWords bool
+}
+
+// ProcessUpdate phases — one embed drain reports started once, then
+// progress per landed batch, then exactly one of done/failed.
+const (
+	ProcessStarted  = "started"
+	ProcessProgress = "progress"
+	ProcessDone     = "done"
+	ProcessFailed   = "failed"
+)
+
+// ProcessUpdate is one Options.OnProcess report. Done counts docs
+// embedded so far in the current drain (the total backlog is unknown
+// — pending is drained page by page). Message carries the failure
+// detail on ProcessFailed, empty otherwise.
+type ProcessUpdate struct {
+	SpaceId string
+	Phase   string
+	Done    int64
+	Message string
 }
 
 func (o Options) withDefaults() Options {

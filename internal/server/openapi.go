@@ -59,6 +59,10 @@ var strictBodySchemas = []string{
 	"api.SpaceOneToOneRequest",
 	"api.SpaceRegisterIncomingRequest",
 	"api.EventPublishRequest",
+	"api.ProcessRegisterRequest",
+	"api.ProcessProgressRequest",
+	"api.ProcessFinishRequest",
+	"api.ProcessCancelRequest",
 	"api.EnrichedDataCreateRequest",
 	"api.EnrichApplyRequest",
 }

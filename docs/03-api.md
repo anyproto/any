@@ -54,6 +54,8 @@
   - [ACL operations](#acl-operations)
     - [Permission / status strings](#permission--status-strings)
   - [Sync status](#sync-status)
+  - [Events](#events)
+  - [Processes](#processes)
   - [Push notifications](#push-notifications)
   - [Debug (diagnostic)](#debug-diagnostic)
 - [Body shapes (examples)](#body-shapes-examples)
@@ -2321,6 +2323,36 @@ space) with refcounted subscribe-side interests; an explicit
 `scope=space` subscription must name at least one `spaceId` filter.
 Network errors: `events.no_read_key`, `events.too_many_patterns`,
 `events.topic_not_owned` (docs/06-errors.md).
+
+### Processes
+
+The process helper over the event bus: long-running operations (agent
+runs, index passes) broadcast `process.*` events; the server keeps an
+in-memory last-event-wins view with staleness expiry — nothing
+persisted, a restart forgets everything. Keyed `(sender.identity,
+id)`; cancel is an event addressed at the owner, who emits the
+terminal event. Full contract in `docs/22-processes.md`.
+
+| Method | Path                          | Purpose                                                    |
+|--------|-------------------------------|------------------------------------------------------------|
+| GET    | `/v1/processes`               | live view — `{processes: [...]}`, expired entries swept    |
+| POST   | `/v1/processes`               | register `{id, kind, title, scope, spaceId?, target?}` → emits `process.started` |
+| POST   | `/v1/processes/:id/progress`  | `{done, total?, message?}` → `process.progress` (heartbeat: ≤ every 15s) |
+| POST   | `/v1/processes/:id/finish`    | `{status: done\|failed\|cancelled, error?}` → terminal event (`error` required iff failed) |
+| POST   | `/v1/processes/:id/cancel`    | `{identity?}` → `process.cancel` toward the owner (no state change) |
+
+Every POST answers the bus publish reply `{subscribers: n}`.
+Progress/finish require the process live under this account's
+identity (`404 process.not_found` — re-register after restart or
+expiry: running rows expire 45s after the last frame, terminal rows
+60s after finishing). Cancel resolves against the whole view; several
+same-id publishers answer `409 process.ambiguous`
+(`details.identities`). Remote coverage: account-scope processes of
+this account's other devices always (standing `ev/process/>`
+interest); space-scope processes only while some local subscriber
+holds that space's event interest. No `/processes/subscribe` — watch
+raw frames via `GET /v1/events/subscribe?type=process.*`. Routes sit
+outside the space group like `/v1/events`.
 
 ### Push notifications
 

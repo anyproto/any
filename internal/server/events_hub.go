@@ -78,6 +78,13 @@ type eventHub struct {
 	mu   sync.Mutex
 	next int
 	subs map[int]eventSub
+	// taps are synchronous observers invoked on every publish,
+	// regardless of subscriber filters — loss-free, unlike a
+	// subscription (whose buffer can overflow). Registered once at
+	// construction time (before any publish), never removed. A tap
+	// must be fast and non-blocking: publishes arrive from HTTP
+	// handlers and the SDK's pub/sub dispatch goroutine.
+	taps []func(*api.Event)
 }
 
 func newEventHub() *eventHub {
@@ -110,11 +117,27 @@ func (h *eventHub) unsubscribe(id int) {
 	h.mu.Unlock()
 }
 
+// addTap registers a synchronous publish observer. Call before the
+// hub sees its first publish (i.e. inside the deps once-constructor) —
+// there is no removal and no locking around registration.
+func (h *eventHub) addTap(fn func(*api.Event)) {
+	h.taps = append(h.taps, fn)
+}
+
 // publish fans ev out to every subscriber whose filter matches and
 // returns the number that accepted it. A matching subscriber whose
 // buffer is full is dropped (channel closed and removed) rather than
-// blocking the publisher, and is not counted as delivered.
+// blocking the publisher, and is not counted as delivered. Taps run
+// after the fan-out, outside the lock.
 func (h *eventHub) publish(ev api.Event) int {
+	n := h.fanout(ev)
+	for _, tap := range h.taps {
+		tap(&ev)
+	}
+	return n
+}
+
+func (h *eventHub) fanout(ev api.Event) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delivered := 0
@@ -161,7 +184,21 @@ func (h *eventHub) matchCount(ev *api.Event) int {
 // helpers) gets a working hub with no explicit wiring — the hub has no
 // engine or SDK dependency. Internal producers (indexer, sync
 // milestones) publish through it directly.
+// The process registry is created in the same once so its tap is
+// registered before the hub sees any publish — every process.* event
+// (local or bridged) reaches the view.
 func (d *deps) eventsHub() *eventHub {
-	d.eventsOnce.Do(func() { d.events = newEventHub() })
+	d.eventsOnce.Do(func() {
+		d.events = newEventHub()
+		d.procs = newProcessRegistry()
+		d.events.addTap(d.procs.apply)
+	})
 	return d.events
+}
+
+// processes returns the live process registry (created alongside the
+// hub — see eventsHub).
+func (d *deps) processes() *processRegistry {
+	d.eventsHub()
+	return d.procs
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
@@ -27,6 +29,9 @@ type engine struct {
 	indexer *indexer.Indexer
 	push    *push.Service
 	account string
+	// procRelease drops the standing account-scope pub/sub interest
+	// for process.* broadcasts (acquired in bootAccount, best-effort).
+	procRelease func()
 }
 
 // errAlreadyAuthorized guards double-boot via POST /v1/auth.
@@ -51,7 +56,7 @@ type walletSeed struct {
 // half-initialized account (especially a generated one whose phrase
 // was never surfaced to the caller) would linger and be auto-selected
 // on the next start.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry) (eng *engine, err error) {
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate)) (eng *engine, err error) {
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create account dir %s: %w", id.Dir, err)
 	}
@@ -109,7 +114,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
-		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers)
+		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers, onProcess)
 		if err != nil {
 			return nil, fmt.Errorf("open indexer: %w", err)
 		}
@@ -147,7 +152,7 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	if d.ready.Load() {
 		return nil, errAlreadyAuthorized
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers, d.indexEmbedProcess)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +162,60 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.push = eng.push
 	d.account = eng.account
 	d.ready.Store(true)
+	// Standing account-scope interest for process.* broadcasts, so this
+	// account's other devices' processes materialize in the view with
+	// no local SSE subscriber. Space-scope coverage stays subscriber-
+	// driven (docs/22-processes.md § Remote visibility). Best-effort:
+	// local + account publishing works without it.
+	if release, aerr := d.eventsNet().acquire(d.runCtx, true, nil, []string{eventTopicPrefix + "process/>"}); aerr != nil {
+		handlerLog.Warn("process event interest not acquired; remote processes won't materialize", zap.Error(aerr))
+	} else {
+		eng.procRelease = release
+	}
 	return eng, nil
+}
+
+// indexEmbedProcess bridges indexer embed-drain updates onto the
+// process view as a device-scope process — id index.embed.<spaceId>,
+// target the space. Device scope: each device embeds its own index
+// copy, other devices don't care. Updates arriving before the engine
+// is published (the boot pass can start drains first) are dropped —
+// every frame carries the full descriptor, so the view recovers from
+// any later one. Cancel is ignored by this producer.
+func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
+	if !d.ready.Load() {
+		return
+	}
+	data := processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId, Done: u.Done}
+	var typ string
+	switch u.Phase {
+	case indexer.ProcessStarted:
+		typ = api.EventProcessStarted
+	case indexer.ProcessProgress:
+		typ = api.EventProcessProgress
+	case indexer.ProcessDone:
+		typ = api.EventProcessDone
+	case indexer.ProcessFailed:
+		typ = api.EventProcessFailed
+		msg := u.Message
+		if len(msg) > processMessageMaxLen {
+			msg = msg[:processMessageMaxLen]
+		}
+		data.Error = &api.ProcessError{Code: "index.embed_failed", Message: msg}
+	default:
+		return
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	d.eventsHub().publish(api.Event{
+		Type:   typ,
+		Scope:  api.EventScopeDevice,
+		Target: "index.embed." + u.SpaceId,
+		Data:   payload,
+		Sender: &api.EventSender{Identity: d.account, Self: true},
+	})
 }
 
 // closeEngine tears down the live engine, if any: indexer and push
@@ -169,6 +227,9 @@ func (d *deps) closeEngine(lg logger.CtxLogger) {
 	eng := d.eng
 	if eng == nil {
 		return
+	}
+	if eng.procRelease != nil {
+		eng.procRelease()
 	}
 	if eng.indexer != nil {
 		if err := eng.indexer.Close(); err != nil {

@@ -378,14 +378,49 @@ func typeSet(row *anyenc.Value) map[string]bool {
 	return out
 }
 
-// drainPending embeds and lands pending docs until the queue is empty.
+// drainPending wraps drainRounds with embed-process reporting
+// (Options.OnProcess, nil = off): a drain that finds pending docs
+// reports started, progress per landed batch, then done or failed —
+// except on context cancellation, where shutdown isn't a failure.
+func (w *spaceWorker) drainPending(ctx context.Context) error {
+	var embedded int64
+	started := false
+	report := func(phase, msg string) {
+		if w.ix.opts.OnProcess == nil {
+			return
+		}
+		w.ix.opts.OnProcess(ProcessUpdate{SpaceId: w.sp.Id(), Phase: phase, Done: embedded, Message: msg})
+	}
+	err := w.drainRounds(ctx, func(landed int) {
+		if !started {
+			started = true
+			report(ProcessStarted, "")
+		}
+		if landed > 0 {
+			embedded += int64(landed)
+			report(ProcessProgress, "")
+		}
+	})
+	if started {
+		switch {
+		case err == nil:
+			report(ProcessDone, "")
+		case ctx.Err() == nil:
+			report(ProcessFailed, err.Error())
+		}
+	}
+	return err
+}
+
+// drainRounds embeds and lands pending docs until the queue is empty.
 // Each round pulls up to EmbedConcurrency batches and embeds them
 // concurrently: an online embedder parallelizes across HTTP requests
 // (the throughput win), while the local model serializes internally on
 // its mutex — so concurrency is safe regardless of backend. SetVectors /
 // EnsureVectorIndex stay serial. The vector index is created lazily after
-// the first batch lands.
-func (w *spaceWorker) drainPending(ctx context.Context) error {
+// the first batch lands. progress is called with 0 when a round found
+// work (before embedding) and with the landed count after each batch.
+func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed int)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
@@ -397,6 +432,7 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 		if len(ids) == 0 {
 			return nil
 		}
+		progress(0)
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {
@@ -448,6 +484,7 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 				return err
 			}
 			landed = true
+			progress(len(c.ids))
 		}
 		if landed {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {

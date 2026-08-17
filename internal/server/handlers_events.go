@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/labstack/echo/v4"
-	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync/commonspace/pubsub"
 
@@ -130,16 +129,27 @@ func (d *deps) eventsPublish(c echo.Context) error {
 // interest on the event's space) — approximate by design
 // (fire-and-forget).
 func (d *deps) publishNetworkEvent(c echo.Context, ev api.Event, ps space.PubSubAPI) error {
-	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
+	n, err := d.networkPublish(c.Request().Context(), ev, ps)
 	if err != nil {
-		handlerLog.Error("marshal event payload", zap.Error(err))
-		return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
-	}
-	topic := eventTopic(ev.Type, ev.Target, d.sdk.Account().Id())
-	if err := ps.Publish(c.Request().Context(), topic, payload); err != nil {
 		return pubsubError(c, err)
 	}
-	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: d.eventsHub().matchCount(&ev)})
+	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: n})
+}
+
+// networkPublish is the transport core of publishNetworkEvent —
+// marshal, topic render, pub/sub send — returning the hub's current
+// reachable-match count. Split out so the process helper can act on a
+// confirmed publish before writing its response.
+func (d *deps) networkPublish(ctx context.Context, ev api.Event, ps space.PubSubAPI) (int, error) {
+	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
+	if err != nil {
+		return 0, err
+	}
+	topic := eventTopic(ev.Type, ev.Target, d.sdk.Account().Id())
+	if err := ps.Publish(ctx, topic, payload); err != nil {
+		return 0, err
+	}
+	return d.eventsHub().matchCount(&ev), nil
 }
 
 // pubsubSentinels is the one list of SDK pub/sub sentinels this file

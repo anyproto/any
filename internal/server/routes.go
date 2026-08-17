@@ -135,6 +135,18 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/events", d.eventsPublish)
 	v1.GET("/events/subscribe", d.eventsSubscribe)
 
+	// Process helper over the event bus: register/progress/finish emit
+	// process.* events on the caller's chosen scope, cancel addresses
+	// the owner, GET is the in-memory last-event-wins view. Nothing
+	// stored — same account-scoped placement as /events. Static
+	// segments (a future /processes/subscribe) must register before
+	// the :id wildcards. See docs/22-processes.md.
+	v1.GET("/processes", d.processesList)
+	v1.POST("/processes", d.processRegister)
+	v1.POST("/processes/:id/progress", d.processProgress)
+	v1.POST("/processes/:id/finish", d.processFinish)
+	v1.POST("/processes/:id/cancel", d.processCancel)
+
 	// Account-wide push notifications: device-token registration and
 	// the server-held topic subscriptions (SYN-47). The push server
 	// identifies the caller by account on the secure channel, so the

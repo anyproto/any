@@ -456,6 +456,22 @@ any events publish --type ui.open_object --data '{"spaceId":"SPACE","objectId":"
 any events subscribe --type ui.*
 ```
 
+### Processes
+
+```
+any process list                        # GET  /v1/processes
+any process cancel ID [--identity X]    # POST /v1/processes/:id/cancel
+```
+
+The live process view over the event bus (full contract:
+`docs/22-processes.md`) — last-event-wins, in-memory, staleness-swept.
+`cancel` emits `process.cancel` toward the owner, who reacts and
+emits the terminal event; when several publishers run the same id it
+exits 1 with `409 process.ambiguous` — pass `--identity` to pick one.
+Registration/progress/finish are owner API calls (agents use the HTTP
+endpoints); watch the raw frames with
+`any events subscribe --type 'process.*'`.
+
 ### Push notifications
 
 ```

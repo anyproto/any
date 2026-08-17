@@ -868,6 +868,31 @@ Implementation slices landed:
     user types. Contract: docs/03-api.md § Types (Built-in `page`
     type).
 
+31. **Process helper (SYN-153)** — progress reporting + cancel over the
+    event bus: `process.*` events (envelope target = process id, keyed
+    `(sender.identity, id)`, descriptor folded into every frame) + an
+    in-memory last-event-wins registry with staleness expiry (running
+    45s / terminal 60s, heartbeat ≤15s, lazy sweep — no janitor; a
+    restart forgets everything). Surface: `GET/POST /v1/processes`,
+    `POST /v1/processes/:id/{progress,finish,cancel}` — finish takes
+    `{status: done|failed|cancelled, error?}` (error iff failed);
+    cancel resolves the composite key (`404 process.not_found` /
+    `409 process.ambiguous` + `details.identities`), emits
+    `process.cancel {identity}` on the process's own scope, never
+    mutates state — the owner reacts and finishes. Registry =
+    synchronous `eventHub.addTap` observer (loss-free, created in the
+    hub's once); network-scope emits also apply directly (Self
+    loopback needs an interest). Remote visibility: standing
+    account-scope `ev/process/>` interest acquired at engine boot
+    (release on close); space scope only while a local subscriber
+    holds the space interest. First internal producer: indexer embed
+    drain (`indexer.Options.OnProcess` → `deps.indexEmbedProcess`,
+    device scope, id `index.embed.<spaceId>`; cancel ignored). CLI:
+    `any process list/cancel`. Files: internal/server/processes.go +
+    handlers_processes.go, api/process.go; e2e
+    internal/e2e/multipeer_processes_test.go. Contract:
+    docs/22-processes.md.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
@@ -1117,6 +1142,7 @@ auto-start.
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
+| `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

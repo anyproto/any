@@ -165,7 +165,9 @@ func NewIndexRegistry() *index.Registry {
 // once the embedder responds (the dimension is learned from the first
 // successful batch unless index.vector.dim pins it). A misconfigured
 // embedder (bad name, missing model) is still a hard error.
-func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry) (*indexer.Indexer, error) {
+// onProcess (nil = off) receives embed-drain lifecycle updates for the
+// process view — see deps.indexEmbedProcess.
+func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir string, sdk *anysyncsdk.SDK, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate)) (*indexer.Indexer, error) {
 	emb, err := indexer.NewEmbedder(cfg, modelsDir, filepath.Join(dataDir, "index", "models"))
 	if err != nil {
 		return nil, err
@@ -200,5 +202,6 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		FTSDefaultAnd:    strings.EqualFold(cfg.Search.DefaultOperator, "and"),
 		MinVectorSim:     cfg.Search.MinVectorSim,
 		StopWords:        stopWords,
+		OnProcess:        onProcess,
 	}), nil
 }

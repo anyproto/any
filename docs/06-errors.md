@@ -120,6 +120,9 @@ events.no_read_key               # 409 — network-scope event in a space this i
 events.too_many_patterns         # 409 — the space's pub/sub subscription pattern budget (100) is exhausted; narrow or share filters
 events.topic_not_owned           # 403 — the type maps into another account's self-owned topic namespace (defensive; server mapping never produces it)
 
+process.not_found                # 404 — progress/finish on a process not live under this account, or cancel with no live match; re-register after restart/expiry
+process.ambiguous                # 409 — cancel matched several publishers running the same id; details.identities lists them, pass identity to pick one
+
 index.disabled                   # 409 — search index turned off (index.enabled: false)
 index.no_embedder                # 400 — mode=vector without an embedder configured
 index.embedder_unavailable       # 503 — mode=vector while the embedder is unreachable (retryable)
