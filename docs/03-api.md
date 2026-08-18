@@ -1438,7 +1438,7 @@ has no property definitions yet", never "no such type".
 
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
-`GET …/properties`. It is opaque consumer metadata; two conventions
+`GET …/properties`. It is opaque consumer metadata; three conventions
 exist today:
 
 - **`meta.index`** controls how the search indexer treats the
@@ -1457,10 +1457,20 @@ exist today:
   since definitions are synced records the order is shared by every
   member of the space. The server neither generates nor validates
   lexids — this is a consumer convention, exactly like `meta.index`.
+- **`meta.icon`** is the property's display icon: a string naming an
+  icon from any-ui's system icon set. Set it inline at create or with
+  `PATCH …/properties/:propId` `{"set": {"meta.icon": "<name>"}}`
+  (change) / `{"unset": ["meta.icon"]}` (revert to the client's
+  per-format default). Definitions are synced records, so the chosen
+  icon is shared by every member of the space, and concurrent changes
+  LWW-converge like any per-path `$set`. The server stores the string
+  verbatim — the icon-name vocabulary is owned by any-ui; other
+  clients should tolerate (and preserve) names they don't recognize
+  and fall back to their format default.
 
 ```json
 { "name": "context", "kind": "string", "xKey": "context",
-  "meta": { "index": "agent", "pos": "a3" } }
+  "meta": { "index": "agent", "pos": "a3", "icon": "flag" } }
 ```
 
 `POST …/properties` also accepts an optional **`format`** object — the
