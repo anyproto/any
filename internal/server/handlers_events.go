@@ -283,9 +283,8 @@ func (d *deps) eventsSubscribe(c echo.Context) error {
 		}
 	}
 	for _, t := range f.targets {
-		if !eventTargetRe.MatchString(t) {
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"target must be 1-128 chars of [A-Za-z0-9._-]", nil)
+		if !validTargetToken(c, "target", t) {
+			return nil
 		}
 	}
 

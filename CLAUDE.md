@@ -902,11 +902,16 @@ Implementation slices landed:
     (done/total docs via `Store.PendingCount`, 500ms gate tick +
     10s mid-drain heartbeat), `index.fts.<spaceId>` (gate checked at
     page boundaries, done = changes, total unknown),
-    `index.model_download` (always announces, done/total bytes, ~5s frames,
-    started once across retry attempts, target = model file name —
-    makes "search empty while model downloads" visible).
-    Worker-cancel → cancelled; generic failure messages — no fs paths
-    on the wire; cancel requests ignored by all three. CLI:
+    `index.model_download` (always announces at start — even offline;
+    done/total bytes; retry failures are progress-with-message, not
+    terminal; complete .part installs without a network round-trip —
+    the 416 wedge). All three share `procReporter`
+    (process_report.go): gate tick + heartbeat + joined-ticker
+    terminal, so no frame trails a terminal. Registry folds counters
+    on every frame (pointer decode: absent = keep, negatives
+    clamped); progress POSTs fold atomically under the registry lock
+    (`mergeOwn`). Worker-cancel → cancelled; generic failure messages
+    — no fs paths on the wire; cancel requests ignored by all three. CLI:
     `any process list/cancel`. Files: internal/server/processes.go +
     handlers_processes.go, api/process.go; e2e
     internal/e2e/multipeer_processes_test.go. Contract:

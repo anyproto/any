@@ -123,14 +123,16 @@ const (
 	ProcessKindModelDownload = "model_download"
 )
 
-// embedProcessHeartbeat paces the mid-drain progress heartbeat: one
-// EmbedDocs call on a slow local model can exceed the process view's
-// staleness budget, and a stale row would flicker out mid-drain.
-// embedAnnounceTick is how often a running drain re-checks the
+// procHeartbeat paces the mid-work progress heartbeat: one embed call
+// or chunker page on slow hardware can exceed the process view's
+// staleness budget, and a stale row would flicker out mid-work.
+// procAnnounceTick is how often a running work unit re-checks the
 // AnnounceAfter gate, bounding announce latency past the threshold.
+// Both live in procReporter (process_report.go), shared by every
+// producer.
 const (
-	embedProcessHeartbeat = 10 * time.Second
-	embedAnnounceTick     = 500 * time.Millisecond
+	procHeartbeat    = 10 * time.Second
+	procAnnounceTick = 500 * time.Millisecond
 )
 
 // ProcessUpdate is one Options.OnProcess report. Message carries the

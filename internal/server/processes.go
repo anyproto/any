@@ -31,18 +31,35 @@ type processKey struct {
 	id       string
 }
 
-// processEventData is the data payload of the process.* state events.
-// The descriptor (kind/title/target) is folded into every frame so a
-// single heartbeat fully materializes a process on a device that
-// missed process.started.
+// processEventData is the data payload of the process.* state events
+// as this server EMITS it. The descriptor (kind/title/target) is
+// folded into every frame so a single heartbeat fully materializes a
+// process on a device that missed process.started; done/total/message
+// are always present — every emitted frame carries the full picture,
+// so a partial-frame decode elsewhere never regresses a value.
 type processEventData struct {
 	Kind    string            `json:"kind,omitempty"`
 	Title   string            `json:"title,omitempty"`
 	Target  string            `json:"target,omitempty"`
-	Done    int64             `json:"done,omitempty"`
-	Total   int64             `json:"total,omitempty"`
-	Message string            `json:"message,omitempty"`
+	Done    int64             `json:"done"`
+	Total   int64             `json:"total"`
+	Message string            `json:"message"`
 	Error   *api.ProcessError `json:"error,omitempty"`
+}
+
+// processEventDataIn is the decode-side twin: pointers make absent
+// fields distinguishable, so a partial frame from a hand-emitting
+// publisher keeps the stored values (the same absent-means-keep
+// semantics the progress endpoint gives its own callers) instead of
+// zeroing them.
+type processEventDataIn struct {
+	Kind    string            `json:"kind"`
+	Title   string            `json:"title"`
+	Target  string            `json:"target"`
+	Done    *int64            `json:"done"`
+	Total   *int64            `json:"total"`
+	Message *string           `json:"message"`
+	Error   *api.ProcessError `json:"error"`
 }
 
 // processCancelData is the data payload of process.cancel: the
@@ -96,12 +113,12 @@ func (r *processRegistry) apply(ev *api.Event) {
 	if ev.Sender == nil || ev.Target == "" {
 		return
 	}
-	var data processEventData
+	var data processEventDataIn
 	_ = json.Unmarshal(ev.Data, &data)
 	// Sanitize before storing: rows can materialize from hand-emitted
 	// or remote payloads the register endpoint never validated, and
 	// progress/finish re-emit the stored descriptor — nothing
-	// grammar-violating or oversized may enter the view.
+	// grammar-violating, oversized or negative may enter the view.
 	if data.Kind != "" && !eventTargetRe.MatchString(data.Kind) {
 		data.Kind = ""
 	}
@@ -109,7 +126,9 @@ func (r *processRegistry) apply(ev *api.Event) {
 		data.Target = ""
 	}
 	data.Title = clipUTF8(data.Title, processTitleMaxLen)
-	data.Message = clipUTF8(data.Message, processMessageMaxLen)
+	if data.Message != nil {
+		*data.Message = clipUTF8(*data.Message, processMessageMaxLen)
+	}
 	if data.Error != nil {
 		data.Error.Message = clipUTF8(data.Error.Message, processMessageMaxLen)
 	}
@@ -144,10 +163,19 @@ func (r *processRegistry) apply(ev *api.Event) {
 	if data.Target != "" {
 		p.Target = data.Target
 	}
-	if ev.Type == api.EventProcessProgress {
-		p.Done = data.Done
-		p.Total = data.Total
-		p.Message = data.Message
+	// Counters fold on every state frame that carries them — internal
+	// producers stamp them on started (embed's pending total, the
+	// download's Content-Length) and terminal (final done) frames too.
+	// Absent = keep, negative = clamp (the HTTP endpoints reject
+	// negatives; remote frames must not smuggle them in).
+	if data.Done != nil {
+		p.Done = max(0, *data.Done)
+	}
+	if data.Total != nil {
+		p.Total = max(0, *data.Total)
+	}
+	if data.Message != nil {
+		p.Message = *data.Message
 	}
 	// Only failed carries an error; every other event clears it, so a
 	// row resurrected to running (a late heartbeat after finish) or
@@ -210,6 +238,42 @@ func (r *processRegistry) list() []api.Process {
 		return cmp.Compare(a.Id, b.Id)
 	})
 	return out
+}
+
+// mergeOwn atomically folds a progress request into the stored row —
+// absent fields keep their values — bumps the heartbeat clock and
+// returns the updated full snapshot for the emitted frame. This is
+// the read-modify-write behind POST /processes/:id/progress done
+// under the registry lock, so concurrent folds serialize instead of
+// reverting each other's acknowledged values; the frame's tap
+// re-apply is an idempotent overwrite with the same numbers. The row
+// mutates before the publish — on a failed network publish the local
+// view is ahead by one frame, which the next heartbeat re-broadcasts
+// (fire-and-forget semantics). Like a progress frame, it returns a
+// terminal row to running and clears its error.
+func (r *processRegistry) mergeOwn(identity, id string, done, total *int64, msg *string) (api.Process, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e := r.entries[processKey{identity: identity, id: id}]
+	if e == nil || e.expired(r.now()) {
+		return api.Process{}, false
+	}
+	p := &e.proc
+	if done != nil {
+		p.Done = max(0, *done)
+	}
+	if total != nil {
+		p.Total = max(0, *total)
+	}
+	if msg != nil {
+		p.Message = *msg
+	}
+	p.State = api.ProcessStateRunning
+	p.Error = nil
+	now := r.now()
+	p.UpdatedAt = now.Unix()
+	e.seen = now
+	return *p, true
 }
 
 // get returns the live entry for one composite key, if any.

@@ -97,20 +97,17 @@ func (d *deps) processProgress(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"message must be at most 1024 bytes", nil)
 	}
-	p, ok := d.ownProcess(c)
-	if !ok {
+	id := c.Param("id")
+	if !validTargetToken(c, "id", id) {
 		return nil
 	}
-	// Fold: absent fields carry the stored state forward (explicit
-	// zero/empty clears — total back to unknown, message blanked).
-	if req.Done != nil {
-		p.Done = *req.Done
-	}
-	if req.Total != nil {
-		p.Total = *req.Total
-	}
-	if req.Message != nil {
-		p.Message = *req.Message
+	// Fold atomically under the registry lock (absent fields carry the
+	// stored state forward; explicit zero/empty clears) — a concurrent
+	// heartbeat and update serialize instead of reverting each other.
+	p, ok := d.processes().mergeOwn(d.sdk.Account().Id(), id, req.Done, req.Total, req.Message)
+	if !ok {
+		return writeError(c, http.StatusNotFound, "process.not_found",
+			"no live process "+id+" — register it first (POST /v1/processes)", nil)
 	}
 	return d.emitProcess(c, api.EventProcessProgress, p.Scope, p.SpaceId, p.Id,
 		processEventData{Kind: p.Kind, Title: p.Title, Target: p.Target,
@@ -168,8 +165,12 @@ func (d *deps) processFinish(c echo.Context) error {
 	if !ok {
 		return nil
 	}
+	// The terminal frame carries the final counters (done/total/message
+	// serialize unconditionally — omitting them would zero the row on
+	// every observer).
 	return d.emitProcess(c, typ, p.Scope, p.SpaceId, p.Id,
-		processEventData{Kind: p.Kind, Title: p.Title, Target: p.Target, Error: req.Error})
+		processEventData{Kind: p.Kind, Title: p.Title, Target: p.Target,
+			Done: p.Done, Total: p.Total, Message: p.Message, Error: req.Error})
 }
 
 // processCancel handles POST /v1/processes/:id/cancel — emit

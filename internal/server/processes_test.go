@@ -174,3 +174,34 @@ func TestProcessRegistry_ListOrder(t *testing.T) {
 		t.Errorf("order = %+v", got)
 	}
 }
+
+// Frames from remote publishers fold with absent-means-keep pointer
+// semantics and negative counters clamped — the doc's "nothing
+// invalid is ever stored or relayed" covers numbers too.
+func TestProcessRegistry_CounterFoldAndClamp(t *testing.T) {
+	r, _ := testRegistry()
+	raw := func(typ, data string) *api.Event {
+		return &api.Event{Type: typ, Scope: api.EventScopeDevice, Target: "p1",
+			Data: json.RawMessage(data), Sender: &api.EventSender{Identity: "a"}}
+	}
+	// started carries counters (embed total, download Content-Length).
+	r.apply(raw(api.EventProcessStarted, `{"kind":"k","title":"t","done":0,"total":40}`))
+	if p := r.list()[0]; p.Total != 40 {
+		t.Errorf("started counters dropped: %+v", p)
+	}
+	// A partial remote frame keeps what it doesn't mention.
+	r.apply(raw(api.EventProcessProgress, `{"done":7}`))
+	if p := r.list()[0]; p.Done != 7 || p.Total != 40 {
+		t.Errorf("partial fold = %+v, want done=7 total kept at 40", p)
+	}
+	// Negative counters are clamped, not stored.
+	r.apply(raw(api.EventProcessProgress, `{"done":-5,"total":-1}`))
+	if p := r.list()[0]; p.Done != 0 || p.Total != 0 {
+		t.Errorf("negative counters stored: %+v", p)
+	}
+	// Terminal frames carry final counters.
+	r.apply(raw(api.EventProcessDone, `{"done":40,"total":40}`))
+	if p := r.list()[0]; p.State != api.ProcessStateDone || p.Done != 40 || p.Total != 40 {
+		t.Errorf("terminal counters dropped: %+v", p)
+	}
+}

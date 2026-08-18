@@ -48,8 +48,14 @@ process id** (the id therefore follows the event-target grammar
   `message` is a short status line (≤ 1024 bytes).
 - Frames from non-`any` publishers are sanitized before entering the
   view: grammar-violating `kind`/`target` are dropped, oversized
-  `title`/`message` clipped — the helper endpoints re-emit stored
-  descriptor values, so nothing invalid is ever stored or relayed.
+  `title`/`message` clipped, negative counters clamped to 0 — the
+  helper endpoints re-emit stored values, so nothing invalid is ever
+  stored or relayed.
+- Counters fold on **every** state frame that carries them (started
+  and terminal included — internal producers stamp the pending total
+  on started and the final count on done), with absent-means-keep
+  semantics: a partial frame never regresses a value. Frames this
+  server emits always carry the full `done`/`total`/`message` set.
 
 The helper endpoints below emit these for you; a non-`any` publisher
 in the same space can emit them by hand through the bus and shows up
@@ -112,11 +118,11 @@ row — the supported owner-restart path.
 
 Body `{done?, total?, message?}` — every field optional, absent =
 keep current value, explicit = set (so `{}` is a pure heartbeat and a
-partial update never wipes the rest). Requires the process live in
-the view under this account's identity, else `404 process.not_found`
-(register first). The server folds the registered descriptor and the
-current progress state into the emitted frame, so every frame carries
-the full picture.
+partial update never wipes the rest). The fold happens atomically
+under the registry lock, so concurrent progress POSTs serialize
+instead of reverting each other. Requires the process live in the
+view under this account's identity, else `404 process.not_found`
+(register first). The emitted frame carries the folded full picture.
 
 ### `POST /v1/processes/:id/finish` — terminal event
 
@@ -180,28 +186,37 @@ message or edit finishes in well under a second and stays silent; a
 cold (re)index or big catch-up crosses the gate and shows up, with
 the row's counters already carrying the work done so far.
 
+All three run on one shared reporter (`procReporter`,
+`internal/indexer/process_report.go`): a 500ms ticker re-checks the
+gate mid-operation (a single long embed call or chunker page
+announces ~on time) and doubles as a 10s heartbeat, so an announced
+row never staleness-expires while work genuinely runs; the terminal
+frame is emitted only after the ticker is joined, so no late
+heartbeat can resurrect a finished row.
+
 - **Embedding (vector) drain** — id `index.embed.<spaceId>`, kind
   `index.embed`, target the spaceId. Once announced: progress per
   landed batch → done/failed/cancelled. `done`/`total` count docs:
   the total comes from the pending count, re-read every round, so
-  late-arriving docs extend the bar instead of overflowing it. A
-  500ms gate ticker re-checks mid-batch (one long embed call
-  announces ~on time) and doubles as a 10s heartbeat so the row
-  never goes stale mid-drain; a worker stopped mid-drain (space
-  dropped, shutdown) finishes as `cancelled` rather than leaving a
-  ghost running row.
+  late-arriving docs extend the bar instead of overflowing it; a
+  worker stopped mid-drain (space dropped, shutdown) finishes as
+  `cancelled` rather than leaving a ghost running row.
 - **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
-  `index.fts`, target the spaceId. Gate checked at page boundaries
-  (pages are frequent). `done` counts processed changes; `total`
-  unknown (the change feed has no backlog count).
+  `index.fts`, target the spaceId. `done` counts processed changes;
+  `total` unknown (the change feed has no backlog count).
 - **Embedding-model download** — id `index.model_download`, kind
   `index.model_download`, target the model file name. Always
-  announces (a download is long by definition and its absence is the
-  state worth showing). `done`/`total` are **bytes** (total from
-  Content-Length; 0 while unknown), frames every ~5s of streaming;
-  retry attempts resume the same row (started is emitted once). This
-  surfaces the otherwise-invisible "semantic search is empty because
-  the model is still downloading" state.
+  announces, at download start — even fully offline (a download is
+  long by definition and its absence is the state worth showing).
+  `done`/`total` are **bytes** (total from Content-Length, unknown
+  until the first response), frames every ~5s of streaming. A failed
+  attempt is NOT terminal — the download retries forever, so the row
+  stays `running` with a generic status message and heartbeats
+  through the backoff; the only terminals are `done` and (on
+  shutdown) `cancelled`. A `.part` interrupted between the last byte
+  and the rename installs on the next boot with no network
+  round-trip. This surfaces the otherwise-invisible "semantic search
+  is empty because the model is still downloading" state.
 
 Common rules: failure messages are generic — indexer errors carry
 filesystem paths and upstream response bodies, which never go on the

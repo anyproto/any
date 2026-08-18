@@ -202,7 +202,8 @@ func TestAdvanceOnProcess(t *testing.T) {
 	}
 
 	// Cursor sits at 9 now; 9 more changes → pages of 4, 4, 1 past an
-	// open gate report started + progress per page + done.
+	// open gate: started at work start (before the first page lands),
+	// progress per page, done.
 	if err := newWorker(mk(18), -1).advance(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -210,8 +211,8 @@ func TestAdvanceOnProcess(t *testing.T) {
 		t.Fatalf("announced advance reported %+v, want started/3×progress/done", updates)
 	}
 	if u := updates[0]; u.Phase != ProcessStarted || u.Kind != ProcessKindFTS ||
-		u.SpaceId != "sp1" || u.Done != 4 {
-		t.Errorf("first = %+v, want fts started at Done=4", u)
+		u.SpaceId != "sp1" || u.Done != 0 {
+		t.Errorf("first = %+v, want fts started at Done=0 (work start)", u)
 	}
 	if u := updates[4]; u.Phase != ProcessDone || u.Done != 9 {
 		t.Errorf("last = %+v, want done with Done=9", u)

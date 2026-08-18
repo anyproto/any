@@ -173,13 +173,50 @@ func TestModelDownload_ReportsProcess(t *testing.T) {
 		t.Fatalf("reported %+v, want at least started+done", updates)
 	}
 	first, last := updates[0], updates[len(updates)-1]
+	// started fires at download start — before the response headers, so
+	// its Total is still unknown; the byte total arrives on progress.
 	if first.Phase != ProcessStarted || first.Kind != ProcessKindModelDownload || first.Name != "m.gguf" {
 		t.Errorf("first = %+v, want started model_download m.gguf", first)
 	}
-	if first.Total != int64(len(body)) {
-		t.Errorf("first.Total = %d, want %d (Content-Length)", first.Total, len(body))
+	sawTotal := false
+	for _, u := range updates {
+		if u.Phase == ProcessProgress && u.Total == int64(len(body)) {
+			sawTotal = true
+		}
+	}
+	if !sawTotal {
+		t.Errorf("no progress frame carried Total=%d (Content-Length): %+v", len(body), updates)
 	}
 	if last.Phase != ProcessDone || last.Done != int64(len(body)) || last.Total != int64(len(body)) {
 		t.Errorf("last = %+v, want done with Done=Total=%d", last, len(body))
+	}
+}
+
+// A .part interrupted between the last byte and the rename installs
+// on the next boot with no network round-trip — a Range request at
+// the full size would draw a 416 and wedge the retry loop forever.
+func TestModelDownload_CompletePartInstallsOffline(t *testing.T) {
+	body := []byte(strings.Repeat("gguf-bytes ", 1000))
+	sum := sha256.Sum256(body)
+	// Every network attempt fails — the install must not need one.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "models", "m.gguf")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest+".part", body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client(), nil)
+	defer d.Close()
+	waitDownload(t, d)
+
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != string(body) {
+		t.Fatalf("complete .part not installed: %v", err)
 	}
 }

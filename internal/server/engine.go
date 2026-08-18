@@ -241,6 +241,11 @@ func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
 		return
 	}
 	data.Done, data.Total = u.Done, u.Total
+	// Non-failed messages are producer-authored status lines (e.g. the
+	// download's generic "retrying" note) and safe to relay; a failed
+	// frame's message is the raw error — paths and response bodies —
+	// and is replaced by the generic Error below.
+	data.Message = u.Message
 	var typ string
 	switch u.Phase {
 	case indexer.ProcessStarted:
@@ -253,6 +258,7 @@ func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
 		typ = api.EventProcessCancelled
 	case indexer.ProcessFailed:
 		typ = api.EventProcessFailed
+		data.Message = ""
 		data.Error = &api.ProcessError{Code: data.Kind + "_failed",
 			Message: "failed; retrying — see server log"}
 	default:
