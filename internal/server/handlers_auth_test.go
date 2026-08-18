@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/api"
@@ -227,5 +229,123 @@ func TestHealth_BootstrappingFalseAfterBootPass(t *testing.T) {
 	}
 	if h.Account == "" {
 		t.Error("authorized health must report the account id")
+	}
+}
+
+// newReadyDepsForVerify fakes the ONE thing POST /v1/auth/verify reads:
+// a server that is authorized and knows its account id. No SDK is
+// opened — the handler derives from the request and compares strings,
+// so a real engine would only make the test slow and network-bound.
+func newReadyDepsForVerify(t *testing.T, account string) *deps {
+	t.Helper()
+	d := newUnauthorizedDeps(t)
+	d.account = account
+	d.ready.Store(true)
+	return d
+}
+
+func TestAuthVerify_MatchesOnlyTheRunningAccount(t *testing.T) {
+	mine, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := auth.AccountId(mine, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := buildEcho(newReadyDepsForVerify(t, account))
+
+	verify := func(body string) api.AuthVerifyResponse {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, "/v1/auth/verify", body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("verify: want 200, got %d %s", rec.Code, rec.Body.String())
+		}
+		var resp api.AuthVerifyResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		// The reply is one bit. Echoing any account id — the running
+		// one, or the id derived from the submitted phrase — would turn
+		// this into a phrase→account oracle, so assert on the wire text.
+		if body := rec.Body.String(); strings.Contains(body, "account") ||
+			strings.Contains(body, account) {
+			t.Fatalf("verify reply leaks an account id: %s", body)
+		}
+		return resp
+	}
+
+	if !verify(`{"mnemonic":"` + mine + `"}`).Matches {
+		t.Error("the running account's own phrase must match")
+	}
+	if verify(`{"mnemonic":"` + other + `"}`).Matches {
+		t.Error("a different account's phrase must not match")
+	}
+	// Right phrase, wrong derivation index — a different account, so a
+	// mismatch (the client must send the index a restore would use).
+	if verify(`{"mnemonic":"` + mine + `","index":1}`).Matches {
+		t.Error("index 1 derives another account — must not match")
+	}
+}
+
+func TestAuthVerify_RejectsBadInput(t *testing.T) {
+	mine, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := auth.AccountId(mine, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := buildEcho(newReadyDepsForVerify(t, account))
+
+	for _, tc := range []struct {
+		name, body, code string
+	}{
+		{"not a phrase", `{"mnemonic":"definitely not a bip39 phrase"}`, "auth.bad_mnemonic"},
+		{"empty", `{"mnemonic":""}`, "request.missing_field"},
+		{"absent", `{}`, "request.missing_field"},
+		{"unknown field", `{"mnemonic":"` + mine + `","matches":true}`, "request.unknown_field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, e, http.MethodPost, "/v1/auth/verify", tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("want 400, got %d %s", rec.Code, rec.Body.String())
+			}
+			var env api.ErrorEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatal(err)
+			}
+			if env.Error.Code != tc.code {
+				t.Fatalf("code = %q, want %q (%s)", env.Error.Code, tc.code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// An unauthorized server has nothing to verify against: the route is
+// deliberately outside the guard's exemption list, so it 401s like every
+// other non-meta route rather than answering with a bare `false`.
+func TestAuthVerify_UnauthorizedIsGuarded(t *testing.T) {
+	mine, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := buildEcho(newUnauthorizedDeps(t))
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/auth/verify", `{"mnemonic":"`+mine+`"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d %s", rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Error.Code != "auth.required" {
+		t.Fatalf("code = %q", env.Error.Code)
 	}
 }

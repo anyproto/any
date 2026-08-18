@@ -146,10 +146,11 @@ completes. See `02-server.md` § Startup / § Health.
 
 ### Auth
 
-| Method | Path        | Purpose                                          |
-|--------|-------------|--------------------------------------------------|
-| GET    | `/v1/auth`  | authorization state + locally available accounts |
-| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK |
+| Method | Path               | Purpose                                          |
+|--------|--------------------|--------------------------------------------------|
+| GET    | `/v1/auth`         | authorization state + locally available accounts |
+| POST   | `/v1/auth`         | generate / restore / select an account, boot SDK |
+| POST   | `/v1/auth/verify`  | is this phrase the running account's?            |
 
 A server started without a resolvable account (fresh data dir, or
 several accounts and no selector — see `02-server.md` § Startup) is
@@ -195,6 +196,49 @@ account's pid lock), `409 auth.mnemonic_mismatch` (existing wallet file
 disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
 var, never the request body).
+
+#### Verify a phrase against the running account
+
+`POST /v1/auth` cannot tell a client whether a phrase belongs to the
+account already running: on a ready server it returns
+`409 auth.already_authorized` **before** reading the mnemonic. That
+leaves a client holding a phrase the server has never confirmed — and
+storing an unconfirmed one (a desktop keychain, say) would bind a
+possibly-foreign key to this account. `POST /v1/auth/verify` answers
+exactly that one question, and changes no state:
+
+```json
+// POST /v1/auth/verify
+{ "mnemonic":"w1 … w12", "index":0 }
+
+// → 200
+{ "matches": true }
+```
+
+The account address is derived from the phrase (no disk, no SDK boot)
+and compared with the id this server runs. Pass the same `index` a
+restore would use — the same phrase at another index is another account
+and reads as `matches: false`.
+
+Errors: `400 request.missing_field` (no `mnemonic`),
+`400 auth.bad_mnemonic` (BIP-39 validation), `401 auth.required`
+(unauthorized server — there is nothing to verify against; the route is
+deliberately **not** in the unauthorized-guard exemption list).
+
+Contract points that are load-bearing rather than cosmetic:
+
+- **The reply is one bit.** The id derived from a non-matching phrase is
+  never echoed, so this cannot map an arbitrary phrase to its account.
+- **JSON body, POST only.** A `GET` with a query string, or a
+  `text/plain` body, would make this a CORS *simple request* that any web
+  page could fire past preflight. It must stay a JSON POST, and the
+  request body must never move into the URL — the HTTP log records
+  method, path and status, so a phrase in a path would be logged.
+- **The listen address is still the trust boundary.** Like the rest of
+  `/v1` this endpoint is unauthenticated; loopback-only binding is what
+  protects it. Reachable off-host it confirms "this phrase belongs to
+  this machine's account" to anyone who asks — as `GET /v1/spaces` would
+  already hand them the data.
 
 ### Account
 

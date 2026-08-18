@@ -21,6 +21,11 @@ var authLog = logger.NewNamed("auth")
 func registerAuthRoutes(g *echo.Group, d *deps) {
 	g.GET("/auth", d.authStatus)
 	g.POST("/auth", d.authorize)
+	// Deliberately NOT in the unauthorized-guard exemption list
+	// (routes.go): on a server with no account there is nothing to
+	// verify against, and the guard's 401 auth.required is the right
+	// answer — the handler never has to re-check readiness.
+	g.POST("/auth/verify", d.authVerify)
 }
 
 // authStatus handles GET /v1/auth.
@@ -159,6 +164,58 @@ func (d *deps) authorize(c echo.Context) error {
 		Created:   created,
 		Mnemonic:  generated,
 	})
+}
+
+// authVerify handles POST /v1/auth/verify.
+//
+// Answers one question for an ALREADY-AUTHORIZED server: is this phrase
+// the running account's? POST /v1/auth cannot answer it — it 409s on a
+// ready server before ever reading the mnemonic (see authorize) — so a
+// client that wants to confirm a phrase (to store it in the device's
+// secure enclave, say) has no way to do so today, and storing an
+// unverified phrase would bind a possibly-foreign key to this account.
+//
+// The check is pure: auth.AccountId derives the account address from the
+// phrase without touching disk or booting anything, and the result is
+// compared against the id this server already runs. No engine state is
+// read or changed, and the phrase is neither stored nor logged (the HTTP
+// log records method/path/status only — never the body).
+//
+// SECURITY. The reply is one bit on purpose: the id derived from a
+// non-matching phrase is NOT echoed, so this cannot be used to map an
+// arbitrary phrase to its account. Brute force is not a concern (a
+// 12-word BIP-39 phrase is 128 bits), but the endpoint does confirm
+// "this phrase belongs to this machine's account" to anyone who can
+// reach the API — which is why it must stay a JSON-body POST: as a
+// simple request (GET, or a text/plain body) any web page could reach
+// it past CORS preflight. The loopback-only listen remains the trust
+// boundary, exactly as for the rest of /v1.
+//
+//	@Summary	Check a recovery phrase against the running account
+//	@Tags		auth
+//	@Accept		json
+//	@Produce	json
+//	@Param		request	body		api.AuthVerifyRequest	true	"phrase to check"
+//	@Success	200		{object}	api.AuthVerifyResponse
+//	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	401		{object}	api.ErrorEnvelope
+//	@Router		/auth/verify [post]
+func (d *deps) authVerify(c echo.Context) error {
+	req, ok := bindBodyStrict[api.AuthVerifyRequest](c, "body: {\"mnemonic\": …[, \"index\": N]}")
+	if !ok {
+		return nil
+	}
+	if req.Mnemonic == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "mnemonic required", nil)
+	}
+	id, err := auth.AccountId(req.Mnemonic, req.Index)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
+	}
+	// Plain comparison: both sides are public account addresses (the
+	// running one is already served by GET /v1/auth), so there is no
+	// secret to leak through timing.
+	return c.JSON(http.StatusOK, api.AuthVerifyResponse{Matches: id == d.accountID()})
 }
 
 // identityForAccount places an account id in the root: its per-account

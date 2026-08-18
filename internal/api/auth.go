@@ -39,3 +39,22 @@ type AuthResponse struct {
 	// must surface it to the user for backup.
 	Mnemonic string `json:"mnemonic,omitempty"`
 }
+
+// AuthVerifyRequest is the POST /v1/auth/verify body: a recovery phrase
+// to check against the account this server already runs.
+type AuthVerifyRequest struct {
+	// Mnemonic is the BIP-39 phrase to check. Required.
+	Mnemonic string `json:"mnemonic"`
+	// Index is the account derivation index for Mnemonic. Default 0 —
+	// pass the same index a restore would use, or a phrase restored at
+	// a non-zero index reads as a mismatch.
+	Index uint32 `json:"index,omitempty"`
+}
+
+// AuthVerifyResponse is the POST /v1/auth/verify reply. Deliberately
+// one bit: the account id derived from a NON-matching phrase is never
+// echoed back, so the endpoint answers "is this the running account's
+// phrase?" and nothing else.
+type AuthVerifyResponse struct {
+	Matches bool `json:"matches"`
+}

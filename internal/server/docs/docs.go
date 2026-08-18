@@ -455,6 +455,27 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AuthVerifyRequest": {
+                "properties": {
+                    "index": {
+                        "description": "Index is the account derivation index for Mnemonic. Default 0 —\npass the same index a restore would use, or a phrase restored at\na non-zero index reads as a mismatch.",
+                        "type": "integer"
+                    },
+                    "mnemonic": {
+                        "description": "Mnemonic is the BIP-39 phrase to check. Required.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AuthVerifyResponse": {
+                "properties": {
+                    "matches": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.Backlink": {
                 "properties": {
                     "objectId": {
@@ -2594,6 +2615,66 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Authorize: generate, restore (mnemonic) or select an account",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/auth/verify": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.AuthVerifyRequest",
+                                        "summary": "request",
+                                        "description": "phrase to check"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "phrase to check",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AuthVerifyResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Unauthorized"
+                    }
+                },
+                "summary": "Check a recovery phrase against the running account",
                 "tags": [
                     "auth"
                 ]
