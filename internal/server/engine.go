@@ -35,12 +35,14 @@ type engine struct {
 // errAlreadyAuthorized guards double-boot via POST /v1/auth.
 var errAlreadyAuthorized = errors.New("already authorized")
 
-// walletSeed carries the inputs for CREATING a wallet from a known
-// phrase: the BIP-39 mnemonic and its account-derivation index. Both
-// zero for the load-an-existing-wallet path and for fresh generation
-// (the SDK then generates the phrase at index 0). The index is paired
-// with the mnemonic here because the two are meaningless apart and the
-// Identity (which/where) deliberately doesn't carry derivation inputs.
+// walletSeed carries the inputs for CREATING a wallet: the BIP-39
+// mnemonic and its account-derivation index. Both zero for the
+// load-an-existing-wallet path (an existing wallet's stored values
+// win); the fresh-generate and restore paths pass the resolved index
+// explicitly (auth.DefaultAccountIndex unless the caller chose one).
+// The index is paired with the mnemonic here because the two are
+// meaningless apart and the Identity (which/where) deliberately
+// doesn't carry derivation inputs.
 type walletSeed struct {
 	mnemonic string
 	index    uint32

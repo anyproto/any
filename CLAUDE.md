@@ -520,7 +520,7 @@ Implementation slices landed:
     /v1/spaces/one-to-one/register-incoming` (`{peerIdentity,
     displayHint?}` → `RegisterIncoming`, the out-of-band discovery path,
     204, idempotent). New `SpaceInfo` fields `spaceType` (=
-    `anytype.onetoone`) + `author`, and status strings
+    `any.onetoone`) + `author`, and status strings
     `one_to_one_pending` / `one_to_one_declined`
     (`spaceInfoToAPI`/`spaceStatusString`). **Discovery has no bespoke
     endpoint** — incoming requests are the space list filtered on `GET

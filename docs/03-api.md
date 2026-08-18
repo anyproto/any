@@ -8,7 +8,6 @@
   - [Meta](#meta)
   - [Auth](#auth)
   - [Account](#account)
-  - [Devices (device registry & active-app election)](#devices-device-registry--active-app-election)
   - [Spaces](#spaces)
     - [Query / subscribe the space list](#query--subscribe-the-space-list)
     - [Dataset schema discovery](#dataset-schema-discovery)
@@ -169,9 +168,11 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
-{}                                    // generate a fresh account
-{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
-                                      // device key freshly generated
+{}                                    // generate a fresh account (index 1)
+{ "mnemonic":"w1 … w12" }             // restore at the default index (1):
+                                      // same phrase ⇒ same account, device
+                                      // key freshly generated
+{ "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
 
 // → 200
@@ -182,8 +183,10 @@ restart, and the server stays on that account for its lifetime
 
 `index` is the account-derivation index and is valid **only with
 `mnemonic`** (a selected account's index is baked into its wallet; a
-generated one is always 0) — a non-zero `index` without `mnemonic` is
-`400 request.invalid_field`. If the engine fails to boot after a fresh
+generated one is always the `any` default, 1). Omitted means 1; index
+0 is anytype's, passed explicitly to restore an anytype-derived
+account. Any `index` without `mnemonic` — including an explicit 0 —
+is `400 request.invalid_field`. If the engine fails to boot after a fresh
 wallet was created this call (e.g. SDK init error), the half-created
 per-account dir is removed, so a retry — or `generate` getting a new
 phrase — starts clean rather than auto-selecting an un-backed account.
@@ -267,61 +270,6 @@ space; there is no cross-space role rollup. See
 `event: identities` frames carrying `{added, updated, removed}` batches
 (same `ready` → … → `closed` envelope and reason set as the sync-status
 streams — see [events](04-events.md)).
-
-### Devices (device registry & active-app election)
-
-| Method | Path                             | Purpose                                      |
-|--------|----------------------------------|----------------------------------------------|
-| GET    | `/v1/devices`                    | mapped rows + per-app `active` winners + `self` |
-| POST   | `/v1/devices/query`              | raw windowed snapshot (standard query body)  |
-| POST   | `/v1/devices/query/subscribe`    | raw windowed live view (SSE)                 |
-| PUT    | `/v1/devices/me`                 | `Spaces.SetDevice` — self-row `{name?, apps?}` |
-| POST   | `/v1/devices/activate`           | `Spaces.ClaimActive` — `{app}`               |
-| DELETE | `/v1/devices/:peerId`            | `Spaces.DeleteDevice` — prune a row          |
-
-The account's device registry: one row per device (peer) in the
-tech-space system dataset `devices` (row id = peer id, all fields
-synced), with per-app install flags (`apps`, an open slug set) and
-active-instance claims. Account-scoped — these routes sit outside the
-`:spaceId` group. The full model, the election rule and the
-runtime-vs-UI decision matrix live in [devices](21-devices.md).
-
-```json
-// GET /v1/devices → 200
-{ "devices": [
-    { "peerId":"12D3KooWA…", "name":"workstation", "os":"linux",
-      "version":"0.9.1",
-      "apps": { "bao": { "version":"1.2" } },
-      "activeClaims": { "bao": { "seq":3, "at":1755450000 } } },
-    { "peerId":"12D3KooWB…", "name":"laptop", "os":"darwin",
-      "version":"0.9.1" } ],
-  "active": { "bao": "12D3KooWA…" },
-  "self":   "12D3KooWB…" }
-```
-
-`active` maps each claimed app slug to its winning peer id, resolved
-server-side by the SDK's canonical election rule (highest claim `seq`,
-tie → highest `at`, tie → largest peer id; candidates limited to rows
-that still carry the slug under `apps`). Consumers — the UI and agent
-runtimes alike — read this map instead of reimplementing the rule.
-`self` is this server's own peer id, so a consumer can tell whether it
-IS the active device without a separate identity call.
-
-Writes are structurally self-scoped: the SDK resolves its own peer id
-for `PUT /me` and `activate`, so they can never touch another device's
-row. The server refreshes its own row on every engine boot, after the
-SDK's bootstrap pass (`os` / `version`; `name` seeded from the
-hostname only while the row carries no name). In `PUT /me`,
-`"apps": {"<slug>": null}` uninstalls the slug; `activate` self-heals
-`apps.<app>` so a claim never dangles. A self-row write on a pruned
-device fails 409 `device.pruned` — the sticky tombstone absorbs it.
-
-`DELETE /v1/devices/:peerId` is **permanent for that peer id** —
-record tombstones are sticky, so a pruned device can never re-register
-until it derives fresh peer keys (a new `any init`). 404
-`device.not_found` on an unknown or already-pruned id; 400
-`device.self_delete` on this server's own row (prune it from another
-device instead).
 
 ### Spaces
 
@@ -437,8 +385,8 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
-to tell direct chats from regular spaces client-side. `author` is the
+`spaceType:"any.onetoone"`, a created space `"any.space"` — use it to
+tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 
@@ -1494,16 +1442,39 @@ has no property definitions yet", never "no such type".
 
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
-`GET …/properties`. It is opaque consumer metadata; the one convention
-today is `meta.index`, which controls how the search indexer treats
-the property's value: absent ⇒ indexed under the default scope
-`props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
-(see `docs/13-index.md` § prop chunker). String / array / number
-kinds index; booleans and null never do.
+`GET …/properties`. It is opaque consumer metadata; three conventions
+exist today:
+
+- **`meta.index`** controls how the search indexer treats the
+  property's value: absent ⇒ indexed under the default scope
+  `props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
+  (see `docs/13-index.md` § prop chunker). String / array / number
+  kinds index; booleans and null never do.
+- **`meta.pos`** is the property's lexid display-order key — the same
+  drag-n-drop ordering mechanic `nav.pos` gives objects in the tree
+  and `format.options.<key>.pos` gives select options. Clients render
+  a type's property list sorted by `meta.pos` ascending (plain
+  lexicographic string compare), falling back to `name` (id
+  tie-break) for definitions that don't carry one. A drag writes one
+  `PATCH …/properties/:propId` `{"set": {"meta.pos": "<lexid>"}}` —
+  a per-path CRDT `$set`, so concurrent reorders LWW-converge, and
+  since definitions are synced records the order is shared by every
+  member of the space. The server neither generates nor validates
+  lexids — this is a consumer convention, exactly like `meta.index`.
+- **`meta.icon`** is the property's display icon: a string naming an
+  icon from any-ui's system icon set. Set it inline at create or with
+  `PATCH …/properties/:propId` `{"set": {"meta.icon": "<name>"}}`
+  (change) / `{"unset": ["meta.icon"]}` (revert to the client's
+  per-format default). Definitions are synced records, so the chosen
+  icon is shared by every member of the space, and concurrent changes
+  LWW-converge like any per-path `$set`. The server stores the string
+  verbatim — the icon-name vocabulary is owned by any-ui; other
+  clients should tolerate (and preserve) names they don't recognize
+  and fall back to their format default.
 
 ```json
 { "name": "context", "kind": "string", "xKey": "context",
-  "meta": { "index": "agent" } }
+  "meta": { "index": "agent", "pos": "a3", "icon": "flag" } }
 ```
 
 `POST …/properties` also accepts an optional **`format`** object — the
