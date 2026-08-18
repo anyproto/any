@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -188,18 +187,7 @@ func newSpaceSubscribeCmd() *cobra.Command {
 				return err
 			}
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-			handle := func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				out := struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)}
-				return enc.Encode(out)
-			}
-			return cl.StreamSpaceListQuerySubscribe(cmd.Context(), body, handle)
+			return cl.StreamSpaceListQuerySubscribe(cmd.Context(), body, jsonFrameHandler())
 		},
 	}
 	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &limit, &offset, &includeTot)
@@ -208,11 +196,7 @@ func newSpaceSubscribeCmd() *cobra.Command {
 
 func addSpaceListQueryFlags(cmd *cobra.Command, dataset, filter, sort *string, limit, offset *int, includeTot *bool) {
 	cmd.Flags().StringVar(dataset, "dataset", "", "system dataset to read (default spaces; profile also available)")
-	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
-	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
-	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
-	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
-	cmd.Flags().BoolVar(includeTot, "total", false, "include the unbounded match count and hasNext flag")
+	addWindowQueryFlags(cmd, filter, sort, limit, offset, includeTot)
 }
 
 // buildSpaceListQueryBody assembles the request body for the space-list

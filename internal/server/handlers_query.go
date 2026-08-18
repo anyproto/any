@@ -73,13 +73,17 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	return writeQueryResponse(c, res, opts.IncludeTotal)
 }
 
-// buildSharedQuery parses the request body for the QueryObjects (per-
-// space `objects` collection) endpoints and assembles the chained
-// Query plus its QueryOpts. Returns (q, opts, errResp, done=true) on
-// validation failure; the caller returns errResp directly in that
-// case. Shared between the snapshot and subscribe handlers so the body
-// shape stays in lockstep.
-func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, error, bool) {
+// buildBodyQuery is the one implementation of the OPTIONAL windowed-
+// query body pipeline (an empty body is a full snapshot): read → parse
+// → strict unknown-field gate against fields → boundary filter check →
+// applyQueryParams. Every builder over an optional body goes through it
+// so the 400 surface cannot drift between endpoints. base receives the
+// parsed root (nil for an empty body) and returns the base Query to
+// window — or a written error response with done=true (e.g. the
+// space-list dataset allowlist); it runs before checkFilter, keeping
+// each builder's historical validation order. buildPerObjectQuery
+// stays separate: its body is required, not optional.
+func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Value) (space.Query, error, bool)) (space.Query, space.QueryOpts, error, bool) {
 	body, err := readBody(c)
 	if err != nil {
 		return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
@@ -93,14 +97,30 @@ func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryO
 			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
-	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
+	if errResp, done := checkUnknownFields(c, root, "", fields...); done {
+		return nil, space.QueryOpts{}, errResp, true
+	}
+	q, errResp, done := base(root)
+	if done {
 		return nil, space.QueryOpts{}, errResp, true
 	}
 	if errResp, done := checkFilter(c, root); done {
 		return nil, space.QueryOpts{}, errResp, true
 	}
-	q, opts := applyQueryParams(root, sp.QueryObjects())
+	q, opts := applyQueryParams(root, q)
 	return q, opts, nil, false
+}
+
+// buildSharedQuery parses the request body for the QueryObjects (per-
+// space `objects` collection) endpoints and assembles the chained
+// Query plus its QueryOpts. Returns (q, opts, errResp, done=true) on
+// validation failure; the caller returns errResp directly in that
+// case. Shared between the snapshot and subscribe handlers so the body
+// shape stays in lockstep.
+func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, error, bool) {
+	return buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
+		return sp.QueryObjects(), nil, false
+	})
 }
 
 // buildPerObjectQuery is the per-object dataset counterpart to

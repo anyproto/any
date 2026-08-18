@@ -503,53 +503,6 @@ components:
         self:
           type: string
       type: object
-    api.DevicesQueryRequest:
-      properties:
-        driftBudgetPercent:
-          description: |-
-            DriftBudgetPercent (subscribe only) bounds window drift before
-            the stream closes with reason "drifted". Default 30.
-          type: integer
-        filter:
-          additionalProperties: {}
-          description: |-
-            Filter is a mongo-style condition over record fields; omitted or
-            empty matches every record. Operator grammar: docs/09-query.md
-            (a bad operator answers 400 filter.unknown_operator listing the
-            full set).
-          type: object
-        includeTotal:
-          description: |-
-            IncludeTotal populates `total` + `hasNext` in the snapshot reply.
-            Page-bounded in the current SDK — see docs/09-query.md caveat.
-          type: boolean
-        limit:
-          description: Limit bounds the window; 0 or absent = unbounded.
-          type: integer
-        mailboxCapacity:
-          description: |-
-            MailboxCapacity (subscribe only) sizes the event mailbox before
-            the stream closes with reason "overflow". Default 256, min 16.
-          type: integer
-        offset:
-          description: Offset skips past the first N matches of the sorted result.
-          type: integer
-        projection:
-          additionalProperties: {}
-          description: |-
-            Projection is accepted but NOT IMPLEMENTED — records always ship
-            their full form. See docs/07-roadmap.md § "Query Projection".
-          type: object
-        sort:
-          description: |-
-            Sort lists field paths, "-" prefix for descending (e.g.
-            "-createdAt"). Required when limit > 0 on subscribe, so the
-            window is well-defined.
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-      type: object
     api.Edge:
       properties:
         strength:
@@ -2086,6 +2039,12 @@ paths:
       responses:
         "204":
           description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
         "404":
           content:
             application/json:
@@ -2123,6 +2082,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
         "500":
           content:
             application/json:
@@ -2154,6 +2119,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
         "500":
           content:
             application/json:
@@ -2171,7 +2142,7 @@ paths:
             schema:
               oneOf:
               - type: object
-              - $ref: '#/components/schemas/api.DevicesQueryRequest'
+              - $ref: '#/components/schemas/api.SpaceQueryObjectsRequest'
                 description: Query params
                 summary: body
         description: Query params
@@ -2205,7 +2176,7 @@ paths:
             schema:
               oneOf:
               - type: object
-              - $ref: '#/components/schemas/api.DevicesQueryRequest'
+              - $ref: '#/components/schemas/api.SpaceQueryObjectsRequest'
                 description: Query params
                 summary: body
         description: Query params

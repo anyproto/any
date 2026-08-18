@@ -54,18 +54,7 @@ Frames (one JSON object per line on stdout):
 			}
 
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-
-			handle := func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				out := struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)}
-				return enc.Encode(out)
-			}
+			handle := jsonFrameHandler()
 
 			ctx := cmd.Context()
 			if properties {
@@ -76,12 +65,38 @@ Frames (one JSON object per line on stdout):
 	}
 	cmd.Flags().StringVar(&dataset, "dataset", "", "dataset name (required without --properties)")
 	cmd.Flags().BoolVar(&properties, "properties", false, "subscribe to the per-space objects collection instead of a per-object dataset")
-	cmd.Flags().StringVar(&filter, "filter", "", "JSON filter object")
-	cmd.Flags().StringVar(&sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "window size; required when --sort is set")
-	cmd.Flags().IntVar(&offset, "offset", 0, "skip the first N records of the snapshot")
-	cmd.Flags().BoolVar(&includeTot, "total", false, "include the unbounded match count and hasNext flag in the snapshot frame")
+	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
 	return cmd
+}
+
+// addWindowQueryFlags declares the shared windowed-query flags every
+// query/query-subscribe command takes (the wire QueryBodyParams minus
+// the addressing fields). One definition so the flag surface and help
+// text can't drift per command; commands with extra addressing flags
+// (--dataset, --properties) declare those on top.
+func addWindowQueryFlags(cmd *cobra.Command, filter, sort *string, limit, offset *int, includeTot *bool) {
+	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
+	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
+	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
+	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
+	cmd.Flags().BoolVar(includeTot, "total", false, "include the unbounded match count and hasNext flag")
+}
+
+// jsonFrameHandler returns the CLI's SSE→stdout bridge — the one
+// implementation of the "one JSON frame per line" output contract
+// every subscribe command shares: {"event": name, "data": payload},
+// keepalive/comment frames (empty event) skipped.
+func jsonFrameHandler() func(client.SSEFrame) error {
+	enc := json.NewEncoder(os.Stdout)
+	return func(f client.SSEFrame) error {
+		if f.Event == "" {
+			return nil
+		}
+		return enc.Encode(struct {
+			Event string          `json:"event"`
+			Data  json.RawMessage `json:"data,omitempty"`
+		}{Event: f.Event, Data: json.RawMessage(f.Data)})
+	}
 }
 
 // buildQueryBody assembles the JSON request body for both query

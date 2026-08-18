@@ -309,15 +309,19 @@ IS the active device without a separate identity call.
 
 Writes are structurally self-scoped: the SDK resolves its own peer id
 for `PUT /me` and `activate`, so they can never touch another device's
-row. The server refreshes its own row on every engine boot (`os` /
-`version`; `name` seeded from the hostname only on first
-registration). In `PUT /me`, `"apps": {"<slug>": null}` uninstalls the
-slug; `activate` self-heals `apps.<app>` so a claim never dangles.
+row. The server refreshes its own row on every engine boot, after the
+SDK's bootstrap pass (`os` / `version`; `name` seeded from the
+hostname only while the row carries no name). In `PUT /me`,
+`"apps": {"<slug>": null}` uninstalls the slug; `activate` self-heals
+`apps.<app>` so a claim never dangles. A self-row write on a pruned
+device fails 409 `device.pruned` — the sticky tombstone absorbs it.
 
 `DELETE /v1/devices/:peerId` is **permanent for that peer id** —
 record tombstones are sticky, so a pruned device can never re-register
 until it derives fresh peer keys (a new `any init`). 404
-`device.not_found` on an unknown or already-pruned id.
+`device.not_found` on an unknown or already-pruned id; 400
+`device.self_delete` on this server's own row (prune it from another
+device instead).
 
 ### Spaces
 
@@ -433,7 +437,7 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"anytype.onetoone"`, a regular space `"anytype.space"` — use it
+`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
 to tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
@@ -454,7 +458,7 @@ tombstoned row) — treat it as "unknown / no access", with
 read when it matters. And on a 1-1 space both participants report
 `writer` (the ACL owner slot is a synthetic shared key nobody holds),
 so don't gate owner-only actions on `ownRole == "owner"` for
-`spaceType:"anytype.onetoone"` rows.
+`spaceType:"any.onetoone"` rows.
 
 `SpaceInfo.settings` is the **account-private, client-owned** per-space
 settings object (free-form single-level keys, scalar values) — written
@@ -499,7 +503,7 @@ values, not ACL operations:
   (`Service.OneToOne`). Derives the space and activates it immediately
   (implicit self-approval → `status:"active"`). Idempotent; overrides a
   prior local decline (un-decline). Returns 201 with the `SpaceInfo`
-  (`type`/`spaceType` = `anytype.onetoone`). `400 request.missing_field`
+  (`type`/`spaceType` = `any.onetoone`). `400 request.missing_field`
   when `otherIdentity` is empty; `400 request.invalid_field` for an
   undecodable identity or self-pairing (`details.reason:"self"`).
 - **Incoming → pending.** When a peer reaches out, the other side learns

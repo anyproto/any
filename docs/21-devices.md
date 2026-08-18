@@ -36,10 +36,13 @@ account.
   instance: `seq` (writer-supplied monotonic counter — a claim writes
   `max of all visible seqs + 1`) and `at` (unix seconds).
 
-The server maintains its own row automatically: every engine boot
-upserts `os` and `version`, and seeds `name` from the hostname on first
-registration only (a user-set name is never clobbered). Runtimes and
-UIs only ever add what they own: install flags and claims.
+The server maintains its own row automatically: once the SDK's
+bootstrap pass completes, each boot upserts `os` and `version`, and
+seeds `name` from the hostname only while the row carries no name (a
+user-set name is never clobbered; waiting for bootstrap keeps a
+not-yet-caught-up projection from reading as first registration).
+Runtimes and UIs only ever add what they own: install flags and
+claims.
 
 Online status is deliberately **not** in the dataset — a liveness bit
 would churn CRDT history on every heartbeat. If needed later it arrives
@@ -116,9 +119,16 @@ another device's row.
 **Deletion is permanent for that peer id.** Record tombstones are
 sticky: a pruned device can never re-register — a device that comes
 back stays unlisted until it derives fresh peer keys (a new
-`any init`). Prune dead devices, not resting ones.
+`any init`). Prune dead devices, not resting ones. The SDK refuses
+this server's own row (`device.self_delete`, 400): self-pruning would
+permanently lock the installation out — prune it from another device.
+Writes from an already-pruned device fail `device.pruned` (409): the
+tombstone absorbs them, so `PUT /me` / `activate` can never silently
+no-op.
 
 Errors: `device.not_found` (404, unknown peer id on DELETE);
+`device.self_delete` (400, DELETE of the own row);
+`device.pruned` (409, self-row write after the row was pruned);
 `request.invalid_field` (bad slug / non-scalar app value);
 `request.missing_field` (empty update / missing app). See
 [errors](06-errors.md).

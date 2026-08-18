@@ -1028,22 +1028,34 @@ func e2eHTTPTimeout() time.Duration {
 
 func doRequest(t *testing.T, method, url, body string) (*http.Response, []byte) {
 	t.Helper()
+	resp, raw, err := tryRequest(method, url, body)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
+	}
+	return resp, raw
+}
+
+// tryRequest is the non-fatal variant of doRequest for code that runs
+// off the test goroutine (t.Fatalf only Goexits the calling goroutine,
+// so from a worker it would leave the test running half-failed —
+// report with t.Errorf and return instead).
+func tryRequest(method, url, body string) (*http.Response, []byte, error) {
 	var r io.Reader
 	if body != "" {
 		r = bytes.NewReader([]byte(body))
 	}
 	req, err := http.NewRequest(method, url, r)
 	if err != nil {
-		t.Fatalf("build request: %v", err)
+		return nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := e2eClient.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	return resp, raw
+	return resp, raw, nil
 }

@@ -72,12 +72,3 @@ type DeviceUpdateRequest struct {
 type DeviceActivateRequest struct {
 	App string `json:"app"`
 }
-
-// DevicesQueryRequest documents the body of
-// POST /v1/devices/query[/subscribe] — the raw windowed query over the
-// tech-space `devices` dataset. Like SpaceListQueryRequest there is no
-// objectId (fixed server-side to the tech-space index object) and no
-// dataset field (fixed to `devices`).
-type DevicesQueryRequest struct {
-	QueryBodyParams
-}

@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"net/http"
-	"reflect"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -20,8 +19,6 @@ import (
 // only through the restricted self-row surface (never the generic
 // modify path). See docs/21-devices.md.
 const DevicesDataset = "devices"
-
-var devicesQueryFields = jsonFieldNames(reflect.TypeFor[api.DevicesQueryRequest]())
 
 // registerDevicesRoutes wires the account-global device registry.
 // Account-scoped (no :spaceId), so it sits outside the space group
@@ -80,16 +77,13 @@ func (d *deps) devicesList(c echo.Context) error {
 //	@Param		body	body	api.DeviceUpdateRequest	true	"Fields to set"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/devices/me [put]
 func (d *deps) deviceUpdateMe(c echo.Context) error {
 	req, ok := bindBodyStrict[api.DeviceUpdateRequest](c, "")
 	if !ok {
 		return nil
-	}
-	if req.Name == "" && len(req.Apps) == 0 {
-		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"at least one of name or apps is required", nil)
 	}
 	err := d.sdk.Spaces().SetDevice(c.Request().Context(), space.DeviceUpsert{
 		Name: req.Name,
@@ -115,6 +109,7 @@ func (d *deps) deviceUpdateMe(c echo.Context) error {
 //	@Param		body	body	api.DeviceActivateRequest	true	"App slug"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/devices/activate [post]
 func (d *deps) deviceActivate(c echo.Context) error {
@@ -136,12 +131,16 @@ func (d *deps) deviceActivate(c echo.Context) error {
 // election reacts to. CRDT record tombstones are sticky: a deleted
 // peerId can NEVER re-register — a pruned device that comes back stays
 // unlisted until it re-derives fresh peer keys (a new `any init`).
-// Prune dead devices, not resting ones.
+// Prune dead devices, not resting ones. The SDK refuses THIS server's
+// own row (400 device.self_delete): self-pruning would permanently
+// lock the installation out of the registry — prune it from another
+// device.
 //
 //	@Summary	Remove a device from the registry (permanent for that peerId)
 //	@Tags		devices
 //	@Param		peerId	path	string	true	"Device peer id"
 //	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/devices/{peerId} [delete]
@@ -165,7 +164,7 @@ func (d *deps) deviceDelete(c echo.Context) error {
 //	@Tags		devices
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.DevicesQueryRequest	false	"Query params"
+//	@Param		body	body		api.SpaceQueryObjectsRequest	false	"Query params"
 //	@Success	200		{object}	api.QueryResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
@@ -194,7 +193,7 @@ func (d *deps) devicesQuery(c echo.Context) error {
 //	@Tags		devices
 //	@Accept		json
 //	@Produce	text/event-stream
-//	@Param		body	body	api.DevicesQueryRequest	false	"Query params"
+//	@Param		body	body	api.SpaceQueryObjectsRequest	false	"Query params"
 //	@Success	200
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
@@ -217,28 +216,10 @@ func (d *deps) devicesQuerySubscribe(c echo.Context) error {
 // to `devices`. The body is optional (an empty body is a full
 // snapshot).
 func (d *deps) buildDevicesQuery(c echo.Context) (space.Query, space.QueryOpts, error, bool) {
-	body, err := readBody(c)
-	if err != nil {
-		return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
-	}
-	parser := getFastjsonParser()
-	defer putFastjsonParser(parser)
-	var root *fastjson.Value
-	if len(body) > 0 {
-		root, err = parser.ParseBytes(body)
-		if err != nil {
-			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
-		}
-	}
-	if errResp, done := checkUnknownFields(c, root, "", devicesQueryFields...); done {
-		return nil, space.QueryOpts{}, errResp, true
-	}
-	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, errResp, true
-	}
-	svc := d.sdk.Spaces()
-	q, opts := applyQueryParams(root, svc.Query(svc.SpaceIndexObjectId(), DevicesDataset))
-	return q, opts, nil, false
+	return buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
+		svc := d.sdk.Spaces()
+		return svc.Query(svc.SpaceIndexObjectId(), DevicesDataset), nil, false
+	})
 }
 
 // deviceToAPI maps the SDK registry row to the wire shape.
@@ -294,10 +275,16 @@ func deviceError(c echo.Context, err error, details map[string]any) error {
 			"app info values must be scalars (string, number, bool)", details)
 	case errors.Is(err, space.ErrDeviceEmptyUpsert):
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"nothing to update", details)
+			"at least one of name or apps is required", details)
 	case errors.Is(err, space.ErrDeviceUnknown):
 		return writeError(c, http.StatusNotFound, "device.not_found",
 			"no device with this peer id", details)
+	case errors.Is(err, space.ErrDeviceSelfDelete):
+		return writeError(c, http.StatusBadRequest, "device.self_delete",
+			"refusing to prune this server's own row (sticky tombstone would lock this installation out) — prune it from another device", details)
+	case errors.Is(err, space.ErrDevicePruned):
+		return writeError(c, http.StatusConflict, "device.pruned",
+			"this device's row was deleted; the sticky tombstone absorbs all writes — re-derive peer keys with a fresh `any init` to re-register", details)
 	}
 	return sdkOpError(c, err, details)
 }

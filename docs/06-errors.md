@@ -98,6 +98,8 @@ property.format_invalid          # 400 — bad format leaf on create/PATCH (unkn
 property.format_violation        # 400 — a property VALUE write violated its declared format (details.propId, format, reason)
 
 device.not_found                 # 404 — unknown peer id in the devices registry (or already pruned; tombstones are sticky)
+device.self_delete               # 400 — DELETE of this server's own row refused (the sticky tombstone would lock the installation out; prune from another device)
+device.pruned                    # 409 — self-row write (PUT /me, activate) absorbed by the row's tombstone; the peer id can never re-register (fresh `any init` to re-derive keys)
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)

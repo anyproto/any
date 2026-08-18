@@ -112,10 +112,11 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 
 	// Refresh this device's registry row (SYN-165): os/version are
 	// server-stamped so every boot keeps them current; the display name
-	// is seeded from the hostname only on first registration so a
+	// is seeded from the hostname only while the row carries none so a
 	// user-set name is never clobbered. Best-effort — the registry is
-	// convenience metadata and must never block boot.
-	registerDevice(ctx, sdk)
+	// convenience metadata and must never block boot — and deferred
+	// until the SDK's bootstrap pass completes (see registerDevice).
+	go registerDevice(streamsCtx, sdk)
 
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
@@ -155,20 +156,34 @@ var engineLog = logger.NewNamed("engine")
 // registerDevice upserts THIS device's row in the account's tech-space
 // devices registry (docs/21-devices.md): os and version are stamped
 // fresh on every boot, the display name is seeded from the hostname
-// only when the row doesn't exist yet (PUT /v1/devices/me owns it
-// afterwards). Failures are logged, never fatal.
+// only while the row has no name (PUT /v1/devices/me owns it
+// afterwards). It waits for the SDK's bootstrap pass first: before
+// offline catch-up an empty local projection is indistinguishable from
+// a truly unregistered device, and seeding the hostname then would
+// clobber a user-set name account-wide once the synced row merges.
+// Failures are logged, never fatal.
 func registerDevice(ctx context.Context, sdk *anysyncsdk.SDK) {
+	select {
+	case <-sdk.BootstrapDone():
+	case <-ctx.Done():
+		return
+	}
 	up := space.DeviceUpsert{OS: runtime.GOOS, Version: version.Version}
-	if devices, err := sdk.Spaces().ListDevices(ctx); err == nil {
+	devices, err := sdk.Spaces().ListDevices(ctx)
+	if err != nil {
+		// Unavailability is not an empty registry: absence can't be
+		// inferred, so skip the name seed and stamp os/version only.
+		engineLog.Warn("device registry read failed", zap.Error(err))
+	} else {
 		self := sdk.PeerId()
-		known := false
+		named := false
 		for _, dev := range devices {
 			if dev.PeerId == self {
-				known = true
+				named = dev.Name != ""
 				break
 			}
 		}
-		if !known {
+		if !named {
 			if host, err := os.Hostname(); err == nil {
 				up.Name = host
 			}

@@ -721,49 +721,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "api.DevicesQueryRequest": {
-                "properties": {
-                    "driftBudgetPercent": {
-                        "description": "DriftBudgetPercent (subscribe only) bounds window drift before\nthe stream closes with reason \"drifted\". Default 30.",
-                        "type": "integer"
-                    },
-                    "filter": {
-                        "additionalProperties": {},
-                        "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
-                        "type": "object"
-                    },
-                    "includeTotal": {
-                        "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",
-                        "type": "boolean"
-                    },
-                    "limit": {
-                        "description": "Limit bounds the window; 0 or absent = unbounded.",
-                        "type": "integer"
-                    },
-                    "mailboxCapacity": {
-                        "description": "MailboxCapacity (subscribe only) sizes the event mailbox before\nthe stream closes with reason \"overflow\". Default 256, min 16.",
-                        "type": "integer"
-                    },
-                    "offset": {
-                        "description": "Offset skips past the first N matches of the sorted result.",
-                        "type": "integer"
-                    },
-                    "projection": {
-                        "additionalProperties": {},
-                        "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
-                        "type": "object"
-                    },
-                    "sort": {
-                        "description": "Sort lists field paths, \"-\" prefix for descending (e.g.\n\"-createdAt\"). Required when limit \u003e 0 on subscribe, so the\nwindow is well-defined.",
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    }
-                },
-                "type": "object"
-            },
             "api.Edge": {
                 "properties": {
                     "strength": {
@@ -2843,6 +2800,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -2896,6 +2863,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -2924,7 +2901,7 @@ const docTemplate = `{
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/api.DevicesQueryRequest",
+                                        "$ref": "#/components/schemas/api.SpaceQueryObjectsRequest",
                                         "summary": "body",
                                         "description": "Query params"
                                     }
@@ -2983,7 +2960,7 @@ const docTemplate = `{
                                         "type": "object"
                                     },
                                     {
-                                        "$ref": "#/components/schemas/api.DevicesQueryRequest",
+                                        "$ref": "#/components/schemas/api.SpaceQueryObjectsRequest",
                                         "summary": "body",
                                         "description": "Query params"
                                     }
@@ -3047,6 +3024,16 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
                     },
                     "404": {
                         "content": {

@@ -78,13 +78,22 @@ func TestE2E_MultideviceDevicesElection(t *testing.T) {
 		wg.Add(1)
 		go func(base string) {
 			defer wg.Done()
-			resp, raw := doRequest(t, http.MethodPost, base+"/v1/devices/activate", `{"app":"bao"}`)
+			// Off the test goroutine: t.Fatalf would only Goexit this worker
+			// and let the test run on half-failed — use tryRequest + Errorf.
+			resp, raw, err := tryRequest(http.MethodPost, base+"/v1/devices/activate", `{"app":"bao"}`)
+			if err != nil {
+				t.Errorf("POST /v1/devices/activate on %s: %v", base, err)
+				return
+			}
 			if resp.StatusCode != http.StatusNoContent {
 				t.Errorf("POST /v1/devices/activate on %s: status %d: %s", base, resp.StatusCode, raw)
 			}
 		}(base)
 	}
 	wg.Wait()
+	if t.Failed() {
+		return // don't wait out the convergence polls on a failed claim
+	}
 
 	claimsOf := func(list api.DevicesListResponse) int {
 		n := 0
