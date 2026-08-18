@@ -246,12 +246,9 @@ func (d *deps) spaceCreate(c echo.Context) error {
 		SpaceType:   req.SpaceType,
 	})
 	if err != nil {
-		// The SpaceType allow-list rejection has no exported sentinel
-		// (fmt.Errorf in spaceimpl.normalizeSpaceType) — string-match,
-		// same pragmatic pattern as the settings "unknown space" case.
-		// Notably hit by clients still sending the pre-rename
-		// "anytype.space" literal.
-		if strings.Contains(err.Error(), "unsupported SpaceType") {
+		// SpaceType allow-list rejection. Notably hit by clients still
+		// sending the pre-rename "anytype.space" literal.
+		if errors.Is(err, space.ErrBadSpaceType) {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"unsupported spaceType (allowed: any.space or empty)",
 				map[string]any{"spaceType": req.SpaceType})
