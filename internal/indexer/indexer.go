@@ -52,11 +52,21 @@ type Options struct {
 	PendingEvery time.Duration
 	// OnProcess, when set, receives indexing lifecycle updates — per
 	// ProcessKind*, one started/progress*/terminal sequence per unit
-	// of work (embed drain, multi-page advance, model download). The
-	// server bridges these onto the process view
-	// (docs/22-processes.md); nil = no reporting. Called from indexer
-	// goroutines — must not block.
+	// of work (embed drain, advance pass, model download). The server
+	// bridges these onto the process view (docs/22-processes.md);
+	// nil = no reporting. Called from indexer goroutines — must not
+	// block.
 	OnProcess func(ProcessUpdate)
+	// AnnounceAfter gates fts/embed reporting on elapsed work time: a
+	// pass/drain announces only once it has been running this long, so
+	// usual indexing (one message, one edit — done in well under a
+	// second) never flashes through the view. Time, not a queue-size
+	// threshold, because cost per doc varies ~50× with text length and
+	// hardware (measured: local CPU embeds ~13 short chat docs/s but
+	// ~2 long editor windows/s). Default 3s; negative = announce
+	// immediately (tests). The model download always announces — it is
+	// long by definition and its absence is the state worth showing.
+	AnnounceAfter time.Duration
 
 	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
 
@@ -104,8 +114,8 @@ const (
 	ProcessKindEmbed = "embed"
 	// ProcessKindFTS — a per-space chunk/advance pass: Done counts
 	// processed changes, Total is unknown (the change feed has no
-	// backlog count). Only reported when the backlog spans more than
-	// one page — routine debounced advances stay silent.
+	// backlog count). Reported only past AnnounceAfter — routine
+	// debounced advances stay silent.
 	ProcessKindFTS = "fts"
 	// ProcessKindModelDownload — the embedding-model fetch: Done/Total
 	// are bytes (Total 0 until the server reports a length), Name the
@@ -116,7 +126,12 @@ const (
 // embedProcessHeartbeat paces the mid-drain progress heartbeat: one
 // EmbedDocs call on a slow local model can exceed the process view's
 // staleness budget, and a stale row would flicker out mid-drain.
-const embedProcessHeartbeat = 10 * time.Second
+// embedAnnounceTick is how often a running drain re-checks the
+// AnnounceAfter gate, bounding announce latency past the threshold.
+const (
+	embedProcessHeartbeat = 10 * time.Second
+	embedAnnounceTick     = 500 * time.Millisecond
+)
 
 // ProcessUpdate is one Options.OnProcess report. Message carries the
 // failure detail on ProcessFailed (log-grade — the server never puts
@@ -149,6 +164,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.PendingEvery <= 0 {
 		o.PendingEvery = time.Minute
+	}
+	if o.AnnounceAfter == 0 {
+		o.AnnounceAfter = 3 * time.Second
 	}
 	if o.FtsWeight <= 0 {
 		o.FtsWeight = 1

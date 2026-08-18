@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -37,16 +38,19 @@ type staticIdSpace struct{ space.Space }
 
 func (staticIdSpace) Id() string { return "sp1" }
 
-// One embed drain reports started → progress (cumulative Done) →
-// done; an empty drain reports nothing; a failing embedder turns the
-// terminal report into failed with the error message.
+// One announced embed drain reports started → progress (cumulative
+// Done) → done; an empty drain reports nothing; a failing embedder
+// turns the terminal report into failed with the error message.
+// AnnounceAfter -1 = immediate mode; the default gate is covered by
+// TestEmbedDrainAnnounceGate.
 func TestEmbedDrainOnProcess(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 4)
 	var updates []ProcessUpdate
 	ix := &Indexer{store: st, opts: Options{
-		Embedder:  unitEmbedder{dim: 4},
-		OnProcess: func(u ProcessUpdate) { updates = append(updates, u) },
+		Embedder:      unitEmbedder{dim: 4},
+		AnnounceAfter: -1,
+		OnProcess:     func(u ProcessUpdate) { updates = append(updates, u) },
 	}.withDefaults()}
 	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
 
@@ -118,8 +122,9 @@ func TestEmbedDrainOnProcessCancelled(t *testing.T) {
 	st := mustStore(t, 4)
 	var updates []ProcessUpdate
 	ix := &Indexer{store: st, opts: Options{
-		Embedder:  cancellingEmbedder{cancel: cancel},
-		OnProcess: func(u ProcessUpdate) { updates = append(updates, u) },
+		Embedder:      cancellingEmbedder{cancel: cancel},
+		AnnounceAfter: -1,
+		OnProcess:     func(u ProcessUpdate) { updates = append(updates, u) },
 	}.withDefaults()}
 	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
 
@@ -163,9 +168,10 @@ type ftsSpace struct {
 func (s ftsSpace) Id() string                    { return "sp1" }
 func (s ftsSpace) Changes() space.ChangeIndexAPI { return s.ch }
 
-// The fts producer is gated on backlog size: an advance whose first
-// page isn't full stays silent; a multi-page pass reports started →
-// progress per page → done with cumulative change counts.
+// The fts producer is gated on elapsed work (AnnounceAfter): a fast
+// pass — even multi-page — stays silent under the default gate; past
+// the gate (immediate mode here) it reports started → progress per
+// page → done with cumulative change counts.
 func TestAdvanceOnProcess(t *testing.T) {
 	ctx := context.Background()
 	st := mustStore(t, 0)
@@ -177,34 +183,62 @@ func TestAdvanceOnProcess(t *testing.T) {
 		return out
 	}
 	var updates []ProcessUpdate
-	newWorker := func(changes []space.ObjectChange) *spaceWorker {
+	newWorker := func(changes []space.ObjectChange, announceAfter time.Duration) *spaceWorker {
 		ix := &Indexer{store: st, reg: index.NewRegistry(), opts: Options{
-			BatchLimit: 4,
-			OnProcess:  func(u ProcessUpdate) { updates = append(updates, u) },
+			BatchLimit:    4,
+			AnnounceAfter: announceAfter,
+			OnProcess:     func(u ProcessUpdate) { updates = append(updates, u) },
 		}.withDefaults()}
 		return &spaceWorker{ix: ix, sp: ftsSpace{ch: fakeChanges{changes: changes}}}
 	}
 
-	// 3 changes < one page: silent.
-	if err := newWorker(mk(3)).advance(ctx); err != nil {
+	// Default gate (3s): a fast multi-page pass is usual indexing —
+	// silent.
+	if err := newWorker(mk(9), 0).advance(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(updates) != 0 {
-		t.Fatalf("small advance reported %+v, want silence", updates)
+		t.Fatalf("fast multi-page advance reported %+v, want silence", updates)
 	}
 
-	// Cursor sits at 3 now; 6 more changes → pages of 4 and 2.
-	if err := newWorker(mk(9)).advance(ctx); err != nil {
+	// Cursor sits at 9 now; 9 more changes → pages of 4, 4, 1 past an
+	// open gate report started + progress per page + done.
+	if err := newWorker(mk(18), -1).advance(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(updates) != 4 {
-		t.Fatalf("multi-page advance reported %+v, want started/progress/progress/done", updates)
+	if len(updates) != 5 {
+		t.Fatalf("announced advance reported %+v, want started/3×progress/done", updates)
 	}
 	if u := updates[0]; u.Phase != ProcessStarted || u.Kind != ProcessKindFTS ||
 		u.SpaceId != "sp1" || u.Done != 4 {
 		t.Errorf("first = %+v, want fts started at Done=4", u)
 	}
-	if u := updates[3]; u.Phase != ProcessDone || u.Done != 6 {
-		t.Errorf("last = %+v, want done with Done=6", u)
+	if u := updates[4]; u.Phase != ProcessDone || u.Done != 9 {
+		t.Errorf("last = %+v, want done with Done=9", u)
+	}
+}
+
+// Usual embedding — a quick drain finishing well inside AnnounceAfter
+// — never reaches the view: no started, no terminal.
+func TestEmbedDrainAnnounceGate(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	var updates []ProcessUpdate
+	ix := &Indexer{store: st, opts: Options{
+		Embedder:  unitEmbedder{dim: 4},
+		OnProcess: func(u ProcessUpdate) { updates = append(updates, u) },
+	}.withDefaults()} // default AnnounceAfter: 3s
+	w := &spaceWorker{ix: ix, sp: staticIdSpace{}}
+
+	if err := st.Apply(ctx, "sp1", []DocUpsert{
+		{Entry: entry("chat", "o1", "chat_messages", "m1", "one quick message", 1)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.drainPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(updates) != 0 {
+		t.Fatalf("fast drain reported %+v, want silence", updates)
 	}
 }

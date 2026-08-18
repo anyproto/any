@@ -170,27 +170,38 @@ incomplete right now" (SYN-155): watch
 `any events subscribe --type 'index.*'`-shaped filters or poll
 `GET /v1/processes`. Wired today, all under the `index.*` kinds:
 
+Usual indexing never appears: the fts and embed producers **announce
+only once the pass has been running past `AnnounceAfter` (default
+3s)** — a threshold in elapsed time, not queue size, because cost per
+doc varies ~50× with text length and hardware (measured on a CPU-only
+local model: ~13 short chat docs/s vs ~2 long editor windows/s, so
+any fixed count would be wrong in one direction or the other). One
+message or edit finishes in well under a second and stays silent; a
+cold (re)index or big catch-up crosses the gate and shows up, with
+the row's counters already carrying the work done so far.
+
 - **Embedding (vector) drain** — id `index.embed.<spaceId>`, kind
-  `index.embed`, target the spaceId. One started → progress-per-batch
-  → done/failed/cancelled sequence per drain that found pending docs.
-  `done`/`total` count docs: the total comes from the pending count,
-  re-read every round, so late-arriving docs extend the bar instead
-  of overflowing it. A 10s heartbeat keeps the row alive through long
-  embed calls; a worker stopped mid-drain (space dropped, shutdown)
-  finishes as `cancelled` rather than leaving a ghost running row.
+  `index.embed`, target the spaceId. Once announced: progress per
+  landed batch → done/failed/cancelled. `done`/`total` count docs:
+  the total comes from the pending count, re-read every round, so
+  late-arriving docs extend the bar instead of overflowing it. A
+  500ms gate ticker re-checks mid-batch (one long embed call
+  announces ~on time) and doubles as a 10s heartbeat so the row
+  never goes stale mid-drain; a worker stopped mid-drain (space
+  dropped, shutdown) finishes as `cancelled` rather than leaving a
+  ghost running row.
 - **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
-  `index.fts`, target the spaceId. Gated on backlog: only a pass
-  whose first change page is full (a cold (re)index or big catch-up)
-  announces — routine per-edit advances stay silent, so the view
-  isn't spammed with started/done pairs. `done` counts processed
-  changes; `total` unknown (the change feed has no backlog count).
+  `index.fts`, target the spaceId. Gate checked at page boundaries
+  (pages are frequent). `done` counts processed changes; `total`
+  unknown (the change feed has no backlog count).
 - **Embedding-model download** — id `index.model_download`, kind
-  `index.model_download`, target the model file name. `done`/`total`
-  are **bytes** (total from Content-Length; 0 while unknown), frames
-  every ~5s of streaming; retry attempts resume the same row
-  (started is emitted once). This surfaces the otherwise-invisible
-  "semantic search is empty because the model is still downloading"
-  state.
+  `index.model_download`, target the model file name. Always
+  announces (a download is long by definition and its absence is the
+  state worth showing). `done`/`total` are **bytes** (total from
+  Content-Length; 0 while unknown), frames every ~5s of streaming;
+  retry attempts resume the same row (started is emitted once). This
+  surfaces the otherwise-invisible "semantic search is empty because
+  the model is still downloading" state.
 
 Common rules: failure messages are generic — indexer errors carry
 filesystem paths and upstream response bodies, which never go on the

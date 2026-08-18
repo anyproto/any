@@ -135,26 +135,27 @@ func (w *spaceWorker) embedLoop() {
 }
 
 // advance wraps advancePages with fts-process reporting
-// (Options.OnProcess, nil = off). Gated on backlog size: only a pass
-// whose first page is full (more pages likely — a cold (re)index or a
-// large catch-up) announces; routine debounced advances of a handful
-// of changes stay silent, so every edit doesn't flash a started/done
-// pair through the view. Total is unknown — the change feed has no
-// backlog count.
+// (Options.OnProcess, nil = off), gated on elapsed work like the
+// embed drain: a pass announces at the first page boundary past
+// AnnounceAfter — routine debounced advances (one edit, a small sync
+// burst; milliseconds) stay silent, a cold (re)index or large
+// catch-up shows up. Checked at page boundaries only (pages are
+// frequent); Total is unknown — the change feed has no backlog count.
 func (w *spaceWorker) advance(ctx context.Context) error {
 	if w.ix.opts.OnProcess == nil {
-		return w.advancePages(ctx, func(int, bool) {})
+		return w.advancePages(ctx, func(int) {})
 	}
+	start := time.Now()
 	var processed int64
 	announced := false
 	report := func(phase, msg string) {
 		w.ix.opts.OnProcess(ProcessUpdate{Kind: ProcessKindFTS, SpaceId: w.sp.Id(),
 			Phase: phase, Done: processed, Message: msg})
 	}
-	err := w.advancePages(ctx, func(n int, more bool) {
+	err := w.advancePages(ctx, func(n int) {
 		processed += int64(n)
 		if !announced {
-			if !more {
+			if time.Since(start) < w.ix.opts.AnnounceAfter {
 				return
 			}
 			announced = true
@@ -179,8 +180,8 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 // past the cursor through the chunkers and land it in the store, page
 // by page. Never touches the embedder — text-bearing docs land as
 // pending. progress is called after each landed page with the page's
-// change count and whether more pages are likely (page was full).
-func (w *spaceWorker) advancePages(ctx context.Context, progress func(n int, more bool)) error {
+// change count.
+func (w *spaceWorker) advancePages(ctx context.Context, progress func(n int)) error {
 	spaceId := w.sp.Id()
 	cursor, err := w.ix.store.Cursor(ctx, spaceId)
 	if err != nil {
@@ -231,7 +232,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, progress func(n int, mor
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor); err != nil {
 			return err
 		}
-		progress(len(changes), len(changes) == w.ix.opts.BatchLimit)
+		progress(len(changes))
 		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
 			select {
 			case w.embedCh <- struct{}{}:
@@ -424,63 +425,123 @@ func typeSet(row *anyenc.Value) map[string]bool {
 }
 
 // drainPending wraps drainRounds with embed-process reporting
-// (Options.OnProcess, nil = off): a drain that finds pending docs
-// reports started, progress per landed batch — with a periodic
+// (Options.OnProcess, nil = off), gated on elapsed work: a drain
+// announces only once it has been running past AnnounceAfter — a
+// usual one-message drain finishes in well under a second and never
+// appears. Once announced: progress per landed batch, a periodic
 // heartbeat while an embed call runs longer than the view's staleness
-// budget — then exactly one terminal: done, failed, or cancelled when
-// the worker context ends mid-drain (space dropped, shutdown), so no
+// budget, then exactly one terminal — done, failed, or cancelled when
+// the worker context ends mid-drain (space dropped, shutdown) — so no
 // ghost running row outlives the drain. Total = docs embedded so far
 // + the pending count, re-read at every round start, so late-arriving
-// docs extend the bar instead of overflowing it.
+// docs extend the bar instead of overflowing it. The gate ticker also
+// re-checks mid-batch, so one long EmbedDocs call announces ~on time.
 func (w *spaceWorker) drainPending(ctx context.Context) error {
 	if w.ix.opts.OnProcess == nil {
 		return w.drainRounds(ctx, func(int, int) {})
 	}
 	var embedded, total atomic.Int64
-	report := func(phase, msg string) {
+	var (
+		mu        sync.Mutex
+		workStart time.Time
+		announced bool
+		lastFrame time.Time
+	)
+	emit := func(phase, msg string) {
 		w.ix.opts.OnProcess(ProcessUpdate{Kind: ProcessKindEmbed, SpaceId: w.sp.Id(),
 			Phase: phase, Done: embedded.Load(), Total: total.Load(), Message: msg})
 	}
-	started := false
-	stopHeartbeat := func() {}
+	// tryAnnounce emits the started frame once the gate opens; reports
+	// whether the drain is announced. Callable from the drain goroutine
+	// and the gate ticker.
+	tryAnnounce := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if announced {
+			return true
+		}
+		if workStart.IsZero() || time.Since(workStart) < w.ix.opts.AnnounceAfter {
+			return false
+		}
+		announced = true
+		lastFrame = time.Now()
+		emit(ProcessStarted, "")
+		return true
+	}
+	stopGate := func() {}
 	err := w.drainRounds(ctx, func(landed, remaining int) {
 		if landed > 0 {
+			// Gate check before counting, so a started frame emitted
+			// here reports the pre-batch count.
+			ann := tryAnnounce()
 			embedded.Add(int64(landed))
-			report(ProcessProgress, "")
+			if ann {
+				mu.Lock()
+				lastFrame = time.Now()
+				mu.Unlock()
+				emit(ProcessProgress, "")
+			}
 			return
 		}
 		if remaining >= 0 {
 			total.Store(embedded.Load() + int64(remaining))
 		}
-		if started {
+		mu.Lock()
+		fresh := workStart.IsZero()
+		if fresh {
+			workStart = time.Now()
+		}
+		mu.Unlock()
+		if !fresh {
+			// Later rounds re-check the gate at the boundary — a drain
+			// crossing the threshold between rounds announces here even
+			// if every individual batch is quick.
+			tryAnnounce()
 			return
 		}
-		started = true
-		report(ProcessStarted, "")
-		hbCtx, cancel := context.WithCancel(ctx)
-		stopHeartbeat = cancel
+		// First work this drain: run the gate/heartbeat ticker until the
+		// drain ends. Pre-announce it re-checks the gate (bounding
+		// announce latency under one long embed call); post-announce it
+		// heartbeats when no batch has landed for a while.
+		tryAnnounce() // immediate mode (negative AnnounceAfter) announces at work start
+		gCtx, cancel := context.WithCancel(ctx)
+		stopGate = cancel
 		go func() {
-			t := time.NewTicker(embedProcessHeartbeat)
+			t := time.NewTicker(embedAnnounceTick)
 			defer t.Stop()
 			for {
 				select {
-				case <-hbCtx.Done():
+				case <-gCtx.Done():
 					return
 				case <-t.C:
-					report(ProcessProgress, "")
+					if !tryAnnounce() {
+						continue
+					}
+					mu.Lock()
+					beat := time.Since(lastFrame) >= embedProcessHeartbeat
+					if beat {
+						lastFrame = time.Now()
+					}
+					mu.Unlock()
+					if beat {
+						emit(ProcessProgress, "")
+					}
 				}
 			}
 		}()
 	})
-	stopHeartbeat()
-	if started {
+	stopGate()
+	mu.Lock()
+	wasAnnounced := announced
+	mu.Unlock()
+	if wasAnnounced {
 		switch {
 		case err == nil:
-			report(ProcessDone, "")
+			emit(ProcessDone, "")
 		case ctx.Err() != nil:
-			report(ProcessCancelled, "")
+			emit(ProcessCancelled, "")
 		default:
-			report(ProcessFailed, err.Error())
+			emit(ProcessFailed, err.Error())
 		}
 	}
 	return err

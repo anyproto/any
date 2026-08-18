@@ -895,11 +895,14 @@ Implementation slices landed:
     holds an interest covering `process.*` on the space. Internal
     producers (SYN-155, all device scope,
     `indexer.Options.OnProcess` → `deps.indexerProcess`, threaded
-    through `OpenIndexer`/`NewEmbedder`/`NewLocal`): `index.embed.<spaceId>`
-    (done/total docs via `Store.PendingCount`, 10s mid-drain
-    heartbeat), `index.fts.<spaceId>` (page-gated — only a
-    full-first-page backlog announces, done = changes, total
-    unknown), `index.model_download` (done/total bytes, ~5s frames,
+    through `OpenIndexer`/`NewEmbedder`/`NewLocal`; fts+embed gated on
+    `Options.AnnounceAfter` — announce only past 3s of elapsed work,
+    so usual per-edit indexing never appears; time not queue-size
+    because docs/s varies ~50× with text length): `index.embed.<spaceId>`
+    (done/total docs via `Store.PendingCount`, 500ms gate tick +
+    10s mid-drain heartbeat), `index.fts.<spaceId>` (gate checked at
+    page boundaries, done = changes, total unknown),
+    `index.model_download` (always announces, done/total bytes, ~5s frames,
     started once across retry attempts, target = model file name —
     makes "search empty while model downloads" visible).
     Worker-cancel → cancelled; generic failure messages — no fs paths
