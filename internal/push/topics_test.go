@@ -14,7 +14,7 @@ const testIdentity = "AAliceIdentity"
 func activeSpace(id, mode string) space.SpaceInfo {
 	info := space.SpaceInfo{
 		Id:        id,
-		SpaceType: space.SpaceTypeRegular,
+		SpaceType: space.SpaceTypeAny,
 		Status:    space.StatusActive,
 		OwnRole:   space.PermissionWriter,
 	}
