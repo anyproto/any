@@ -408,7 +408,7 @@ func realEvalEmbedder(t *testing.T) (string, Embedder) {
 			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
 		},
 	}
-	e, err := NewEmbedder(cfg, t.TempDir(), "")
+	e, err := NewEmbedder(cfg, t.TempDir(), "", nil)
 	if err != nil || e == nil {
 		t.Fatalf("real embedder %q: %v", name, err)
 	}

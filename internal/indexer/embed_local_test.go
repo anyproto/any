@@ -24,7 +24,7 @@ func TestNewEmbedder_Local(t *testing.T) {
 	e, err := NewEmbedder(config.Index{
 		Embedder: "local",
 		Local:    config.IndexLocal{ModelPath: filepath.Join(dir, "absent.gguf")},
-	}, filepath.Join(dir, "models"), "")
+	}, filepath.Join(dir, "models"), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l, err := NewLocal(config.IndexLocal{}, modelsDir, filepath.Join(dir, "index", "models"))
+	l, err := NewLocal(config.IndexLocal{}, modelsDir, filepath.Join(dir, "index", "models"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestLocal_DefaultsAndDim(t *testing.T) {
 	}
 
 	// Matryoshka dim caps the reported dimension.
-	l2, err := NewLocal(config.IndexLocal{Dim: 256}, modelsDir, "")
+	l2, err := NewLocal(config.IndexLocal{Dim: 256}, modelsDir, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestLocal_LegacyModelDirFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l, err := NewLocal(config.IndexLocal{}, filepath.Join(dir, "models"), legacyDir)
+	l, err := NewLocal(config.IndexLocal{}, filepath.Join(dir, "models"), legacyDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestLocal_Integration(t *testing.T) {
 	// A ModelPath override disables the implicit Qwen prefix; this test
 	// runs the pinned model, so restore it.
 	cfg.QueryPrefix = localQueryPrefix
-	l, err := NewLocal(cfg, t.TempDir(), "")
+	l, err := NewLocal(cfg, t.TempDir(), "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestLocal_BatchedMatchesSingle(t *testing.T) {
 	newLocal := func(batchDocs int) *Local {
 		l, err := NewLocal(config.IndexLocal{
 			ModelPath: modelPath, LibDir: libDir, BatchDocs: batchDocs,
-		}, t.TempDir(), "")
+		}, t.TempDir(), "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}

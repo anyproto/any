@@ -163,19 +163,40 @@ startedAt, updatedAt}` — `startedAt`/`updatedAt` are unix seconds of
 
 ## Internal producers
 
-`any` itself reports through the same registry (device scope, via the
-in-process hub — no HTTP). Wired today:
+`any` itself reports through the same registry (device scope — each
+device indexes its own copy, other peers don't care; via the
+in-process hub, no HTTP). This is how clients answer "why is search
+incomplete right now" (SYN-155): watch
+`any events subscribe --type 'index.*'`-shaped filters or poll
+`GET /v1/processes`. Wired today, all under the `index.*` kinds:
 
-- **Indexer embed drain** — id `index.embed.<spaceId>`, kind
+- **Embedding (vector) drain** — id `index.embed.<spaceId>`, kind
   `index.embed`, target the spaceId. One started → progress-per-batch
-  → done/failed/cancelled sequence per drain that found pending docs
-  (`total` unknown — pending is paged); a 10s heartbeat keeps the row
-  alive through long embed calls, and a worker stopped mid-drain
-  (space dropped, shutdown) finishes as `cancelled` rather than
-  leaving a ghost running row. The failure message is generic —
-  indexer errors carry filesystem paths, which never go on the wire;
-  detail is in the server log. Cancel requests are ignored by this
-  producer: a cancelled drain would just restart on the next tick.
+  → done/failed/cancelled sequence per drain that found pending docs.
+  `done`/`total` count docs: the total comes from the pending count,
+  re-read every round, so late-arriving docs extend the bar instead
+  of overflowing it. A 10s heartbeat keeps the row alive through long
+  embed calls; a worker stopped mid-drain (space dropped, shutdown)
+  finishes as `cancelled` rather than leaving a ghost running row.
+- **FTS / chunking pass** — id `index.fts.<spaceId>`, kind
+  `index.fts`, target the spaceId. Gated on backlog: only a pass
+  whose first change page is full (a cold (re)index or big catch-up)
+  announces — routine per-edit advances stay silent, so the view
+  isn't spammed with started/done pairs. `done` counts processed
+  changes; `total` unknown (the change feed has no backlog count).
+- **Embedding-model download** — id `index.model_download`, kind
+  `index.model_download`, target the model file name. `done`/`total`
+  are **bytes** (total from Content-Length; 0 while unknown), frames
+  every ~5s of streaming; retry attempts resume the same row
+  (started is emitted once). This surfaces the otherwise-invisible
+  "semantic search is empty because the model is still downloading"
+  state.
+
+Common rules: failure messages are generic — indexer errors carry
+filesystem paths and upstream response bodies, which never go on the
+wire; the detail is in the server log. Cancel requests are ignored by
+all three producers (a cancelled drain/pass would just restart on the
+next tick; the download must finish for search to work).
 
 ## Errors
 

@@ -78,7 +78,7 @@ type Local struct {
 // llama.cpp. The model lives in modelsDir (shared across accounts); a
 // copy already present in legacyModelsDir (the old per-data-dir
 // location) is used as-is so existing downloads aren't repeated.
-func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string) (*Local, error) {
+func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*Local, error) {
 	l := &Local{
 		nCtx:         cfg.ContextSize,
 		threads:      cfg.Threads,
@@ -126,7 +126,7 @@ func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string) (*Local,
 				url, sha = cfg.ModelUrl, cfg.ModelSha256
 				l.defaultModel = false
 			}
-			l.dl = startModelDownload(url, l.modelPath, sha, nil)
+			l.dl = startModelDownload(url, l.modelPath, sha, nil, onProcess)
 		}
 	}
 	if l.queryPrefix == "" && l.defaultModel {

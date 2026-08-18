@@ -134,10 +134,53 @@ func (w *spaceWorker) embedLoop() {
 	}
 }
 
-// advance is the single cursor-driven operation: stream everything past
-// the cursor through the chunkers and land it in the store, page by
-// page. Never touches the embedder — text-bearing docs land as pending.
+// advance wraps advancePages with fts-process reporting
+// (Options.OnProcess, nil = off). Gated on backlog size: only a pass
+// whose first page is full (more pages likely — a cold (re)index or a
+// large catch-up) announces; routine debounced advances of a handful
+// of changes stay silent, so every edit doesn't flash a started/done
+// pair through the view. Total is unknown — the change feed has no
+// backlog count.
 func (w *spaceWorker) advance(ctx context.Context) error {
+	if w.ix.opts.OnProcess == nil {
+		return w.advancePages(ctx, func(int, bool) {})
+	}
+	var processed int64
+	announced := false
+	report := func(phase, msg string) {
+		w.ix.opts.OnProcess(ProcessUpdate{Kind: ProcessKindFTS, SpaceId: w.sp.Id(),
+			Phase: phase, Done: processed, Message: msg})
+	}
+	err := w.advancePages(ctx, func(n int, more bool) {
+		processed += int64(n)
+		if !announced {
+			if !more {
+				return
+			}
+			announced = true
+			report(ProcessStarted, "")
+		}
+		report(ProcessProgress, "")
+	})
+	if announced {
+		switch {
+		case err == nil:
+			report(ProcessDone, "")
+		case ctx.Err() != nil:
+			report(ProcessCancelled, "")
+		default:
+			report(ProcessFailed, err.Error())
+		}
+	}
+	return err
+}
+
+// advancePages is the single cursor-driven operation: stream everything
+// past the cursor through the chunkers and land it in the store, page
+// by page. Never touches the embedder — text-bearing docs land as
+// pending. progress is called after each landed page with the page's
+// change count and whether more pages are likely (page was full).
+func (w *spaceWorker) advancePages(ctx context.Context, progress func(n int, more bool)) error {
 	spaceId := w.sp.Id()
 	cursor, err := w.ix.store.Cursor(ctx, spaceId)
 	if err != nil {
@@ -188,6 +231,7 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 		if err := w.ix.store.SetCursor(ctx, spaceId, cursor); err != nil {
 			return err
 		}
+		progress(len(changes), len(changes) == w.ix.opts.BatchLimit)
 		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
 			select {
 			case w.embedCh <- struct{}{}:
@@ -385,22 +429,28 @@ func typeSet(row *anyenc.Value) map[string]bool {
 // heartbeat while an embed call runs longer than the view's staleness
 // budget — then exactly one terminal: done, failed, or cancelled when
 // the worker context ends mid-drain (space dropped, shutdown), so no
-// ghost running row outlives the drain.
+// ghost running row outlives the drain. Total = docs embedded so far
+// + the pending count, re-read at every round start, so late-arriving
+// docs extend the bar instead of overflowing it.
 func (w *spaceWorker) drainPending(ctx context.Context) error {
 	if w.ix.opts.OnProcess == nil {
-		return w.drainRounds(ctx, func(int) {})
+		return w.drainRounds(ctx, func(int, int) {})
 	}
-	var embedded atomic.Int64
+	var embedded, total atomic.Int64
 	report := func(phase, msg string) {
-		w.ix.opts.OnProcess(ProcessUpdate{SpaceId: w.sp.Id(), Phase: phase, Done: embedded.Load(), Message: msg})
+		w.ix.opts.OnProcess(ProcessUpdate{Kind: ProcessKindEmbed, SpaceId: w.sp.Id(),
+			Phase: phase, Done: embedded.Load(), Total: total.Load(), Message: msg})
 	}
 	started := false
 	stopHeartbeat := func() {}
-	err := w.drainRounds(ctx, func(landed int) {
+	err := w.drainRounds(ctx, func(landed, remaining int) {
 		if landed > 0 {
 			embedded.Add(int64(landed))
 			report(ProcessProgress, "")
 			return
+		}
+		if remaining >= 0 {
+			total.Store(embedded.Load() + int64(remaining))
 		}
 		if started {
 			return
@@ -442,9 +492,10 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // (the throughput win), while the local model serializes internally on
 // its mutex — so concurrency is safe regardless of backend. SetVectors /
 // EnsureVectorIndex stay serial. The vector index is created lazily after
-// the first batch lands. progress is called with 0 when a round found
-// work (before embedding) and with the landed count after each batch.
-func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed int)) error {
+// the first batch lands. progress is called with (0, remaining) when a
+// round found work (before embedding; remaining = pending count, -1
+// when the count read failed) and with (landed, -1) after each batch.
+func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, remaining int)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
 	conc := w.ix.opts.EmbedConcurrency
@@ -456,7 +507,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed int)
 		if len(ids) == 0 {
 			return nil
 		}
-		progress(0)
+		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
+		if cerr != nil {
+			remaining = -1 // progress keeps the last known total
+		}
+		progress(0, remaining)
 
 		// Split the page into batch-sized chunks, embed concurrently.
 		type chunk struct {
@@ -508,7 +563,7 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed int)
 				return err
 			}
 			landed = true
-			progress(len(c.ids))
+			progress(len(c.ids), -1)
 		}
 		if landed {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {

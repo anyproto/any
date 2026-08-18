@@ -37,6 +37,11 @@ type modelDownload struct {
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
+	// onProcess (nil = off) receives download lifecycle updates for
+	// the process view (ProcessKindModelDownload; Done/Total = bytes).
+	// Called only from the download goroutine.
+	onProcess func(ProcessUpdate)
+	announced bool // started reported once, retries report progress
 
 	mu    sync.Mutex
 	done  bool
@@ -47,14 +52,15 @@ type modelDownload struct {
 
 // startModelDownload spawns the download goroutine. Pass client=nil for
 // the default HTTP client (tests inject their own).
-func startModelDownload(url, dest, sha string, client *http.Client) *modelDownload {
+func startModelDownload(url, dest, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &modelDownload{
-		url:    url,
-		dest:   dest,
-		sha:    sha,
-		lg:     logger.NewNamed("indexer"),
-		cancel: cancel,
+		url:       url,
+		dest:      dest,
+		sha:       sha,
+		lg:        logger.NewNamed("indexer"),
+		cancel:    cancel,
+		onProcess: onProcess,
 	}
 	if client == nil {
 		client = &http.Client{} // no timeout: a 640MB body on slow links is legitimate
@@ -98,16 +104,18 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 			d.done = true
 			d.mu.Unlock()
 			d.lg.Info("local embedder: model downloaded", zap.String("dest", d.dest))
+			d.reportPhase(ProcessDone, "")
 			return
 		}
 		if ctx.Err() != nil {
-			return
+			return // shutdown, not a failure — the .part resumes next boot
 		}
 		d.mu.Lock()
 		d.err = err
 		d.mu.Unlock()
 		d.lg.Warn("local embedder: model download failed, will retry",
 			zap.Duration("backoff", backoff), zap.Error(err))
+		d.reportPhase(ProcessFailed, err.Error())
 		select {
 		case <-ctx.Done():
 			return
@@ -171,6 +179,12 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	d.mu.Lock()
 	d.got, d.total, d.err = offset, total, nil
 	d.mu.Unlock()
+	if !d.announced {
+		d.announced = true
+		d.reportPhase(ProcessStarted, "")
+	} else {
+		d.reportPhase(ProcessProgress, "") // retry attempt resumes the same row
+	}
 
 	flags := os.O_CREATE | os.O_WRONLY
 	if offset > 0 {
@@ -221,6 +235,7 @@ func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, 
 			d.mu.Unlock()
 			if time.Since(lastLog) > 5*time.Second {
 				lastLog = time.Now()
+				d.reportPhase(ProcessProgress, "")
 				if total > 0 {
 					d.lg.Info("local embedder: downloading model",
 						zap.Int64("percent", got*100/total),
@@ -237,6 +252,20 @@ func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, 
 			return err
 		}
 	}
+}
+
+// reportPhase emits one process-view update with the current byte
+// counters. msg is log-grade failure detail (the server bridge never
+// puts it on the wire).
+func (d *modelDownload) reportPhase(phase, msg string) {
+	if d.onProcess == nil {
+		return
+	}
+	d.mu.Lock()
+	got, total := d.got, d.total
+	d.mu.Unlock()
+	d.onProcess(ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(d.dest),
+		Phase: phase, Done: got, Total: total, Message: msg})
 }
 
 func hashFilePrefix(path string, n int64, h hash.Hash) error {

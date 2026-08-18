@@ -40,12 +40,12 @@ func TestBootAndServe(t *testing.T) {
 	defer resetState(t)
 
 	// --- Sub-check A: the "none" embedder path is genuinely FTS-only. ---
-	emb, err := indexer.NewEmbedder(config.Index{Embedder: "none"}, t.TempDir(), "")
+	emb, err := indexer.NewEmbedder(config.Index{Embedder: "none"}, t.TempDir(), "", nil)
 	if err != nil {
-		t.Fatalf(`NewEmbedder("none"): %v`, err)
+		t.Fatalf(`NewEmbedder("none", nil): %v`, err)
 	}
 	if emb != nil {
-		t.Fatalf(`NewEmbedder("none") must be true-nil (FTS-only), got %T`, emb)
+		t.Fatalf(`NewEmbedder("none", nil) must be true-nil (FTS-only), got %T`, emb)
 	}
 	ix := indexer.New(nil, nil, nil, indexer.Options{Embedder: emb})
 	if ix.HasEmbedder() {

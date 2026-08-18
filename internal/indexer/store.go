@@ -781,6 +781,17 @@ func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) 
 
 // Pending returns up to limit docs awaiting embedding (only docs with
 // non-empty text ever carry the pending mark — see Apply).
+// PendingCount reports how many docs still await embedding — the
+// denominator for embed-progress reporting (rides the sparse pending
+// index, so it stays cheap).
+func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return 0, err
+	}
+	return coll.Find(pendingEqOne).Count(ctx)
+}
+
 func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []string, texts []string, err error) {
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {

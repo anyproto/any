@@ -892,12 +892,18 @@ Implementation slices landed:
     `ev/process/>` interest acquired at boot with backoff-retry
     (release on close; the bridge retries failed re-subscribes —
     `bridgeResyncRetry`); space scope only while a local subscriber
-    holds an interest covering `process.*` on the space. First
-    internal producer: indexer embed drain
-    (`indexer.Options.OnProcess` → `deps.indexEmbedProcess`, device
-    scope, id `index.embed.<spaceId>`; 10s mid-drain heartbeat,
-    worker-cancel → cancelled, generic failure message — no fs paths
-    on the wire; cancel requests ignored). CLI:
+    holds an interest covering `process.*` on the space. Internal
+    producers (SYN-155, all device scope,
+    `indexer.Options.OnProcess` → `deps.indexerProcess`, threaded
+    through `OpenIndexer`/`NewEmbedder`/`NewLocal`): `index.embed.<spaceId>`
+    (done/total docs via `Store.PendingCount`, 10s mid-drain
+    heartbeat), `index.fts.<spaceId>` (page-gated — only a
+    full-first-page backlog announces, done = changes, total
+    unknown), `index.model_download` (done/total bytes, ~5s frames,
+    started once across retry attempts, target = model file name —
+    makes "search empty while model downloads" visible).
+    Worker-cancel → cancelled; generic failure messages — no fs paths
+    on the wire; cancel requests ignored by all three. CLI:
     `any process list/cancel`. Files: internal/server/processes.go +
     handlers_processes.go, api/process.go; e2e
     internal/e2e/multipeer_processes_test.go. Contract:

@@ -153,7 +153,7 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	if d.ready.Load() {
 		return nil, errAlreadyAuthorized
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers, d.indexEmbedProcess)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers, d.indexerProcess)
 	if err != nil {
 		return nil, err
 	}
@@ -208,22 +208,39 @@ func (d *deps) holdProcessInterest() {
 	}
 }
 
-// indexEmbedProcess bridges indexer embed-drain updates onto the
-// process view as a device-scope process — id index.embed.<spaceId>,
-// target the space. Device scope: each device embeds its own index
-// copy, other devices don't care. Updates arriving before the engine
-// is published (the boot pass can start drains first) are dropped —
-// every frame carries the full descriptor, so the view recovers from
-// any later one. Cancel is ignored by this producer; a worker stopped
-// mid-drain (space dropped) reports cancelled. The failure message is
-// deliberately generic — indexer errors carry filesystem paths and
-// upstream response bodies, which never go on the wire; the detail is
-// in the server log (the embed loop logs every failed drain).
-func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
+// indexerProcess bridges indexer lifecycle updates onto the process
+// view as device-scope processes — each device indexes its own copy,
+// other devices don't care. Kinds: index.fts.<spaceId> (chunk/advance
+// backlog), index.embed.<spaceId> (vector drain, total from the
+// pending count), index.model_download (embedding-model fetch,
+// done/total bytes, target = model file name). Updates arriving
+// before the engine is published (the boot pass can start work first)
+// are dropped — every frame carries the full descriptor, so the view
+// recovers from any later one. Cancel requests are ignored by these
+// producers; work stopped mid-pass (space dropped, shutdown) reports
+// cancelled. Failure messages are deliberately generic — indexer
+// errors carry filesystem paths and upstream response bodies, which
+// never go on the wire; the detail is in the server log.
+func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
 	if !d.ready.Load() {
 		return
 	}
-	data := processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId, Done: u.Done}
+	var id string
+	var data processEventData
+	switch u.Kind {
+	case indexer.ProcessKindFTS:
+		id = "index.fts." + u.SpaceId
+		data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
+	case indexer.ProcessKindEmbed:
+		id = "index.embed." + u.SpaceId
+		data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
+	case indexer.ProcessKindModelDownload:
+		id = "index.model_download"
+		data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
+	default:
+		return
+	}
+	data.Done, data.Total = u.Done, u.Total
 	var typ string
 	switch u.Phase {
 	case indexer.ProcessStarted:
@@ -236,8 +253,8 @@ func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
 		typ = api.EventProcessCancelled
 	case indexer.ProcessFailed:
 		typ = api.EventProcessFailed
-		data.Error = &api.ProcessError{Code: "index.embed_failed",
-			Message: "embedding failed; retrying on the next tick — see server log"}
+		data.Error = &api.ProcessError{Code: data.Kind + "_failed",
+			Message: "failed; retrying — see server log"}
 	default:
 		return
 	}
@@ -248,7 +265,7 @@ func (d *deps) indexEmbedProcess(u indexer.ProcessUpdate) {
 	d.eventsHub().publish(api.Event{
 		Type:   typ,
 		Scope:  api.EventScopeDevice,
-		Target: "index.embed." + u.SpaceId,
+		Target: id,
 		Data:   payload,
 		Sender: &api.EventSender{Identity: d.account, Self: true},
 	})
