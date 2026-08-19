@@ -2494,23 +2494,33 @@ on server shutdown. Account-wide subscribe lives outside the space
 group because the SDK call is account-scoped — one stream covers
 every known space.
 
-### UI commands
+### Events
 
-Account-wide, **in-memory** agent→any-ui control channel. Not space
-data — no `:spaceId` scope, no SDK/dataset backing, nothing stored.
-Full contract in `docs/15-ui-commands.md`.
+Account-wide, **ephemeral** event bus (the generalized successor of the
+retired `/v1/ui/commands` channel — UI navigation is now the `ui.*` type
+family). Not space data — no SDK/dataset backing, nothing stored. Full
+contract in `docs/21-events.md`.
 
-| Method | Path                          | Purpose                                              |
-|--------|-------------------------------|-----------------------------------------------------|
-| POST   | `/v1/ui/commands`             | publish a command → `{subscribers: n}` (0 = nobody listening) |
-| GET    | `/v1/ui/commands/subscribe`   | SSE — `ready` → `command` per publish → `closed`     |
+| Method | Path                      | Purpose                                              |
+|--------|---------------------------|------------------------------------------------------|
+| POST   | `/v1/events`              | publish an event → `{subscribers: n}` (local matches; 0 = nobody listening) |
+| GET    | `/v1/events/subscribe`    | filtered SSE — `ready` → `event` per publish → `closed` |
 
-Body: `{action, spaceId, objectId?, source?}` — `action` is an open
-slug set (`open_space` / `open_object`); `objectId` required iff
-`action == "open_object"`. **At-most-once, no snapshot** — a subscriber
-receives only commands published after it connects (no stale replay on
-reconnect). `closed` reasons: `server_shutdown`, `overflow`. Both routes
-sit outside the space group like `/sync-status/subscribe`.
+Body: `{type, scope, spaceId?, target?, data?}` — `type` is an open
+dotted slug set (`ui.open_space`, `process.progress`, …); `scope` is
+`device` / `account` / `space` (`spaceId` required iff `space`);
+`sender` is server-stamped and rejected in the body; `data` ≤ 64 KiB.
+Subscribe filters via repeatable query params `scope` / `spaceId` /
+`type` (exact or `x.*` prefix) / `target` — AND across dimensions, OR
+within one. **At-most-once, no snapshot** — a subscriber receives only
+events published after it connects (no stale replay on reconnect).
+`closed` reasons: `server_shutdown`, `overflow`. Both routes sit
+outside the space group like `/sync-status/subscribe`.
+`scope: account | space` ride the SDK pub/sub (tech space / target
+space) with refcounted subscribe-side interests; an explicit
+`scope=space` subscription must name at least one `spaceId` filter.
+Network errors: `events.no_read_key`, `events.too_many_patterns`,
+`events.topic_not_owned` (docs/06-errors.md).
 
 ### Push notifications
 

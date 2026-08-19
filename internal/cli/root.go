@@ -69,7 +69,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 		newACLCmd(),
 		newDebugCmd(),
 		newSyncStatusCmd(),
-		newUICmd(),
+		newEventsCmd(),
 		newPushCmd(),
 		newVersionCmd(),
 	)

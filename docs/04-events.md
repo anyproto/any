@@ -362,6 +362,41 @@ query/subscribe primitive at
 body and frame set as every `/query/subscribe`; rows are the cleartext
 payload fields — see 03-api.md § Payload-row query / subscribe).
 
+## Event bus stream (hub-based SSE)
+
+`GET /v1/events/subscribe` streams the account-wide ephemeral event
+bus (docs/21-events.md — envelope, scopes, filter grammar, `ui.*`
+types). Not an SDK subscription at all: the source is the in-process
+`eventHub` broadcaster behind `POST /v1/events`. **At-most-once, no
+snapshot** — only events published after connect are delivered.
+
+Filtering happens server-side via repeatable query params (`scope` /
+`spaceId` / `type` exact-or-`x.*`-prefix / `target`) — AND across
+dimensions, OR within one; no params = everything.
+
+Frame set:
+
+```
+event: ready
+data: {}
+
+event: event
+data: { "type": "ui.open_space", "scope": "device",
+        "target": "…", "data": { … },
+        "sender": { "identity": "A5k…", "self": true } }
+
+event: closed
+data: { "reason": "server_shutdown" | "overflow" }
+```
+
+No `lagged` frame: the hub gives each subscriber a 16-deep buffer and
+**drops the subscriber on overflow** (terminal `closed{overflow}`,
+reconnect for a fresh stream) — same recovery contract as the windowed
+query/subscribe, same shared reason set.
+
+Mounting: account-scoped, outside the space group like
+`/sync-status/subscribe`. CLI: `any events subscribe`.
+
 ## Open / future
 
 - **Resume from a versionId cursor.** When the SDK supports replay

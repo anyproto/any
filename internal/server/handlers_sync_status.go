@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -123,8 +124,15 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 	waitCtx, cancelWait := mergeCtx(c.Request().Context(), d.shutdownCtx)
 	defer cancelWait()
 
+	// writeMu serializes frame writes: emit runs on the pump goroutine
+	// while keepalives come from their own ticker goroutine, and the
+	// ResponseWriter is not safe for concurrent writes.
+	var writeMu sync.Mutex
+
 	var lastDropped uint64
 	emit := func(event string, payload any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		if dropped != nil {
 			if cur := dropped.Load(); cur > lastDropped {
 				lastDropped = cur
@@ -153,10 +161,15 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 			case <-waitCtx.Done():
 				return
 			case <-t.C:
-				if _, err := w.Write([]byte(": keepalive\n\n")); err != nil {
+				writeMu.Lock()
+				_, err := w.Write([]byte(": keepalive\n\n"))
+				if err == nil {
+					flush(w)
+				}
+				writeMu.Unlock()
+				if err != nil {
 					return
 				}
-				flush(w)
 			}
 		}
 	}()
@@ -168,8 +181,10 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 	// so clients can switch on it identically. Client-disconnect
 	// case writes nothing (peer is gone).
 	if d.shutdownCtx != nil && d.shutdownCtx.Err() != nil {
+		writeMu.Lock()
 		_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: api.SubscribeClosedServerShutdown})
 		flush(w)
+		writeMu.Unlock()
 	}
 	return nil
 }

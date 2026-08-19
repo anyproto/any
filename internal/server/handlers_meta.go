@@ -40,12 +40,18 @@ type deps struct {
 	// NewIndexRegistry and driven by the indexer.
 	chunkers *index.Registry
 
-	// uiCommands is the account-wide in-memory UI command broadcast hub
-	// (POST /v1/ui/commands → GET /v1/ui/commands/subscribe). Created
-	// lazily via uiHub() so every deps construction path gets one with
-	// no explicit wiring — it has no engine/SDK dependency.
-	uiHubOnce  sync.Once
-	uiCommands *uiCmdHub
+	// events is the account-wide in-memory event bus hub
+	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via
+	// eventsHub() so every deps construction path gets one with no
+	// explicit wiring — it has no engine/SDK dependency.
+	eventsOnce sync.Once
+	events     *eventHub
+
+	// bridge refcounts SSE event filters into SDK pub/sub interests for
+	// the account/space scopes (created lazily via eventsNet — only
+	// reached behind the ready guard, so sdk is non-nil).
+	bridgeOnce sync.Once
+	bridge     *eventsBridge
 
 	// indexer is the search indexer (FTS + vector over the chunker
 	// feed). Nil when index.enabled is false — the search endpoint then

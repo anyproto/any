@@ -946,6 +946,38 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.EventPublishRequest": {
+                "properties": {
+                    "data": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "target": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.EventPublishResponse": {
+                "properties": {
+                    "subscribers": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "api.FileCacheFreeRequest": {
                 "properties": {
                     "bytes": {
@@ -2643,31 +2675,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "api.UICommand": {
-                "properties": {
-                    "action": {
-                        "type": "string"
-                    },
-                    "objectId": {
-                        "type": "string"
-                    },
-                    "source": {
-                        "type": "string"
-                    },
-                    "spaceId": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.UICommandPublishResponse": {
-                "properties": {
-                    "subscribers": {
-                        "type": "integer"
-                    }
-                },
-                "type": "object"
-            },
             "api.UpsertRecord": {
                 "properties": {
                     "fields": {
@@ -2983,6 +2990,120 @@ const docTemplate = `{
                 "summary": "Local-network (p2p) layer snapshot (diagnostic, unstable)",
                 "tags": [
                     "debug"
+                ]
+            }
+        },
+        "/events": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.EventPublishRequest",
+                                        "summary": "body",
+                                        "description": "event"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "event",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EventPublishResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Publish an event",
+                "tags": [
+                    "events"
+                ]
+            }
+        },
+        "/events/subscribe": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "scope filter (repeatable)",
+                        "in": "query",
+                        "name": "scope",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "spaceId filter (repeatable)",
+                        "in": "query",
+                        "name": "spaceId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "type filter, exact or prefix ` + "`" + `x.*` + "`" + ` (repeatable)",
+                        "in": "query",
+                        "name": "type",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "target filter (repeatable)",
+                        "in": "query",
+                        "name": "target",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Subscribe to events (SSE)",
+                "tags": [
+                    "events"
                 ]
             }
         },
@@ -10614,76 +10735,6 @@ const docTemplate = `{
                 "summary": "Subscribe to account-wide sync status (SSE)",
                 "tags": [
                     "sync"
-                ]
-            }
-        },
-        "/ui/commands": {
-            "post": {
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/api.UICommand",
-                                        "summary": "body",
-                                        "description": "command"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "command",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.UICommandPublishResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    }
-                },
-                "summary": "Publish a UI command",
-                "tags": [
-                    "ui"
-                ]
-            }
-        },
-        "/ui/commands/subscribe": {
-            "get": {
-                "responses": {
-                    "200": {
-                        "content": {
-                            "text/event-stream": {
-                                "schema": {
-                                    "type": "string"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    }
-                },
-                "summary": "Subscribe to UI commands (SSE)",
-                "tags": [
-                    "ui"
                 ]
             }
         }
