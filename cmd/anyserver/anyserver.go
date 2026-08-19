@@ -41,9 +41,7 @@ const (
 	errBadDataDir = -2
 	// errBoot: boot failed after the config validated — engine/account
 	// boot, listener bind, or a config the runtime rejected. Maps from a
-	// *embedded.BootError and from
-	// embedded.ErrNodeconfRequired (a boot-class config error: the host
-	// supplied no nodeconf, so there is nothing to boot against).
+	// *embedded.BootError.
 	errBoot = -3
 )
 
@@ -71,10 +69,10 @@ func startServer(dataDir, listenAddr, nodeconfYAML string, indexEnabled bool, pu
 }
 
 // errCode maps an internal/embedded error to its negative C error code.
-// ErrAlreadyRunning and ErrBadDataDir map directly; ErrNodeconfRequired
-// and any *BootError both fold into errBoot (a boot-class failure — the
-// server could not come up). Any other error also funnels to errBoot
-// rather than crossing the C boundary untyped.
+// ErrAlreadyRunning and ErrBadDataDir map directly; any *BootError folds
+// into errBoot (a boot-class failure — the server could not come up).
+// Any other error also funnels to errBoot rather than crossing the C
+// boundary untyped.
 func errCode(err error) int {
 	switch {
 	case errors.Is(err, embedded.ErrAlreadyRunning):
@@ -82,8 +80,8 @@ func errCode(err error) int {
 	case errors.Is(err, embedded.ErrBadDataDir):
 		return errBadDataDir
 	default:
-		// embedded.ErrNodeconfRequired and *embedded.BootError (and any
-		// unforeseen error) are all boot-class config/boot failures.
+		// *embedded.BootError (and any unforeseen error) are all
+		// boot-class config/boot failures.
 		return errBoot
 	}
 }

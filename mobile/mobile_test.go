@@ -70,19 +70,10 @@ func TestStartAddressStop(t *testing.T) {
 	}
 }
 
-// TestEmptyNodeconfIsError proves the shim forwards the core's
-// nodeconf-required input error (an empty nodeconfYAML never boots).
-func TestEmptyNodeconfIsError(t *testing.T) {
-	reset(t)
-	defer reset(t)
-
-	if err := Start(t.TempDir(), loopbackEphemeral, ""); err == nil {
-		t.Fatal("Start with empty nodeconf returned nil, want an error")
-	}
-	if got := Address(); got != "" {
-		t.Fatalf("Address() = %q after a failed Start, want empty", got)
-	}
-}
+// No empty-nodeconf case here: "" is now a valid input that selects the
+// embedded production conf, and starting on it would join production.
+// The fall-through is asserted in internal/embedded (assembleConfig) and
+// internal/config (LoadNodeconf).
 
 // TestDoubleStartIsError proves a second Start while one is running is
 // rejected (the core's already-running guard, surfaced as an error).

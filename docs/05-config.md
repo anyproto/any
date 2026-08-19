@@ -57,6 +57,11 @@ auth:
 # network. Tests use it via config.NodeconfPlaceholder(); it is never
 # selected at runtime.
 #
+# The embedded servers (any.aar / xcframework / embedded.Start) follow the
+# same rule: an empty nodeconfYAML selects the production default, so a
+# mobile host vendors no conf of its own and changes network with a
+# binding bump. Non-empty YAML overrides it.
+#
 # Files: durable file backup needs nodes typed `fileV2` in the nodeconf
 # (the fileV2 broker fleet). Without them attach still works
 # offline-first — files just sit in the `inflight` durability state

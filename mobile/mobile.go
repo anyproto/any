@@ -14,9 +14,11 @@ import (
 
 // Start boots the any server. dataDir maps to Context.getFilesDir() on Android.
 // listenAddr is typically "127.0.0.1:7001"; pass "127.0.0.1:0" to let the OS
-// pick a free port (read it back with Address()). nodeconfYAML is the
-// staging.yml contents — required, because the AAR has no filesystem
-// fallback for any-sync's nodeconf.
+// pick a free port (read it back with Address()). nodeconfYAML overrides
+// the network: pass "" for the embedded PRODUCTION nodeconf that ships in
+// the AAR, or a conf's YAML text to join another network (staging, local
+// infra). Hosts targeting production need not vendor a copy of the conf —
+// an AAR bump carries a new one.
 //
 // Returns once the server has bound the listener (success) or failed during
 // wallet / SDK / listener setup (error). The error string is suitable for
@@ -33,7 +35,7 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 
 // StartWithPush is Start plus the push-notification node (SYN-83). The
 // push node is a direct out-of-band peer, not part of nodeconfYAML — it
-// pairs with the nodeconf choice (staging vs prod), so the host passes
+// pairs with the nodeconf choice, so a host overriding the network passes
 // both from the same place. pushPeerId is the node's peer id; pushAddrs
 // its dial addresses, comma-separated (same format ANY_PUSH_ADDRS
 // parses, e.g. "quic://host:port" or "host:port"). Push activates only

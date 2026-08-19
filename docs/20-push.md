@@ -302,9 +302,14 @@ passes the push node explicitly at start:
 Enablement stays config-driven: non-empty peer id + addrs fill
 `cfg.Push` and the tristate activates on its own; empty strings change
 nothing (push endpoints return `409 push.disabled`). The push peer
-pairs with the nodeconf choice (staging vs prod) — the host already
-selects the network via `nodeconfYAML`, so peer id and addrs should
-come from the same place; `any` ships no default.
+pairs with the nodeconf choice, so peer id and addrs should come from
+wherever the network does; `any` ships no push default.
+
+`nodeconfYAML` is optional: `""` selects the embedded **production**
+nodeconf compiled into the binding, so a host on production needs no
+vendored copy of the conf and moves networks with an AAR/xcframework
+bump. Pass YAML text only to override (staging, local infra) — see
+`docs/05-config.md` § Network.
 
 The device token persists at `<account-dir>/push-token.json` and is
 re-registered in the background on boot; it is **never** a dataset

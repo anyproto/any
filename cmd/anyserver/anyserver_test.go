@@ -145,22 +145,9 @@ func TestStartServer_BadDataDir(t *testing.T) {
 	}
 }
 
-// TestStartServer_EmptyNodeconfIsBoot asserts an empty nodeconf maps
-// embedded.ErrNodeconfRequired -> errBoot (-3): online-only means the host
-// must supply a real nodeconf, and a missing one is a boot-class config
-// failure, not a bad data dir.
-func TestStartServer_EmptyNodeconfIsBoot(t *testing.T) {
-	cleanupServer(t)
-
-	if got := startServer(t.TempDir(), loopbackEphemeral, "", true, "", ""); got != errBoot {
-		t.Fatalf("empty nodeconf: got %d, want errBoot (%d)", got, errBoot)
-	}
-}
-
 // TestErrCode_Mapping asserts the err->code translation directly, including
 // the boot-class folding: ErrAlreadyRunning -> -1, ErrBadDataDir -> -2, and
-// both ErrNodeconfRequired and any *BootError -> -3. Driving errCode with
-// the sentinels (incl. wrapped ones) pins the contract the Swift side
+// any *BootError -> -3. Driving errCode with the sentinels (incl. wrapped ones) pins the contract the Swift side
 // mirrors without needing a live server.
 func TestErrCode_Mapping(t *testing.T) {
 	cases := []struct {
@@ -171,7 +158,6 @@ func TestErrCode_Mapping(t *testing.T) {
 		{"already running", embedded.ErrAlreadyRunning, errAlreadyRunning},
 		{"bad data dir", embedded.ErrBadDataDir, errBadDataDir},
 		{"bad data dir wrapped", fmt.Errorf("ensure: %w", embedded.ErrBadDataDir), errBadDataDir},
-		{"nodeconf required is boot-class", embedded.ErrNodeconfRequired, errBoot},
 		{"boot error", &embedded.BootError{Err: errors.New("bind failed")}, errBoot},
 		{"unknown error funnels to boot", errors.New("some other error"), errBoot},
 	}
