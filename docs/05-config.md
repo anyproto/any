@@ -46,11 +46,16 @@ auth:
   passkeyEnv: ANY_WALLET_PASSKEY      # env var name to read passkey from
 
 # any-sync network. Path to a nodeconf YAML, or inline. When neither is
-# set, an EMBEDDED fallback ships inside the binary (vendored at
-# internal/config/nodeconf-staging.yml) so packaged installs boot from
-# any working directory. The embedded conf is the sanitized fixture
-# (staging networkId, placeholder nodes) — it works locally but joins no
-# network; configure a real nodeconf to sync.
+# set, an EMBEDDED default ships inside the binary (vendored at
+# internal/config/nodeconf-prod.yml) so packaged installs boot from any
+# working directory — that default is the PRODUCTION network, so an
+# unconfigured binary syncs against production. Point at another network
+# with nodeconfPath, inline nodeconf, or ANY_NETWORK_NODECONF_PATH.
+#
+# internal/config/nodeconf-placeholder.yml is the sanitized fixture
+# (real networkId, placeholder nodes) — it boots and serves but joins no
+# network. Tests use it via config.NodeconfPlaceholder(); it is never
+# selected at runtime.
 #
 # Files: durable file backup needs nodes typed `fileV2` in the nodeconf
 # (the fileV2 broker fleet). Without them attach still works
@@ -186,6 +191,10 @@ ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly
 ANY_LOG_LEVEL=debug                   # shorthand for log.defaultLevel
+ANY_NETWORK_NODECONF_PATH=/etc/any/nodeconf.yaml  # network.nodeconfPath —
+                                      # the override for joining a network
+                                      # other than the embedded production
+                                      # default (staging, local infra)
 
 ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBaseUrl
 ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)

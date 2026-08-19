@@ -8,8 +8,11 @@ Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
-   `config.LoadNodeconf`, default fallback: the embedded
-   `internal/config/nodeconf-staging.yml`).
+   `config.LoadNodeconf`; with nothing configured it joins the PRODUCTION
+   network from the embedded `internal/config/nodeconf-prod.yml`. Tests
+   pass `config.NodeconfPlaceholder()` — the sanitized
+   `nodeconf-placeholder.yml` — or point `ANY_NETWORK_NODECONF_PATH` at a
+   staging/local conf; they must never join production).
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
