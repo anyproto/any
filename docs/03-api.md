@@ -168,9 +168,11 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
-{}                                    // generate a fresh account
-{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
-                                      // device key freshly generated
+{}                                    // generate a fresh account (index 1)
+{ "mnemonic":"w1 … w12" }             // restore at the default index (1):
+                                      // same phrase ⇒ same account, device
+                                      // key freshly generated
+{ "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
 
 // → 200
@@ -181,8 +183,10 @@ restart, and the server stays on that account for its lifetime
 
 `index` is the account-derivation index and is valid **only with
 `mnemonic`** (a selected account's index is baked into its wallet; a
-generated one is always 0) — a non-zero `index` without `mnemonic` is
-`400 request.invalid_field`. If the engine fails to boot after a fresh
+generated one is always the `any` default, 1). Omitted means 1; index
+0 is anytype's, passed explicitly to restore an anytype-derived
+account. Any `index` without `mnemonic` — including an explicit 0 —
+is `400 request.invalid_field`. If the engine fails to boot after a fresh
 wallet was created this call (e.g. SDK init error), the half-created
 per-account dir is removed, so a retry — or `generate` getting a new
 phrase — starts clean rather than auto-selecting an un-backed account.
@@ -381,8 +385,8 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
-to tell direct chats from regular spaces client-side. `author` is the
+`spaceType:"any.onetoone"`, a created space `"any.space"` — use it to
+tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
 when the ACL isn't loadable). Both are omitted when empty.
 
@@ -1461,16 +1465,39 @@ has no property definitions yet", never "no such type".
 
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
-`GET …/properties`. It is opaque consumer metadata; the one convention
-today is `meta.index`, which controls how the search indexer treats
-the property's value: absent ⇒ indexed under the default scope
-`props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
-(see `docs/13-index.md` § prop chunker). String / array / number
-kinds index; booleans and null never do.
+`GET …/properties`. It is opaque consumer metadata; three conventions
+exist today:
+
+- **`meta.index`** controls how the search indexer treats the
+  property's value: absent ⇒ indexed under the default scope
+  `props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
+  (see `docs/13-index.md` § prop chunker). String / array / number
+  kinds index; booleans and null never do.
+- **`meta.pos`** is the property's lexid display-order key — the same
+  drag-n-drop ordering mechanic `nav.pos` gives objects in the tree
+  and `format.options.<key>.pos` gives select options. Clients render
+  a type's property list sorted by `meta.pos` ascending (plain
+  lexicographic string compare), falling back to `name` (id
+  tie-break) for definitions that don't carry one. A drag writes one
+  `PATCH …/properties/:propId` `{"set": {"meta.pos": "<lexid>"}}` —
+  a per-path CRDT `$set`, so concurrent reorders LWW-converge, and
+  since definitions are synced records the order is shared by every
+  member of the space. The server neither generates nor validates
+  lexids — this is a consumer convention, exactly like `meta.index`.
+- **`meta.icon`** is the property's display icon: a string naming an
+  icon from any-ui's system icon set. Set it inline at create or with
+  `PATCH …/properties/:propId` `{"set": {"meta.icon": "<name>"}}`
+  (change) / `{"unset": ["meta.icon"]}` (revert to the client's
+  per-format default). Definitions are synced records, so the chosen
+  icon is shared by every member of the space, and concurrent changes
+  LWW-converge like any per-path `$set`. The server stores the string
+  verbatim — the icon-name vocabulary is owned by any-ui; other
+  clients should tolerate (and preserve) names they don't recognize
+  and fall back to their format default.
 
 ```json
 { "name": "context", "kind": "string", "xKey": "context",
-  "meta": { "index": "agent" } }
+  "meta": { "index": "agent", "pos": "a3", "icon": "flag" } }
 ```
 
 `POST …/properties` also accepts an optional **`format`** object — the

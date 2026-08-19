@@ -301,8 +301,10 @@ components:
           description: AccountId selects an account that already has a local wallet.
           type: string
         index:
-          description: Index is the account derivation index for Mnemonic. Default
-            0.
+          description: |-
+            Index is the account derivation index for Mnemonic. Omitted
+            means 1, the `any` default; pass 0 explicitly to restore an
+            anytype-derived (or pre-index-1 any) account.
           type: integer
         mnemonic:
           description: |-

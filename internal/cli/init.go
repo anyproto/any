@@ -58,7 +58,7 @@ forces an additional fresh account.`,
 					return fmt.Errorf("read mnemonic: %w", err)
 				}
 			}
-			if index != 0 && mnemonic == "" {
+			if cmd.Flags().Changed("index") && mnemonic == "" {
 				return errors.New("--index applies only to --mnemonic / --mnemonic-stdin")
 			}
 
@@ -97,17 +97,17 @@ forces an additional fresh account.`,
 			if err != nil {
 				return err
 			}
-			id, err := auth.AccountId(fresh, 0)
+			id, err := auth.AccountId(fresh, auth.DefaultAccountIndex)
 			if err != nil {
 				return err
 			}
-			return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, fresh, 0, true)
+			return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, fresh, auth.DefaultAccountIndex, true)
 		},
 	}
 	addServerFlags(c)
 	c.Flags().StringVar(&mnemonic, "mnemonic", "", "authorize with an existing BIP-39 phrase (prefer --mnemonic-stdin: flags leak into shell history)")
 	c.Flags().BoolVar(&mnemonicStdin, "mnemonic-stdin", false, "read the BIP-39 phrase from stdin")
-	c.Flags().Uint32Var(&index, "index", 0, "account derivation index for --mnemonic")
+	c.Flags().Uint32Var(&index, "index", auth.DefaultAccountIndex, "account derivation index for --mnemonic (1 = any default; 0 = anytype-derived accounts)")
 	c.Flags().BoolVar(&forceNew, "new", false, "create an additional fresh account even when accounts already exist")
 	return c
 }

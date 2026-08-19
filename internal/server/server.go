@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
@@ -97,7 +98,10 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	defer deps.closeEngine(lg)
 
 	if identity != nil {
-		if _, err := deps.bootAccount(identity, walletSeed{}); err != nil {
+		// Existing wallets ignore the seed entirely; the index matters
+		// only for the wallet-override path, where a missing file is
+		// freshly generated — at the any default, consistent with init.
+		if _, err := deps.bootAccount(identity, walletSeed{index: auth.DefaultAccountIndex}); err != nil {
 			return err
 		}
 	} else {

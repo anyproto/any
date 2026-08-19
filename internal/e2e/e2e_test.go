@@ -617,6 +617,36 @@ func TestE2E_InitMnemonicIndex(t *testing.T) {
 		t.Fatalf("init reply %+v, want accountId %s created true", initResp, wantID)
 	}
 
+	// Explicit --index 0 restores the anytype-derived account — a
+	// different account than both the index-2 one above and the
+	// omitted-index default (1).
+	id0, err := auth.AccountId(m, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = exec.Command(bin, "init", "--data-dir", dataDir, "--mnemonic", m, "--index", "0").Output()
+	if err != nil {
+		t.Fatalf("any init --mnemonic --index 0: %v", err)
+	}
+	var init0 struct {
+		AccountId string `json:"accountId"`
+		Created   bool   `json:"created"`
+	}
+	if err := json.Unmarshal(out, &init0); err != nil {
+		t.Fatalf("decode init output: %v\nraw:\n%s", err, out)
+	}
+	if init0.AccountId != id0 || !init0.Created {
+		t.Fatalf("index-0 init reply %+v, want accountId %s created true", init0, id0)
+	}
+	if id1, _ := auth.AccountId(m, auth.DefaultAccountIndex); init0.AccountId == id1 {
+		t.Fatal("index 0 must not collide with the default (any) derivation")
+	}
+	// Remove the extra account so the `run` below still auto-selects
+	// the sole index-2 one.
+	if err := os.RemoveAll(filepath.Join(dataDir, id0)); err != nil {
+		t.Fatal(err)
+	}
+
 	// run auto-selects the sole account and boots authorized as it —
 	// proves the on-disk wallet really derives the index-2 id.
 	addr := freeLoopbackAddr(t)
