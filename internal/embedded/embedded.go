@@ -50,8 +50,9 @@ import (
 //	ErrBadDataDir     -> -2
 //	a boot failure    -> -3 (see BootError)
 //
-// Empty nodeconfYAML surfaces as ErrNodeconfRequired (a bad-input error,
-// distinct from a boot failure that occurs after a valid config).
+// An empty nodeconfYAML is not an error: it selects the embedded
+// production nodeconf, the same default the CLI and desktop sidecar boot
+// on. Hosts pass YAML only to override the network.
 var (
 	// ErrAlreadyRunning: a server is already started in this process. The
 	// caller must Stop the current one before starting again.
@@ -59,18 +60,13 @@ var (
 	// ErrBadDataDir: the data directory argument is empty, or could not be
 	// resolved / created (bad path, unwritable parent).
 	ErrBadDataDir = errors.New("embedded: bad data directory")
-	// ErrNodeconfRequired: nodeconfYAML was empty. Online-only means the
-	// host must supply a real (prod/staging) nodeconf — there is no
-	// network-joining filesystem fallback on the embedded path.
-	ErrNodeconfRequired = errors.New("embedded: nodeconfYAML is required")
 )
 
 // BootError wraps a failure that occurred while bringing the server up
 // after the config validated — engine/account boot, listener bind, or a
 // config the runtime rejected. The iOS shim maps any BootError to -3. The
 // distinct type lets a caller tell "the config was fine but boot failed"
-// from "the input was bad" (ErrBadDataDir / ErrNodeconfRequired) without
-// string matching.
+// from "the input was bad" (ErrBadDataDir) without string matching.
 type BootError struct{ Err error }
 
 func (e *BootError) Error() string {
@@ -153,7 +149,10 @@ func assembleConfig(opts Options) config.Config {
 	cfg := config.Defaults()
 	cfg.DataDir = opts.DataDir
 	cfg.Listen.Addr = opts.ListenAddr
-	cfg.Network.Nodeconf = opts.NodeconfYAML
+	// Trimmed so a whitespace-only string counts as "not supplied" and
+	// falls through to config's embedded production default, rather than
+	// reaching any-sync as an unparseable conf.
+	cfg.Network.Nodeconf = strings.TrimSpace(opts.NodeconfYAML)
 	// FTS-only index policy. "none" makes the embedder factory return a
 	// true-nil so the compiled-out local llama.cpp embedder is never
 	// reached. Index.Enabled is gated on BOTH the compiled FTS cap and the
@@ -203,7 +202,7 @@ func splitAddrs(v string) []string {
 // opts.NodeconfYAML (see Options for the full input contract). It blocks
 // until the listener binds — returning the bound address — or boot fails,
 // returning one of the package's typed errors (ErrAlreadyRunning,
-// ErrBadDataDir, ErrNodeconfRequired, or a *BootError).
+// ErrBadDataDir or a *BootError).
 func Start(opts Options) (string, error) {
 	// Soft memory cap, applied unconditionally at start so it is in force
 	// before the engine allocates. SetMemoryLimit's argument is a soft
@@ -226,9 +225,6 @@ func Start(opts Options) (string, error) {
 		<-prev
 	}
 
-	if opts.NodeconfYAML == "" {
-		return "", ErrNodeconfRequired
-	}
 	if opts.DataDir == "" {
 		return "", ErrBadDataDir
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,13 +120,35 @@ func TestBadDataDirIsBadDirError(t *testing.T) {
 	}
 }
 
-func TestEmptyNodeconfIsError(t *testing.T) {
-	resetState(t)
-	defer resetState(t)
+// An empty nodeconfYAML means "use the embedded default", so the host
+// (an Android/iOS app) doesn't have to vendor its own copy of the
+// production conf. Asserted on the assembled config rather than by
+// starting: booting the default would join the production network.
+func TestEmptyNodeconfFallsThroughToEmbeddedDefault(t *testing.T) {
+	for _, in := range []string{"", "  \n\t "} {
+		cfg := assembleConfig(Options{DataDir: t.TempDir(), ListenAddr: loopbackEphemeral, NodeconfYAML: in})
+		if cfg.Network.Nodeconf != "" {
+			t.Fatalf("nodeconf %q assembled to %q, want empty so LoadNodeconf picks the default", in, cfg.Network.Nodeconf)
+		}
+		raw, err := config.LoadNodeconf(cfg.Network)
+		if err != nil {
+			t.Fatalf("LoadNodeconf: %v", err)
+		}
+		if !strings.Contains(string(raw), "fileV2") {
+			t.Error("fallback is not the production nodeconf")
+		}
+	}
+}
 
-	_, err := start(t.TempDir(), "")
-	if !errors.Is(err, ErrNodeconfRequired) {
-		t.Fatalf("empty nodeconf err = %v, want ErrNodeconfRequired", err)
+// A supplied conf still wins over the default.
+func TestSuppliedNodeconfWins(t *testing.T) {
+	cfg := assembleConfig(Options{DataDir: t.TempDir(), ListenAddr: loopbackEphemeral, NodeconfYAML: nodeconfFixture(t)})
+	raw, err := config.LoadNodeconf(cfg.Network)
+	if err != nil {
+		t.Fatalf("LoadNodeconf: %v", err)
+	}
+	if strings.Contains(string(raw), "fileV2") {
+		t.Error("supplied placeholder was overridden by the production default")
 	}
 }
 
