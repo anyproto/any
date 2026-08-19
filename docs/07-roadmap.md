@@ -269,10 +269,10 @@ pluggable embedders, parallel batched pipelines),
   Embedded servers (any.aar / xcframework) bridge the push node through
   `embedded.Options` — `mobile.StartWithPush` /
   `AnyServerStartWithPush`, addrs comma-separated (SYN-83);
-  the host supplies the peer alongside its nodeconf choice, no default
-  shipped.
-  **Remaining:** the staging/production push-node address (infra
-  hand-off, config-only) + running the gated e2e against real infra.
+  the host supplies the peer alongside its nodeconf choice; with
+  neither supplied, the packaged production pair applies
+  (`config.ApplyPushDefaults`).
+  **Remaining:** running the gated e2e against real infra.
   **Deferred by design:** reactions push, ACL/invite push, desktop
   receive (send-only — the push server's platform enum is ios/android).
 - **Files v2** — the SDK's files-v2 work (released in

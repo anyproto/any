@@ -228,13 +228,14 @@ index:
 func TestLoad_PushFileAndEnv(t *testing.T) {
 	isolateEnv(t)
 
-	// Defaults: no push node → not enabled, not active.
+	// Defaults: nothing configured means the production network, which
+	// carries the production push node with it (see ApplyPushDefaults).
 	cfg, err := Load(Flags{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Push.IsEnabled() || cfg.Push.Active() {
-		t.Errorf("push should be off by default: %+v", cfg.Push)
+	if cfg.Push.PeerId != ProdPushPeerId || !cfg.Push.Active() {
+		t.Errorf("unconfigured load should carry the production push node: %+v", cfg.Push)
 	}
 
 	dir := t.TempDir()
@@ -285,12 +286,15 @@ push:
 		t.Errorf("ANY_PUSH_ENABLED=false should disable push: %+v", cfg.Push)
 	}
 
-	// Explicit true without peer info is enabled but can't run.
+	// Explicit true without peer info is enabled but can't run. Pinned
+	// to a named network so the production push default stays out of the
+	// way — the tristate, not the packaged pairing, is what's under test.
 	t.Setenv("ANY_PUSH_ENABLED", "true")
 	t.Setenv("ANY_PUSH_PEER_ID", "")
 	os.Unsetenv("ANY_PUSH_PEER_ID")
 	t.Setenv("ANY_PUSH_ADDRS", "")
 	os.Unsetenv("ANY_PUSH_ADDRS")
+	t.Setenv("ANY_NETWORK_NODECONF_PATH", "/etc/any/staging.yml")
 	cfg, err = Load(Flags{})
 	if err != nil {
 		t.Fatal(err)
@@ -307,7 +311,7 @@ func isolateEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
 		"ANY_DATA_DIR", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
-		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME",
+		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME", "ANY_NETWORK_NODECONF_PATH",
 		"ANY_PUSH_ENABLED", "ANY_PUSH_PEER_ID", "ANY_PUSH_ADDRS",
 		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",
 		"ANY_INDEX_OLLAMA_URL", "ANY_INDEX_OLLAMA_MODEL",

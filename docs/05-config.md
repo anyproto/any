@@ -204,7 +204,10 @@ ANY_NETWORK_NODECONF_PATH=/etc/any/nodeconf.yaml  # network.nodeconfPath —
 ANY_FILES_PUBLIC_READ_BASE_URL=https://files.example.com  # files.publicReadBaseUrl
 ANY_FILES_GC_INTERVAL=1h              # files.gcInterval ("" = no background sweep)
 
-ANY_PUSH_ENABLED=true                 # push.enabled (tristate; unset = iff peerId)
+ANY_PUSH_ENABLED=false                # push.enabled (tristate; unset = iff peerId).
+                                      # The production push node is the packaged
+                                      # default whenever the network is too — see
+                                      # docs/20-push.md § Config; false opts out.
 ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
 

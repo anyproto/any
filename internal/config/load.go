@@ -60,6 +60,11 @@ func Load(flags Flags) (Config, error) {
 	// 3. Flags — highest precedence.
 	applyFlags(&cfg, flags)
 
+	// 4. Defaults that depend on the resolved layers, not just on
+	//    Defaults(): the production push node rides the production
+	//    network, so it can only be decided once the network is final.
+	ApplyPushDefaults(&cfg)
+
 	return cfg, nil
 }
 
