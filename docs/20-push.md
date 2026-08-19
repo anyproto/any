@@ -269,8 +269,8 @@ Per-chat override rides the existing properties surface (no new CLI):
 
 ```yaml
 # Push-notification node (docs/20-push.md). A DIRECT out-of-band peer
-# ({peerId, addrs} here, not in the nodeconf). Configuring the peer is
-# the opt-in; without it every /v1/push endpoint returns 409
+# ({peerId, addrs} here, not in the nodeconf). Naming a peer is the
+# opt-in; with none resolved, every /v1/push endpoint returns 409
 # push.disabled and no background loops run.
 push:
   enabled: null            # tristate: null = enabled iff peerId set;
@@ -279,11 +279,27 @@ push:
   addrs: []                # dial addresses, e.g. ["quic://host:port"]
 ```
 
+**The production node is the packaged default, paired with the network.**
+When a config names neither `peerId` nor `addrs` AND leaves the network
+unset — the packaged production nodeconf, see docs/05-config.md — `any`
+fills in the production push node (`config.ProdPushPeerId` /
+`ProdPushAddr`, the same deployment heart uses). So an unconfigured
+binary has working push, exactly as it has working sync.
+
+The pairing is deliberate: the push node is not part of the nodeconf, so
+nothing else would stop a server on staging or local infra from pushing
+through the production node. Point the network anywhere — `nodeconfPath`,
+inline `nodeconf`, or `ANY_NETWORK_NODECONF_PATH` — and the default drops
+out; that host supplies its own push node or gets none. This is also what
+keeps the test suite, which always names a nodeconf, off the production
+push server. A half-configured push node (one field of the two) is left
+alone rather than completed with mismatched production values.
+
 Env overrides: `ANY_PUSH_ENABLED`, `ANY_PUSH_PEER_ID`,
-`ANY_PUSH_ADDRS` (comma-separated). The staging/production peer
-address is an infra hand-off — config-only, no code change.
-`addrs` entries take the same forms nodeconf uses — `quic://host:port`
-or bare `host:port`.
+`ANY_PUSH_ADDRS` (comma-separated); `ANY_PUSH_ENABLED=false` still beats
+the packaged default. `addrs` entries take the same forms nodeconf uses —
+`quic://host:port` or bare `host:port`. The production node is yamux-only,
+hence the explicit `yamux://` scheme in its default address.
 
 ### Embedded servers (any.aar / xcframework)
 
@@ -298,6 +314,11 @@ passes the push node explicitly at start:
   semantics; `AnyServerStart` keeps push off.
 - **Go hosts**: `embedded.Start(embedded.Options{…, PushPeerId,
   PushAddrs})`.
+
+Empty push options follow the same pairing rule as the CLI: a host that
+passes neither a push node nor a `nodeconfYAML` lands on the production
+pair, so plain `Start` on the default network now has push. Passing
+either one opts out of the default for both.
 
 Enablement stays config-driven: non-empty peer id + addrs fill
 `cfg.Push` and the tristate activates on its own; empty strings change

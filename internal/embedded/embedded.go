@@ -176,6 +176,9 @@ func assembleConfig(opts Options) config.Config {
 	// Active). Empty inputs leave the defaults and push stays off.
 	cfg.Push.PeerId = opts.PushPeerId
 	cfg.Push.Addrs = splitAddrs(opts.PushAddrs)
+	// Same rule the CLI gets from config.Load: a host that supplied
+	// neither a push node nor a network lands on the production pair.
+	config.ApplyPushDefaults(&cfg)
 	return cfg
 }
 

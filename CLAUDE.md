@@ -780,7 +780,11 @@ Implementation slices landed:
     GET `/v1/push/subscriptions` (account-scoped, outside `:spaceId`;
     409 `push.disabled` when `deps.push == nil`). Config
     `push.{enabled,peerId,addrs}` / `ANY_PUSH_*` (addrs
-    comma-separated), threaded into the SDK at OpenSDK. CLI: `any
+    comma-separated), threaded into the SDK at OpenSDK. The PRODUCTION
+    push node is the packaged default, but only when the network is too
+    — `config.ApplyPushDefaults` fills `{ProdPushPeerId, ProdPushAddr}`
+    iff the config names no push peer AND no nodeconf, so a staging /
+    local server (and every test) never pushes through production. CLI: `any
     push token set/revoke/status`, `any push subscriptions`, `any
     space settings <id> --set/--set-bool/--set-num/--unset`. e2e:
     `internal/e2e/push_test.go`, gated on `ANY_PUSH_E2E_PEER_ID` /
