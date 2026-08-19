@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/api"
@@ -115,6 +116,9 @@ func TestAuth_StatusAndValidation(t *testing.T) {
 		{`{"mnemonic":"x y","accountId":"Azz"}`, "request.invalid_field", http.StatusBadRequest},
 		{`{"accountId":"Azz","index":1}`, "request.invalid_field", http.StatusBadRequest},
 		{`{"index":1}`, "request.invalid_field", http.StatusBadRequest},
+		// Explicit 0 is distinguishable from omitted (pointer field) and
+		// equally invalid without a mnemonic.
+		{`{"index":0}`, "request.invalid_field", http.StatusBadRequest},
 		{`{"accountId":"Azz"}`, "auth.account_not_found", http.StatusNotFound},
 	} {
 		rec := doJSON(t, e, http.MethodPost, "/v1/auth", tc.body)
@@ -158,6 +162,15 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 	}
 	if resp.AccountId == "" || !resp.Created || resp.Mnemonic == "" {
 		t.Fatalf("generate reply: %+v", resp)
+	}
+	// A generated account derives at the any default index, not
+	// anytype's index 0.
+	if id1, err := auth.AccountId(resp.Mnemonic, auth.DefaultAccountIndex); err != nil || id1 != resp.AccountId {
+		t.Fatalf("generated account %q is not the index-%d derivation %q (err %v)",
+			resp.AccountId, auth.DefaultAccountIndex, id1, err)
+	}
+	if id0, err := auth.AccountId(resp.Mnemonic, 0); err != nil || id0 == resp.AccountId {
+		t.Fatalf("generated account must differ from the index-0 (anytype) derivation (err %v)", err)
 	}
 
 	// The engine is live: guard open, account surface working.

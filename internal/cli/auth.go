@@ -41,11 +41,17 @@ func newAuthCmd() *cobra.Command {
 				}
 			}
 			cl := client.New(flags.Addr, flags.Timeout)
-			resp, err := cl.Authorize(cmd.Context(), api.AuthRequest{
+			req := api.AuthRequest{
 				Mnemonic:  mnemonic,
 				AccountId: account,
-				Index:     index,
-			})
+			}
+			// Only an explicit --index goes on the wire — the server
+			// applies the any default (1) to a restore without one, and
+			// rejects index without mnemonic.
+			if cmd.Flags().Changed("index") {
+				req.Index = &index
+			}
+			resp, err := cl.Authorize(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -61,7 +67,7 @@ func newAuthCmd() *cobra.Command {
 	login.Flags().StringVar(&mnemonic, "mnemonic", "", "restore from an existing BIP-39 phrase (prefer --mnemonic-stdin: flags leak into shell history)")
 	login.Flags().BoolVar(&mnemonicStdin, "mnemonic-stdin", false, "read the BIP-39 phrase from stdin")
 	login.Flags().StringVar(&account, "account", "", "select an account that already has a local wallet")
-	login.Flags().Uint32Var(&index, "index", 0, "account derivation index for --mnemonic")
+	login.Flags().Uint32Var(&index, "index", 1, "account derivation index for --mnemonic (1 = any default; 0 = anytype-derived accounts)")
 
 	status := &cobra.Command{
 		Use:   "status",

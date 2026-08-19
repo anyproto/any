@@ -168,9 +168,11 @@ restart, and the server stays on that account for its lifetime
     {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
 
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
-{}                                    // generate a fresh account
-{ "mnemonic":"w1 … w12", "index":0 }  // restore: same phrase ⇒ same account,
-                                      // device key freshly generated
+{}                                    // generate a fresh account (index 1)
+{ "mnemonic":"w1 … w12" }             // restore at the default index (1):
+                                      // same phrase ⇒ same account, device
+                                      // key freshly generated
+{ "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
 
 // → 200
@@ -181,8 +183,10 @@ restart, and the server stays on that account for its lifetime
 
 `index` is the account-derivation index and is valid **only with
 `mnemonic`** (a selected account's index is baked into its wallet; a
-generated one is always 0) — a non-zero `index` without `mnemonic` is
-`400 request.invalid_field`. If the engine fails to boot after a fresh
+generated one is always the `any` default, 1). Omitted means 1; index
+0 is anytype's, passed explicitly to restore an anytype-derived
+account. Any `index` without `mnemonic` — including an explicit 0 —
+is `400 request.invalid_field`. If the engine fails to boot after a fresh
 wallet was created this call (e.g. SDK init error), the half-created
 per-account dir is removed, so a retry — or `generate` getting a new
 phrase — starts clean rather than auto-selecting an un-backed account.
@@ -381,14 +385,10 @@ mixed SDK versions) — good for ordering, not for equality checks.
 `SpaceInfo` also carries `spaceType` and `author`. `spaceType` is the
 **app-level classification** tag (read from the in-space `spaceIndex`),
 distinct from the on-wire header `type`: a 1-1 space reports
-`spaceType:"any.onetoone"`, a regular space `"any.space"` — use it
-to tell direct chats from regular spaces client-side. The value is
-pinned at space creation, so spaces created before the vocabulary
-rename report the legacy `"anytype.space"` / `"anytype.onetoone"`
-forever — classify by suffix (or match both prefixes), not by exact
-string. `author` is the space owner's account identity, resolved
-best-effort from the ACL (empty when the ACL isn't loadable). Both are
-omitted when empty.
+`spaceType:"any.onetoone"`, a created space `"any.space"` — use it to
+tell direct chats from regular spaces client-side. `author` is the
+space owner's account identity, resolved best-effort from the ACL (empty
+when the ACL isn't loadable). Both are omitted when empty.
 
 `SpaceInfo.ownRole` is the caller's own role in the space — `owner` /
 `admin` / `writer` / `reader` / `guest` / `none` — mirrored from ACL
@@ -562,13 +562,17 @@ device or head-synced in arrives as an `added` change.
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema } ] }   Space.Datasets
-GET /v1/datasets                   → { datasets: [ { name, schema } ] }   Service.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, typeId? } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema } ] }            Service.Datasets
 ```
 
 `schema` is a standard **JSON Schema** object per dataset
-(`{type:"object", properties:{…}, additionalProperties:<dynamic>}`). Each
-property carries an `x-scope` extension keyword classifying the field:
+(`{type:"object", properties:{…}, additionalProperties:<dynamic>}`).
+`typeId` names the owning type for ext-type and runtime-defined
+datasets (absent for space-level built-ins) — records exist only on
+objects carrying that type, so consumers gate indexing/eviction on it.
+Each property carries an `x-scope` extension keyword classifying the
+field:
 
 - `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
@@ -584,9 +588,21 @@ property carries an `x-scope` extension keyword classifying the field:
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
 the chat/editor datasets, which declare their known fields while staying
 open). The per-space form lists every dataset the space hosts (`objects`,
-`chat_messages`, `editor_blocks`, …); the account-wide form lists the
-tech-space system datasets (`spaces`, `profile`) behind the space-list
-query/subscribe above.
+`chat_messages`, `editor_blocks`, …, plus every runtime definition); the
+account-wide form lists the tech-space system datasets (`spaces`,
+`profile`) behind the space-list query/subscribe above.
+
+Datasets with behavioral schema declarations (§ Runtime dataset schemas)
+carry further extension keywords in the document:
+
+- per-field `x-mutable-by` (`author` / `any`; absent = write-once) and
+  `x-stamp` (`creator` / `createTime` / `modifyTime` — derived at apply
+  time, client writes rejected);
+- doc-level standard `required` (fields that must be present on
+  create), `x-delete-by` (`author`; absent = anyone may delete),
+  `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
+  auto-derived record ids), and `x-search` (`{title, text}` — the
+  record fields the search indexer extracts, § docs/13-index.md).
 
 #### Update space metadata
 
@@ -1066,6 +1082,7 @@ children directly with `{"filter":{"nav.parentId":"<X>"}}`.
 | POST   | `/v1/spaces/:spaceId/query/subscribe`                     | `Space.Query.Subscribe` (SSE)        |
 | POST   | `/v1/spaces/:spaceId/aggregate`                           | `Space.Aggregate` (pipeline)         |
 | POST   | `/v1/spaces/:spaceId/modify`                              | `Space.Modify`                       |
+| POST   | `/v1/spaces/:spaceId/upsert`                              | `Space.Upsert` (§ Upsert records)    |
 | POST   | `/v1/spaces/:spaceId/delete-records`                      | `Space.Delete`                       |
 
 Two query scopes:
@@ -1413,6 +1430,12 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.PatchProperty` |
+| GET    | `/v1/spaces/:spaceId/types/:typeId/datasets`                  | `TypesAPI.Datasets`    |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/datasets`                  | `TypesAPI.AddDataset`  |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.PatchDataset` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.RemoveDataset` |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields`    | `TypesAPI.AddDatasetField` |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.RemoveDatasetField` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
 programmatic handle a type is resolved by (the display `name` is not a
@@ -1442,16 +1465,39 @@ has no property definitions yet", never "no such type".
 
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
-`GET …/properties`. It is opaque consumer metadata; the one convention
-today is `meta.index`, which controls how the search indexer treats
-the property's value: absent ⇒ indexed under the default scope
-`props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
-(see `docs/13-index.md` § prop chunker). String / array / number
-kinds index; booleans and null never do.
+`GET …/properties`. It is opaque consumer metadata; three conventions
+exist today:
+
+- **`meta.index`** controls how the search indexer treats the
+  property's value: absent ⇒ indexed under the default scope
+  `props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
+  (see `docs/13-index.md` § prop chunker). String / array / number
+  kinds index; booleans and null never do.
+- **`meta.pos`** is the property's lexid display-order key — the same
+  drag-n-drop ordering mechanic `nav.pos` gives objects in the tree
+  and `format.options.<key>.pos` gives select options. Clients render
+  a type's property list sorted by `meta.pos` ascending (plain
+  lexicographic string compare), falling back to `name` (id
+  tie-break) for definitions that don't carry one. A drag writes one
+  `PATCH …/properties/:propId` `{"set": {"meta.pos": "<lexid>"}}` —
+  a per-path CRDT `$set`, so concurrent reorders LWW-converge, and
+  since definitions are synced records the order is shared by every
+  member of the space. The server neither generates nor validates
+  lexids — this is a consumer convention, exactly like `meta.index`.
+- **`meta.icon`** is the property's display icon: a string naming an
+  icon from any-ui's system icon set. Set it inline at create or with
+  `PATCH …/properties/:propId` `{"set": {"meta.icon": "<name>"}}`
+  (change) / `{"unset": ["meta.icon"]}` (revert to the client's
+  per-format default). Definitions are synced records, so the chosen
+  icon is shared by every member of the space, and concurrent changes
+  LWW-converge like any per-path `$set`. The server stores the string
+  verbatim — the icon-name vocabulary is owned by any-ui; other
+  clients should tolerate (and preserve) names they don't recognize
+  and fall back to their format default.
 
 ```json
 { "name": "context", "kind": "string", "xKey": "context",
-  "meta": { "index": "agent" } }
+  "meta": { "index": "agent", "pos": "a3", "icon": "flag" } }
 ```
 
 `POST …/properties` also accepts an optional **`format`** object — the
@@ -1553,6 +1599,160 @@ Examples: rename `{ "set": { "name": "Priority" } }`; recolor
 the definition and returns `204`. Existing instance values are **not**
 cleaned up — subsequent writes to that propId are dropped op-by-op
 (dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
+
+#### Runtime dataset schemas
+
+A declarative dataset schema, defined at runtime on a **user type**,
+enforced generically by the SDK apply path on every peer as the
+definition syncs — a schema alone expresses what previously took a
+compiled-in handler: required fields, write-once vs author-mutable
+fields, author-only delete, derived creator/time stamps, user-supplied
+record ids, search extraction. Registered built-in types (`chat`,
+`editor`, …) refuse (`400 type.registered`) — their datasets are
+statically declared. SDK contract (vocabulary, convergence rules,
+storage model, runtime registration): the SDK's
+`docs/17-user-datasets.md`.
+
+`POST …/types/:typeId/datasets` → `201 {datasetDefId}`:
+
+```json
+{ "name": "articles", "displayName": "Articles",
+  "idRule": "user", "deleteBy": "author",
+  "search": { "title": "title", "text": "body" },
+  "fields": [
+    { "key": "title", "kind": "string", "required": true, "mutableBy": "author" },
+    { "key": "body",  "kind": "string", "mutableBy": "author" },
+    { "key": "author",    "stamp": "creator" },
+    { "key": "createdAt", "stamp": "createTime" },
+    { "key": "updatedAt", "stamp": "modifyTime" } ] }
+```
+
+- `name` — the dataset's collection name; pinned, space-unique (`409
+  dataset.name_conflict` against built-ins, handler datasets and other
+  runtime definitions; `prop` / `schema` are reserved by the search
+  indexer → `400 request.invalid_field`). The preflight fast-fails the
+  local case only — definitions racing in from other members resolve
+  deterministically SDK-side (smallest definition id wins; built-in and
+  compiled-in names always win; the loser stays listed but never
+  registers).
+- `idRule` — `auto` (default; record ids derived from the change,
+  explicit client ids rejected) or `user` (caller-supplied ids under
+  `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
+  doubles as the upsert idempotency key).
+- `deleteBy` — `anyone` (default) or `author` (requires a
+  `stamp: creator` field; deletes by anyone else are dropped at apply).
+- per-field `mutableBy` — default write-once (writable only in the
+  creating change); `author` (requires a `stamp: creator` field) or
+  `any` opt into post-create edits. Every allowed edit bumps the
+  `modifyTime` stamp if declared.
+- per-field `stamp` — `creator` / `createTime` / `modifyTime`: derived
+  at apply time, client writes rejected; forces derived scope; `kind`
+  may be omitted (creator ⇒ string, times ⇒ number).
+- `required` — must be present on create; declarable only at
+  AddDataset (an additive required field would reject the dataset's own
+  history on fresh devices) and incompatible with `stamp`.
+- `search` — the x-search extraction mapping (docs/13-index.md
+  § Schema chunker); either field optional.
+- `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
+  compiled-in declarations. (`skipHistory` declared after the history
+  index opened applies from the next index open — SDK limitation.)
+
+A malformed declaration (unknown enum labels, `mutableBy: author`
+without a creator stamp, duplicate stamp kinds, …) → `400
+request.invalid_field` or `400 dataset.decl_invalid`.
+
+**Semantics of the pinning model:** behavioral parts — `name` (the
+collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
+`deleteBy`, `skipHistory`, field
+`key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
+pinned for the definition's life; remove and re-add under a new
+definition to change them. Display parts patch:
+**`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
+property patch over the mutable string leaves `description`,
+`displayName`, `search.title`, `search.text` (a whole `search` replace
+is pinned). Pinned path → `400 dataset.immutable`; unknown
+`defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
+would silently no-op).
+
+**Evolution is additive**: `POST …/datasets/:defId/fields` → `201
+{fieldDefId}` appends a field (never `required`);
+`DELETE …/datasets/:defId/fields/:fieldId` drops one field definition
+(values stay stored; subsequent writes to the field are rejected as
+undeclared on non-dynamic datasets; a removal that would invalidate
+the remaining declaration — e.g. the creator stamp of an author-gated
+dataset — is refused). The SDK keys field definitions by (typeId,
+fieldId) — `:defId` rides the URI for hierarchy only. Field records
+also carry SDK-mutable display labels (`name`/`description`), but v1
+exposes no field-scoped PATCH — the head-record patch above is the
+only definition-edit surface.
+
+`GET …/types/:typeId/datasets` returns the compiled view:
+`{datasets: [{id, name, displayName?, description?, dynamic?, idRule,
+idPattern?, idMaxLen?, deleteBy, skipHistory?, search?, fields: [{id,
+key, name?, kind, scope, required?, mutableBy, stamp?}], invalid?,
+invalidReason?}]}`. `invalid` marks a definition whose folded
+declaration fails validation — it never registers or accepts data but
+stays listed so it can be repaired (add the missing field) or removed.
+Field read-back drops `description` and nested `shape` (leaf kind
+only). Runtime datasets also appear in the space's discovery document
+(§ Dataset schema discovery) with `typeId` and the behavioral `x-*`
+keywords.
+
+`DELETE …/datasets/:defId` tombstones the definition (unknown defId →
+`404 sdk.not_found`, existence-preflighted). Existing record data is
+**not** cleaned up (the property-removal stance); subsequent writes
+drop once peers apply the removal; the search index evicts the
+dataset's docs lazily (docs/13-index.md § Removal semantics).
+
+**Data path:** the existing dataset-parameterized surface works as-is —
+`POST /v1/spaces/:spaceId/modify` / `/delete-records` write,
+`POST …/query[/subscribe]` read (dataset = the definition's `name`;
+records live on objects carrying the owning type — the first write
+needs the type attached, e.g. via object create `types`). `id: user`
+datasets additionally get the batch upsert below.
+
+#### Upsert records
+
+`POST /v1/spaces/:spaceId/upsert` (`Space.Upsert`) — schema-driven
+batch ingest into an `id: user` dataset:
+
+```json
+{ "objectId": "bafy…", "dataset": "articles",
+  "records": [
+    { "id": "a1", "fields": { "title": "Hello", "body": "…" } } ],
+  "pageSize": 500, "traceIds": ["import-42"] }
+```
+
+Per record, keyed by the caller-supplied id (the idempotency key):
+absent → created (one multi-field set); present → only declared-mutable
+fields are diffed against stored values, each changed field lands as a
+single-path set, identical records are skipped. Re-running an identical
+batch is a no-op — **the first genuinely idempotent write** on the
+surface. One CRDT change per page (`pageSize` default 500). Not
+transactional against concurrent writers; the intended deployment is a
+single ingest writer per dataset (concurrent creates of the same id by
+different members are outside the convergence contract — the SDK's
+`docs/17-user-datasets.md` § The IdRule: user contract).
+
+Response (200 even with rejections — the `/modify` partial-success
+stance):
+
+```json
+{ "pages": [ { "versionId": "…", "changeId": "…", "recordIds": [] } ],
+  "created": 1, "updated": 0, "skipped": 0,
+  "rejections": [ { "index": 3, "id": "a4",
+                    "code": "upsert.immutable_field",
+                    "reason": "…" } ] }
+```
+
+Rejection codes: `upsert.immutable_field` (payload would change a
+write-once field), `upsert.not_author` (author-mutable field on another
+author's record), `upsert.record_deleted` (stored tombstone — ids never
+reuse), `upsert.rejected` (creation screening: missing required field,
+id pattern/length violation, undeclared field on a non-dynamic dataset,
+write to a stamped field — the specific cause in `reason`). Whole-call
+errors: `400 upsert.requires_user_ids` (dataset not declared
+`idRule: user`), `400 dataset.unknown`.
 
 #### Built-in `page` type
 
@@ -2539,4 +2739,7 @@ Offset-based, mirroring the SDK. Cursor pagination is a future add.
 ## Idempotency
 
 POST endpoints are **not** idempotent in v1 — each POST produces a new
-DAG change. An `Idempotency-Key` header is a future add.
+DAG change. An `Idempotency-Key` header is a future add. The one
+exception is `POST /v1/spaces/:spaceId/upsert` (§ Upsert records):
+the caller-supplied record id is the idempotency key, and an identical
+re-run diffs to nothing and emits no change.

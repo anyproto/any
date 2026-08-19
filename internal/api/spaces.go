@@ -69,8 +69,8 @@ type SpaceRegisterIncomingRequest struct {
 //
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
-// "any.onetoone", regular spaces "any.space". Use it to filter
-// direct chats vs regular spaces client-side. Author is the space owner's
+// "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
+// spaces client-side. Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
 // Settings is the account-private, client-owned per-space settings

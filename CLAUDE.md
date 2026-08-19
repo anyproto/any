@@ -8,8 +8,11 @@ Implementation slices landed:
 1. **scaffolding + wallet + health** — `any init` / `any run` / `any status` /
    `any stop` / `any version` work end-to-end.
 2. **SDK boot + space lifecycle** — Run opens `any-sync-sdk` (nodeconf via
-   `config.LoadNodeconf`, default fallback: the embedded
-   `internal/config/nodeconf-staging.yml`).
+   `config.LoadNodeconf`; with nothing configured it joins the PRODUCTION
+   network from the embedded `internal/config/nodeconf-prod.yml`. Tests
+   pass `config.NodeconfPlaceholder()` — the sanitized
+   `nodeconf-placeholder.yml` — or point `ANY_NETWORK_NODECONF_PATH` at a
+   staging/local conf; they must never join production).
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
@@ -867,6 +870,44 @@ Implementation slices landed:
     only — no handler/CLI surface; the xKey guard fences `page` from
     user types. Contract: docs/03-api.md § Types (Built-in `page`
     type).
+
+31. **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
+    user-space dataset schemas: clients define a dataset ON A USER TYPE
+    at runtime (`POST/GET/PATCH/DELETE
+    /v1/spaces/:s/types/:t/datasets[/:defId[/fields[/:fieldId]]]` →
+    `TypesAPI.AddDataset/Datasets/PatchDataset/RemoveDataset(Field)`),
+    and the SDK's generic SchemaHandler enforces the declaration on
+    every peer — required fields, write-once vs author-mutable
+    (`mutableBy`), author-only delete (needs a `stamp:creator` field),
+    derived creator/createTime/modifyTime stamps, id rule
+    (`auto`|`user` + pattern/maxLen). Behavioral parts pin first-write;
+    display leaves (`description`/`displayName`/`search.title`/
+    `search.text`) patch via `{set,unset}`; evolution is additive-only
+    (added fields never `required`). Data rides the existing
+    modify/query surface; `POST /v1/spaces/:s/upsert` (`Space.Upsert`,
+    body `{objectId, dataset, records[{id,fields}], pageSize?,
+    traceIds?}`) adds idempotent batch ingest for `id:user` datasets —
+    diff-by-record-id, only declared-mutable fields written, identical
+    records skipped, per-record rejection codes
+    (`upsert.immutable_field`/`not_author`/`record_deleted`/`rejected`)
+    inside the 200 body. Discovery: `DatasetSchema.TypeId` + behavioral
+    `x-*` keywords (incl. `x-search {title,text}`) flow through
+    `GET /v1/spaces/:id/datasets`. Search: `index.SchemaChunker`
+    (virtual name `schema`, self-gated `DynamicChunker` — the worker
+    prefix-evicts per-dataset on type detach + def removal) indexes
+    runtime records by the x-search mapping under scope `basic`; no
+    catalog TTL (the SDK snapshot refreshes synchronously on defs
+    apply); `prop`/`schema` names reserved at the creation API. Error
+    mapping in `datasetWriteError` (sentinels + STOPGAP string-matched
+    decl errors — SDK sentinel follow-up in docs/07-roadmap.md, along
+    with the dogfood handler-collapse audit and the removed-def index
+    sweep). CLI: `any type dataset …`, `any upsert`. Contract:
+    docs/03-api.md § Runtime dataset schemas + § Upsert records,
+    docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
+    docs/17-user-datasets.md (vocabulary, convergence rules, storage
+    model). **SDK prerequisite:** branch
+    `cheggaaa/syn-147-user-space-dataset-schemas` (PR #95; re-pin to
+    the release tag once merged).
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

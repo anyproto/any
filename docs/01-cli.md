@@ -44,7 +44,11 @@ second device (never copy `wallet.key`: that clones the device key and
 the two peers fight over one network identity). Prefer
 `--mnemonic-stdin`; a `--mnemonic` flag value leaks into shell
 history. `--new` forces an additional fresh account; `--index` selects
-the derivation index for `--mnemonic`.
+the derivation index for `--mnemonic` and defaults to 1 — the `any`
+account index (0 is anytype's, so one phrase serves both products with
+distinct accounts). Restoring an anytype-derived account, or an `any`
+account created before index 1 became the default, needs an explicit
+`--index 0`.
 
 `any run` does NOT create wallets. With no account resolvable (fresh
 root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)
@@ -336,6 +340,19 @@ any type property remove <spaceId> <typeId> <propId>
 # option convenience (sugar over `property patch`):
 any type property option set    <spaceId> <typeId> <propId> <key> [--name ...] [--color ...] [--pos ...]
 any type property option delete <spaceId> <typeId> <propId> <key>
+
+# runtime dataset schemas (03-api.md § Runtime dataset schemas):
+any type dataset list   <spaceId> <typeId>
+any type dataset add    <spaceId> <typeId> --draft '<json>|@FILE|-'
+any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
+any type dataset remove <spaceId> <typeId> <defId>
+any type dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
+any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
+
+# batch ingest into an id:user dataset (the record id is the
+# idempotency key — identical re-runs are no-ops):
+any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
+           [--page-size N] [--trace-id ...]
 ```
 
 `property patch` is the generic `{set, unset}` write covering rename and
