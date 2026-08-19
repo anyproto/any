@@ -988,6 +988,33 @@ Implementation slices landed:
     internal/e2e/multipeer_processes_test.go. Contract:
     docs/22-processes.md.
 
+34. **Derived spaces registry (SYN-164)** — well-known per-account
+    spaces derived deterministically from the account keys + a fixed
+    seed, so every client/device converges on THE space (no
+    check-then-create races). Raw `Service.Derive`/`DeriveId` stay off
+    the wire (a free seed would mint a permanent space and invite
+    silent collisions); the vocabulary is the compiled-in registry
+    `internal/server/derivedspaces.go` (seed convention
+    `any/space/<name>/v1`; v1 entry: `bao`, the agent space).
+    Surface: `GET /v1/spaces/derived` → `[{name, spaceId, created}]`
+    (DeriveId — resolves, never creates; `created` = tech-space row
+    exists, any device) and `POST /v1/spaces/derived/:name` →
+    Service.Derive, lazy + idempotent, 201 SpaceInfo (404
+    `space.derived_unknown` off-registry). Derived spaces are
+    PERMANENT: DELETE refuses 409 `space.derived_undeletable` via a
+    two-layer guard — server registry pre-check (`derivedSpaceId`,
+    covers unmaterialized ids where no row exists yet) + SDK flag
+    refusal (`space.ErrIsDerivedSpace`; Derive stamps a synced
+    set-once `derived` bool on the tech-space row, pinned by the
+    handler like `type`; `SpaceInfo.derived` passthrough; joiners of
+    someone else's derived space never carry it, so their removal
+    stays allowed). CLI: `any space derived [create <name>]`. e2e:
+    internal/e2e/derived_spaces_test.go. Contract: docs/03-api.md
+    § Spaces → Derived spaces, docs/06-errors.md. **SDK prerequisite
+    (branch cheggaaa/syn-164-derived-space-delete-guard,
+    pseudo-versioned):** the Delete guard + `ErrIsDerivedSpace` +
+    `SpaceInfo.Derived`.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

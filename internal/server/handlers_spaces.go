@@ -26,6 +26,11 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// swallowed by the param matcher.
 	g.POST("/spaces/query", d.spaceListQuery)
 	g.POST("/spaces/query/subscribe", d.spaceListQuerySubscribe)
+	// Well-known derived spaces — the embedded registry
+	// (derivedspaces.go) resolved against the account. Static segment,
+	// registered before the :spaceId matcher.
+	g.GET("/spaces/derived", d.derivedSpaceList)
+	g.POST("/spaces/derived/:name", d.derivedSpaceCreate)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	// Account-private per-space client settings (settings.notifyMode
@@ -36,10 +41,11 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
-	// Service.Derive / DeriveId are deliberately NOT exposed: a
-	// client-supplied seed derives a deterministic space id, so a reused
-	// seed re-creates an existing space's identity — too dangerous for
-	// clients. Derivation stays an in-process SDK surface.
+	// Raw Service.Derive / DeriveId are deliberately NOT exposed: a
+	// client-supplied seed would mint a permanent space (derived spaces
+	// cannot be deleted) and invite silent seed collisions between
+	// consumers. Derivation is reachable only through the closed
+	// registry vocabulary above (/spaces/derived).
 
 	// One-to-one (direct) spaces — derived 1-1 shared by two identities.
 	// Static `/spaces/one-to-one[...]` segments are registered before the
@@ -413,6 +419,14 @@ func (d *deps) spaceSync(c echo.Context) error {
 // @Router		/spaces/{spaceId} [delete]
 func (d *deps) spaceDelete(c echo.Context) error {
 	id := c.Param("spaceId")
+	// Registry pre-check: catches derived ids with no tech-space row
+	// yet, which the SDK's flag-based refusal cannot see — a delete
+	// there would write a sticky tombstone wedging the well-known id.
+	if d.derivedSpaceId(c, id) {
+		return writeError(c, http.StatusConflict, "space.derived_undeletable",
+			"derived spaces are permanent and cannot be deleted",
+			map[string]any{"spaceId": id})
+	}
 	if err := d.sdk.Spaces().Delete(c.Request().Context(), id); err != nil {
 		return spaceError(c, err, id)
 	}
@@ -669,6 +683,14 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 		return writeError(c, http.StatusConflict, "space.deleted",
 			"space is deleted", details)
 	}
+	if errors.Is(err, space.ErrIsDerivedSpace) {
+		var details map[string]any
+		if spaceID != "" {
+			details = map[string]any{"spaceId": spaceID}
+		}
+		return writeError(c, http.StatusConflict, "space.derived_undeletable",
+			"derived spaces are permanent and cannot be deleted", details)
+	}
 	details := map[string]any{}
 	if spaceID != "" {
 		details["spaceId"] = spaceID
@@ -693,6 +715,7 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		OwnRole:     spacePermissionString(info.OwnRole),
 		CreatedAt:   info.CreatedAt,
 		Settings:    info.Settings,
+		Derived:     info.Derived,
 	}
 	if pk := info.PushKeys; pk != nil {
 		out.Push = &api.SpacePushKeys{

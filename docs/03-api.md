@@ -294,12 +294,15 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
 | POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+| GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
+| POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
 
-**`Service.Derive` / `DeriveId` are deliberately not exposed.** A
-client-supplied seed derives a deterministic space id, so a reused seed
-re-creates an existing space's identity — too dangerous for clients.
-Derivation stays an in-process SDK surface (used internally for e.g.
-the tech-space); there is no `/v1/spaces/derive` route by design.
+**Raw `Service.Derive` / `DeriveId` are deliberately not exposed.** A
+client-supplied seed would mint a *permanent* space (derived spaces
+cannot be deleted) and invite silent seed collisions between consumers.
+Derivation is reachable only through the closed registry vocabulary of
+`/v1/spaces/derived` (below); there is no free-seed `/v1/spaces/derive`
+route by design.
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
 It returns `204` as soon as the local half is done — no network round
@@ -316,7 +319,8 @@ on the network side: deleting a non-owned space offloads locally and the
 reconciler no-ops the coordinator call. The reconciler also runs the
 inbound direction — spaces the coordinator reports gone (deleted on
 another device, or an owner deleted a space you joined) are offloaded
-locally on the next poll.
+locally on the next poll. **Derived spaces are refused** with
+`409 space.derived_undeletable` — see § Derived spaces.
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
@@ -426,6 +430,46 @@ rotates). Omitted until the SDK's per-space mirror has run — e.g. a
 joiner whose access is still pending. Full receiver contract — cache
 rules, keystore placement, decrypt steps — in docs/20-push.md
 § Receiver-side keys.
+
+#### Derived spaces
+
+Well-known per-account spaces derived deterministically from the
+account keys and a fixed seed: the same account resolves the same
+spaceId on every device, so all clients and devices converge on *the*
+space without a create/find handshake (no check-then-create races, no
+duplicate "agent space" per client). The vocabulary is a small
+**embedded registry** compiled into `any`
+(`internal/server/derivedspaces.go`; seeds follow the
+`any/space/<name>/v1` convention) — v1 entry: `bao`, the account's
+agent space.
+
+```
+GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created}]}
+POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown)
+```
+
+- **GET resolves, never creates.** Ids come from `Service.DeriveId`
+  (pure computation); `created` reports whether a tech-space row exists
+  — materialized here or on any of the account's devices (rows sync).
+- **POST materializes lazily and idempotently** (`Service.Derive`) and
+  returns the full single-space `SpaceInfo` (generalChatObjectId etc.
+  included). Repeat calls land on the same space. Typical consumer
+  flow: one POST at boot, then use the id like any other space.
+- **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
+  refuses them with `409 space.derived_undeletable` — the
+  deterministic id means delete + re-derive would replace history, and
+  the sticky deleted tombstone would wedge the well-known id for the
+  account's lifetime. The guard is two-layer: the server pre-checks the
+  registry ids (covers not-yet-materialized entries), and the SDK
+  refuses rows carrying the synced `derived` flag
+  (`space.ErrIsDerivedSpace` — covers every materialized derived space,
+  any device). `SpaceInfo.derived` surfaces the flag; joiners of
+  someone else's derived space never carry it, so their removal stays
+  allowed.
+- `spaceType` is `any.space` — derived spaces are ordinary spaces in
+  every other respect (members, invites, datasets, search).
+
+CLI: `any space derived` (list) / `any space derived create <name>`.
 
 #### One-to-one (direct) spaces
 

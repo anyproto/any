@@ -641,6 +641,23 @@ components:
           type: array
           uniqueItems: false
       type: object
+    api.DerivedSpaceInfo:
+      properties:
+        created:
+          type: boolean
+        name:
+          type: string
+        spaceId:
+          type: string
+      type: object
+    api.DerivedSpaceListResponse:
+      properties:
+        spaces:
+          items:
+            $ref: '#/components/schemas/api.DerivedSpaceInfo'
+          type: array
+          uniqueItems: false
+      type: object
     api.DeviceActivateRequest:
       properties:
         app:
@@ -1806,6 +1823,14 @@ components:
           type: string
         createdAt:
           type: string
+        derived:
+          description: |-
+            Derived marks a space created by the account's own derivation
+            (POST /v1/spaces/derived/:name or another consumer of the SDK's
+            Derive). Derived spaces are permanent — DELETE refuses them with
+            409 space.derived_undeletable. Absent on created / joined / 1-1
+            spaces.
+          type: boolean
         description:
           type: string
         generalChatObjectId:
@@ -7227,6 +7252,55 @@ paths:
       summary: Upsert records into an id:user dataset
       tags:
       - data
+  /spaces/derived:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.DerivedSpaceListResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: List well-known derived spaces
+      tags:
+      - spaces
+  /spaces/derived/{name}:
+    post:
+      parameters:
+      - description: Registry name (e.g. bao)
+        in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.SpaceInfo'
+          description: Created
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Materialize a well-known derived space
+      tags:
+      - spaces
   /spaces/join:
     post:
       requestBody:

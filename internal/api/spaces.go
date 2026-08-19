@@ -119,6 +119,29 @@ type SpaceInfo struct {
 	// `GET /v1/spaces` list rows.
 	AgentSecretsObjectId string         `json:"agentSecretsObjectId,omitempty"`
 	Push                 *SpacePushKeys `json:"push,omitempty"`
+	// Derived marks a space created by the account's own derivation
+	// (POST /v1/spaces/derived/:name or another consumer of the SDK's
+	// Derive). Derived spaces are permanent — DELETE refuses them with
+	// 409 space.derived_undeletable. Absent on created / joined / 1-1
+	// spaces.
+	Derived bool `json:"derived,omitempty"`
+}
+
+// DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
+// entry resolved against the account: the deterministic spaceId the
+// entry derives to, and whether that space has been materialized yet
+// (a tech-space row exists — created here or on any of the account's
+// devices). Resolving ids never creates anything; materialize with
+// POST /v1/spaces/derived/:name.
+type DerivedSpaceInfo struct {
+	Name    string `json:"name"`
+	SpaceId string `json:"spaceId"`
+	Created bool   `json:"created"`
+}
+
+// DerivedSpaceListResponse is the body of GET /v1/spaces/derived.
+type DerivedSpaceListResponse struct {
+	Spaces []DerivedSpaceInfo `json:"spaces"`
 }
 
 // SpacePushKeys is the per-space key material a push RECEIVER caches —
