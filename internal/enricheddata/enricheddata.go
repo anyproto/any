@@ -6,7 +6,7 @@
 //
 //	{ "id":        "<derived>",
 //	  "text":      "<the enrichment chunk (collection) / provenance note (property)>",
-//	  "source":    "any://<space>/<transcript>#<blockId>,<blockId>",  // durable provenance
+//	  "source":    "any://o/<space>/<transcript>/editor_blocks/<blockId>,…",  // durable provenance
 //	  "target":    "",                       // collection item
 //	             // | "<typeXKey>.<propXKey>" // property item: which field this enriched
 //	  "value":     "<the value that was set>",// property items only (UI shows sourced value)

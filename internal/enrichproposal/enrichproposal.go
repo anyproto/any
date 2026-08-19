@@ -17,7 +17,7 @@
 //
 //	{ "id": "<derived>",
 //	  "text":           "<enrichment chunk / human summary>",
-//	  "source":         "any://<space>/<transcript>#<blockId>,<blockId>",
+//	  "source":         "any://o/<space>/<transcript>/editor_blocks/<blockId>,…",
 //	  "outcome":        "enrich" | "new",
 //	  "targetObjectId": "<existing obj, or '' for new>",
 //	  "targetKind":     "collection" | "property",

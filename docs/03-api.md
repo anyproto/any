@@ -2104,7 +2104,13 @@ Structured, sourced, reviewable enrichment. Two built-in types:
   target object (multitype-attaches on first write, same pattern as
   chat/agent_log). One record per fact: `{text, source, target, value,
   createdBy, createdAt}` — `text` required; `source` is the provenance
-  link (`any://<space>/<transcript>#<blockId>,…`); `target`/`value` are
+  link list: comma-joined dataset-record URIs, one per cited block
+  (`any://o/<space>/<transcript>/editor_blocks/<blockId>,…`), or the
+  single object URI `any://o/<space>/<transcript>` for a block-less
+  source (docs/19-links.md § Fragments). Stored records written before
+  WEB-42 carry the legacy fragment form
+  (`any://<space>/<transcript>#<blockId>,…`) — readers keep parsing
+  it, values are never rewritten; `target`/`value` are
   set only for property enrichments (which real property was set, and
   to what), so the UI can show a property value's source.
   `createdBy`/`createdAt` are server-stamped (derived; client writes
