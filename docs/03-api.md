@@ -320,7 +320,9 @@ reconciler no-ops the coordinator call. The reconciler also runs the
 inbound direction — spaces the coordinator reports gone (deleted on
 another device, or an owner deleted a space you joined) are offloaded
 locally on the next poll. **Derived spaces are refused** with
-`409 space.derived_undeletable` — see § Derived spaces.
+`409 space.derived_undeletable` (see § Derived spaces), and an id the
+account doesn't know returns `404 space.not_found` instead of a silent
+204.
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
@@ -444,30 +446,48 @@ duplicate "agent space" per client). The vocabulary is a small
 agent space.
 
 ```
-GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created}]}
-POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown)
+GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created, status?}]}
+POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
+                                                  409 space.deleted)
 ```
 
-- **GET resolves, never creates.** Ids come from `Service.DeriveId`
-  (pure computation); `created` reports whether a tech-space row exists
-  — materialized here or on any of the account's devices (rows sync).
+- **GET resolves, never creates.** Ids are computed once at engine boot
+  (`Service.DeriveId` — pure computation over the account keys);
+  `created` reports whether a usable tech-space row exists —
+  materialized here or on any of the account's devices (rows sync).
+  `status` is the raw row status when a row exists; a `deleted` row
+  (wedged before the permanence guard existed) reports `created:false`.
 - **POST materializes lazily and idempotently** (`Service.Derive`) and
   returns the full single-space `SpaceInfo` (generalChatObjectId etc.
-  included). Repeat calls land on the same space. Typical consumer
-  flow: one POST at boot, then use the id like any other space.
+  included). On first materialization the registry's display name is
+  written as the space name (`DeriveRequest.Name` — not part of the
+  id derivation; a later rename via `PATCH /v1/spaces/:id` wins).
+  Repeat calls land on the same space; a tombstoned row is refused
+  with `409 space.deleted` rather than reported as success. Typical
+  consumer flow: one POST at boot, then use the id like any other
+  space.
 - **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
   refuses them with `409 space.derived_undeletable` — the
   deterministic id means delete + re-derive would replace history, and
   the sticky deleted tombstone would wedge the well-known id for the
-  account's lifetime. The guard is two-layer: the server pre-checks the
-  registry ids (covers not-yet-materialized entries), and the SDK
-  refuses rows carrying the synced `derived` flag
-  (`space.ErrIsDerivedSpace` — covers every materialized derived space,
-  any device). `SpaceInfo.derived` surfaces the flag; joiners of
-  someone else's derived space never carry it, so their removal stays
-  allowed.
+  account's lifetime. Enforcement is layered: the server pre-checks the
+  boot-resolved registry ids (covers not-yet-materialized entries), the
+  SDK refuses rows carrying the synced `derived` flag
+  (`space.ErrIsDerivedSpace`), its space-index handler drops
+  `remoteStatus=deleted` writes on flagged rows from any peer, and its
+  deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
+  flag; joiners of someone else's derived space never carry it, so
+  their removal stays allowed. Rollout caveat: a device still running a
+  pre-guard binary can locally delete the space it materialized —
+  upgrade all of an account's devices before relying on permanence.
 - `spaceType` is `any.space` — derived spaces are ordinary spaces in
   every other respect (members, invites, datasets, search).
+- **Migrating from an ad-hoc agent space**: accounts that already carry
+  a client-created agent space (e.g. a space named "bao" minted by an
+  older agent runtime) get a SECOND, derived space from the registry —
+  the registry id is the convergence point going forward; move or
+  re-import content from the legacy space, don't alternate between
+  them.
 
 CLI: `any space derived` (list) / `any space derived create <name>`.
 

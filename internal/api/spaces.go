@@ -129,14 +129,17 @@ type SpaceInfo struct {
 
 // DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
 // entry resolved against the account: the deterministic spaceId the
-// entry derives to, and whether that space has been materialized yet
-// (a tech-space row exists — created here or on any of the account's
-// devices). Resolving ids never creates anything; materialize with
-// POST /v1/spaces/derived/:name.
+// entry derives to, and whether a usable space row exists (materialized
+// here or on any of the account's devices). Resolving ids never
+// creates anything; materialize with POST /v1/spaces/derived/:name.
+// Status is the raw row status when a row exists (omitted otherwise);
+// a "deleted" row — wedged before the permanence guard existed —
+// reports created=false and refuses materialization.
 type DerivedSpaceInfo struct {
 	Name    string `json:"name"`
 	SpaceId string `json:"spaceId"`
 	Created bool   `json:"created"`
+	Status  string `json:"status,omitempty"`
 }
 
 // DerivedSpaceListResponse is the body of GET /v1/spaces/derived.

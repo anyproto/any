@@ -1,11 +1,11 @@
 // TestE2E_DerivedSpaces pins the well-known derived-space surface:
 // GET /v1/spaces/derived resolves the embedded registry to
 // deterministic ids without creating anything; POST
-// /v1/spaces/derived/:name materializes lazily and idempotently; and
-// derived spaces are permanent — DELETE refuses with 409
-// space.derived_undeletable both before materialization (registry
-// pre-check) and after (SDK row-flag guard). Contract in docs/03-api.md
-// § Spaces (Derived spaces).
+// /v1/spaces/derived/:name materializes lazily and idempotently,
+// seeding the registry display name; and derived spaces are permanent
+// — DELETE refuses with 409 space.derived_undeletable both before
+// materialization (registry pre-check) and after (SDK row-flag guard).
+// Contract in docs/03-api.md § Spaces (Derived spaces).
 package e2e
 
 import (
@@ -33,33 +33,33 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 		Name    string `json:"name"`
 		SpaceId string `json:"spaceId"`
 		Created bool   `json:"created"`
+		Status  string `json:"status"`
 	}
 	type derivedList struct {
 		Spaces []derivedRow `json:"spaces"`
 	}
 
+	// Resolve bao's id up front — every subtest depends on it, so a
+	// registry failure aborts the whole test instead of cascading.
 	var baoId string
-	t.Run("list resolves ids without creating", func(t *testing.T) {
+	{
 		var list derivedList
 		mustJSON(t, http.MethodGet, base+"/v1/spaces/derived", "", http.StatusOK, &list)
-		if len(list.Spaces) == 0 {
-			t.Fatalf("registry empty: %+v", list)
-		}
 		for _, row := range list.Spaces {
+			if row.SpaceId == "" {
+				t.Fatalf("row %q has empty spaceId", row.Name)
+			}
+			if row.Created || row.Status != "" {
+				t.Fatalf("row %q reports created/status before any materialization: %+v", row.Name, row)
+			}
 			if row.Name == "bao" {
 				baoId = row.SpaceId
-			}
-			if row.SpaceId == "" {
-				t.Errorf("row %q has empty spaceId", row.Name)
-			}
-			if row.Created {
-				t.Errorf("row %q reports created before any materialization", row.Name)
 			}
 		}
 		if baoId == "" {
 			t.Fatalf("registry has no bao entry: %+v", list)
 		}
-	})
+	}
 
 	t.Run("delete before materialization refused", func(t *testing.T) {
 		var env map[string]any
@@ -100,12 +100,31 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 		}
 	})
 
-	t.Run("list reports created", func(t *testing.T) {
+	t.Run("display name seeded", func(t *testing.T) {
+		// SetMetadata mirrors back to the row asynchronously — poll.
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			var info map[string]any
+			mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId, "", http.StatusOK, &info)
+			if info["name"] == "bao" {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("name = %v, want bao (registry DisplayName)", info["name"])
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+
+	t.Run("list reports created with status", func(t *testing.T) {
 		var list derivedList
 		mustJSON(t, http.MethodGet, base+"/v1/spaces/derived", "", http.StatusOK, &list)
 		for _, row := range list.Spaces {
-			if row.Name == "bao" && !row.Created {
-				t.Errorf("bao still reports created=false after materialization")
+			if row.Name != "bao" {
+				continue
+			}
+			if !row.Created || row.Status != "active" {
+				t.Errorf("bao row after materialization = %+v, want created=true status=active", row)
 			}
 		}
 	})

@@ -415,17 +415,15 @@ func (d *deps) spaceSync(c echo.Context) error {
 // @Tags		spaces
 // @Param		spaceId	path	string	true	"Space ID"
 // @Success	204
+// @Failure	409	{object}	api.ErrorEnvelope
 // @Failure	500	{object}	api.ErrorEnvelope
 // @Router		/spaces/{spaceId} [delete]
 func (d *deps) spaceDelete(c echo.Context) error {
 	id := c.Param("spaceId")
 	// Registry pre-check: catches derived ids with no tech-space row
-	// yet, which the SDK's flag-based refusal cannot see — a delete
-	// there would write a sticky tombstone wedging the well-known id.
-	if d.derivedSpaceId(c, id) {
-		return writeError(c, http.StatusConflict, "space.derived_undeletable",
-			"derived spaces are permanent and cannot be deleted",
-			map[string]any{"spaceId": id})
+	// yet, which the SDK's flag-based refusal cannot see.
+	if d.isDerivedSpaceId(id) {
+		return spaceError(c, space.ErrIsDerivedSpace, id)
 	}
 	if err := d.sdk.Spaces().Delete(c.Request().Context(), id); err != nil {
 		return spaceError(c, err, id)
