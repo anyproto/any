@@ -129,6 +129,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/aggregate", d.spaceAggregate)
 	g.POST("/spaces/:spaceId/modify", d.spaceModify)
+	g.POST("/spaces/:spaceId/upsert", d.spaceUpsert)
 	g.POST("/spaces/:spaceId/delete-records", d.spaceDeleteRecords)
 
 	// Dataset schema discovery — JSON Schema (with per-field x-scope) for
@@ -144,6 +145,17 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty)
 	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty)
 	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty)
+
+	// Runtime dataset schemas on user types (handlers_typedatasets.go).
+	// Behavioral parts pin first-write; display parts patch; the data
+	// path is the existing dataset-parameterized modify/query plus
+	// POST /spaces/:spaceId/upsert for id:user datasets.
+	g.GET("/spaces/:spaceId/types/:typeId/datasets", d.typeDatasets)
+	g.POST("/spaces/:spaceId/types/:typeId/datasets", d.typeAddDataset)
+	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typePatchDataset)
+	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typeRemoveDataset)
+	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/fields", d.typeAddDatasetField)
+	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typeRemoveDatasetField)
 
 	// Properties. Scoped properties (v0.0.11) unified the former
 	// base/account/device set endpoints into one scope-aware Set — the
