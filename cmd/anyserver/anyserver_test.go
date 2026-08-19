@@ -29,17 +29,14 @@ import (
 
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
 
-// nodeconfFixture is the in-repo sanitized staging placeholder
-// (internal/config/nodeconf-staging.yml). It boots + binds but joins no
-// network — exactly what this lifecycle test needs. An empty Network
-// falls through to config's embedded staging fallback, so this is the
-// same bytes the binaries ship, with no on-disk path arithmetic.
+// nodeconfFixture is the in-repo sanitized placeholder
+// (internal/config/nodeconf-placeholder.yml). It boots + binds but joins
+// no network — exactly what this lifecycle test needs. Passed
+// explicitly: an empty Network falls through to the embedded PRODUCTION
+// default, which tests must never join.
 func nodeconfFixture(t *testing.T) string {
 	t.Helper()
-	raw, err := config.LoadNodeconf(config.Network{})
-	if err != nil {
-		t.Fatalf("load nodeconf fixture: %v", err)
-	}
+	raw := config.NodeconfPlaceholder()
 	if len(raw) == 0 {
 		t.Fatal("nodeconf fixture is empty")
 	}

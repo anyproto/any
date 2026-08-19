@@ -9,13 +9,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/config"
 )
 
 // Desktop-shell contract (docs/plans/20260611-desktop-shell-server-contract.md):
-// `--addr 127.0.0.1:0` with NO nodeconf config must boot from an arbitrary
-// working directory (the embedded staging fallback — the old CWD-relative
-// ../test-etc/staging.yml read is gone) and announce the KERNEL-RESOLVED
-// address as a plain `LISTENING <addr>` STDOUT line. That line is the
+// `--addr 127.0.0.1:0` with no nodeconf FILE must boot from an arbitrary
+// working directory — the old CWD-relative ../test-etc/staging.yml read is
+// gone — and announce the KERNEL-RESOLVED address as a plain
+// `LISTENING <addr>` STDOUT line. That line is the
 // any-ui desktop shell's port handshake + readiness gate; POST /v1/shutdown
 // is its graceful-quit path. This test is the server-side mirror of that
 // exact lifecycle. Stdout and stderr are captured separately on purpose:
@@ -38,8 +40,19 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	}
 	defer stderrFile.Close()
 
-	// The embedded-nodeconf regression only triggers when the SDK boots,
-	// which needs an account — init one (no nodeconf required for init).
+	// The nodeconf regression only triggers when the SDK boots, which needs
+	// an account — init one (no nodeconf required for init).
+	//
+	// The network comes from the sanitized placeholder, not the embedded
+	// default: that default is the production network, and the contract
+	// under test is the boot/announce/shutdown lifecycle, not which peers
+	// the server dials. ANY_NETWORK_NODECONF_PATH is the same override a
+	// packaged install would use; the CWD still has no ../test-etc sibling,
+	// so the old relative-path regression stays covered.
+	nodeconfPath := filepath.Join(captureDir, "nodeconf.yml")
+	if err := os.WriteFile(nodeconfPath, config.NodeconfPlaceholder(), 0o600); err != nil {
+		t.Fatalf("write nodeconf placeholder: %v", err)
+	}
 	initCmd := exec.Command(bin, "init", "--data-dir", dataDir)
 	initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
 	if out, err := initCmd.CombinedOutput(); err != nil {
@@ -50,7 +63,7 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	// A CWD that has no ../test-etc sibling — this is what a packaged
 	// install looks like, and what used to fail before the embed.
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
+	cmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir, "ANY_NETWORK_NODECONF_PATH="+nodeconfPath)
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
 	if err := cmd.Start(); err != nil {

@@ -4,24 +4,35 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"slices"
 )
 
-// nodeconfStaging is the packaged fallback nodeconf, vendored from the
-// sibling test-etc/staging.yml (re-copy if that file changes — drift is
-// accepted). It replaces the old CWD-relative `../test-etc/staging.yml`
-// read so packaged binaries (the any-ui desktop-shell sidecar, installed
-// CLIs) boot from any working directory. NOTE: the fixture is sanitized
-// — staging networkId but placeholder peer IDs/hosts — so the fallback
-// boots and works locally yet joins no network. Shipping a functional
-// default (a real staging or production conf) is a one-file swap here
-// and a separate release decision.
+// nodeconfProd is the packaged default nodeconf — the production
+// any-sync network, vendored from the sibling test-etc/prod.yml
+// (re-copy if that file changes — drift is accepted). It is what a
+// packaged binary joins with no configuration at all: the desktop-shell
+// sidecar, an installed CLI, the mobile bindings.
 //
-//go:embed nodeconf-staging.yml
-var nodeconfStaging []byte
+//go:embed nodeconf-prod.yml
+var nodeconfProd []byte
+
+// nodeconfPlaceholder is the sanitized fixture — a real networkId with
+// placeholder peer IDs and hosts, so a server boots and serves but joins
+// no network. Tests that need a bootable conf without network traffic
+// use it through NodeconfPlaceholder; nothing selects it at runtime.
+//
+//go:embed nodeconf-placeholder.yml
+var nodeconfPlaceholder []byte
+
+// NodeconfPlaceholder returns the sanitized fixture bytes. Callers that
+// must boot the SDK without joining a network (tests, offline smoke
+// runs) pass it as Network.Nodeconf instead of falling through to the
+// production default.
+func NodeconfPlaceholder() []byte { return slices.Clone(nodeconfPlaceholder) }
 
 // LoadNodeconf returns the YAML bytes any-sync needs to bootstrap.
 // Precedence: inline network.nodeconf → network.nodeconfPath → the
-// embedded staging fallback. Errors only when an explicitly configured
+// embedded production default. Errors only when an explicitly configured
 // path is unreadable. The SDK logs the applied networkId at boot
 // (common.nodeconf "net configuration applied"), so the chosen source
 // is diagnosable from the log stream without extra plumbing here.
@@ -37,5 +48,5 @@ func LoadNodeconf(cfg Network) ([]byte, error) {
 		}
 		return raw, nil
 	}
-	return nodeconfStaging, nil
+	return nodeconfProd, nil
 }
