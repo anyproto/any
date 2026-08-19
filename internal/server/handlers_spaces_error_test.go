@@ -26,6 +26,8 @@ func TestSpaceError_Mapping(t *testing.T) {
 			"s1", space.ErrSpaceNotAccepted), http.StatusConflict, "space.not_accepted"},
 		{"deleted", fmt.Errorf("spaceimpl: space %q: %w",
 			"s1", space.ErrSpaceDeleted), http.StatusConflict, "space.deleted"},
+		{"unknown", fmt.Errorf("spaceimpl: %w %q",
+			space.ErrSpaceUnknown, "s1"), http.StatusNotFound, "space.not_found"},
 		{"fallback", errors.New("boom"), http.StatusInternalServerError, "internal"},
 	}
 	for _, tc := range cases {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,8 +26,10 @@ func TestSpaceStatusString_InviteStatuses(t *testing.T) {
 }
 
 // inviteStateError string-matches the SDK's documented messages (no
-// exported sentinels yet) — pin the mapping so an SDK wording change
-// fails loudly here instead of silently degrading every error to 500.
+// exported sentinels for this family yet) — pin the mapping so an SDK
+// wording change fails loudly here instead of silently degrading every
+// error to 500. Unknown space rides the errors.Is sentinel through the
+// spaceError fallback.
 func TestInviteStateError_Mapping(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -34,7 +37,7 @@ func TestInviteStateError_Mapping(t *testing.T) {
 		wantHTTP int
 		wantCode string
 	}{
-		{"unknown space", errors.New(`spaceimpl: AcceptInvite: unknown space "s1"`), http.StatusNotFound, "space.not_found"},
+		{"unknown space", fmt.Errorf("spaceimpl: AcceptInvite: %w %q", space.ErrSpaceUnknown, "s1"), http.StatusNotFound, "space.not_found"},
 		{"one-to-one", errors.New(`spaceimpl: AcceptInvite: "s1" is a 1-1 space — use AcceptOneToOne`), http.StatusBadRequest, "request.invalid_field"},
 		{"not pending", errors.New(`spaceimpl: DeclineInvite: space "s1" is not invite-pending`), http.StatusConflict, "space.not_invite_pending"},
 		{"deleted", errors.New(`spaceimpl: AcceptInvite: space "s1" is deleted`), http.StatusConflict, "space.deleted"},

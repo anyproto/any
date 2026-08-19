@@ -75,13 +75,6 @@ func (d *deps) spaceSettingsPatch(c echo.Context) error {
 
 	id := c.Param("spaceId")
 	if err := d.sdk.Spaces().SetSettings(c.Request().Context(), id, req.Set, req.Unset); err != nil {
-		// spaceimpl guards the unknown-id case with a plain error (no
-		// exported sentinel yet) — string-match, same pragmatic pattern
-		// as inviteStateError.
-		if strings.Contains(err.Error(), "unknown space") {
-			return writeError(c, http.StatusNotFound, "space.not_found",
-				"space not found", map[string]any{"spaceId": id})
-		}
 		return spaceError(c, err, id)
 	}
 	// Local settings writes converge immediately: kick the push
