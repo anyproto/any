@@ -76,6 +76,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_WALLET_PATH"); v != "" {
 		cfg.Auth.WalletPath = v
 	}
+	if v := os.Getenv("ANY_NETWORK_NODECONF_PATH"); v != "" {
+		cfg.Network.NodeconfPath = v
+	}
 	if v := os.Getenv("ANY_LOG_LEVEL"); v != "" {
 		cfg.Log.DefaultLevel = v
 	}

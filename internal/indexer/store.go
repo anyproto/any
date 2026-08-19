@@ -393,10 +393,11 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 // The shape makes removal a primary-key prefix delete at every
 // granularity — `objectId:` (object deleted), `objectId:dataset:`
 // (type detached), exact id (record deleted) — and keeps ids unique
-// even though recordIds repeat across objects (propIds do). Components
-// are colon-free by construction: object ids are CIDs, dataset names
-// are slugs, record ids are base58 change-derived ids / propIds /
-// reserved literals.
+// even though recordIds repeat across objects (propIds do). Object ids
+// and dataset names are colon-free by construction (CIDs; slug-checked
+// names), so prefixes parse unambiguously. Record ids MAY contain
+// colons (id:user datasets allow them) — harmless, the record id is
+// the last segment.
 func docId(objectId, dataset, recordId string) string {
 	return objectId + ":" + dataset + ":" + recordId
 }

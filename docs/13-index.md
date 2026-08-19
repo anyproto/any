@@ -63,6 +63,7 @@ the affected window can't be located incrementally.
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
 | `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
 | `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
+| `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` | runtime-dataset records by their x-search mapping (see below) |
 
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
   message (creator / reactions / attachments excluded — text only).
@@ -160,6 +161,48 @@ id `objectId:prop:<propId>`:
   the TTL — and only affect rows written afterwards anyway ("index from
   the next change"). `Invalidate(spaceId)` drops it (tests/ops).
 
+### The schema chunker (`internal/index/schema.go`)
+
+Indexes records of **runtime-defined datasets** (docs/03-api.md
+§ Runtime dataset schemas; SDK contract: its docs/17-user-datasets.md
+§ Discovery) by their declaration's `x-search {title, text}` mapping — one registered chunker covers every searchable runtime
+dataset in every space. Entries carry the REAL dataset name (doc ids
+`objectId:<dataset>:<recordId>`) under scope `basic` — runtime records
+are user content on par with editor blocks, so they embed normally.
+`Dataset()` returns the virtual name `schema`, used only for chunker
+identity; both virtual names (`prop`, `schema`) are reserved against
+user dataset names at the creation API.
+
+- **Mapping**: `x-search.title` → `IndexEntry.Title` (BM25F-boosted)
+  and `Data`'s leading line; `x-search.text` → the rest of `Data`.
+  Either side may be absent. Values render by their ACTUAL type
+  (string / number canonical / array newline-join; else empty) — the
+  SDK does not validate x-search fields against declared kinds. A
+  dataset without `x-search` is not indexed at all. Both sides empty
+  (cleared values, tombstone) ⇒ `Data ""` removal entry.
+- **No catalog cache** (deliberate PropChunker deviation):
+  `Space.Datasets()` is an atomic in-memory snapshot the SDK refreshes
+  synchronously when a definitions change applies — a fresh read is
+  never stale relative to the applySeq window, and a TTL cache could
+  skip records in the primary define-then-write flow while the cursor
+  advances past them.
+- **Gating is per dataset, self-applied**: the chunker implements
+  `index.DynamicChunker` — the worker asks it for the object's
+  eviction set (`EvictDatasets`: searchable catalog datasets whose
+  owning `TypeId` is not attached, every runtime dataset WITHOUT a
+  usable x-search — covering a cleared annotation, whose docs would
+  otherwise go stale forever — plus retired names) and prefix-deletes
+  `objectId:<dataset>:` for each in the same page transaction, then
+  streams normally; the chunker skips non-attached datasets itself, so
+  an evicted dataset is never also upserted in the page. One catalog
+  resolve serves the paired EvictDatasets + ChunksSince calls (a
+  one-shot per-space handoff; each space has a single advance
+  goroutine).
+- **Static skip set**: every compiled-in dataset name (from the
+  server's `handler.Type` list) plus the virtual names is never
+  treated as runtime — belt-and-braces against definitions synced from
+  a peer with a different compiled-in set.
+
 ### Content hashes (incremental embedding)
 
 Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`,
@@ -211,7 +254,8 @@ Three granularities, all addSeq-consistent (discovered through the same
 |---------------|----------------|-----------------|
 | record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
 | any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
-| type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`) | prefix delete `objectId:dataset:` |
+| type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`; runtime datasets via the schema chunker's `EvictDatasets`) | prefix delete `objectId:dataset:` |
+| runtime dataset definition removed | the schema chunker (name vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
 | object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
 Object deletion leaves **no tombstone**: the SDK purges the shared
@@ -228,6 +272,14 @@ Removing what was never indexed is a no-op everywhere, so all
 operations are safe to apply unconditionally. Re-attach after a
 detach does NOT resurrect rows below the cursor — they index on their
 next write ("index from the next change").
+
+**Definition-removal eviction is lazy and process-scoped** — two known
+residual leaks, accepted for now: an object never dirtied again after
+the removal keeps its stale docs, and a restart wipes the retired set
+(the SDK wipes the removed def record's content, so the name is
+unrecoverable post-restart). Follow-ups: a boot-time per-space sweep of
+stored dataset segments against the current catalog, and an SDK
+retired-name signal (preserve `name` on the def tombstone).
 
 ## AddSeq semantics
 

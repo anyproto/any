@@ -264,7 +264,20 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 	}
 	attached := typeSet(row)
 	for _, ch := range w.ix.reg.All() {
-		if tid := ch.TypeId(); tid != "" && !attached[tid] {
+		if dyn, ok := ch.(index.DynamicChunker); ok {
+			// Runtime datasets: per-dataset eviction names come from the
+			// chunker (detached owning type, retired definitions); the
+			// chunker self-gates streaming, so an evicted dataset is
+			// never also upserted in this page. Same-tx prefix deletes
+			// keep eviction applySeq-consistent, like the static gate.
+			evict, err := dyn.EvictDatasets(ctx, w.sp, attached)
+			if err != nil {
+				return err
+			}
+			for _, ds := range evict {
+				page.prefixDels = append(page.prefixDels, objectId+":"+ds+":")
+			}
+		} else if tid := ch.TypeId(); tid != "" && !attached[tid] {
 			page.prefixDels = append(page.prefixDels, objectId+":"+ch.Dataset()+":")
 			continue
 		}

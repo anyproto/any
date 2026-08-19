@@ -77,25 +77,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
-		// Hardcoded types this server adds on top of the SDK's
-		// built-ins. Each entry registers its handler(s) with every
-		// per-object Controller, so writes targeting the type's
-		// dataset(s) flow through the type's validation logic.
-		Types: []handler.Type{
-			editor.NewType(),
-			chat.NewType(),
-			program.NewType(),
-			miniapp.NewType(),
-			agentlog.NewType(),       // agent_turns + agent_chunks on the chat object
-			agentmem.NewType(),       // agent_memory_items on the per-space brain object
-			agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
-			agentconfig.NewType(),    // agent_config on the per-space config object
-			agentsecrets.NewType(),   // agent_secrets on the per-space secrets object
-			enricheddata.NewType(),   // enriched_data collection attached to target objects
-			enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
-			nav.NewType(),            // property-only: no dataset, just nav.* schema
-			page.NewType(),           // marker-only: the shared "this object is a document" type
-		},
+		Types: serverTypes(),
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
@@ -127,6 +109,43 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
 }
 
+// serverTypes is the hardcoded type set this server adds on top of the
+// SDK's built-ins. Each entry registers its handler(s) with every
+// per-object Controller, so writes targeting the type's dataset(s)
+// flow through the type's validation logic. Shared by OpenSDK and the
+// index registry's static-dataset skip list.
+func serverTypes() []handler.Type {
+	return []handler.Type{
+		editor.NewType(),
+		chat.NewType(),
+		program.NewType(),
+		miniapp.NewType(),
+		agentlog.NewType(),       // agent_turns + agent_chunks on the chat object
+		agentmem.NewType(),       // agent_memory_items on the per-space brain object
+		agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
+		agentconfig.NewType(),    // agent_config on the per-space config object
+		agentsecrets.NewType(),   // agent_secrets on the per-space secrets object
+		enricheddata.NewType(),   // enriched_data collection attached to target objects
+		enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
+		nav.NewType(),            // property-only: no dataset, just nav.* schema
+		page.NewType(),           // marker-only: the shared "this object is a document" type
+	}
+}
+
+// staticDatasetNames collects every compiled-in dataset name across
+// serverTypes() — indexed or not — so the schema chunker never treats a
+// compiled-in dataset as runtime (belt-and-braces against definitions
+// synced from a peer without this server's config).
+func staticDatasetNames() []string {
+	var out []string
+	for _, t := range serverTypes() {
+		for _, ds := range t.Datasets {
+			out = append(out, ds.Name)
+		}
+	}
+	return out
+}
+
 // NewIndexRegistry builds the chunker registry — one chunker per
 // indexed dataset, paralleling the Types list above. The indexer
 // (internal/indexer) drives it.
@@ -152,6 +171,9 @@ func NewIndexRegistry() *index.Registry {
 		enricheddata.NewChunker(), // sourced enrichment facts ARE searchable knowledge
 		// enrich_proposal excluded: ephemeral review scaffolding, not knowledge.
 		index.NewPropChunker(enrichproposal.TypeId),
+		// Runtime-defined datasets with an x-search mapping, scope
+		// "basic" (internal/index/schema.go).
+		index.NewSchemaChunker(staticDatasetNames()...),
 	)
 }
 

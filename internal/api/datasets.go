@@ -18,9 +18,22 @@ import "encoding/json"
 // (handler-computed, read-only to writers), or "local" (device-local,
 // never synced). `additionalProperties:true` marks a dynamic dataset
 // whose undeclared keys are permitted and treated as synced.
+//
+// Datasets with behavioral schema declarations (runtime-defined ones,
+// and built-ins that declare them) carry further extension keywords:
+// per-field `x-mutable-by` ("author"/"any"; absent = write-once) and
+// `x-stamp` ("creator"/"createTime"/"modifyTime" — derived at apply,
+// client writes rejected); doc-level standard `required`, `x-delete-by`
+// ("author"; absent = anyone), `x-id` ("user" with `x-id-pattern` /
+// `x-id-max-length`; absent = auto-derived ids), and `x-search`
+// ({title, text} — the record fields feeding the search index).
 type DatasetSchema struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`
+	// TypeId is the owning type for ext-type and runtime-defined
+	// datasets ("" for space-level built-ins). Records exist only on
+	// objects carrying this type; consumers gate indexing/eviction on it.
+	TypeId string `json:"typeId,omitempty"`
 }
 
 // DatasetsResponse is the body of GET /v1/spaces/:spaceId/datasets and
