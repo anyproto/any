@@ -224,16 +224,7 @@ func newFileSubscribeCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-			return cl.StreamFileStatusSubscribe(cmd.Context(), args[0], func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				return enc.Encode(struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)})
-			})
+			return cl.StreamFileStatusSubscribe(cmd.Context(), args[0], jsonFrameHandler())
 		},
 	}
 }
@@ -323,7 +314,7 @@ func newFileQueryCmd() *cobra.Command {
 			return printJSON(out)
 		},
 	}
-	addFilesQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
 	return cmd
 }
 
@@ -345,28 +336,11 @@ func newFileQuerySubscribeCmd() *cobra.Command {
 				return err
 			}
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-			return cl.StreamFilesQuerySubscribe(cmd.Context(), args[0], args[1], body, func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				return enc.Encode(struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)})
-			})
+			return cl.StreamFilesQuerySubscribe(cmd.Context(), args[0], args[1], body, jsonFrameHandler())
 		},
 	}
-	addFilesQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
 	return cmd
-}
-
-func addFilesQueryFlags(cmd *cobra.Command, filter, sort *string, limit, offset *int, includeTot *bool) {
-	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
-	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
-	cmd.Flags().IntVar(limit, "limit", 0, "window size")
-	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records")
-	cmd.Flags().BoolVar(includeTot, "total", false, "include the unbounded match count in the snapshot")
 }
 
 // buildFilesQueryBody assembles the query body for the files query

@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/client"
@@ -71,17 +68,7 @@ func newIdentitiesSubscribeCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-			return cl.StreamIdentities(cmd.Context(), func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				out := struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)}
-				return enc.Encode(out)
-			})
+			return cl.StreamIdentities(cmd.Context(), jsonFrameHandler())
 		},
 	}
 }

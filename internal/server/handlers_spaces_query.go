@@ -109,38 +109,21 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 // per-object query. objectId is fixed to the tech-space index object;
 // `dataset` is an optional override defaulting to `spaces`.
 func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts, string, error, bool) {
-	body, err := readBody(c)
-	if err != nil {
-		return nil, space.QueryOpts{}, "", writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
-	}
-	parser := getFastjsonParser()
-	defer putFastjsonParser(parser)
-	var root *fastjson.Value
-	if len(body) > 0 {
-		root, err = parser.ParseBytes(body)
-		if err != nil {
-			return nil, space.QueryOpts{}, "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
-		}
-	}
-	if errResp, done := checkUnknownFields(c, root, "", spaceListQueryFields...); done {
-		return nil, space.QueryOpts{}, "", errResp, true
-	}
 	dataset := SpaceListDataset
-	if root != nil {
-		if ds := string(root.GetStringBytes("dataset")); ds != "" {
-			dataset = ds
+	q, opts, errResp, done := buildBodyQuery(c, spaceListQueryFields, func(root *fastjson.Value) (space.Query, error, bool) {
+		if root != nil {
+			if ds := string(root.GetStringBytes("dataset")); ds != "" {
+				dataset = ds
+			}
 		}
-	}
-	if _, ok := spaceListAllowedDatasets[dataset]; !ok {
-		return nil, space.QueryOpts{}, dataset, writeError(c, http.StatusBadRequest,
-			"request.invalid_field",
-			"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
-			map[string]any{"dataset": dataset}), true
-	}
-	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, "", errResp, true
-	}
-	svc := d.sdk.Spaces()
-	q, opts := applyQueryParams(root, svc.Query(svc.SpaceIndexObjectId(), dataset))
-	return q, opts, dataset, nil, false
+		if _, ok := spaceListAllowedDatasets[dataset]; !ok {
+			return nil, writeError(c, http.StatusBadRequest,
+				"request.invalid_field",
+				"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
+				map[string]any{"dataset": dataset}), true
+		}
+		svc := d.sdk.Spaces()
+		return svc.Query(svc.SpaceIndexObjectId(), dataset), nil, false
+	})
+	return q, opts, dataset, errResp, done
 }

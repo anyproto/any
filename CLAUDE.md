@@ -871,7 +871,36 @@ Implementation slices landed:
     user types. Contract: docs/03-api.md § Types (Built-in `page`
     type).
 
-31. **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
+31. **Devices registry + active-app election (SYN-165)** — the
+    account's device list in the tech-space system dataset `devices`
+    (row id = peerId, all synced: name/os/version, `apps` open-slug
+    install flags, `activeClaims` per-slug `{seq, at}`), wrapping the
+    SDK's typed surface (`Spaces().SetDevice/ClaimActive/DeleteDevice/
+    ListDevices`, `SDK.PeerId()`, `space.ActiveDevice`). Election is
+    reader-side and deterministic on writer-supplied claim data —
+    highest `seq`, tie highest `at`, tie largest peerId, candidates
+    only rows still carrying the slug under `apps` — NEVER on `_ver`
+    (versionIds are peer-local). The SDK's `space.ActiveDevice` is the
+    single implementation; `GET /v1/devices` returns it pre-resolved
+    as `active: {slug: peerId}` plus `self` (this server's peerId) so
+    UI and runtimes never reimplement the rule. Account-scoped routes
+    (`handlers_devices.go`): GET `/v1/devices`, POST
+    `/v1/devices/query[/subscribe]` (raw windowed primitive, dataset
+    fixed), PUT `/v1/devices/me` (self-row `{name?, apps?}`,
+    `"apps":{"slug":null}` uninstalls), POST `/v1/devices/activate`
+    (`{app}`, self-heals the install flag), DELETE
+    `/v1/devices/:peerId` (404 `device.not_found`; sticky tombstone —
+    a pruned peerId can never re-register). Engine boot upserts the
+    self row (os/version each boot; hostname name only on first
+    registration — `registerDevice` in engine.go). CLI: `any devices
+    list/register/activate/remove/query/subscribe`. e2e:
+    `internal/e2e/multipeer_devices_test.go` (two devices, same
+    mnemonic: concurrent claims converge to one winner on both
+    readers; uninstall moves the role; prune). Contract:
+    docs/23-devices.md (model + election + decision matrix),
+    docs/03-api.md § Devices, docs/01-cli.md.
+
+32. **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
     user-space dataset schemas: clients define a dataset ON A USER TYPE
     at runtime (`POST/GET/PATCH/DELETE
     /v1/spaces/:s/types/:t/datasets[/:defId[/fields[/:fieldId]]]` →
@@ -906,7 +935,7 @@ Implementation slices landed:
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
     docs/17-user-datasets.md (vocabulary, convergence rules, storage
     model). **SDK prerequisite:** shipped in `any-sync-sdk v0.2.0`.
-32. **Process helper (SYN-153)** — progress reporting + cancel over the
+33. **Process helper (SYN-153)** — progress reporting + cancel over the
     event bus: `process.*` events (envelope target = process id, keyed
     `(sender.identity, id)`, descriptor folded into every frame) + an
     in-memory last-event-wins registry with staleness expiry (running
@@ -1205,6 +1234,7 @@ auto-start.
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
+| `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

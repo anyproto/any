@@ -469,30 +469,16 @@ func (d *deps) buildFilesQuery(c echo.Context) (space.Space, space.Query, space.
 	if done {
 		return nil, nil, space.QueryOpts{}, errResp, true
 	}
-	q, err := sp.Files().Query(objectId)
+	fq, err := sp.Files().Query(objectId)
 	if err != nil {
 		return nil, nil, space.QueryOpts{}, fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId}), true
 	}
-	body, err := readBody(c)
-	if err != nil {
-		return nil, nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
-	}
-	var root *fastjson.Value
-	if len(body) > 0 {
-		parser := getFastjsonParser()
-		defer putFastjsonParser(parser)
-		root, err = parser.ParseBytes(body)
-		if err != nil {
-			return nil, nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
-		}
-	}
-	if errResp, done := checkUnknownFields(c, root, "", queryBodyFields...); done {
+	q, opts, errResp, done := buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
+		return fq, nil, false
+	})
+	if done {
 		return nil, nil, space.QueryOpts{}, errResp, true
 	}
-	if errResp, done := checkFilter(c, root); done {
-		return nil, nil, space.QueryOpts{}, errResp, true
-	}
-	q, opts := applyQueryParams(root, q)
 	return sp, q, opts, nil, false
 }
 

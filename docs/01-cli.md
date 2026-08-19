@@ -81,6 +81,25 @@ It carries **no rights** — for roles (owner/admin/writer/reader) read
 `any members list <spaceId>`. A contact's `name` is empty until their
 profile decryption key arrives (shared space / 1-1) and resolves.
 
+### Devices (device registry & active-app election)
+
+```
+any devices list                                    # GET /v1/devices — rows + active map + self
+any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
+                                                    # PUT /v1/devices/me (self-row only)
+any devices activate <app>                          # POST /v1/devices/activate — claim on THIS device
+any devices remove <peerId> --yes                   # DELETE /v1/devices/:peerId (permanent for that peer id)
+any devices query [--filter ...] [--sort ...]       # POST /v1/devices/query — raw rows
+any devices subscribe                               # POST /v1/devices/query/subscribe (SSE)
+```
+
+The account's device registry (tech-space `devices` dataset): per-app
+install flags and the active-instance election. `os`/`version` are
+server-stamped on boot; `register` only sets the caller-owned fields.
+`remove` is guarded by `--yes` because tombstones are sticky — a pruned
+peer id can never re-register. Election contract and decision matrix:
+[devices](23-devices.md).
+
 ### Spaces
 
 ```
