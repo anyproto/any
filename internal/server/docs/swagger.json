@@ -132,6 +132,22 @@
                 },
                 "type": "object"
             },
+            "api.AddDatasetFieldResponse": {
+                "properties": {
+                    "fieldDefId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AddDatasetResponse": {
+                "properties": {
+                    "datasetDefId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AddPropertyRequest": {
                 "properties": {
                     "description": {
@@ -577,6 +593,213 @@
                 },
                 "type": "object"
             },
+            "api.DatasetDefResponse": {
+                "properties": {
+                    "deleteBy": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "dynamic": {
+                        "type": "boolean"
+                    },
+                    "fields": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetFieldDef"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "idMaxLen": {
+                        "type": "integer"
+                    },
+                    "idPattern": {
+                        "type": "string"
+                    },
+                    "idRule": {
+                        "type": "string"
+                    },
+                    "invalid": {
+                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why). Invalid definitions never\nregister or accept data but stay listed so they can be repaired\n(add the missing field) or removed.",
+                        "type": "boolean"
+                    },
+                    "invalidReason": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "search": {
+                        "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "skipHistory": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetDraftRequest": {
+                "properties": {
+                    "deleteBy": {
+                        "description": "DeleteBy: \"anyone\" (default) or \"author\" (requires a\nstamp:creator field among fields).",
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "displayName": {
+                        "type": "string"
+                    },
+                    "dynamic": {
+                        "description": "Dynamic keeps a free-form keyspace next to the declared fields.",
+                        "type": "boolean"
+                    },
+                    "fields": {
+                        "description": "Fields are the initial field definitions. Declare required\nfields here — fields added later cannot be required.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetFieldDraft"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "idMaxLen": {
+                        "type": "integer"
+                    },
+                    "idPattern": {
+                        "type": "string"
+                    },
+                    "idRule": {
+                        "description": "IdRule: \"auto\" (default — ids derived from the change) or \"user\"\n(caller-supplied ids, constrained by idPattern/idMaxLen; the id\ndoubles as the upsert idempotency key).",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is the dataset's collection name — pinned. No \"_\" prefix,\ndots, slashes or colons; built-in names are reserved.",
+                        "type": "string"
+                    },
+                    "search": {
+                        "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "skipHistory": {
+                        "description": "SkipHistory keeps the dataset out of the version-history index.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetFieldDef": {
+                "properties": {
+                    "id": {
+                        "description": "Id is the field definition record's id — the identity\nDELETE …/fields/:fieldId targets.",
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "mutableBy": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "stamp": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetFieldDraft": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "description": "Key is the on-record field name — pinned.",
+                        "type": "string"
+                    },
+                    "kind": {
+                        "description": "Kind is a PropertyKind* wire string. Required unless stamp\nimplies one (creator ⇒ string, createTime/modifyTime ⇒ number).",
+                        "type": "string"
+                    },
+                    "mutableBy": {
+                        "description": "MutableBy: \"never\" (default — write-once), \"author\", \"any\".\n\"author\" requires a stamp:creator field in the dataset.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "description": "Required: field must be present on create. Incompatible with stamp.",
+                        "type": "boolean"
+                    },
+                    "scope": {
+                        "description": "Scope: \"synced\" (default) or \"local\"; \"derived\" is implied by\nstamp and rejected otherwise.",
+                        "type": "string"
+                    },
+                    "shape": {
+                        "$ref": "#/components/schemas/api.DatasetFieldShape"
+                    },
+                    "stamp": {
+                        "description": "Stamp: \"creator\" | \"createTime\" | \"modifyTime\" — value derived at\napply time, client writes rejected.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetFieldShape": {
+                "description": "Shape optionally refines array/object values.",
+                "properties": {
+                    "items": {
+                        "$ref": "#/components/schemas/api.DatasetFieldShape"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "properties": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/api.DatasetFieldShape"
+                        },
+                        "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetPatchRequest": {
+                "properties": {
+                    "set": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "unset": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.DatasetSchema": {
                 "properties": {
                     "name": {
@@ -588,6 +811,22 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "typeId": {
+                        "description": "TypeId is the owning type for ext-type and runtime-defined\ndatasets (\"\" for space-level built-ins). Records exist only on\nobjects carrying this type; consumers gate indexing/eviction on it.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetSearchFields": {
+                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text.",
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -2408,6 +2647,18 @@
                 },
                 "type": "object"
             },
+            "api.TypeDatasetsListResponse": {
+                "properties": {
+                    "datasets": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDefResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.TypeInfo": {
                 "properties": {
                     "builtIn": {
@@ -2490,6 +2741,92 @@
             "api.UICommandPublishResponse": {
                 "properties": {
                     "subscribers": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.UpsertRecord": {
+                "properties": {
+                    "fields": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.UpsertRejection": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "index": {
+                        "type": "integer"
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.UpsertRequest": {
+                "properties": {
+                    "dataset": {
+                        "type": "string"
+                    },
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "pageSize": {
+                        "description": "PageSize caps records per emitted change. 0 = 500.",
+                        "type": "integer"
+                    },
+                    "records": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.UpsertRecord"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "traceIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.UpsertResult": {
+                "properties": {
+                    "created": {
+                        "type": "integer"
+                    },
+                    "pages": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.ModifyResult"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "rejections": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.UpsertRejection"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "skipped": {
+                        "type": "integer"
+                    },
+                    "updated": {
                         "type": "integer"
                     }
                 },
@@ -9835,6 +10172,476 @@
                 ]
             }
         },
+        "/spaces/{spaceId}/types/{typeId}/datasets": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TypeDatasetsListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a type's runtime dataset definitions",
+                "tags": [
+                    "types"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetDraftRequest",
+                                        "summary": "body",
+                                        "description": "Dataset draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Dataset draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddDatasetResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Define a dataset on a type",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/datasets/{defId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a dataset definition",
+                "tags": [
+                    "types"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetPatchRequest",
+                                        "summary": "body",
+                                        "description": "set/unset paths"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "set/unset paths",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a dataset definition's display fields",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetFieldDraft",
+                                        "summary": "body",
+                                        "description": "Field draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Field draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddDatasetFieldResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Add a field to a dataset definition (additive evolution)",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields/{fieldId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Field definition ID",
+                        "in": "path",
+                        "name": "fieldId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a dataset field definition",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
         "/spaces/{spaceId}/types/{typeId}/properties": {
             "get": {
                 "parameters": [
@@ -10122,6 +10929,77 @@
                 "summary": "Patch a property definition (rename, options, colors, order)",
                 "tags": [
                     "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/upsert": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.UpsertRequest",
+                                        "summary": "body",
+                                        "description": "Upsert batch"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Upsert batch",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.UpsertResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Upsert records into an id:user dataset",
+                "tags": [
+                    "data"
                 ]
             }
         },

@@ -84,6 +84,22 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, sp space.Space, objectId string, since uint64) ([]IndexEntry, error)
 }
 
+// DynamicChunker is an optional Chunker capability for chunkers whose
+// dataset set is defined at runtime (schema-driven datasets). The
+// worker replaces the static Dataset()/TypeId() gate for such a
+// chunker: it prefix-evicts objectId:<ds>: for every name returned by
+// EvictDatasets, then runs ChunksSince as usual — the chunker
+// self-gates its active set, so an evicted dataset is never also
+// streamed in the same page.
+type DynamicChunker interface {
+	Chunker
+	// EvictDatasets returns the runtime dataset names to structurally
+	// evict for an object with the given any.types set: catalog
+	// datasets whose owning type is not attached (the DetachType path),
+	// plus names retired since process start (definition removed).
+	EvictDatasets(ctx context.Context, sp space.Space, attached map[string]bool) ([]string, error)
+}
+
 // Chunker streams the IndexEntry values for one dataset on one object.
 type Chunker interface {
 	// Dataset is the dataset this chunker writes — the middle segment
