@@ -10,13 +10,12 @@ import (
 )
 
 // TestE2E_MultipeerGeneralChat proves the general-chat contract across
-// two peers: the joiner resolves the SAME generalChatObjectId off its
-// own GET /v1/spaces/:id (deterministic derive — no id exchange, no
-// remote tree fetch required to start writing), and messages sent by
-// both peers into that id converge. This is the scenario the derived
-// general chat exists for: each peer materializes an identical tree
-// root locally from the fixed seed, so a chat write never depends on
-// having synced another peer's chat tree first.
+// two peers: the owner installs the chat, the joiner ADOPTS the same
+// id off its own GET /v1/spaces/:id (no id exchange — the registry row
+// syncs with the space), and messages sent by both peers into that id
+// converge. This is the scenario the single install exists for: the
+// joiner never mints a chat of its own, so the space keeps exactly one
+// conversation.
 func TestE2E_MultipeerGeneralChat(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -64,16 +63,15 @@ func TestE2E_MultipeerGeneralChat(t *testing.T) {
 			sp.GeneralChatObjectId, joinerInfo.GeneralChatObjectId)
 	}
 
-	// The joiner writes immediately into its locally-derived tree —
-	// this must not depend on the owner's tree replica having synced.
+	// The joiner writes into the adopted object — reported only once
+	// its tree is local, so the write is admitted straight away.
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + joinerInfo.GeneralChatObjectId
 	m2 := sendChat(t, joinerBase, `{"text":"hello from joiner"}`)
 	if m2.Id == "" {
 		t.Fatalf("m2 not stamped: %+v", m2)
 	}
 
-	// Both messages converge on both peers (locally-derived roots are
-	// byte-identical, so the two replicas merge into one tree).
+	// Both messages converge on both peers — one object, one tree.
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		onOwner := chatMessages(t, ownerBase)
 		onJoiner := chatMessages(t, joinerBase)

@@ -11,9 +11,9 @@ import (
 
 	"github.com/anyproto/any-sync-sdk/space"
 
-	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/agentsecrets"
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/chat"
 )
@@ -736,9 +736,10 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 // is omitted rather than failing the whole response (mirrors the list
 // path's tolerance for a missing SpaceIndexObjectId).
 func (d *deps) spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
-	out := spaceInfoToAPI(sp.Info())
+	info := sp.Info()
+	out := spaceInfoToAPI(info)
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
-	if id, err := d.generalChatObjectId(ctx, sp); err == nil {
+	if id, err := d.generalChatObjectId(ctx, sp, info); err == nil {
 		out.GeneralChatObjectId = id
 	}
 	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
@@ -751,41 +752,27 @@ func (d *deps) spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 }
 
 // generalChatObjectId resolves the space's general chat through its
-// bundle registry record, installing it on first sight and adopting
-// the converged winner afterwards (any-sync-sdk docs/bundles.md).
-// Idempotent — an adopted install is a local read that writes nothing.
+// bundle registry record, installing it on first sight when this
+// member is the install's sole installer and adopting the converged
+// winner otherwise (any-sync-sdk docs/bundles.md). Idempotent — an
+// adopted install is a local read that writes nothing.
 //
-// Only the space's author installs. Every other member adopts what the
-// author registered, and reports nothing until it arrives: two members
-// installing before they have seen each other's registry row would
-// split the space's conversation across two chat objects, and chat
-// messages cannot be merged back (a copy re-attributes them). The
-// author is unambiguous and needs no coordination, so it is the one
-// writer. Callers re-read after a sync.
-//
-// A non-empty loser set means two of the account's devices installed
-// concurrently; resolution runs inline because it is rare, cheap and
-// self-healing — every space read retries it until the losing root has
-// synced far enough to be deleted. Its failure never fails the
-// response.
-func (d *deps) generalChatObjectId(ctx context.Context, sp space.Space) (string, error) {
-	inst := chat.GeneralChatInstall()
-	if d.account == "" || sp.Info().Author != d.account {
-		b, err := sp.Bundles().Get(ctx, inst.Id)
-		if err != nil {
-			return "", err
-		}
-		return b.RootId, nil
-	}
-	b, err := bundles.Ensure(ctx, sp, inst)
+// An error means "no id yet" — nobody has installed, or the winner's
+// tree has not reached this device — and the field is simply omitted.
+// Loser resolution runs inline: it is rare, cheap and self-healing, so
+// every space read retries it until the losing root is quiet enough to
+// delete.
+func (d *deps) generalChatObjectId(ctx context.Context, sp space.Space, info space.SpaceInfo) (string, error) {
+	b, err := d.bundleResolver().EnsureResolved(ctx, sp, info, chat.GeneralChatInstall(), d.account)
 	if err != nil {
-		return "", err
-	}
-	if len(b.Losers) > 0 {
-		if _, err := bundles.ResolveLosers(ctx, sp, inst, b); err != nil {
-			handlerLog.Warn("general chat loser resolution deferred",
+		// ErrNotInstalled is the ordinary "not yet" answer; anything
+		// else is an infrastructure failure the caller cannot see,
+		// since the field is simply omitted.
+		if !errors.Is(err, bundles.ErrNotInstalled) {
+			handlerLog.Warn("general chat unresolved",
 				zap.String("spaceId", sp.Id()), zap.Error(err))
 		}
+		return "", err
 	}
 	return b.RootId, nil
 }

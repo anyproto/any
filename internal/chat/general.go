@@ -37,40 +37,48 @@ const (
 // winner re-attributes every one of them to the merging device and
 // re-times them — worse than leaving them where they are. Instead Keep
 // refuses to delete a loser that carries messages: in practice a loser
-// is a creation-time race (two devices resolving the space's chat
-// before they had synced) and is empty, so the common case resolves
-// cleanly and the rare written-to loser survives as a plain object the
-// user can still read.
+// is a creation-time race (two of the account's devices resolving the
+// space's chat before they had synced) and is empty, so the common
+// case resolves cleanly and the rare written-to loser survives as a
+// plain object the user can still read.
 func GeneralChatInstall() bundles.Install {
 	return bundles.Install{
-		Id:        GeneralChatBundleId,
-		Name:      GeneralChatBundleName,
-		RootTypes: []string{TypeId},
-		Keep:      generalChatHasMessages,
+		Id:            GeneralChatBundleId,
+		Name:          GeneralChatBundleName,
+		RootTypes:     []string{TypeId},
+		SoleInstaller: generalChatInstaller,
+		Keep:          generalChatHasMessages,
 	}
 }
 
-// EnsureGeneralChat resolves the space's general chat object,
-// installing it on first sight. Idempotent: once a winner is
-// registered the call is a local read and writes nothing.
+// generalChatInstaller names the one member allowed to install a
+// space's general chat. Two members installing before they have seen
+// each other's registry row would split the conversation across two
+// chat objects, and chat messages cannot be merged back together.
 //
-// The returned id is provisional until the space syncs — a concurrent
-// install on another device can win, at which point this device's root
-// surfaces in Bundle.Losers and gets resolved (see
-// bundles.ResolveLosers).
-func EnsureGeneralChat(ctx context.Context, sp space.Space) (string, error) {
-	b, err := bundles.Ensure(ctx, sp, GeneralChatInstall())
-	if err != nil {
-		return "", fmt.Errorf("chat: ensure general chat: %w", err)
+// An ordinary space has an owner, and the owner is that member. A 1-1
+// has none — its ACL owner is a synthetic key nobody holds — so the
+// pair picks by comparing the two account identities: both sides know
+// both (SpaceInfo.Author carries the peer on a 1-1) and both compute
+// the same answer without exchanging anything.
+func generalChatInstaller(info space.SpaceInfo, accountId string) bool {
+	if accountId == "" {
+		return false
 	}
-	return b.RootId, nil
+	if info.SpaceType == space.SpaceTypeOneToOne {
+		return info.Author != "" && accountId < info.Author
+	}
+	// Author is the resolved ACL owner, OwnRole the mirrored own
+	// permission. Either alone answers "am I the owner", and each has
+	// a state where it is not populated yet, so both are consulted.
+	return info.OwnRole == space.PermissionOwner || info.Author == accountId
 }
 
 // generalChatHasMessages reports whether a chat object carries at
-// least one live message. Read locally: a loser whose tree has not
-// synced yet reads empty, but deleting it needs that same local tree,
-// so the SDK refuses the deletion and the check re-runs on the next
-// attempt with the synced state.
+// least one live message. The read is local, and ErrNotFound covers
+// both "no messages" and "nothing projected here yet" — so it is only
+// a verdict once the object has stopped receiving changes, which is
+// what the resolver's quiescence gate establishes before calling it.
 func generalChatHasMessages(ctx context.Context, sp space.Space, objectId string) (bool, error) {
 	_, err := sp.Query(objectId, Dataset).Limit(1).One(ctx)
 	switch {

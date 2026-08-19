@@ -16,11 +16,6 @@
 package bao
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/anyproto/any-sync-sdk/space"
-
 	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/page"
 )
@@ -35,6 +30,10 @@ const (
 
 // Install describes the bao bundle.
 //
+// SoleInstaller is nil: the bao space is derived from the account keys
+// and has no other members, so every installer is this account and the
+// registry alone settles a race between its devices.
+//
 // Merge is nil: the tsar root carries no children yet — bao's memory,
 // config, secrets and chat still live on their own space-derived
 // objects — so a losing root holds nothing and deleting it loses
@@ -45,14 +44,4 @@ func Install() bundles.Install {
 		Name:      BundleName,
 		RootTypes: []string{page.TypeId},
 	}
-}
-
-// Ensure installs or adopts bao's setup in the space and returns the
-// converged registry row. Fully local — no network wait.
-func Ensure(ctx context.Context, sp space.Space) (space.Bundle, error) {
-	b, err := bundles.Ensure(ctx, sp, Install())
-	if err != nil {
-		return space.Bundle{}, fmt.Errorf("bao: %w", err)
-	}
-	return b, nil
 }

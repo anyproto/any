@@ -80,6 +80,21 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 		t.Errorf("bob: status after accept = %q, want active", bobSpace.Status)
 	}
 
+	// The 1-1's general chat: with no ACL owner to install it, the pair
+	// picks the installer by comparing identities, so exactly one side
+	// creates the object and the other adopts it. Both must end up on
+	// the same id — two chats would split the conversation.
+	var aliceChat, bobChat string
+	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
+		var a, b api.SpaceInfo
+		mustJSON(t, http.MethodGet, alice.base+"/v1/spaces/"+aliceSpace.Id, "", http.StatusOK, &a)
+		mustJSON(t, http.MethodGet, bob.base+"/v1/spaces/"+aliceSpace.Id, "", http.StatusOK, &b)
+		aliceChat, bobChat = a.GeneralChatObjectId, b.GeneralChatObjectId
+		return aliceChat != "" && aliceChat == bobChat
+	}) {
+		t.Fatalf("1-1 general chat never converged: alice=%q bob=%q", aliceChat, bobChat)
+	}
+
 	// Content convergence: Alice writes a chat message in the 1-1 space,
 	// Bob (the other writer) reads it back after sync.
 	var obj api.ObjectsCreateResponse

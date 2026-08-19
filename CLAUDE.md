@@ -1049,26 +1049,44 @@ Implementation slices landed:
       `BootstrapDone`) does the restore side — `WaitListSynced` (90s
       bound) → adopt ONLY spaces the account already has (it never
       materializes one) → `WaitIndexSynced` (90s bound) → `Ensure`.
-      Both bounds fall through to the local answer, so an offline boot
-      never hangs and never blocks serving; an offline device that
-      installs anyway converges (its root becomes a loser).
-    - Loser resolution: inline on every space read for the chat bundle
-      (rare, cheap, self-healing) and a bounded backoff loop for the
-      derived-space installs — the SDK can only delete a loser whose
-      tree has synced here.
+      Neither bound blocks serving: the list wait falls through to the
+      local space list, while an expired index wait SKIPS the entry
+      until the next boot (an unseeded index means the registry cannot
+      be read at all — there is no local answer to fall through to).
+      An offline device that installs anyway converges (its root
+      becomes a loser).
+    - Loser resolution: `Resolver` (`internal/bundles`) — inline on
+      every space read for the chat bundle (rare, cheap, self-healing)
+      and `ResolveRetry` on `shutdownCtx` for the derived-space
+      installs. A loser is deleted only once quiescent — `Grace`
+      (5min) since first sight AND not `SyncStateSyncing` — because a
+      half-arrived tree reads empty; Keep's "don't delete" verdicts are
+      memoized per (space, root) so a kept loser stops costing a probe.
     - `SpaceInfo.generalChatObjectId` resolves through the bundle
       winner; the old `any/general-chat/v1` derived chat is gone with
       no fallback, so existing installs get a fresh general chat and
       their legacy one is abandoned in place (still readable as an
-      ordinary object). **Only the space's author installs** (`d.account
-      == sp.Info().Author`); every other member adopts the registered
-      row and reports an empty field until it syncs in — two members
-      installing before they had seen each other would split the
-      conversation across two chats, which chat messages cannot be
-      merged back out of. Tests:
+      ordinary object). **Exactly one member installs**
+      (`Install.SoleInstaller`, enforced inside `bundles.Ensure`): the
+      owner of an ordinary space, and on a 1-1 — whose ACL owner is a
+      synthetic key nobody holds — the lexicographically smaller of the
+      two identities. Every other member adopts the registered row and
+      reports an empty field until it syncs in AND the winner's tree is
+      local (`Properties().Get` probe — naming a non-local root would
+      hand clients an id that 404s on write). Two members installing
+      before they had seen each other would split the conversation
+      across two chats, which chat messages cannot be merged back out
+      of. Tests:
+      internal/bundles/bundles_test.go (resolver logic against a fake
+      space — quiescence, sticky Keep, merge-before-delete, retry),
+      internal/chat/general_test.go (the sole-installer rule),
       internal/server/handlers_bundles_test.go (install, adopt,
-      loser resolved, loser-with-messages kept),
-      internal/e2e/derived_spaces_test.go. Contract: docs/03-api.md
+      derived child), internal/e2e/derived_spaces_test.go +
+      multipeer_general_chat_test.go + multipeer_onetoone_test.go
+      (joiner and 1-1 peer converge on the installed id). The registry
+      is SDK-write-only (the `bundles` dataset is fenced off the public
+      modify surface), so a conflict cannot be injected from one
+      device — the resolver is unit-tested instead. Contract: docs/03-api.md
       § Space setup bundles + § Chat (General chat), docs/16-chat.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

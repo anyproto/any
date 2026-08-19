@@ -32,23 +32,24 @@ import (
 // resolves its own root as a loser afterwards.
 
 // Bounds on the restore gates. Both waits retry until their context
-// expires, so an offline boot must not sit on them forever: it falls
-// through to the local answer and the next boot (or an explicit
-// materialize) picks the setup up.
+// expires, so an offline boot must not sit on them forever.
+// WaitListSynced falls through to the local space list; WaitIndexSynced
+// has nothing to fall through to — an unseeded index means the registry
+// cannot be read at all — so its expiry skips the entry until the next
+// boot (or an explicit materialize).
 const (
 	derivedListSyncWait  = 90 * time.Second
 	derivedIndexSyncWait = 90 * time.Second
 )
 
-// Loser resolution retries: a loser installed on another device cannot
-// be deleted until its tree has synced here, which can take a while
-// and can never happen offline. Bounded backoff, dropped at shutdown —
-// the next boot retries from scratch, and every step is idempotent.
-const (
-	loserRetryDelay    = 30 * time.Second
-	loserRetryMaxDelay = 10 * time.Minute
-	loserRetryAttempts = 6
-)
+// bundleResolver returns the process's install resolver, building it
+// on first use.
+func (d *deps) bundleResolver() *bundles.Resolver {
+	d.installsOnce.Do(func() {
+		d.installs = bundles.NewResolver(bundles.DefaultGrace)
+	})
+	return d.installs
+}
 
 // bootstrapDerivedSetups adopts the setup of every registry entry that
 // carries one, for spaces this account already has. It never
@@ -130,49 +131,21 @@ func (d *deps) derivedSpaceListed(ctx context.Context, spaceId string) bool {
 	return false
 }
 
-// runDerivedSetup installs or adopts the entry's bundle and kicks
-// conflict resolution when the registry reports losing roots.
-// Idempotent — an adopted install writes nothing.
+// runDerivedSetup installs or adopts the entry's bundle and hands any
+// losing roots to the background retry loop. Idempotent — an adopted
+// install writes nothing.
+//
+// Resolution runs on shutdownCtx, not the caller's: on the create path
+// the caller is an HTTP request whose context dies with the response,
+// while a loser stays undeletable until its tree syncs here.
 func (d *deps) runDerivedSetup(ctx context.Context, sp space.Space, def resolvedDerivedSpace) {
-	b, err := bundles.Ensure(ctx, sp, def.Install)
+	b, err := d.bundleResolver().Ensure(ctx, sp, sp.Info(), def.Install, d.account)
 	if err != nil {
 		engineLog.Warn("derived space setup",
 			zap.String("name", def.Name), zap.Error(err))
 		return
 	}
 	if len(b.Losers) > 0 {
-		go d.resolveLosers(ctx, sp, def.Install, b)
-	}
-}
-
-// resolveLosers merges and deletes the bundle's losing roots, retrying
-// with backoff: a loser created on another device is undeletable until
-// its tree reaches this one. Re-reads the registry each attempt so the
-// winner it merges into is the current one.
-func (d *deps) resolveLosers(ctx context.Context, sp space.Space, inst bundles.Install, b space.Bundle) {
-	delay := time.Duration(0)
-	for attempt := 0; attempt < loserRetryAttempts; attempt++ {
-		if delay > 0 {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(delay):
-			}
-			cur, err := sp.Bundles().Get(ctx, inst.Id)
-			if err != nil {
-				continue
-			}
-			b = cur
-		}
-		if len(b.Losers) == 0 {
-			return
-		}
-		_, err := bundles.ResolveLosers(ctx, sp, inst, b)
-		if err == nil {
-			return
-		}
-		engineLog.Warn("bundle loser resolution deferred",
-			zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()), zap.Error(err))
-		delay = min(max(delay*2, loserRetryDelay), loserRetryMaxDelay)
+		go d.bundleResolver().ResolveRetry(d.shutdownCtx, sp, def.Install, b)
 	}
 }

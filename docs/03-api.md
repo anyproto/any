@@ -503,9 +503,11 @@ claimed. `any` installs two:
 | `general-chat/v1` | the space's general chat object (every space) |
 | `bao/v1` | bao's setup root (the derived `bao` space only) |
 
-There is no HTTP write surface — installs are server-side. Reading is
-the generic dataset surface: `POST /v1/spaces/:spaceId/query` with
-`{"objectId": "<spaceIndexObjectId>", "dataset": "bundles"}`, live via
+There is no write surface — installs are server-side, and the SDK
+fences the `bundles` dataset off the generic modify path so no client
+can forge a claim. Reading is the ordinary dataset surface:
+`POST /v1/spaces/:spaceId/query` with `{"objectId":
+"<spaceIndexObjectId>", "dataset": "bundles"}`, live via
 `…/query/subscribe`.
 
 Why a registry rather than another derived object: a root that carries
@@ -524,6 +526,13 @@ already has, waits for the space index to project, and then adopts the
 registered install. Both ends are the same idempotent operation, so an
 offline device that installs anyway still converges — its root simply
 becomes a loser and is resolved after sync.
+
+A losing root is deleted only once it has gone quiet: it arrives change
+by change, so content read too early says what has synced, not what
+exists. Resolution therefore waits out a grace period from the first
+sight of the loser, skips anything still syncing, and lets each install
+refuse deletion outright (the general chat refuses any loser carrying
+messages).
 
 CLI: `any space derived` (list) / `any space derived create <name>`.
 
@@ -1925,13 +1934,18 @@ that never installs chats. Clients read the id from the response and
 never compute it — writing to a chat object of their own makes a space
 accumulate parallel chats, most visibly in 1-1 direct spaces.
 
-**Only the space's author installs it.** Other members adopt what the
-author registered and get an empty `generalChatObjectId` until that row
-reaches them — two members installing before they had seen each other
-would split the conversation across two chat objects, and chat messages
-cannot be merged back (a copy re-attributes them). So a fresh joiner,
-and the receiving side of a 1-1 before it syncs, may see the field
-absent; re-read it rather than creating a chat.
+**Exactly one member installs it.** For an ordinary space that is the
+owner; a 1-1 has no owner — its ACL owner is a synthetic key nobody
+holds — so the pair settles it by comparing the two account identities
+and the smaller one installs. Every other member adopts the registered
+row, and reports an empty `generalChatObjectId` until that row reaches
+them *and* the chat object's tree is local (naming a root whose tree
+has not arrived would hand out an id that rejects writes). Two members
+installing before they had seen each other would split the conversation
+across two chat objects, and chat messages cannot be merged back (a
+copy re-attributes them). So a fresh joiner, and the receiving side of
+a 1-1 before it syncs, may see the field absent; poll rather than
+creating a chat.
 
 The id is stable once installed but **provisional until the space
 syncs**: two of the author's own devices reaching the space while apart

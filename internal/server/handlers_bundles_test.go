@@ -7,10 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/anyproto/any-sync-sdk/space"
-
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bao"
+	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -26,29 +25,6 @@ func createSpaceInfo(t *testing.T, e http.Handler, name string) api.SpaceInfo {
 		t.Fatalf("decode create: %v", err)
 	}
 	return info
-}
-
-// claimRoot writes a competing root into the bundle's add-only roots
-// set, the shape a concurrent install on another device produces once
-// its change arrives. Written through the generic dataset surface
-// because the typed API deliberately has no "register someone else's
-// root" call.
-func claimRoot(t *testing.T, sp space.Space, bundleId, rootId string) {
-	t.Helper()
-	res, err := sp.Modify(context.Background(), space.ModifyBatch{
-		ObjectId: sp.SpaceIndexObjectId(),
-		Dataset:  "bundles",
-		Records: []space.RecordModify{{
-			Id:  bundleId,
-			Ops: []space.Op{{Type: space.OpAddToSet, Path: "roots", Value: rootId}},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("claim root: %v", err)
-	}
-	if len(res.Rejections) > 0 {
-		t.Fatalf("claim root rejected: %s", res.Rejections[0].Reason)
-	}
 }
 
 // TestServer_GeneralChat_Bundle pins the general chat onto the bundles
@@ -88,94 +64,6 @@ func TestServer_GeneralChat_Bundle(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+created.Id, &got)
 	if got.GeneralChatObjectId != created.GeneralChatObjectId {
 		t.Fatalf("chat id not stable: %q vs %q", got.GeneralChatObjectId, created.GeneralChatObjectId)
-	}
-}
-
-// TestServer_GeneralChat_LoserResolved covers the conflict path: a
-// competing root claimed by "another device" surfaces as a loser and
-// is resolved (cascade-deleted) on the next space read, leaving the
-// winner untouched.
-func TestServer_GeneralChat_LoserResolved(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-	ctx := context.Background()
-
-	created := createSpaceInfo(t, e, "GeneralChatLoser")
-	sp, err := d.sdk.Spaces().Get(ctx, created.Id)
-	if err != nil {
-		t.Fatalf("get space: %v", err)
-	}
-
-	loser, err := sp.Objects().Create(ctx, space.CreateObjectOpts{Types: []string{chat.TypeId}})
-	if err != nil {
-		t.Fatalf("create competing root: %v", err)
-	}
-	claimRoot(t, sp, chat.GeneralChatBundleId, loser)
-
-	b, err := sp.Bundles().Get(ctx, chat.GeneralChatBundleId)
-	if err != nil {
-		t.Fatalf("bundle get: %v", err)
-	}
-	if !slices.Contains(b.Losers, loser) {
-		t.Fatalf("competing root not reported as loser: %+v", b)
-	}
-
-	// A space read resolves it — the loser carries no messages, so
-	// nothing is worth keeping.
-	var got api.SpaceInfo
-	decodeGet(t, e, "/v1/spaces/"+created.Id, &got)
-	if got.GeneralChatObjectId != created.GeneralChatObjectId {
-		t.Fatalf("winner changed: %q vs %q", got.GeneralChatObjectId, created.GeneralChatObjectId)
-	}
-
-	after, err := sp.Bundles().Get(ctx, chat.GeneralChatBundleId)
-	if err != nil {
-		t.Fatalf("bundle get after: %v", err)
-	}
-	if len(after.Losers) != 0 {
-		t.Fatalf("loser not resolved: %+v", after.Losers)
-	}
-	// The claim itself is never retracted — the roots set is the
-	// add-only audit trail.
-	if !slices.Contains(after.Roots, loser) {
-		t.Fatalf("resolved loser dropped from roots: %+v", after.Roots)
-	}
-}
-
-// TestServer_GeneralChat_LoserWithMessagesKept pins the Keep guard:
-// chat messages cannot be merged (a copy re-attributes them), so a
-// loser that was written to is left alone instead of deleted.
-func TestServer_GeneralChat_LoserWithMessagesKept(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-	ctx := context.Background()
-
-	created := createSpaceInfo(t, e, "GeneralChatKeep")
-	sp, err := d.sdk.Spaces().Get(ctx, created.Id)
-	if err != nil {
-		t.Fatalf("get space: %v", err)
-	}
-
-	loser, err := sp.Objects().Create(ctx, space.CreateObjectOpts{Types: []string{chat.TypeId}})
-	if err != nil {
-		t.Fatalf("create competing root: %v", err)
-	}
-	if msg := chatSend(t, e, "/v1/spaces/"+created.Id+"/objects/"+loser, "written before the merge", ""); msg.Id == "" {
-		t.Fatalf("send to competing root: %+v", msg)
-	}
-	claimRoot(t, sp, chat.GeneralChatBundleId, loser)
-
-	var got api.SpaceInfo
-	decodeGet(t, e, "/v1/spaces/"+created.Id, &got)
-
-	after, err := sp.Bundles().Get(ctx, chat.GeneralChatBundleId)
-	if err != nil {
-		t.Fatalf("bundle get after: %v", err)
-	}
-	if !slices.Contains(after.Losers, loser) {
-		t.Fatalf("written-to loser was resolved away: %+v", after)
 	}
 }
 
@@ -225,5 +113,54 @@ func TestServer_DerivedSpace_BaoBundle(t *testing.T) {
 	}
 	if len(again.Roots) != 1 {
 		t.Fatalf("bao install repeated: %+v", again.Roots)
+	}
+}
+
+// TestServer_BundleChild covers the setup-child mechanism: a child
+// derived under a bundle root is deterministic per (root, seed), and
+// deriving it again returns the same object rather than a second one.
+func TestServer_BundleChild(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+
+	created := createSpaceInfo(t, e, "BundleChild")
+	sp, err := d.sdk.Spaces().Get(ctx, created.Id)
+	if err != nil {
+		t.Fatalf("get space: %v", err)
+	}
+	b, err := sp.Bundles().Get(ctx, chat.GeneralChatBundleId)
+	if err != nil {
+		t.Fatalf("bundle get: %v", err)
+	}
+
+	first, err := bundles.Child(ctx, sp, b.RootId, "test/child/v1", chat.TypeId)
+	if err != nil {
+		t.Fatalf("child: %v", err)
+	}
+	again, err := bundles.Child(ctx, sp, b.RootId, "test/child/v1", chat.TypeId)
+	if err != nil {
+		t.Fatalf("child again: %v", err)
+	}
+	if first != again {
+		t.Fatalf("child id not deterministic: %q vs %q", first, again)
+	}
+	if first == b.RootId {
+		t.Fatal("child collided with its root")
+	}
+
+	// A different seed under the same root is a different object.
+	other, err := bundles.Child(ctx, sp, b.RootId, "test/other/v1")
+	if err != nil {
+		t.Fatalf("second child: %v", err)
+	}
+	if other == first {
+		t.Fatalf("distinct seeds derived the same child: %q", other)
+	}
+
+	// An install with no winner has no root to hang children off.
+	if _, err := bundles.Child(ctx, sp, "", "test/child/v1"); err == nil {
+		t.Fatal("child accepted an empty root id")
 	}
 }

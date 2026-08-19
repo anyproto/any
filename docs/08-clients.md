@@ -128,11 +128,14 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 **Where `<chatObjectId>` comes from:** for "the chat of this space" —
 the common case — read `generalChatObjectId` off any single-space
 response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
-replies). It's derived deterministically per space and identical on
-every peer, so all clients share one chat instead of each creating
-their own. Only `POST /objects` a fresh chat object when you
-deliberately want an *additional*, purpose-specific one. Full guidance:
-`16-chat.md` § Finding the chat object.
+replies). One member installs it and everyone else adopts the same id,
+so all clients share one chat instead of each creating their own. On a
+member that has not received the install yet — a fresh joiner, or the
+receiving side of a 1-1 before it syncs — the field is absent: poll the
+space until it appears, never create a chat to fill the gap. Only
+`POST /objects` a fresh chat object when you deliberately want an
+*additional*, purpose-specific one. Full guidance: `16-chat.md`
+§ Finding the chat object.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -314,9 +317,12 @@ POST /v1/spaces/one-to-one
 The reply's `spaceType` is `"any.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
 but classify on `spaceType`). The same reply carries
-`generalChatObjectId` — the message thread of the 1-1. Both peers derive
-the identical id, so neither creates a chat object: write and subscribe
-there directly (§ 4).
+`generalChatObjectId` — the message thread of the 1-1 — once the pair
+has synced: a 1-1 has no owner to install the chat, so the two sides
+settle it by comparing identities and one of them adopts. Poll the
+space until the field is populated, then write and subscribe there
+directly (§ 4); never create a chat object of your own to fill the
+gap, or the conversation splits in two.
 
 **Discover incoming requests** — when someone reaches out to you, a
 *pending* row appears (surfaced automatically by the server's inbox
