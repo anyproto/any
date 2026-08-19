@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -108,17 +107,7 @@ filter flags are repeatable and AND across dimensions, OR within one;
 				filter.Add("target", v)
 			}
 			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
-			enc := json.NewEncoder(os.Stdout)
-			return cl.StreamEvents(cmd.Context(), filter, func(f client.SSEFrame) error {
-				if f.Event == "" {
-					return nil
-				}
-				out := struct {
-					Event string          `json:"event"`
-					Data  json.RawMessage `json:"data,omitempty"`
-				}{Event: f.Event, Data: json.RawMessage(f.Data)}
-				return enc.Encode(out)
-			})
+			return cl.StreamEvents(cmd.Context(), filter, jsonFrameHandler())
 		},
 	}
 	cmd.Flags().StringArrayVar(&scopes, "scope", nil, "scope filter (repeatable)")

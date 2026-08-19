@@ -875,6 +875,91 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.DeviceActivateRequest": {
+                "properties": {
+                    "app": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DeviceActiveClaim": {
+                "properties": {
+                    "at": {
+                        "type": "integer"
+                    },
+                    "seq": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DeviceInfo": {
+                "properties": {
+                    "activeClaims": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/api.DeviceActiveClaim"
+                        },
+                        "type": "object"
+                    },
+                    "apps": {
+                        "additionalProperties": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "os": {
+                        "type": "string"
+                    },
+                    "peerId": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DeviceUpdateRequest": {
+                "properties": {
+                    "apps": {
+                        "additionalProperties": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DevicesListResponse": {
+                "properties": {
+                    "active": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "devices": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DeviceInfo"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "self": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.Edge": {
                 "properties": {
                     "strength": {
@@ -2990,6 +3075,334 @@ const docTemplate = `{
                 "summary": "Local-network (p2p) layer snapshot (diagnostic, unstable)",
                 "tags": [
                     "debug"
+                ]
+            }
+        },
+        "/devices": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.DevicesListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the account's devices and per-app active winners",
+                "tags": [
+                    "devices"
+                ]
+            }
+        },
+        "/devices/activate": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DeviceActivateRequest",
+                                        "summary": "body",
+                                        "description": "App slug"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "App slug",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Claim the active role for an app on this device",
+                "tags": [
+                    "devices"
+                ]
+            }
+        },
+        "/devices/me": {
+            "put": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DeviceUpdateRequest",
+                                        "summary": "body",
+                                        "description": "Fields to set"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to set",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Update this device's registry row (name, installed apps)",
+                "tags": [
+                    "devices"
+                ]
+            }
+        },
+        "/devices/query": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.SpaceQueryObjectsRequest",
+                                        "summary": "body",
+                                        "description": "Query params"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Query params"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.QueryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Query the account's device registry (windowed)",
+                "tags": [
+                    "devices"
+                ]
+            }
+        },
+        "/devices/query/subscribe": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.SpaceQueryObjectsRequest",
+                                        "summary": "body",
+                                        "description": "Query params"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Query params"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "500": {
+                        "content": {
+                            "text/event-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Subscribe to the account's device registry (SSE)",
+                "tags": [
+                    "devices"
+                ]
+            }
+        },
+        "/devices/{peerId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Device peer id",
+                        "in": "path",
+                        "name": "peerId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a device from the registry (permanent for that peerId)",
+                "tags": [
+                    "devices"
                 ]
             }
         },

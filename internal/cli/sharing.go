@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,17 +23,7 @@ func newMembersCmd() *cobra.Command {
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cl := client.New(flags.Addr, 0)
-				enc := json.NewEncoder(os.Stdout)
-				return cl.StreamSubscribeMembers(cmd.Context(), args[0], func(f client.SSEFrame) error {
-					if f.Event == "" {
-						return nil
-					}
-					out := struct {
-						Event string          `json:"event"`
-						Data  json.RawMessage `json:"data,omitempty"`
-					}{Event: f.Event, Data: json.RawMessage(f.Data)}
-					return enc.Encode(out)
-				})
+				return cl.StreamSubscribeMembers(cmd.Context(), args[0], jsonFrameHandler())
 			},
 		},
 		&cobra.Command{

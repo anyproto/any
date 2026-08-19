@@ -258,6 +258,13 @@ func (d *deps) spaceCreate(c echo.Context) error {
 		SpaceType:   req.SpaceType,
 	})
 	if err != nil {
+		// SpaceType allow-list rejection. Notably hit by clients still
+		// sending the pre-rename "anytype.space" literal.
+		if errors.Is(err, space.ErrBadSpaceType) {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"unsupported spaceType (allowed: any.space or empty)",
+				map[string]any{"spaceType": req.SpaceType})
+		}
 		return spaceError(c, err, "")
 	}
 	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
