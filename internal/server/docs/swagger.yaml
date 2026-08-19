@@ -609,8 +609,11 @@ components:
     api.DatasetSearchFields:
       description: |-
         Search is the optional search-extraction annotation (x-search):
-        which record fields feed the search index's title/text.
+        which record fields feed the search index's title/text, and
+        optionally which index scope the entries land under.
       properties:
+        scope:
+          type: string
         text:
           type: string
         title:

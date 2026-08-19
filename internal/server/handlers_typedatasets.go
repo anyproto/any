@@ -177,13 +177,14 @@ var datasetDefMutablePaths = map[string]struct{}{
 	"displayName":  {},
 	"search.title": {},
 	"search.text":  {},
+	"search.scope": {},
 }
 
-const datasetDefMutableHint = "path is pinned; mutable paths: description, displayName, search.title, search.text"
+const datasetDefMutableHint = "path is pinned; mutable paths: description, displayName, search.title, search.text, search.scope"
 
 // typePatchDataset handles PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
-// Mutable paths: description, displayName, search.title, search.text.
-// Pinned paths return 400 dataset.immutable.
+// Mutable paths: description, displayName, search.title, search.text,
+// search.scope. Pinned paths return 400 dataset.immutable.
 //
 //	@Summary	Patch a dataset definition's display fields
 //	@Tags		types
@@ -229,6 +230,11 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 		if err := json.Unmarshal(raw, &val); err != nil {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"value must be a JSON string", map[string]any{"path": path})
+		}
+		if path == "search.scope" && !index.ValidScope(val) {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"search.scope must be a slug (lowercase letters, digits, _ or -; max 64)",
+				map[string]any{"path": path})
 		}
 		patch.Set[path] = val
 	}
@@ -538,7 +544,10 @@ func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, strin
 		return draft, "request.invalid_field", `deleteBy must be "anyone" or "author"`
 	}
 	if req.Search != nil {
-		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: req.Search.Text}
+		if req.Search.Scope != "" && !index.ValidScope(req.Search.Scope) {
+			return draft, "request.invalid_field", "search.scope must be a slug (lowercase letters, digits, _ or -; max 64)"
+		}
+		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: req.Search.Text, Scope: req.Search.Scope}
 	}
 	for _, f := range req.Fields {
 		fd, code, reason := datasetFieldDraftFromAPI(f)
@@ -632,7 +641,7 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		InvalidReason: def.InvalidReason,
 	}
 	if def.Search != nil {
-		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: def.Search.Text}
+		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: def.Search.Text, Scope: def.Search.Scope}
 	}
 	for _, f := range def.Fields {
 		scope := f.Scope
