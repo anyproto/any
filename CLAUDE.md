@@ -1021,8 +1021,7 @@ Implementation slices landed:
     instead of a silent 204). CLI: `any space derived
     [create <name>]`. e2e: internal/e2e/derived_spaces_test.go.
     Contract: docs/03-api.md § Spaces → Derived spaces,
-    docs/06-errors.md. **SDK prerequisite (branch
-    cheggaaa/syn-164-derived-space-delete-guard, pseudo-versioned):**
+    docs/06-errors.md. **SDK prerequisite (shipped in v0.2.1):**
     Delete guards + `ErrIsDerivedSpace` + `SpaceInfo.Derived` +
     `DeriveRequest.Name`.
 
