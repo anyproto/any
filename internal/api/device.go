@@ -14,7 +14,7 @@ package api
 //
 // ActiveClaims carries this device's per-app claim to be the app's
 // active instance. Winners are resolved reader-side — see
-// DevicesListResponse.Active and docs/21-devices.md § Election.
+// DevicesListResponse.Active and docs/23-devices.md § Election.
 type DeviceInfo struct {
 	PeerId  string `json:"peerId"`
 	Name    string `json:"name,omitempty"`

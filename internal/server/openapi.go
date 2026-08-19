@@ -62,7 +62,7 @@ var strictBodySchemas = []string{
 	"api.PushTokenSetRequest",
 	"api.SpaceOneToOneRequest",
 	"api.SpaceRegisterIncomingRequest",
-	"api.UICommand",
+	"api.EventPublishRequest",
 	"api.EnrichedDataCreateRequest",
 	"api.EnrichApplyRequest",
 }

@@ -17,7 +17,7 @@ import (
 // peerId. Like the space list it lives on the tech-space index object
 // and is system-owned — reads go through the endpoints below, writes
 // only through the restricted self-row surface (never the generic
-// modify path). See docs/21-devices.md.
+// modify path). See docs/23-devices.md.
 const DevicesDataset = "devices"
 
 // registerDevicesRoutes wires the account-global device registry.

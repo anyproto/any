@@ -156,7 +156,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 var engineLog = logger.NewNamed("engine")
 
 // registerDevice upserts THIS device's row in the account's tech-space
-// devices registry (docs/21-devices.md): os and version are stamped
+// devices registry (docs/23-devices.md): os and version are stamped
 // fresh on every boot, the display name is seeded from the hostname
 // only while the row has no name (PUT /v1/devices/me owns it
 // afterwards). It waits for the SDK's bootstrap pass first: before

@@ -98,7 +98,7 @@ install flags and the active-instance election. `os`/`version` are
 server-stamped on boot; `register` only sets the caller-owned fields.
 `remove` is guarded by `--yes` because tombstones are sticky — a pruned
 peer id can never re-register. Election contract and decision matrix:
-[devices](21-devices.md).
+[devices](23-devices.md).
 
 ### Spaces
 
@@ -457,6 +457,39 @@ wrapper as `any subscribe`:
 {"event": "status",  "data": {"spaceId":"…","state":"syncing", … }}
 {"event": "lagged",  "data": {"total": 3}}
 {"event": "closed",  "data": {"reason": "server_shutdown"}}
+```
+
+### Events
+
+```
+any events publish --type TYPE [--scope device|account|space] [--space ID]
+                   [--target X] [--data JSON|@FILE|-]    # POST /v1/events
+any events subscribe [--scope S]... [--type T]... [--space ID]... [--target X]...
+                                                          # GET /v1/events/subscribe (SSE)
+```
+
+The account-wide ephemeral event bus (full contract:
+`docs/21-events.md`). `--scope` defaults to `device`; `account` reaches
+every device of the account, `space` (with `--space`) every member of
+the space, both over the SDK pub/sub. `publish` prints the
+`{subscribers}` reply (local matches; 0 = nobody listening, still
+success). `subscribe` filter flags are repeatable — AND across
+dimensions, OR within one; `--type` takes an exact type or a `x.*`
+prefix — and it emits one JSON object per SSE frame on stdout, same
+wrapper as `any subscribe`:
+
+```
+{"event": "ready",  "data": {}}
+{"event": "event",  "data": {"type":"ui.open_space","scope":"device","data":{…},"sender":{…}}}
+{"event": "closed", "data": {"reason": "server_shutdown"}}
+```
+
+UI navigation example (the retired `any ui` surface):
+
+```
+any events publish --type ui.open_space  --data '{"spaceId":"SPACE"}'
+any events publish --type ui.open_object --data '{"spaceId":"SPACE","objectId":"OBJ"}'
+any events subscribe --type ui.*
 ```
 
 ### Push notifications

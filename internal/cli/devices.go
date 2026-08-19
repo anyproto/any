@@ -13,7 +13,7 @@ import (
 // `any devices ...` — the account's device registry: one tech-space
 // row per device (peer) with per-app install flags and the
 // active-instance claims (SYN-165). Account-scoped — not tied to any
-// single space. See docs/21-devices.md for the election contract.
+// single space. See docs/23-devices.md for the election contract.
 func newDevicesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "devices",
