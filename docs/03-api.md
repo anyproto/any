@@ -359,12 +359,12 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
-`SpaceInfo` also carries `generalChatObjectId`: the deterministic id of
-the space's single general chat object (see § Chat → General chat).
-Same single-space-only surfacing as `spaceIndexObjectId` — populated on
-create / get / one-to-one / join responses (deriving, i.e.
-materializing, the chat on first sight), omitted on `GET /v1/spaces`
-list rows so listing stays a cheap read.
+`SpaceInfo` also carries `generalChatObjectId`: the id of the space's
+single general chat object (see § Chat → General chat). Same
+single-space-only surfacing as `spaceIndexObjectId` — populated on
+create / get / one-to-one / join responses (installing the chat on
+first sight), omitted on `GET /v1/spaces` list rows so listing stays a
+cheap read.
 
 `SpaceInfo` also carries `agentConfigObjectId` and
 `agentSecretsObjectId`: the deterministic ids of the space's single
@@ -488,6 +488,42 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   the registry id is the convergence point going forward; move or
   re-import content from the legacy space, don't alternate between
   them.
+
+#### Space setup bundles
+
+What a space has installed lives in the SDK's per-space **bundles
+registry** (the `bundles` dataset on the spaceIndex object — design in
+the SDK's `docs/bundles.md`). One row per install: a permanent
+versioned id (`bao/v1`, `general-chat/v1`), a display name, the
+winning `rootId` and the add-only `roots` set of every root ever
+claimed. `any` installs two:
+
+| Bundle | Root |
+|---|---|
+| `general-chat/v1` | the space's general chat object (every space) |
+| `bao/v1` | bao's setup root (the derived `bao` space only) |
+
+There is no HTTP write surface — installs are server-side. Reading is
+the generic dataset surface: `POST /v1/spaces/:spaceId/query` with
+`{"objectId": "<spaceIndexObjectId>", "dataset": "bundles"}`, live via
+`…/query/subscribe`.
+
+Why a registry rather than another derived object: a root that carries
+data must be a *deletable* object, and two devices installing while
+apart mint two of them. The registry picks one deterministic winner and
+keeps the other discoverable, so the loser can be merged and cleaned up
+instead of silently shadowing content. Setup objects hang off the
+winner as derived children, so the one root id names the whole install
+and deleting a losing root cascade-deletes its children.
+
+Creation and restore are split (`internal/server/derivedsetup.go`):
+`POST /v1/spaces/derived/:name` installs immediately (the space id is
+local knowledge, no sync gate), while a restored device's boot pass
+waits for the account's space list to converge, adopts only spaces it
+already has, waits for the space index to project, and then adopts the
+registered install. Both ends are the same idempotent operation, so an
+offline device that installs anyway still converges — its root simply
+becomes a loser and is resolved after sync.
 
 CLI: `any space derived` (list) / `any space derived create <name>`.
 
@@ -1876,22 +1912,33 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
-**General chat.** Every space has one deterministic "general" chat
-object, derived from a fixed seed (`chat.GeneralChatSeed`,
-`any/general-chat/v1`) — the same objects/derive primitive the brain
-(`/agent/brain`) uses. There is no bespoke resolver endpoint: the id is
-delivered as `generalChatObjectId` on every single-space `SpaceInfo`
-response (create / get / one-to-one / join) — the same common point
-that carries `spaceIndexObjectId` (§ Spaces). The first single-space
-response materializes the object (the `chat` type is attached then, so
-the id accepts `chat/messages` writes immediately); it is omitted from
-`GET /v1/spaces` list rows, which stay a cheap read that never
-materializes chats. Clients should write and read this shared chat
-instead of creating their own chat object per client — otherwise a
-space accumulates two or three parallel chats depending on which client
-spoke first, most visibly in 1-1 direct spaces. Deterministic
-derivation means a joiner computes the same id the creator did, so the
-locally derived object and the CRDT-replicated one converge.
+**General chat.** Every space has one "general" chat object, installed
+as the `general-chat/v1` bundle in the space's bundles registry
+(§ Space setup bundles). There is no bespoke resolver endpoint: the id
+is delivered as `generalChatObjectId` on every single-space
+`SpaceInfo` response (create / get / one-to-one / join) — the same
+common point that carries `spaceIndexObjectId` (§ Spaces). The first
+single-space response installs the object (the `chat` type is attached
+at creation, so the id accepts `chat/messages` writes immediately); it
+is omitted from `GET /v1/spaces` list rows, which stay a cheap read
+that never installs chats. Clients read the id from the response and
+never compute it — writing to a chat object of their own makes a space
+accumulate parallel chats, most visibly in 1-1 direct spaces.
+
+**Only the space's author installs it.** Other members adopt what the
+author registered and get an empty `generalChatObjectId` until that row
+reaches them — two members installing before they had seen each other
+would split the conversation across two chat objects, and chat messages
+cannot be merged back (a copy re-attributes them). So a fresh joiner,
+and the receiving side of a 1-1 before it syncs, may see the field
+absent; re-read it rather than creating a chat.
+
+The id is stable once installed but **provisional until the space
+syncs**: two of the author's own devices reaching the space while apart
+each install a chat, the registry converges on one winner, and the
+losing object is deleted (or, if it already carried messages, kept and
+left out of `generalChatObjectId`). Clients re-read the field after a
+sync rather than caching it forever.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

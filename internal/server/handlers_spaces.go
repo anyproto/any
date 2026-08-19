@@ -14,6 +14,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/agentconfig"
 	"github.com/anyproto/any/internal/agentsecrets"
+	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -273,7 +274,7 @@ func (d *deps) spaceCreate(c echo.Context) error {
 		}
 		return spaceError(c, err, "")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // @Summary	List spaces
@@ -351,7 +352,7 @@ func (d *deps) spaceGet(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(ctx, sp))
+	return c.JSON(http.StatusOK, d.spaceToAPI(ctx, sp))
 }
 
 // spaceUpdate handles PATCH /v1/spaces/:spaceId.
@@ -458,7 +459,7 @@ func (d *deps) spaceOneToOne(c echo.Context) error {
 	if err != nil {
 		return oneToOneError(c, err, "otherIdentity")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneAccept handles POST /v1/spaces/:spaceId/one-to-one/accept
@@ -479,7 +480,7 @@ func (d *deps) spaceOneToOneAccept(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusOK, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneDecline handles POST /v1/spaces/:spaceId/one-to-one/decline
@@ -558,7 +559,7 @@ func (d *deps) spaceInviteAccept(c echo.Context) error {
 	id := c.Param("spaceId")
 	sp, err := d.sdk.Spaces().AcceptInvite(c.Request().Context(), id)
 	if err == nil {
-		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
+		return c.JSON(http.StatusOK, d.spaceToAPI(c.Request().Context(), sp))
 	}
 	// spaceimpl.ErrInviteAcceptPending is internal-only; match the
 	// documented error string (same pragmatic pattern as spaceJoin).
@@ -727,17 +728,17 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 
 // spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates
 // SpaceIndexObjectId from the resident space handle, plus
-// GeneralChatObjectId by deriving (materializing on first sight) the
-// space's single general chat, so single-space responses always carry
-// both. This is the one place every single-space path (create / get /
+// GeneralChatObjectId by installing (on first sight) the space's
+// single general chat, so single-space responses always carry both.
+// This is the one place every single-space path (create / get /
 // one-to-one / join) funnels through, so it's where "every space has a
-// chat" is enforced. Derive is best-effort: on failure the field is
-// omitted rather than failing the whole response (mirrors the list
+// chat" is enforced. Resolution is best-effort: on failure the field
+// is omitted rather than failing the whole response (mirrors the list
 // path's tolerance for a missing SpaceIndexObjectId).
-func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
+func (d *deps) spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out := spaceInfoToAPI(sp.Info())
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
-	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
+	if id, err := d.generalChatObjectId(ctx, sp); err == nil {
 		out.GeneralChatObjectId = id
 	}
 	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
@@ -747,6 +748,46 @@ func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 		out.AgentSecretsObjectId = id
 	}
 	return out
+}
+
+// generalChatObjectId resolves the space's general chat through its
+// bundle registry record, installing it on first sight and adopting
+// the converged winner afterwards (any-sync-sdk docs/bundles.md).
+// Idempotent — an adopted install is a local read that writes nothing.
+//
+// Only the space's author installs. Every other member adopts what the
+// author registered, and reports nothing until it arrives: two members
+// installing before they have seen each other's registry row would
+// split the space's conversation across two chat objects, and chat
+// messages cannot be merged back (a copy re-attributes them). The
+// author is unambiguous and needs no coordination, so it is the one
+// writer. Callers re-read after a sync.
+//
+// A non-empty loser set means two of the account's devices installed
+// concurrently; resolution runs inline because it is rare, cheap and
+// self-healing — every space read retries it until the losing root has
+// synced far enough to be deleted. Its failure never fails the
+// response.
+func (d *deps) generalChatObjectId(ctx context.Context, sp space.Space) (string, error) {
+	inst := chat.GeneralChatInstall()
+	if d.account == "" || sp.Info().Author != d.account {
+		b, err := sp.Bundles().Get(ctx, inst.Id)
+		if err != nil {
+			return "", err
+		}
+		return b.RootId, nil
+	}
+	b, err := bundles.Ensure(ctx, sp, inst)
+	if err != nil {
+		return "", err
+	}
+	if len(b.Losers) > 0 {
+		if _, err := bundles.ResolveLosers(ctx, sp, inst, b); err != nil {
+			handlerLog.Warn("general chat loser resolution deferred",
+				zap.String("spaceId", sp.Id()), zap.Error(err))
+		}
+	}
+	return b.RootId, nil
 }
 
 func spaceStatusString(s space.Status) string {

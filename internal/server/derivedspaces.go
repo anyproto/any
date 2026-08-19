@@ -6,6 +6,9 @@ import (
 
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
+
+	"github.com/anyproto/any/internal/bao"
+	"github.com/anyproto/any/internal/bundles"
 )
 
 // The embedded derived-space registry: the closed vocabulary of
@@ -19,7 +22,7 @@ import (
 //
 // Adding an entry: pick a short slug and a versioned seed following
 // the `any/space/<name>/v1` convention (same scheme as the derived
-// in-space objects — chat.GeneralChatSeed etc.). Seeds are forever:
+// in-space objects — agentmem.BrainSeed etc.). Seeds are forever:
 // never change or reuse one — bump the version suffix for a
 // successor space instead. Removing an entry stops advertising the
 // name; it deletes nothing (nothing can).
@@ -34,11 +37,18 @@ type derivedSpaceDef struct {
 	// Seed feeds space.DeriveRequest.Seed. Deterministic per account:
 	// same account + same seed = same spaceId on every device.
 	Seed string
+	// Install is the space's setup, registered in its bundles
+	// registry (derivedsetup.go). Zero value (empty Id) = the space
+	// carries no setup of its own.
+	Install bundles.Install
 }
+
+// hasInstall reports whether the entry carries a setup bundle.
+func (d derivedSpaceDef) hasInstall() bool { return d.Install.Id != "" }
 
 var derivedSpaceDefs = []derivedSpaceDef{
 	// bao — the account's agent space (bobrik and friends).
-	{Name: "bao", DisplayName: "bao", Seed: "any/space/bao/v1"},
+	{Name: "bao", DisplayName: "bao", Seed: "any/space/bao/v1", Install: bao.Install()},
 }
 
 // resolvedDerivedSpace is a registry entry resolved against the booted

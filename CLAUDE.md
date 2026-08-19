@@ -697,29 +697,23 @@ Implementation slices landed:
       `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
       `PropertyOption`; exported `space.ErrPinnedField` +
       `typetype.IsPinnedPath`. Docs: 03-api.md § Types, 01-cli.md § Types.
-24. **Per-space general chat** — every space now has one deterministic
-    "general" chat object, derived from a fixed seed
-    (`chat.GeneralChatSeed` = `any/general-chat/v1`, `internal/chat/general.go`)
-    via `Objects().Derive` — the same idempotent primitive
-    `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
-    "the chat for this space" (the only case for a 1-1) otherwise each
-    `Objects().Create` a fresh chat, so a space ends up with two or three
-    parallel chats. Surface: NO bespoke endpoint — the id is delivered
-    through the existing common per-space metadata point:
+24. **Per-space general chat** — every space has one "general" chat
+    object (`internal/chat/general.go`), installed as the
+    `general-chat/v1` bundle in the space's bundles registry (see item
+    34). Motivation: clients that want "the chat for this space" (the
+    only case for a 1-1) otherwise each `Objects().Create` a fresh
+    chat, so a space ends up with two or three parallel chats. Surface:
+    NO bespoke endpoint — the id is delivered through the existing
+    common per-space metadata point:
     `SpaceInfo.generalChatObjectId`, populated on every single-space
-    response by `spaceToAPI` (takes a ctx, derives best-effort —
-    materializing the object on first sight, chat type attached, so the
-    id accepts `chat/messages` writes immediately) — create / get /
-    one-to-one / join. Omitted on `GET /v1/spaces` list rows (kept a
-    cheap read that never materializes chats), same policy as
-    `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
-    the creator did, so local + CRDT-replicated converge. CLI: read it
-    off `any space get <spaceId>`. Contract: docs/03-api.md § Chat
-    (General chat) + § Spaces, docs/01-cli.md § Chat, docs/16-chat.md
-    § Finding the chat object. Because the tree is materialized locally
-    on every peer (derive → PutTree, never a remote fetch), the general
-    chat cannot hit the joined-space "BuildTree: tree does not exist"
-    mode (fixed separately by the SDK v0.1.6 bump).
+    response by `spaceToAPI` (takes a ctx, resolves best-effort —
+    installing the object on first sight, chat type attached at
+    creation, so the id accepts `chat/messages` writes immediately) —
+    create / get / one-to-one / join. Omitted on `GET /v1/spaces` list
+    rows (kept a cheap read that never installs chats), same policy as
+    `spaceIndexObjectId`. CLI: read it off `any space get <spaceId>`.
+    Contract: docs/03-api.md § Chat (General chat) + § Spaces,
+    docs/01-cli.md § Chat, docs/16-chat.md § Finding the chat object.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
     `internal/api/history.go`; routes wired in `handlers_spaces.go`).
@@ -1024,6 +1018,58 @@ Implementation slices landed:
     docs/06-errors.md. **SDK prerequisite (shipped in v0.2.1):**
     Delete guards + `ErrIsDerivedSpace` + `SpaceInfo.Derived` +
     `DeriveRequest.Name`.
+
+35. **Space setup bundles** — space setup now goes through the SDK's
+    per-space bundles registry (`Space.Bundles()`, the `bundles`
+    dataset on the spaceIndex object; design in the SDK's
+    `docs/bundles.md`), replacing derive-only setup for anything whose
+    root has to carry data. A derived root cannot be deleted, so two
+    devices installing while apart would leave a permanent shadow
+    install; the registry instead picks one deterministic winner
+    (`rootId`, LWW) and keeps every claim in the add-only `roots` set,
+    so a loser is discoverable, mergeable and deletable. Setup objects
+    hang off the winner as derived children (`ParentId`), so one id
+    names the whole install and deleting a losing root cascades.
+    - `internal/bundles` — the app-side wrapper: `Install{Id, Name,
+      RootTypes, Merge, Keep}`, `Ensure` (adopt-or-install; a
+      non-derived root via `Objects().Create`), `ResolveLosers`
+      (Keep-guard → Merge → `ResolveLoser`, all idempotent and
+      retryable), `Child` (derive a setup object under the root).
+    - Installs: `general-chat/v1` (`internal/chat/general.go`, every
+      space — the chat object IS the root, `Merge` nil because
+      `chat_messages` re-attribute on copy, `Keep` refuses to delete a
+      loser that already carries messages) and `bao/v1`
+      (`internal/bao`, the derived bao space's setup root, no children
+      yet — memory/config/secrets still live on their own space-derived
+      objects).
+    - Creation/restore split (`internal/server/derivedsetup.go`):
+      `POST /v1/spaces/derived/:name` installs immediately (no sync
+      gate — the space id is local knowledge), while the boot pass
+      (`bootstrapDerivedSetups`, off `bootAccount` after
+      `BootstrapDone`) does the restore side — `WaitListSynced` (90s
+      bound) → adopt ONLY spaces the account already has (it never
+      materializes one) → `WaitIndexSynced` (90s bound) → `Ensure`.
+      Both bounds fall through to the local answer, so an offline boot
+      never hangs and never blocks serving; an offline device that
+      installs anyway converges (its root becomes a loser).
+    - Loser resolution: inline on every space read for the chat bundle
+      (rare, cheap, self-healing) and a bounded backoff loop for the
+      derived-space installs — the SDK can only delete a loser whose
+      tree has synced here.
+    - `SpaceInfo.generalChatObjectId` resolves through the bundle
+      winner; the old `any/general-chat/v1` derived chat is gone with
+      no fallback, so existing installs get a fresh general chat and
+      their legacy one is abandoned in place (still readable as an
+      ordinary object). **Only the space's author installs** (`d.account
+      == sp.Info().Author`); every other member adopts the registered
+      row and reports an empty field until it syncs in — two members
+      installing before they had seen each other would split the
+      conversation across two chats, which chat messages cannot be
+      merged back out of. Tests:
+      internal/server/handlers_bundles_test.go (install, adopt,
+      loser resolved, loser-with-messages kept),
+      internal/e2e/derived_spaces_test.go. Contract: docs/03-api.md
+      § Space setup bundles + § Chat (General chat), docs/16-chat.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

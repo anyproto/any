@@ -59,13 +59,17 @@ type SpaceRegisterIncomingRequest struct {
 // updates. Omitted when the server can't resolve a Space handle for
 // this row (e.g. tombstoned entries in `GET /v1/spaces`).
 //
-// GeneralChatObjectId is the deterministic id of the space's single
-// "general" chat object (see chat.GeneralChatSeed). Populated —
-// materializing the object on first sight — on single-space responses
+// GeneralChatObjectId is the id of the space's single "general" chat
+// object — the winning root of the `general-chat/v1` bundle in the
+// space's bundles registry (chat.GeneralChatBundleId). Populated —
+// installing the chat on first sight — on single-space responses
 // (create / get / one-to-one / join); omitted on the `GET /v1/spaces`
-// list rows, which stay a cheap read that never materializes chats.
-// Clients should write to and read this chat rather than creating
-// their own, so a space keeps exactly one chat.
+// list rows, which stay a cheap read that never installs chats.
+// Clients read the id from here and never compute it: it converges to
+// one winner across the account's devices, so a space keeps exactly
+// one chat. Only the space's author installs it — other members adopt
+// the registered row, so the field can be absent on a fresh joiner
+// until that row syncs in.
 //
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry

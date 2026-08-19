@@ -8,18 +8,18 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestServer_GeneralChat_Derive verifies the per-space "general" chat
+// TestServer_GeneralChat_Resolve verifies the per-space "general" chat
 // object delivered through SpaceInfo: the single-space create and get
-// responses carry the same deterministic id in GeneralChatObjectId
-// (stable across calls), and the derived object accepts chat messages
-// (its chat type was attached on first derive).
-func TestServer_GeneralChat_Derive(t *testing.T) {
+// responses carry the same id in GeneralChatObjectId (stable across
+// calls), and the object accepts chat messages (its chat type was
+// attached at creation).
+func TestServer_GeneralChat_Resolve(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 
 	// Create a space; the create response must already carry the
-	// general chat id (spaceToAPI derives it on first sight).
+	// general chat id (spaceToAPI installs it on first sight).
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"GeneralChatTest"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create space: %d %s", rec.Code, rec.Body.String())
@@ -39,23 +39,23 @@ func TestServer_GeneralChat_Derive(t *testing.T) {
 	decodeGet(t, e, "/v1/spaces/"+spaceId, &g1)
 	decodeGet(t, e, "/v1/spaces/"+spaceId, &g2)
 	if g1.GeneralChatObjectId == "" || g1.GeneralChatObjectId != g2.GeneralChatObjectId {
-		t.Fatalf("general chat id not deterministic: %q vs %q", g1.GeneralChatObjectId, g2.GeneralChatObjectId)
+		t.Fatalf("general chat id not stable: %q vs %q", g1.GeneralChatObjectId, g2.GeneralChatObjectId)
 	}
 	if g1.GeneralChatObjectId != created.GeneralChatObjectId {
 		t.Fatalf("space GET id %q != create response id %q", g1.GeneralChatObjectId, created.GeneralChatObjectId)
 	}
 
-	// The derived object accepts chat writes — the chat type was
-	// attached on first derive, so no explicit object create is needed.
+	// The chat object accepts writes — its chat type was attached at
+	// creation, so no explicit object create is needed.
 	msgBase := "/v1/spaces/" + spaceId + "/objects/" + g1.GeneralChatObjectId
 	msg := chatSend(t, e, msgBase, "hello general", "")
 	if msg.Id == "" || msg.Text != "hello general" {
 		t.Fatalf("send to general chat: %+v", msg)
 	}
 
-	// Resolving the space must not write: the SDK's Derive is
-	// idempotent in the DAG (types already attached ⇒ no change), so
-	// repeated space GETs leave the chat object's change count alone.
+	// Resolving the space must not write: an adopted bundle is a local
+	// read, so repeated space GETs leave the chat object's change
+	// count alone.
 	debugPath := "/v1/spaces/" + spaceId + "/debug/objects/" + g1.GeneralChatObjectId
 	var before api.ObjectDebugResponse
 	decodeGet(t, e, debugPath, &before)

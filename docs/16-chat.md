@@ -9,10 +9,17 @@ live in `03-api.md § Chat`; this doc is about using them correctly.
 Most clients want "the chat for this space" — a single well-known chat,
 not one per client. Read `generalChatObjectId` off any single-space
 response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
-replies — CLI `any space get <spaceId>`); that id is derived
-deterministically from a fixed seed, materialized on the first
-single-space response, and identical for every peer. Use it as the
-`<objectId>` in every endpoint below. Do **not**
+replies — CLI `any space get <spaceId>`); the chat is installed on the
+first single-space response as the `general-chat/v1` bundle
+(`03-api.md § Space setup bundles`) and converges to one object across
+the account's devices. Only the space's author installs it, so on a
+fresh joiner (and on the receiving side of a 1-1) the field can be
+absent until the author's registry row syncs in — re-read, don't
+create. Re-read after a sync in general rather than caching the id
+forever: a device that installed the chat while apart from its
+siblings can lose the race, and the winner is the id the others
+already use. Use it as the `<objectId>` in every endpoint below. Do
+**not**
 `POST /objects` a fresh chat per client — a space would then carry two
 or three parallel chats depending on who spoke first (the failure mode
 this field exists to prevent, most visible in 1-1 direct spaces).

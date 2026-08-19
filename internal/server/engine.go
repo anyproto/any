@@ -230,6 +230,10 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.derived = eng.derived
 	d.ready.Store(true)
 	go d.holdProcessInterest()
+	// Restore side of the setup split: adopt the installs of the
+	// well-known derived spaces this account already has
+	// (derivedsetup.go). Never creates a space; never blocks serving.
+	go d.bootstrapDerivedSetups(d.shutdownCtx)
 	return eng, nil
 }
 
