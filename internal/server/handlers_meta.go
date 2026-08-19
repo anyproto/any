@@ -46,6 +46,10 @@ type deps struct {
 	// explicit wiring — it has no engine/SDK dependency.
 	eventsOnce sync.Once
 	events     *eventHub
+	// procs is the live process view over process.* events
+	// (GET /v1/processes) — created in the same once as the hub so its
+	// tap never misses a publish. Access via processes().
+	procs *processRegistry
 
 	// bridge refcounts SSE event filters into SDK pub/sub interests for
 	// the account/space scopes (created lazily via eventsNet — only

@@ -307,6 +307,14 @@ The consumer of the chunker feed: a background service started by
 any-store database at `<data-dir>/index/index.db`, plus the
 `POST /v1/spaces/:spaceId/search` endpoint and `any search` CLI.
 
+**Observability**: the indexer reports its long-running work onto the
+process view (`GET /v1/processes`, docs/22-processes.md § Internal
+producers) as device-scope processes — `index.fts.<spaceId>` (chunk
+backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
+`index.model_download` (bytes) — so clients can render progress for
+"search is still catching up" instead of guessing from empty results
+(`Options.OnProcess`, bridged in `internal/server/engine.go`).
+
 ### Store layout
 
 - **One collection per space** (named by spaceId). Doc shape:

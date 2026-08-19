@@ -37,6 +37,12 @@ type modelDownload struct {
 	sha    string // expected hex sha256; "" = skip verification (logged once)
 	lg     logger.CtxLogger
 	cancel context.CancelFunc
+	// rep reports the download onto the process view
+	// (ProcessKindModelDownload; Done/Total = bytes). Immediate gate:
+	// a download is long by definition and its absence — offline
+	// machine included — is exactly the state worth showing; the
+	// reporter's heartbeat keeps the row alive through retry backoffs.
+	rep *procReporter
 
 	mu    sync.Mutex
 	done  bool
@@ -47,7 +53,7 @@ type modelDownload struct {
 
 // startModelDownload spawns the download goroutine. Pass client=nil for
 // the default HTTP client (tests inject their own).
-func startModelDownload(url, dest, sha string, client *http.Client) *modelDownload {
+func startModelDownload(url, dest, sha string, client *http.Client, onProcess func(ProcessUpdate)) *modelDownload {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &modelDownload{
 		url:    url,
@@ -55,6 +61,8 @@ func startModelDownload(url, dest, sha string, client *http.Client) *modelDownlo
 		sha:    sha,
 		lg:     logger.NewNamed("indexer"),
 		cancel: cancel,
+		rep: newProcReporter(onProcess,
+			ProcessUpdate{Kind: ProcessKindModelDownload, Name: filepath.Base(dest)}, -1),
 	}
 	if client == nil {
 		client = &http.Client{} // no timeout: a 640MB body on slow links is legitimate
@@ -90,17 +98,22 @@ func (d *modelDownload) Close() {
 }
 
 func (d *modelDownload) run(ctx context.Context, client *http.Client) {
+	d.rep.begin() // announce up front — "still fetching the model" must be visible even offline
 	backoff := 5 * time.Second
 	for {
 		err := d.attempt(ctx, client)
 		if err == nil {
 			d.mu.Lock()
 			d.done = true
+			got, total := d.got, d.total
 			d.mu.Unlock()
 			d.lg.Info("local embedder: model downloaded", zap.String("dest", d.dest))
+			d.rep.progress(got, total, "")
+			d.rep.finish(ctx, nil)
 			return
 		}
 		if ctx.Err() != nil {
+			d.rep.finish(ctx, err) // terminal cancelled; the .part resumes next boot
 			return
 		}
 		d.mu.Lock()
@@ -108,6 +121,10 @@ func (d *modelDownload) run(ctx context.Context, client *http.Client) {
 		d.mu.Unlock()
 		d.lg.Warn("local embedder: model download failed, will retry",
 			zap.Duration("backoff", backoff), zap.Error(err))
+		// Not terminal — the download retries forever; the row stays
+		// running with a generic status (real error carries paths/
+		// response bodies and stays in the log above).
+		d.rep.progress(-1, -1, "download failed; retrying — see server log")
 		select {
 		case <-ctx.Done():
 			return
@@ -137,6 +154,13 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 			h = sha256.New()
 		}
 	}
+	// A previous run may have been interrupted between the last byte
+	// and the rename — if the .part already verifies, install it with
+	// no network round-trip (a Range request at the full size would
+	// draw a 416 and wedge the retry loop forever).
+	if offset > 0 && d.sha != "" && hex.EncodeToString(h.Sum(nil)) == d.sha {
+		return os.Rename(part, d.dest)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.url, nil)
 	if err != nil {
@@ -160,6 +184,18 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 			h = sha256.New()
 		}
 		offset = 0
+	case offset > 0 && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+		// The server says our offset is past the end — the .part is
+		// (at least) complete. With no pinned sha (the verified case
+		// installed above, pre-flight) trust the server; a pinned sha
+		// that failed the pre-flight check means corruption — restart.
+		if d.sha == "" {
+			d.lg.Warn("local embedder: server reports download complete; installing unverified .part",
+				zap.String("dest", d.dest))
+			return os.Rename(part, d.dest)
+		}
+		_ = os.Remove(part)
+		return fmt.Errorf("GET %s: %s (corrupt complete .part removed, restarting)", d.url, resp.Status)
 	default:
 		return fmt.Errorf("GET %s: %s", d.url, resp.Status)
 	}
@@ -171,6 +207,7 @@ func (d *modelDownload) attempt(ctx context.Context, client *http.Client) error 
 	d.mu.Lock()
 	d.got, d.total, d.err = offset, total, nil
 	d.mu.Unlock()
+	d.rep.progress(offset, total, "")
 
 	flags := os.O_CREATE | os.O_WRONLY
 	if offset > 0 {
@@ -221,6 +258,7 @@ func (d *modelDownload) stream(ctx context.Context, f *os.File, body io.Reader, 
 			d.mu.Unlock()
 			if time.Since(lastLog) > 5*time.Second {
 				lastLog = time.Now()
+				d.rep.progress(got, total, "")
 				if total > 0 {
 					d.lg.Info("local embedder: downloading model",
 						zap.Int64("percent", got*100/total),

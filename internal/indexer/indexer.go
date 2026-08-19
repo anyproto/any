@@ -50,6 +50,23 @@ type Options struct {
 	// PendingEvery is the embed loop's catch-up/retry tick (the nudge
 	// channel covers the normal path). Default 1m.
 	PendingEvery time.Duration
+	// OnProcess, when set, receives indexing lifecycle updates — per
+	// ProcessKind*, one started/progress*/terminal sequence per unit
+	// of work (embed drain, advance pass, model download). The server
+	// bridges these onto the process view (docs/22-processes.md);
+	// nil = no reporting. Called from indexer goroutines — must not
+	// block.
+	OnProcess func(ProcessUpdate)
+	// AnnounceAfter gates fts/embed reporting on elapsed work time: a
+	// pass/drain announces only once it has been running this long, so
+	// usual indexing (one message, one edit — done in well under a
+	// second) never flashes through the view. Time, not a queue-size
+	// threshold, because cost per doc varies ~50× with text length and
+	// hardware (measured: local CPU embeds ~13 short chat docs/s but
+	// ~2 long editor windows/s). Default 3s; negative = announce
+	// immediately (tests). The model download always announces — it is
+	// long by definition and its absence is the state worth showing.
+	AnnounceAfter time.Duration
 
 	// --- hybrid-search ranking knobs (chunker-hybrid-search-report § 5) ---
 
@@ -77,6 +94,60 @@ type Options struct {
 	StopWords bool
 }
 
+// ProcessUpdate phases — each work unit reports started once, then
+// progress (per landed batch / page / ~5s of download, plus a
+// periodic heartbeat while an embed call runs long), then exactly one
+// of done/failed/cancelled — cancelled when the owning context ends
+// mid-work (space dropped, shutdown).
+const (
+	ProcessStarted   = "started"
+	ProcessProgress  = "progress"
+	ProcessDone      = "done"
+	ProcessFailed    = "failed"
+	ProcessCancelled = "cancelled"
+)
+
+// ProcessUpdate kinds — which pipeline the update reports on.
+const (
+	// ProcessKindEmbed — a per-space vector drain: Done/Total count
+	// docs (Total from the pending count, re-read per round).
+	ProcessKindEmbed = "embed"
+	// ProcessKindFTS — a per-space chunk/advance pass: Done counts
+	// processed changes, Total is unknown (the change feed has no
+	// backlog count). Reported only past AnnounceAfter — routine
+	// debounced advances stay silent.
+	ProcessKindFTS = "fts"
+	// ProcessKindModelDownload — the embedding-model fetch: Done/Total
+	// are bytes (Total 0 until the server reports a length), Name the
+	// model file name. Account-global, not per-space.
+	ProcessKindModelDownload = "model_download"
+)
+
+// procHeartbeat paces the mid-work progress heartbeat: one embed call
+// or chunker page on slow hardware can exceed the process view's
+// staleness budget, and a stale row would flicker out mid-work.
+// procAnnounceTick is how often a running work unit re-checks the
+// AnnounceAfter gate, bounding announce latency past the threshold.
+// Both live in procReporter (process_report.go), shared by every
+// producer.
+const (
+	procHeartbeat    = 10 * time.Second
+	procAnnounceTick = 500 * time.Millisecond
+)
+
+// ProcessUpdate is one Options.OnProcess report. Message carries the
+// failure detail on ProcessFailed (log-grade — the server never puts
+// it on the wire), empty otherwise.
+type ProcessUpdate struct {
+	Kind    string // ProcessKind*
+	SpaceId string // per-space kinds; empty for model download
+	Name    string // model file name (model download only)
+	Phase   string
+	Done    int64
+	Total   int64 // 0 = unknown
+	Message string
+}
+
 func (o Options) withDefaults() Options {
 	if o.BatchLimit <= 0 {
 		o.BatchLimit = 256
@@ -95,6 +166,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.PendingEvery <= 0 {
 		o.PendingEvery = time.Minute
+	}
+	if o.AnnounceAfter == 0 {
+		o.AnnounceAfter = 3 * time.Second
 	}
 	if o.FtsWeight <= 0 {
 		o.FtsWeight = 1

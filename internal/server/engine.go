@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
@@ -13,6 +15,7 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
@@ -30,6 +33,9 @@ type engine struct {
 	indexer *indexer.Indexer
 	push    *push.Service
 	account string
+	// procRelease drops the standing account-scope pub/sub interest
+	// for process.* broadcasts (acquired in bootAccount, best-effort).
+	procRelease func()
 }
 
 // errAlreadyAuthorized guards double-boot via POST /v1/auth.
@@ -56,7 +62,7 @@ type walletSeed struct {
 // half-initialized account (especially a generated one whose phrase
 // was never surfaced to the caller) would linger and be auto-selected
 // on the next start.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry) (eng *engine, err error) {
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate)) (eng *engine, err error) {
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create account dir %s: %w", id.Dir, err)
 	}
@@ -122,7 +128,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 
 	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
-		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers)
+		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers, onProcess)
 		if err != nil {
 			return nil, fmt.Errorf("open indexer: %w", err)
 		}
@@ -204,7 +210,7 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	if d.ready.Load() {
 		return nil, errAlreadyAuthorized
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers, d.indexerProcess)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +220,118 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.push = eng.push
 	d.account = eng.account
 	d.ready.Store(true)
+	go d.holdProcessInterest()
 	return eng, nil
+}
+
+// holdProcessInterest acquires the standing account-scope interest for
+// process.* broadcasts (ev/process/>), so this account's other
+// devices' processes materialize in the view with no local SSE
+// subscriber. Space-scope coverage stays subscriber-driven
+// (docs/22-processes.md § Remote visibility). Retries with backoff
+// until acquired or shutdown — unlike an SSE client, this interest
+// has no reconnect path, so a one-shot attempt could silently cost
+// remote visibility for the whole process lifetime.
+func (d *deps) holdProcessInterest() {
+	ctx := d.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var done <-chan struct{}
+	if d.shutdownCtx != nil {
+		done = d.shutdownCtx.Done()
+	}
+	backoff := 2 * time.Second
+	for {
+		release, err := d.eventsNet().acquire(ctx, true, nil, []string{eventTopicPrefix + "process/>"})
+		if err == nil {
+			d.authMu.Lock()
+			if d.eng != nil {
+				d.eng.procRelease = release
+				d.authMu.Unlock()
+				return
+			}
+			d.authMu.Unlock()
+			release() // engine already torn down
+			return
+		}
+		handlerLog.Warn("process event interest not acquired; retrying", zap.Error(err))
+		select {
+		case <-done:
+			return
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, time.Minute)
+	}
+}
+
+// indexerProcess bridges indexer lifecycle updates onto the process
+// view as device-scope processes — each device indexes its own copy,
+// other devices don't care. Kinds: index.fts.<spaceId> (chunk/advance
+// backlog), index.embed.<spaceId> (vector drain, total from the
+// pending count), index.model_download (embedding-model fetch,
+// done/total bytes, target = model file name). Updates arriving
+// before the engine is published (the boot pass can start work first)
+// are dropped — every frame carries the full descriptor, so the view
+// recovers from any later one. Cancel requests are ignored by these
+// producers; work stopped mid-pass (space dropped, shutdown) reports
+// cancelled. Failure messages are deliberately generic — indexer
+// errors carry filesystem paths and upstream response bodies, which
+// never go on the wire; the detail is in the server log.
+func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
+	if !d.ready.Load() {
+		return
+	}
+	var id string
+	var data processEventData
+	switch u.Kind {
+	case indexer.ProcessKindFTS:
+		id = "index.fts." + u.SpaceId
+		data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
+	case indexer.ProcessKindEmbed:
+		id = "index.embed." + u.SpaceId
+		data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
+	case indexer.ProcessKindModelDownload:
+		id = "index.model_download"
+		data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
+	default:
+		return
+	}
+	data.Done, data.Total = u.Done, u.Total
+	// Non-failed messages are producer-authored status lines (e.g. the
+	// download's generic "retrying" note) and safe to relay; a failed
+	// frame's message is the raw error — paths and response bodies —
+	// and is replaced by the generic Error below.
+	data.Message = u.Message
+	var typ string
+	switch u.Phase {
+	case indexer.ProcessStarted:
+		typ = api.EventProcessStarted
+	case indexer.ProcessProgress:
+		typ = api.EventProcessProgress
+	case indexer.ProcessDone:
+		typ = api.EventProcessDone
+	case indexer.ProcessCancelled:
+		typ = api.EventProcessCancelled
+	case indexer.ProcessFailed:
+		typ = api.EventProcessFailed
+		data.Message = ""
+		data.Error = &api.ProcessError{Code: data.Kind + "_failed",
+			Message: "failed; retrying — see server log"}
+	default:
+		return
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	d.eventsHub().publish(api.Event{
+		Type:   typ,
+		Scope:  api.EventScopeDevice,
+		Target: id,
+		Data:   payload,
+		Sender: &api.EventSender{Identity: d.account, Self: true},
+	})
 }
 
 // closeEngine tears down the live engine, if any: indexer and push
@@ -226,6 +343,9 @@ func (d *deps) closeEngine(lg logger.CtxLogger) {
 	eng := d.eng
 	if eng == nil {
 		return
+	}
+	if eng.procRelease != nil {
+		eng.procRelease()
 	}
 	if eng.indexer != nil {
 		if err := eng.indexer.Close(); err != nil {

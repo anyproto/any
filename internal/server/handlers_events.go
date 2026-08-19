@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/labstack/echo/v4"
-	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync/commonspace/pubsub"
 
@@ -66,26 +65,11 @@ func (d *deps) eventsPublish(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"type must be dotted lowercase slugs (e.g. process.progress)", nil)
 	}
-	switch req.Scope {
-	case api.EventScopeDevice, api.EventScopeAccount, api.EventScopeSpace:
-	case "":
-		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"scope required (device, account or space)", nil)
-	default:
-		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"scope must be device, account or space", nil)
+	if !validateEventScope(c, req.Scope, req.SpaceId) {
+		return nil
 	}
-	if req.Scope == api.EventScopeSpace && req.SpaceId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"spaceId required for scope space", nil)
-	}
-	if req.Scope != api.EventScopeSpace && req.SpaceId != "" {
-		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"spaceId only valid with scope space", nil)
-	}
-	if req.Target != "" && !eventTargetRe.MatchString(req.Target) {
-		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"target must be 1-128 chars of [A-Za-z0-9._-]", nil)
+	if req.Target != "" && !validTargetToken(c, "target", req.Target) {
+		return nil
 	}
 	if len(req.Data) > eventDataLimit {
 		return writeError(c, http.StatusBadRequest, "events.payload_too_large",
@@ -98,15 +82,62 @@ func (d *deps) eventsPublish(c echo.Context) error {
 			"type + target exceed the pub/sub topic budget (256 bytes / 16 segments)", nil)
 	}
 
-	ev := api.Event{
+	return d.publishScoped(c, api.Event{
 		Type:    req.Type,
 		Scope:   req.Scope,
 		SpaceId: req.SpaceId,
 		Target:  req.Target,
 		Data:    req.Data,
 		Sender:  &api.EventSender{Identity: d.sdk.Account().Id(), Self: true},
-	}
+	})
+}
 
+// validateEventScope enforces the scope/spaceId pairing shared by
+// event publish and process register: scope is one of the closed set,
+// spaceId present iff scope is space. Writes the 400 and returns
+// false on violation.
+func validateEventScope(c echo.Context, scope, spaceId string) bool {
+	switch scope {
+	case api.EventScopeDevice, api.EventScopeAccount, api.EventScopeSpace:
+	case "":
+		_ = writeError(c, http.StatusBadRequest, "request.missing_field",
+			"scope required (device, account or space)", nil)
+		return false
+	default:
+		_ = writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"scope must be device, account or space", nil)
+		return false
+	}
+	if scope == api.EventScopeSpace && spaceId == "" {
+		_ = writeError(c, http.StatusBadRequest, "request.missing_field",
+			"spaceId required for scope space", nil)
+		return false
+	}
+	if scope != api.EventScopeSpace && spaceId != "" {
+		_ = writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"spaceId only valid with scope space", nil)
+		return false
+	}
+	return true
+}
+
+// validTargetToken checks one field against the event-target grammar
+// (topic-segment charset), writing the 400 on violation.
+func validTargetToken(c echo.Context, name, v string) bool {
+	if eventTargetRe.MatchString(v) {
+		return true
+	}
+	_ = writeError(c, http.StatusBadRequest, "request.invalid_field",
+		name+" must be 1-128 chars of [A-Za-z0-9._-]", nil)
+	return false
+}
+
+// publishScoped routes one stamped event by scope: device fans out on
+// the in-memory hub, account/space publish on the SDK pub/sub. The
+// single dispatch point for everything the bus emits (events publish
+// and the process helper) — bus-level policy belongs here, not in one
+// caller's fork of this switch.
+func (d *deps) publishScoped(c echo.Context, ev api.Event) error {
 	switch ev.Scope {
 	case api.EventScopeDevice:
 		n := d.eventsHub().publish(ev)
@@ -130,16 +161,32 @@ func (d *deps) eventsPublish(c echo.Context) error {
 // interest on the event's space) — approximate by design
 // (fire-and-forget).
 func (d *deps) publishNetworkEvent(c echo.Context, ev api.Event, ps space.PubSubAPI) error {
-	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
+	n, err := d.networkPublish(c.Request().Context(), ev, ps)
 	if err != nil {
-		handlerLog.Error("marshal event payload", zap.Error(err))
-		return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
-	}
-	topic := eventTopic(ev.Type, ev.Target, d.sdk.Account().Id())
-	if err := ps.Publish(c.Request().Context(), topic, payload); err != nil {
 		return pubsubError(c, err)
 	}
-	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: d.eventsHub().matchCount(&ev)})
+	// The Self loopback re-enters the hub (and its taps) only when a
+	// local interest covers the topic — feed the process view directly
+	// so a confirmed publish always lands in it, whichever endpoint
+	// emitted it. apply ignores non-process types; the tap-side upsert
+	// is idempotent, so a loopback double-apply is harmless.
+	d.processes().apply(&ev)
+	return c.JSON(http.StatusOK, api.EventPublishResponse{Subscribers: n})
+}
+
+// networkPublish is the transport core of publishNetworkEvent —
+// marshal, topic render, pub/sub send — returning the hub's current
+// reachable-match count.
+func (d *deps) networkPublish(ctx context.Context, ev api.Event, ps space.PubSubAPI) (int, error) {
+	payload, err := json.Marshal(wireEvent{Type: ev.Type, Target: ev.Target, Data: ev.Data})
+	if err != nil {
+		return 0, err
+	}
+	topic := eventTopic(ev.Type, ev.Target, d.sdk.Account().Id())
+	if err := ps.Publish(ctx, topic, payload); err != nil {
+		return 0, err
+	}
+	return d.eventsHub().matchCount(&ev), nil
 }
 
 // pubsubSentinels is the one list of SDK pub/sub sentinels this file
@@ -236,9 +283,8 @@ func (d *deps) eventsSubscribe(c echo.Context) error {
 		}
 	}
 	for _, t := range f.targets {
-		if !eventTargetRe.MatchString(t) {
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"target must be 1-128 chars of [A-Za-z0-9._-]", nil)
+		if !validTargetToken(c, "target", t) {
+			return nil
 		}
 	}
 

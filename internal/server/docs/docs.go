@@ -1907,6 +1907,135 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.Process": {
+                "properties": {
+                    "done": {
+                        "type": "integer"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/api.ProcessError"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "identity": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "self": {
+                        "type": "boolean"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "type": "integer"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "target": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    },
+                    "updatedAt": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessCancelRequest": {
+                "properties": {
+                    "identity": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessError": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessFinishRequest": {
+                "properties": {
+                    "error": {
+                        "$ref": "#/components/schemas/api.ProcessError"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessListResponse": {
+                "properties": {
+                    "processes": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Process"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessProgressRequest": {
+                "properties": {
+                    "done": {
+                        "type": "integer"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ProcessRegisterRequest": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "scope": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "target": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.PropertiesGetResponse": {
                 "properties": {
                     "record": {
@@ -3761,6 +3890,286 @@ const docTemplate = `{
                 "summary": "Get a known identity by account address",
                 "tags": [
                     "identities"
+                ]
+            }
+        },
+        "/processes": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ProcessListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "List live processes",
+                "tags": [
+                    "processes"
+                ]
+            },
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ProcessRegisterRequest",
+                                        "summary": "body",
+                                        "description": "process"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "process",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EventPublishResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    }
+                },
+                "summary": "Register a process",
+                "tags": [
+                    "processes"
+                ]
+            }
+        },
+        "/processes/{id}/cancel": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "process id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ProcessCancelRequest",
+                                        "summary": "body",
+                                        "description": "owner selector"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "owner selector"
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EventPublishResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Request process cancellation",
+                "tags": [
+                    "processes"
+                ]
+            }
+        },
+        "/processes/{id}/finish": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "process id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ProcessFinishRequest",
+                                        "summary": "body",
+                                        "description": "outcome"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "outcome",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EventPublishResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Finish a process",
+                "tags": [
+                    "processes"
+                ]
+            }
+        },
+        "/processes/{id}/progress": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "process id",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.ProcessProgressRequest",
+                                        "summary": "body",
+                                        "description": "progress"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "progress",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.EventPublishResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    }
+                },
+                "summary": "Report process progress (heartbeat)",
+                "tags": [
+                    "processes"
                 ]
             }
         },

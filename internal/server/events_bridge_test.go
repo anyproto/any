@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-sdk/space"
 )
@@ -122,6 +123,59 @@ func TestEventsBridgeRefcount(t *testing.T) {
 	if len(b.scopes) != 0 {
 		t.Fatalf("scopes not cleaned up: %v", b.scopes)
 	}
+}
+
+// A failed re-subscribe on the release path (broad pattern released,
+// narrower survivor must be re-subscribed) does not strand the
+// remaining subscribers: the bridge retries in the background until
+// the desired set is active again.
+func TestEventsBridgeResyncRetry(t *testing.T) {
+	old := bridgeResyncRetry
+	bridgeResyncRetry = 10 * time.Millisecond
+	defer func() { bridgeResyncRetry = old }()
+
+	d := &deps{}
+	acc := newFakePubSub()
+	b := testBridge(d, map[string]*fakePubSub{"": acc})
+	ctx := context.Background()
+
+	relStanding, err := b.acquire(ctx, true, nil, []string{"ev/process/>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relBroad, err := b.acquire(ctx, true, nil, []string{"ev/>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := acc.activePatterns(); !slices.Equal(got, []string{"ev/>"}) {
+		t.Fatalf("active = %v, want the broad cover", got)
+	}
+
+	// Subscribe fails while the broad pattern is released — the
+	// standing interest cannot be re-subscribed right away.
+	acc.mu.Lock()
+	acc.err = space.ErrPubSubTooManyPatterns
+	acc.mu.Unlock()
+	relBroad()
+	if got := acc.activePatterns(); got != nil {
+		t.Fatalf("active = %v, want none while subscribe fails", got)
+	}
+
+	// Once the transient failure clears, the scheduled retry restores it.
+	acc.mu.Lock()
+	acc.err = nil
+	acc.mu.Unlock()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := acc.activePatterns(); slices.Equal(got, []string{"ev/process/>"}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("standing interest never restored; active = %v", acc.activePatterns())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	relStanding()
 }
 
 func TestEventsBridgeAcquireRollback(t *testing.T) {

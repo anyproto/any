@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -49,7 +50,17 @@ type bridgeScope struct {
 	ps      space.PubSubAPI
 	desired map[string]int    // pattern → refcount across live SSE subscribers
 	active  map[string]func() // maximal cover actually subscribed → cancel
+	// retryScheduled dedups pending resync retries after a failed
+	// re-subscribe (see scheduleResyncRetryLocked).
+	retryScheduled bool
 }
+
+// bridgeResyncRetry is the delay before retrying a failed re-subscribe
+// on the release path. Without it a transient SDK error there would
+// strand the remaining subscribers — including the standing process
+// interest, which has no reconnect path — with no active interest
+// until restart. Variable for tests.
+var bridgeResyncRetry = 5 * time.Second
 
 func newEventsBridge(d *deps) *eventsBridge {
 	b := &eventsBridge{d: d, scopes: make(map[string]*bridgeScope)}
@@ -139,15 +150,45 @@ func (b *eventsBridge) releaseLocked(key string, patterns []string) {
 			delete(sc.desired, p)
 		}
 	}
-	// A failed re-subscribe here strands the remaining subscribers with
-	// no active interest and no wire signal — surface it in the log.
+	// A failed re-subscribe here would strand the remaining subscribers
+	// with no active interest and no wire signal — log and keep
+	// retrying in the background until the desired set is satisfied.
 	if err := b.resyncLocked(key, sc); err != nil {
-		handlerLog.Error("events bridge resubscribe failed; remaining subscribers may miss network events",
+		handlerLog.Error("events bridge resubscribe failed; retrying",
 			zap.String("spaceId", key), zap.Error(err))
+		b.scheduleResyncRetryLocked(key, sc)
 	}
 	if len(sc.desired) == 0 {
 		delete(b.scopes, key)
 	}
+}
+
+// scheduleResyncRetryLocked arms one delayed resync for the scope
+// (deduped via retryScheduled), rescheduling itself while the resync
+// keeps failing. Stops when the scope is swept, the desired set is
+// satisfied, or the server shuts down. Called with b.mu held.
+func (b *eventsBridge) scheduleResyncRetryLocked(key string, sc *bridgeScope) {
+	if sc.retryScheduled {
+		return
+	}
+	sc.retryScheduled = true
+	time.AfterFunc(bridgeResyncRetry, func() {
+		if ctx := b.d.shutdownCtx; ctx != nil && ctx.Err() != nil {
+			return
+		}
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		sc := b.scopes[key]
+		if sc == nil {
+			return
+		}
+		sc.retryScheduled = false
+		if err := b.resyncLocked(key, sc); err != nil {
+			handlerLog.Warn("events bridge resync retry failed; will retry",
+				zap.String("spaceId", key), zap.Error(err))
+			b.scheduleResyncRetryLocked(key, sc)
+		}
+	})
 }
 
 // resyncLocked diffs the scope's active subscriptions against the

@@ -934,9 +934,55 @@ Implementation slices landed:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
     docs/17-user-datasets.md (vocabulary, convergence rules, storage
-    model). **SDK prerequisite:** branch
-    `cheggaaa/syn-147-user-space-dataset-schemas` (PR #95; re-pin to
-    the release tag once merged).
+    model). **SDK prerequisite:** shipped in `any-sync-sdk v0.2.0`.
+33. **Process helper (SYN-153)** — progress reporting + cancel over the
+    event bus: `process.*` events (envelope target = process id, keyed
+    `(sender.identity, id)`, descriptor folded into every frame) + an
+    in-memory last-event-wins registry with staleness expiry (running
+    45s / terminal 60s, heartbeat ≤15s, lazy sweep — no janitor; a
+    restart forgets everything). Surface: `GET/POST /v1/processes`,
+    `POST /v1/processes/:id/{progress,finish,cancel}` — finish takes
+    `{status: done|failed|cancelled, error?}` (error iff failed);
+    cancel resolves the composite key (`404 process.not_found` /
+    `409 process.ambiguous` + `details.identities`), emits
+    `process.cancel {identity}` on the process's own scope, never
+    mutates state — the owner reacts and finishes. Progress fields are
+    all-optional (absent = keep, `{}` = pure heartbeat); non-failed
+    events clear a stored error; unvalidated remote payload fields
+    are sanitized before entering the view. Registry = synchronous
+    construction-time hub tap (loss-free); EVERY network-scope bus
+    publish (`/v1/processes` and raw `/v1/events` alike,
+    `publishNetworkEvent`) applies directly to the view (Self
+    loopback needs an interest). Shared bus plumbing: `publishScoped`
+    / `validateEventScope` / `validTargetToken` (handlers_events.go)
+    serve both surfaces. Remote visibility: standing account-scope
+    `ev/process/>` interest acquired at boot with backoff-retry
+    (release on close; the bridge retries failed re-subscribes —
+    `bridgeResyncRetry`); space scope only while a local subscriber
+    holds an interest covering `process.*` on the space. Internal
+    producers (SYN-155, all device scope,
+    `indexer.Options.OnProcess` → `deps.indexerProcess`, threaded
+    through `OpenIndexer`/`NewEmbedder`/`NewLocal`; fts+embed gated on
+    `Options.AnnounceAfter` — announce only past 3s of elapsed work,
+    so usual per-edit indexing never appears; time not queue-size
+    because docs/s varies ~50× with text length): `index.embed.<spaceId>`
+    (done/total docs via `Store.PendingCount`, 500ms gate tick +
+    10s mid-drain heartbeat), `index.fts.<spaceId>` (gate checked at
+    page boundaries, done = changes, total unknown),
+    `index.model_download` (always announces at start — even offline;
+    done/total bytes; retry failures are progress-with-message, not
+    terminal; complete .part installs without a network round-trip —
+    the 416 wedge). All three share `procReporter`
+    (process_report.go): gate tick + heartbeat + joined-ticker
+    terminal, so no frame trails a terminal. Registry folds counters
+    on every frame (pointer decode: absent = keep, negatives
+    clamped); progress POSTs fold atomically under the registry lock
+    (`mergeOwn`). Worker-cancel → cancelled; generic failure messages
+    — no fs paths on the wire; cancel requests ignored by all three. CLI:
+    `any process list/cancel`. Files: internal/server/processes.go +
+    handlers_processes.go, api/process.go; e2e
+    internal/e2e/multipeer_processes_test.go. Contract:
+    docs/22-processes.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1187,6 +1233,7 @@ auto-start.
 | `docs/19-links.md` | canonical `any://` link format — kind registry (o/m/s/p/f, reserved i), path composition rule, fragment rule, extension policy, legacy bare-form back-compat |
 | `docs/20-push.md` | push notifications — sender-pushes E2E-encrypted model, heart-compatible topics + payload, notifyMode settings, `/v1/push/*` + settings PATCH, config, local e2e recipe |
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
+| `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 

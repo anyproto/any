@@ -36,7 +36,7 @@ func TestLiveVectorScoreProbe(t *testing.T) {
 			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
 			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
 		},
-	}, t.TempDir(), "")
+	}, t.TempDir(), "", nil)
 	if err != nil || emb == nil {
 		t.Fatalf("local embedder: %v", err)
 	}

@@ -21,7 +21,7 @@ import (
 // counterpart (embed_factory_novector.go, `!vector || gomobile`) ignores
 // the config and always returns nil so the vector pipeline is compiled
 // out entirely — always the case on mobile.
-func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder, error) {
+func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (Embedder, error) {
 	switch cfg.Embedder {
 	case "", "none":
 		return nil, nil
@@ -33,7 +33,7 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder,
 		}
 		return NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey), nil
 	case "local":
-		return NewLocal(cfg.Local, modelsDir, legacyModelsDir)
+		return NewLocal(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 	case "auto":
 		// Graceful degradation: prefer the online OpenAI-compatible primary
 		// (fast, batched), fall back to the always-downloaded local model on
@@ -43,7 +43,7 @@ func NewEmbedder(cfg config.Index, modelsDir, legacyModelsDir string) (Embedder,
 			return nil, fmt.Errorf("indexer: auto embedder needs index.openai.model (the online primary, same model as local)")
 		}
 		primary := NewOpenAI(cfg.OpenAI.BaseUrl, cfg.OpenAI.Model, cfg.OpenAI.ApiKey)
-		fallback, err := NewLocal(cfg.Local, modelsDir, legacyModelsDir)
+		fallback, err := NewLocal(cfg.Local, modelsDir, legacyModelsDir, onProcess)
 		if err != nil {
 			return nil, err
 		}

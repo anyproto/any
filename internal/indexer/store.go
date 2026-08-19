@@ -804,6 +804,18 @@ func (s *Store) Pending(ctx context.Context, spaceId string, limit int) (ids []s
 	return ids, texts, iter.Err()
 }
 
+// PendingCount reports how many docs still await embedding — the
+// denominator for embed-progress reporting (rides the sparse pending
+// index, so it stays cheap).
+func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return 0, err
+	}
+	return coll.Find(pendingEqOne).Count(ctx)
+}
+
+
 // SetVectors lands one embed batch in a single write transaction:
 // $set vector + clear pending, update-only (a doc deleted since Pending
 // is skipped, not resurrected).

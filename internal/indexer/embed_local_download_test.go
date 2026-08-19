@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -36,7 +37,7 @@ func TestModelDownload_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "models", "m.gguf")
-	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client())
+	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client(), nil)
 	defer d.Close()
 	waitDownload(t, d)
 
@@ -59,7 +60,7 @@ func TestModelDownload_ShaMismatch(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "m.gguf")
-	d := startModelDownload(srv.URL, dest, strings.Repeat("ab", 32), srv.Client())
+	d := startModelDownload(srv.URL, dest, strings.Repeat("ab", 32), srv.Client(), nil)
 	defer d.Close()
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -108,7 +109,7 @@ func TestModelDownload_Resume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client())
+	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client(), nil)
 	defer d.Close()
 	waitDownload(t, d)
 
@@ -136,5 +137,86 @@ func TestModelDownload_StatusProgress(t *testing.T) {
 	d.done = true
 	if d.Status() != nil {
 		t.Error("done download must report nil")
+	}
+}
+
+// The download reports its lifecycle for the process view: started
+// once (with the byte total from Content-Length), progress while
+// streaming, done at the end — Done/Total in bytes, Name the model
+// file name.
+func TestModelDownload_ReportsProcess(t *testing.T) {
+	body := []byte(strings.Repeat("gguf-bytes ", 1000))
+	sum := sha256.Sum256(body)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Explicit length (like a real model host) — a body past the
+		// server buffer otherwise goes chunked and Total stays unknown.
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.Write(body)
+	})
+
+	var mu sync.Mutex
+	var updates []ProcessUpdate
+	report := func(u ProcessUpdate) { mu.Lock(); updates = append(updates, u); mu.Unlock() }
+	dest := filepath.Join(t.TempDir(), "models", "m.gguf")
+	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client(), report)
+	defer d.Close()
+	waitDownload(t, d)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(updates) < 2 {
+		t.Fatalf("reported %+v, want at least started+done", updates)
+	}
+	first, last := updates[0], updates[len(updates)-1]
+	// started fires at download start — before the response headers, so
+	// its Total is still unknown; the byte total arrives on progress.
+	if first.Phase != ProcessStarted || first.Kind != ProcessKindModelDownload || first.Name != "m.gguf" {
+		t.Errorf("first = %+v, want started model_download m.gguf", first)
+	}
+	sawTotal := false
+	for _, u := range updates {
+		if u.Phase == ProcessProgress && u.Total == int64(len(body)) {
+			sawTotal = true
+		}
+	}
+	if !sawTotal {
+		t.Errorf("no progress frame carried Total=%d (Content-Length): %+v", len(body), updates)
+	}
+	if last.Phase != ProcessDone || last.Done != int64(len(body)) || last.Total != int64(len(body)) {
+		t.Errorf("last = %+v, want done with Done=Total=%d", last, len(body))
+	}
+}
+
+// A .part interrupted between the last byte and the rename installs
+// on the next boot with no network round-trip — a Range request at
+// the full size would draw a 416 and wedge the retry loop forever.
+func TestModelDownload_CompletePartInstallsOffline(t *testing.T) {
+	body := []byte(strings.Repeat("gguf-bytes ", 1000))
+	sum := sha256.Sum256(body)
+	// Every network attempt fails — the install must not need one.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "models", "m.gguf")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest+".part", body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := startModelDownload(srv.URL, dest, hex.EncodeToString(sum[:]), srv.Client(), nil)
+	defer d.Close()
+	waitDownload(t, d)
+
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != string(body) {
+		t.Fatalf("complete .part not installed: %v", err)
 	}
 }
