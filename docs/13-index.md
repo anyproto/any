@@ -142,8 +142,7 @@ id `objectId:prop:<propId>`:
   excluded type. The exclusion list always contains `__type__`
   (type-definition rows — schema, not knowledge; discovery is
   `GET /types`, and their one-word names otherwise win BM25 on
-  field-length normalization and surface as top hits) plus the
-  wired-in `enrich_proposal` (ephemeral review scaffolding).
+  field-length normalization and surface as top hits).
 - **Short prop docs never embed**: prop-dataset entries under 64 bytes
   are not marked `pending` and stay FTS-only, on top of the
   scope-`props` rule above. Short name-like strings land in a flat

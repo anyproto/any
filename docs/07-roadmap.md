@@ -214,8 +214,8 @@ pluggable embedders, parallel batched pipelines),
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
 - **Dogfood the generic schema handler.** Collapse the zero-logic
-  compiled-in handlers (agentconfig, agentsecrets, enrichproposal;
-  parts of agentmem/agentlog/enricheddata) to pure declarations
+  compiled-in handlers (agentconfig, agentsecrets;
+  parts of agentmem/agentlog) to pure declarations
   (`Handler: nil` + behavioral schema). Requires a per-dataset
   mutability audit first: the zero-value `MutableBy` is write-once, so
   every currently-mutable field needs an explicit `MutableByAnyone` /
