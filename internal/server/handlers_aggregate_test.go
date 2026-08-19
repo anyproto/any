@@ -210,11 +210,11 @@ func TestServer_Aggregate_Errors(t *testing.T) {
 	if apiErr.Details["limit"] != "group" {
 		t.Errorf("details.limit = %v, want group", apiErr.Details["limit"])
 	}
-	// Unknown space — 500 internal for now: resolveSpace/spaceError
-	// can't classify "unknown space" until the SDK exports a sentinel
-	// (same behavior as every other per-space endpoint).
+	// Unknown space — resolveSpace/spaceError classify the SDK's
+	// ErrSpaceUnknown sentinel (same behavior as every other per-space
+	// endpoint).
 	aggExpectError(t, e, "/v1/spaces/nope/objects/aggregate", `{"pipeline": []}`,
-		http.StatusInternalServerError, "internal")
+		http.StatusNotFound, "space.not_found")
 }
 
 // setupAggMovies creates a space + Movie type with a Year property and
