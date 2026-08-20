@@ -46,7 +46,8 @@ type DatasetDraftRequest struct {
 	// SkipHistory keeps the dataset out of the version-history index.
 	SkipHistory bool `json:"skipHistory,omitempty"`
 	// Search is the optional search-extraction annotation (x-search):
-	// which record fields feed the search index's title/text.
+	// which record fields feed the search index's title/text, and
+	// optionally which index scope the entries land under.
 	Search *DatasetSearchFields `json:"search,omitempty"`
 	// Fields are the initial field definitions. Declare required
 	// fields here — fields added later cannot be required.
@@ -54,10 +55,13 @@ type DatasetDraftRequest struct {
 }
 
 // DatasetSearchFields mirrors space.SearchFields — the x-search
-// mapping. Either field may be empty.
+// mapping. Title/text may be empty (either alone suffices). Scope is
+// the index scope slug the dataset's entries land under (index.
+// ValidScope); empty = the indexer's default scope ("basic").
 type DatasetSearchFields struct {
 	Title string `json:"title,omitempty"`
 	Text  string `json:"text,omitempty"`
+	Scope string `json:"scope,omitempty"`
 }
 
 // DatasetFieldDraft is one field declaration — input to AddDataset and
@@ -151,7 +155,8 @@ type AddDatasetFieldResponse struct {
 // /v1/spaces/:spaceId/types/:typeId/datasets/:defId — a per-path patch
 // over a dataset definition's mutable leaves (space.DatasetDefPatch).
 //
-// Mutable paths: description, displayName, search.title, search.text
+// Mutable paths: description, displayName, search.title, search.text,
+// search.scope
 // (string leaves; a whole `search` replace is pinned). Everything else
 // — the collection name, id rule, delete gate, field kinds/flags — is
 // pinned and rejected with 400 dataset.immutable. At least one entry

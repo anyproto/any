@@ -827,8 +827,11 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.DatasetSearchFields": {
-                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text.",
+                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text, and\noptionally which index scope the entries land under.",
                 "properties": {
+                    "scope": {
+                        "type": "string"
+                    },
                     "text": {
                         "type": "string"
                     },

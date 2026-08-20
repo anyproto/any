@@ -38,7 +38,7 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	mustJSON(t, http.MethodPost, dsURL, `{
 		"name": "articles", "displayName": "Articles",
 		"idRule": "user", "deleteBy": "author",
-		"search": {"title": "title", "text": "body"},
+		"search": {"title": "title", "text": "body", "scope": "news"},
 		"fields": [
 			{"key": "title", "kind": "string", "required": true, "mutableBy": "author"},
 			{"key": "body", "kind": "string", "mutableBy": "author"},
@@ -132,9 +132,11 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 
 	// Patch display leaves; pinned paths refuse.
 	mustStatus(t, http.MethodPatch, dsURL+"/"+defID,
-		`{"set":{"displayName":"Posts","search.title":"headline"}}`, http.StatusNoContent)
+		`{"set":{"displayName":"Posts","search.title":"headline","search.scope":"press"}}`, http.StatusNoContent)
 	mustStatus(t, http.MethodPatch, dsURL+"/"+defID,
 		`{"set":{"idRule":"auto"}}`, http.StatusBadRequest)
+	mustStatus(t, http.MethodPatch, dsURL+"/"+defID,
+		`{"set":{"search.scope":"Not A Slug"}}`, http.StatusBadRequest)
 
 	// Additive evolution: add a field, then remove it.
 	var fieldAdded map[string]any
@@ -150,13 +152,14 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	var list struct {
 		Datasets []struct {
 			DisplayName string `json:"displayName"`
-			Search      struct{ Title string }
+			Search      struct{ Title, Scope string }
 			Fields      []struct{ Key string }
 			Invalid     bool
 		} `json:"datasets"`
 	}
 	mustJSON(t, http.MethodGet, dsURL, "", http.StatusOK, &list)
 	if len(list.Datasets) != 1 || list.Datasets[0].DisplayName != "Posts" ||
+		list.Datasets[0].Search.Scope != "press" ||
 		list.Datasets[0].Invalid || len(list.Datasets[0].Fields) != 5 {
 		t.Fatalf("read-back = %+v", list.Datasets)
 	}

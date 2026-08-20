@@ -667,8 +667,9 @@ carry further extension keywords in the document:
 - doc-level standard `required` (fields that must be present on
   create), `x-delete-by` (`author`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
-  auto-derived record ids), and `x-search` (`{title, text}` — the
-  record fields the search indexer extracts, § docs/13-index.md).
+  auto-derived record ids), and `x-search` (`{title, text, scope}` —
+  the record fields the search indexer extracts and the index scope
+  the entries land under, § docs/13-index.md).
 
 #### Update space metadata
 
@@ -1718,7 +1719,11 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); either field optional.
+  § Schema chunker); `title`/`text` either optional. The optional
+  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
+  otherwise) picks the index scope the dataset's entries land under —
+  absent = `basic`. Scopes are the open slug set `/search` filters on;
+  `props` inherits that scope's FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1735,8 +1740,11 @@ pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
 property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text` (a whole `search` replace
-is pinned). Pinned path → `400 dataset.immutable`; unknown
+`displayName`, `search.title`, `search.text`, `search.scope` (a whole
+`search` replace is pinned; a scope value must pass `index.ValidScope`).
+A scope patch applies to records as they (re-)index — already-indexed
+docs keep their stored scope until their object next goes dirty.
+Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).
 

@@ -66,7 +66,7 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 		Name:     "articles",
 		IdRule:   "user",
 		DeleteBy: "author",
-		Search:   &api.DatasetSearchFields{Title: "title", Text: "body"},
+		Search:   &api.DatasetSearchFields{Title: "title", Text: "body", Scope: "news"},
 		Fields: []api.DatasetFieldDraft{
 			{Key: "title", Kind: "string", Required: true, MutableBy: "author"},
 			{Key: "author", Stamp: "creator"},
@@ -79,7 +79,8 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 	if draft.IdRule != space.IdUser || draft.DeleteBy != space.DeleteByAuthor {
 		t.Errorf("behavioral enums not mapped: %+v", draft)
 	}
-	if draft.Search == nil || draft.Search.Title != "title" || draft.Search.Text != "body" {
+	if draft.Search == nil || draft.Search.Title != "title" || draft.Search.Text != "body" ||
+		draft.Search.Scope != "news" {
 		t.Errorf("search not mapped: %+v", draft.Search)
 	}
 	if len(draft.Fields) != 2 || draft.Fields[0].Kind != space.PropertyKindString ||
@@ -87,6 +88,13 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 		draft.Fields[1].Stamp != space.StampCreator {
 		t.Errorf("fields not mapped: %+v", draft.Fields)
 	}
+
+	// A non-slug scope is caught at the boundary.
+	req.Search = &api.DatasetSearchFields{Text: "body", Scope: "Not A Slug"}
+	if _, code, _ := datasetDraftFromAPI(req); code != "request.invalid_field" {
+		t.Errorf("bad search.scope: code=%q", code)
+	}
+	req.Search = nil
 
 	// Field errors carry the offending key.
 	req.Fields[0].MutableBy = "bogus"
@@ -160,7 +168,7 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 	draft := `{
 		"name": "articles", "displayName": "Articles",
 		"idRule": "user", "deleteBy": "author",
-		"search": {"title": "title", "text": "body"},
+		"search": {"title": "title", "text": "body", "scope": "news"},
 		"fields": [
 			{"key": "title", "kind": "string", "required": true, "mutableBy": "author"},
 			{"key": "body", "kind": "string", "mutableBy": "author"},
@@ -250,15 +258,16 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 				t.Errorf("typeId = %q, want %q", s.TypeId, typeId)
 			}
 			var doc struct {
-				Search   *struct{ Title, Text string } `json:"x-search"`
-				Id       string                        `json:"x-id"`
-				DeleteBy string                        `json:"x-delete-by"`
-				Required []string                      `json:"required"`
+				Search   *struct{ Title, Text, Scope string } `json:"x-search"`
+				Id       string                               `json:"x-id"`
+				DeleteBy string                               `json:"x-delete-by"`
+				Required []string                             `json:"required"`
 			}
 			if err := json.Unmarshal(s.Schema, &doc); err != nil {
 				t.Fatal(err)
 			}
-			if doc.Search == nil || doc.Search.Title != "title" || doc.Search.Text != "body" {
+			if doc.Search == nil || doc.Search.Title != "title" || doc.Search.Text != "body" ||
+				doc.Search.Scope != "news" {
 				t.Errorf("x-search = %+v", doc.Search)
 			}
 			if doc.Id != "user" || doc.DeleteBy != "author" || len(doc.Required) != 1 {
@@ -363,10 +372,16 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 
 	t.Run("patch display leaves", func(t *testing.T) {
 		rec := doJSON(t, e, http.MethodPatch, base+"/"+defId,
-			`{"set":{"displayName":"Posts","search.title":"headline","description":"tmp"}}`)
+			`{"set":{"displayName":"Posts","search.title":"headline","search.scope":"press","description":"tmp"}}`)
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 		}
+		// A non-slug scope value rejects before the SDK write.
+		rec = doJSON(t, e, http.MethodPatch, base+"/"+defId, `{"set":{"search.scope":"Not A Slug"}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad scope value: %d %s", rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "request.invalid_field")
 		// Unset round-trip on a mutable leaf.
 		rec = doJSON(t, e, http.MethodPatch, base+"/"+defId, `{"unset":["description"]}`)
 		if rec.Code != http.StatusNoContent {
@@ -393,7 +408,8 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 		}
 		def := list.Datasets[0]
 		if def.Name != "articles" || def.DisplayName != "Posts" ||
-			def.Description != "" || def.Search == nil || def.Search.Title != "headline" {
+			def.Description != "" || def.Search == nil || def.Search.Title != "headline" ||
+			def.Search.Scope != "press" {
 			t.Errorf("patched def = %+v", def)
 		}
 	})
