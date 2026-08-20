@@ -1042,16 +1042,42 @@ Implementation slices landed:
     - The `id` is the whole identity — marketplace id, app slug, or a
       versioned convention like `general-chat/v1` — so there is no
       separate provenance field.
+    - **Convergence gate on install.** Adoption is a pure read (so
+      readers/guests resolve installs they cannot create; the install
+      path is a write and 403s for them). Installing first runs
+      `sp.SyncHeads` bounded 30s — the registry rides the space's index
+      tree, and ensuring against unsynced state reads "nothing
+      installed" and forks a second root. When the round fails, the
+      OWNER installs anyway (offline-first: only this account's own
+      devices could compete, and the registry converges those), any
+      other member gets `409 bundle.not_ready`. NOT `WaitIndexSynced`:
+      it gates on the spaceIndex carrying a metadata namespace, which a
+      nameless or 1-1 space never gets, so it never returns there.
     - **Merging is the client's job, timing is the server's.** Resolve
       deletes a losing root only after the client says it merged; the
-      server refuses (`409 bundle.loser_not_ready`) while the loser is
-      still syncing or inside `Resolver.Grace` (5min from first sight),
-      because a merge made from a half-arrived tree is a half-merge.
-      Permanent verdicts come first: the winner or an unclaimed root is
-      `409 bundle.not_loser`, an already-resolved one is 204. After a
-      refusal the server keeps retrying in the background (in-memory,
-      dropped on restart). An adopted winner whose tree is not local is
-      `409 bundle.not_ready` rather than an id that 404s on write.
+      server refuses (`409 bundle.loser_not_ready`) unless the SDK
+      reports the root `SyncStateSynced` (unknown — the post-restart
+      and never-arrived state — does NOT count) and it has been
+      observed as a loser for `Resolver.Grace` (5min). The clock starts
+      at first OBSERVATION (`Get`/`List`/boot pass warm it), not at the
+      first resolve call. Permanent verdicts come first: the winner or
+      an unclaimed root is `409 bundle.not_loser`, an already-resolved
+      one is 204. The SDK's `ErrLoserNotSynced` maps to the same
+      retryable code. After a timing refusal the server retries in the
+      background — one loop per loser however often the client polls,
+      in-memory, dropped on restart. An adopted winner whose tree is
+      not local is `409 bundle.not_ready` rather than an id that 404s
+      on write; `/children` maps `objecttree.ErrParentNotFound` to the
+      same.
+    - **Input is bounded and pre-flighted**: id ≤256B, name ≤1024B,
+      rootTypes ≤32, rootProperties ≤64KiB, seed ≤256B; type existence
+      (`Types().Get`) and property formats (`validateFormatValues`,
+      the objectCreate gate) are checked BEFORE the root is created, so
+      a rejected request leaves no orphan. The create+register section
+      runs on a context detached from the request (shutdown-bounded, 2m
+      timeout) so a client disconnect mid-Ensure cannot orphan a root.
+      Records are permanent and `roots` only grows — ids are a small
+      fixed vocabulary, not a scratch namespace.
     - **Nobody arbitrates who installs** — the server used to pick a
       sole installer, and no longer does. Clients agree out of band
       (for a 1-1, the initiating side ensures) or handle `losers`.

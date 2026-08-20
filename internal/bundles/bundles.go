@@ -13,8 +13,9 @@
 // converges on one winner and keeps the others in Bundle.Losers.
 // Deleting a loser is the CLIENT's decision — only it knows whether
 // the loser's content was worth merging — so the engine only enforces
-// what is decidable without knowing the content: a loser is deletable
-// once it has stopped arriving.
+// what is decidable without knowing the content: an install waits for
+// the registry to converge before minting a root, and a loser is
+// deletable only once it has demonstrably stopped arriving.
 package bundles
 
 import (
@@ -41,8 +42,13 @@ var (
 	// reached this device, so its id is not writable yet. Retryable —
 	// the answer changes as the space syncs.
 	ErrRootNotLocal = errors.New("bundle root not local")
+	// ErrRegistryNotSynced reports that a member could not converge the
+	// space's registry before installing, so the install would be made
+	// blind. Retryable.
+	ErrRegistryNotSynced = errors.New("bundle registry not synced")
 	// ErrLoserNotReady reports that a losing root is still arriving:
-	// still syncing, or still inside the quiescence window. Retryable.
+	// not yet fully synced, or still inside the quiescence window.
+	// Retryable.
 	ErrLoserNotReady = errors.New("bundle loser not ready")
 )
 
@@ -68,8 +74,8 @@ type Install struct {
 // A losing root is deleted only once it has stopped moving: its tree
 // arrives change by change, so a client that merged "everything" from
 // a half-arrived loser merged only what had landed. Resolver therefore
-// waits out Grace from its own first sight of the loser and refuses
-// anything the SDK still reports as syncing.
+// requires the SDK to report the root as fully synced AND waits out
+// Grace from the first time this process saw the loser listed.
 type Resolver struct {
 	// Grace is how long a losing root must have been observed before
 	// it may be deleted. Set at construction; tests shorten it.
@@ -78,6 +84,9 @@ type Resolver struct {
 	// doubles it up to a ten-minute cap. Set at construction; tests
 	// shorten it.
 	RetryDelay time.Duration
+	// SyncWait bounds the convergence round an install runs before
+	// minting a root. Set at construction; tests shorten it.
+	SyncWait time.Duration
 	// Quiescent reports whether a root has stopped receiving changes,
 	// so what is projected locally is the whole of it. Set at
 	// construction to the SDK's per-object sync state; tests
@@ -85,16 +94,26 @@ type Resolver struct {
 	Quiescent func(sp space.Space, objectId string) bool
 
 	mu sync.Mutex
-	// firstSeen dates each loser's first observation, keyed
-	// spaceId/rootId. Process-local: a restart restarts the clock,
-	// which only ever delays a deletion.
+	// firstSeen dates each loser's first OBSERVATION, keyed
+	// spaceId/rootId — warmed wherever losers are surfaced, not only
+	// where they are resolved, so the grace window runs while the
+	// client is deciding rather than starting over at its first
+	// resolve call. Process-local: a restart restarts the clock, which
+	// only ever delays a deletion.
 	firstSeen map[string]time.Time
+	// retrying dedups in-flight background retries per loser, so a
+	// polling client cannot stack a loop per request.
+	retrying map[string]struct{}
 }
 
 const (
 	// DefaultGrace is the quiescence delay before a losing root may be
 	// deleted.
 	DefaultGrace = 5 * time.Minute
+	// DefaultSyncWait bounds the registry-convergence round on the
+	// install path. Short: it rides a client request, and refusing is
+	// correct — the client retries.
+	DefaultSyncWait = 30 * time.Second
 
 	// Retry schedule for the background path: a loser installed on
 	// another device cannot be deleted until its tree has synced here,
@@ -109,46 +128,100 @@ func NewResolver(grace time.Duration) *Resolver {
 	return &Resolver{
 		Grace:      grace,
 		RetryDelay: retryDelay,
+		SyncWait:   DefaultSyncWait,
 		Quiescent:  syncQuiescent,
 		firstSeen:  map[string]time.Time{},
+		retrying:   map[string]struct{}{},
 	}
 }
 
 // Ensure adopts the space's existing install or creates one, reporting
-// which happened. Fully local and offline-capable: an adopted install
-// is a read that writes nothing, a fresh one creates the root and
-// registers it in a single change.
+// which happened.
 //
-// The winner is provisional until the space syncs — a concurrent
-// install elsewhere can win, surfacing this root in Losers.
-// ErrRootNotLocal means a winner exists but its tree has not arrived,
-// so there is no id worth handing back yet.
-func (r *Resolver) Ensure(ctx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	before, err := sp.Bundles().Get(ctx, inst.Id)
-	switch {
-	case err == nil:
-	case !errors.Is(err, space.ErrBundleUnknown):
-		return space.Bundle{}, false, fmt.Errorf("bundle %s: get: %w", inst.Id, err)
+// Adoption is a pure read — no registry write, so a reader or guest
+// member can resolve an install they may not create.
+//
+// Installing runs a head-sync round first. The registry rides the
+// space's index tree, and a member that ensures against state it has
+// not synced yet reads "nothing installed" and mints a root competing
+// with the one already out there. When that round cannot complete the
+// answer depends on who is asking: the space's OWNER installs anyway —
+// nobody else could have installed into a space only this account has,
+// and its own devices converge through the registry — while any other
+// member is refused with ErrRegistryNotSynced rather than left to
+// fork. So an offline owner still works offline; an offline joiner
+// retries.
+//
+// createCtx runs the create-and-register section and should outlive
+// the caller's request: a cancellation between minting the root and
+// registering it leaves an orphan object nothing references.
+//
+// The winner is provisional until the space syncs. ErrRootNotLocal
+// means a winner exists but its tree has not arrived, so there is no
+// id worth handing back yet.
+func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
+	if b, err := r.adopt(ctx, sp, inst.Id); err == nil {
+		return b, false, nil
+	} else if !errors.Is(err, ErrNotInstalled) {
+		return space.Bundle{}, false, err
 	}
-	installed := before.RootId == ""
 
-	b, err := sp.Bundles().Ensure(ctx, space.EnsureBundleRequest{
+	syncCtx, cancel := context.WithTimeout(ctx, r.SyncWait)
+	err := sp.SyncHeads(syncCtx)
+	cancel()
+	if err != nil {
+		if sp.Info().OwnRole != space.PermissionOwner {
+			return space.Bundle{}, false, fmt.Errorf("bundle %s: %w", inst.Id, ErrRegistryNotSynced)
+		}
+		log.Warn("installing without a converged registry",
+			zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()), zap.Error(err))
+	}
+	// The converged registry may name a winner the pre-read could not
+	// see.
+	if b, err := r.adopt(ctx, sp, inst.Id); err == nil {
+		return b, false, nil
+	} else if !errors.Is(err, ErrNotInstalled) {
+		return space.Bundle{}, false, err
+	}
+
+	var created string
+	b, err := sp.Bundles().Ensure(createCtx, space.EnsureBundleRequest{
 		Id:   inst.Id,
 		Name: inst.Name,
 		NewRoot: func(ctx context.Context) (string, error) {
-			return sp.Objects().Create(ctx, space.CreateObjectOpts{
+			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
 				Types:             inst.RootTypes,
 				InitialProperties: inst.RootProperties,
 			})
+			created = rootId
+			return rootId, err
 		},
 	})
 	if err != nil {
 		return space.Bundle{}, false, fmt.Errorf("bundle %s: ensure: %w", inst.Id, err)
 	}
+	r.observe(sp, b)
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
-		return b, installed, err
+		return b, false, err
 	}
-	return b, installed, nil
+	// Installed means THIS call's root won — a concurrent install can
+	// have registered first, in which case ours is already a loser.
+	return b, created != "" && b.RootId == created, nil
+}
+
+// adopt returns a live install without writing anything.
+func (r *Resolver) adopt(ctx context.Context, sp space.Space, bundleId string) (space.Bundle, error) {
+	b, err := r.Get(ctx, sp, bundleId)
+	if err != nil {
+		return space.Bundle{}, err
+	}
+	if b.RootId == "" {
+		return space.Bundle{}, ErrNotInstalled
+	}
+	if err := rootLocal(ctx, sp, b.RootId); err != nil {
+		return space.Bundle{}, err
+	}
+	return b, nil
 }
 
 // Get returns the space's registry row for the bundle id.
@@ -156,11 +229,12 @@ func (r *Resolver) Ensure(ctx context.Context, sp space.Space, inst Install) (sp
 func (r *Resolver) Get(ctx context.Context, sp space.Space, bundleId string) (space.Bundle, error) {
 	b, err := sp.Bundles().Get(ctx, bundleId)
 	if errors.Is(err, space.ErrBundleUnknown) {
-		return space.Bundle{}, ErrNotInstalled
+		return space.Bundle{}, fmt.Errorf("bundle %s: %w", bundleId, ErrNotInstalled)
 	}
 	if err != nil {
 		return space.Bundle{}, fmt.Errorf("bundle %s: get: %w", bundleId, err)
 	}
+	r.observe(sp, b)
 	return b, nil
 }
 
@@ -169,6 +243,9 @@ func (r *Resolver) List(ctx context.Context, sp space.Space) ([]space.Bundle, er
 	rows, err := sp.Bundles().List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("bundles: list: %w", err)
+	}
+	for _, b := range rows {
+		r.observe(sp, b)
 	}
 	return rows, nil
 }
@@ -193,23 +270,35 @@ func (r *Resolver) Resolve(ctx context.Context, sp space.Space, bundleId, loserR
 		return fmt.Errorf("bundle %s: %s: %w", bundleId, loserRootId, space.ErrBundleNotLoser)
 	}
 	if !slices.Contains(b.Losers, loserRootId) {
+		r.forget(sp, loserRootId)
 		return nil // already resolved
 	}
 	if !r.ready(sp, loserRootId) {
 		return ErrLoserNotReady
 	}
 	if err := sp.Bundles().ResolveLoser(ctx, bundleId, loserRootId); err != nil {
+		if errors.Is(err, space.ErrLoserNotSynced) {
+			return ErrLoserNotReady
+		}
 		return fmt.Errorf("bundle %s: resolve %s: %w", bundleId, loserRootId, err)
 	}
+	r.forget(sp, loserRootId)
 	return nil
 }
 
 // ResolveRetry keeps trying one loser with backoff, for the window a
 // client has already asked for: the merge decision was made, only the
 // timing is missing. Blocking — callers own the goroutine, and must
-// pass a context that outlives the request that triggered it. Dropped
-// on restart; the client's retry re-arms it.
+// pass a context that outlives the request that triggered it. At most
+// one loop per loser; dropped on restart, and the client's retry
+// re-arms it.
 func (r *Resolver) ResolveRetry(ctx context.Context, sp space.Space, bundleId, loserRootId string) {
+	key := sp.Id() + "/" + bundleId + "/" + loserRootId
+	if !r.claimRetry(key) {
+		return
+	}
+	defer r.releaseRetry(key)
+
 	delay := r.RetryDelay
 	for range retryAttempts {
 		select {
@@ -220,7 +309,11 @@ func (r *Resolver) ResolveRetry(ctx context.Context, sp space.Space, bundleId, l
 		delay = min(delay*2, retryMaxDelay)
 
 		err := r.Resolve(ctx, sp, bundleId, loserRootId)
-		if err == nil || errors.Is(err, space.ErrBundleNotLoser) {
+		switch {
+		case err == nil,
+			// Verdicts retrying cannot change.
+			errors.Is(err, space.ErrBundleNotLoser),
+			errors.Is(err, ErrNotInstalled):
 			return
 		}
 		log.Warn("loser resolution deferred",
@@ -229,8 +322,27 @@ func (r *Resolver) ResolveRetry(ctx context.Context, sp space.Space, bundleId, l
 	}
 }
 
+// observe dates every loser the row carries, so the quiescence window
+// runs from when the conflict became visible rather than from the
+// client's first resolve attempt.
+func (r *Resolver) observe(sp space.Space, b space.Bundle) {
+	if len(b.Losers) == 0 {
+		return
+	}
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, loser := range b.Losers {
+		key := sp.Id() + "/" + loser
+		if _, ok := r.firstSeen[key]; !ok {
+			r.firstSeen[key] = now
+		}
+	}
+}
+
 // ready reports whether a losing root has settled enough for its local
-// state to be the whole of it.
+// state to be the whole of it: fully synced per the SDK, and observed
+// for at least Grace.
 func (r *Resolver) ready(sp space.Space, loserRootId string) bool {
 	key := sp.Id() + "/" + loserRootId
 	r.mu.Lock()
@@ -243,11 +355,38 @@ func (r *Resolver) ready(sp space.Space, loserRootId string) bool {
 	return time.Since(first) >= r.Grace && r.Quiescent(sp, loserRootId)
 }
 
-// syncQuiescent is the default Quiescent probe: a tree the SDK still
-// reports as syncing is mid-arrival, and what is stored locally is not
-// yet the whole of it.
+// forget drops a resolved loser's observation, so the map does not
+// grow with roots that no longer exist.
+func (r *Resolver) forget(sp space.Space, loserRootId string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.firstSeen, sp.Id()+"/"+loserRootId)
+}
+
+func (r *Resolver) claimRetry(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, running := r.retrying[key]; running {
+		return false
+	}
+	r.retrying[key] = struct{}{}
+	return true
+}
+
+func (r *Resolver) releaseRetry(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.retrying, key)
+}
+
+// syncQuiescent is the default Quiescent probe. Only an explicit
+// "synced" counts: the SDK reports unknown for a tree that has never
+// produced a status hook — which is exactly the state after a restart,
+// and the state of a tree that has not arrived — so treating unknown
+// as settled would license deleting a loser whose content nobody here
+// has ever seen.
 func syncQuiescent(sp space.Space, objectId string) bool {
-	return sp.SyncStatus().Object(objectId).State != space.SyncStateSyncing
+	return sp.SyncStatus().Object(objectId).State == space.SyncStateSynced
 }
 
 // rootLocal reports whether the root object's tree has been projected

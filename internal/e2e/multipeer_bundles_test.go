@@ -129,14 +129,31 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 
 // tryJSON issues a request and returns its status instead of failing
 // on it — for polling a call that is expected to be refused until the
-// space has synced far enough.
+// space has synced far enough. Any refusal OTHER than the documented
+// retryable ones fails the test: polling must not paper over a real
+// error, and on this path a wrong answer (a second root) is permanent.
 func tryJSON(t *testing.T, method, url, body string, out any) int {
 	t.Helper()
 	resp, raw := doRequest(t, method, url, body)
-	if out != nil && len(raw) > 0 && resp.StatusCode == http.StatusOK {
-		if err := json.Unmarshal(raw, out); err != nil {
-			t.Fatalf("%s %s: decode: %v body=%s", method, url, err, raw)
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNoContent:
+		if out != nil && len(raw) > 0 {
+			if err := json.Unmarshal(raw, out); err != nil {
+				t.Fatalf("%s %s: decode: %v body=%s", method, url, err, raw)
+			}
 		}
+	case http.StatusConflict:
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("%s %s: decode error: %v body=%s", method, url, err, raw)
+		}
+		switch env.Error.Code {
+		case "bundle.not_ready", "bundle.loser_not_ready":
+		default:
+			t.Fatalf("%s %s: 409 %s is not a retryable state", method, url, env.Error.Code)
+		}
+	default:
+		t.Fatalf("%s %s: status=%d body=%s", method, url, resp.StatusCode, raw)
 	}
 	return resp.StatusCode
 }

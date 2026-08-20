@@ -1,20 +1,44 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/valyala/fastjson"
 
-	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
-	"github.com/anyproto/any-sync/commonspace/spacestorage"
+	"github.com/anyproto/any-sync/commonspace/object/tree/objecttree"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
 )
+
+// Input caps. Bundle records are PERMANENT — the registry refuses
+// record deletes, so an id is spent forever and its row rides the
+// eagerly-loaded spaceIndex on every device. Bounds keep one client
+// from bloating that object for everyone.
+const (
+	maxBundleIdBytes    = 256
+	maxBundleNameBytes  = 1024
+	maxBundleSeedBytes  = 256
+	maxBundleTypes      = 32
+	maxBundlePropsBytes = 64 * 1024
+)
+
+// bundleCreateTimeout bounds the detached create-and-register section.
+const bundleCreateTimeout = 2 * time.Minute
+
+// bundleEnsureFields is the closed Ensure vocabulary, derived from the
+// api request struct — the same source the swagger spec is generated
+// from, so spec and enforcement cannot drift.
+var bundleEnsureFields = jsonFieldNames(reflect.TypeFor[api.BundleEnsureRequest]())
 
 // The bundles registry over HTTP — what a client has installed into a
 // space (any-sync-sdk docs/bundles.md). The server keeps no catalog:
@@ -57,30 +81,157 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/bundles [post]
 func (d *deps) bundleEnsure(c echo.Context) error {
-	req, ok := bindBodyStrict[api.BundleEnsureRequest](c, "")
-	if !ok {
-		return nil
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "read body: "+err.Error(), nil)
 	}
-	if req.Id == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "id required", nil)
+	parser := getFastjsonParser()
+	defer putFastjsonParser(parser)
+	root, err := parser.ParseBytes(body)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil)
 	}
+	if errResp, done := checkUnknownFields(c, root, "", bundleEnsureFields...); done {
+		return errResp
+	}
+	inst, errResp, done := bundleInstallFromBody(c, root)
+	if done {
+		return errResp
+	}
+
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
 	}
-	b, installed, err := d.bundleResolver().Ensure(c.Request().Context(), sp, bundles.Install{
-		Id:             req.Id,
-		Name:           req.Name,
-		RootTypes:      req.RootTypes,
-		RootProperties: req.RootProperties,
-	})
+	ctx := c.Request().Context()
+	// Validate the root's types and property values BEFORE anything is
+	// created: objects.Create swallows a bad type attachment, and a
+	// rejected property value would otherwise leave an orphan root
+	// nothing references.
+	if errResp, done := d.checkBundleRoot(c, sp, inst); done {
+		return errResp
+	}
+
+	// Detached from the request: a client that disconnects between
+	// minting the root and registering it would otherwise leave an
+	// object nothing references. Bounded by shutdown and a timeout.
+	createCtx, cancel := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
+	defer cancel()
+
+	b, installed, err := d.bundleResolver().Ensure(ctx, createCtx, sp, inst)
 	if err != nil {
-		return bundleError(c, err, sp.Id(), req.Id)
+		return bundleError(c, err, sp.Id(), inst.Id)
 	}
 	return c.JSON(http.StatusOK, api.BundleEnsureResponse{
 		Bundle:    bundleToAPI(b),
 		Installed: installed,
 	})
+}
+
+// bundleInstallFromBody extracts and bounds the Ensure request. Shape
+// checks come before positive extraction so a `rootTypes` object or a
+// `rootProperties` array is rejected rather than silently skipped.
+func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Install, error, bool) {
+	var inst bundles.Install
+	if v := root.Get("id"); v != nil && v.Type() != fastjson.TypeString {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "id must be a string", nil), true
+	}
+	if v := root.Get("name"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "name must be a string", nil), true
+	}
+	if v := root.Get("rootTypes"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema",
+			"rootTypes must be an array of type ids", nil), true
+	}
+	if v := root.Get("rootProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema",
+			`rootProperties must be an object keyed by type id, e.g. {"any": {"description": "…"}}`, nil), true
+	}
+
+	inst.Id = string(root.GetStringBytes("id"))
+	inst.Name = string(root.GetStringBytes("name"))
+	if inst.Id == "" {
+		return inst, writeError(c, http.StatusBadRequest, "request.missing_field", "id required", nil), true
+	}
+	if len(inst.Id) > maxBundleIdBytes {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"id too long", map[string]any{"max_bytes": maxBundleIdBytes}), true
+	}
+	if len(inst.Name) > maxBundleNameBytes {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"name too long", map[string]any{"max_bytes": maxBundleNameBytes}), true
+	}
+
+	types := root.GetArray("rootTypes")
+	if len(types) > maxBundleTypes {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"too many rootTypes", map[string]any{"max": maxBundleTypes}), true
+	}
+	for _, v := range types {
+		if v.Type() != fastjson.TypeString {
+			return inst, writeError(c, http.StatusBadRequest, "request.schema",
+				"rootTypes must be an array of type ids", nil), true
+		}
+		inst.RootTypes = append(inst.RootTypes, string(v.GetStringBytes()))
+	}
+
+	if props := root.Get("rootProperties"); props != nil && props.Type() == fastjson.TypeObject {
+		if len(props.MarshalTo(nil)) > maxBundlePropsBytes {
+			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"rootProperties too large", map[string]any{"max_bytes": maxBundlePropsBytes}), true
+		}
+		inst.RootProperties = map[string]map[string]any{}
+		var badGroup string
+		props.GetObject().Visit(func(typeKey []byte, group *fastjson.Value) {
+			obj, err := group.Object()
+			if err != nil {
+				badGroup = string(typeKey)
+				return
+			}
+			kv := map[string]any{}
+			obj.Visit(func(propKey []byte, val *fastjson.Value) { kv[string(propKey)] = val })
+			inst.RootProperties[string(typeKey)] = kv
+		})
+		if badGroup != "" {
+			return inst, writeError(c, http.StatusBadRequest, "request.schema",
+				fmt.Sprintf("rootProperties.%s must be an object of {propertyId: value}", badGroup),
+				map[string]any{"typeKey": badGroup}), true
+		}
+	}
+	return inst, nil, false
+}
+
+// checkBundleRoot pre-flights everything that would otherwise fail
+// silently or too late: a type id the space does not know (the create
+// path drops the attachment and reports success), and property values
+// that violate their declared format (the same gate propertiesSet and
+// objectCreate run).
+func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Install) (error, bool) {
+	ctx := c.Request().Context()
+	for _, typeId := range inst.RootTypes {
+		if _, err := sp.Types().Get(ctx, typeId); err != nil {
+			return writeError(c, http.StatusBadRequest, "type.not_found",
+				"rootTypes names a type this space does not have",
+				map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+		}
+	}
+	for typeId, patch := range inst.RootProperties {
+		if _, err := sp.Types().Get(ctx, typeId); err != nil {
+			return writeError(c, http.StatusBadRequest, "type.not_found",
+				"rootProperties names a type this space does not have",
+				map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+		}
+		defs, err := sp.Types().Properties(ctx, typeId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
+		}
+		if v := validateFormatValues(defs, patch); v != nil {
+			return writeError(c, http.StatusBadRequest, "property.format_violation",
+				"initial property value does not match the property's declared format",
+				v.details()), true
+		}
+	}
+	return nil, false
 }
 
 // bundleList handles GET /v1/spaces/:spaceId/bundles — every live row
@@ -184,10 +335,13 @@ func (d *deps) bundleResolve(c echo.Context) error {
 	err := d.bundleResolver().Resolve(c.Request().Context(), sp, bundleId, req.LoserRootId)
 	if err != nil {
 		// The merge decision is already made — only the timing is
-		// missing, so keep trying without the client having to.
-		// shutdownCtx, not the request's: this outlives the response.
-		if !errors.Is(err, space.ErrBundleNotLoser) && !errors.Is(err, space.ErrBundleUnknown) {
-			go d.bundleResolver().ResolveRetry(d.shutdownCtx, sp, bundleId, req.LoserRootId)
+		// missing, so keep trying without the client having to. Armed
+		// ONLY for the timing refusal: a verdict retrying cannot change
+		// must not leave a loop that outlives the client's intent. Runs
+		// on the background context, which outlives the response; the
+		// resolver dedups so a polling client cannot stack loops.
+		if errors.Is(err, bundles.ErrLoserNotReady) {
+			go d.bundleResolver().ResolveRetry(d.backgroundCtx(), sp, bundleId, req.LoserRootId)
 		}
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
@@ -225,6 +379,14 @@ func (d *deps) bundleChild(c echo.Context) error {
 	if req.Seed == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "seed required", nil)
 	}
+	if len(req.Seed) > maxBundleSeedBytes {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"seed too long", map[string]any{"max_bytes": maxBundleSeedBytes})
+	}
+	if len(req.Types) > maxBundleTypes {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"too many types", map[string]any{"max": maxBundleTypes})
+	}
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
@@ -236,10 +398,10 @@ func (d *deps) bundleChild(c echo.Context) error {
 	}
 	objectId, err := bundles.Child(ctx, sp, b.RootId, req.Seed, req.Types...)
 	if err != nil {
-		// A child binds to its parent's tree, so an unknown-tree error
-		// here means the winner has not reached this device yet — the
-		// same retryable state Ensure reports, not a bad request.
-		if errors.Is(err, spacestorage.ErrTreeStorageAlreadyDeleted) || errors.Is(err, treestorage.ErrUnknownTreeId) {
+		// A child is built on its parent's tree, so a missing parent
+		// means the winner has not reached this device yet — the same
+		// retryable state Ensure reports, not a bad request.
+		if errors.Is(err, objecttree.ErrParentNotFound) {
 			return bundleError(c, bundles.ErrRootNotLocal, sp.Id(), bundleId)
 		}
 		return bundleError(c, err, sp.Id(), bundleId)
@@ -286,13 +448,17 @@ func bundleError(c echo.Context, err error, spaceId, bundleId string) error {
 	case errors.Is(err, bundles.ErrRootNotLocal):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the bundle's root has not synced to this device yet; retry", details)
-	case errors.Is(err, bundles.ErrLoserNotReady):
+	case errors.Is(err, bundles.ErrRegistryNotSynced):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"the space's bundles registry has not synced to this device yet; retry", details)
+	case errors.Is(err, bundles.ErrLoserNotReady), errors.Is(err, space.ErrLoserNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleLoserNotReady,
 			"the losing root is still syncing; retry once it has settled", details)
 	case errors.Is(err, space.ErrBundleNotLoser):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotLoser,
 			"root is not a loser of this bundle", details)
 	case errors.Is(err, space.ErrBundleBadRequest):
+		details["reason"] = err.Error()
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"invalid bundle request", details)
 	}

@@ -87,11 +87,20 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 	const bundleId = "general-chat/v1"
 	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"]}`
 
+	// Even the initiator waits for the registry to converge: a 1-1
+	// space is derived on both sides, so its index has to meet the
+	// peer's before an install can know whether one already exists.
 	var aliceBundle api.BundleEnsureResponse
-	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
-		ensureBody, http.StatusOK, &aliceBundle)
-	if !aliceBundle.Installed || aliceBundle.Bundle.RootId == "" {
-		t.Fatalf("initiator did not install the 1-1 chat: %+v", aliceBundle)
+	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
+		aliceBundle = api.BundleEnsureResponse{}
+		code := tryJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+			ensureBody, &aliceBundle)
+		return code == http.StatusOK && aliceBundle.Bundle.RootId != ""
+	}) {
+		t.Fatalf("initiator never installed the 1-1 chat: %+v", aliceBundle)
+	}
+	if !aliceBundle.Installed {
+		t.Fatalf("initiator adopted instead of installing: %+v", aliceBundle)
 	}
 
 	var bobBundle api.BundleEnsureResponse

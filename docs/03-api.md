@@ -833,21 +833,50 @@ reclaimed). In a path segment the slash is percent-encoded:
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?}`. With a winner already
-registered it is a local read that writes nothing and replies
-`installed: false`; otherwise the server creates the root object with
+registered it is a pure read — nothing is written, so a reader or guest
+member can resolve an install they could not create — and the reply is
+`installed: false`. Otherwise the server creates the root object with
 the requested types and initial properties, registers it in one change,
-and replies `installed: true`. `name` is stamped as `any.name` on the
-root, which is also what puts the root's tree in the head-sync diff.
-The `id` is the whole identity — a marketplace id, an app slug, a
-versioned convention like `general-chat/v1` — so there is no separate
-provenance field.
+and replies `installed: true`; that path is a write, so a member
+without write permission gets `403` (use `GET …/bundles/:bundleId`
+instead). `name` is stamped as `any.name` on the root, which is also
+what puts the root's tree in the head-sync diff. The `id` is the whole
+identity — a marketplace id, an app slug, a versioned convention like
+`general-chat/v1` — so there is no separate provenance field.
 
-Offline-capable: nothing waits on the network. Two devices ensuring
-while apart each register a root, the registry converges on one winner,
-and the other appears in `losers` — so **`rootId` is provisional until
-the space syncs**, and clients re-read after. A winner whose tree has
-not reached this device yet is refused with `409 bundle.not_ready`
-rather than handed out: its id would reject every write. Retry.
+Installing runs a head-sync round first (bounded, 30s). The registry
+rides the space's index tree, and a member that ensures against state
+it has not synced yet reads "nothing installed" and mints a root
+competing with the one already out there. Adopting never runs it — a
+read cannot fork anything.
+
+When the round cannot complete, who is asking decides: the space's
+**owner** installs anyway (nobody else could have installed into a
+space only this account has, and its own devices converge through the
+registry), so an offline owner is never blocked. Any other member —
+a joiner, either side of a 1-1 — is refused with
+`409 bundle.not_ready` rather than left to fork, and retries when the
+network is back.
+
+Two devices that install while genuinely apart still each register a
+root; the registry converges on one winner and the other appears in
+`losers` — so **`rootId` is provisional until the space syncs**, and
+clients re-read after. A winner whose tree has not reached this device
+yet is likewise `409 bundle.not_ready` rather than handed out: its id
+would reject every write. Retry.
+
+Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
+`rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
+in the space (`400 type.not_found` — the create path would otherwise
+drop an unknown type and report success) and property values must match
+their declared format (`400 property.format_violation`); both are
+checked BEFORE the root is created, so a rejected request never leaves
+an orphan object. Bundle records are **permanent** — the registry
+refuses record deletes, so an id is spent for the space's lifetime, and
+`roots` only ever grows: deleting a root and re-ensuring appends
+another claim rather than replacing one. The registry rides the
+eagerly-loaded spaceIndex on every device, so treat ids as a small
+fixed vocabulary, not a scratch namespace.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
@@ -878,14 +907,21 @@ only the client knows what the content means.
 
 What the server does enforce is timing. A losing root arrives change by
 change, so a merge made from a half-arrived tree is a half-merge:
-resolve is refused with `409 bundle.loser_not_ready` until the root has
-stopped syncing and has been observed for a grace period. The server
-keeps retrying in the background after such a refusal (the merge
-decision is already made; only the timing was missing), but that is
-in-memory and dropped on restart, so clients retry too. Resolving the
-winner, or a root never claimed for the bundle, is
-`409 bundle.not_loser`; a root already resolved returns 204 — the call
-is idempotent.
+resolve is refused with `409 bundle.loser_not_ready` until the SDK
+reports the root fully **synced** — an unknown or still-syncing tree
+never qualifies — and it has been observed as a loser for a grace
+period (5 min). The clock starts when the conflict first became
+visible on this device (any `GET …/bundles[/:id]` or the boot pass
+counts), not at the first resolve call, so a client that showed the
+user a conflict and got an answer is not made to wait again. A restart
+restarts the clock, which only ever delays a deletion.
+
+After a timing refusal the server keeps retrying in the background (the
+merge decision is already made; only the timing was missing) — one loop
+per losing root however often you poll, in-memory and dropped on
+restart, so clients retry too. Resolving the winner, or a root never
+claimed for the bundle, is `409 bundle.not_loser`; a root already
+resolved returns 204 — the call is idempotent.
 
 **Restore.** On boot the server converges the space list and projects
 the space index for the well-known derived spaces, so a client ensuring

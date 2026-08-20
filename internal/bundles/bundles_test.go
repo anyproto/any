@@ -3,6 +3,7 @@ package bundles
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,27 +18,51 @@ type fakeSpace struct {
 	space.Space
 	id      string
 	bundles *fakeBundles
+	status  *fakeSyncStatus
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
 func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
+
+func (f *fakeSpace) SyncStatus() space.SyncStatusAPI { return f.status }
+
+// fakeSyncStatus reports one fixed per-object state.
+type fakeSyncStatus struct {
+	space.SyncStatusAPI
+	state space.SyncState
+}
+
+func (f *fakeSyncStatus) Object(objectId string) space.ObjectSyncStatus {
+	return space.ObjectSyncStatus{ObjectId: objectId, State: f.state}
+}
 
 // fakeBundles records the roots ResolveLoser was asked to delete and
 // can fail a chosen one, standing in for a loser whose tree has not
 // synced to this device.
 type fakeBundles struct {
 	space.BundlesAPI
+	mu      sync.Mutex
 	row     space.Bundle
+	getErr  error
 	deleted []string
 	failOn  map[string]error
 	calls   int
 }
 
 func (f *fakeBundles) Get(context.Context, string) (space.Bundle, error) {
+	if f.getErr != nil {
+		return space.Bundle{}, f.getErr
+	}
 	return f.row, nil
 }
 
+func (f *fakeBundles) List(context.Context) ([]space.Bundle, error) {
+	return []space.Bundle{f.row}, nil
+}
+
 func (f *fakeBundles) ResolveLoser(_ context.Context, _, loserRootId string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if err := f.failOn[loserRootId]; err != nil {
 		return err
@@ -208,5 +233,114 @@ func TestResolveRetryHonorsCancellation(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("ResolveRetry ignored context cancellation")
+	}
+}
+
+// TestResolveMapsSDKNotSynced pins that the SDK's "loser tree never
+// arrived" verdict is the retryable one, not an opaque failure.
+func TestResolveMapsSDKNotSynced(t *testing.T) {
+	sp, fb := newFake()
+	fb.failOn["l1"] = space.ErrLoserNotSynced
+
+	err := newTestResolver(0).Resolve(context.Background(), sp, "test/v1", "l1")
+	if !errors.Is(err, ErrLoserNotReady) {
+		t.Fatalf("err = %v, want ErrLoserNotReady", err)
+	}
+}
+
+// TestGraceRunsFromObservation pins that the window starts when the
+// conflict became visible, not at the client's first resolve call: a
+// loser listed long enough ago is resolvable on the first attempt.
+func TestGraceRunsFromObservation(t *testing.T) {
+	sp, fb := newFake()
+	r := newTestResolver(time.Hour)
+
+	if _, err := r.List(context.Background(), sp); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	// Backdate the observation past the window — the same state a
+	// client reaches after leaving the conflict on screen.
+	r.mu.Lock()
+	r.firstSeen[sp.Id()+"/l1"] = time.Now().Add(-2 * time.Hour)
+	r.mu.Unlock()
+
+	if err := r.Resolve(context.Background(), sp, "test/v1", "l1"); err != nil {
+		t.Fatalf("resolve after the window elapsed: %v", err)
+	}
+	if len(fb.deleted) != 1 {
+		t.Fatalf("deleted = %v, want [l1]", fb.deleted)
+	}
+	// A resolved loser stops being tracked.
+	r.mu.Lock()
+	_, tracked := r.firstSeen[sp.Id()+"/l1"]
+	r.mu.Unlock()
+	if tracked {
+		t.Fatal("resolved loser still tracked")
+	}
+}
+
+// TestResolveRetryDedups pins that a polling client cannot stack a
+// retry loop per request.
+func TestResolveRetryDedups(t *testing.T) {
+	sp, fb := newFake()
+	fb.failOn["l1"] = errors.New("tree not synced")
+	r := newTestResolver(0)
+	r.RetryDelay = 50 * time.Millisecond
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.ResolveRetry(context.Background(), sp, "test/v1", "l1")
+		}()
+	}
+	wg.Wait()
+
+	// One loop of retryAttempts, not ten.
+	if fb.calls > retryAttempts {
+		t.Fatalf("%d deletion attempts, want at most %d — retries stacked", fb.calls, retryAttempts)
+	}
+}
+
+// TestResolveRetryStopsWhenUninstalled pins that a retry armed against
+// a bundle that is not installed gives up instead of running for its
+// whole schedule — and never deletes anything.
+func TestResolveRetryStopsWhenUninstalled(t *testing.T) {
+	sp, fb := newFake()
+	fb.getErr = space.ErrBundleUnknown
+
+	done := make(chan struct{})
+	go func() {
+		newTestResolver(0).ResolveRetry(context.Background(), sp, "test/v1", "l1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("ResolveRetry kept retrying an uninstalled bundle")
+	}
+	if fb.calls != 0 {
+		t.Fatalf("attempted %d deletions on an uninstalled bundle", fb.calls)
+	}
+}
+
+// TestSyncQuiescentRequiresSynced pins the default probe: only an
+// explicit synced verdict counts. Unknown is the state of a tree that
+// has never produced a status hook — after a restart, or one that
+// never arrived — and treating it as settled would license deleting a
+// loser nobody here has seen.
+func TestSyncQuiescentRequiresSynced(t *testing.T) {
+	for state, want := range map[space.SyncState]bool{
+		space.SyncStateSynced:  true,
+		space.SyncStateUnknown: false,
+		space.SyncStateSyncing: false,
+		space.SyncStateOffline: false,
+		space.SyncStateError:   false,
+	} {
+		sp := &fakeSpace{id: "space1", status: &fakeSyncStatus{state: state}}
+		if got := syncQuiescent(sp, "l1"); got != want {
+			t.Fatalf("state %v: quiescent = %v, want %v", state, got, want)
+		}
 	}
 }

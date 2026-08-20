@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -338,5 +339,70 @@ func TestServer_BundleRegistryReadableAsDataset(t *testing.T) {
 	if len(out.Records) != 1 || out.Records[0].Id != testBundleId ||
 		out.Records[0].RootId != inst.Bundle.RootId || out.Records[0].Name != "General" {
 		t.Fatalf("dataset rows = %+v", out.Records)
+	}
+}
+
+// TestServer_BundleEnsurePreflight pins that a bad Ensure is rejected
+// BEFORE anything is created: a type the space does not have (the
+// create path would drop the attachment and report success), a
+// property value violating its declared format, and an unknown body
+// field. Each leaves the registry empty.
+func TestServer_BundleEnsurePreflight(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundlePreflight")
+	path := "/v1/spaces/" + sp.Id + "/bundles"
+
+	cases := []struct {
+		name, body, code string
+	}{
+		{"unknown type", `{"id":"a/v1","rootTypes":["no_such_type"]}`, "type.not_found"},
+		{"unknown property type", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "type.not_found"},
+		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
+		{"types not an array", `{"id":"a/v1","rootTypes":"chat"}`, "request.schema"},
+		{"props not an object", `{"id":"a/v1","rootProperties":[]}`, "request.schema"},
+		{"id too long", `{"id":"` + strings.Repeat("x", 257) + `"}`, "request.invalid_field"},
+		{"name too long", `{"id":"a/v1","name":"` + strings.Repeat("x", 1025) + `"}`, "request.invalid_field"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doJSON(t, e, http.MethodPost, path, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d %s, want 400", rec.Code, rec.Body.String())
+			}
+			var env api.ErrorEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if env.Error.Code != tc.code {
+				t.Fatalf("code = %q, want %q", env.Error.Code, tc.code)
+			}
+		})
+	}
+
+	// Nothing was installed, and no orphan root was left behind.
+	var list api.BundleListResponse
+	decodeGet(t, e, path, &list)
+	if len(list.Bundles) != 0 {
+		t.Fatalf("rejected requests registered bundles: %+v", list.Bundles)
+	}
+}
+
+// TestServer_BundleChildSeedCap pins the seed bound — seeds are
+// permanent, so an unbounded one would be a permanent object id.
+func TestServer_BundleChildSeedCap(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleSeedCap")
+	ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/children"
+
+	rec := doJSON(t, e, http.MethodPost, path, `{"seed":"`+strings.Repeat("s", 257)+`"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized seed: %d %s", rec.Code, rec.Body.String())
 	}
 }
