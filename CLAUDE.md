@@ -988,6 +988,43 @@ Implementation slices landed:
     internal/e2e/multipeer_processes_test.go. Contract:
     docs/22-processes.md.
 
+34. **Derived spaces registry (SYN-164)** — well-known per-account
+    spaces derived deterministically from the account keys + a fixed
+    seed, so every client/device converges on THE space (no
+    check-then-create races). Raw `Service.Derive`/`DeriveId` stay off
+    the wire (a free seed would mint a permanent space and invite
+    silent collisions); the vocabulary is the compiled-in registry
+    `internal/server/derivedspaces.go` (seed convention
+    `any/space/<name>/v1`; v1 entry: `bao`, the agent space).
+    Surface: `GET /v1/spaces/derived` → `[{name, spaceId, created,
+    status?}]` (ids resolved ONCE at engine boot — `deps.derived`;
+    resolves, never creates; `created` = usable row exists on any
+    device, tombstoned rows report created=false) and
+    `POST /v1/spaces/derived/:name` → Service.Derive, lazy +
+    idempotent, 201 SpaceInfo, registry DisplayName rides
+    `DeriveRequest.Name` on first materialization (404
+    `space.derived_unknown` off-registry, 409 `space.deleted` for a
+    pre-guard-wedged row). Derived spaces are PERMANENT: DELETE
+    refuses 409 `space.derived_undeletable` via a layered guard —
+    server pre-check on the boot-resolved ids (covers unmaterialized
+    ids; infallible map lookup) + SDK flag refusal
+    (`space.ErrIsDerivedSpace`; Derive stamps a synced set-once
+    `derived` bool on the tech-space row, pinned by the handler like
+    `type`, healed onto pre-flag rows by re-running Derive) + the
+    SDK's apply-side handler drops `remoteStatus=deleted` on flagged
+    rows from any peer + its deletion reconciler exempts them (a
+    coordinator NotExists for a space derived offline must not
+    tombstone it). `SpaceInfo.derived` passthrough; joiners never
+    carry the flag, so their removal stays allowed. Side effects of
+    the same SDK bump: SDK Delete now refuses the tech-space id
+    (`ErrIsTechSpace`) and row-less ids (`ErrSpaceUnknown` → 404
+    instead of a silent 204). CLI: `any space derived
+    [create <name>]`. e2e: internal/e2e/derived_spaces_test.go.
+    Contract: docs/03-api.md § Spaces → Derived spaces,
+    docs/06-errors.md. **SDK prerequisite (shipped in v0.2.1):**
+    Delete guards + `ErrIsDerivedSpace` + `SpaceInfo.Derived` +
+    `DeriveRequest.Name`.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
