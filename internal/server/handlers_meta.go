@@ -35,6 +35,9 @@ type deps struct {
 	// most one value; subsequent sends are dropped by the non-blocking send.
 	shutdown chan<- struct{}
 	sdk      *anysyncsdk.SDK
+	// derived is the derived-space registry resolved against the booted
+	// account (derivedspaces.go) — set with sdk, published by ready.
+	derived []resolvedDerivedSpace
 
 	// chunkers is the index chunker registry, built once at boot via
 	// NewIndexRegistry and driven by the indexer.

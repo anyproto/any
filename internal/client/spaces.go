@@ -78,6 +78,30 @@ func (c *Client) SpaceList(ctx context.Context, status string) (*api.SpaceListRe
 	return &out, nil
 }
 
+// SpaceDerivedList fetches the well-known derived-space registry
+// resolved against the account (GET /v1/spaces/derived): per entry the
+// deterministic spaceId and whether it has been materialized yet.
+// Resolving never creates anything.
+func (c *Client) SpaceDerivedList(ctx context.Context) (*api.DerivedSpaceListResponse, error) {
+	var out api.DerivedSpaceListResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/spaces/derived", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceDerivedCreate materializes a well-known derived space by its
+// registry name (POST /v1/spaces/derived/:name → Service.Derive).
+// Idempotent — repeat calls land on the same space.
+func (c *Client) SpaceDerivedCreate(ctx context.Context, name string) (*api.SpaceInfo, error) {
+	var out api.SpaceInfo
+	path := fmt.Sprintf("/v1/spaces/derived/%s", url.PathEscape(name))
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // SpaceOneToOne opens (initiates or explicitly accepts) a 1-1 (direct)
 // space with the given account identity — POST /v1/spaces/one-to-one →
 // Service.OneToOne. Activates locally; returns the space info.
