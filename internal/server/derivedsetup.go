@@ -11,39 +11,35 @@ import (
 	"github.com/anyproto/any/internal/bundles"
 )
 
-// Setup of the well-known derived spaces (derivedspaces.go), driven by
-// the SDK's bundles registry — any-sync-sdk docs/bundles.md.
+// Restore pass for the well-known derived spaces (derivedspaces.go)
+// and the bundles they carry — any-sync-sdk docs/bundles.md.
 //
-// Creation and restore are different problems. Creating the space is a
-// local act: the id is derived from the account keys, so the setup can
-// install immediately and let it sync. Restoring a device that already
-// had the space must NOT install a second time — it has to see the
-// account's converged state first, or it mints a competing root that
-// then has to be merged away. Hence two entry points:
+// Creating a bundle is a client call (POST /v1/spaces/:id/bundles) and
+// needs no gate: the space id is derived from the account keys, so the
+// install can happen locally and sync afterwards. Restoring a device
+// that already had the space is the case that needs care — a client
+// that ensures against a registry it has not synced yet mints a
+// competing root. This pass front-runs that: it converges the space
+// list, projects the space index, and reads the registry, so by the
+// time a client asks, the answer is the account's converged one.
 //
-//   - creation (POST /v1/spaces/derived/:name): derive the space, run
-//     the setup, no waits;
-//   - restore (this boot pass): wait for the space list to converge,
-//     adopt only what is already there.
-//
-// Both end in the same idempotent Ensure, which is what makes the
-// split safe rather than load-bearing: a device that installs anyway —
-// offline, list wait expired — converges on the registry's winner and
-// resolves its own root as a loser afterwards.
+// It installs nothing and deletes nothing. Only a client knows what a
+// bundle is for and whether a losing root's content was worth merging,
+// so both decisions stay explicit calls.
 
 // Bounds on the restore gates. Both waits retry until their context
 // expires, so an offline boot must not sit on them forever.
 // WaitListSynced falls through to the local space list; WaitIndexSynced
 // has nothing to fall through to — an unseeded index means the registry
 // cannot be read at all — so its expiry skips the entry until the next
-// boot (or an explicit materialize).
+// boot.
 const (
 	derivedListSyncWait  = 90 * time.Second
 	derivedIndexSyncWait = 90 * time.Second
 )
 
-// bundleResolver returns the process's install resolver, building it
-// on first use.
+// bundleResolver returns the process's bundles engine, building it on
+// first use.
 func (d *deps) bundleResolver() *bundles.Resolver {
 	d.installsOnce.Do(func() {
 		d.installs = bundles.NewResolver(bundles.DefaultGrace)
@@ -51,9 +47,9 @@ func (d *deps) bundleResolver() *bundles.Resolver {
 	return d.installs
 }
 
-// bootstrapDerivedSetups adopts the setup of every registry entry that
-// carries one, for spaces this account already has. It never
-// materializes a space: creating one is an explicit act
+// bootstrapDerivedSetups warms the registry of every well-known
+// derived space this account already has. It never materializes a
+// space: creating one is an explicit act
 // (POST /v1/spaces/derived/:name), and a boot pass that created them
 // would hand every account a space it never asked for.
 //
@@ -66,23 +62,20 @@ func (d *deps) bootstrapDerivedSetups(ctx context.Context) {
 		return
 	}
 	for _, def := range d.derived {
-		if !def.hasInstall() {
-			continue
-		}
 		d.adoptDerivedSetup(ctx, def)
 	}
 }
 
-// adoptDerivedSetup runs the restore side of the split for one entry.
+// adoptDerivedSetup runs the restore gates for one entry and surfaces
+// what the converged registry carries.
 func (d *deps) adoptDerivedSetup(ctx context.Context, def resolvedDerivedSpace) {
 	// Local state first — offline-first: a space this device already
 	// carries answers the "does it exist" question with no network at
-	// all, and its setup is adopted immediately.
+	// all, and its registry is readable immediately.
 	if !d.derivedSpaceListed(ctx, def.SpaceId) {
 		// Unknown locally: the account may still have it on another
 		// device, so converge the space list before concluding
-		// anything. On timeout (offline) we simply skip — installing
-		// blind would be the one thing that creates a conflict.
+		// anything.
 		waitCtx, cancel := context.WithTimeout(ctx, derivedListSyncWait)
 		err := d.sdk.Spaces().WaitListSynced(waitCtx)
 		cancel()
@@ -103,8 +96,9 @@ func (d *deps) adoptDerivedSetup(ctx context.Context, def resolvedDerivedSpace) 
 		return
 	}
 	// The registry lives on the spaceIndex object: without its state
-	// projected locally, Ensure reads an empty registry and installs a
-	// second root. Returns immediately when the index is already local.
+	// projected locally it reads empty, and a client ensuring against
+	// an empty registry installs a second root. Returns immediately
+	// when the index is already local.
 	waitCtx, cancel := context.WithTimeout(ctx, derivedIndexSyncWait)
 	err = sp.WaitIndexSynced(waitCtx)
 	cancel()
@@ -113,7 +107,23 @@ func (d *deps) adoptDerivedSetup(ctx context.Context, def resolvedDerivedSpace) 
 			zap.String("name", def.Name), zap.Error(err))
 		return
 	}
-	d.runDerivedSetup(ctx, sp, def)
+
+	rows, err := d.bundleResolver().List(ctx, sp)
+	if err != nil {
+		engineLog.Warn("derived space bundles",
+			zap.String("name", def.Name), zap.Error(err))
+		return
+	}
+	for _, b := range rows {
+		if len(b.Losers) > 0 {
+			// Surfaced, not resolved: the losing roots may hold
+			// content only the client that installed them can judge.
+			// It reads them from GET /bundles and calls /resolve.
+			engineLog.Warn("bundle has unresolved losing roots",
+				zap.String("spaceId", sp.Id()), zap.String("bundle", b.Id),
+				zap.Strings("losers", b.Losers))
+		}
+	}
 }
 
 // derivedSpaceListed reports whether the account's space list carries a
@@ -129,23 +139,4 @@ func (d *deps) derivedSpaceListed(ctx context.Context, spaceId string) bool {
 		}
 	}
 	return false
-}
-
-// runDerivedSetup installs or adopts the entry's bundle and hands any
-// losing roots to the background retry loop. Idempotent — an adopted
-// install writes nothing.
-//
-// Resolution runs on shutdownCtx, not the caller's: on the create path
-// the caller is an HTTP request whose context dies with the response,
-// while a loser stays undeletable until its tree syncs here.
-func (d *deps) runDerivedSetup(ctx context.Context, sp space.Space, def resolvedDerivedSpace) {
-	b, err := d.bundleResolver().Ensure(ctx, sp, sp.Info(), def.Install, d.account)
-	if err != nil {
-		engineLog.Warn("derived space setup",
-			zap.String("name", def.Name), zap.Error(err))
-		return
-	}
-	if len(b.Losers) > 0 {
-		go d.bundleResolver().ResolveRetry(d.shutdownCtx, sp, def.Install, b)
-	}
 }

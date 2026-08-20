@@ -13,6 +13,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 func TestE2E_DerivedSpaces(t *testing.T) {
@@ -88,9 +90,6 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 		if info["derived"] != true {
 			t.Errorf("derived flag missing on SpaceInfo: %+v", info)
 		}
-		if info["generalChatObjectId"] == nil || info["generalChatObjectId"] == "" {
-			t.Errorf("single-space response missing generalChatObjectId: %+v", info)
-		}
 
 		// Idempotent: same id on repeat.
 		var again map[string]any
@@ -100,44 +99,29 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 		}
 	})
 
-	t.Run("setup registered in the bundles registry", func(t *testing.T) {
-		// Materializing bao runs the creation side of the setup split:
-		// its bundle is installed, and the space's general chat is the
-		// winning root of its own bundle. Both rows are readable
-		// through the generic dataset surface on the spaceIndex object.
-		var info map[string]any
-		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId, "", http.StatusOK, &info)
-		indexId, _ := info["spaceIndexObjectId"].(string)
-		chatId, _ := info["generalChatObjectId"].(string)
-		if indexId == "" || chatId == "" {
-			t.Fatalf("space response missing ids: %+v", info)
+	t.Run("setup is the client's to register", func(t *testing.T) {
+		// Materializing a derived space installs nothing: the server
+		// keeps no catalog, so its registry is empty until a client
+		// ensures its own bundle.
+		var empty api.BundleListResponse
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId+"/bundles", "", http.StatusOK, &empty)
+		if len(empty.Bundles) != 0 {
+			t.Fatalf("derived space pre-installed bundles: %+v", empty.Bundles)
 		}
 
-		var out struct {
-			Records []struct {
-				Id     string   `json:"id"`
-				RootId string   `json:"rootId"`
-				Roots  []string `json:"roots"`
-			} `json:"records"`
+		var res api.BundleEnsureResponse
+		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+baoId+"/bundles",
+			`{"id":"bao/v1","name":"bao","rootTypes":["page"]}`,
+			http.StatusOK, &res)
+		if !res.Installed || res.Bundle.RootId == "" {
+			t.Fatalf("ensure did not install: %+v", res)
 		}
-		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+baoId+"/query",
-			`{"objectId":"`+indexId+`","dataset":"bundles"}`, http.StatusOK, &out)
 
-		rows := map[string]string{}
-		for _, r := range out.Records {
-			if r.RootId == "" {
-				t.Errorf("bundle %q has no rootId: %+v", r.Id, r)
-			}
-			if len(r.Roots) == 0 || r.Roots[0] != r.RootId {
-				t.Errorf("bundle %q winner not claimed in roots: %+v", r.Id, r)
-			}
-			rows[r.Id] = r.RootId
-		}
-		if rows["bao/v1"] == "" {
-			t.Errorf("bao bundle not registered: %+v", out.Records)
-		}
-		if rows["general-chat/v1"] != chatId {
-			t.Errorf("general chat bundle root %q != generalChatObjectId %q", rows["general-chat/v1"], chatId)
+		var list api.BundleListResponse
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId+"/bundles", "", http.StatusOK, &list)
+		if len(list.Bundles) != 1 || list.Bundles[0].Id != "bao/v1" ||
+			list.Bundles[0].RootId != res.Bundle.RootId || list.Bundles[0].Name != "bao" {
+			t.Fatalf("registry after install: %+v", list.Bundles)
 		}
 	})
 

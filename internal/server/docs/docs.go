@@ -547,6 +547,127 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.Bundle": {
+                "description": "Bundle is the converged registry row.",
+                "properties": {
+                    "id": {
+                        "description": "Id is the stable bundle identifier — the record id. Permanent:\na successor install takes a new id (record deletes are refused,\nso a reused id could never be reclaimed).",
+                        "type": "string"
+                    },
+                    "losers": {
+                        "description": "Losers is the live conflict set: claimed roots that are neither\nthe winner nor already deleted. Non-empty means two devices\ninstalled concurrently — merge what matters out of each, then\nresolve it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "description": "Name is the display name, stamped as ` + "`" + `any.name` + "`" + ` on the root by\nwhichever device installed it.",
+                        "type": "string"
+                    },
+                    "rootId": {
+                        "description": "RootId is the winning root object id. Setup objects are derived\nfrom it, so this one id names the whole install. Provisional\nuntil the space syncs.",
+                        "type": "string"
+                    },
+                    "roots": {
+                        "description": "Roots is every root ever claimed for this bundle — the add-only\naudit trail. A resolved loser stays listed; its death is\nrecorded by the deletion of its tree.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleChildRequest": {
+                "properties": {
+                    "seed": {
+                        "description": "Seed derives the child deterministically under the bundle's\ncurrent winner. Permanent — a successor object takes a new seed.",
+                        "type": "string"
+                    },
+                    "types": {
+                        "description": "Types are attached on first materialization.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleChildResponse": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleEnsureRequest": {
+                "properties": {
+                    "id": {
+                        "description": "Id is the bundle identifier. Required.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is the display name, written on install.",
+                        "type": "string"
+                    },
+                    "rootProperties": {
+                        "additionalProperties": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "description": "RootProperties seeds the root's property values, keyed\ntypeId → propId → value (same shape as POST /objects).",
+                        "type": "object"
+                    },
+                    "rootTypes": {
+                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleEnsureResponse": {
+                "properties": {
+                    "bundle": {
+                        "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "installed": {
+                        "description": "Installed reports whether THIS call created the root. False\nmeans an existing install was adopted and nothing was written.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleListResponse": {
+                "properties": {
+                    "bundles": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Bundle"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleResolveRequest": {
+                "properties": {
+                    "loserRootId": {
+                        "description": "LoserRootId is the losing root to delete, cascading to its\nderived children. Call it only once whatever mattered has been\nmerged out — the server never merges for you.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatAgentMeta": {
                 "properties": {
                     "debugLink": {
@@ -2490,7 +2611,7 @@ const docTemplate = `{
             "api.SpaceInfo": {
                 "properties": {
                     "agentConfigObjectId": {
-                        "description": "AgentConfigObjectId is the deterministic id of the space's single\nagent config object (see agentconfig.ConfigObjectSeed). Populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join), same as GeneralChatObjectId;\nomitted on the cheap ` + "`" + `GET /v1/spaces` + "`" + ` list rows. The harness resolves\nits config cascade against this object.",
+                        "description": "AgentConfigObjectId is the deterministic id of the space's single\nagent config object (see agentconfig.ConfigObjectSeed). Populated —\nmaterializing the object on first sight — on single-space responses\n(create / get / one-to-one / join); omitted on the cheap\n` + "`" + `GET /v1/spaces` + "`" + ` list rows. The harness resolves\nits config cascade against this object.",
                         "type": "string"
                     },
                     "agentSecretsObjectId": {
@@ -2508,9 +2629,6 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "description": {
-                        "type": "string"
-                    },
-                    "generalChatObjectId": {
                         "type": "string"
                     },
                     "iconCid": {
@@ -5860,6 +5978,409 @@ const docTemplate = `{
                 "summary": "Aggregate over a per-object dataset",
                 "tags": [
                     "data"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the space's bundles",
+                "tags": [
+                    "bundles"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleEnsureRequest",
+                                        "summary": "body",
+                                        "description": "Bundle to register"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Bundle to register",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleEnsureResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Install or adopt a bundle",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded (general-chat%2Fv1)",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.Bundle"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read one bundle",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}/children": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleChildRequest",
+                                        "summary": "body",
+                                        "description": "Child seed and types"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Child seed and types",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleChildResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Derive a setup object under the bundle root",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}/resolve": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleResolveRequest",
+                                        "summary": "body",
+                                        "description": "Losing root to delete"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Losing root to delete",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Resolve a losing root",
+                "tags": [
+                    "bundles"
                 ]
             }
         },

@@ -86,12 +86,5 @@ func (d *deps) derivedSpaceCreate(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"name": def.Name})
 	}
-	// Creation side of the setup split (derivedsetup.go): the space id
-	// is derived from the account keys, so the install runs right away
-	// with no sync gate. Best-effort — the space exists either way and
-	// the boot pass adopts the setup later.
-	if def.hasInstall() {
-		d.runDerivedSetup(ctx, sp, def)
-	}
 	return c.JSON(http.StatusCreated, d.spaceToAPI(ctx, sp))
 }

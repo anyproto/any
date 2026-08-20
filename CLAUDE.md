@@ -697,23 +697,17 @@ Implementation slices landed:
       `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
       `PropertyOption`; exported `space.ErrPinnedField` +
       `typetype.IsPinnedPath`. Docs: 03-api.md § Types, 01-cli.md § Types.
-24. **Per-space general chat** — every space has one "general" chat
-    object (`internal/chat/general.go`), installed as the
-    `general-chat/v1` bundle in the space's bundles registry (see item
-    34). Motivation: clients that want "the chat for this space" (the
-    only case for a 1-1) otherwise each `Objects().Create` a fresh
-    chat, so a space ends up with two or three parallel chats. Surface:
-    NO bespoke endpoint — the id is delivered through the existing
-    common per-space metadata point:
-    `SpaceInfo.generalChatObjectId`, populated on every single-space
-    response by `spaceToAPI` (takes a ctx, resolves best-effort —
-    installing the object on first sight, chat type attached at
-    creation, so the id accepts `chat/messages` writes immediately) —
-    create / get / one-to-one / join. Omitted on `GET /v1/spaces` list
-    rows (kept a cheap read that never installs chats), same policy as
-    `spaceIndexObjectId`. CLI: read it off `any space get <spaceId>`.
-    Contract: docs/03-api.md § Chat (General chat) + § Spaces,
-    docs/01-cli.md § Chat, docs/16-chat.md § Finding the chat object.
+24. **Per-space chats are client-registered** — a space's "general"
+    chat is no longer a server concept. Clients register it as a bundle
+    (item 35) and use the returned root; `SpaceInfo.generalChatObjectId`
+    and the derived `any/general-chat/v1` object are gone with no
+    back-compat. Motivation is unchanged (clients that each
+    `Objects().Create` a chat leave a space with two or three parallel
+    ones, most visibly in a 1-1) — the convergence point moved from a
+    hardcoded derive to the registry, so different clients can register
+    different things. Convention: bundle id `general-chat/v1`,
+    `rootTypes: ["chat"]`. Contract: docs/03-api.md § Chat (Finding the
+    chat object) + § Bundles, docs/16-chat.md, docs/08-clients.md § 4.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
     `internal/api/history.go`; routes wired in `handlers_spaces.go`).
@@ -1019,75 +1013,65 @@ Implementation slices landed:
     Delete guards + `ErrIsDerivedSpace` + `SpaceInfo.Derived` +
     `DeriveRequest.Name`.
 
-35. **Space setup bundles** — space setup now goes through the SDK's
-    per-space bundles registry (`Space.Bundles()`, the `bundles`
+35. **Bundles registry over HTTP** — what a space has installed lives
+    in the SDK's per-space registry (`Space.Bundles()`, the `bundles`
     dataset on the spaceIndex object; design in the SDK's
-    `docs/bundles.md`), replacing derive-only setup for anything whose
-    root has to carry data. A derived root cannot be deleted, so two
-    devices installing while apart would leave a permanent shadow
-    install; the registry instead picks one deterministic winner
-    (`rootId`, LWW) and keeps every claim in the add-only `roots` set,
-    so a loser is discoverable, mergeable and deletable. Setup objects
-    hang off the winner as derived children (`ParentId`), so one id
-    names the whole install and deleting a losing root cascades.
-    - `internal/bundles` — the app-side wrapper: `Install{Id, Name,
-      RootTypes, Merge, Keep}`, `Ensure` (adopt-or-install; a
-      non-derived root via `Objects().Create`), `ResolveLosers`
-      (Keep-guard → Merge → `ResolveLoser`, all idempotent and
-      retryable), `Child` (derive a setup object under the root).
-    - Installs: `general-chat/v1` (`internal/chat/general.go`, every
-      space — the chat object IS the root, `Merge` nil because
-      `chat_messages` re-attribute on copy, `Keep` refuses to delete a
-      loser that already carries messages) and `bao/v1`
-      (`internal/bao`, the derived bao space's setup root, no children
-      yet — memory/config/secrets still live on their own space-derived
-      objects).
-    - Creation/restore split (`internal/server/derivedsetup.go`):
-      `POST /v1/spaces/derived/:name` installs immediately (no sync
-      gate — the space id is local knowledge), while the boot pass
-      (`bootstrapDerivedSetups`, off `bootAccount` after
-      `BootstrapDone`) does the restore side — `WaitListSynced` (90s
-      bound) → adopt ONLY spaces the account already has (it never
-      materializes one) → `WaitIndexSynced` (90s bound) → `Ensure`.
-      Neither bound blocks serving: the list wait falls through to the
-      local space list, while an expired index wait SKIPS the entry
-      until the next boot (an unseeded index means the registry cannot
-      be read at all — there is no local answer to fall through to).
-      An offline device that installs anyway converges (its root
-      becomes a loser).
-    - Loser resolution: `Resolver` (`internal/bundles`) — inline on
-      every space read for the chat bundle (rare, cheap, self-healing)
-      and `ResolveRetry` on `shutdownCtx` for the derived-space
-      installs. A loser is deleted only once quiescent — `Grace`
-      (5min) since first sight AND not `SyncStateSyncing` — because a
-      half-arrived tree reads empty; Keep's "don't delete" verdicts are
-      memoized per (space, root) so a kept loser stops costing a probe.
-    - `SpaceInfo.generalChatObjectId` resolves through the bundle
-      winner; the old `any/general-chat/v1` derived chat is gone with
-      no fallback, so existing installs get a fresh general chat and
-      their legacy one is abandoned in place (still readable as an
-      ordinary object). **Exactly one member installs**
-      (`Install.SoleInstaller`, enforced inside `bundles.Ensure`): the
-      owner of an ordinary space, and on a 1-1 — whose ACL owner is a
-      synthetic key nobody holds — the lexicographically smaller of the
-      two identities. Every other member adopts the registered row and
-      reports an empty field until it syncs in AND the winner's tree is
-      local (`Properties().Get` probe — naming a non-local root would
-      hand clients an id that 404s on write). Two members installing
-      before they had seen each other would split the conversation
-      across two chats, which chat messages cannot be merged back out
-      of. Tests:
-      internal/bundles/bundles_test.go (resolver logic against a fake
-      space — quiescence, sticky Keep, merge-before-delete, retry),
-      internal/chat/general_test.go (the sole-installer rule),
-      internal/server/handlers_bundles_test.go (install, adopt,
-      derived child), internal/e2e/derived_spaces_test.go +
-      multipeer_general_chat_test.go + multipeer_onetoone_test.go
-      (joiner and 1-1 peer converge on the installed id). The registry
-      is SDK-write-only (the `bundles` dataset is fenced off the public
-      modify surface), so a conflict cannot be injected from one
-      device — the resolver is unit-tested instead. Contract: docs/03-api.md
-      § Space setup bundles + § Chat (General chat), docs/16-chat.md.
+    `docs/bundles.md`). A bundle is one NON-derived root object under a
+    permanent versioned id, with setup objects derived from it
+    (`ParentId`), so one converged id names the whole install. A
+    derived root cannot be deleted, so two devices installing while
+    apart would leave a permanent shadow install; the registry picks
+    one deterministic winner (`rootId`, LWW), keeps every claim in the
+    add-only `roots` set, and leaves the rest in `losers` — mergeable
+    and deletable.
+    - **Clients register their own.** The server keeps NO catalog and
+      installs nothing: `internal/bundles` is a generic engine
+      (`Install{Id,Name,RootTypes,RootProperties}`, `Resolver`
+      with Ensure/Get/List/Resolve/ResolveRetry, `Child`), and
+      `internal/server/handlers_bundles.go` is the wire surface.
+    - Endpoints: `POST /v1/spaces/:s/bundles` (adopt-or-install →
+      `{bundle, installed}`; the server creates the root with the
+      requested types/properties), `GET …/bundles`,
+      `GET …/bundles/:bundleId`, `POST …/bundles/:bundleId/resolve`
+      (`{loserRootId}`, idempotent), `POST …/bundles/:bundleId/children`
+      (`{seed, types?}` → deterministic child of the winner). **Bundle
+      ids carry a slash, so path segments are percent-encoded**
+      (`general-chat%2Fv1`); bodies take them verbatim. Rows are also
+      readable through the generic dataset surface (that path is
+      read-only — the SDK fences the dataset off modify).
+    - The `id` is the whole identity — marketplace id, app slug, or a
+      versioned convention like `general-chat/v1` — so there is no
+      separate provenance field.
+    - **Merging is the client's job, timing is the server's.** Resolve
+      deletes a losing root only after the client says it merged; the
+      server refuses (`409 bundle.loser_not_ready`) while the loser is
+      still syncing or inside `Resolver.Grace` (5min from first sight),
+      because a merge made from a half-arrived tree is a half-merge.
+      Permanent verdicts come first: the winner or an unclaimed root is
+      `409 bundle.not_loser`, an already-resolved one is 204. After a
+      refusal the server keeps retrying in the background (in-memory,
+      dropped on restart). An adopted winner whose tree is not local is
+      `409 bundle.not_ready` rather than an id that 404s on write.
+    - **Nobody arbitrates who installs** — the server used to pick a
+      sole installer, and no longer does. Clients agree out of band
+      (for a 1-1, the initiating side ensures) or handle `losers`.
+    - Boot pass (`internal/server/derivedsetup.go`): for the well-known
+      derived spaces the account already has, `WaitListSynced` (90s) →
+      open → `WaitIndexSynced` (90s) → List, so a client ensuring right
+      after a restore meets the converged registry instead of an empty
+      one. It never materializes a space, installs nothing, and deletes
+      nothing — losing roots are logged, not resolved. The list wait
+      falls through to the local space list; an expired index wait
+      skips the entry until the next boot (an unseeded index has no
+      local answer to fall through to).
+    - Tests: internal/bundles/bundles_test.go (engine logic against a
+      fake space — verdict order, timing guards, idempotency, retry),
+      internal/server/handlers_bundles_test.go (ensure/adopt, root
+      properties, list/get, children, resolve
+      verdicts, dataset read), internal/e2e/multipeer_bundles_test.go
+      (joiner adopts the owner's root, children converge),
+      multipeer_onetoone_test.go (initiator ensures, peer adopts),
+      derived_spaces_test.go. Contract: docs/03-api.md § Bundles.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

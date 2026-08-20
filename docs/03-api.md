@@ -14,6 +14,7 @@
     - [Update space metadata](#update-space-metadata)
     - [Per-space settings (account-private)](#per-space-settings-account-private)
     - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
+  - [Bundles](#bundles)
   - [Objects](#objects)
     - [Blocks](#blocks)
       - [Read blocks](#read-blocks)
@@ -339,7 +340,7 @@ the server's own search indexer already does this.
 **`GET /v1/spaces/:id` materializes only active spaces.** A non-active
 row (joining / one_to_one_pending / one_to_one_declined / invite
 statuses / deleted) is served straight from the tech-space index —
-plain row `SpaceInfo`, no `spaceIndexObjectId` / `generalChatObjectId`,
+plain row `SpaceInfo`, no `spaceIndexObjectId`,
 nothing loaded. Materializing a pending row would download the space
 before it was accepted: the SDK's load path falls back to a network
 SpacePull when local storage is missing, so a single read on a
@@ -359,19 +360,12 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
-`SpaceInfo` also carries `generalChatObjectId`: the id of the space's
-single general chat object (see § Chat → General chat). Same
-single-space-only surfacing as `spaceIndexObjectId` — populated on
-create / get / one-to-one / join responses (installing the chat on
-first sight), omitted on `GET /v1/spaces` list rows so listing stays a
-cheap read.
-
 `SpaceInfo` also carries `agentConfigObjectId` and
 `agentSecretsObjectId`: the deterministic ids of the space's single
 agent config object (dataset `agent_config`, seed
 `any/agent-config/v1`) and agent secrets object (dataset
 `agent_secrets`, seed `any/agent-secrets/v1`). Same surfacing policy as
-`generalChatObjectId` — populated (materializing on first sight, type
+`spaceIndexObjectId` — populated (materializing on first sight, type
 attached) on single-space responses, omitted on list rows. Both
 datasets are raw harness-owned keyspaces, one record per dotted key /
 secret ref; both declare a device-local field the scoped-modify path
@@ -458,8 +452,7 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   `status` is the raw row status when a row exists; a `deleted` row
   (wedged before the permanence guard existed) reports `created:false`.
 - **POST materializes lazily and idempotently** (`Service.Derive`) and
-  returns the full single-space `SpaceInfo` (generalChatObjectId etc.
-  included). On first materialization the registry's display name is
+  returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
   written as the space name (`DeriveRequest.Name` — not part of the
   id derivation; a later rename via `PATCH /v1/spaces/:id` wins).
   Repeat calls land on the same space; a tombstoned row is refused
@@ -488,53 +481,6 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   the registry id is the convergence point going forward; move or
   re-import content from the legacy space, don't alternate between
   them.
-
-#### Space setup bundles
-
-What a space has installed lives in the SDK's per-space **bundles
-registry** (the `bundles` dataset on the spaceIndex object — design in
-the SDK's `docs/bundles.md`). One row per install: a permanent
-versioned id (`bao/v1`, `general-chat/v1`), a display name, the
-winning `rootId` and the add-only `roots` set of every root ever
-claimed. `any` installs two:
-
-| Bundle | Root |
-|---|---|
-| `general-chat/v1` | the space's general chat object (every space) |
-| `bao/v1` | bao's setup root (the derived `bao` space only) |
-
-There is no write surface — installs are server-side, and the SDK
-fences the `bundles` dataset off the generic modify path so no client
-can forge a claim. Reading is the ordinary dataset surface:
-`POST /v1/spaces/:spaceId/query` with `{"objectId":
-"<spaceIndexObjectId>", "dataset": "bundles"}`, live via
-`…/query/subscribe`.
-
-Why a registry rather than another derived object: a root that carries
-data must be a *deletable* object, and two devices installing while
-apart mint two of them. The registry picks one deterministic winner and
-keeps the other discoverable, so the loser can be merged and cleaned up
-instead of silently shadowing content. Setup objects hang off the
-winner as derived children, so the one root id names the whole install
-and deleting a losing root cascade-deletes its children.
-
-Creation and restore are split (`internal/server/derivedsetup.go`):
-`POST /v1/spaces/derived/:name` installs immediately (the space id is
-local knowledge, no sync gate), while a restored device's boot pass
-waits for the account's space list to converge, adopts only spaces it
-already has, waits for the space index to project, and then adopts the
-registered install. Both ends are the same idempotent operation, so an
-offline device that installs anyway still converges — its root simply
-becomes a loser and is resolved after sync.
-
-A losing root is deleted only once it has gone quiet: it arrives change
-by change, so content read too early says what has synced, not what
-exists. Resolution therefore waits out a grace period from the first
-sight of the loser, skips anything still syncing, and lets each install
-refuse deletion outright (the general chat refuses any loser carrying
-messages).
-
-CLI: `any space derived` (list) / `any space derived create <name>`.
 
 #### One-to-one (direct) spaces
 
@@ -856,6 +802,101 @@ Scores are comparable only within one response
 (BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
 covers content written while indexing is on — "index from the next
 change" (`docs/13-index.md`).
+
+### Bundles
+
+A **bundle** is one thing installed into a space — a chat, a
+marketplace bundle, an app's setup. It is a non-derived root object
+registered in the space's registry (the `bundles` dataset on the
+spaceIndex object; design in the SDK's `docs/bundles.md`), with every
+setup object derived from that root, so one converged id names the
+whole install.
+
+Clients register their own: the server keeps no catalog and installs
+nothing on its own. What it does own is the registry mechanics —
+picking the winner when two devices install concurrently, and refusing
+to delete a losing root before it has stopped arriving.
+
+```
+POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, installed}
+GET    /v1/spaces/:spaceId/bundles                        → 200 {bundles: [...]}
+GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 Bundle
+POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
+POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 {objectId}
+```
+
+**Bundle ids carry a slash** (`general-chat/v1` — the version suffix is
+part of the id, and ids are permanent: a successor install takes a new
+one, since record deletes are refused and a reused id could never be
+reclaimed). In a path segment the slash is percent-encoded:
+`/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
+
+**Ensure** (`POST …/bundles`) is adopt-or-install:
+`{id, name?, rootTypes?, rootProperties?}`. With a winner already
+registered it is a local read that writes nothing and replies
+`installed: false`; otherwise the server creates the root object with
+the requested types and initial properties, registers it in one change,
+and replies `installed: true`. `name` is stamped as `any.name` on the
+root, which is also what puts the root's tree in the head-sync diff.
+The `id` is the whole identity — a marketplace id, an app slug, a
+versioned convention like `general-chat/v1` — so there is no separate
+provenance field.
+
+Offline-capable: nothing waits on the network. Two devices ensuring
+while apart each register a root, the registry converges on one winner,
+and the other appears in `losers` — so **`rootId` is provisional until
+the space syncs**, and clients re-read after. A winner whose tree has
+not reached this device yet is refused with `409 bundle.not_ready`
+rather than handed out: its id would reject every write. Retry.
+
+**Reads.** `GET …/bundles` lists the live rows as of local state;
+`GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
+also readable through the ordinary dataset surface —
+`POST /v1/spaces/:spaceId/query` with `{"objectId":
+"<spaceIndexObjectId>", "dataset": "bundles"}` — which is how a client
+subscribes to live conflict updates. That path is read-only: the SDK
+fences the dataset off the generic modify surface so no client can
+forge a claim.
+
+**Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`)
+derive a setup object under the bundle's current winner. Same semantics
+as the objects derive: deterministic per (space, root, seed),
+materialized on the first call, the same id on every device — a
+restored device reaches the whole install from the winner alone — and
+cascade-deleted with the root. Seeds are permanent. A child binds to
+its parent's tree, so on a member whose copy of the winner has not
+landed yet the call is `409 bundle.not_ready` — the same retryable
+state Ensure reports.
+
+**Conflicts.** `losers` is the live conflict set: claimed roots that
+are neither the winner nor already deleted. Non-empty means two devices
+installed concurrently and the loser may hold real content, so cleanup
+is the client's call: merge what matters out of the losing root and its
+children, then `POST …/bundles/:bundleId/resolve` with
+`{loserRootId}`, which cascade-deletes it. The server never merges —
+only the client knows what the content means.
+
+What the server does enforce is timing. A losing root arrives change by
+change, so a merge made from a half-arrived tree is a half-merge:
+resolve is refused with `409 bundle.loser_not_ready` until the root has
+stopped syncing and has been observed for a grace period. The server
+keeps retrying in the background after such a refusal (the merge
+decision is already made; only the timing was missing), but that is
+in-memory and dropped on restart, so clients retry too. Resolving the
+winner, or a root never claimed for the bundle, is
+`409 bundle.not_loser`; a root already resolved returns 204 — the call
+is idempotent.
+
+**Restore.** On boot the server converges the space list and projects
+the space index for the well-known derived spaces, so a client ensuring
+right after a restore meets the account's converged registry instead of
+an empty one and does not mint a competing root. It installs nothing
+and deletes nothing itself.
+
+**Agreeing who installs.** Nothing stops two members from ensuring the
+same bundle; the registry just converges and reports a loser. Clients
+that want to avoid the conflict entirely agree on one installer out of
+band — for a 1-1, the initiating side ensures and the other adopts.
 
 ### Objects
 
@@ -1921,38 +1962,28 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
-**General chat.** Every space has one "general" chat object, installed
-as the `general-chat/v1` bundle in the space's bundles registry
-(§ Space setup bundles). There is no bespoke resolver endpoint: the id
-is delivered as `generalChatObjectId` on every single-space
-`SpaceInfo` response (create / get / one-to-one / join) — the same
-common point that carries `spaceIndexObjectId` (§ Spaces). The first
-single-space response installs the object (the `chat` type is attached
-at creation, so the id accepts `chat/messages` writes immediately); it
-is omitted from `GET /v1/spaces` list rows, which stay a cheap read
-that never installs chats. Clients read the id from the response and
-never compute it — writing to a chat object of their own makes a space
-accumulate parallel chats, most visibly in 1-1 direct spaces.
+**Finding the chat object.** A space's chats are not server-owned:
+register one through the bundles API (§ Bundles) and use its `rootId`
+as the `<objectId>` below.
 
-**Exactly one member installs it.** For an ordinary space that is the
-owner; a 1-1 has no owner — its ACL owner is a synthetic key nobody
-holds — so the pair settles it by comparing the two account identities
-and the smaller one installs. Every other member adopts the registered
-row, and reports an empty `generalChatObjectId` until that row reaches
-them *and* the chat object's tree is local (naming a root whose tree
-has not arrived would hand out an id that rejects writes). Two members
-installing before they had seen each other would split the conversation
-across two chat objects, and chat messages cannot be merged back (a
-copy re-attributes them). So a fresh joiner, and the receiving side of
-a 1-1 before it syncs, may see the field absent; poll rather than
-creating a chat.
+```
+POST /v1/spaces/:spaceId/bundles
+{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"] }
+→ 200 { "bundle": { "rootId": "<chat object>", ... }, "installed": true|false }
+```
 
-The id is stable once installed but **provisional until the space
-syncs**: two of the author's own devices reaching the space while apart
-each install a chat, the registry converges on one winner, and the
-losing object is deleted (or, if it already carried messages, kept and
-left out of `generalChatObjectId`). Clients re-read the field after a
-sync rather than caching it forever.
+Ensure is adopt-or-install, so every client that runs it lands on the
+same object instead of each minting a chat of its own — the failure
+mode this replaces, most visible in 1-1 direct spaces. `rootTypes:
+["chat"]` attaches the chat type at creation, so the root accepts
+`chat/messages` writes immediately. `id` is yours to choose;
+`general-chat/v1` is the convention for "the chat of this space", and a
+space can carry as many purpose-specific chat bundles as you want.
+
+Two caveats carry over from § Bundles: `rootId` is provisional until
+the space syncs (re-read after), and nothing stops two members
+ensuring concurrently — agree out of band on who installs (for a 1-1,
+the initiating side) or handle the resulting `losers`.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

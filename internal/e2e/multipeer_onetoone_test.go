@@ -80,19 +80,32 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 		t.Errorf("bob: status after accept = %q, want active", bobSpace.Status)
 	}
 
-	// The 1-1's general chat: with no ACL owner to install it, the pair
-	// picks the installer by comparing identities, so exactly one side
-	// creates the object and the other adopts it. Both must end up on
-	// the same id — two chats would split the conversation.
-	var aliceChat, bobChat string
+	// The 1-1's chat: the server arbitrates nothing, so the two
+	// clients agree that the INITIATING side registers the bundle and
+	// the other adopts it. Bob's Ensure must adopt Alice's root — a
+	// second root would split the conversation.
+	const bundleId = "general-chat/v1"
+	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"]}`
+
+	var aliceBundle api.BundleEnsureResponse
+	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+		ensureBody, http.StatusOK, &aliceBundle)
+	if !aliceBundle.Installed || aliceBundle.Bundle.RootId == "" {
+		t.Fatalf("initiator did not install the 1-1 chat: %+v", aliceBundle)
+	}
+
+	var bobBundle api.BundleEnsureResponse
 	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
-		var a, b api.SpaceInfo
-		mustJSON(t, http.MethodGet, alice.base+"/v1/spaces/"+aliceSpace.Id, "", http.StatusOK, &a)
-		mustJSON(t, http.MethodGet, bob.base+"/v1/spaces/"+aliceSpace.Id, "", http.StatusOK, &b)
-		aliceChat, bobChat = a.GeneralChatObjectId, b.GeneralChatObjectId
-		return aliceChat != "" && aliceChat == bobChat
+		bobBundle = api.BundleEnsureResponse{}
+		code := tryJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+			ensureBody, &bobBundle)
+		return code == http.StatusOK && bobBundle.Bundle.RootId != ""
 	}) {
-		t.Fatalf("1-1 general chat never converged: alice=%q bob=%q", aliceChat, bobChat)
+		t.Fatalf("bob never resolved the 1-1 chat bundle: %+v", bobBundle)
+	}
+	if bobBundle.Installed || bobBundle.Bundle.RootId != aliceBundle.Bundle.RootId {
+		t.Fatalf("1-1 chat diverged: alice=%q bob=%q (installed=%v)",
+			aliceBundle.Bundle.RootId, bobBundle.Bundle.RootId, bobBundle.Installed)
 	}
 
 	// Content convergence: Alice writes a chat message in the 1-1 space,

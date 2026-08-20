@@ -7,24 +7,39 @@ live in `03-api.md § Chat`; this doc is about using them correctly.
 ## Finding the chat object for a space
 
 Most clients want "the chat for this space" — a single well-known chat,
-not one per client. Read `generalChatObjectId` off any single-space
-response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
-replies — CLI `any space get <spaceId>`); the chat is installed on the
-first single-space response as the `general-chat/v1` bundle
-(`03-api.md § Space setup bundles`) and converges to one object across
-the account's devices. Only the space's author installs it, so on a
-fresh joiner (and on the receiving side of a 1-1) the field can be
-absent until the author's registry row syncs in — re-read, don't
-create. Re-read after a sync in general rather than caching the id
-forever: a device that installed the chat while apart from its
-siblings can lose the race, and the winner is the id the others
-already use. Use it as the `<objectId>` in every endpoint below. Do
-**not**
-`POST /objects` a fresh chat per client — a space would then carry two
-or three parallel chats depending on who spoke first (the failure mode
-this field exists to prevent, most visible in 1-1 direct spaces).
-Additional, purpose-specific chats are still fine — create them
-explicitly when you actually want more than one.
+not one per client. Register it as a **bundle** and use the root the
+server hands back:
+
+```
+POST /v1/spaces/:spaceId/bundles
+{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"] }
+→ 200 { "bundle": { "rootId": "<chat object>", ... }, "installed": true|false }
+```
+
+The call is adopt-or-install: the first client to run it creates the
+object, every later one — on any device, on any member — gets the same
+`rootId` back with `installed: false`. Use it as the `<objectId>` in
+every endpoint below. Do **not** `POST /objects` a fresh chat per
+client: a space would then carry two or three parallel chats depending
+on who spoke first (the failure mode bundles exist to prevent, most
+visible in 1-1 direct spaces). Additional, purpose-specific chats are
+still fine — give each its own bundle id.
+
+Two things to handle, both detailed in `03-api.md` § Bundles:
+
+- **`rootId` is provisional until the space syncs.** A device that
+  ensured while apart from its siblings can lose the race; re-read
+  after a sync rather than caching the id forever. A winner whose tree
+  has not arrived yet is refused with `409 bundle.not_ready` — poll,
+  don't create a chat to fill the gap.
+- **Nobody arbitrates who installs.** Two members ensuring before they
+  have seen each other both register a root, and the loser surfaces in
+  `losers`. Agree out of band on one installer — for a 1-1, the
+  initiating side — or merge and `POST …/resolve` the loser. Chat
+  messages cannot be merged across objects (creator and createdAt are
+  stamped from the change envelope, so a copy re-attributes and
+  re-times every message), which is exactly why agreeing up front beats
+  cleaning up after.
 
 ## The model in four sentences
 

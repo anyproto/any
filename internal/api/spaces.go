@@ -59,18 +59,6 @@ type SpaceRegisterIncomingRequest struct {
 // updates. Omitted when the server can't resolve a Space handle for
 // this row (e.g. tombstoned entries in `GET /v1/spaces`).
 //
-// GeneralChatObjectId is the id of the space's single "general" chat
-// object — the winning root of the `general-chat/v1` bundle in the
-// space's bundles registry (chat.GeneralChatBundleId). Populated —
-// installing the chat on first sight — on single-space responses
-// (create / get / one-to-one / join); omitted on the `GET /v1/spaces`
-// list rows, which stay a cheap read that never installs chats.
-// Clients read the id from here and never compute it: it converges to
-// one winner across the account's devices, so a space keeps exactly
-// one chat. Only the space's author installs it — other members adopt
-// the registered row, so the field can be absent on a fresh joiner
-// until that row syncs in.
-//
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
 // "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
@@ -93,24 +81,23 @@ type SpaceRegisterIncomingRequest struct {
 // pending. Rotation (encKey/encKeyId change) is observed live on the
 // `POST /v1/spaces/query/subscribe` stream.
 type SpaceInfo struct {
-	Id                  string         `json:"id"`
-	Type                string         `json:"type,omitempty"`
-	SpaceType           string         `json:"spaceType,omitempty"`
-	Author              string         `json:"author,omitempty"`
-	Name                string         `json:"name,omitempty"`
-	Description         string         `json:"description,omitempty"`
-	IconCID             string         `json:"iconCid,omitempty"`
-	Status              string         `json:"status"`
-	OwnRole             string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
-	CreatedAt           time.Time      `json:"createdAt"`
-	Settings            map[string]any `json:"settings,omitempty"`
-	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
-	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
+	Id                 string         `json:"id"`
+	Type               string         `json:"type,omitempty"`
+	SpaceType          string         `json:"spaceType,omitempty"`
+	Author             string         `json:"author,omitempty"`
+	Name               string         `json:"name,omitempty"`
+	Description        string         `json:"description,omitempty"`
+	IconCID            string         `json:"iconCid,omitempty"`
+	Status             string         `json:"status"`
+	OwnRole            string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
+	CreatedAt          time.Time      `json:"createdAt"`
+	Settings           map[string]any `json:"settings,omitempty"`
+	SpaceIndexObjectId string         `json:"spaceIndexObjectId,omitempty"`
 	// AgentConfigObjectId is the deterministic id of the space's single
 	// agent config object (see agentconfig.ConfigObjectSeed). Populated —
 	// materializing the object on first sight — on single-space responses
-	// (create / get / one-to-one / join), same as GeneralChatObjectId;
-	// omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
+	// (create / get / one-to-one / join); omitted on the cheap
+	// `GET /v1/spaces` list rows. The harness resolves
 	// its config cascade against this object.
 	AgentConfigObjectId string `json:"agentConfigObjectId,omitempty"`
 	// AgentSecretsObjectId is the deterministic id of the space's single

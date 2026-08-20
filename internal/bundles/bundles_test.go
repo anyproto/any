@@ -10,10 +10,9 @@ import (
 )
 
 // fakeSpace satisfies space.Space for the resolver's needs: Resolve
-// touches only Id() and Bundles(), and the hooks under test are
-// closures that never reach for the handle. The embedded interface is
-// nil — any other method panics, which is the point: it pins what
-// Resolve is allowed to use.
+// touches only Id() and Bundles(). The embedded interface is nil — any
+// other method panics, which is the point: it pins what Resolve is
+// allowed to use.
 type fakeSpace struct {
 	space.Space
 	id      string
@@ -28,13 +27,18 @@ func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
 // synced to this device.
 type fakeBundles struct {
 	space.BundlesAPI
-	deleted   []string
-	failOn    map[string]error
-	getResult space.Bundle
-	getErr    error
+	row     space.Bundle
+	deleted []string
+	failOn  map[string]error
+	calls   int
+}
+
+func (f *fakeBundles) Get(context.Context, string) (space.Bundle, error) {
+	return f.row, nil
 }
 
 func (f *fakeBundles) ResolveLoser(_ context.Context, _, loserRootId string) error {
+	f.calls++
 	if err := f.failOn[loserRootId]; err != nil {
 		return err
 	}
@@ -42,12 +46,14 @@ func (f *fakeBundles) ResolveLoser(_ context.Context, _, loserRootId string) err
 	return nil
 }
 
-func (f *fakeBundles) Get(_ context.Context, _ string) (space.Bundle, error) {
-	return f.getResult, f.getErr
-}
+// row carries one winner and one live loser — the shape every timing
+// test needs before it reaches the guard.
 
 func newFake() (*fakeSpace, *fakeBundles) {
-	fb := &fakeBundles{failOn: map[string]error{}}
+	fb := &fakeBundles{
+		row:    space.Bundle{Id: "test/v1", RootId: "w", Roots: []string{"w", "l1"}, Losers: []string{"l1"}},
+		failOn: map[string]error{},
+	}
 	return &fakeSpace{id: "space1", bundles: fb}, fb
 }
 
@@ -55,160 +61,133 @@ func newFake() (*fakeSpace, *fakeBundles) {
 // exercised without a live SDK.
 func newTestResolver(grace time.Duration) *Resolver {
 	r := NewResolver(grace)
+	r.RetryDelay = time.Millisecond
 	r.Quiescent = func(space.Space, string) bool { return true }
 	return r
 }
 
-func bundle(winner string, losers ...string) space.Bundle {
-	return space.Bundle{Id: "test/v1", RootId: winner, Roots: append([]string{winner}, losers...), Losers: losers}
-}
-
-// TestResolveDeletesQuietLosers pins the happy path: a loser nothing
-// refuses is merged then deleted, and merge runs BEFORE deletion —
-// salvaging content after a cascade delete would salvage nothing.
-func TestResolveDeletesQuietLosers(t *testing.T) {
+// TestResolveDeletesQuietLoser pins the happy path: a settled loser is
+// handed straight to the SDK's cascade delete.
+func TestResolveDeletesQuietLoser(t *testing.T) {
 	sp, fb := newFake()
-	var order []string
-	inst := Install{
-		Id: "test/v1",
-		Merge: func(_ context.Context, _ space.Space, winner, loser string) error {
-			order = append(order, "merge:"+winner+"<-"+loser)
-			return nil
-		},
-	}
-	fb.failOn = map[string]error{}
-
-	resolved, pending, err := newTestResolver(0).Resolve(context.Background(), sp, inst, bundle("w", "l1"))
-	if err != nil {
+	if err := newTestResolver(0).Resolve(context.Background(), sp, "test/v1", "l1"); err != nil {
 		t.Fatalf("resolve: %v", err)
-	}
-	if resolved != 1 || pending != 0 {
-		t.Fatalf("resolved=%d pending=%d, want 1/0", resolved, pending)
-	}
-	if len(order) != 1 || order[0] != "merge:w<-l1" {
-		t.Fatalf("merge not run against the winner: %v", order)
 	}
 	if len(fb.deleted) != 1 || fb.deleted[0] != "l1" {
 		t.Fatalf("deleted = %v, want [l1]", fb.deleted)
 	}
 }
 
-// TestResolveHoldsUntilQuiescent pins both quiescence guards: a loser
-// inside the grace window, and one the SDK still reports as syncing,
-// are pending — never deleted on a half-arrived tree.
+// TestResolveHoldsUntilQuiescent pins both timing guards. A client can
+// only have merged what has arrived, so a loser inside the grace
+// window or still syncing is refused — never deleted on a half-arrived
+// tree.
 func TestResolveHoldsUntilQuiescent(t *testing.T) {
 	sp, fb := newFake()
-	inst := Install{Id: "test/v1"}
 
-	r := newTestResolver(time.Hour)
-	_, pending, err := r.Resolve(context.Background(), sp, inst, bundle("w", "l1"))
-	if err != nil || pending != 1 || len(fb.deleted) != 0 {
-		t.Fatalf("grace window: pending=%d deleted=%v err=%v", pending, fb.deleted, err)
-	}
-
-	r = newTestResolver(0)
-	r.Quiescent = func(space.Space, string) bool { return false }
-	_, pending, err = r.Resolve(context.Background(), sp, inst, bundle("w", "l1"))
-	if err != nil || pending != 1 || len(fb.deleted) != 0 {
-		t.Fatalf("syncing loser: pending=%d deleted=%v err=%v", pending, fb.deleted, err)
-	}
-}
-
-// TestResolveKeepIsStickyAndNotPending pins the Keep contract: a
-// refused loser is never deleted, is not reported pending (there is
-// nothing to retry), and its probe stops running once decided.
-func TestResolveKeepIsStickyAndNotPending(t *testing.T) {
-	sp, fb := newFake()
-	probes := 0
-	inst := Install{
-		Id: "test/v1",
-		Keep: func(context.Context, space.Space, string) (bool, error) {
-			probes++
-			return true, nil
-		},
-		Merge: func(context.Context, space.Space, string, string) error {
-			t.Fatal("merge ran on a kept loser")
-			return nil
-		},
+	err := newTestResolver(time.Hour).Resolve(context.Background(), sp, "test/v1", "l1")
+	if !errors.Is(err, ErrLoserNotReady) {
+		t.Fatalf("grace window: err = %v, want ErrLoserNotReady", err)
 	}
 
 	r := newTestResolver(0)
-	for range 3 {
-		resolved, pending, err := r.Resolve(context.Background(), sp, inst, bundle("w", "l1"))
-		if err != nil || resolved != 0 || pending != 0 {
-			t.Fatalf("resolved=%d pending=%d err=%v", resolved, pending, err)
-		}
+	r.Quiescent = func(space.Space, string) bool { return false }
+	err = r.Resolve(context.Background(), sp, "test/v1", "l1")
+	if !errors.Is(err, ErrLoserNotReady) {
+		t.Fatalf("syncing loser: err = %v, want ErrLoserNotReady", err)
 	}
-	if probes != 1 {
-		t.Fatalf("keep probed %d times, want 1 (verdict memoized)", probes)
-	}
-	if len(fb.deleted) != 0 {
-		t.Fatalf("kept loser deleted: %v", fb.deleted)
+
+	if len(fb.deleted) != 0 || fb.calls != 0 {
+		t.Fatalf("deletion attempted before the loser settled: %v", fb.deleted)
 	}
 }
 
-// TestResolveReportsUndeletableLoser pins the retry contract: a loser
-// the SDK refuses to delete (its tree has not synced here) surfaces as
-// both an error and a pending count, so the caller comes back.
-func TestResolveReportsUndeletableLoser(t *testing.T) {
+// TestResolvePropagatesSDKRefusal pins that an undeletable loser (its
+// tree has not synced here) surfaces as an error for the caller to
+// retry, rather than being swallowed.
+func TestResolvePropagatesSDKRefusal(t *testing.T) {
 	sp, fb := newFake()
-	fb.failOn["l2"] = errors.New("tree not synced")
-	inst := Install{Id: "test/v1"}
+	fb.failOn["l1"] = errors.New("tree not synced")
 
-	resolved, pending, err := newTestResolver(0).Resolve(context.Background(), sp, inst, bundle("w", "l1", "l2"))
-	if err == nil {
+	if err := newTestResolver(0).Resolve(context.Background(), sp, "test/v1", "l1"); err == nil {
 		t.Fatal("undeletable loser reported no error")
 	}
-	if resolved != 1 || pending != 1 {
-		t.Fatalf("resolved=%d pending=%d, want 1/1", resolved, pending)
-	}
-	if len(fb.deleted) != 1 || fb.deleted[0] != "l1" {
-		t.Fatalf("deleted = %v, want [l1] — one failure must not block the rest", fb.deleted)
-	}
-}
-
-// TestResolveSkipsMergeFailure pins that a loser whose salvage failed
-// is never deleted: losing content is worse than leaving a duplicate.
-func TestResolveSkipsMergeFailure(t *testing.T) {
-	sp, fb := newFake()
-	inst := Install{
-		Id: "test/v1",
-		Merge: func(context.Context, space.Space, string, string) error {
-			return errors.New("merge failed")
-		},
-	}
-
-	resolved, pending, err := newTestResolver(0).Resolve(context.Background(), sp, inst, bundle("w", "l1"))
-	if err == nil {
-		t.Fatal("merge failure reported no error")
-	}
-	if resolved != 0 || pending != 1 {
-		t.Fatalf("resolved=%d pending=%d, want 0/1", resolved, pending)
-	}
 	if len(fb.deleted) != 0 {
-		t.Fatalf("deleted after a failed merge: %v", fb.deleted)
+		t.Fatalf("deleted = %v, want none", fb.deleted)
 	}
 }
 
-// TestResolveRetryStopsWhenNothingPending pins that the async loop
-// exits on the first clean pass instead of sleeping out its schedule.
-func TestResolveRetryStopsWhenNothingPending(t *testing.T) {
+// TestResolveRetryStopsOnSuccess pins that the background loop exits
+// once the loser is gone instead of sleeping out its schedule.
+func TestResolveRetryStopsOnSuccess(t *testing.T) {
 	sp, fb := newFake()
-	fb.getResult = bundle("w")
-	inst := Install{Id: "test/v1"}
+	r := newTestResolver(0)
 
 	done := make(chan struct{})
 	go func() {
-		newTestResolver(0).ResolveRetry(context.Background(), sp, inst, bundle("w", "l1"))
+		r.ResolveRetry(context.Background(), sp, "test/v1", "l1")
 		close(done)
 	}()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("ResolveRetry did not return after resolving every loser")
+	case <-time.After(10 * time.Second):
+		t.Fatal("ResolveRetry did not return after the loser resolved")
 	}
 	if len(fb.deleted) != 1 {
 		t.Fatalf("deleted = %v, want one loser", fb.deleted)
+	}
+}
+
+// TestResolveRejectsNonLoser pins the permanent verdicts, which are
+// reached before any timing guard: the winner is not a loser, and
+// neither is a root nobody ever claimed.
+func TestResolveRejectsNonLoser(t *testing.T) {
+	sp, fb := newFake()
+	r := newTestResolver(time.Hour) // grace would refuse first if consulted
+
+	for _, target := range []string{"w", "never-claimed"} {
+		err := r.Resolve(context.Background(), sp, "test/v1", target)
+		if !errors.Is(err, space.ErrBundleNotLoser) {
+			t.Fatalf("resolve %q: err = %v, want ErrBundleNotLoser", target, err)
+		}
+	}
+	if fb.calls != 0 {
+		t.Fatal("deletion attempted on a non-loser")
+	}
+}
+
+// TestResolveIsIdempotent pins that a claimed root already gone from
+// the live loser set resolves clean instead of erroring — the client
+// may retry a call that already landed.
+func TestResolveIsIdempotent(t *testing.T) {
+	sp, fb := newFake()
+	fb.row.Losers = nil
+
+	if err := newTestResolver(0).Resolve(context.Background(), sp, "test/v1", "l1"); err != nil {
+		t.Fatalf("resolve of an already-deleted loser: %v", err)
+	}
+	if fb.calls != 0 {
+		t.Fatal("re-deleted an already-resolved loser")
+	}
+}
+
+// TestResolveRetryStopsOnNotLoser pins that a target the registry says
+// is not a loser ends the loop — retrying cannot change that verdict.
+func TestResolveRetryStopsOnNotLoser(t *testing.T) {
+	sp, fb := newFake()
+
+	done := make(chan struct{})
+	go func() {
+		newTestResolver(0).ResolveRetry(context.Background(), sp, "test/v1", "w")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("ResolveRetry kept retrying a non-loser")
+	}
+	if fb.calls != 0 {
+		t.Fatalf("attempted deletion %d times on a non-loser", fb.calls)
 	}
 }
 
@@ -217,15 +196,14 @@ func TestResolveRetryStopsWhenNothingPending(t *testing.T) {
 func TestResolveRetryHonorsCancellation(t *testing.T) {
 	sp, fb := newFake()
 	fb.failOn["l1"] = errors.New("tree not synced")
-	inst := Install{Id: "test/v1"}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	done := make(chan struct{})
 	go func() {
-		newTestResolver(0).ResolveRetry(ctx, sp, inst, bundle("w", "l1"))
+		newTestResolver(0).ResolveRetry(ctx, sp, "test/v1", "l1")
 		close(done)
 	}()
-	cancel()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
