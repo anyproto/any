@@ -214,16 +214,25 @@ func fenceOpener(l string) (string, bool) {
 
 // consumeFence returns the verbatim block (opener + body + closer if
 // present) and the index of the first line after it. Unterminated
-// fences run to EOF; we still return the block intact.
+// fences run to EOF; we still return the block intact, minus any
+// trailing blank lines — those belong to the document (as empty
+// paragraphs), not to a code block whose end we had to guess.
 func consumeFence(lines []string, start int) (string, int) {
 	opener, _ := fenceOpener(lines[start])
 	c := opener[0]
 	end := len(lines)
+	terminated := false
 	for j := start + 1; j < len(lines); j++ {
 		t := strings.TrimRight(trimLeadingSpaces(lines[j], 3), " \t")
 		if len(t) >= len(opener) && allByte(t, c) {
 			end = j + 1
+			terminated = true
 			break
+		}
+	}
+	if !terminated {
+		for end > start+1 && isBlank(lines[end-1]) {
+			end--
 		}
 	}
 	return strings.Join(lines[start:end], "\n"), end

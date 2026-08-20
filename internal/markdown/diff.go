@@ -162,6 +162,13 @@ func lcsByHash(a, b []uint64) []anchor {
 // later new-position a smaller old-lexid, breaking the document
 // sort order. Reject conflicts so the resulting Update sequence
 // stays monotonic in both old and new indices.
+//
+// A second pass then pairs what is left over positionally when
+// either side is an empty paragraph: those score 0 against any text,
+// so similarity can never match them, yet typing into a blank line
+// (or clearing a paragraph) is an update of that record. Without it
+// the first keystroke after inserting a blank line tombstones the
+// block the client just learned the id of.
 func fillGap(
 	oldBlocks, newBlocks []string,
 	oldLo, oldHi, newLo, newHi int,
@@ -206,6 +213,37 @@ func fillGap(
 		usedOld[p.oldIdx] = true
 		usedNew[p.newIdx] = true
 		accepted = append(accepted, acc{p.oldIdx, p.newIdx})
+	}
+
+	var leftoverOld, leftoverNew []int
+	for o := oldLo; o < oldHi; o++ {
+		if !oldUsed[o] {
+			leftoverOld = append(leftoverOld, o)
+		}
+	}
+	for n := newLo; n < newHi; n++ {
+		if newSeq[n].Kind == OpInsert {
+			leftoverNew = append(leftoverNew, n)
+		}
+	}
+	for i := 0; i < len(leftoverOld) && i < len(leftoverNew); i++ {
+		o, n := leftoverOld[i], leftoverNew[i]
+		if oldBlocks[o] != "" && newBlocks[n] != "" {
+			continue
+		}
+		conflict := false
+		for _, a := range accepted {
+			if (o < a.o) != (n < a.n) {
+				conflict = true
+				break
+			}
+		}
+		if conflict {
+			continue
+		}
+		newSeq[n] = NewOp{Kind: OpUpdate, OldIdx: o}
+		oldUsed[o] = true
+		accepted = append(accepted, acc{o, n})
 	}
 }
 

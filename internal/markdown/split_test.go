@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -244,4 +245,41 @@ func TestTrimEdgeEmpties(t *testing.T) {
 	assert.Empty(t, trimEdgeEmpties([]string{"", ""}))
 	assert.Empty(t, trimEdgeEmpties(nil))
 	assert.Equal(t, []string{"a"}, trimEdgeEmpties([]string{"a"}))
+}
+
+func TestSplit_UnterminatedFenceKeepsTrailingEmptyParagraphs(t *testing.T) {
+	// An unterminated fence runs to EOF, but trailing blank lines are
+	// the document's, not the code block's — otherwise the round-trip
+	// invariant breaks and the body silently grows newlines.
+	blocks := []string{"```\nx", ""}
+	joined := Join(blocks)
+	assert.Equal(t, "```\nx\n\n", joined)
+	assert.Equal(t, blocks, Split(joined))
+	// A terminated fence still keeps everything between its markers.
+	assert.Equal(t, []string{"```\n\n\n```"}, Split("```\n\n\n```\n"))
+}
+
+func TestSplitJoin_RoundTripFuzz(t *testing.T) {
+	// Split(Join(b)) == b over generated documents: the property the
+	// client's serialize/parse pair is written against. Fixed seed —
+	// a failure must be reproducible.
+	vocab := []string{
+		"", "alpha", "# heading", "- item", "1. one", "> quote",
+		"```go\nfunc x() {}\n```", "| a | b |", "<div>x</div>",
+		"first line\nsecond line", "---", "- [ ] todo",
+	}
+	rng := rand.New(rand.NewSource(164))
+	for i := 0; i < 5000; i++ {
+		blocks := make([]string, rng.Intn(6))
+		for j := range blocks {
+			blocks[j] = vocab[rng.Intn(len(vocab))]
+		}
+		joined := Join(blocks)
+		got := Split(joined)
+		if len(blocks) == 0 {
+			require.Empty(t, got, "case %d: %q", i, joined)
+			continue
+		}
+		require.Equal(t, blocks, got, "case %d: joined %q", i, joined)
+	}
 }

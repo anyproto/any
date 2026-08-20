@@ -182,15 +182,12 @@ func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []
 //   - No diffing. Append is purely additive: every parsed block becomes
 //     a new record. It cannot update or delete existing blocks, and it
 //     will happily create a block identical to an existing one.
-//   - No leading separator. content is appended as-is; if the caller
-//     wants a blank line / heading boundary before the new material it
-//     must include that in content (the separation is structural —
-//     new blocks simply follow the old).
-//   - No edge empty paragraphs. A fragment is positioned by the
-//     append itself, so blank lines wrapping it are framing, not
-//     content: Split's leading/trailing empty paragraphs are dropped
-//     here. Empty paragraphs BETWEEN blocks of the fragment are kept,
-//     as they are for Set.
+//   - No separator control. A fragment is positioned by the append
+//     itself: its blocks simply follow the current last one, and
+//     blank lines wrapping the fragment are framing, not content, so
+//     Split's leading/trailing empty paragraphs are dropped here.
+//     Empty paragraphs BETWEEN blocks of the fragment are kept, as
+//     they are for Set.
 //
 // Empty (or blank-only) content is a no-op that returns a zero result.
 func Append(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {

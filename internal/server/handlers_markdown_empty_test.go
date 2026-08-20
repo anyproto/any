@@ -124,6 +124,40 @@ func TestServer_MarkdownEmptyParagraphEdges(t *testing.T) {
 	}
 }
 
+// TestServer_MarkdownEditDeletesWholeBlock covers the PATCH path
+// under the empty-paragraph encoding: quoting a block's text and
+// replacing it with "" must remove the block, not swap it for the
+// blank lines that used to separate it.
+func TestServer_MarkdownEditDeletesWholeBlock(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupBlocksFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+	md := base + "/editor/markdown"
+
+	markdownSet(t, e, md, "alpha\n\nbeta\n\ngamma")
+	resp := markdownEdit(t, e, base, `{"edits":[{"oldText":"beta","newText":""}]}`)
+	if len(resp.Deleted) != 1 || resp.Unchanged != 2 || len(resp.Inserted) != 0 {
+		t.Fatalf("delete: %+v, want one delete and two untouched blocks", resp)
+	}
+	if got := getMarkdown(t, e, md); got != "alpha\n\ngamma" {
+		t.Errorf("delete: markdown = %q, want %q", got, "alpha\n\ngamma")
+	}
+
+	// An empty paragraph next to the deleted block is a block of its
+	// own and stays.
+	markdownSet(t, e, md, "alpha\n\n\nbeta\n\ngamma")
+	resp = markdownEdit(t, e, base, `{"edits":[{"oldText":"beta","newText":""}]}`)
+	if len(resp.Deleted) != 1 {
+		t.Fatalf("delete beside empty: %+v, want one delete", resp)
+	}
+	if got := getMarkdown(t, e, md); got != "alpha\n\n\ngamma" {
+		t.Errorf("delete beside empty: markdown = %q, want %q", got, "alpha\n\n\ngamma")
+	}
+}
+
 // markdownSet PUTs whole-document markdown and decodes the response.
 func markdownSet(t *testing.T, e http.Handler, path, content string) (out mdEditResp) {
 	t.Helper()

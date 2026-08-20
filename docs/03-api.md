@@ -811,7 +811,10 @@ shape. Matching rules:
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be
-  empty (deletes the matched text).
+  empty (deletes the matched text). When the match is a whole block,
+  the deletion takes one blank-line separator with it, so removing a
+  block leaves its neighbours adjacent rather than leaving empty
+  paragraphs behind; empty paragraphs that were already there stay.
 - Exact match first; on zero hits a whole-line fuzzy fallback
   retries with unicode punctuation folded to ASCII (curly quotes,
   dash family, NBSP; NFKC) and trailing whitespace ignored. A
