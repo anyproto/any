@@ -20,11 +20,14 @@ import (
 const DatasetSchemaVirtual = "schema"
 
 // SchemaChunker indexes records of RUNTIME-DEFINED datasets by their
-// schema's x-search {title, text} mapping: one registered chunker
-// covers every dataset any type in the space declares with a search
-// annotation. Entries carry the real dataset name (doc ids
-// objectId:<dataset>:<recordId>) under scope "basic" — runtime dataset
-// records are user content on par with editor blocks.
+// schema's x-search {title, text, scope} mapping: one registered
+// chunker covers every dataset any type in the space declares with a
+// search annotation. Entries carry the real dataset name (doc ids
+// objectId:<dataset>:<recordId>) under the declared scope — absent
+// defaults to "basic" (runtime dataset records are user content on
+// par with editor blocks), an invalid slug makes the dataset
+// unsearchable (a broken override must not silently land in the
+// default scope — the resolveIndexedProp stance).
 //
 // Unlike PropChunker there is NO catalog TTL cache: Space.Datasets()
 // is an atomic in-memory snapshot the SDK refreshes synchronously when
@@ -73,6 +76,7 @@ type schemaDataset struct {
 	typeId     string
 	titleField string
 	textField  string
+	scope      string
 }
 
 // NewSchemaChunker constructs the chunker. staticDatasets are the
@@ -122,6 +126,7 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 			Search struct {
 				Title string `json:"title"`
 				Text  string `json:"text"`
+				Scope string `json:"scope"`
 			} `json:"x-search"`
 		}
 		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil ||
@@ -131,11 +136,21 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 			unsearchable = append(unsearchable, ds.Name)
 			continue
 		}
+		scope := doc.Search.Scope
+		if scope == "" {
+			scope = ScopeBasic
+		} else if !ValidScope(scope) {
+			// A broken scope override must not silently land in the
+			// default scope (the resolveIndexedProp stance).
+			unsearchable = append(unsearchable, ds.Name)
+			continue
+		}
 		searchable = append(searchable, schemaDataset{
 			name:       ds.Name,
 			typeId:     ds.TypeId,
 			titleField: doc.Search.Title,
 			textField:  doc.Search.Text,
+			scope:      scope,
 		})
 	}
 	return searchable, unsearchable
@@ -230,7 +245,7 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 		}
 		err := RecordsSince(ctx, sp.Query(objectId, ds.name), since, func(rec *anyenc.Value, seq uint64) error {
 			e := IndexEntry{
-				Scope:    ScopeBasic,
+				Scope:    ds.scope,
 				ObjectId: objectId,
 				Dataset:  ds.name,
 				RecordId: string(rec.GetStringBytes("id")),

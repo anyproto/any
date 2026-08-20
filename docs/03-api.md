@@ -44,7 +44,7 @@
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
   - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
-  - [Enrichment (built-in `enriched_data` + `enrich_proposal` types)](#enrichment-built-in-enriched_data--enrich_proposal-types)
+  - [Enrichment (moved userspace)](#enrichment-moved-userspace)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -658,8 +658,9 @@ carry further extension keywords in the document:
 - doc-level standard `required` (fields that must be present on
   create), `x-delete-by` (`author`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
-  auto-derived record ids), and `x-search` (`{title, text}` — the
-  record fields the search indexer extracts, § docs/13-index.md).
+  auto-derived record ids), and `x-search` (`{title, text, scope}` —
+  the record fields the search indexer extracts and the index scope
+  the entries land under, § docs/13-index.md).
 
 #### Update space metadata
 
@@ -1841,7 +1842,11 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); either field optional.
+  § Schema chunker); `title`/`text` either optional. The optional
+  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
+  otherwise) picks the index scope the dataset's entries land under —
+  absent = `basic`. Scopes are the open slug set `/search` filters on;
+  `props` inherits that scope's FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1858,8 +1863,11 @@ pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
 property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text` (a whole `search` replace
-is pinned). Pinned path → `400 dataset.immutable`; unknown
+`displayName`, `search.title`, `search.text`, `search.scope` (a whole
+`search` replace is pinned; a scope value must pass `index.ValidScope`).
+A scope patch applies to records as they (re-)index — already-indexed
+docs keep their stored scope until their object next goes dirty.
+Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).
 
@@ -2289,49 +2297,20 @@ history wipe continue where the counter left off. A client-provided
 (CRDT delete-wins) while storing nothing. Omit `seq` to let the
 server pick the next free one.
 
-### Enrichment (built-in `enriched_data` + `enrich_proposal` types)
+### Enrichment (moved userspace)
 
-Structured, sourced, reviewable enrichment. Two built-in types:
-
-- **`enriched_data`** — a durable, sourced enrichment collection on a
-  target object (multitype-attaches on first write, same pattern as
-  chat/agent_log). One record per fact: `{text, source, target, value,
-  createdBy, createdAt}` — `text` required; `source` is the provenance
-  link (`any://<space>/<transcript>#<blockId>,…`); `target`/`value` are
-  set only for property enrichments (which real property was set, and
-  to what), so the UI can show a property value's source.
-  `createdBy`/`createdAt` are server-stamped (derived; client writes
-  rejected). Records are searchable (indexed under scope `basic`).
-- **`enrich_proposal`** — an ephemeral, reviewable enrichment plan; its
-  `enrich_proposal_items` dataset holds one loose record per proposed
-  item (`text`, `source`, `outcome` enrich|new, `targetObjectId`,
-  `targetKind` collection|property, `targetProperty`
-  `<typeXKey>.<propXKey>`, `value`, `newType`, `newName`). Items are
-  written/edited through the generic `/modify` and read through
-  `/query` — no bespoke item endpoint. Proposals are scaffolding:
-  deleted on apply and excluded from the search index.
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/enriched-data` | write one sourced enrichment record (attaches the type first) |
-| POST   | `/v1/spaces/:spaceId/enrich/apply`                    | deterministically apply a reviewed proposal, then delete it |
-
-`POST …/enriched-data` body: `{text, source?, target?, value?}`;
-returns the shared write result (`recordIds[0]` is the derived record
-id). Reads go through `POST /v1/spaces/:id/query` with
-`dataset=enriched_data`.
-
-`POST …/enrich/apply` body: `{proposalId}`. Deterministic (no LLM): per
-item it creates the target object for `new` items (items sharing
-`newType`+`newName` land on ONE object), sets the real property for
-`property` items, and always writes an `enriched_data` record onto the
-target; then deletes the proposal object. Returns `{created,
-propertiesSet, enrichedDataWritten, proposalDeleted, failures[]}` —
-`failures` is per-item; a non-empty list still means the rest applied.
-Failure strings are short stable descriptions naming the item/target
-only — raw SDK error text goes to the server log, never the body.
-`404 enrich.empty_proposal` when the proposal has no items (already
-applied, deleted, or empty).
+The former built-in `enriched_data` / `enrich_proposal` types, their
+bespoke endpoints (`POST …/enriched-data`, `POST …/enrich/apply`) and
+the compiled-in enrichment chunker are **gone** — nothing
+enrichment-specific belongs in core (the same principle that kept the
+email type out). Enrichment is now a userspace convention owned by the
+agent: user types discovered by xKey (`enrichments` hub +
+`enrich_proposal`), runtime dataset schemas (§ Runtime dataset
+schemas) with an `x-search` mapping for indexing, records written
+through the generic `/modify` / `/query`, and a deterministic apply
+implemented client-side. The convention's contract lives with its
+producer (anybao `enrich@v1`); provenance `source` links follow
+[docs/19-links.md](19-links.md) § Fragments.
 
 ### Files (files v2)
 
