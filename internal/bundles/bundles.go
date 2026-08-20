@@ -84,9 +84,9 @@ type Resolver struct {
 	// doubles it up to a ten-minute cap. Set at construction; tests
 	// shorten it.
 	RetryDelay time.Duration
-	// SyncWait bounds the convergence round an install runs before
+	// IndexWait bounds the convergence wait an install runs before
 	// minting a root. Set at construction; tests shorten it.
-	SyncWait time.Duration
+	IndexWait time.Duration
 	// Quiescent reports whether a root has stopped receiving changes,
 	// so what is projected locally is the whole of it. Set at
 	// construction to the SDK's per-object sync state; tests
@@ -110,10 +110,10 @@ const (
 	// DefaultGrace is the quiescence delay before a losing root may be
 	// deleted.
 	DefaultGrace = 5 * time.Minute
-	// DefaultSyncWait bounds the registry-convergence round on the
+	// DefaultIndexWait bounds the registry-convergence wait on the
 	// install path. Short: it rides a client request, and refusing is
 	// correct — the client retries.
-	DefaultSyncWait = 30 * time.Second
+	DefaultIndexWait = 30 * time.Second
 
 	// Retry schedule for the background path: a loser installed on
 	// another device cannot be deleted until its tree has synced here,
@@ -128,7 +128,7 @@ func NewResolver(grace time.Duration) *Resolver {
 	return &Resolver{
 		Grace:      grace,
 		RetryDelay: retryDelay,
-		SyncWait:   DefaultSyncWait,
+		IndexWait:  DefaultIndexWait,
 		Quiescent:  syncQuiescent,
 		firstSeen:  map[string]time.Time{},
 		retrying:   map[string]struct{}{},
@@ -141,16 +141,20 @@ func NewResolver(grace time.Duration) *Resolver {
 // Adoption is a pure read — no registry write, so a reader or guest
 // member can resolve an install they may not create.
 //
-// Installing runs a head-sync round first. The registry rides the
+// Installing waits for the registry to converge first. It rides the
 // space's index tree, and a member that ensures against state it has
 // not synced yet reads "nothing installed" and mints a root competing
-// with the one already out there. When that round cannot complete the
-// answer depends on who is asking: the space's OWNER installs anyway —
-// nobody else could have installed into a space only this account has,
-// and its own devices converge through the registry — while any other
-// member is refused with ErrRegistryNotSynced rather than left to
-// fork. So an offline owner still works offline; an offline joiner
-// retries.
+// with the one already out there. WaitIndexSynced is the gate rather
+// than a bare head-sync round: a nil round is not proof of convergence
+// (any-sync swallows per-peer failures), while the wait also demands
+// the Synced rollup — and its local fast path keeps an offline owner
+// of an already-seeded space instant.
+//
+// When the wait cannot complete, who is asking decides: the space's
+// OWNER installs anyway — nobody else could have installed into a
+// space only this account has, and its own devices converge through
+// the registry — while any other member is refused with
+// ErrRegistryNotSynced rather than left to fork.
 //
 // createCtx runs the create-and-register section and should outlive
 // the caller's request: a cancellation between minting the root and
@@ -166,8 +170,8 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		return space.Bundle{}, false, err
 	}
 
-	syncCtx, cancel := context.WithTimeout(ctx, r.SyncWait)
-	err := sp.SyncHeads(syncCtx)
+	waitCtx, cancel := context.WithTimeout(ctx, r.IndexWait)
+	err := sp.WaitIndexSynced(waitCtx)
 	cancel()
 	if err != nil {
 		if sp.Info().OwnRole != space.PermissionOwner {

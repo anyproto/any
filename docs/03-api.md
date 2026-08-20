@@ -844,13 +844,14 @@ what puts the root's tree in the head-sync diff. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
 `general-chat/v1` — so there is no separate provenance field.
 
-Installing runs a head-sync round first (bounded, 30s). The registry
-rides the space's index tree, and a member that ensures against state
-it has not synced yet reads "nothing installed" and mints a root
-competing with the one already out there. Adopting never runs it — a
-read cannot fork anything.
+Installing waits for the registry to converge first (bounded, 30s).
+It rides the space's index tree, and a member that ensures against
+state it has not synced yet reads "nothing installed" and mints a root
+competing with the one already out there. Adopting never waits — a
+read cannot fork anything. A space that has never been set up
+converges to an empty registry, which is a valid answer, not a stall.
 
-When the round cannot complete, who is asking decides: the space's
+When the wait cannot complete, who is asking decides: the space's
 **owner** installs anyway (nobody else could have installed into a
 space only this account has, and its own devices converge through the
 registry), so an offline owner is never blocked. Any other member —

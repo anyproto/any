@@ -29,10 +29,11 @@ import (
 
 // Bounds on the restore gates. Both waits retry until their context
 // expires, so an offline boot must not sit on them forever.
-// WaitListSynced falls through to the local space list; WaitIndexSynced
-// has nothing to fall through to — an unseeded index means the registry
-// cannot be read at all — so its expiry skips the entry until the next
-// boot.
+// WaitListSynced falls through to the local space list; an expired
+// index wait skips the entry until the next boot, since a registry
+// read before convergence is the blind read this pass exists to
+// prevent. A space that was never set up is not a stall — it converges
+// to an empty registry.
 const (
 	derivedListSyncWait  = 90 * time.Second
 	derivedIndexSyncWait = 90 * time.Second

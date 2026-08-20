@@ -1045,14 +1045,15 @@ Implementation slices landed:
     - **Convergence gate on install.** Adoption is a pure read (so
       readers/guests resolve installs they cannot create; the install
       path is a write and 403s for them). Installing first runs
-      `sp.SyncHeads` bounded 30s — the registry rides the space's index
-      tree, and ensuring against unsynced state reads "nothing
-      installed" and forks a second root. When the round fails, the
+      `sp.WaitIndexSynced` bounded 30s — the registry rides the space's
+      index tree, and ensuring against unsynced state reads "nothing
+      installed" and forks a second root. A bare `SyncHeads` nil is not
+      proof (any-sync swallows per-peer failures); the wait also
+      demands the Synced rollup, and its local fast path keeps an
+      offline owner of a seeded space instant. When the wait fails, the
       OWNER installs anyway (offline-first: only this account's own
       devices could compete, and the registry converges those), any
-      other member gets `409 bundle.not_ready`. NOT `WaitIndexSynced`:
-      it gates on the spaceIndex carrying a metadata namespace, which a
-      nameless or 1-1 space never gets, so it never returns there.
+      other member gets `409 bundle.not_ready`.
     - **Merging is the client's job, timing is the server's.** Resolve
       deletes a losing root only after the client says it merged; the
       server refuses (`409 bundle.loser_not_ready`) unless the SDK
@@ -1088,8 +1089,9 @@ Implementation slices landed:
       one. It never materializes a space, installs nothing, and deletes
       nothing — losing roots are logged, not resolved. The list wait
       falls through to the local space list; an expired index wait
-      skips the entry until the next boot (an unseeded index has no
-      local answer to fall through to).
+      skips the entry until the next boot (a read before convergence is
+      the blind read this pass prevents). A never-set-up space
+      converges to an empty registry rather than stalling.
     - Tests: internal/bundles/bundles_test.go (engine logic against a
       fake space — verdict order, timing guards, idempotency, retry),
       internal/server/handlers_bundles_test.go (ensure/adopt, root
