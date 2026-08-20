@@ -294,12 +294,15 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
 | POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+| GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
+| POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
 
-**`Service.Derive` / `DeriveId` are deliberately not exposed.** A
-client-supplied seed derives a deterministic space id, so a reused seed
-re-creates an existing space's identity — too dangerous for clients.
-Derivation stays an in-process SDK surface (used internally for e.g.
-the tech-space); there is no `/v1/spaces/derive` route by design.
+**Raw `Service.Derive` / `DeriveId` are deliberately not exposed.** A
+client-supplied seed would mint a *permanent* space (derived spaces
+cannot be deleted) and invite silent seed collisions between consumers.
+Derivation is reachable only through the closed registry vocabulary of
+`/v1/spaces/derived` (below); there is no free-seed `/v1/spaces/derive`
+route by design.
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
 It returns `204` as soon as the local half is done — no network round
@@ -316,7 +319,10 @@ on the network side: deleting a non-owned space offloads locally and the
 reconciler no-ops the coordinator call. The reconciler also runs the
 inbound direction — spaces the coordinator reports gone (deleted on
 another device, or an owner deleted a space you joined) are offloaded
-locally on the next poll.
+locally on the next poll. **Derived spaces are refused** with
+`409 space.derived_undeletable` (see § Derived spaces), and an id the
+account doesn't know returns `404 space.not_found` instead of a silent
+204.
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
@@ -426,6 +432,64 @@ rotates). Omitted until the SDK's per-space mirror has run — e.g. a
 joiner whose access is still pending. Full receiver contract — cache
 rules, keystore placement, decrypt steps — in docs/20-push.md
 § Receiver-side keys.
+
+#### Derived spaces
+
+Well-known per-account spaces derived deterministically from the
+account keys and a fixed seed: the same account resolves the same
+spaceId on every device, so all clients and devices converge on *the*
+space without a create/find handshake (no check-then-create races, no
+duplicate "agent space" per client). The vocabulary is a small
+**embedded registry** compiled into `any`
+(`internal/server/derivedspaces.go`; seeds follow the
+`any/space/<name>/v1` convention) — v1 entry: `bao`, the account's
+agent space.
+
+```
+GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created, status?}]}
+POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
+                                                  409 space.deleted)
+```
+
+- **GET resolves, never creates.** Ids are computed once at engine boot
+  (`Service.DeriveId` — pure computation over the account keys);
+  `created` reports whether a usable tech-space row exists —
+  materialized here or on any of the account's devices (rows sync).
+  `status` is the raw row status when a row exists; a `deleted` row
+  (wedged before the permanence guard existed) reports `created:false`.
+- **POST materializes lazily and idempotently** (`Service.Derive`) and
+  returns the full single-space `SpaceInfo` (generalChatObjectId etc.
+  included). On first materialization the registry's display name is
+  written as the space name (`DeriveRequest.Name` — not part of the
+  id derivation; a later rename via `PATCH /v1/spaces/:id` wins).
+  Repeat calls land on the same space; a tombstoned row is refused
+  with `409 space.deleted` rather than reported as success. Typical
+  consumer flow: one POST at boot, then use the id like any other
+  space.
+- **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
+  refuses them with `409 space.derived_undeletable` — the
+  deterministic id means delete + re-derive would replace history, and
+  the sticky deleted tombstone would wedge the well-known id for the
+  account's lifetime. Enforcement is layered: the server pre-checks the
+  boot-resolved registry ids (covers not-yet-materialized entries), the
+  SDK refuses rows carrying the synced `derived` flag
+  (`space.ErrIsDerivedSpace`), its space-index handler drops
+  `remoteStatus=deleted` writes on flagged rows from any peer, and its
+  deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
+  flag; joiners of someone else's derived space never carry it, so
+  their removal stays allowed. Rollout caveat: a device still running a
+  pre-guard binary can locally delete the space it materialized —
+  upgrade all of an account's devices before relying on permanence.
+- `spaceType` is `any.space` — derived spaces are ordinary spaces in
+  every other respect (members, invites, datasets, search).
+- **Migrating from an ad-hoc agent space**: accounts that already carry
+  a client-created agent space (e.g. a space named "bao" minted by an
+  older agent runtime) get a SECOND, derived space from the registry —
+  the registry id is the convergence point going forward; move or
+  re-import content from the legacy space, don't alternate between
+  them.
+
+CLI: `any space derived` (list) / `any space derived create <name>`.
 
 #### One-to-one (direct) spaces
 
@@ -603,8 +667,9 @@ carry further extension keywords in the document:
 - doc-level standard `required` (fields that must be present on
   create), `x-delete-by` (`author`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
-  auto-derived record ids), and `x-search` (`{title, text}` — the
-  record fields the search indexer extracts, § docs/13-index.md).
+  auto-derived record ids), and `x-search` (`{title, text, scope}` —
+  the record fields the search indexer extracts and the index scope
+  the entries land under, § docs/13-index.md).
 
 #### Update space metadata
 
@@ -1654,7 +1719,11 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); either field optional.
+  § Schema chunker); `title`/`text` either optional. The optional
+  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
+  otherwise) picks the index scope the dataset's entries land under —
+  absent = `basic`. Scopes are the open slug set `/search` filters on;
+  `props` inherits that scope's FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1671,8 +1740,11 @@ pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
 property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text` (a whole `search` replace
-is pinned). Pinned path → `400 dataset.immutable`; unknown
+`displayName`, `search.title`, `search.text`, `search.scope` (a whole
+`search` replace is pinned; a scope value must pass `index.ValidScope`).
+A scope patch applies to records as they (re-)index — already-indexed
+docs keep their stored scope until their object next goes dirty.
+Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).
 

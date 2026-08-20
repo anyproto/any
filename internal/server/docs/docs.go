@@ -827,8 +827,11 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.DatasetSearchFields": {
-                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text.",
+                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text, and\noptionally which index scope the entries land under.",
                 "properties": {
+                    "scope": {
+                        "type": "string"
+                    },
                     "text": {
                         "type": "string"
                     },
@@ -868,6 +871,35 @@ const docTemplate = `{
                     "traceIds": {
                         "items": {
                             "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.DerivedSpaceInfo": {
+                "properties": {
+                    "created": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DerivedSpaceListResponse": {
+                "properties": {
+                    "spaces": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DerivedSpaceInfo"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -2424,6 +2456,10 @@ const docTemplate = `{
                     },
                     "createdAt": {
                         "type": "string"
+                    },
+                    "derived": {
+                        "description": "Derived marks a space created by the account's own derivation\n(POST /v1/spaces/derived/:name or another consumer of the SDK's\nDerive). Derived spaces are permanent — DELETE refuses them with\n409 space.derived_undeletable. Absent on created / joined / 1-1\nspaces.",
+                        "type": "boolean"
                     },
                     "description": {
                         "type": "string"
@@ -4397,6 +4433,97 @@ const docTemplate = `{
                 ]
             }
         },
+        "/spaces/derived": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.DerivedSpaceListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List well-known derived spaces",
+                "tags": [
+                    "spaces"
+                ]
+            }
+        },
+        "/spaces/derived/{name}": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Registry name (e.g. bao)",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.SpaceInfo"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Materialize a well-known derived space",
+                "tags": [
+                    "spaces"
+                ]
+            }
+        },
         "/spaces/join": {
             "post": {
                 "requestBody": {
@@ -4724,6 +4851,16 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     },
                     "500": {
                         "content": {

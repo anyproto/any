@@ -63,6 +63,8 @@ space.exists                     # create conflict
 space.not_joined                 # operation requires membership
 space.not_accepted               # 409 — join pending approval; space not materialized yet
 space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start
+space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
+space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 
 invite.invalid                   # invite token malformed or unrecognized
 

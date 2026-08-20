@@ -26,7 +26,8 @@ import "encoding/json"
 // client writes rejected); doc-level standard `required`, `x-delete-by`
 // ("author"; absent = anyone), `x-id` ("user" with `x-id-pattern` /
 // `x-id-max-length`; absent = auto-derived ids), and `x-search`
-// ({title, text} — the record fields feeding the search index).
+// ({title, text, scope} — the record fields feeding the search index
+// and the index scope its entries land under; scope absent = "basic").
 type DatasetSchema struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`

@@ -108,6 +108,8 @@ any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shi
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...   # shipped — account-private settings PATCH
 any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
+any space derived                                   # shipped — list well-known derived spaces (name, spaceId, created)
+any space derived create <name>                     # shipped — materialize one (idempotent)
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
@@ -150,8 +152,11 @@ any space list
 any space join <invite>
 ```
 
-(`any space derive` was dropped from the plan — `Service.Derive` is
-deliberately not exposed over HTTP; see `docs/03-api.md` § Spaces.)
+(A free-seed `any space derive` was dropped from the plan — raw
+`Service.Derive` is deliberately not exposed over HTTP. `any space
+derived` is the sanctioned surface: the embedded registry of well-known
+derived spaces, resolved and materialized by name; see `docs/03-api.md`
+§ Spaces → Derived spaces.)
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.

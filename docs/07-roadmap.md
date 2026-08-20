@@ -238,6 +238,19 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Derived spaces registry (SYN-164)** — well-known per-account
+  spaces (`bao`) derived from a compiled-in registry
+  (`internal/server/derivedspaces.go`, seed convention
+  `any/space/<name>/v1`) instead of exposing raw `Service.Derive`
+  over HTTP. `GET /v1/spaces/derived` resolves ids without creating
+  (`DeriveId`); `POST /v1/spaces/derived/:name` materializes lazily +
+  idempotently. Derived spaces are permanent: two-layer delete guard —
+  registry pre-check in the server (covers unmaterialized ids) + SDK
+  row-flag refusal (`space.ErrIsDerivedSpace`, synced set-once
+  `derived` on the tech-space row; `SpaceInfo.derived` passthrough).
+  CLI `any space derived [create <name>]`. Contract: docs/03-api.md
+  § Spaces → Derived spaces.
+
 - **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
   user-space dataset schemas (`TypesAPI` dataset CRUD, generic
   `SchemaHandler`, `Space.Upsert`): type-scoped endpoints
