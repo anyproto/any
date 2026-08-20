@@ -35,20 +35,24 @@ func TestParseSchemaDatasets(t *testing.T) {
 		{Name: "plain", TypeId: "t2", JSONSchema: schemaDoc(t, nil)},                                                 // no x-search: tracked, not searchable
 		{Name: "broken", TypeId: "t2", JSONSchema: json.RawMessage(`{"x-search": 42}`)},                              // malformed: tracked, not searchable
 		{Name: "odd:name", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]string{"text": "x"})},                   // colon: ignored entirely
+		{Name: "scoped", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]string{"text": "x", "scope": "recipes"})}, // declared scope
+		{Name: "badscope", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]string{"text": "x", "scope": "Not A Slug"})}, // invalid scope: tracked, not searchable
 	}
 	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
 	want := []schemaDataset{
-		{name: "articles", typeId: "t1", titleField: "title", textField: "body"},
-		{name: "notes", typeId: "t1", titleField: "", textField: "content"},
-		{name: "headlines", typeId: "t2", titleField: "headline", textField: ""},
+		{name: "articles", typeId: "t1", titleField: "title", textField: "body", scope: ScopeBasic},
+		{name: "notes", typeId: "t1", titleField: "", textField: "content", scope: ScopeBasic},
+		{name: "headlines", typeId: "t2", titleField: "headline", textField: "", scope: ScopeBasic},
+		{name: "scoped", typeId: "t3", titleField: "", textField: "x", scope: "recipes"},
 	}
 	if !reflect.DeepEqual(searchable, want) {
 		t.Errorf("searchable = %+v, want %+v", searchable, want)
 	}
-	// No-x-search and malformed docs land in the always-evicted set.
+	// No-x-search, malformed and invalid-scope docs land in the
+	// always-evicted set.
 	sort.Strings(unsearchable)
-	wantNames := []string{"broken", "plain"}
+	wantNames := []string{"badscope", "broken", "plain"}
 	if !reflect.DeepEqual(unsearchable, wantNames) {
 		t.Errorf("unsearchable = %v, want %v", unsearchable, wantNames)
 	}

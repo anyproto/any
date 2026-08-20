@@ -282,7 +282,7 @@ func newTypeDatasetAddCmd() *cobra.Command {
 		Short: "define a dataset on a type from a JSON draft",
 		Long: `Define a runtime dataset (api.DatasetDraftRequest shape):
   {"name": "articles", "idRule": "user", "deleteBy": "author",
-   "search": {"title": "title", "text": "body"},
+   "search": {"title": "title", "text": "body", "scope": "news"},
    "fields": [
      {"key": "title", "kind": "string", "required": true, "mutableBy": "author"},
      {"key": "body",  "kind": "string", "mutableBy": "author"},
@@ -319,7 +319,8 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
-search.text. Everything else is pinned — remove and re-add.
+search.text, search.scope. Everything else is pinned — remove and
+re-add.
 
 Example:
   any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'`,

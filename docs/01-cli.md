@@ -108,6 +108,8 @@ any space update <spaceId> [--name ...] [--description ...] [--icon CID]   # shi
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...   # shipped — account-private settings PATCH
 any space delete <spaceId> --yes                    # shipped — delete a space (irreversible)
 any space sync   <spaceId>                          # shipped — force a head-sync round now
+any space derived                                   # shipped — list well-known derived spaces (name, spaceId, created)
+any space derived create <name>                     # shipped — materialize one (idempotent)
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
@@ -150,8 +152,11 @@ any space list
 any space join <invite>
 ```
 
-(`any space derive` was dropped from the plan — `Service.Derive` is
-deliberately not exposed over HTTP; see `docs/03-api.md` § Spaces.)
+(A free-seed `any space derive` was dropped from the plan — raw
+`Service.Derive` is deliberately not exposed over HTTP. `any space
+derived` is the sanctioned surface: the embedded registry of well-known
+derived spaces, resolved and materialized by name; see `docs/03-api.md`
+§ Spaces → Derived spaces.)
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.
@@ -272,10 +277,9 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
-The `<objectId>` for a space's shared general chat is the
-`generalChatObjectId` field of `any space get <spaceId>` — use it
-instead of creating a chat object per client. See `docs/03-api.md`
-§ Chat → General chat.
+The `<objectId>` for a space's shared chat is the `rootId` of its chat
+bundle — register it with `POST /v1/spaces/:spaceId/bundles` (see
+`docs/03-api.md` § Bundles); there is no CLI surface for bundles yet.
 
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and

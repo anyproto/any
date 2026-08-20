@@ -63,8 +63,6 @@ var strictBodySchemas = []string{
 	"api.ProcessProgressRequest",
 	"api.ProcessFinishRequest",
 	"api.ProcessCancelRequest",
-	"api.EnrichedDataCreateRequest",
-	"api.EnrichApplyRequest",
 }
 
 // openAPIDoc caches the stamped spec — the generated document is

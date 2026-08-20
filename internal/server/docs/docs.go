@@ -352,6 +352,127 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.Bundle": {
+                "description": "Bundle is the converged registry row.",
+                "properties": {
+                    "id": {
+                        "description": "Id is the stable bundle identifier — the record id. Permanent:\na successor install takes a new id (record deletes are refused,\nso a reused id could never be reclaimed).",
+                        "type": "string"
+                    },
+                    "losers": {
+                        "description": "Losers is the live conflict set: claimed roots that are neither\nthe winner nor already deleted. Non-empty means two devices\ninstalled concurrently — merge what matters out of each, then\nresolve it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "description": "Name is the display name, stamped as ` + "`" + `any.name` + "`" + ` on the root by\nwhichever device installed it.",
+                        "type": "string"
+                    },
+                    "rootId": {
+                        "description": "RootId is the winning root object id. Setup objects are derived\nfrom it, so this one id names the whole install. Provisional\nuntil the space syncs.",
+                        "type": "string"
+                    },
+                    "roots": {
+                        "description": "Roots is every root ever claimed for this bundle — the add-only\naudit trail. A resolved loser stays listed; its death is\nrecorded by the deletion of its tree.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleChildRequest": {
+                "properties": {
+                    "seed": {
+                        "description": "Seed derives the child deterministically under the bundle's\ncurrent winner. Permanent — a successor object takes a new seed.",
+                        "type": "string"
+                    },
+                    "types": {
+                        "description": "Types are attached on first materialization.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleChildResponse": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleEnsureRequest": {
+                "properties": {
+                    "id": {
+                        "description": "Id is the bundle identifier. Required.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is the display name, written on install.",
+                        "type": "string"
+                    },
+                    "rootProperties": {
+                        "additionalProperties": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "description": "RootProperties seeds the root's property values, keyed\ntypeId → propId → value (same shape as POST /objects).",
+                        "type": "object"
+                    },
+                    "rootTypes": {
+                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleEnsureResponse": {
+                "properties": {
+                    "bundle": {
+                        "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "installed": {
+                        "description": "Installed reports whether THIS call created the root. False\nmeans an existing install was adopted and nothing was written.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleListResponse": {
+                "properties": {
+                    "bundles": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.Bundle"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleResolveRequest": {
+                "properties": {
+                    "loserRootId": {
+                        "description": "LoserRootId is the losing root to delete, cascading to its\nderived children. Call it only once whatever mattered has been\nmerged out — the server never merges for you.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatAgentMeta": {
                 "properties": {
                     "debugLink": {
@@ -632,8 +753,11 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.DatasetSearchFields": {
-                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text.",
+                "description": "Search is the optional search-extraction annotation (x-search):\nwhich record fields feed the search index's title/text, and\noptionally which index scope the entries land under.",
                 "properties": {
+                    "scope": {
+                        "type": "string"
+                    },
                     "text": {
                         "type": "string"
                     },
@@ -673,6 +797,35 @@ const docTemplate = `{
                     "traceIds": {
                         "items": {
                             "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.DerivedSpaceInfo": {
+                "properties": {
+                    "created": {
+                        "type": "boolean"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.DerivedSpaceListResponse": {
+                "properties": {
+                    "spaces": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DerivedSpaceInfo"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -760,55 +913,6 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "self": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.EnrichApplyRequest": {
-                "properties": {
-                    "proposalId": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.EnrichApplyResponse": {
-                "properties": {
-                    "created": {
-                        "type": "integer"
-                    },
-                    "enrichedDataWritten": {
-                        "type": "integer"
-                    },
-                    "failures": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
-                    "propertiesSet": {
-                        "type": "integer"
-                    },
-                    "proposalDeleted": {
-                        "type": "boolean"
-                    }
-                },
-                "type": "object"
-            },
-            "api.EnrichedDataCreateRequest": {
-                "properties": {
-                    "source": {
-                        "type": "string"
-                    },
-                    "target": {
-                        "type": "string"
-                    },
-                    "text": {
-                        "type": "string"
-                    },
-                    "value": {
                         "type": "string"
                     }
                 },
@@ -2212,10 +2316,11 @@ const docTemplate = `{
                     "createdAt": {
                         "type": "string"
                     },
-                    "description": {
-                        "type": "string"
+                    "derived": {
+                        "description": "Derived marks a space created by the account's own derivation\n(POST /v1/spaces/derived/:name or another consumer of the SDK's\nDerive). Derived spaces are permanent — DELETE refuses them with\n409 space.derived_undeletable. Absent on created / joined / 1-1\nspaces.",
+                        "type": "boolean"
                     },
-                    "generalChatObjectId": {
+                    "description": {
                         "type": "string"
                     },
                     "iconCid": {
@@ -4184,6 +4289,97 @@ const docTemplate = `{
                 ]
             }
         },
+        "/spaces/derived": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.DerivedSpaceListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List well-known derived spaces",
+                "tags": [
+                    "spaces"
+                ]
+            }
+        },
+        "/spaces/derived/{name}": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Registry name (e.g. bao)",
+                        "in": "path",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.SpaceInfo"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Materialize a well-known derived space",
+                "tags": [
+                    "spaces"
+                ]
+            }
+        },
         "/spaces/join": {
             "post": {
                 "requestBody": {
@@ -4511,6 +4707,16 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     },
                     "500": {
                         "content": {
@@ -5187,6 +5393,409 @@ const docTemplate = `{
                 ]
             }
         },
+        "/spaces/{spaceId}/bundles": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the space's bundles",
+                "tags": [
+                    "bundles"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleEnsureRequest",
+                                        "summary": "body",
+                                        "description": "Bundle to register"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Bundle to register",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleEnsureResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Install or adopt a bundle",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded (general-chat%2Fv1)",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.Bundle"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read one bundle",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}/children": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleChildRequest",
+                                        "summary": "body",
+                                        "description": "Child seed and types"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Child seed and types",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.BundleChildResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Derive a setup object under the bundle root",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/bundles/{bundleId}/resolve": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Bundle ID, percent-encoded",
+                        "in": "path",
+                        "name": "bundleId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.BundleResolveRequest",
+                                        "summary": "body",
+                                        "description": "Losing root to delete"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Losing root to delete",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Resolve a losing root",
+                "tags": [
+                    "bundles"
+                ]
+            }
+        },
         "/spaces/{spaceId}/datasets": {
             "get": {
                 "parameters": [
@@ -5397,87 +6006,6 @@ const docTemplate = `{
                 "summary": "Delete records from a dataset",
                 "tags": [
                     "data"
-                ]
-            }
-        },
-        "/spaces/{spaceId}/enrich/apply": {
-            "post": {
-                "parameters": [
-                    {
-                        "description": "Space ID",
-                        "in": "path",
-                        "name": "spaceId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/api.EnrichApplyRequest",
-                                        "summary": "body",
-                                        "description": "Proposal id"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Proposal id",
-                    "required": true
-                },
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.EnrichApplyResponse"
-                                }
-                            }
-                        },
-                        "description": "OK"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "404": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Not Found"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Apply a reviewed enrichment proposal and delete it",
-                "tags": [
-                    "enrich"
                 ]
             }
         },
@@ -8315,86 +8843,6 @@ const docTemplate = `{
                 "summary": "Append markdown content (append-only fast path)",
                 "tags": [
                     "editor"
-                ]
-            }
-        },
-        "/spaces/{spaceId}/objects/{objectId}/enriched-data": {
-            "post": {
-                "parameters": [
-                    {
-                        "description": "Space ID",
-                        "in": "path",
-                        "name": "spaceId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Target object ID",
-                        "in": "path",
-                        "name": "objectId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/api.EnrichedDataCreateRequest",
-                                        "summary": "body",
-                                        "description": "Enrichment record"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Enrichment record",
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ModifyResult"
-                                }
-                            }
-                        },
-                        "description": "Created"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Write one sourced enrichment record onto an object",
-                "tags": [
-                    "enrich"
                 ]
             }
         },

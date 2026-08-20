@@ -62,7 +62,7 @@ the affected window can't be located incrementally.
 | `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
 | `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
-| `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` | runtime-dataset records by their x-search mapping (see below) |
+| `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their x-search mapping (see below) |
 
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
   message (creator / reactions / attachments excluded — text only).
@@ -130,8 +130,7 @@ id `objectId:prop:<propId>`:
   excluded type. The exclusion list always contains `__type__`
   (type-definition rows — schema, not knowledge; discovery is
   `GET /types`, and their one-word names otherwise win BM25 on
-  field-length normalization and surface as top hits) plus the
-  wired-in `enrich_proposal` (ephemeral review scaffolding).
+  field-length normalization and surface as top hits).
 - **Short prop docs never embed**: prop-dataset entries under 64 bytes
   are not marked `pending` and stay FTS-only, on top of the
   scope-`props` rule above. Short name-like strings land in a flat
@@ -153,10 +152,13 @@ id `objectId:prop:<propId>`:
 
 Indexes records of **runtime-defined datasets** (docs/03-api.md
 § Runtime dataset schemas; SDK contract: its docs/17-user-datasets.md
-§ Discovery) by their declaration's `x-search {title, text}` mapping — one registered chunker covers every searchable runtime
+§ Discovery) by their declaration's `x-search {title, text, scope}`
+mapping — one registered chunker covers every searchable runtime
 dataset in every space. Entries carry the REAL dataset name (doc ids
-`objectId:<dataset>:<recordId>`) under scope `basic` — runtime records
-are user content on par with editor blocks, so they embed normally.
+`objectId:<dataset>:<recordId>`) under the declared `x-search.scope` —
+absent defaults to `basic` (runtime records are user content on par
+with editor blocks, so they embed normally; a dataset that declares
+scope `props` inherits that scope's FTS-only rule).
 `Dataset()` returns the virtual name `schema`, used only for chunker
 identity; both virtual names (`prop`, `schema`) are reserved against
 user dataset names at the creation API.
@@ -168,6 +170,15 @@ user dataset names at the creation API.
   SDK does not validate x-search fields against declared kinds. A
   dataset without `x-search` is not indexed at all. Both sides empty
   (cleared values, tombstone) ⇒ `Data ""` removal entry.
+- **Scope**: `x-search.scope` picks the scope the dataset's entries
+  land under; absent = `basic`. An invalid slug (`index.ValidScope`)
+  makes the dataset unsearchable — a broken override must not
+  silently land in the default scope (the `resolveIndexedProp`
+  stance; `any`'s API validates on write, but the declaration syncs
+  from arbitrary peers). A scope patch applies to records as they
+  (re-)index: already-indexed docs keep their stored scope until
+  their object next goes dirty (same declare-forward semantics as a
+  prop `meta.index` change).
 - **No catalog cache** (deliberate PropChunker deviation):
   `Space.Datasets()` is an atomic in-memory snapshot the SDK refreshes
   synchronously when a definitions change applies — a fresh read is

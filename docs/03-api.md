@@ -14,6 +14,7 @@
     - [Update space metadata](#update-space-metadata)
     - [Per-space settings (account-private)](#per-space-settings-account-private)
     - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
+  - [Bundles](#bundles)
   - [Objects](#objects)
     - [Blocks](#blocks)
       - [Read blocks](#read-blocks)
@@ -42,7 +43,8 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
-  - [Enrichment (built-in `enriched_data` + `enrich_proposal` types)](#enrichment-built-in-enriched_data--enrich_proposal-types)
+  - [Enrichment (moved userspace)](#enrichment-moved-userspace)
+  - [Agent data (moved userspace)](#agent-data-moved-userspace)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
     - [Download (content)](#download-content)
@@ -293,12 +295,15 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/invite/accept`       | `Service.AcceptInvite` — direct-add invite |
 | POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
+| GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
+| POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
 
-**`Service.Derive` / `DeriveId` are deliberately not exposed.** A
-client-supplied seed derives a deterministic space id, so a reused seed
-re-creates an existing space's identity — too dangerous for clients.
-Derivation stays an in-process SDK surface (used internally for e.g.
-the tech-space); there is no `/v1/spaces/derive` route by design.
+**Raw `Service.Derive` / `DeriveId` are deliberately not exposed.** A
+client-supplied seed would mint a *permanent* space (derived spaces
+cannot be deleted) and invite silent seed collisions between consumers.
+Derivation is reachable only through the closed registry vocabulary of
+`/v1/spaces/derived` (below); there is no free-seed `/v1/spaces/derive`
+route by design.
 
 **`DELETE` is a real, offline-first deletion** (`any-sync-sdk v0.0.12`).
 It returns `204` as soon as the local half is done — no network round
@@ -315,7 +320,10 @@ on the network side: deleting a non-owned space offloads locally and the
 reconciler no-ops the coordinator call. The reconciler also runs the
 inbound direction — spaces the coordinator reports gone (deleted on
 another device, or an owner deleted a space you joined) are offloaded
-locally on the next poll.
+locally on the next poll. **Derived spaces are refused** with
+`409 space.derived_undeletable` (see § Derived spaces), and an id the
+account doesn't know returns `404 space.not_found` instead of a silent
+204.
 
 **`GET /v1/spaces` defaults to active spaces only.** The tech-space row
 is never physically removed — it stays in `Service.List` with
@@ -332,7 +340,7 @@ the server's own search indexer already does this.
 **`GET /v1/spaces/:id` materializes only active spaces.** A non-active
 row (joining / one_to_one_pending / one_to_one_declined / invite
 statuses / deleted) is served straight from the tech-space index —
-plain row `SpaceInfo`, no `spaceIndexObjectId` / `generalChatObjectId`,
+plain row `SpaceInfo`, no `spaceIndexObjectId`,
 nothing loaded. Materializing a pending row would download the space
 before it was accepted: the SDK's load path falls back to a network
 SpacePull when local storage is missing, so a single read on a
@@ -352,12 +360,6 @@ always populate the field. `GET /v1/spaces` fills it on a best-effort
 basis; rows whose Space handle the SDK can't resolve (e.g. tombstoned
 entries) omit it.
 
-`SpaceInfo` also carries `generalChatObjectId`: the deterministic id of
-the space's single general chat object (see § Chat → General chat).
-Same single-space-only surfacing as `spaceIndexObjectId` — populated on
-create / get / one-to-one / join responses (deriving, i.e.
-materializing, the chat on first sight), omitted on `GET /v1/spaces`
-list rows so listing stays a cheap read.
 
 `SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
@@ -409,6 +411,61 @@ rotates). Omitted until the SDK's per-space mirror has run — e.g. a
 joiner whose access is still pending. Full receiver contract — cache
 rules, keystore placement, decrypt steps — in docs/20-push.md
 § Receiver-side keys.
+
+#### Derived spaces
+
+Well-known per-account spaces derived deterministically from the
+account keys and a fixed seed: the same account resolves the same
+spaceId on every device, so all clients and devices converge on *the*
+space without a create/find handshake (no check-then-create races, no
+duplicate "agent space" per client). The vocabulary is a small
+**embedded registry** compiled into `any`
+(`internal/server/derivedspaces.go`; seeds follow the
+`any/space/<name>/v1` convention) — v1 entry: `bao`, the account's
+agent space.
+
+```
+GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created, status?}]}
+POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
+                                                  409 space.deleted)
+```
+
+- **GET resolves, never creates.** Ids are computed once at engine boot
+  (`Service.DeriveId` — pure computation over the account keys);
+  `created` reports whether a usable tech-space row exists —
+  materialized here or on any of the account's devices (rows sync).
+  `status` is the raw row status when a row exists; a `deleted` row
+  (wedged before the permanence guard existed) reports `created:false`.
+- **POST materializes lazily and idempotently** (`Service.Derive`) and
+  returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
+  written as the space name (`DeriveRequest.Name` — not part of the
+  id derivation; a later rename via `PATCH /v1/spaces/:id` wins).
+  Repeat calls land on the same space; a tombstoned row is refused
+  with `409 space.deleted` rather than reported as success. Typical
+  consumer flow: one POST at boot, then use the id like any other
+  space.
+- **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
+  refuses them with `409 space.derived_undeletable` — the
+  deterministic id means delete + re-derive would replace history, and
+  the sticky deleted tombstone would wedge the well-known id for the
+  account's lifetime. Enforcement is layered: the server pre-checks the
+  boot-resolved registry ids (covers not-yet-materialized entries), the
+  SDK refuses rows carrying the synced `derived` flag
+  (`space.ErrIsDerivedSpace`), its space-index handler drops
+  `remoteStatus=deleted` writes on flagged rows from any peer, and its
+  deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
+  flag; joiners of someone else's derived space never carry it, so
+  their removal stays allowed. Rollout caveat: a device still running a
+  pre-guard binary can locally delete the space it materialized —
+  upgrade all of an account's devices before relying on permanence.
+- `spaceType` is `any.space` — derived spaces are ordinary spaces in
+  every other respect (members, invites, datasets, search).
+- **Migrating from an ad-hoc agent space**: accounts that already carry
+  a client-created agent space (e.g. a space named "bao" minted by an
+  older agent runtime) get a SECOND, derived space from the registry —
+  the registry id is the convergence point going forward; move or
+  re-import content from the legacy space, don't alternate between
+  them.
 
 #### One-to-one (direct) spaces
 
@@ -586,8 +643,9 @@ carry further extension keywords in the document:
 - doc-level standard `required` (fields that must be present on
   create), `x-delete-by` (`author`; absent = anyone may delete),
   `x-id` (`user`, with `x-id-pattern` / `x-id-max-length`; absent =
-  auto-derived record ids), and `x-search` (`{title, text}` — the
-  record fields the search indexer extracts, § docs/13-index.md).
+  auto-derived record ids), and `x-search` (`{title, text, scope}` —
+  the record fields the search indexer extracts and the index scope
+  the entries land under, § docs/13-index.md).
 
 #### Update space metadata
 
@@ -730,6 +788,138 @@ Scores are comparable only within one response
 (BM25 for fts, cosine similarity for vector, RRF for hybrid). The index
 covers content written while indexing is on — "index from the next
 change" (`docs/13-index.md`).
+
+### Bundles
+
+A **bundle** is one thing installed into a space — a chat, a
+marketplace bundle, an app's setup. It is a non-derived root object
+registered in the space's registry (the `bundles` dataset on the
+spaceIndex object; design in the SDK's `docs/bundles.md`), with every
+setup object derived from that root, so one converged id names the
+whole install.
+
+Clients register their own: the server keeps no catalog and installs
+nothing on its own. What it does own is the registry mechanics —
+picking the winner when two devices install concurrently, and refusing
+to delete a losing root before it has stopped arriving.
+
+```
+POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, installed}
+GET    /v1/spaces/:spaceId/bundles                        → 200 {bundles: [...]}
+GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 Bundle
+POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
+POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 {objectId}
+```
+
+**Bundle ids carry a slash** (`general-chat/v1` — the version suffix is
+part of the id, and ids are permanent: a successor install takes a new
+one, since record deletes are refused and a reused id could never be
+reclaimed). In a path segment the slash is percent-encoded:
+`/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
+
+**Ensure** (`POST …/bundles`) is adopt-or-install:
+`{id, name?, rootTypes?, rootProperties?}`. With a winner already
+registered it is a pure read — nothing is written, so a reader or guest
+member can resolve an install they could not create — and the reply is
+`installed: false`. Otherwise the server creates the root object with
+the requested types and initial properties, registers it in one change,
+and replies `installed: true`; that path is a write, so a member
+without write permission gets `403` (use `GET …/bundles/:bundleId`
+instead). `name` is stamped as `any.name` on the root, which is also
+what puts the root's tree in the head-sync diff. The `id` is the whole
+identity — a marketplace id, an app slug, a versioned convention like
+`general-chat/v1` — so there is no separate provenance field.
+
+Installing waits for the registry to converge first (bounded, 30s).
+It rides the space's index tree, and a member that ensures against
+state it has not synced yet reads "nothing installed" and mints a root
+competing with the one already out there. Adopting never waits — a
+read cannot fork anything. A space that has never been set up
+converges to an empty registry, which is a valid answer, not a stall.
+
+When the wait cannot complete, who is asking decides: the space's
+**owner** installs anyway (nobody else could have installed into a
+space only this account has, and its own devices converge through the
+registry), so an offline owner is never blocked. Any other member —
+a joiner, either side of a 1-1 — is refused with
+`409 bundle.not_ready` rather than left to fork, and retries when the
+network is back.
+
+Two devices that install while genuinely apart still each register a
+root; the registry converges on one winner and the other appears in
+`losers` — so **`rootId` is provisional until the space syncs**, and
+clients re-read after. A winner whose tree has not reached this device
+yet is likewise `409 bundle.not_ready` rather than handed out: its id
+would reject every write. Retry.
+
+Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
+`rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
+in the space (`400 type.not_found` — the create path would otherwise
+drop an unknown type and report success) and property values must match
+their declared format (`400 property.format_violation`); both are
+checked BEFORE the root is created, so a rejected request never leaves
+an orphan object. Bundle records are **permanent** — the registry
+refuses record deletes, so an id is spent for the space's lifetime, and
+`roots` only ever grows: deleting a root and re-ensuring appends
+another claim rather than replacing one. The registry rides the
+eagerly-loaded spaceIndex on every device, so treat ids as a small
+fixed vocabulary, not a scratch namespace.
+
+**Reads.** `GET …/bundles` lists the live rows as of local state;
+`GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
+also readable through the ordinary dataset surface —
+`POST /v1/spaces/:spaceId/query` with `{"objectId":
+"<spaceIndexObjectId>", "dataset": "bundles"}` — which is how a client
+subscribes to live conflict updates. That path is read-only: the SDK
+fences the dataset off the generic modify surface so no client can
+forge a claim.
+
+**Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`)
+derive a setup object under the bundle's current winner. Same semantics
+as the objects derive: deterministic per (space, root, seed),
+materialized on the first call, the same id on every device — a
+restored device reaches the whole install from the winner alone — and
+cascade-deleted with the root. Seeds are permanent. A child binds to
+its parent's tree, so on a member whose copy of the winner has not
+landed yet the call is `409 bundle.not_ready` — the same retryable
+state Ensure reports.
+
+**Conflicts.** `losers` is the live conflict set: claimed roots that
+are neither the winner nor already deleted. Non-empty means two devices
+installed concurrently and the loser may hold real content, so cleanup
+is the client's call: merge what matters out of the losing root and its
+children, then `POST …/bundles/:bundleId/resolve` with
+`{loserRootId}`, which cascade-deletes it. The server never merges —
+only the client knows what the content means.
+
+What the server does enforce is timing. A losing root arrives change by
+change, so a merge made from a half-arrived tree is a half-merge:
+resolve is refused with `409 bundle.loser_not_ready` until the SDK
+reports the root fully **synced** — an unknown or still-syncing tree
+never qualifies — and it has been observed as a loser for a grace
+period (5 min). The clock starts when the conflict first became
+visible on this device (any `GET …/bundles[/:id]` or the boot pass
+counts), not at the first resolve call, so a client that showed the
+user a conflict and got an answer is not made to wait again. A restart
+restarts the clock, which only ever delays a deletion.
+
+After a timing refusal the server keeps retrying in the background (the
+merge decision is already made; only the timing was missing) — one loop
+per losing root however often you poll, in-memory and dropped on
+restart, so clients retry too. Resolving the winner, or a root never
+claimed for the bundle, is `409 bundle.not_loser`; a root already
+resolved returns 204 — the call is idempotent.
+
+**Restore.** On boot the server converges the space list and projects
+the space index for the well-known derived spaces, so a client ensuring
+right after a restore meets the account's converged registry instead of
+an empty one and does not mint a competing root. It installs nothing
+and deletes nothing itself.
+
+**Agreeing who installs.** Nothing stops two members from ensuring the
+same bundle; the registry just converges and reports a loser. Clients
+that want to avoid the conflict entirely agree on one installer out of
+band — for a 1-1, the initiating side ensures and the other adopts.
 
 ### Objects
 
@@ -1632,7 +1822,11 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); either field optional.
+  § Schema chunker); `title`/`text` either optional. The optional
+  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
+  otherwise) picks the index scope the dataset's entries land under —
+  absent = `basic`. Scopes are the open slug set `/search` filters on;
+  `props` inherits that scope's FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1649,8 +1843,11 @@ pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
 property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text` (a whole `search` replace
-is pinned). Pinned path → `400 dataset.immutable`; unknown
+`displayName`, `search.title`, `search.text`, `search.scope` (a whole
+`search` replace is pinned; a scope value must pass `index.ValidScope`).
+A scope patch applies to records as they (re-)index — already-indexed
+docs keep their stored scope until their object next goes dirty.
+Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).
 
@@ -1790,21 +1987,28 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
-**General chat.** Every space has one deterministic "general" chat
-object, derived from a fixed seed (`chat.GeneralChatSeed`,
-`any/general-chat/v1`). There is no bespoke resolver endpoint: the id is
-delivered as `generalChatObjectId` on every single-space `SpaceInfo`
-response (create / get / one-to-one / join) — the same common point
-that carries `spaceIndexObjectId` (§ Spaces). The first single-space
-response materializes the object (the `chat` type is attached then, so
-the id accepts `chat/messages` writes immediately); it is omitted from
-`GET /v1/spaces` list rows, which stay a cheap read that never
-materializes chats. Clients should write and read this shared chat
-instead of creating their own chat object per client — otherwise a
-space accumulates two or three parallel chats depending on which client
-spoke first, most visibly in 1-1 direct spaces. Deterministic
-derivation means a joiner computes the same id the creator did, so the
-locally derived object and the CRDT-replicated one converge.
+**Finding the chat object.** A space's chats are not server-owned:
+register one through the bundles API (§ Bundles) and use its `rootId`
+as the `<objectId>` below.
+
+```
+POST /v1/spaces/:spaceId/bundles
+{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"] }
+→ 200 { "bundle": { "rootId": "<chat object>", ... }, "installed": true|false }
+```
+
+Ensure is adopt-or-install, so every client that runs it lands on the
+same object instead of each minting a chat of its own — the failure
+mode this replaces, most visible in 1-1 direct spaces. `rootTypes:
+["chat"]` attaches the chat type at creation, so the root accepts
+`chat/messages` writes immediately. `id` is yours to choose;
+`general-chat/v1` is the convention for "the chat of this space", and a
+space can carry as many purpose-specific chat bundles as you want.
+
+Two caveats carry over from § Bundles: `rootId` is provisional until
+the space syncs (re-read after), and nothing stops two members
+ensuring concurrently — agree out of band on who installs (for a 1-1,
+the initiating side) or handle the resulting `losers`.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the
@@ -2029,49 +2233,31 @@ can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
 
-### Enrichment (built-in `enriched_data` + `enrich_proposal` types)
+## Enrichment (moved userspace)
 
-Structured, sourced, reviewable enrichment. Two built-in types:
+The former built-in `enriched_data` / `enrich_proposal` types, their
+bespoke endpoints (`POST …/enriched-data`, `POST …/enrich/apply`) and
+the compiled-in enrichment chunker are **gone** — nothing
+enrichment-specific belongs in core (the same principle that kept the
+email type out). Enrichment is now a userspace convention owned by the
+agent: user types discovered by xKey (`enrichments` hub +
+`enrich_proposal`), runtime dataset schemas (§ Runtime dataset
+schemas) with an `x-search` mapping for indexing, records written
+through the generic `/modify` / `/query`, and a deterministic apply
+implemented client-side. The convention's contract lives with its
+producer (anybao `enrich@v1`); provenance `source` links follow
+[docs/19-links.md](19-links.md) § Fragments.
+## Agent data (moved userspace)
 
-- **`enriched_data`** — a durable, sourced enrichment collection on a
-  target object (multitype-attaches on first write, same pattern the
-  chat type uses). One record per fact: `{text, source, target, value,
-  createdBy, createdAt}` — `text` required; `source` is the provenance
-  link (`any://<space>/<transcript>#<blockId>,…`); `target`/`value` are
-  set only for property enrichments (which real property was set, and
-  to what), so the UI can show a property value's source.
-  `createdBy`/`createdAt` are server-stamped (derived; client writes
-  rejected). Records are searchable (indexed under scope `basic`).
-- **`enrich_proposal`** — an ephemeral, reviewable enrichment plan; its
-  `enrich_proposal_items` dataset holds one loose record per proposed
-  item (`text`, `source`, `outcome` enrich|new, `targetObjectId`,
-  `targetKind` collection|property, `targetProperty`
-  `<typeXKey>.<propXKey>`, `value`, `newType`, `newName`). Items are
-  written/edited through the generic `/modify` and read through
-  `/query` — no bespoke item endpoint. Proposals are scaffolding:
-  deleted on apply and excluded from the search index.
+The agent's operational data — turns, chunks, memory items, triggers,
+config, secrets — is a userspace convention owned by the harness
+(anybao ADR-017), on the same machinery as enrichment: user types,
+runtime dataset schemas with `search.scope` mappings (`agent` /
+`history`), records through the generic `/modify` / `/upsert` /
+`/query`, homed on children of the `bao/v1` bundle (§ Bundles) and of
+each chat's bundle. The server carries nothing agent-specific: no
+agent types, endpoints, chunkers, or `SpaceInfo` fields.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/enriched-data` | write one sourced enrichment record (attaches the type first) |
-| POST   | `/v1/spaces/:spaceId/enrich/apply`                    | deterministically apply a reviewed proposal, then delete it |
-
-`POST …/enriched-data` body: `{text, source?, target?, value?}`;
-returns the shared write result (`recordIds[0]` is the derived record
-id). Reads go through `POST /v1/spaces/:id/query` with
-`dataset=enriched_data`.
-
-`POST …/enrich/apply` body: `{proposalId}`. Deterministic (no LLM): per
-item it creates the target object for `new` items (items sharing
-`newType`+`newName` land on ONE object), sets the real property for
-`property` items, and always writes an `enriched_data` record onto the
-target; then deletes the proposal object. Returns `{created,
-propertiesSet, enrichedDataWritten, proposalDeleted, failures[]}` —
-`failures` is per-item; a non-empty list still means the rest applied.
-Failure strings are short stable descriptions naming the item/target
-only — raw SDK error text goes to the server log, never the body.
-`404 enrich.empty_proposal` when the proposal has no items (already
-applied, deleted, or empty).
 
 ### Files (files v2)
 

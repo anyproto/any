@@ -33,6 +33,9 @@ type engine struct {
 	indexer *indexer.Indexer
 	push    *push.Service
 	account string
+	// derived is the derived-space registry resolved against this
+	// account (see derivedspaces.go).
+	derived []resolvedDerivedSpace
 	// procRelease drops the standing account-scope pub/sub interest
 	// for process.* broadcasts (acquired in bootAccount, best-effort).
 	procRelease func()
@@ -155,7 +158,12 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		}()
 	}
 
-	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account}, nil
+	derived, err := resolveDerivedSpaces(ctx, sdk)
+	if err != nil {
+		return nil, fmt.Errorf("resolve derived spaces: %w", err)
+	}
+
+	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account, derived: derived}, nil
 }
 
 // engineLog covers engine lifecycle noise that has no request context.
@@ -219,8 +227,13 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.indexer = eng.indexer
 	d.push = eng.push
 	d.account = eng.account
+	d.derived = eng.derived
 	d.ready.Store(true)
 	go d.holdProcessInterest()
+	// Restore side of the setup split: adopt the installs of the
+	// well-known derived spaces this account already has
+	// (derivedsetup.go). Never creates a space; never blocks serving.
+	go d.bootstrapDerivedSetups(d.shutdownCtx)
 	return eng, nil
 }
 

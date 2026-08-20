@@ -200,9 +200,9 @@ pluggable embedders, parallel batched pipelines),
 
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
-- **Dogfood the generic schema handler.** Collapse the zero-logic
-  compiled-in handlers (enrichproposal; parts of enricheddata) to
-  pure declarations (`Handler: nil` + behavioral schema). Requires a per-dataset
+- **Dogfood the generic schema handler.** Collapse remaining zero-logic
+  compiled-in handlers to pure declarations (`Handler: nil` +
+  behavioral schema). Requires a per-dataset
   mutability audit first: the zero-value `MutableBy` is write-once, so
   every currently-mutable field needs an explicit `MutableByAnyone` /
   `MutableByAuthor` (+ a creator stamp where author-gated). Chat keeps
@@ -223,6 +223,19 @@ pluggable embedders, parallel batched pipelines),
   SDK-side.
 
 ## Done
+
+- **Derived spaces registry (SYN-164)** — well-known per-account
+  spaces (`bao`) derived from a compiled-in registry
+  (`internal/server/derivedspaces.go`, seed convention
+  `any/space/<name>/v1`) instead of exposing raw `Service.Derive`
+  over HTTP. `GET /v1/spaces/derived` resolves ids without creating
+  (`DeriveId`); `POST /v1/spaces/derived/:name` materializes lazily +
+  idempotently. Derived spaces are permanent: two-layer delete guard —
+  registry pre-check in the server (covers unmaterialized ids) + SDK
+  row-flag refusal (`space.ErrIsDerivedSpace`, synced set-once
+  `derived` on the tech-space row; `SpaceInfo.derived` passthrough).
+  CLI `any space derived [create <name>]`. Contract: docs/03-api.md
+  § Spaces → Derived spaces.
 
 - **Runtime dataset schemas + upsert (SYN-147)** — wraps the SDK's
   user-space dataset schemas (`TypesAPI` dataset CRUD, generic

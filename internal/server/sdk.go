@@ -16,8 +16,6 @@ import (
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
-	"github.com/anyproto/any/internal/enricheddata"
-	"github.com/anyproto/any/internal/enrichproposal"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
@@ -115,10 +113,8 @@ func serverTypes() []handler.Type {
 		chat.NewType(),
 		program.NewType(),
 		miniapp.NewType(),
-		enricheddata.NewType(),   // enriched_data collection attached to target objects
-		enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
-		nav.NewType(),            // property-only: no dataset, just nav.* schema
-		page.NewType(),           // marker-only: the shared "this object is a document" type
+		nav.NewType(),  // property-only: no dataset, just nav.* schema
+		page.NewType(), // marker-only: the shared "this object is a document" type
 	}
 }
 
@@ -140,23 +136,19 @@ func staticDatasetNames() []string {
 // indexed dataset, paralleling the Types list above. The indexer
 // (internal/indexer) drives it.
 //
-// Indexed: editor blocks (coalesced windows), chat messages, enriched_data
-// facts (sourced enrichment knowledge), and object properties (name /
-// description under "basic"; user values default-on under "props",
-// meta.index overriding — see internal/index/prop.go). Deliberately NOT indexed: program
-// SOURCE and its docstrings (code, not knowledge — anybao ADR-010 §5;
-// discovery is help()/describe() in the guest), miniapp content, and
-// enrich_proposal items (ephemeral review scaffolding, deleted on
-// apply) — none has a chunker.
-// enrich_proposal objects are further excluded from the property chunker
-// so their names never leak into search.
+// Indexed: editor blocks (coalesced windows), chat messages, and object
+// properties (name / description under "basic"; user values default-on
+// under "props", meta.index overriding — see internal/index/prop.go).
+// Deliberately NOT indexed: program SOURCE and its docstrings (code, not
+// knowledge — anybao ADR-010 §5; discovery is help()/describe() in the
+// guest) and miniapp content — neither has a chunker. Agent and
+// enrichment data are harness-declared runtime datasets, indexed via
+// the schema chunker under their declared search scope.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
-		enricheddata.NewChunker(), // sourced enrichment facts ARE searchable knowledge
-		// enrich_proposal excluded: ephemeral review scaffolding, not knowledge.
-		index.NewPropChunker(enrichproposal.TypeId),
+		index.NewPropChunker(),
 		// Runtime-defined datasets with an x-search mapping, scope
 		// "basic" (internal/index/schema.go).
 		index.NewSchemaChunker(staticDatasetNames()...),

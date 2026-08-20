@@ -186,8 +186,10 @@ Anything that identifies data goes in the **path** (`…/<dataset>/<recordId>`).
 This is the rule the old enrichment `#block` hack violated — it crammed a block
 id (`any://<objectId>#<blockId>`) into the fragment. A block is a *record* of the
 `editor_blocks` dataset, not an opaque anchor: blocks re-render and restructure.
-That producer migrates to the dataset-record path form
-(`any://o/<sp>/<obj>/editor_blocks/<blockId>`) — see WEB-42.
+That producer now emits the dataset-record path form — a multi-block citation is
+the comma-joined list `any://o/<sp>/<obj>/editor_blocks/<b1>,any://o/…/<b2>`
+(WEB-42). Stored fragment-form sources stay readable on the consumer side and
+are never rewritten.
 
 ## Extension policy
 

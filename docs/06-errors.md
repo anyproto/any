@@ -63,6 +63,8 @@ space.exists                     # create conflict
 space.not_joined                 # operation requires membership
 space.not_accepted               # 409 — join pending approval; space not materialized yet
 space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start
+space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
+space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 
 invite.invalid                   # invite token malformed or unrecognized
 
@@ -82,9 +84,6 @@ upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRu
 
 filter.unknown_operator          # 400 — filter names an operator outside the grammar (details.operator, details.path); message lists the supported set
 filter.invalid                   # 400 — any other filter-grammar violation (wrong operand type, malformed $and/$or array, bad $regex, …); message carries the parser's path + reason (details.path, details.operator). Filters parse at the request boundary, so these never surface mid-subscribe
-
-enrich.empty_proposal            # 404 — proposal has no items (already applied, deleted, or empty)
-enricheddata.text_too_long       # 400 — enrichment text exceeds the byte cap (details.max_bytes, got_bytes)
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)

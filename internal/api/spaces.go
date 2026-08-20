@@ -51,14 +51,6 @@ type SpaceRegisterIncomingRequest struct {
 // updates. Omitted when the server can't resolve a Space handle for
 // this row (e.g. tombstoned entries in `GET /v1/spaces`).
 //
-// GeneralChatObjectId is the deterministic id of the space's single
-// "general" chat object (see chat.GeneralChatSeed). Populated —
-// materializing the object on first sight — on single-space responses
-// (create / get / one-to-one / join); omitted on the `GET /v1/spaces`
-// list rows, which stay a cheap read that never materializes chats.
-// Clients should write to and read this chat rather than creating
-// their own, so a space keeps exactly one chat.
-//
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
 // "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
@@ -81,20 +73,45 @@ type SpaceRegisterIncomingRequest struct {
 // pending. Rotation (encKey/encKeyId change) is observed live on the
 // `POST /v1/spaces/query/subscribe` stream.
 type SpaceInfo struct {
-	Id                  string         `json:"id"`
-	Type                string         `json:"type,omitempty"`
-	SpaceType           string         `json:"spaceType,omitempty"`
-	Author              string         `json:"author,omitempty"`
-	Name                string         `json:"name,omitempty"`
-	Description         string         `json:"description,omitempty"`
-	IconCID             string         `json:"iconCid,omitempty"`
-	Status              string         `json:"status"`
-	OwnRole             string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
-	CreatedAt           time.Time      `json:"createdAt"`
-	Settings            map[string]any `json:"settings,omitempty"`
-	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
-	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
-	Push                *SpacePushKeys `json:"push,omitempty"`
+	Id                 string         `json:"id"`
+	Type               string         `json:"type,omitempty"`
+	SpaceType          string         `json:"spaceType,omitempty"`
+	Author             string         `json:"author,omitempty"`
+	Name               string         `json:"name,omitempty"`
+	Description        string         `json:"description,omitempty"`
+	IconCID            string         `json:"iconCid,omitempty"`
+	Status             string         `json:"status"`
+	OwnRole            string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
+	CreatedAt          time.Time      `json:"createdAt"`
+	Settings           map[string]any `json:"settings,omitempty"`
+	SpaceIndexObjectId string         `json:"spaceIndexObjectId,omitempty"`
+	Push                 *SpacePushKeys `json:"push,omitempty"`
+	// Derived marks a space created by the account's own derivation
+	// (POST /v1/spaces/derived/:name or another consumer of the SDK's
+	// Derive). Derived spaces are permanent — DELETE refuses them with
+	// 409 space.derived_undeletable. Absent on created / joined / 1-1
+	// spaces.
+	Derived bool `json:"derived,omitempty"`
+}
+
+// DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
+// entry resolved against the account: the deterministic spaceId the
+// entry derives to, and whether a usable space row exists (materialized
+// here or on any of the account's devices). Resolving ids never
+// creates anything; materialize with POST /v1/spaces/derived/:name.
+// Status is the raw row status when a row exists (omitted otherwise);
+// a "deleted" row — wedged before the permanence guard existed —
+// reports created=false and refuses materialization.
+type DerivedSpaceInfo struct {
+	Name    string `json:"name"`
+	SpaceId string `json:"spaceId"`
+	Created bool   `json:"created"`
+	Status  string `json:"status,omitempty"`
+}
+
+// DerivedSpaceListResponse is the body of GET /v1/spaces/derived.
+type DerivedSpaceListResponse struct {
+	Spaces []DerivedSpaceInfo `json:"spaces"`
 }
 
 // SpacePushKeys is the per-space key material a push RECEIVER caches —
