@@ -82,6 +82,14 @@ func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 		cfg:            cfg,
 		runCtx:         context.Background(),
 	}
+	// Mirror bootEngine: resolve the derived-space registry against
+	// the account so the /spaces/derived routes resolve. Pure
+	// computation over the account keys — nothing is created.
+	if derived, err := resolveDerivedSpaces(ctx, sdk); err == nil {
+		d.derived = derived
+	} else {
+		t.Logf("resolve derived spaces: %v", err)
+	}
 	// Mirror bootEngine: the push service exists only when config
 	// names a push node.
 	if cfg.Push.Active() {

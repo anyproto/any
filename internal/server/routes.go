@@ -96,6 +96,9 @@ func buildEcho(d *deps) *echo.Echo {
 	registerAuthRoutes(v1, d)
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)
+	// Per-space bundles registry (handlers_bundles.go) — what clients
+	// have installed into a space.
+	registerBundleRoutes(v1, d)
 
 	// Account-wide sync-status subscribe sits outside the space group:
 	// the SDK's Service.SubscribeStatus delivers every known space's

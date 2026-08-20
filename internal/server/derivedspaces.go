@@ -19,7 +19,7 @@ import (
 //
 // Adding an entry: pick a short slug and a versioned seed following
 // the `any/space/<name>/v1` convention (same scheme as the derived
-// in-space objects — chat.GeneralChatSeed etc.). Seeds are forever:
+// in-space objects — agentmem.BrainSeed etc.). Seeds are forever:
 // never change or reuse one — bump the version suffix for a
 // successor space instead. Removing an entry stops advertising the
 // name; it deletes nothing (nothing can).

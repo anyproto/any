@@ -15,8 +15,8 @@ import (
 
 // TestServer_SpaceGet_PendingNotMaterialized pins the spaceGet contract
 // for non-active rows: a pending incoming 1-1 is served straight from
-// the tech-space index — 200 with the row info, no spaceIndexObjectId /
-// generalChatObjectId — and nothing is materialized. Materializing
+// the tech-space index — 200 with the row info, no spaceIndexObjectId
+// — and nothing is materialized. Materializing
 // would SpacePull the space ciphertext before the user accepted it.
 func TestServer_SpaceGet_PendingNotMaterialized(t *testing.T) {
 	d, cleanup := newTestDeps(t)
@@ -61,9 +61,9 @@ func TestServer_SpaceGet_PendingNotMaterialized(t *testing.T) {
 	if info.Status != api.SpaceStatusOneToOnePending {
 		t.Errorf("status = %q, want %q", info.Status, api.SpaceStatusOneToOnePending)
 	}
-	if info.SpaceIndexObjectId != "" || info.GeneralChatObjectId != "" {
-		t.Errorf("pending row must not carry materialized ids; got spaceIndex=%q chat=%q",
-			info.SpaceIndexObjectId, info.GeneralChatObjectId)
+	if info.SpaceIndexObjectId != "" {
+		t.Errorf("pending row must not carry materialized ids; got spaceIndex=%q",
+			info.SpaceIndexObjectId)
 	}
 
 	// The GET must not have created any-sync storage for the space.

@@ -10,8 +10,8 @@ github.com/anyproto/any-store/v2 v2.0.0-beta.5 h1:W8Jw91ws00as07jZ0cYcO/+7My8JJh
 github.com/anyproto/any-store/v2 v2.0.0-beta.5/go.mod h1:vVxA3PD7k2vAt07zk4n7Zdt6LANmSSIlSWMNuLOLAT0=
 github.com/anyproto/any-sync v0.13.1 h1:gUCYDzAlWJxu2SVVSoZzG48idjajjCtQlq2INRLHFII=
 github.com/anyproto/any-sync v0.13.1/go.mod h1:wrzpEYkz0mIExDhL9ha9MJFYtUDzhYoGSrXzRea+rFg=
-github.com/anyproto/any-sync-sdk v0.2.1 h1:CIsd5AwoDT1qCLZ2mBJqqqEv+gbSVhk56hfbuWCsYQE=
-github.com/anyproto/any-sync-sdk v0.2.1/go.mod h1:xtaHDU9n9EsEj9Tbu6IS/In1btI/502JxsmlmHvWRGQ=
+github.com/anyproto/any-sync-sdk v0.2.2 h1:99xGmE83M7wn+VlVdNhbBZF82VAScVrDRqFgE3AxuP0=
+github.com/anyproto/any-sync-sdk v0.2.2/go.mod h1:xtaHDU9n9EsEj9Tbu6IS/In1btI/502JxsmlmHvWRGQ=
 github.com/anyproto/anytype-agent-runtime v0.1.2 h1:Pvbgkl9NrYjS4U6UDRCeSdpHdqmUhLurxBFig3HCxYk=
 github.com/anyproto/anytype-agent-runtime v0.1.2/go.mod h1:TsJkmFUiWGcsTL6z5sdP58RiPGJZfHKe+Z1Z9sJ88JQ=
 github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23 h1:jXAjKY4g9ec7lDtayIlzM9u0/b3xGS9YgGA6JtRhHfU=

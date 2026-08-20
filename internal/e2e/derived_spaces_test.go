@@ -13,6 +13,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 func TestE2E_DerivedSpaces(t *testing.T) {
@@ -88,15 +90,38 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 		if info["derived"] != true {
 			t.Errorf("derived flag missing on SpaceInfo: %+v", info)
 		}
-		if info["generalChatObjectId"] == nil || info["generalChatObjectId"] == "" {
-			t.Errorf("single-space response missing generalChatObjectId: %+v", info)
-		}
 
 		// Idempotent: same id on repeat.
 		var again map[string]any
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/derived/bao", "", http.StatusCreated, &again)
 		if again["id"] != baoId {
 			t.Errorf("repeat materialization id %v != %v", again["id"], baoId)
+		}
+	})
+
+	t.Run("setup is the client's to register", func(t *testing.T) {
+		// Materializing a derived space installs nothing: the server
+		// keeps no catalog, so its registry is empty until a client
+		// ensures its own bundle.
+		var empty api.BundleListResponse
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId+"/bundles", "", http.StatusOK, &empty)
+		if len(empty.Bundles) != 0 {
+			t.Fatalf("derived space pre-installed bundles: %+v", empty.Bundles)
+		}
+
+		var res api.BundleEnsureResponse
+		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+baoId+"/bundles",
+			`{"id":"bao/v1","name":"bao","rootTypes":["page"]}`,
+			http.StatusOK, &res)
+		if !res.Installed || res.Bundle.RootId == "" {
+			t.Fatalf("ensure did not install: %+v", res)
+		}
+
+		var list api.BundleListResponse
+		mustJSON(t, http.MethodGet, base+"/v1/spaces/"+baoId+"/bundles", "", http.StatusOK, &list)
+		if len(list.Bundles) != 1 || list.Bundles[0].Id != "bao/v1" ||
+			list.Bundles[0].RootId != res.Bundle.RootId || list.Bundles[0].Name != "bao" {
+			t.Fatalf("registry after install: %+v", list.Bundles)
 		}
 	})
 

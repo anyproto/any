@@ -13,7 +13,7 @@
 // record shape and the resolution policy, the server just materializes
 // the object and reports its id on the single-space GET
 // (spaceToAPI → SpaceInfo.AgentConfigObjectId), the same delivery path
-// as generalChatObjectId.
+// as SpaceIndexObjectId.
 package agentconfig
 
 import (
