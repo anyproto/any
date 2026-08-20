@@ -123,7 +123,13 @@ Implementation slices landed:
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
-   level syntax), `nav.parentId`, `nav.pos` (lexid). Bespoke endpoints
+   level syntax), `nav.parentId`, `nav.pos` (lexid). An empty
+   paragraph is a `paragraph` record with `text: ""`; the markdown
+   bridge carries it as a blank line beyond the one separating two
+   blocks (edge runs have no separator to spend), so Split/Join stay
+   exact inverses and re-PUTting a GET writes nothing — the encoding
+   clients need to preserve vertical spacing (docs/03-api.md § Empty
+   paragraphs). Bespoke endpoints
    under `/v1/spaces/:s/objects/:o/editor/blocks` cover writes only —
    create / patch / delete. PATCH takes
    `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic

@@ -51,7 +51,10 @@ type SetResult struct {
 //
 // content is stored as INLINE markdown inside each block's `text`
 // field — no full-block markdown bytes survive on disk. Empty
-// content tombstones every existing top-level block.
+// content tombstones every existing top-level block. Blank lines
+// beyond the one separating two blocks become empty paragraph
+// records, so a document's vertical spacing survives the round trip
+// (see Split).
 func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {
 	existing, err := listTopLevel(ctx, sp, objectId)
 	if err != nil {
@@ -181,12 +184,17 @@ func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []
 //     will happily create a block identical to an existing one.
 //   - No leading separator. content is appended as-is; if the caller
 //     wants a blank line / heading boundary before the new material it
-//     must include that in content (Split skips blank lines, so the
-//     separation is structural — new blocks simply follow the old).
+//     must include that in content (the separation is structural —
+//     new blocks simply follow the old).
+//   - No edge empty paragraphs. A fragment is positioned by the
+//     append itself, so blank lines wrapping it are framing, not
+//     content: Split's leading/trailing empty paragraphs are dropped
+//     here. Empty paragraphs BETWEEN blocks of the fragment are kept,
+//     as they are for Set.
 //
 // Empty (or blank-only) content is a no-op that returns a zero result.
 func Append(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {
-	rawNew := Split(content)
+	rawNew := trimEdgeEmpties(Split(content))
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
@@ -235,15 +243,29 @@ func Append(ctx context.Context, sp space.Space, objectId, content string) (SetR
 
 // Get returns the full markdown content of objectId by rendering each
 // top-level block and joining with "\n\n". Round-trip is canonical:
-// blank lines between blocks are always exactly one, and block-type
-// canonicalisation (setext → ATX, `+` → `-`) applies the same way as
-// on Set.
+// blank lines between two content blocks are exactly one plus one per
+// empty paragraph between them, and block-type canonicalisation
+// (setext → ATX, `+` → `-`) applies the same way as on Set.
 func Get(ctx context.Context, sp space.Space, objectId string) (string, error) {
 	existing, err := listTopLevel(ctx, sp, objectId)
 	if err != nil {
 		return "", err
 	}
 	return Join(renderExisting(existing)), nil
+}
+
+// trimEdgeEmpties drops leading and trailing empty entries, keeping
+// the ones between content blocks.
+func trimEdgeEmpties(blocks []string) []string {
+	start := 0
+	for start < len(blocks) && blocks[start] == "" {
+		start++
+	}
+	end := len(blocks)
+	for end > start && blocks[end-1] == "" {
+		end--
+	}
+	return blocks[start:end]
 }
 
 // renderExisting renders each listed block to its canonical markdown
