@@ -60,6 +60,185 @@ func TestServer_TypeCreate_XKeyValidation(t *testing.T) {
 	if code := errCode(t, rec.Body.Bytes()); code != "type.xkey_conflict" {
 		t.Errorf("builtin-id xKey code = %q, want type.xkey_conflict", code)
 	}
+
+	// 5. The meta-type's id is reserved the same way — it is a catalog
+	//    row (`type`), so a user type cannot claim it.
+	rec = doJSON(t, e, http.MethodPost, typesURL, `{"name":"NotMeta","xKey":"type"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("meta-type xKey: status=%d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestServer_MetaTypeCatalogAndXKey pins the SYN-173 wire surface: the
+// meta-type is a catalog row with one `xkey` property, a created type's
+// xKey round-trips through TypeInfo, and the raw row carries it under
+// the meta-type namespace instead of `any`.
+func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"MetaDemo"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /v1/spaces: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types",
+		`{"name":"Movie","xKey":"movie"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+
+	// Catalog: the meta-type is present and reports its own id as xKey.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list types: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var list api.TypesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode types: %v", err)
+	}
+	var sawMeta, sawMovie bool
+	for _, ti := range list.Types {
+		switch ti.Id {
+		case "type":
+			sawMeta = true
+			if !ti.BuiltIn || ti.XKey != "type" {
+				t.Errorf("meta-type row = %+v, want builtIn with xKey %q", ti, "type")
+			}
+		case created.TypeId:
+			sawMovie = true
+			if ti.XKey != "movie" {
+				t.Errorf("created type xKey = %q, want movie", ti.XKey)
+			}
+		}
+	}
+	if !sawMeta || !sawMovie {
+		t.Fatalf("catalog missing rows: meta=%v movie=%v", sawMeta, sawMovie)
+	}
+
+	// The meta-type describes type objects: one `xkey` property.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/type/properties", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("meta-type properties: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var props api.PropertiesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &props); err != nil {
+		t.Fatalf("decode properties: %v", err)
+	}
+	if len(props.Properties) != 1 || props.Properties[0].Id != "xkey" {
+		t.Fatalf("meta-type properties = %+v, want a single xkey entry", props.Properties)
+	}
+
+	// Raw row: xkey under the meta-type namespace, name still universal.
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/properties/"+created.TypeId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read type row: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var row struct {
+		Record struct {
+			Any  map[string]any `json:"any"`
+			Type map[string]any `json:"type"`
+		} `json:"record"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatalf("decode row: %v", err)
+	}
+	if got := row.Record.Type["xkey"]; got != "movie" {
+		t.Errorf("record.type.xkey = %v, want movie", got)
+	}
+	if _, stale := row.Record.Any["xkey"]; stale {
+		t.Errorf("record.any.xkey must be gone, row=%+v", row.Record.Any)
+	}
+	if got := row.Record.Any["name"]; got != "Movie" {
+		t.Errorf("record.any.name = %v, want Movie", got)
+	}
+}
+
+// TestServer_BuiltinTypesReportXKey pins the xKey every built-in
+// resolves by. Built-ins carry no stored xKey — the SDK synthesizes
+// their TypeInfo — so the handle comes from typeInfoToAPI's id
+// backfill, and `nav` from its own short-circuit. A regression here is
+// silent: clients resolve types by xKey, so an empty one makes a
+// built-in unreachable by name.
+func TestServer_BuiltinTypesReportXKey(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"XKeyBuiltins"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /v1/spaces: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+
+	// A user type alongside them, to prove the backfill doesn't reach
+	// past the built-ins.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types",
+		`{"name":"Movie","xKey":"movie"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list types: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var list api.TypesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode types: %v", err)
+	}
+
+	builtins := 0
+	for _, ti := range list.Types {
+		if !ti.BuiltIn {
+			if ti.Id != created.TypeId || ti.XKey != "movie" {
+				t.Errorf("user type = %+v, want the caller-set xKey", ti)
+			}
+			continue
+		}
+		builtins++
+		if ti.XKey != ti.Id {
+			t.Errorf("built-in %q xKey = %q, want the id", ti.Id, ti.XKey)
+		}
+	}
+	// any + spaceIndex + type + every registered type.
+	if builtins < 4 {
+		t.Fatalf("only %d built-ins in the catalog, want the full set: %+v", builtins, list.Types)
+	}
+
+	// The single-type reads: the shared mapper, plus nav's hardcoded
+	// short-circuit, which bypasses it entirely.
+	for _, id := range []string{"any", "spaceIndex", "type", "chat", "editor", "page", "nav"} {
+		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET /types/%s: status=%d body=%s", id, rec.Code, rec.Body.String())
+			continue
+		}
+		var ti api.TypeInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &ti); err != nil {
+			t.Errorf("decode %s: %v", id, err)
+			continue
+		}
+		if !ti.BuiltIn || ti.XKey != id {
+			t.Errorf("GET /types/%s = %+v, want builtIn with xKey %q", id, ti, id)
+		}
+	}
 }
 
 // TestServer_TypeProperties_NotFound covers the existence check on

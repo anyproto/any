@@ -1077,6 +1077,24 @@ Implementation slices landed:
       (joiner adopts the owner's root, children converge),
       multipeer_onetoone_test.go (initiator ensures, peer adopts),
       derived_spaces_test.go. Contract: docs/03-api.md § Bundles.
+36. **Type xKey lives on the meta-type (SYN-173)** — a type's
+    programmatic handle moved from `any.xkey` to `type.xkey` in the
+    SDK. `any` is the universal type, so declaring `xkey` there
+    advertised it on every object (`GET …/types/any/properties`) and
+    let any row carry one; the meta-type's namespace is fenced by the
+    handler's membership check, so only rows carrying the `__type__`
+    marker in `any.types` can. Marker and namespace are deliberately
+    different strings — `_`-prefixed top-level fields are
+    protocol-owned, so `__type__` cannot be a storage namespace.
+    Wire-visible consequences, both passthrough: `GET
+    /v1/spaces/:id/types` gains a third synthetic built-in row (`type`,
+    the meta-type, one `xkey` property) ahead of the registered types,
+    and its id/xKey are now reserved against user types by the existing
+    `type.xkey_conflict` guard. `TypeInfo.xKey` is unchanged; only the
+    raw row path moved. No back-compat — types created before the bump
+    read back with an empty `xKey`. The web UI's object-type filter
+    skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
+    docs/06-data-structure.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
