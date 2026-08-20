@@ -131,146 +131,6 @@ components:
         propId:
           type: string
       type: object
-    api.AgentBrainResponse:
-      properties:
-        objectId:
-          type: string
-      type: object
-    api.AgentChunkCreateRequest:
-      properties:
-        fromAgent:
-          type: string
-        fromSeq:
-          type: integer
-        level:
-          type: integer
-        periodEnd:
-          type: integer
-        periodStart:
-          type: integer
-        seq:
-          type: integer
-        summary:
-          type: string
-        toSeq:
-          type: integer
-        unitsCovered:
-          description: |-
-            UnitsCovered counts the child units this chunk summarizes —
-            turns for level 1, level-(N-1) chunks for level 2+ (hence
-            "units", not "turns"). Optional. The dataset validator also
-            accepts the legacy stored key `turnsCovered` so pre-rename
-            records stay applyable on replay.
-          type: integer
-      type: object
-    api.AgentMemoryCreateRequest:
-      properties:
-        body:
-          type: string
-        category:
-          type: string
-        chatId:
-          type: string
-        confidence:
-          type: integer
-        context:
-          type: string
-        edges:
-          items:
-            $ref: '#/components/schemas/api.Edge'
-          type: array
-          uniqueItems: false
-        entities:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        fromAgent:
-          type: string
-        importance:
-          type: integer
-        keywords:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        provenance:
-          $ref: '#/components/schemas/api.MemoryProvenance'
-        salience:
-          type: number
-        source:
-          description: |-
-            Source names the producing pipeline ("extraction", "reflection",
-            "user", …) — the machine-vs-user distinction. Free lowercase
-            slug, create-only (not in the evolve allow-list).
-          type: string
-        tags:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        validFrom:
-          type: integer
-      type: object
-    api.AgentMemoryEvolveRequest:
-      properties:
-        accessCount:
-          type: integer
-        body:
-          type: string
-        confidence:
-          type: integer
-        context:
-          type: string
-        edges:
-          items:
-            $ref: '#/components/schemas/api.Edge'
-          type: array
-          uniqueItems: false
-        importance:
-          type: integer
-        salience:
-          type: number
-        tags:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-      type: object
-    api.AgentTurnAppendRequest:
-      properties:
-        effects:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        fromAgent:
-          type: string
-        interrupted:
-          type: boolean
-        llm:
-          $ref: '#/components/schemas/api.LLMStats'
-        messageIds:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        replies:
-          items:
-            type: string
-          type: array
-          uniqueItems: false
-        seq:
-          type: integer
-        think:
-          type: string
-        traceRef:
-          type: string
-        userName:
-          type: string
-        userText:
-          type: string
-      type: object
     api.AggregateResponse:
       properties:
         plan:
@@ -389,6 +249,117 @@ components:
             type: string
           type: array
           uniqueItems: false
+      type: object
+    api.Bundle:
+      description: Bundle is the converged registry row.
+      properties:
+        id:
+          description: |-
+            Id is the stable bundle identifier — the record id. Permanent:
+            a successor install takes a new id (record deletes are refused,
+            so a reused id could never be reclaimed).
+          type: string
+        losers:
+          description: |-
+            Losers is the live conflict set: claimed roots that are neither
+            the winner nor already deleted. Non-empty means two devices
+            installed concurrently — merge what matters out of each, then
+            resolve it.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+        name:
+          description: |-
+            Name is the display name, stamped as `any.name` on the root by
+            whichever device installed it.
+          type: string
+        rootId:
+          description: |-
+            RootId is the winning root object id. Setup objects are derived
+            from it, so this one id names the whole install. Provisional
+            until the space syncs.
+          type: string
+        roots:
+          description: |-
+            Roots is every root ever claimed for this bundle — the add-only
+            audit trail. A resolved loser stays listed; its death is
+            recorded by the deletion of its tree.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    api.BundleChildRequest:
+      properties:
+        seed:
+          description: |-
+            Seed derives the child deterministically under the bundle's
+            current winner. Permanent — a successor object takes a new seed.
+          type: string
+        types:
+          description: Types are attached on first materialization.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    api.BundleChildResponse:
+      properties:
+        objectId:
+          type: string
+      type: object
+    api.BundleEnsureRequest:
+      properties:
+        id:
+          description: Id is the bundle identifier. Required.
+          type: string
+        name:
+          description: Name is the display name, written on install.
+          type: string
+        rootProperties:
+          additionalProperties:
+            additionalProperties: {}
+            type: object
+          description: |-
+            RootProperties seeds the root's property values, keyed
+            typeId → propId → value (same shape as POST /objects).
+          type: object
+        rootTypes:
+          description: |-
+            RootTypes are attached to the root object at birth, so the
+            install's datasets are writable on it with no extra call.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    api.BundleEnsureResponse:
+      properties:
+        bundle:
+          $ref: '#/components/schemas/api.Bundle'
+        installed:
+          description: |-
+            Installed reports whether THIS call created the root. False
+            means an existing install was adopted and nothing was written.
+          type: boolean
+      type: object
+    api.BundleListResponse:
+      properties:
+        bundles:
+          items:
+            $ref: '#/components/schemas/api.Bundle'
+          type: array
+          uniqueItems: false
+      type: object
+    api.BundleResolveRequest:
+      properties:
+        loserRootId:
+          description: |-
+            LoserRootId is the losing root to delete, cascading to its
+            derived children. Call it only once whatever mattered has been
+            merged out — the server never merges for you.
+          type: string
       type: object
     api.ChatAgentMeta:
       properties:
@@ -717,15 +688,6 @@ components:
           type: array
           uniqueItems: false
         self:
-          type: string
-      type: object
-    api.Edge:
-      properties:
-        strength:
-          type: number
-        to:
-          type: string
-        type:
           type: string
       type: object
     api.ErrorEnvelope:
@@ -1081,27 +1043,6 @@ components:
           type: array
           uniqueItems: false
       type: object
-    api.LLMStats:
-      properties:
-        cacheRead:
-          type: integer
-        cacheWrite:
-          type: integer
-        cells:
-          type: integer
-        costUsd:
-          type: number
-        fuelUsed:
-          type: integer
-        inTokens:
-          type: integer
-        model:
-          type: string
-        outTokens:
-          type: integer
-        stopReason:
-          type: string
-      type: object
     api.MarkdownContent:
       properties:
         content:
@@ -1168,14 +1109,6 @@ components:
             $ref: '#/components/schemas/api.Member'
           type: array
           uniqueItems: false
-      type: object
-    api.MemoryProvenance:
-      description: |-
-        Provenance is the structured drill-back pointer to where the
-        item was learned. Create-only.
-      properties:
-        fromSeq:
-          type: integer
       type: object
     api.ModifyResult:
       properties:
@@ -1682,7 +1615,7 @@ components:
         scopes:
           description: |-
             Scopes restricts results to the given index scopes (basic, chat,
-            agent, props, …). Empty = all scopes.
+            props, …). Empty = all scopes.
           items:
             type: string
           type: array
@@ -1743,14 +1676,6 @@ components:
       type: object
     api.SpaceCreateRequest:
       properties:
-        agent_space:
-          description: |-
-            AgentSpace marks this as an agent space: on create the server
-            eagerly materializes the per-space config object (agentconfig)
-            so the harness has it on the very first GET. The config object is
-            also derived idempotently on every single-space GET, so this flag
-            only controls eager provisioning, not whether the id is reported.
-          type: boolean
         description:
           type: string
         iconCid:
@@ -1772,26 +1697,6 @@ components:
       type: object
     api.SpaceInfo:
       properties:
-        agentConfigObjectId:
-          description: |-
-            AgentConfigObjectId is the deterministic id of the space's single
-            agent config object (see agentconfig.ConfigObjectSeed). Populated —
-            materializing the object on first sight — on single-space responses
-            (create / get / one-to-one / join), same as GeneralChatObjectId;
-            omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
-            its config cascade against this object.
-          type: string
-        agentSecretsObjectId:
-          description: |-
-            AgentSecretsObjectId is the deterministic id of the space's single
-            agent secrets object (see agentsecrets.SecretsObjectSeed) — the
-            agent_secrets dataset that carries harness secrets, split out of
-            agent_config so the runtime can gate reads on the whole object.
-            Same surfacing policy as AgentConfigObjectId: populated —
-            materializing the object on first sight — on single-space responses
-            (create / get / one-to-one / join), omitted on the cheap
-            `GET /v1/spaces` list rows.
-          type: string
         author:
           type: string
         createdAt:
@@ -1805,8 +1710,6 @@ components:
             spaces.
           type: boolean
         description:
-          type: string
-        generalChatObjectId:
           type: string
         iconCid:
           type: string
@@ -3471,175 +3374,6 @@ paths:
       summary: Stop sharing (removes all non-owners)
       tags:
       - acl
-  /spaces/{spaceId}/agent/brain:
-    get:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AgentBrainResponse'
-          description: OK
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Resolve the per-space agent brain object id
-      tags:
-      - agent
-  /spaces/{spaceId}/agent/memory:
-    post:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/api.AgentMemoryCreateRequest'
-                description: Memory item
-                summary: body
-        description: Memory item
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Create a memory item on the space brain object
-      tags:
-      - agent
-  /spaces/{spaceId}/agent/memory/{itemId}:
-    delete:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Memory item ID
-        in: path
-        name: itemId
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: OK
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Forbidden
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Not Found
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Delete a memory item (author only)
-      tags:
-      - agent
-    patch:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Memory item ID
-        in: path
-        name: itemId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/api.AgentMemoryEvolveRequest'
-                description: Fields to set
-                summary: body
-        description: Fields to set
-        required: true
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: OK
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "403":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Forbidden
-        "404":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Not Found
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Evolve a memory item's mutable fields (author only)
-      tags:
-      - agent
   /spaces/{spaceId}/aggregate:
     post:
       parameters:
@@ -3682,6 +3416,249 @@ paths:
       summary: Aggregate over a per-object dataset
       tags:
       - data
+  /spaces/{spaceId}/bundles:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.BundleListResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: List the space's bundles
+      tags:
+      - bundles
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.BundleEnsureRequest'
+                description: Bundle to register
+                summary: body
+        description: Bundle to register
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.BundleEnsureResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Install or adopt a bundle
+      tags:
+      - bundles
+  /spaces/{spaceId}/bundles/{bundleId}:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Bundle ID, percent-encoded (general-chat%2Fv1)
+        in: path
+        name: bundleId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.Bundle'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Read one bundle
+      tags:
+      - bundles
+  /spaces/{spaceId}/bundles/{bundleId}/children:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Bundle ID, percent-encoded
+        in: path
+        name: bundleId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.BundleChildRequest'
+                description: Child seed and types
+                summary: body
+        description: Child seed and types
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.BundleChildResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Derive a setup object under the bundle root
+      tags:
+      - bundles
+  /spaces/{spaceId}/bundles/{bundleId}/resolve:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Bundle ID, percent-encoded
+        in: path
+        name: bundleId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.BundleResolveRequest'
+                description: Losing root to delete
+                summary: body
+        description: Losing root to delete
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Resolve a losing root
+      tags:
+      - bundles
   /spaces/{spaceId}/datasets:
     get:
       parameters:
@@ -4706,114 +4683,6 @@ paths:
       summary: Delete an object
       tags:
       - objects
-  /spaces/{spaceId}/objects/{objectId}/agent/chunks:
-    post:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Chat object ID
-        in: path
-        name: objectId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/api.AgentChunkCreateRequest'
-                description: Chunk record
-                summary: body
-        description: Chunk record
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Conflict
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Create one immutable compressed-history chunk
-      tags:
-      - agent
-  /spaces/{spaceId}/objects/{objectId}/agent/turns:
-    post:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Chat object ID
-        in: path
-        name: objectId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/api.AgentTurnAppendRequest'
-                description: Turn record
-                summary: body
-        description: Turn record
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ModifyResult'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Conflict
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Append one immutable agent turn record
-      tags:
-      - agent
   /spaces/{spaceId}/objects/{objectId}/backlinks:
     get:
       parameters:

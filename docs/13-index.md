@@ -19,7 +19,7 @@ defaults are what they are — see [`search/README.md`](search/README.md).
 
 ```go
 type IndexEntry struct {
-    Scope    string // open slug set; "basic"/"chat"/"agent"/"program" are the vocabulary
+    Scope    string // open slug set; "basic"/"chat"/"props" are the vocabulary
     ObjectId string
     Dataset  string
     RecordId string
@@ -61,7 +61,6 @@ the affected window can't be located incrementally.
 |-------------------------|--------------------------|-----------------|------------------|--------|
 | `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
 | `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
-| `agentmem.NewChunker()` | `agent_memory_items`     | `agent_memory`  | `agent`          | per item: context + body + category + keywords/entities/tags |
 | `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
 | `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their x-search mapping (see below) |
 
@@ -83,16 +82,6 @@ the affected window can't be located incrementally.
   not the whole doc. The read is still O(doc) per edit (re-reads the
   blocks to form windows), but that's cheap against the local DB; the
   expensive axis (embedding) is incremental.
-- **Memory = one record per chunk, scope `agent`.** `agent_memory_items`
-  indexes one doc per item (`agentmem.NewChunker`), so each item stays
-  independently retrievable and filterable (by category / recency /
-  confidence) — coalescing would destroy that. `Data` = the item's
-  semantic + lexical text (context, body, category, keywords, entities,
-  tags); numeric/structural fields (confidence, salience, accessCount,
-  edges, timestamps) are excluded, so a metadata-only bump leaves the
-  content hash unchanged and the indexer skips re-embedding (see below) —
-  important because memory items are bumped often (accessCount on recall,
-  fields on evolution) but their text rarely changes.
 - **Programs are not indexed.** The `program` type carries only
   `program_source`, and it has no chunker — code (docstrings included)
   is not a search target (anybao ADR-010 §5). A program's one-liner
@@ -100,9 +89,8 @@ the affected window can't be located incrementally.
   decls carry no `meta["index"]` flag; revisit only if evidence
   demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
-  of `[a-z0-9_-]`); `basic` / `chat` / `agent` / `history` / `props`
-  are the established vocabulary, and property meta flags can mint new
-  ones. `props` is FTS-only (see the prop chunker below).
+  of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
+  vocabulary, and property meta flags can mint new ones. `props` is FTS-only (see the prop chunker below).
 - **`TypeId()` gating**: the indexer runs a gated chunker only while the
   type literal is in the object's `any.types`; when it is not, it
   prefix-evicts `objectId:<dataset>:` instead (see eviction below).
@@ -236,20 +224,6 @@ re-embedding unchanged content:
 Hash collisions are astronomically unlikely (64-bit) and the worst case
 is one stale vector. Docs written before the `hash` field existed simply
 miss the map and re-upsert once.
-
-### Agent history (turns + chunks) — scope `history`
-
-`agent_turns` and `agent_chunks` are indexed under scope **`history`**
-by two chunkers on the `agent_log` type (`agentlog.NewTurnChunker` /
-`NewChunkChunker`), gated on agent_log membership like the chat chunker
-(both datasets live on the chat object). Turns index `userText` + joined
-`replies` (Title-boosted on `userText` — the question is the strongest
-recall anchor); chunks index their `summary`. `think` / `effects` /
-scalars are excluded (narration and metadata are recall noise; the raw
-record stays reachable by seq for drill-down). This is what makes deep
-history semantically reachable without exact seqs — `search` with scopes
-`[agent, history, basic]` spans memory, conversation history, and
-content in one call (ADR-006 §2 / the anybao recall tool).
 
 ### Excluded from indexing entirely
 
@@ -675,8 +649,6 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 - `internal/index/stream_test.go` — `RecordsSince` chains the
   IncludeDeleted projection + `_addSeq` window + sort, parses the seq,
   and stops + closes on a yield error; `IsDeleted`.
-- `internal/index/agentmemory_test.go` — `hasType`, `memoryData` (join
-  order, skip-empties, missing-prop, name-only).
 - `internal/editor/chunker_test.go`, `internal/chat/chunker_test.go` —
   text extraction including the tombstone case.
 - `internal/server/handlers_index_test.go::TestIndexChunkers_FullFlow` —

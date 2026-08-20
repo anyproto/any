@@ -86,5 +86,5 @@ func (d *deps) derivedSpaceCreate(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"name": def.Name})
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(ctx, sp))
+	return c.JSON(http.StatusCreated, d.spaceToAPI(ctx, sp))
 }

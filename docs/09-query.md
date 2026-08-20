@@ -69,9 +69,10 @@ When a property is an **array**, the filter compares against its *elements*:
 - **`$in`** means **intersects**: `{ "<t>.tags": { "$in": ["a","b"] } }`.
 - **`$all`** means **superset**: `{ "<t>.tags": { "$all": ["a","b"] } }`.
 
-This is how amemory does category filtering server-side (categories live in a
-bare `tags` array; `getObjects("agent_memory", {filter:{"agent_memory.tags":{$in:cats}}})` prunes candidates before they cross the wire — the `typeKey`
-arg is the type xKey too, and the dotted filter key uses the xKey).
+This is how a client does category filtering server-side (categories in a
+bare `tags` array; `getObjects("recipe", {filter:{"recipe.tags":{$in:cats}}})`
+prunes candidates before they cross the wire — the `typeKey` arg is the type
+xKey too, and the dotted filter key uses the xKey).
 
 There is deliberately **no `$contains`** — the scalar spelling above already is
 it. Reaching for one gets `400 filter.unknown_operator`, whose message lists the
@@ -105,7 +106,7 @@ the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
 `_ver.id`, and the row-root derived stamps `author`, `createdAt`,
 `modifiedAt`, `spaceId` (objects collection only — see `03-api.md`
 § Data plane; `{"sort": ["-modifiedAt"]}` is the recency ordering). Through **anyHelper** you use dotted **xKey** paths instead
-(`"agent_memory.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
+(`"recipe.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
 slug of the name, returned by `createType` as `type.xKey`; builtins use their
 id) plus the *property xKey*. anyHelper resolves these to the server's
 `<typeId>.<propId>` on the way in and reverse-maps records to readable nested
@@ -128,9 +129,6 @@ Built-in datasets declare indexes for their hot paths:
 
 - `editor_blocks` → `(nav.parentId, nav.pos)` (tree listing + MaxPos)
 - `chat_messages` → `(_ver.id)` (chronological paging)
-- `agent_turns` → `(seq)`, `(createdAt)` (boot window, chunk drill-down, period queries)
-- `agent_chunks` → `(seq)`, `(periodEnd)` (recent chunks, period lookup)
-- `agent_memory_items` → `(category)`, `(createdAt)`, `(validFrom)` (category filter, recency, period recall)
 
 The per-space `objects` collection has **no per-property indexes**, so filtering
 or sorting cross-object queries on a `<typeId>.<propId>` is a scan proportional

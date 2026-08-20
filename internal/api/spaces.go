@@ -3,20 +3,12 @@ package api
 import "time"
 
 // SpaceCreateRequest is the body of POST /v1/spaces. Mirrors
-// space.CreateRequest plus the harness-only AgentSpace flag (handled in
-// the HTTP layer, not the SDK CreateRequest — SpaceType is coordinator-
-// gated and can't carry it).
+// space.CreateRequest.
 type SpaceCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 	SpaceType   string `json:"spaceType,omitempty"`
-	// AgentSpace marks this as an agent space: on create the server
-	// eagerly materializes the per-space config object (agentconfig)
-	// so the harness has it on the very first GET. The config object is
-	// also derived idempotently on every single-space GET, so this flag
-	// only controls eager provisioning, not whether the id is reported.
-	AgentSpace bool `json:"agent_space,omitempty"`
 }
 
 // SpaceOneToOneRequest is the body of POST /v1/spaces/one-to-one. The
@@ -59,14 +51,6 @@ type SpaceRegisterIncomingRequest struct {
 // updates. Omitted when the server can't resolve a Space handle for
 // this row (e.g. tombstoned entries in `GET /v1/spaces`).
 //
-// GeneralChatObjectId is the deterministic id of the space's single
-// "general" chat object (see chat.GeneralChatSeed). Populated —
-// materializing the object on first sight — on single-space responses
-// (create / get / one-to-one / join); omitted on the `GET /v1/spaces`
-// list rows, which stay a cheap read that never materializes chats.
-// Clients should write to and read this chat rather than creating
-// their own, so a space keeps exactly one chat.
-//
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
 // "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
@@ -89,35 +73,18 @@ type SpaceRegisterIncomingRequest struct {
 // pending. Rotation (encKey/encKeyId change) is observed live on the
 // `POST /v1/spaces/query/subscribe` stream.
 type SpaceInfo struct {
-	Id                  string         `json:"id"`
-	Type                string         `json:"type,omitempty"`
-	SpaceType           string         `json:"spaceType,omitempty"`
-	Author              string         `json:"author,omitempty"`
-	Name                string         `json:"name,omitempty"`
-	Description         string         `json:"description,omitempty"`
-	IconCID             string         `json:"iconCid,omitempty"`
-	Status              string         `json:"status"`
-	OwnRole             string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
-	CreatedAt           time.Time      `json:"createdAt"`
-	Settings            map[string]any `json:"settings,omitempty"`
-	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
-	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
-	// AgentConfigObjectId is the deterministic id of the space's single
-	// agent config object (see agentconfig.ConfigObjectSeed). Populated —
-	// materializing the object on first sight — on single-space responses
-	// (create / get / one-to-one / join), same as GeneralChatObjectId;
-	// omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
-	// its config cascade against this object.
-	AgentConfigObjectId string `json:"agentConfigObjectId,omitempty"`
-	// AgentSecretsObjectId is the deterministic id of the space's single
-	// agent secrets object (see agentsecrets.SecretsObjectSeed) — the
-	// agent_secrets dataset that carries harness secrets, split out of
-	// agent_config so the runtime can gate reads on the whole object.
-	// Same surfacing policy as AgentConfigObjectId: populated —
-	// materializing the object on first sight — on single-space responses
-	// (create / get / one-to-one / join), omitted on the cheap
-	// `GET /v1/spaces` list rows.
-	AgentSecretsObjectId string         `json:"agentSecretsObjectId,omitempty"`
+	Id                 string         `json:"id"`
+	Type               string         `json:"type,omitempty"`
+	SpaceType          string         `json:"spaceType,omitempty"`
+	Author             string         `json:"author,omitempty"`
+	Name               string         `json:"name,omitempty"`
+	Description        string         `json:"description,omitempty"`
+	IconCID            string         `json:"iconCid,omitempty"`
+	Status             string         `json:"status"`
+	OwnRole            string         `json:"ownRole" enums:"owner,admin,writer,reader,guest,none"`
+	CreatedAt          time.Time      `json:"createdAt"`
+	Settings           map[string]any `json:"settings,omitempty"`
+	SpaceIndexObjectId string         `json:"spaceIndexObjectId,omitempty"`
 	Push                 *SpacePushKeys `json:"push,omitempty"`
 	// Derived marks a space created by the account's own derivation
 	// (POST /v1/spaces/derived/:name or another consumer of the SDK's

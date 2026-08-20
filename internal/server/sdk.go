@@ -13,11 +13,6 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
-	"github.com/anyproto/any/internal/agentconfig"
-	"github.com/anyproto/any/internal/agentlog"
-	"github.com/anyproto/any/internal/agentmem"
-	"github.com/anyproto/any/internal/agentsecrets"
-	"github.com/anyproto/any/internal/agenttrigger"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
@@ -118,13 +113,8 @@ func serverTypes() []handler.Type {
 		chat.NewType(),
 		program.NewType(),
 		miniapp.NewType(),
-		agentlog.NewType(),       // agent_turns + agent_chunks on the chat object
-		agentmem.NewType(),       // agent_memory_items on the per-space brain object
-		agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
-		agentconfig.NewType(),    // agent_config on the per-space config object
-		agentsecrets.NewType(), // agent_secrets on the per-space secrets object
-		nav.NewType(),          // property-only: no dataset, just nav.* schema
-		page.NewType(),         // marker-only: the shared "this object is a document" type
+		nav.NewType(),  // property-only: no dataset, just nav.* schema
+		page.NewType(), // marker-only: the shared "this object is a document" type
 	}
 }
 
@@ -146,20 +136,18 @@ func staticDatasetNames() []string {
 // indexed dataset, paralleling the Types list above. The indexer
 // (internal/indexer) drives it.
 //
-// Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
-// items, agent HISTORY (turns + chunks, scope "history"), and object
+// Indexed: editor blocks (coalesced windows), chat messages, and object
 // properties (name / description under "basic"; user values default-on
 // under "props", meta.index overriding — see internal/index/prop.go).
 // Deliberately NOT indexed: program SOURCE and its docstrings (code, not
 // knowledge — anybao ADR-010 §5; discovery is help()/describe() in the
-// guest) and miniapp content — neither has a chunker.
+// guest) and miniapp content — neither has a chunker. Agent and
+// enrichment data are harness-declared runtime datasets, indexed via
+// the schema chunker under their declared search scope.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
-		agentmem.NewChunker(),
-		agentlog.NewTurnChunker(),
-		agentlog.NewChunkChunker(),
 		index.NewPropChunker(),
 		// Runtime-defined datasets with an x-search mapping, scope
 		// "basic" (internal/index/schema.go).

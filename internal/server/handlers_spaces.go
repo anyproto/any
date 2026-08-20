@@ -12,9 +12,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/agentconfig"
-	"github.com/anyproto/any/internal/agentsecrets"
-	"github.com/anyproto/any/internal/chat"
 )
 
 func registerSpaceRoutes(g *echo.Group, d *deps) {
@@ -109,21 +106,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt)
 	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt)
 
-	// Agent data layer (built-in types — see internal/agentlog,
-	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
-	// reads + liveness go through /query and /query/subscribe with
-	// dataset ∈ {agent_turns, agent_chunks, agent_memory_items}.
-	// Turns/chunks attach to the chat object (multitype chat +
-	// agent_log); memory items live on the per-space brain object,
-	// which the server resolves itself (GET /agent/brain exposes the
-	// deterministic id for reads).
-	g.POST("/spaces/:spaceId/objects/:objectId/agent/turns", d.agentTurnAppend)
-	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
-
-	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
-	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
-	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)
-	g.DELETE("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryDelete)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/aggregate", d.spaceAggregate)
@@ -266,7 +248,7 @@ func (d *deps) spaceCreate(c echo.Context) error {
 		}
 		return spaceError(c, err, "")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // @Summary	List spaces
@@ -344,7 +326,7 @@ func (d *deps) spaceGet(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(ctx, sp))
+	return c.JSON(http.StatusOK, d.spaceToAPI(ctx, sp))
 }
 
 // spaceUpdate handles PATCH /v1/spaces/:spaceId.
@@ -451,7 +433,7 @@ func (d *deps) spaceOneToOne(c echo.Context) error {
 	if err != nil {
 		return oneToOneError(c, err, "otherIdentity")
 	}
-	return c.JSON(http.StatusCreated, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneAccept handles POST /v1/spaces/:spaceId/one-to-one/accept
@@ -472,7 +454,7 @@ func (d *deps) spaceOneToOneAccept(c echo.Context) error {
 	if err != nil {
 		return spaceError(c, err, id)
 	}
-	return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
+	return c.JSON(http.StatusOK, d.spaceToAPI(c.Request().Context(), sp))
 }
 
 // spaceOneToOneDecline handles POST /v1/spaces/:spaceId/one-to-one/decline
@@ -551,7 +533,7 @@ func (d *deps) spaceInviteAccept(c echo.Context) error {
 	id := c.Param("spaceId")
 	sp, err := d.sdk.Spaces().AcceptInvite(c.Request().Context(), id)
 	if err == nil {
-		return c.JSON(http.StatusOK, spaceToAPI(c.Request().Context(), sp))
+		return c.JSON(http.StatusOK, d.spaceToAPI(c.Request().Context(), sp))
 	}
 	// spaceimpl.ErrInviteAcceptPending is internal-only; match the
 	// documented error string (same pragmatic pattern as spaceJoin).
@@ -718,27 +700,19 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 	return out
 }
 
-// spaceToAPI is the Space-handle variant of spaceInfoToAPI — populates
-// SpaceIndexObjectId from the resident space handle, plus
-// GeneralChatObjectId by deriving (materializing on first sight) the
-// space's single general chat, so single-space responses always carry
-// both. This is the one place every single-space path (create / get /
-// one-to-one / join) funnels through, so it's where "every space has a
-// chat" is enforced. Derive is best-effort: on failure the field is
-// omitted rather than failing the whole response (mirrors the list
-// path's tolerance for a missing SpaceIndexObjectId).
-func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
+// spaceToAPI is the Space-handle variant of spaceInfoToAPI —
+// populates SpaceIndexObjectId from the resident space handle, plus
+// the derived agent config / secrets ids. Resolution is best-effort:
+// on failure a field is omitted rather than failing the whole
+// response (mirrors the list path's tolerance for a missing
+// SpaceIndexObjectId).
+//
+// A space's chats are not resolved here: what a space has installed is
+// the client's own declaration, read through
+// GET /v1/spaces/:spaceId/bundles.
+func (d *deps) spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out := spaceInfoToAPI(sp.Info())
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
-	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
-		out.GeneralChatObjectId = id
-	}
-	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
-		out.AgentConfigObjectId = id
-	}
-	if id, err := agentsecrets.DeriveSecretsObjectId(ctx, sp); err == nil {
-		out.AgentSecretsObjectId = id
-	}
 	return out
 }
 

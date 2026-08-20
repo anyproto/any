@@ -125,14 +125,15 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 ## 4. Chat: newest-first reads and backward pagination
 
-**Where `<chatObjectId>` comes from:** for "the chat of this space" —
-the common case — read `generalChatObjectId` off any single-space
-response (`GET /v1/spaces/:spaceId`, or the create / join / one-to-one
-replies). It's derived deterministically per space and identical on
-every peer, so all clients share one chat instead of each creating
-their own. Only `POST /objects` a fresh chat object when you
-deliberately want an *additional*, purpose-specific one. Full guidance:
-`16-chat.md` § Finding the chat object.
+**Where `<chatObjectId>` comes from:** register the space's chat as a
+bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
+with `{"id":"general-chat/v1","name":"General","rootTypes":["chat"]}`. The call is adopt-or-install, so every client
+lands on one object instead of each creating its own. Re-read after a
+sync (the winner is provisional) and poll through
+`409 bundle.not_ready` rather than creating a chat to fill the gap.
+Additional purpose-specific chats get their own bundle id. Full
+guidance: `16-chat.md` § Finding the chat object, `03-api.md`
+§ Bundles.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -243,7 +244,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
 
 `POST /v1/spaces/:spaceId/search` searches the server's local index
 (BM25 full-text + semantic vectors over chats, editor blocks, and
-agent-memory objects — pipeline in `13-index.md`, wire shape in
+object properties — pipeline in `13-index.md`, wire shape in
 `03-api.md` § search).
 
 ```json
@@ -313,10 +314,11 @@ POST /v1/spaces/one-to-one
 
 The reply's `spaceType` is `"any.onetoone"` — that is how you tell a
 direct chat from a regular space in any list (the on-wire `type` matches,
-but classify on `spaceType`). The same reply carries
-`generalChatObjectId` — the message thread of the 1-1. Both peers derive
-the identical id, so neither creates a chat object: write and subscribe
-there directly (§ 4).
+but classify on `spaceType`). A 1-1 space carries
+no chat object of its own — register one as a bundle (§ 4). It has
+no owner to arbitrate, so the two clients agree out of band that the
+**initiating** side ensures the bundle and the other adopts it; both
+then read and write the same root.
 
 **Discover incoming requests** — when someone reaches out to you, a
 *pending* row appears (surfaced automatically by the server's inbox

@@ -12,6 +12,7 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
@@ -42,6 +43,13 @@ type deps struct {
 	// chunkers is the index chunker registry, built once at boot via
 	// NewIndexRegistry and driven by the indexer.
 	chunkers *index.Registry
+
+	// installs drives the per-space bundle installs and carries their
+	// loser verdicts across requests (derivedsetup.go). Created lazily
+	// via bundleResolver() — it has no engine/SDK dependency, so every
+	// deps construction path gets one with no explicit wiring.
+	installsOnce sync.Once
+	installs     *bundles.Resolver
 
 	// events is the account-wide in-memory event bus hub
 	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via

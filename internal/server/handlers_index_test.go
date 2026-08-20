@@ -199,9 +199,9 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 		t.Errorf("description entry wrong (unset ⇒ removal): %+v", en)
 	}
 	wantProps := map[string]struct{ scope, data string }{
-		propId["context"]:  {index.ScopeAgent, "context: ctx body"},
-		propId["keywords"]: {index.ScopeAgent, "keywords: kw1 kw2"},
-		propId["entities"]: {index.ScopeAgent, "entities: Alice Bob"},
+		propId["context"]:  {"agent", "context: ctx body"},
+		propId["keywords"]: {"agent", "keywords: kw1 kw2"},
+		propId["entities"]: {"agent", "entities: Alice Bob"},
 		propId["author"]:   {index.ScopeProps, "Author: Frank Herbert"},
 		propId["score"]:    {index.ScopeProps, "Score: 85600"},
 	}

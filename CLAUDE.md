@@ -116,7 +116,7 @@ Implementation slices landed:
    mention-adding edit badges without re-flagging `unread`. The
    canonical `any://` grammar lives in the public `anyuri/` package
    (moved from the SDK, SYN-75 — see docs/19-links.md). NOTE: chat /
-   editor / agentlog / agentmem now actually wire `Dataset.Indexes`
+   editor now actually wire `Dataset.Indexes`
    (the per-handler `Indexes()` methods used to be dead code — no
    built-in index was ensured before this).
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
@@ -213,32 +213,11 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
-11. **Agent data layer (turns / chunks / memory)** — two new built-in
-    types replace bobrik's markdown-transcript + runtime-typed memory
-    scheme. `internal/agentlog` (type `agent_log`) puts two datasets ON
-    THE CHAT OBJECT (multitype chat + agent_log, attached on first
-    write): `agent_turns` — one write-once record per agent invocation
-    (seq, userText, think, replies[], effects[], messageIds[],
-    traceRef → the run's trace object, llm scalars; modify rejected,
-    delete author-only so history can be wiped via `delete-records`) —
-    and `agent_chunks` — write-once summaries (same delete rule) carrying
-    EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
-    periodStart/periodEnd unix). `internal/agentmem` (type
-    `agent_memory`) puts `agent_memory_items` on a per-space brain
-    object derived from the fixed seed `any/agent-brain/v1`
-    (deterministic `Objects().Derive`, spaceIndex pattern): category
-    (open slug set) + context required; tags/entities/keywords real
-    arrays; confidence/importance/salience/accessCount numbers with
-    server defaults; structured `edges` array; evolve allow-list
-    (author-only, modifiedAt bumped); author-only delete. Indexes:
-    turns (seq),(createdAt); chunks (seq),(periodEnd); items
-    (category),(createdAt),(validFrom). Writes:
-    `POST …/objects/:o/agent/turns|chunks`, `GET /agent/brain`,
-    `POST/PATCH/DELETE /agent/memory[/:itemId]` (handlers_agentlog.go /
-    handlers_agentmem.go); CLI `any agent …`. Reads stay on `/query` —
-    no bespoke read endpoints. NO vectors stored — semantic search is
-    an external service (TODO, not built; recall is non-functional
-    until then; see docs/11-agent-memory.md + docs/07-roadmap.md §9).
+11. **Agent data (userspace)** — the agent's data (turns, memory,
+    config, secrets, triggers) is harness-owned: the anybao harness
+    declares it as runtime datasets on objects it derives itself and
+    owns the record shapes, validation, and search mappings; nothing
+    agent-specific is compiled into this server (docs/11-agent-memory.md).
 12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
     Full docs (storage shape, refresh mechanics, validation rules,
     flags, what's missing) in
@@ -313,10 +292,8 @@ Implementation slices landed:
       the type is attached, `Data ""` otherwise (record-level eviction
       of cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `program`,
-      `miniapp`, and the agent-data datasets (`agent_turns` /
-      `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
-      a roadmap item).
+    - Excluded from indexing entirely: `program` and
+      `miniapp`.
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
       index.NewPropChunker())`, stored on `deps.chunkers`.
@@ -697,29 +674,17 @@ Implementation slices landed:
       `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
       `PropertyOption`; exported `space.ErrPinnedField` +
       `typetype.IsPinnedPath`. Docs: 03-api.md § Types, 01-cli.md § Types.
-24. **Per-space general chat** — every space now has one deterministic
-    "general" chat object, derived from a fixed seed
-    (`chat.GeneralChatSeed` = `any/general-chat/v1`, `internal/chat/general.go`)
-    via `Objects().Derive` — the same idempotent primitive
-    `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
-    "the chat for this space" (the only case for a 1-1) otherwise each
-    `Objects().Create` a fresh chat, so a space ends up with two or three
-    parallel chats. Surface: NO bespoke endpoint — the id is delivered
-    through the existing common per-space metadata point:
-    `SpaceInfo.generalChatObjectId`, populated on every single-space
-    response by `spaceToAPI` (takes a ctx, derives best-effort —
-    materializing the object on first sight, chat type attached, so the
-    id accepts `chat/messages` writes immediately) — create / get /
-    one-to-one / join. Omitted on `GET /v1/spaces` list rows (kept a
-    cheap read that never materializes chats), same policy as
-    `spaceIndexObjectId`. Deterministic ⇒ a joiner derives the same id
-    the creator did, so local + CRDT-replicated converge. CLI: read it
-    off `any space get <spaceId>`. Contract: docs/03-api.md § Chat
-    (General chat) + § Spaces, docs/01-cli.md § Chat, docs/16-chat.md
-    § Finding the chat object. Because the tree is materialized locally
-    on every peer (derive → PutTree, never a remote fetch), the general
-    chat cannot hit the joined-space "BuildTree: tree does not exist"
-    mode (fixed separately by the SDK v0.1.6 bump).
+24. **Per-space chats are client-registered** — a space's "general"
+    chat is no longer a server concept. Clients register it as a bundle
+    (item 35) and use the returned root; `SpaceInfo.generalChatObjectId`
+    and the derived `any/general-chat/v1` object are gone with no
+    back-compat. Motivation is unchanged (clients that each
+    `Objects().Create` a chat leave a space with two or three parallel
+    ones, most visibly in a 1-1) — the convergence point moved from a
+    hardcoded derive to the registry, so different clients can register
+    different things. Convention: bundle id `general-chat/v1`,
+    `rootTypes: ["chat"]`. Contract: docs/03-api.md § Chat (Finding the
+    chat object) + § Bundles, docs/16-chat.md, docs/08-clients.md § 4.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
     `internal/api/history.go`; routes wired in `handlers_spaces.go`).
@@ -1025,14 +990,115 @@ Implementation slices landed:
     Delete guards + `ErrIsDerivedSpace` + `SpaceInfo.Derived` +
     `DeriveRequest.Name`.
 
+35. **Bundles registry over HTTP** — what a space has installed lives
+    in the SDK's per-space registry (`Space.Bundles()`, the `bundles`
+    dataset on the spaceIndex object; design in the SDK's
+    `docs/bundles.md`). A bundle is one NON-derived root object under a
+    permanent versioned id, with setup objects derived from it
+    (`ParentId`), so one converged id names the whole install. A
+    derived root cannot be deleted, so two devices installing while
+    apart would leave a permanent shadow install; the registry picks
+    one deterministic winner (`rootId`, LWW), keeps every claim in the
+    add-only `roots` set, and leaves the rest in `losers` — mergeable
+    and deletable.
+    - **Clients register their own.** The server keeps NO catalog and
+      installs nothing: `internal/bundles` is a generic engine
+      (`Install{Id,Name,RootTypes,RootProperties}`, `Resolver`
+      with Ensure/Get/List/Resolve/ResolveRetry, `Child`), and
+      `internal/server/handlers_bundles.go` is the wire surface.
+    - Endpoints: `POST /v1/spaces/:s/bundles` (adopt-or-install →
+      `{bundle, installed}`; the server creates the root with the
+      requested types/properties), `GET …/bundles`,
+      `GET …/bundles/:bundleId`, `POST …/bundles/:bundleId/resolve`
+      (`{loserRootId}`, idempotent), `POST …/bundles/:bundleId/children`
+      (`{seed, types?}` → deterministic child of the winner). **Bundle
+      ids carry a slash, so path segments are percent-encoded**
+      (`general-chat%2Fv1`); bodies take them verbatim. Rows are also
+      readable through the generic dataset surface (that path is
+      read-only — the SDK fences the dataset off modify).
+    - The `id` is the whole identity — marketplace id, app slug, or a
+      versioned convention like `general-chat/v1` — so there is no
+      separate provenance field.
+    - **Convergence gate on install.** Adoption is a pure read (so
+      readers/guests resolve installs they cannot create; the install
+      path is a write and 403s for them). Installing first runs
+      `sp.WaitIndexSynced` bounded 30s — the registry rides the space's
+      index tree, and ensuring against unsynced state reads "nothing
+      installed" and forks a second root. A bare `SyncHeads` nil is not
+      proof (any-sync swallows per-peer failures); the wait also
+      demands the Synced rollup, and its local fast path keeps an
+      offline owner of a seeded space instant. When the wait fails, the
+      OWNER installs anyway (offline-first: only this account's own
+      devices could compete, and the registry converges those), any
+      other member gets `409 bundle.not_ready`.
+    - **Merging is the client's job, timing is the server's.** Resolve
+      deletes a losing root only after the client says it merged; the
+      server refuses (`409 bundle.loser_not_ready`) unless the SDK
+      reports the root `SyncStateSynced` (unknown — the post-restart
+      and never-arrived state — does NOT count) and it has been
+      observed as a loser for `Resolver.Grace` (5min). The clock starts
+      at first OBSERVATION (`Get`/`List`/boot pass warm it), not at the
+      first resolve call. Permanent verdicts come first: the winner or
+      an unclaimed root is `409 bundle.not_loser`, an already-resolved
+      one is 204. The SDK's `ErrLoserNotSynced` maps to the same
+      retryable code. After a timing refusal the server retries in the
+      background — one loop per loser however often the client polls,
+      in-memory, dropped on restart. An adopted winner whose tree is
+      not local is `409 bundle.not_ready` rather than an id that 404s
+      on write; `/children` maps `objecttree.ErrParentNotFound` to the
+      same.
+    - **Input is bounded and pre-flighted**: id ≤256B, name ≤1024B,
+      rootTypes ≤32, rootProperties ≤64KiB, seed ≤256B; type existence
+      (`Types().Get`) and property formats (`validateFormatValues`,
+      the objectCreate gate) are checked BEFORE the root is created, so
+      a rejected request leaves no orphan. The create+register section
+      runs on a context detached from the request (shutdown-bounded, 2m
+      timeout) so a client disconnect mid-Ensure cannot orphan a root.
+      Records are permanent and `roots` only grows — ids are a small
+      fixed vocabulary, not a scratch namespace.
+    - **Nobody arbitrates who installs** — the server used to pick a
+      sole installer, and no longer does. Clients agree out of band
+      (for a 1-1, the initiating side ensures) or handle `losers`.
+    - Boot pass (`internal/server/derivedsetup.go`): for the well-known
+      derived spaces the account already has, `WaitListSynced` (90s) →
+      open → `WaitIndexSynced` (90s) → List, so a client ensuring right
+      after a restore meets the converged registry instead of an empty
+      one. It never materializes a space, installs nothing, and deletes
+      nothing — losing roots are logged, not resolved. The list wait
+      falls through to the local space list; an expired index wait
+      skips the entry until the next boot (a read before convergence is
+      the blind read this pass prevents). A never-set-up space
+      converges to an empty registry rather than stalling.
+    - Tests: internal/bundles/bundles_test.go (engine logic against a
+      fake space — verdict order, timing guards, idempotency, retry),
+      internal/server/handlers_bundles_test.go (ensure/adopt, root
+      properties, list/get, children, resolve
+      verdicts, dataset read), internal/e2e/multipeer_bundles_test.go
+      (joiner adopts the owner's root, children converge),
+      multipeer_onetoone_test.go (initiator ensures, peer adopts),
+      derived_spaces_test.go. Contract: docs/03-api.md § Bundles.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 
 ### Build / test / run
 
+**Build with `make build`, not bare `go build`.** The search index is
+behind build tags (`INDEX_TAGS := fts vector`, docs/13-index.md
+§ build tags) and `make build` passes them; a tag-less `go build
+./cmd/any` produces a server whose `/search` silently returns ZERO
+hits — the only symptom is one boot-time WARN ("built without the
+fts/vector tags"), everything else works, and you'll chase phantom
+index bugs (2026-08-20 lesson). Run builds and the binary under
+`nix develop -c …` when the flake env is available — the vector leg's
+llama.cpp bindings need libffi, which the dev shell provides
+(a bare tagged binary panics on `libffi.so.8` at startup).
+
 ```
-go build ./cmd/any                                # binary at ./any
-make build                                        # builds any, bobrik-watch, any-agent-runtime
+make build                                        # canonical: any + any-agent-runtime,
+                                                  # with -tags '$(INDEX_TAGS)' (fts vector)
+go build ./cmd/any                                # AVOID for servers you'll query:
+                                                  # no index tags -> search returns nothing
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
                                                   # (index.embedder: local) — also runs as
                                                   # part of `make build`; fetch failure there
@@ -1264,7 +1330,7 @@ auto-start.
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
-| `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
+| `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |

@@ -80,6 +80,43 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 		t.Errorf("bob: status after accept = %q, want active", bobSpace.Status)
 	}
 
+	// The 1-1's chat: the server arbitrates nothing, so the two
+	// clients agree that the INITIATING side registers the bundle and
+	// the other adopts it. Bob's Ensure must adopt Alice's root — a
+	// second root would split the conversation.
+	const bundleId = "general-chat/v1"
+	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"]}`
+
+	// Even the initiator waits for the registry to converge: a 1-1
+	// space is derived on both sides, so its index has to meet the
+	// peer's before an install can know whether one already exists.
+	var aliceBundle api.BundleEnsureResponse
+	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
+		aliceBundle = api.BundleEnsureResponse{}
+		code := tryJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+			ensureBody, &aliceBundle)
+		return code == http.StatusOK && aliceBundle.Bundle.RootId != ""
+	}) {
+		t.Fatalf("initiator never installed the 1-1 chat: %+v", aliceBundle)
+	}
+	if !aliceBundle.Installed {
+		t.Fatalf("initiator adopted instead of installing: %+v", aliceBundle)
+	}
+
+	var bobBundle api.BundleEnsureResponse
+	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
+		bobBundle = api.BundleEnsureResponse{}
+		code := tryJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+			ensureBody, &bobBundle)
+		return code == http.StatusOK && bobBundle.Bundle.RootId != ""
+	}) {
+		t.Fatalf("bob never resolved the 1-1 chat bundle: %+v", bobBundle)
+	}
+	if bobBundle.Installed || bobBundle.Bundle.RootId != aliceBundle.Bundle.RootId {
+		t.Fatalf("1-1 chat diverged: alice=%q bob=%q (installed=%v)",
+			aliceBundle.Bundle.RootId, bobBundle.Bundle.RootId, bobBundle.Installed)
+	}
+
 	// Content convergence: Alice writes a chat message in the 1-1 space,
 	// Bob (the other writer) reads it back after sync.
 	var obj api.ObjectsCreateResponse
