@@ -253,6 +253,13 @@ components:
     api.Bundle:
       description: Bundle is the converged registry row.
       properties:
+        derived:
+          description: |-
+            Derived reports that the winner is the root derived from the
+            bundle id: the same id on every device, so this install cannot
+            fork — and cannot be uninstalled, a derived object being
+            undeletable. Absent means an ordinary created root.
+          type: boolean
         id:
           description: |-
             Id is the stable bundle identifier — the record id. Permanent:
@@ -311,6 +318,19 @@ components:
       type: object
     api.BundleEnsureRequest:
       properties:
+        derived:
+          description: |-
+            Derived installs the bundle on the root derived from its id
+            rather than a created one. Every device computes that id
+            offline, so the install never forks and never waits for the
+            registry to converge — which is the only way both sides of a
+            1-1 (where nobody is the owner) can install while apart.
+
+            Permanent in both directions: a derived root cannot be deleted,
+            so the bundle can never be uninstalled, and an existing install
+            on a created root is adopted rather than migrated. Ask for it
+            for a space's chat; not for anything a user may remove.
+          type: boolean
         id:
           description: Id is the bundle identifier. Required.
           type: string
@@ -342,6 +362,10 @@ components:
           description: |-
             Installed reports whether THIS call created the root. False
             means an existing install was adopted and nothing was written.
+
+            For a derived install it reports what THIS DEVICE did: both
+            sides of a partition can report true for the one root they
+            share. False still means an existing install was adopted.
           type: boolean
       type: object
     api.BundleListResponse:

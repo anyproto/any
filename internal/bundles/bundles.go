@@ -1,21 +1,25 @@
 // Package bundles wires the HTTP bundles surface onto the SDK's
 // per-space bundles registry (any-sync-sdk docs/bundles.md).
 //
-// A bundle is one non-derived root object registered under a stable
-// id; every setup object hangs off it as a derived child
-// (DeriveObjectOpts.ParentId), so the converged root id transitively
-// names the whole install, children are re-derivable on any device,
-// and cleaning up a losing concurrent install is one cascade delete.
+// A bundle is one root object registered under a stable id, with every
+// setup object hanging off it, so the converged root id transitively
+// names the whole install and children are re-derivable on any device.
+//
+// The root comes in two shapes. A CREATED root gets a fresh id, so two
+// devices installing while apart mint two: the registry converges on
+// one winner, keeps the others in Bundle.Losers, and children bind by
+// ParentId so cleaning up a loser is one cascade delete. A DERIVED
+// root (Install.Derived) is computed from the bundle id, so every
+// device lands on the same one and no fork is possible — at the price
+// of permanence, a derived tree being undeletable.
 //
 // The server registers nothing of its own: clients declare what they
-// install, so this package is a generic engine, not a catalog. Two
-// devices installing while apart each mint a root; the registry
-// converges on one winner and keeps the others in Bundle.Losers.
+// install, so this package is a generic engine, not a catalog.
 // Deleting a loser is the CLIENT's decision — only it knows whether
 // the loser's content was worth merging — so the engine only enforces
-// what is decidable without knowing the content: an install waits for
-// the registry to converge before minting a root, and a loser is
-// deletable only once it has demonstrably stopped arriving.
+// what is decidable without knowing the content: a created install
+// waits for the registry to converge before minting a root, and a
+// loser is deletable only once it has demonstrably stopped arriving.
 package bundles
 
 import (
@@ -65,6 +69,17 @@ type Install struct {
 	// RootProperties seeds the root's property values, keyed
 	// typeId → propId → value.
 	RootProperties map[string]map[string]any
+	// Derived installs the bundle on the root DERIVED from its id
+	// instead of a created one: the same root id on every device,
+	// computed offline, so concurrent installs cannot fork and the
+	// convergence gate below has nothing to protect.
+	//
+	// The price is permanence — a derived tree cannot be deleted, so
+	// the bundle can never be uninstalled. For setups that must exist
+	// on both sides of a partition (a space's chat, and above all a
+	// 1-1's, where nobody is the owner) that is the point; for
+	// anything a user may remove it is the wrong trade.
+	Derived bool
 }
 
 // Resolver installs bundles and deletes their losing roots, carrying
@@ -87,6 +102,12 @@ type Resolver struct {
 	// IndexWait bounds the convergence wait an install runs before
 	// minting a root. Set at construction; tests shorten it.
 	IndexWait time.Duration
+	// DerivedIndexWait bounds the same wait for a DERIVED install,
+	// where convergence is a preference rather than a gate — the wait
+	// can only change which install gets adopted, never whether two
+	// roots exist. Short: an offline device pays it once per space and
+	// then installs anyway. Set at construction; tests shorten it.
+	DerivedIndexWait time.Duration
 	// Quiescent reports whether a root has stopped receiving changes,
 	// so what is projected locally is the whole of it. Set at
 	// construction to the SDK's per-object sync state; tests
@@ -114,6 +135,11 @@ const (
 	// install path. Short: it rides a client request, and refusing is
 	// correct — the client retries.
 	DefaultIndexWait = 30 * time.Second
+	// DefaultDerivedIndexWait bounds the same wait for a derived
+	// install, which proceeds either way. Just long enough for a
+	// reachable network to answer, short enough not to stall an
+	// offline client that is entitled to install anyway.
+	DefaultDerivedIndexWait = 3 * time.Second
 
 	// Retry schedule for the background path: a loser installed on
 	// another device cannot be deleted until its tree has synced here,
@@ -126,12 +152,13 @@ const (
 // NewResolver builds a Resolver with the given quiescence delay.
 func NewResolver(grace time.Duration) *Resolver {
 	return &Resolver{
-		Grace:      grace,
-		RetryDelay: retryDelay,
-		IndexWait:  DefaultIndexWait,
-		Quiescent:  syncQuiescent,
-		firstSeen:  map[string]time.Time{},
-		retrying:   map[string]struct{}{},
+		Grace:            grace,
+		RetryDelay:       retryDelay,
+		IndexWait:        DefaultIndexWait,
+		DerivedIndexWait: DefaultDerivedIndexWait,
+		Quiescent:        syncQuiescent,
+		firstSeen:        map[string]time.Time{},
+		retrying:         map[string]struct{}{},
 	}
 }
 
@@ -154,7 +181,9 @@ func NewResolver(grace time.Duration) *Resolver {
 // OWNER installs anyway — nobody else could have installed into a
 // space only this account has, and its own devices converge through
 // the registry — while any other member is refused with
-// ErrRegistryNotSynced rather than left to fork.
+// ErrRegistryNotSynced rather than left to fork. A DERIVED install is
+// never refused: its root id is a pure function of the bundle id, so
+// there is no competing root to mint.
 //
 // createCtx runs the create-and-register section and should outlive
 // the caller's request: a cancellation between minting the root and
@@ -162,58 +191,137 @@ func NewResolver(grace time.Duration) *Resolver {
 //
 // The winner is provisional until the space syncs. ErrRootNotLocal
 // means a winner exists but its tree has not arrived, so there is no
-// id worth handing back yet.
+// id worth handing back yet — except for a derived winner, which this
+// device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	if b, err := r.adopt(ctx, sp, inst.Id); err == nil {
-		return b, false, nil
-	} else if !errors.Is(err, ErrNotInstalled) {
-		return space.Bundle{}, false, err
+	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
+	if err != nil || adopted {
+		return existing, false, err
 	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, r.IndexWait)
-	err := sp.WaitIndexSynced(waitCtx)
-	cancel()
-	if err != nil {
-		if sp.Info().OwnRole != space.PermissionOwner {
-			return space.Bundle{}, false, fmt.Errorf("bundle %s: %w", inst.Id, ErrRegistryNotSynced)
+	if existing.RootId == "" {
+		if err := r.converge(ctx, sp, inst); err != nil {
+			return space.Bundle{}, false, err
 		}
-		log.Warn("installing without a converged registry",
-			zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()), zap.Error(err))
-	}
-	// The converged registry may name a winner the pre-read could not
-	// see.
-	if b, err := r.adopt(ctx, sp, inst.Id); err == nil {
-		return b, false, nil
-	} else if !errors.Is(err, ErrNotInstalled) {
-		return space.Bundle{}, false, err
+		// The converged registry may name a winner the pre-read could
+		// not see.
+		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || adopted {
+			return existing, false, err
+		}
 	}
 
+	req := space.EnsureBundleRequest{Id: inst.Id, Name: inst.Name}
 	var created string
-	b, err := sp.Bundles().Ensure(createCtx, space.EnsureBundleRequest{
-		Id:   inst.Id,
-		Name: inst.Name,
-		NewRoot: func(ctx context.Context) (string, error) {
+	if inst.Derived {
+		req.DerivedRoot = true
+		req.RootTypes = inst.RootTypes
+	} else {
+		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
 				Types:             inst.RootTypes,
 				InitialProperties: inst.RootProperties,
 			})
 			created = rootId
 			return rootId, err
-		},
-	})
+		}
+	}
+	b, err := sp.Bundles().Ensure(createCtx, req)
 	if err != nil {
 		return space.Bundle{}, false, fmt.Errorf("bundle %s: ensure: %w", inst.Id, err)
 	}
 	r.observe(sp, b)
+
+	// Installed means THIS call's root won — a concurrent install can
+	// have registered first, in which case ours is already a loser. A
+	// derived install has no such contest: it reports what THIS DEVICE
+	// did, and both sides of a partition can report true for the one
+	// root they share. False still means "adopted something else" —
+	// an existing created install is never migrated behind the caller.
+	installed := created != "" && b.RootId == created
+	if inst.Derived && b.Derived && existing.RootId == "" {
+		installed = true
+		if err := seedRootProperties(createCtx, sp, b.RootId, inst.RootProperties); err != nil {
+			return b, false, fmt.Errorf("bundle %s: %w", inst.Id, err)
+		}
+	}
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
 		return b, false, err
 	}
-	// Installed means THIS call's root won — a concurrent install can
-	// have registered first, in which case ours is already a loser.
-	return b, created != "" && b.RootId == created, nil
+	return b, installed, nil
 }
 
-// adopt returns a live install without writing anything.
+// converge runs the pre-install convergence wait and decides what an
+// expired one means for this caller.
+func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) error {
+	wait := r.IndexWait
+	if inst.Derived {
+		wait = r.DerivedIndexWait
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, wait)
+	err := sp.WaitIndexSynced(waitCtx)
+	cancel()
+	if err == nil {
+		return nil
+	}
+	switch {
+	case inst.Derived:
+		// Not a gate: an unconverged derived install lands on the same
+		// root id as everyone else's. The wait is still worth taking —
+		// a converged registry may hold an older CREATED install to
+		// adopt instead — but expiring it costs nothing.
+	case sp.Info().OwnRole == space.PermissionOwner:
+		// Nobody else could have installed into a space only this
+		// account has; its own devices converge through the registry.
+	default:
+		return fmt.Errorf("bundle %s: %w", inst.Id, ErrRegistryNotSynced)
+	}
+	log.Warn("installing without a converged registry",
+		zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()),
+		zap.Bool("derived", inst.Derived), zap.Error(err))
+	return nil
+}
+
+// seedRootProperties writes the caller's initial property values onto
+// a derived root. A created root takes them through Objects().Create;
+// a derived one has no such hook, so they land as an ordinary write.
+// Every device seeds the same values, so concurrent seeds converge.
+func seedRootProperties(ctx context.Context, sp space.Space, rootId string, props map[string]map[string]any) error {
+	for typeId, kv := range props {
+		if len(kv) == 0 {
+			continue
+		}
+		if _, err := sp.Properties().Set(ctx, rootId, typeId, kv); err != nil {
+			return fmt.Errorf("seed root properties of type %s: %w", typeId, err)
+		}
+	}
+	return nil
+}
+
+// tryAdopt is the pure-read half of Ensure: adopted=true when the
+// space's install can be handed back as it is.
+//
+// An empty row means nothing is installed here and minting is still on
+// the table. A winner whose tree has not arrived is normally a refusal
+// — its id would reject every write — EXCEPT when it is the canonical
+// derived root of a derived install: that root is this device's to
+// mint, so the install path re-materializes the very same id instead
+// of making the client poll for a tree it could produce itself.
+func (r *Resolver) tryAdopt(ctx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
+	b, err := r.adopt(ctx, sp, inst.Id)
+	switch {
+	case err == nil:
+		return b, true, nil
+	case errors.Is(err, ErrNotInstalled):
+		return space.Bundle{}, false, nil
+	case inst.Derived && b.Derived && errors.Is(err, ErrRootNotLocal):
+		return b, false, nil
+	default:
+		return space.Bundle{}, false, err
+	}
+}
+
+// adopt returns a live install without writing anything. On
+// ErrRootNotLocal it still returns the row — the caller may be able to
+// materialize that root itself.
 func (r *Resolver) adopt(ctx context.Context, sp space.Space, bundleId string) (space.Bundle, error) {
 	b, err := r.Get(ctx, sp, bundleId)
 	if err != nil {
@@ -223,7 +331,7 @@ func (r *Resolver) adopt(ctx context.Context, sp space.Space, bundleId string) (
 		return space.Bundle{}, ErrNotInstalled
 	}
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
-		return space.Bundle{}, err
+		return b, err
 	}
 	return b, nil
 }
@@ -413,17 +521,30 @@ func rootLocal(ctx context.Context, sp space.Space, rootId string) error {
 // winner, opens it immediately and lets the content sync in. Deleting
 // the root cascade-deletes it.
 //
+// A DERIVED root cannot be a parent — any-sync rejects a derived
+// object as a ParentId — so a derived install's children hang off it
+// by seed instead, with the root id folded in. They converge just as
+// well (the root id is canonical), and the cascade the parent binding
+// buys is moot on a root that can never be deleted.
+//
 // Seeds are permanent — bump the version suffix for a successor object
 // rather than reusing one.
-func Child(ctx context.Context, sp space.Space, rootId, seed string, types ...string) (string, error) {
-	if rootId == "" {
+func Child(ctx context.Context, sp space.Space, b space.Bundle, seed string, types ...string) (string, error) {
+	if b.RootId == "" {
 		return "", fmt.Errorf("bundles: child %q: empty root id", seed)
 	}
-	objectId, err := sp.Objects().Derive(ctx, space.DeriveObjectOpts{
+	opts := space.DeriveObjectOpts{
 		Seed:     []byte(seed),
-		ParentId: rootId,
+		ParentId: b.RootId,
 		Types:    types,
-	})
+	}
+	if b.Derived {
+		opts = space.DeriveObjectOpts{
+			Seed:  []byte(b.RootId + "/" + seed),
+			Types: types,
+		}
+	}
+	objectId, err := sp.Objects().Derive(ctx, opts)
 	if err != nil {
 		return "", fmt.Errorf("bundles: derive child %q: %w", seed, err)
 	}

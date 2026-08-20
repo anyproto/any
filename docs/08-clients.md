@@ -127,13 +127,16 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 **Where `<chatObjectId>` comes from:** register the space's chat as a
 bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
-with `{"id":"general-chat/v1","name":"General","rootTypes":["chat"]}`. The call is adopt-or-install, so every client
-lands on one object instead of each creating its own. Re-read after a
-sync (the winner is provisional) and poll through
-`409 bundle.not_ready` rather than creating a chat to fill the gap.
-Additional purpose-specific chats get their own bundle id. Full
-guidance: `16-chat.md` § Finding the chat object, `03-api.md`
-§ Bundles.
+with
+`{"id":"general-chat/v1","name":"General","rootTypes":["chat"],"derived":true}`.
+The call is adopt-or-install, so every client lands on one object
+instead of each creating its own, and `derived` makes that object's id
+a function of the bundle id — computed offline, identical on every
+device and member, so the chat cannot fork even when two sides install
+while apart (the 1-1 case, where neither participant is the owner). The
+trade is permanence: a derived root can never be deleted. Additional
+purpose-specific chats get their own bundle id. Full guidance:
+`16-chat.md` § Finding the chat object, `03-api.md` § Bundles.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's

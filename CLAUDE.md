@@ -683,7 +683,10 @@ Implementation slices landed:
     ones, most visibly in a 1-1) — the convergence point moved from a
     hardcoded derive to the registry, so different clients can register
     different things. Convention: bundle id `general-chat/v1`,
-    `rootTypes: ["chat"]`. Contract: docs/03-api.md § Chat (Finding the
+    `rootTypes: ["chat"]`, `derived: true` (item 35 — the chat root's
+    id is computed from the bundle id, so it can never fork; chat
+    content cannot be merged across objects, so a fork has to be
+    impossible rather than resolvable). Contract: docs/03-api.md § Chat (Finding the
     chat object) + § Bundles, docs/16-chat.md, docs/08-clients.md § 4.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
@@ -1019,9 +1022,35 @@ Implementation slices landed:
     - The `id` is the whole identity — marketplace id, app slug, or a
       versioned convention like `general-chat/v1` — so there is no
       separate provenance field.
+    - **Derived roots (SYN-172).** `"derived": true` installs the
+      bundle on the root DERIVED from its id
+      (`spaceindex.BundleRootSeed`, seed `builtin:bundleRoot:<id>`).
+      A derived root change carries no identity/signature/timestamp, so
+      the id is a pure function of (space, bundle id): every device
+      computes it offline and no install can fork — the only workable
+      shape for a 1-1, where the ACL owner is a synthetic key nobody
+      holds, both participants are writers, and neither can ever take
+      the owner escape below (the ticket's `409 bundle.not_ready`
+      deadlock). For a derived install the gate becomes a 3s
+      best-effort preference (adopt an existing created install if the
+      network answers) that never refuses. Costs, both permanent: no
+      uninstall (any-sync's `ErrCantDeleteDerivedObject`) and no
+      migration — an existing created install is ADOPTED, with
+      `Bundle.Derived` reporting which it is. If a created and a
+      derived root are both claimed, **the derived one wins on every
+      replica** (read-side verdict over the add-only `roots` set —
+      order-independent, unraceable), so the created one stays an
+      ordinary resolvable loser and the undeletable root is never
+      stranded as one. Children of a derived root bind BY SEED
+      (`<rootId>/<seed>`), not `ParentId` — any-sync rejects a derived
+      object as a parent (`objecttree.ErrDerivedParent`) — losing only
+      a cascade that is moot on an undeletable root. SDK:
+      `EnsureBundleRequest.{DerivedRoot,RootTypes}`, `Bundle.Derived`,
+      `BundlesAPI.DerivedRootId` (pure computation, no registry read).
     - **Convergence gate on install.** Adoption is a pure read (so
       readers/guests resolve installs they cannot create; the install
-      path is a write and 403s for them). Installing first runs
+      path is a write and 403s for them). Installing a CREATED root
+      first runs
       `sp.WaitIndexSynced` bounded 30s — the registry rides the space's
       index tree, and ensuring against unsynced state reads "nothing
       installed" and forks a second root. A bare `SyncHeads` nil is not
@@ -1057,8 +1086,9 @@ Implementation slices landed:
       Records are permanent and `roots` only grows — ids are a small
       fixed vocabulary, not a scratch namespace.
     - **Nobody arbitrates who installs** — the server used to pick a
-      sole installer, and no longer does. Clients agree out of band
-      (for a 1-1, the initiating side ensures) or handle `losers`.
+      sole installer, and no longer does. Clients either ask for a
+      derived root (the id both sides would compute anyway), agree out
+      of band, or handle `losers`.
     - Boot pass (`internal/server/derivedsetup.go`): for the well-known
       derived spaces the account already has, `WaitListSynced` (90s) →
       open → `WaitIndexSynced` (90s) → List, so a client ensuring right
@@ -1073,10 +1103,14 @@ Implementation slices landed:
       fake space — verdict order, timing guards, idempotency, retry),
       internal/server/handlers_bundles_test.go (ensure/adopt, root
       properties, list/get, children, resolve
-      verdicts, dataset read), internal/e2e/multipeer_bundles_test.go
+      verdicts, dataset read, derived install / adopt-precedence /
+      children / validation), internal/e2e/multipeer_bundles_test.go
       (joiner adopts the owner's root, children converge),
-      multipeer_onetoone_test.go (initiator ensures, peer adopts),
-      derived_spaces_test.go. Contract: docs/03-api.md § Bundles.
+      multipeer_onetoone_test.go (both sides install the derived chat
+      on the FIRST attempt — no convergence polling — and their copies
+      merge), derived_spaces_test.go, and the SDK's
+      e2e/bundles_test.go `TestE2E_BundlesDerivedRoot`. Contract:
+      docs/03-api.md § Bundles (incl. Derived roots).
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
