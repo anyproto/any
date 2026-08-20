@@ -111,11 +111,11 @@ any space sync   <spaceId>                          # shipped — force a head-s
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
-any search <spaceId> <query> [--scopes basic,chat,agent] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...]   # shipped — local search index
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...]   # shipped — local search index
 ```
 
 `any search` wraps `POST /v1/spaces/:spaceId/search` — the server's
-local FTS + vector index over chats, editor blocks, and agent memory
+local FTS + vector index over chats, editor blocks, and properties
 (contract in `docs/13-index.md`). Default mode is `hybrid`; without an
 embedder configured on the server it degrades to FTS (the reply's
 `mode` says which ran). The `query` accepts `"quoted phrases"` and

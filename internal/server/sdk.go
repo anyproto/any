@@ -13,11 +13,6 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
-	"github.com/anyproto/any/internal/agentconfig"
-	"github.com/anyproto/any/internal/agentlog"
-	"github.com/anyproto/any/internal/agentmem"
-	"github.com/anyproto/any/internal/agentsecrets"
-	"github.com/anyproto/any/internal/agenttrigger"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/editor"
@@ -120,11 +115,6 @@ func serverTypes() []handler.Type {
 		chat.NewType(),
 		program.NewType(),
 		miniapp.NewType(),
-		agentlog.NewType(),       // agent_turns + agent_chunks on the chat object
-		agentmem.NewType(),       // agent_memory_items on the per-space brain object
-		agenttrigger.NewType(),   // agent_triggers + agent_trigger_runs (harness triggers)
-		agentconfig.NewType(),    // agent_config on the per-space config object
-		agentsecrets.NewType(),   // agent_secrets on the per-space secrets object
 		enricheddata.NewType(),   // enriched_data collection attached to target objects
 		enrichproposal.NewType(), // enrich_proposal_items — ephemeral review plan
 		nav.NewType(),            // property-only: no dataset, just nav.* schema
@@ -150,8 +140,7 @@ func staticDatasetNames() []string {
 // indexed dataset, paralleling the Types list above. The indexer
 // (internal/indexer) drives it.
 //
-// Indexed: editor blocks (coalesced windows), chat messages, agent MEMORY
-// items, agent HISTORY (turns + chunks, scope "history"), enriched_data
+// Indexed: editor blocks (coalesced windows), chat messages, enriched_data
 // facts (sourced enrichment knowledge), and object properties (name /
 // description under "basic"; user values default-on under "props",
 // meta.index overriding — see internal/index/prop.go). Deliberately NOT indexed: program
@@ -165,9 +154,6 @@ func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),
 		chat.NewChunker(),
-		agentmem.NewChunker(),
-		agentlog.NewTurnChunker(),
-		agentlog.NewChunkChunker(),
 		enricheddata.NewChunker(), // sourced enrichment facts ARE searchable knowledge
 		// enrich_proposal excluded: ephemeral review scaffolding, not knowledge.
 		index.NewPropChunker(enrichproposal.TypeId),

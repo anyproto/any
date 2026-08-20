@@ -116,7 +116,7 @@ Implementation slices landed:
    mention-adding edit badges without re-flagging `unread`. The
    canonical `any://` grammar lives in the public `anyuri/` package
    (moved from the SDK, SYN-75 — see docs/19-links.md). NOTE: chat /
-   editor / agentlog / agentmem now actually wire `Dataset.Indexes`
+   editor now actually wire `Dataset.Indexes`
    (the per-handler `Indexes()` methods used to be dead code — no
    built-in index was ensured before this).
 7. **Atomic blocks + markdown bridge** — `internal/editor` registers
@@ -213,32 +213,11 @@ Implementation slices landed:
     a stable peer list there yet; `/debug` is the diagnostic
     equivalent. CLI: `any sync-status space/object/subscribe`.
 
-11. **Agent data layer (turns / chunks / memory)** — two new built-in
-    types replace bobrik's markdown-transcript + runtime-typed memory
-    scheme. `internal/agentlog` (type `agent_log`) puts two datasets ON
-    THE CHAT OBJECT (multitype chat + agent_log, attached on first
-    write): `agent_turns` — one write-once record per agent invocation
-    (seq, userText, think, replies[], effects[], messageIds[],
-    traceRef → the run's trace object, llm scalars; modify rejected,
-    delete author-only so history can be wiped via `delete-records`) —
-    and `agent_chunks` — write-once summaries (same delete rule) carrying
-    EXPLICIT raw-range pointers (`fromSeq`/`toSeq` into agent_turns +
-    periodStart/periodEnd unix). `internal/agentmem` (type
-    `agent_memory`) puts `agent_memory_items` on a per-space brain
-    object derived from the fixed seed `any/agent-brain/v1`
-    (deterministic `Objects().Derive`, spaceIndex pattern): category
-    (open slug set) + context required; tags/entities/keywords real
-    arrays; confidence/importance/salience/accessCount numbers with
-    server defaults; structured `edges` array; evolve allow-list
-    (author-only, modifiedAt bumped); author-only delete. Indexes:
-    turns (seq),(createdAt); chunks (seq),(periodEnd); items
-    (category),(createdAt),(validFrom). Writes:
-    `POST …/objects/:o/agent/turns|chunks`, `GET /agent/brain`,
-    `POST/PATCH/DELETE /agent/memory[/:itemId]` (handlers_agentlog.go /
-    handlers_agentmem.go); CLI `any agent …`. Reads stay on `/query` —
-    no bespoke read endpoints. NO vectors stored — semantic search is
-    an external service (TODO, not built; recall is non-functional
-    until then; see docs/11-agent-memory.md + docs/07-roadmap.md §9).
+11. **Agent data (userspace)** — the agent's data (turns, memory,
+    config, secrets, triggers) is harness-owned: the anybao harness
+    declares it as runtime datasets on objects it derives itself and
+    owns the record shapes, validation, and search mappings; nothing
+    agent-specific is compiled into this server (docs/11-agent-memory.md).
 12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
     Full docs (storage shape, refresh mechanics, validation rules,
     flags, what's missing) in
@@ -313,10 +292,8 @@ Implementation slices landed:
       the type is attached, `Data ""` otherwise (record-level eviction
       of cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `program`,
-      `miniapp`, and the agent-data datasets (`agent_turns` /
-      `agent_chunks` / `agent_memory_items` — dedicated gated chunker is
-      a roadmap item).
+    - Excluded from indexing entirely: `program` and
+      `miniapp`.
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
       index.NewPropChunker())`, stored on `deps.chunkers`.
@@ -700,8 +677,8 @@ Implementation slices landed:
 24. **Per-space general chat** — every space now has one deterministic
     "general" chat object, derived from a fixed seed
     (`chat.GeneralChatSeed` = `any/general-chat/v1`, `internal/chat/general.go`)
-    via `Objects().Derive` — the same idempotent primitive
-    `agentmem.DeriveBrainObjectId` uses. Motivation: clients that want
+    via `Objects().Derive` — the idempotent derive-from-seed
+    primitive. Motivation: clients that want
     "the chat for this space" (the only case for a 1-1) otherwise each
     `Objects().Create` a fresh chat, so a space ends up with two or three
     parallel chats. Surface: NO bespoke endpoint — the id is delivered
@@ -1227,7 +1204,7 @@ auto-start.
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
 | `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
 | `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
-| `docs/11-agent-memory.md` | agent data layer — turns/chunks/memory datasets, layering model, drill-down pointers |
+| `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
 | `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |

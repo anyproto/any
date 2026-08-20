@@ -9,8 +9,8 @@ import (
 
 // GeneralChatSeed is the fixed derivation seed for a space's single
 // "general" chat object — every space has exactly one, derived
-// deterministically from this seed. Same convention as agentmem's
-// brain object and the UI's primary chat ("any-ui/primary-chat/v1"):
+// deterministically from this seed. Same convention as the UI's
+// primary chat ("any-ui/primary-chat/v1"):
 // every peer derives the same object id from the same seed, so there
 // is no discovery query and no create race — Objects().Derive is
 // idempotent (creates on first call, returns the existing id after).

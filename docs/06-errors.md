@@ -33,7 +33,7 @@ Every error response — regardless of status code — has the same body:
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 is `auth.required` — the server itself has no account
 booted yet (see `03-api.md` § Auth); 403 appears only for author-only
-data rules (`chat.not_author`, `agent.not_author`).
+data rules (`chat.not_author`).
 
 5xx responses log at `error` level on the server with the full stack.
 Clients receive the sanitized body only.
@@ -85,14 +85,6 @@ filter.invalid                   # 400 — any other filter-grammar violation (w
 
 enrich.empty_proposal            # 404 — proposal has no items (already applied, deleted, or empty)
 enricheddata.text_too_long       # 400 — enrichment text exceeds the byte cap (details.max_bytes, got_bytes)
-
-agent.seq_required               # turn/chunk append missing the seq ordering key
-agent.turn_invalid               # turn record shape violation (caps, types)
-agent.chunk_invalid              # chunk shape violation (missing/inverted pointers or period)
-agent.memory_invalid             # memory item shape violation (category/context/caps)
-agent.memory_not_found           # 404 — unknown itemId on evolve/delete
-agent.not_author                 # 403 — evolve/delete by non-creator
-agent.seq_deleted                # 409 — client-provided seq points at a tombstoned (wiped) record; deleted seqs are never reused
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)

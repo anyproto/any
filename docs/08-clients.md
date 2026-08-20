@@ -243,7 +243,7 @@ accumulate. Treat it as one and the lifecycle stays simple.
 
 `POST /v1/spaces/:spaceId/search` searches the server's local index
 (BM25 full-text + semantic vectors over chats, editor blocks, and
-agent-memory objects — pipeline in `13-index.md`, wire shape in
+object properties — pipeline in `13-index.md`, wire shape in
 `03-api.md` § search).
 
 ```json

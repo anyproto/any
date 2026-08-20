@@ -15,7 +15,7 @@ type SearchRequest struct {
 	// Query is the search text. Required.
 	Query string `json:"query"`
 	// Scopes restricts results to the given index scopes (basic, chat,
-	// agent, props, …). Empty = all scopes.
+	// props, …). Empty = all scopes.
 	Scopes []string `json:"scopes,omitempty"`
 	// Limit caps returned hits. Default 10, max 100.
 	Limit int `json:"limit,omitempty"`

@@ -42,7 +42,6 @@
     - [Read](#read)
     - [Edit / delete (own only)](#edit--delete-own-only)
     - [React (toggle)](#react-toggle)
-  - [Agent data layer (built-in `agent_log` + `agent_memory` types)](#agent-data-layer-built-in-agent_log--agent_memory-types)
   - [Enrichment (built-in `enriched_data` + `enrich_proposal` types)](#enrichment-built-in-enriched_data--enrich_proposal-types)
   - [Files (files v2)](#files-files-v2)
     - [Upload (attach)](#upload-attach)
@@ -359,22 +358,6 @@ Same single-space-only surfacing as `spaceIndexObjectId` — populated on
 create / get / one-to-one / join responses (deriving, i.e.
 materializing, the chat on first sight), omitted on `GET /v1/spaces`
 list rows so listing stays a cheap read.
-
-`SpaceInfo` also carries `agentConfigObjectId` and
-`agentSecretsObjectId`: the deterministic ids of the space's single
-agent config object (dataset `agent_config`, seed
-`any/agent-config/v1`) and agent secrets object (dataset
-`agent_secrets`, seed `any/agent-secrets/v1`). Same surfacing policy as
-`generalChatObjectId` — populated (materializing on first sight, type
-attached) on single-space responses, omitted on list rows. Both
-datasets are raw harness-owned keyspaces, one record per dotted key /
-secret ref; both declare a device-local field the scoped-modify path
-admits local writes to (`agent_config.localValue`,
-`agent_secrets.value` — see § Modify records). Secrets live on their
-own object, split out of `agent_config`, so the agent runtime can gate
-reads on the whole secrets dataset by object id/name with one
-meaningful authorization error, while `agent_config` stays
-guest-readable.
 
 `SpaceInfo.createdAt` (RFC3339) is the **added-to-account** time,
 stamped when the tech-space row is created — at create for the author,
@@ -1317,16 +1300,11 @@ change, and nothing forces those clocks to agree.
 The static `diff` segment is registered before `:version` so it isn't
 swallowed by the wildcard.
 
-**Excluded datasets.** `chat_messages` and the agent data datasets —
-`agent_turns`, `agent_chunks` — opt out of history
-(`handler.Dataset.SkipHistory`). Turns and chunks are write-once
-(edits rejected, author-only deletes — every record has exactly one
-live version), so a history index
-would only
-duplicate them; chat clients render live records only (edits show
-current text, deletes tombstone), so nothing reads a per-message
-timeline and the index rows would be dead weight at chat write
-volume. Writes to these datasets succeed as usual but are invisible
+**Excluded datasets.** `chat_messages` opts out of history
+(`handler.Dataset.SkipHistory`): chat clients render live records
+only (edits show current text, deletes tombstone), so nothing reads a
+per-message timeline and the index rows would be dead weight at chat
+write volume. Writes to the dataset succeed as usual but are invisible
 to every history endpoint, filtered or not. The DAG retains
 everything regardless — re-enabling a dataset later only costs a
 backfill.
@@ -1814,8 +1792,7 @@ array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
 
 **General chat.** Every space has one deterministic "general" chat
 object, derived from a fixed seed (`chat.GeneralChatSeed`,
-`any/general-chat/v1`) — the same objects/derive primitive the brain
-(`/agent/brain`) uses. There is no bespoke resolver endpoint: the id is
+`any/general-chat/v1`). There is no bespoke resolver endpoint: the id is
 delivered as `generalChatObjectId` on every single-space `SpaceInfo`
 response (create / get / one-to-one / join) — the same common point
 that carries `spaceIndexObjectId` (§ Spaces). The first single-space
@@ -2052,57 +2029,13 @@ can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the
 updated `reactions` back via the query path.
 
-### Agent data layer (built-in `agent_log` + `agent_memory` types)
-
-Full model, record shapes, and query recipes in
-[`docs/11-agent-memory.md`](11-agent-memory.md). Writes only here —
-reads + liveness go through `/query` and `/query/subscribe` with
-`dataset` ∈ `{agent_turns, agent_chunks, agent_memory_items}`.
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/turns`  | append one write-once turn record |
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/agent/chunks` | create one write-once summary chunk |
-| GET    | `/v1/spaces/:spaceId/agent/brain`                    | deterministic brain object id |
-| POST   | `/v1/spaces/:spaceId/agent/memory`                   | create a memory item |
-| PATCH  | `/v1/spaces/:spaceId/agent/memory/:itemId`           | evolve mutable fields (author only) |
-| DELETE | `/v1/spaces/:spaceId/agent/memory/:itemId`           | delete a memory item (author only) |
-
-Turns and chunks attach to the chat object itself (the `agent_log`
-type is attached on first write, making the object multitype chat +
-agent_log); a chunk's `fromSeq`/`toSeq` are explicit pointers to the
-raw `agent_turns` range it summarizes. Memory items live on the
-per-space brain object — the server resolves it internally on writes;
-clients call `GET /agent/brain` once to learn the objectId for reads.
-All writes return the shared write result `{versionId, changeId,
-recordIds}`. Errors use the `agent.*` code namespace
-(`docs/06-errors.md`).
-
-Turn and chunk records are write-once — edits are rejected by the
-handler (`agent_log.turn: append_only`), but deletes are allowed
-**author-only** (rejection reason `not_author` otherwise) so agent
-history can be wiped. There is no bespoke delete endpoint: deletes go
-through the generic `POST /v1/spaces/:spaceId/delete-records` with
-`dataset` = `agent_turns` / `agent_chunks`. A wiped turn range leaves
-chunk `fromSeq`/`toSeq` pointers dangling — readers tolerate sparse
-seq ranges (docs/11-agent-memory.md).
-
-Deleted seqs are never reused: server-assigned seq allocation reads
-the max record id **including tombstones** (a tombstone keeps its
-zero-padded-seq id after its content is wiped), so appends after a
-history wipe continue where the counter left off. A client-provided
-`seq` that points at a deleted record returns `409 agent.seq_deleted`
-— the store would otherwise absorb the write without an error
-(CRDT delete-wins) while storing nothing. Omit `seq` to let the
-server pick the next free one.
-
 ### Enrichment (built-in `enriched_data` + `enrich_proposal` types)
 
 Structured, sourced, reviewable enrichment. Two built-in types:
 
 - **`enriched_data`** — a durable, sourced enrichment collection on a
-  target object (multitype-attaches on first write, same pattern as
-  chat/agent_log). One record per fact: `{text, source, target, value,
+  target object (multitype-attaches on first write, same pattern the
+  chat type uses). One record per fact: `{text, source, target, value,
   createdBy, createdAt}` — `text` required; `source` is the provenance
   link (`any://<space>/<transcript>#<blockId>,…`); `target`/`value` are
   set only for property enrichments (which real property was set, and

@@ -11,8 +11,8 @@ import (
 
 // TestServer_History drives the version-history surface through echo
 // against a real SDK, using the built-in editor dataset as the
-// workload (chat and the agent datasets opt out of history via
-// SkipHistory): create/patch/delete blocks, then list history
+// workload (chat opts out of history via SkipHistory):
+// create/patch/delete blocks, then list history
 // (filters, pagination, coalescing), view past versions (object and
 // record scope), and diff (range, per-change effect, record scope).
 // Versions are the changeIds the write endpoints already return.
@@ -237,27 +237,9 @@ func TestServer_History(t *testing.T) {
 		t.Errorf("bad limit: %d, want 400", rec.Code)
 	}
 
-	// ---- SkipHistory: agent_turns writes leave no history ----
-	// Agent datasets are append-only immutable, so they opt out of the
-	// history index (SYN-86). The write lands (201) but is invisible
-	// both under its dataset filter and in the unfiltered list.
-	rec = doJSON(t, e, http.MethodPost, base+"/agent/turns",
-		`{"seq":0,"userText":"hi","replies":["r"]}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("append turn: %d %s", rec.Code, rec.Body.String())
-	}
-	if got := getHistory(histBase + "?dataset=agent_turns"); len(got.Changes) != 0 {
-		t.Errorf("agent_turns history should be empty (SkipHistory), got %+v", got.Changes)
-	}
-	for _, c := range getHistory(histBase).Changes {
-		if c.Dataset == "agent_turns" {
-			t.Errorf("unfiltered history leaked a SkipHistory change: %+v", c)
-		}
-	}
-
-	// ---- SkipHistory: chat writes leave no history either ----
+	// ---- SkipHistory: chat writes leave no history ----
 	// Chat renders live records only (SYN-86) — no per-message
-	// timelines, so chat_messages opts out the same way.
+	// timelines, so chat_messages opts out of the history index.
 	chatSpace, chatObj := setupChatFixture(t, e)
 	chatBase := "/v1/spaces/" + chatSpace + "/objects/" + chatObj
 	msg := chatSend(t, e, chatBase, "hello", "")

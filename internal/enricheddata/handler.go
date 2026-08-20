@@ -12,7 +12,7 @@ import (
 // BeforeCreate validates the creation payload (one multi-field $set op with an
 // object payload, `text` required, optional `source`/`target`/`value` strings,
 // server fields rejected) and stamps createdBy/createdAt — same contract as
-// chat/agentlog. Modify and delete are left to DefaultHandler: enrichment
+// chat. Modify and delete are left to DefaultHandler: enrichment
 // records are editable and removable (a user may prune a sourced fact).
 func (dataHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordChange, sink *handler.Sink) error {
 	if len(rec.Ops) != 1 {
@@ -78,7 +78,7 @@ func checkString(key string, v *anyenc.Value, maxBytes int, allowEmpty bool) err
 }
 
 // stampCreate queues sink.Derive ops for createdBy/createdAt — mirrors
-// chat/agentlog stampCreate.
+// chat's stampCreate.
 func stampCreate(ctx *handler.ChangeCtx, sink *handler.Sink) {
 	if ctx == nil || ctx.Change == nil || sink == nil {
 		return

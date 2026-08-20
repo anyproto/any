@@ -22,7 +22,6 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Chat (write) | `POST …/objects/:o/chat/messages` | `sendChatMessage` (auto-stamps the `agent` group; reads/list via `getObjects`) |
 | Spaces (list) | `GET /spaces` | `listSpaces` |
 | Programs | (via `/modify` + `/query` on `program_*` datasets) | `listPrograms`/`getProgram`/`saveProgram`/`saveTool`/`runProgram` |
-| Agent data layer | `POST …/agent/turns`, `POST …/agent/chunks`, `GET /agent/brain`, `POST`/`PATCH`/`DELETE /agent/memory[/:itemId]` | via `client.api(...)` from JS (convmemory module); reads via `getObjects({objectId, dataset})` with `agent_turns` / `agent_chunks` / `agent_memory_items` — see `docs/11-agent-memory.md` |
 
 ## Added in this pass
 

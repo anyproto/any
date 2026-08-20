@@ -12,8 +12,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/agentconfig"
-	"github.com/anyproto/any/internal/agentsecrets"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -103,17 +101,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt)
 	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt)
 
-	// Agent data layer (built-in types — see internal/agentlog,
-	// internal/agentmem and docs/11-agent-memory.md). Writes only here;
-	// reads + liveness go through /query and /query/subscribe with
-	// dataset ∈ {agent_turns, agent_chunks, agent_memory_items}.
-	// Turns/chunks attach to the chat object (multitype chat +
-	// agent_log); memory items live on the per-space brain object,
-	// which the server resolves itself (GET /agent/brain exposes the
-	// deterministic id for reads).
-	g.POST("/spaces/:spaceId/objects/:objectId/agent/turns", d.agentTurnAppend)
-	g.POST("/spaces/:spaceId/objects/:objectId/agent/chunks", d.agentChunkCreate)
-
 	// Enrichment collection: one sourced record per enrichment fact, written
 	// onto a target object by the deterministic apply.
 	g.POST("/spaces/:spaceId/objects/:objectId/enriched-data", d.enrichedDataCreate)
@@ -121,10 +108,6 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// write enriched_data per item, then delete the proposal). Shared by the
 	// UI and agent tooling.
 	g.POST("/spaces/:spaceId/enrich/apply", d.enrichApply)
-	g.GET("/spaces/:spaceId/agent/brain", d.agentBrainGet)
-	g.POST("/spaces/:spaceId/agent/memory", d.agentMemoryCreate)
-	g.PATCH("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryEvolve)
-	g.DELETE("/spaces/:spaceId/agent/memory/:itemId", d.agentMemoryDelete)
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
 	g.POST("/spaces/:spaceId/aggregate", d.spaceAggregate)
@@ -718,12 +701,6 @@ func spaceToAPI(ctx context.Context, sp space.Space) api.SpaceInfo {
 	out.SpaceIndexObjectId = sp.SpaceIndexObjectId()
 	if id, err := chat.DeriveGeneralChatObjectId(ctx, sp); err == nil {
 		out.GeneralChatObjectId = id
-	}
-	if id, err := agentconfig.DeriveConfigObjectId(ctx, sp); err == nil {
-		out.AgentConfigObjectId = id
-	}
-	if id, err := agentsecrets.DeriveSecretsObjectId(ctx, sp); err == nil {
-		out.AgentSecretsObjectId = id
 	}
 	return out
 }

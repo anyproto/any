@@ -3,20 +3,12 @@ package api
 import "time"
 
 // SpaceCreateRequest is the body of POST /v1/spaces. Mirrors
-// space.CreateRequest plus the harness-only AgentSpace flag (handled in
-// the HTTP layer, not the SDK CreateRequest — SpaceType is coordinator-
-// gated and can't carry it).
+// space.CreateRequest.
 type SpaceCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 	SpaceType   string `json:"spaceType,omitempty"`
-	// AgentSpace marks this as an agent space: on create the server
-	// eagerly materializes the per-space config object (agentconfig)
-	// so the harness has it on the very first GET. The config object is
-	// also derived idempotently on every single-space GET, so this flag
-	// only controls eager provisioning, not whether the id is reported.
-	AgentSpace bool `json:"agent_space,omitempty"`
 }
 
 // SpaceOneToOneRequest is the body of POST /v1/spaces/one-to-one. The
@@ -102,23 +94,7 @@ type SpaceInfo struct {
 	Settings            map[string]any `json:"settings,omitempty"`
 	SpaceIndexObjectId  string         `json:"spaceIndexObjectId,omitempty"`
 	GeneralChatObjectId string         `json:"generalChatObjectId,omitempty"`
-	// AgentConfigObjectId is the deterministic id of the space's single
-	// agent config object (see agentconfig.ConfigObjectSeed). Populated —
-	// materializing the object on first sight — on single-space responses
-	// (create / get / one-to-one / join), same as GeneralChatObjectId;
-	// omitted on the cheap `GET /v1/spaces` list rows. The harness resolves
-	// its config cascade against this object.
-	AgentConfigObjectId string `json:"agentConfigObjectId,omitempty"`
-	// AgentSecretsObjectId is the deterministic id of the space's single
-	// agent secrets object (see agentsecrets.SecretsObjectSeed) — the
-	// agent_secrets dataset that carries harness secrets, split out of
-	// agent_config so the runtime can gate reads on the whole object.
-	// Same surfacing policy as AgentConfigObjectId: populated —
-	// materializing the object on first sight — on single-space responses
-	// (create / get / one-to-one / join), omitted on the cheap
-	// `GET /v1/spaces` list rows.
-	AgentSecretsObjectId string         `json:"agentSecretsObjectId,omitempty"`
-	Push                 *SpacePushKeys `json:"push,omitempty"`
+	Push                *SpacePushKeys `json:"push,omitempty"`
 }
 
 // SpacePushKeys is the per-space key material a push RECEIVER caches —

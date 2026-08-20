@@ -78,19 +78,11 @@ becomes useful. Needs:
    Unix-specific since we dropped Unix sockets). Verify during first
    implementation; single-instance lock needs a Windows-friendly
    replacement for the PID-based check.
-9. **External semantic-search service (TODO — agent memory recall is
-   non-functional until this exists).** The agent data layer
-   (`docs/11-agent-memory.md`) deliberately stores no vectors; a
-   separate service is planned that tails `/query/subscribe` on
-   `agent_memory_items` / `agent_chunks` / `agent_turns`, embeds
-   content, keys an ANN index by record id, and answers hybrid
-   (vector + keyword + metadata) recall with ids the caller hydrates
-   via `/query`. Until it ships: `memory.search` falls back to
-   indexed recency/category/period queries; similarity dedup,
-   link-gen, evolution/reflection/decay passes are dormant (the
-   schema keeps their fields — edges, salience, accessCount — so they
-   resume without data migration). `embeddingRef` is reserved on the
-   schema as the future external-index backref.
+9. ~~**External semantic-search service.**~~ Resolved: the local
+   search index (`13-index.md`) provides hybrid recall; the agent's
+   data is harness-owned userspace runtime datasets
+   (`docs/11-agent-memory.md`), so its recall belongs to the anybao
+   harness.
 10. **Account switching on a running server.** `POST /v1/auth` boots
     exactly one engine per process lifetime; switching accounts means
     restarting with `--account <id>`. A logout/switch endpoint (tear
@@ -197,11 +189,6 @@ pluggable embedders, parallel batched pipelines),
 - **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
   `index: "<scope>"`) are create-time-only until the SDK implements
   property-meta updates — existing properties can't be re-flagged.
-- **`agent_memory_items` chunker.** Agent memory now lives in the
-  built-in `agent_memory` type's dataset (docs/11-agent-memory.md); a
-  dedicated gated chunker (`TypeId() == "agent_memory"`, dataset
-  `agent_memory_items`) is the real path to agent-scope recall — the
-  prop chunker only covers property values on objects.
 
 ## How to update this file
 
@@ -214,9 +201,8 @@ pluggable embedders, parallel batched pipelines),
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
 - **Dogfood the generic schema handler.** Collapse the zero-logic
-  compiled-in handlers (agentconfig, agentsecrets, enrichproposal;
-  parts of agentmem/agentlog/enricheddata) to pure declarations
-  (`Handler: nil` + behavioral schema). Requires a per-dataset
+  compiled-in handlers (enrichproposal; parts of enricheddata) to
+  pure declarations (`Handler: nil` + behavioral schema). Requires a per-dataset
   mutability audit first: the zero-value `MutableBy` is write-once, so
   every currently-mutable field needs an explicit `MutableByAnyone` /
   `MutableByAuthor` (+ a creator stamp where author-gated). Chat keeps
@@ -341,17 +327,6 @@ pluggable embedders, parallel batched pipelines),
   place (UI onboarding path); `GET /v1/auth` lists local accounts.
   Selector: `--account` / `ANY_ACCOUNT` / `account:`. SDK side:
   `FileProviderConfig.Mnemonic/Index` seeding + `auth.AccountId`.
-- **Agent data layer (turns / chunks / memory)** — built-in
-  `agent_log` (datasets `agent_turns` + `agent_chunks` on the chat
-  object) and `agent_memory` (`agent_memory_items` on the seed-derived
-  per-space brain object) types with validated record shapes,
-  server-stamped fields, declared indexes, append-only turn/chunk
-  semantics, and chunk→turns drill-down pointers (`fromSeq`/`toSeq`).
-  Write endpoints under `/agent/*` + `any agent` CLI; reads via the
-  query primitive. Replaces bobrik's markdown-transcript +
-  runtime-typed memory scheme. See `docs/11-agent-memory.md`; semantic
-  recall itself is gated on the external search service (Open
-  questions #9).
 - **v1 scaffolding + wallet + health slice** — `cmd/any`, `internal/{cli,server,client,config,api,version}`,
   echo v4 under `/v1`, `GET /v1/health`, `POST /v1/shutdown`, PID-lock with stale
   reclaim, loopback-only bind guard, uniform error envelope, `auth.FileProvider`
