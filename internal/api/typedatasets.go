@@ -1,6 +1,9 @@
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Wire labels for the dataset-schema behavioral vocabulary. Mirror the
 // SDK enums 1:1 (space.Mutability / Stamp / IdRule / DeletePolicy).
@@ -59,9 +62,43 @@ type DatasetDraftRequest struct {
 // the index scope slug the dataset's entries land under (index.
 // ValidScope); empty = the indexer's default scope ("basic").
 type DatasetSearchFields struct {
-	Title string `json:"title,omitempty"`
-	Text  string `json:"text,omitempty"`
-	Scope string `json:"scope,omitempty"`
+	Title string     `json:"title,omitempty"`
+	Text  SearchText `json:"text,omitempty"`
+	Scope string     `json:"scope,omitempty"`
+}
+
+// SearchText is the search `text` mapping's wire form: a bare field
+// key or a non-empty array of field keys (the indexer joins the mapped
+// values into one body — SYN-179). A single key marshals as the bare
+// string, so single-field declarations and discovery output keep the
+// canonical scalar shape. An empty string unmarshals to nil ("no text
+// mapping"); an empty array stays a non-nil empty slice so declaration
+// validation can reject it explicitly.
+type SearchText []string
+
+func (t SearchText) MarshalJSON() ([]byte, error) {
+	if len(t) == 1 {
+		return json.Marshal(t[0])
+	}
+	return json.Marshal([]string(t))
+}
+
+func (t *SearchText) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*t = nil
+		} else {
+			*t = SearchText{s}
+		}
+		return nil
+	}
+	var keys []string
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return errors.New("search text must be a string or an array of field keys")
+	}
+	*t = SearchText(keys)
+	return nil
 }
 
 // DatasetFieldDraft is one field declaration — input to AddDataset and

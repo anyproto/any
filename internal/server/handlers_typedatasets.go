@@ -226,6 +226,14 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "dataset.immutable",
 				datasetDefMutableHint, map[string]any{"path": path})
 		}
+		if path == "search.text" {
+			val, code, reason := parseSearchTextLeaf(raw)
+			if code != "" {
+				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+			}
+			patch.Set[path] = val
+			continue
+		}
 		var val string
 		if err := json.Unmarshal(raw, &val); err != nil {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -257,6 +265,40 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// parseSearchTextLeaf parses PATCH's `search.text` value — the one
+// string-or-array leaf (SYN-179). A bare string passes verbatim; an
+// array must name at least one field key, none empty, no duplicates,
+// and a single-element array canonicalizes to the bare string so the
+// stored leaf keeps the scalar shape wherever possible. Returns
+// ("", "") code/reason on success.
+func parseSearchTextLeaf(raw json.RawMessage) (val any, code, reason string) {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s, "", ""
+	}
+	var keys []string
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil, "request.invalid_field", "search.text must be a string or an array of field keys"
+	}
+	if len(keys) == 0 {
+		return nil, "request.invalid_field", "search.text array must name at least one field key"
+	}
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if k == "" {
+			return nil, "request.invalid_field", "search.text has an empty field key"
+		}
+		if _, dup := seen[k]; dup {
+			return nil, "request.invalid_field", "search.text names a field key twice"
+		}
+		seen[k] = struct{}{}
+	}
+	if len(keys) == 1 {
+		return keys[0], "", ""
+	}
+	return keys, "", ""
 }
 
 // typeRemoveDataset handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
@@ -547,7 +589,7 @@ func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, strin
 		if req.Search.Scope != "" && !index.ValidScope(req.Search.Scope) {
 			return draft, "request.invalid_field", "search.scope must be a slug (lowercase letters, digits, _ or -; max 64)"
 		}
-		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: req.Search.Text, Scope: req.Search.Scope}
+		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: []string(req.Search.Text), Scope: req.Search.Scope}
 	}
 	for _, f := range req.Fields {
 		fd, code, reason := datasetFieldDraftFromAPI(f)
@@ -641,7 +683,7 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		InvalidReason: def.InvalidReason,
 	}
 	if def.Search != nil {
-		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: def.Search.Text, Scope: def.Search.Scope}
+		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: api.SearchText(def.Search.Text), Scope: def.Search.Scope}
 	}
 	for _, f := range def.Fields {
 		scope := f.Scope

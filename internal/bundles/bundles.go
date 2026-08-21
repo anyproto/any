@@ -188,17 +188,14 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		return space.Bundle{}, false, err
 	}
 
-	var created string
-	b, err := sp.Bundles().Ensure(createCtx, space.EnsureBundleRequest{
+	b, registered, err := sp.Bundles().Ensure(createCtx, space.EnsureBundleRequest{
 		Id:   inst.Id,
 		Name: inst.Name,
 		NewRoot: func(ctx context.Context) (string, error) {
-			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
+			return sp.Objects().Create(ctx, space.CreateObjectOpts{
 				Types:             inst.RootTypes,
 				InitialProperties: inst.RootProperties,
 			})
-			created = rootId
-			return rootId, err
 		},
 	})
 	if err != nil {
@@ -208,9 +205,9 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
 		return b, false, err
 	}
-	// Installed means THIS call's root won — a concurrent install can
+	// registered means THIS call's root won — a concurrent install can
 	// have registered first, in which case ours is already a loser.
-	return b, created != "" && b.RootId == created, nil
+	return b, registered, nil
 }
 
 // adopt returns a live install without writing anything.

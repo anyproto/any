@@ -759,7 +759,11 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "text": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "title": {
                         "type": "string"

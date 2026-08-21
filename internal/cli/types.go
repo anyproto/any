@@ -320,10 +320,12 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
 search.text, search.scope. Everything else is pinned — remove and
-re-add.
+re-add. Values are strings; search.text also takes a non-empty array
+of field keys.
 
-Example:
-  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'`,
+Examples:
+  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
+  any type dataset patch S T D --set '{"search.text":["body","notes"]}'`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetPatchRequest{}

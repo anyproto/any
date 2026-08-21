@@ -11,6 +11,104 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
+// TestIndexer_SchemaChunkerMultiText drives the multi-field text
+// mapping (SYN-179) through the whole pipeline: a dataset declared
+// with `text: ["body", "notes"]` indexes terms from every mapped
+// field under the declared scope, an empty field contributes nothing,
+// and re-mapping via PATCH takes effect on the next re-index.
+func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	ctx := context.Background()
+	ix := newTestIndexer(t, d, nil) // FTS-only is enough
+	defer func() { _ = ix.Close() }()
+
+	spaceId, typeId, objectId := setupSubscribeFixture(t, e)
+	base := "/v1/spaces/" + spaceId
+
+	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
+		"name": "emails", "idRule": "user",
+		"search": {"title": "subject", "text": ["body", "notes"], "scope": "email"},
+		"fields": [
+			{"key": "subject", "kind": "string", "mutableBy": "any"},
+			{"key": "body", "kind": "string", "mutableBy": "any"},
+			{"key": "notes", "kind": "string", "mutableBy": "any"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	var added api.AddDatasetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &added); err != nil {
+		t.Fatal(err)
+	}
+
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"emails","records":[
+		{"id":"m1","fields":{"subject":"Quarterly numbers","body":"revenue is up","notes":"follow up with procurement"}},
+		{"id":"m2","fields":{"subject":"Standup","body":"skipped today"}}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upsert: %d %s", rec.Code, rec.Body.String())
+	}
+
+	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	search := func(q string) api.SearchResponse {
+		t.Helper()
+		return doSearch(t, e, spaceId, api.SearchRequest{
+			Query: q, Mode: api.SearchModeFTS, Scopes: []string{"email"}, Limit: 10,
+		}, http.StatusOK)
+	}
+
+	t.Run("hits terms from every mapped field", func(t *testing.T) {
+		// "procurement" lives ONLY in the second mapped field.
+		res := search("procurement")
+		if len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" || res.Hits[0].Dataset != "emails" {
+			t.Fatalf("notes-only hit = %v", hitRecordIds(res))
+		}
+		if res.Hits[0].Scope != "email" {
+			t.Errorf("scope = %q, want email", res.Hits[0].Scope)
+		}
+		if res := search("revenue"); len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" {
+			t.Fatalf("body hit = %v", hitRecordIds(res))
+		}
+		if res := search("quarterly"); len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" {
+			t.Fatalf("title hit = %v", hitRecordIds(res))
+		}
+		// m2 has no notes value — still indexed on the fields it has.
+		if res := search("skipped"); len(res.Hits) != 1 || res.Hits[0].RecordId != "m2" {
+			t.Fatalf("empty-notes record = %v", hitRecordIds(res))
+		}
+	})
+
+	t.Run("re-mapping applies on next re-index", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPatch, base+"/types/"+typeId+"/datasets/"+added.DatasetDefId,
+			`{"set":{"search.text":["notes"]}}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+		}
+		// PR #173 stance: stored entries keep their old mapping until
+		// the record re-indexes on its next change.
+		rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"emails","records":[
+			{"id":"m1","fields":{"subject":"Quarterly numbers","body":"revenue is up","notes":"follow up with legal"}}]}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("upsert: %d %s", rec.Code, rec.Body.String())
+		}
+		if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+			t.Fatal(err)
+		}
+		if res := search("revenue"); len(res.Hits) != 0 {
+			t.Fatalf("unmapped body still indexed: %v", hitRecordIds(res))
+		}
+		if res := search("legal"); len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" {
+			t.Fatalf("re-mapped notes hit = %v", hitRecordIds(res))
+		}
+	})
+}
+
 // TestIndexer_SchemaChunker drives the schema-driven chunker end to
 // end: a runtime dataset with an x-search mapping indexes its records
 // under scope "basic" (title boosted), a search-less dataset indexes

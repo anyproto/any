@@ -1839,11 +1839,20 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); `title`/`text` either optional. The optional
-  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
-  otherwise) picks the index scope the dataset's entries land under —
-  absent = `basic`. Scopes are the open slug set `/search` filters on;
-  `props` inherits that scope's FTS-only rule (never embedded).
+  § Schema chunker); `title`/`text` either optional. `text` is a bare
+  field key **or a non-empty array of field keys** (`["body",
+  "notes"]`) — the indexer renders each mapped field and joins the
+  non-empty values into one body, in mapping order. A single key is
+  canonicalized to the bare string on every read-back (definition list
+  and discovery), so single-field declarations keep the scalar shape.
+  An array must name at least one key, none empty, no duplicates
+  (`400 dataset.decl_invalid`). Mapped keys are not required to be
+  declared fields (dynamic datasets may map undeclared ones). The
+  optional `scope` slug (`index.ValidScope`; `400
+  request.invalid_field` otherwise) picks the index scope the
+  dataset's entries land under — absent = `basic`. Scopes are the open
+  slug set `/search` filters on; `props` inherits that scope's
+  FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1859,11 +1868,16 @@ collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
-property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text`, `search.scope` (a whole
-`search` replace is pinned; a scope value must pass `index.ValidScope`).
-A scope patch applies to records as they (re-)index — already-indexed
-docs keep their stored scope until their object next goes dirty.
+property patch over the mutable leaves `description`, `displayName`,
+`search.title`, `search.text`, `search.scope` (a whole `search`
+replace is pinned; a scope value must pass `index.ValidScope`). Every
+leaf is a plain string except `search.text`, which also accepts a
+non-empty array of unique field keys — same forms and validation as
+the declaration (`400 request.invalid_field` on an invalid array; a
+single-element array is stored as the bare string). A search-mapping
+patch applies to records as they (re-)index — already-indexed docs
+keep their stored scope and extracted text until their object next
+goes dirty.
 Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).

@@ -171,3 +171,5 @@ require (
 )
 
 tool github.com/swaggo/swag/v2/cmd/swag
+
+replace github.com/anyproto/any-sync-sdk => ../any-sync-sdk
