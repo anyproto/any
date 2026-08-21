@@ -933,6 +933,15 @@
   // ---------- state ----------
   // The page is driven by location.hash. App.route is the parsed
   // shape; renderMain dispatches on route.name. Spaces, types, and
+  // Synthetic types from GET /v1/spaces/:id/types that no object
+  // attaches: `any` is auto-attached to everything, `spaceIndex`
+  // belongs to the space's own derived object, and `type` is the
+  // meta-type (type rows carry the `__type__` marker instead, and are
+  // filtered out of the object lists). Never offer them as a filter or
+  // a bind target — a `type.xkey` write on an ordinary object is
+  // rejected by the SDK.
+  const SYNTHETIC_TYPE_IDS = new Set(['any', 'spaceIndex', 'type']);
+
   // object metadata are cached in App.spaces (keyed by spaceId) and
   // persisted to localStorage. Markdown content lives on
   // App.spaces[id].objects[oid].markdownContent — cache-only, NOT
@@ -2283,9 +2292,9 @@
   // ---------- page: objects ----------
   function renderObjectsPage(sp, typeFilter) {
     // SDK-registered types (markdown etc.) surface as builtIn=true
-    // but should still appear here — the only exclusion is the
-    // synthetic `any` (auto-attached to every object).
-    const filterableTypes = Object.values(sp.types).filter(t => t.id !== 'any');
+    // but should still appear here — the exclusions are the synthetic
+    // types no object attaches (SYNTHETIC_TYPE_IDS).
+    const filterableTypes = Object.values(sp.types).filter(t => !SYNTHETIC_TYPE_IDS.has(t.id));
     const allObjects = Object.values(sp.objects);
     const filteredObjects = typeFilter
       ? allObjects.filter(o => (o.types || []).includes(typeFilter))
@@ -2943,7 +2952,7 @@
     const rec = o.lastRecord || {};
     const sections = boundTypes.map(t => renderObjectTypeSection(o, t, rec)).filter(Boolean).join('');
 
-    const userTypes = Object.values(sp.types).filter(t => t.id !== 'any');
+    const userTypes = Object.values(sp.types).filter(t => !SYNTHETIC_TYPE_IDS.has(t.id));
     const unbound = userTypes.filter(t => !boundIds.has(t.id));
     const bindForm = unbound.length === 0 ? '' :
       '<details class="bind-types">' +

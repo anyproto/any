@@ -1618,6 +1618,23 @@ the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`chat`, `nav`, …) are registered,
 not created here, and resolve by their literal id.
 
+`GET …/types` returns the synthetic built-ins first — `any`,
+`spaceIndex` and `type` (the meta-type: the shape of type objects
+themselves, one `xkey` property) — then every registered type, then the
+space's user types. Built-ins and registered types report `builtIn:
+true` with `xKey` equal to their id, which is what reserves those ids
+against user types (`409 type.xkey_conflict`); user types report
+`builtIn: false` and their caller-set `xKey`. The three synthetic ids
+are not attachable to an object — a client offering "filter by type" or
+"add a type" should skip them.
+
+Storage note for anyone reading raw rows (`GET …/properties/:objectId`,
+`/query`): a type's own row keeps `any.name` / `any.description` /
+`any.icon` where every object keeps them, but its xKey sits at
+`type.xkey` — the meta-type's namespace, writable only on rows carrying
+the `__type__` marker in `any.types`. `TypeInfo.xKey` is the supported
+read; the raw path is for debugging.
+
 The create body is strictly `{name?, description?, iconCid?, xKey}` —
 **inline property definitions are not part of type create** (no SDK
 surface accepts them). A `properties` key, or any other unknown
