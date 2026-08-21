@@ -1008,7 +1008,8 @@ The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
 "endpoints map 1:1 onto SDK methods" rule. `GET` reads every
 top-level block, renders each to its canonical markdown bytes, and
-joins with `\n\n`. `PUT` parses the incoming markdown, diffs against
+joins with `\n\n` (see *Empty paragraphs* below for the blank-line
+rule). `PUT` parses the incoming markdown, diffs against
 the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path a
 PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
@@ -1039,7 +1040,10 @@ shape. Matching rules:
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be
-  empty (deletes the matched text).
+  empty (deletes the matched text). When the match is a whole block,
+  the deletion takes one blank-line separator with it, so removing a
+  block leaves its neighbours adjacent rather than leaving empty
+  paragraphs behind; empty paragraphs that were already there stay.
 - Exact match first; on zero hits a whole-line fuzzy fallback
   retries with unicode punctuation folded to ASCII (curly quotes,
   dash family, NBSP; NFKC) and trailing whitespace ignored. A
@@ -1077,6 +1081,41 @@ identical to an existing one), and it inserts no leading separator —
 Empty/blank content is a 200 no-op. Use this for grow-by-append pages
 (e.g. agent debug logs that append every turn); a run of N appends is
 O(N) here versus O(N²) through `PUT`.
+
+##### Empty paragraphs
+
+An empty paragraph is a real block — a `paragraph` record with
+`text: ""` — and blank lines are how the markdown routes carry it.
+The rule, applied by both `PUT` (parse) and `GET` (render), so the
+two are exact inverses:
+
+- **Between two content blocks**: one blank line is the plain
+  separator; **every blank line beyond it is one empty paragraph**.
+  `alpha\n\nbeta` is two blocks; `alpha\n\n\nbeta` is two blocks with
+  one empty paragraph between them.
+- **At either edge**: a leading or trailing run has no separator to
+  build on, so **every one of its blank lines is an empty paragraph**
+  — with one exception below. The same holds for a document that is
+  blank throughout.
+- **A single trailing newline is a terminator, not content.**
+  `alpha\n` is one block, byte-identical on read-back to `alpha`.
+  A trailing empty paragraph therefore renders as `alpha\n\n`.
+
+Consequences worth designing against:
+
+- `GET` after `PUT` returns the same bytes for any document expressed
+  in this form, and re-`PUT`ting a `GET` writes nothing (`unchanged`
+  equals the block count). A client that hydrates from `GET` will not
+  see its own save come back reshaped.
+- The encoding is **ours, not CommonMark's**: every other markdown
+  renderer collapses blank runs. Content that round-trips through an
+  external tool, a paste, or a client that does not implement this
+  rule loses its empty paragraphs. Editors that want them preserved
+  must both emit and parse blank runs this way.
+- `POST …/editor/markdown/append` is the exception: a fragment is
+  positioned by the append itself, so blank lines wrapping it are
+  framing and are dropped. Empty paragraphs *between* the fragment's
+  own blocks are kept, and blank-only content stays a 200 no-op.
 
 #### Blocks
 
@@ -1674,6 +1713,23 @@ the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`chat`, `nav`, …) are registered,
 not created here, and resolve by their literal id.
 
+`GET …/types` returns the synthetic built-ins first — `any`,
+`spaceIndex` and `type` (the meta-type: the shape of type objects
+themselves, one `xkey` property) — then every registered type, then the
+space's user types. Built-ins and registered types report `builtIn:
+true` with `xKey` equal to their id, which is what reserves those ids
+against user types (`409 type.xkey_conflict`); user types report
+`builtIn: false` and their caller-set `xKey`. The three synthetic ids
+are not attachable to an object — a client offering "filter by type" or
+"add a type" should skip them.
+
+Storage note for anyone reading raw rows (`GET …/properties/:objectId`,
+`/query`): a type's own row keeps `any.name` / `any.description` /
+`any.icon` where every object keeps them, but its xKey sits at
+`type.xkey` — the meta-type's namespace, writable only on rows carrying
+the `__type__` marker in `any.types`. `TypeInfo.xKey` is the supported
+read; the raw path is for debugging.
+
 The create body is strictly `{name?, description?, iconCid?, xKey}` —
 **inline property definitions are not part of type create** (no SDK
 surface accepts them). A `properties` key, or any other unknown
@@ -1878,11 +1934,20 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); `title`/`text` either optional. The optional
-  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
-  otherwise) picks the index scope the dataset's entries land under —
-  absent = `basic`. Scopes are the open slug set `/search` filters on;
-  `props` inherits that scope's FTS-only rule (never embedded).
+  § Schema chunker); `title`/`text` either optional. `text` is a bare
+  field key **or a non-empty array of field keys** (`["body",
+  "notes"]`) — the indexer renders each mapped field and joins the
+  non-empty values into one body, in mapping order. A single key is
+  canonicalized to the bare string on every read-back (definition list
+  and discovery), so single-field declarations keep the scalar shape.
+  An array must name at least one key, none empty, no duplicates
+  (`400 dataset.decl_invalid`). Mapped keys are not required to be
+  declared fields (dynamic datasets may map undeclared ones). The
+  optional `scope` slug (`index.ValidScope`; `400
+  request.invalid_field` otherwise) picks the index scope the
+  dataset's entries land under — absent = `basic`. Scopes are the open
+  slug set `/search` filters on; `props` inherits that scope's
+  FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1898,11 +1963,16 @@ collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
-property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text`, `search.scope` (a whole
-`search` replace is pinned; a scope value must pass `index.ValidScope`).
-A scope patch applies to records as they (re-)index — already-indexed
-docs keep their stored scope until their object next goes dirty.
+property patch over the mutable leaves `description`, `displayName`,
+`search.title`, `search.text`, `search.scope` (a whole `search`
+replace is pinned; a scope value must pass `index.ValidScope`). Every
+leaf is a plain string except `search.text`, which also accepts a
+non-empty array of unique field keys — same forms and validation as
+the declaration (`400 request.invalid_field` on an invalid array; a
+single-element array is stored as the bare string). A search-mapping
+patch applies to records as they (re-)index — already-indexed docs
+keep their stored scope and extracted text until their object next
+goes dirty.
 Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).

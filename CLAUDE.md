@@ -123,7 +123,13 @@ Implementation slices landed:
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
-   level syntax), `nav.parentId`, `nav.pos` (lexid). Bespoke endpoints
+   level syntax), `nav.parentId`, `nav.pos` (lexid). An empty
+   paragraph is a `paragraph` record with `text: ""`; the markdown
+   bridge carries it as a blank line beyond the one separating two
+   blocks (edge runs have no separator to spend), so Split/Join stay
+   exact inverses and re-PUTting a GET writes nothing — the encoding
+   clients need to preserve vertical spacing (docs/03-api.md § Empty
+   paragraphs). Bespoke endpoints
    under `/v1/spaces/:s/objects/:o/editor/blocks` cover writes only —
    create / patch / delete. PATCH takes
    `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
@@ -1115,6 +1121,24 @@ Implementation slices landed:
       merge), derived_spaces_test.go, and the SDK's
       e2e/bundles_test.go `TestE2E_BundlesDerivedRoot`. Contract:
       docs/03-api.md § Bundles (incl. Derived roots).
+36. **Type xKey lives on the meta-type (SYN-173)** — a type's
+    programmatic handle moved from `any.xkey` to `type.xkey` in the
+    SDK. `any` is the universal type, so declaring `xkey` there
+    advertised it on every object (`GET …/types/any/properties`) and
+    let any row carry one; the meta-type's namespace is fenced by the
+    handler's membership check, so only rows carrying the `__type__`
+    marker in `any.types` can. Marker and namespace are deliberately
+    different strings — `_`-prefixed top-level fields are
+    protocol-owned, so `__type__` cannot be a storage namespace.
+    Wire-visible consequences, both passthrough: `GET
+    /v1/spaces/:id/types` gains a third synthetic built-in row (`type`,
+    the meta-type, one `xkey` property) ahead of the registered types,
+    and its id/xKey are now reserved against user types by the existing
+    `type.xkey_conflict` guard. `TypeInfo.xKey` is unchanged; only the
+    raw row path moved. No back-compat — types created before the bump
+    read back with an empty `xKey`. The web UI's object-type filter
+    skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
+    docs/06-data-structure.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

@@ -289,6 +289,9 @@ func newTypeDatasetAddCmd() *cobra.Command {
      {"key": "author",    "stamp": "creator"},
      {"key": "createdAt", "stamp": "createTime"},
      {"key": "updatedAt", "stamp": "modifyTime"}]}
+search.text is a bare field key or a non-empty array of keys, e.g.
+"search": {"title": "subject", "text": ["body", "notes"]} — the index
+joins the mapped fields into one body.
 Behavioral parts (name, idRule, deleteBy, field kinds/flags) are pinned;
 display parts patch via 'type dataset patch'. Declare required fields
 here — fields added later cannot be required.`,
@@ -320,10 +323,12 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
 search.text, search.scope. Everything else is pinned — remove and
-re-add.
+re-add. Values are strings; search.text also takes a non-empty array
+of field keys.
 
-Example:
-  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'`,
+Examples:
+  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
+  any type dataset patch S T D --set '{"search.text":["body","notes"]}'`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetPatchRequest{}

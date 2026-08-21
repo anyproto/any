@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -10,8 +11,12 @@ import (
 
 func TestSplit_Empty(t *testing.T) {
 	assert.Nil(t, Split(""))
-	assert.Nil(t, Split("\n\n\n"))
-	assert.Nil(t, Split("   \n\t\n"))
+	// A blank-only document is a run of empty paragraphs, not an empty
+	// document: splitLines eats one trailing newline as the terminator
+	// and every remaining blank line is a paragraph.
+	assert.Equal(t, []string{"", "", ""}, Split("\n\n\n"))
+	assert.Equal(t, []string{"", ""}, Split("   \n\t\n"))
+	assert.Equal(t, []string{""}, Split("\n"))
 }
 
 func TestSplit_Paragraphs(t *testing.T) {
@@ -124,10 +129,35 @@ func TestSplit_TableOpaque(t *testing.T) {
 	assert.Equal(t, []string{"| a | b |\n| - | - |\n| 1 | 2 |", "after"}, out)
 }
 
-func TestSplit_DropsBlankLines(t *testing.T) {
+func TestSplit_BlankLinesCarryEmptyParagraphs(t *testing.T) {
+	// Leading run: 3 lines, no separator duty  -> 3 empty paragraphs.
+	// Between:     4 lines, one is the separator -> 3.
+	// Trailing:    3 lines minus the terminator, no duty -> 2.
 	in := "\n\n\nalpha\n\n\n\nbeta\n\n\n"
 	out := Split(in)
-	assert.Equal(t, []string{"alpha", "beta"}, out)
+	assert.Equal(t, []string{"", "", "", "alpha", "", "", "beta", "", ""}, out)
+}
+
+func TestSplit_SingleBlankLineStaysASeparator(t *testing.T) {
+	// The shape every existing document is stored in must be unchanged
+	// by the empty-paragraph encoding.
+	assert.Equal(t, []string{"alpha", "beta"}, Split("alpha\n\nbeta"))
+	assert.Equal(t, []string{"alpha", "beta"}, Split("alpha\n\nbeta\n"))
+	assert.Equal(t, []string{"# H1", "body"}, Split("# H1\n\nbody\n"))
+}
+
+func TestSplit_EmptyParagraphBetweenListItems(t *testing.T) {
+	// The reported list case: a blank line beyond the separator between
+	// two items is content, not formatting.
+	out := Split("- one\n\n\n- two\n")
+	assert.Equal(t, []string{"- one", "", "- two"}, out)
+}
+
+func TestSplit_BlanksInsideBlocksAreNotEmptyParagraphs(t *testing.T) {
+	// Blank lines a block consumed itself never reach the top level.
+	assert.Equal(t, []string{"```\n\n\n```"}, Split("```\n\n\n```\n"))
+	assert.Equal(t, []string{"> a\n>\n> b"}, Split("> a\n>\n> b\n"))
+	assert.Equal(t, []string{"- item\n\n  continued"}, Split("- item\n\n  continued\n"))
 }
 
 func TestSplit_CRLF(t *testing.T) {
@@ -158,8 +188,98 @@ func TestJoin_RoundTripIdempotent(t *testing.T) {
 	}
 }
 
-func TestJoin_DropsEmptyEntries(t *testing.T) {
-	assert.Equal(t, "a\n\nb", Join([]string{"a", "", "b", ""}))
-	assert.Equal(t, "", Join([]string{"", ""}))
+func TestJoin_EmptyParagraphs(t *testing.T) {
 	assert.Equal(t, "", Join(nil))
+	assert.Equal(t, "", Join([]string{}))
+	assert.Equal(t, "a\n\nb", Join([]string{"a", "b"}))
+	// One extra newline per empty paragraph between two blocks.
+	assert.Equal(t, "a\n\n\nb", Join([]string{"a", "", "b"}))
+	assert.Equal(t, "a\n\n\n\nb", Join([]string{"a", "", "", "b"}))
+	// Leading: no separator to build on, one newline each.
+	assert.Equal(t, "\na", Join([]string{"", "a"}))
+	assert.Equal(t, "\n\na", Join([]string{"", "", "a"}))
+	// Trailing: one extra newline so splitLines' terminator has
+	// something to eat.
+	assert.Equal(t, "a\n\n", Join([]string{"a", ""}))
+	assert.Equal(t, "a\n\n\n", Join([]string{"a", "", ""}))
+	// No content at all: no terminator allowance, one newline each.
+	assert.Equal(t, "\n", Join([]string{""}))
+	assert.Equal(t, "\n\n", Join([]string{"", ""}))
+}
+
+func TestSplitJoin_EmptyParagraphRoundTrip(t *testing.T) {
+	// Split(Join(b)) == b for every arrangement of empties around
+	// content — the invariant the client's encoding is written against.
+	cases := [][]string{
+		nil,
+		{"a"},
+		{"a", "b"},
+		{"a", "", "b"},
+		{"a", "", "", "b"},
+		{"", "a"},
+		{"", "", "a"},
+		{"a", ""},
+		{"a", "", ""},
+		{""},
+		{"", ""},
+		{"", "a", "", "b", ""},
+		{"# H1", "", "para", "", "", "- item"},
+		{"```go\nfunc x() {}\n```", "", "after"},
+	}
+	for _, blocks := range cases {
+		t.Run(strings.Join(blocks, "|"), func(t *testing.T) {
+			joined := Join(blocks)
+			got := Split(joined)
+			if len(blocks) == 0 {
+				assert.Empty(t, got)
+				return
+			}
+			assert.Equal(t, blocks, got, "joined: %q", joined)
+		})
+	}
+}
+
+func TestTrimEdgeEmpties(t *testing.T) {
+	assert.Equal(t, []string{"a", "", "b"},
+		trimEdgeEmpties([]string{"", "", "a", "", "b", "", ""}))
+	assert.Empty(t, trimEdgeEmpties([]string{"", ""}))
+	assert.Empty(t, trimEdgeEmpties(nil))
+	assert.Equal(t, []string{"a"}, trimEdgeEmpties([]string{"a"}))
+}
+
+func TestSplit_UnterminatedFenceKeepsTrailingEmptyParagraphs(t *testing.T) {
+	// An unterminated fence runs to EOF, but trailing blank lines are
+	// the document's, not the code block's — otherwise the round-trip
+	// invariant breaks and the body silently grows newlines.
+	blocks := []string{"```\nx", ""}
+	joined := Join(blocks)
+	assert.Equal(t, "```\nx\n\n", joined)
+	assert.Equal(t, blocks, Split(joined))
+	// A terminated fence still keeps everything between its markers.
+	assert.Equal(t, []string{"```\n\n\n```"}, Split("```\n\n\n```\n"))
+}
+
+func TestSplitJoin_RoundTripFuzz(t *testing.T) {
+	// Split(Join(b)) == b over generated documents: the property the
+	// client's serialize/parse pair is written against. Fixed seed —
+	// a failure must be reproducible.
+	vocab := []string{
+		"", "alpha", "# heading", "- item", "1. one", "> quote",
+		"```go\nfunc x() {}\n```", "| a | b |", "<div>x</div>",
+		"first line\nsecond line", "---", "- [ ] todo",
+	}
+	rng := rand.New(rand.NewSource(164))
+	for i := 0; i < 5000; i++ {
+		blocks := make([]string, rng.Intn(6))
+		for j := range blocks {
+			blocks[j] = vocab[rng.Intn(len(vocab))]
+		}
+		joined := Join(blocks)
+		got := Split(joined)
+		if len(blocks) == 0 {
+			require.Empty(t, got, "case %d: %q", i, joined)
+			continue
+		}
+		require.Equal(t, blocks, got, "case %d: joined %q", i, joined)
+	}
 }

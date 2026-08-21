@@ -46,9 +46,11 @@ with what `/query` returns.
 
 ## Stages
 
-`$match` (full `/query` filter language — `docs/09-query.md`), `$sort`,
-`$skip`, `$limit`, `$count`, `$project`, `$addFields`/`$set`, `$unwind`,
-`$group`.
+`$match` (full `/query` filter language — `docs/09-query.md` — plus
+`$expr`), `$sort`, `$skip`, `$limit`, `$count`, `$project`,
+`$addFields`/`$set`, `$unwind`, `$group`, `$facet`, `$lookup`
+(**self-join only**: `from` must name the aggregated collection or be
+omitted).
 
 Accumulators in `$group`: `$sum`, `$avg`, `$min`, `$max`, `$count`,
 `$first`, `$last`, `$push`, `$addToSet`.
@@ -57,8 +59,30 @@ Expressions (in `$project`/`$addFields` values, `$group` keys and
 accumulator arguments): field references (`"$a.b.c"`, including the
 FTS/vector virtuals `"$_score"` / `"$_distance"`), literals
 (`{"$literal": ...}` escapes a `$`-leading string), and nested
-document/array expressions. **No compute operators** (`$add`, `$cond`,
-…) — see the drift table.
+document/array expressions, and compute operators:
+
+| family | operators |
+|---|---|
+| arithmetic | `$add`, `$subtract`, `$multiply`, `$divide`, `$abs`, `$round` |
+| strings | `$concat`, `$split`, `$replaceOne`, `$replaceAll`, `$trim`, `$ltrim`, `$rtrim` |
+| conditional | `$cond`, `$switch`, `$ifNull` |
+| comparison | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$cmp` |
+| dates | `$dateAdd`, `$dateDiff`, `$dateTrunc`, `$year`, `$week` |
+
+That list is exhaustive — anything absent from it is rejected, so
+there are no type conversions (`$toDate`, `$toInt`, …) and no array
+operators (`$map`, `$filter`, `$reduce`).
+
+**The date operators are inert on what `any` stores.** They need a
+native date value, and every timestamp here is something else: system
+stamps (`createdAt`, `modifiedAt`, chat `createdAt`, …) are unix-second
+numbers, user `date` / `datetime` properties are ISO strings. Both
+return `null` from `$year` / `$dateTrunc` / `$dateDiff`, and no
+`$toDate` exists to bridge them. A numeric stamp can still be bucketed
+arithmetically — `{"$round": [{"$divide": ["$modifiedAt", 86400]}, 0]}`
+groups by day — but `$round` is nearest, not floor, so the boundary
+sits at midday. Grouping by real calendar periods waits on native date
+values in the store.
 
 ## Examples
 
@@ -167,8 +191,11 @@ first:
 |---|---|---|
 | `$group` output key | `_id` | **`id`** — accepts `_id` or `id` on input, always emits `id` (rows can be re-inserted unchanged) |
 | `$count` result | `{"<name>": N}` | same — but note it arrives inside `records`, as the only document |
-| Compute operators (`$add`, `$cond`, `$concat`, …) | yes | **none** — expressions are field refs, literals, and document/array composition only (rejected explicitly, room to add compatibly) |
-| `$lookup` / `$facet` / `$bucket` | yes | not supported |
+| Compute operators | full library | **the closed set listed under Stages** — no type conversions, no array operators |
+| Date operators | operate on date values | present, but `null` against every timestamp `any` stores — see Stages |
+| `$lookup` | joins any collection | **self-join only** — `from` must name the aggregated collection or be omitted |
+| `$bucket` / `$bucketAuto` / `$replaceRoot` / `$sortByCount` / `$unionWith` | yes | not supported |
+| `$out` / `$merge` | write the result into a collection | **not part of this endpoint** — `/aggregate` is a read surface; writes go through the CRDT |
 | `$project` | implicit `_id`, exclusion mode (`{"a": 0}`) | **strictly explicit** — only listed fields appear, `id` included only if listed; exclusion not supported |
 | Numbers | int/long/double/decimal | **IEEE 754 float64 only** — `$sum`/`$avg` are float arithmetic, integer precision ends at 2^53 |
 | `$group` key equality | type-aware, field-order-insensitive documents | **byte equality** of canonical encoding — object keys are field-order-sensitive |

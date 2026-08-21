@@ -612,7 +612,15 @@ components:
         scope:
           type: string
         text:
-          type: string
+          description: |-
+            Text accepts a bare field-key string OR a non-empty array of
+            unique field keys; a single key always reads back as the bare
+            string. The generated schema can only show the array form — the
+            string form is equally valid on the wire.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         title:
           type: string
       type: object

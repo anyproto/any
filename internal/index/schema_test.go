@@ -11,7 +11,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
-func schemaDoc(t *testing.T, search map[string]string) json.RawMessage {
+func schemaDoc(t *testing.T, search map[string]any) json.RawMessage {
 	t.Helper()
 	doc := map[string]any{"type": "object"}
 	if search != nil {
@@ -27,24 +27,29 @@ func schemaDoc(t *testing.T, search map[string]string) json.RawMessage {
 func TestParseSchemaDatasets(t *testing.T) {
 	skip := map[string]bool{"chat_messages": true, DatasetProp: true, DatasetSchemaVirtual: true}
 	list := []space.DatasetSchema{
-		{Name: "objects", JSONSchema: schemaDoc(t, nil)},                                                             // built-in: TypeId ""
-		{Name: "chat_messages", TypeId: "chat", JSONSchema: schemaDoc(t, map[string]string{"text": "text"})},         // static: skipped
-		{Name: "articles", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]string{"title": "title", "text": "body"})},
-		{Name: "notes", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]string{"text": "content"})},                // text-only
-		{Name: "headlines", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]string{"title": "headline"})},          // title-only
-		{Name: "plain", TypeId: "t2", JSONSchema: schemaDoc(t, nil)},                                                 // no x-search: tracked, not searchable
-		{Name: "broken", TypeId: "t2", JSONSchema: json.RawMessage(`{"x-search": 42}`)},                              // malformed: tracked, not searchable
-		{Name: "odd:name", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]string{"text": "x"})},                   // colon: ignored entirely
-		{Name: "scoped", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]string{"text": "x", "scope": "recipes"})}, // declared scope
-		{Name: "badscope", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]string{"text": "x", "scope": "Not A Slug"})}, // invalid scope: tracked, not searchable
+		{Name: "objects", JSONSchema: schemaDoc(t, nil)},                                                          // built-in: TypeId ""
+		{Name: "chat_messages", TypeId: "chat", JSONSchema: schemaDoc(t, map[string]any{"text": "text"})},         // static: skipped
+		{Name: "articles", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]any{"title": "title", "text": "body"})},
+		{Name: "notes", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]any{"text": "content"})},                // text-only
+		{Name: "headlines", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]any{"title": "headline"})},          // title-only
+		{Name: "plain", TypeId: "t2", JSONSchema: schemaDoc(t, nil)},                                              // no x-search: tracked, not searchable
+		{Name: "broken", TypeId: "t2", JSONSchema: json.RawMessage(`{"x-search": 42}`)},                           // malformed: tracked, not searchable
+		{Name: "odd:name", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]any{"text": "x"})},                   // colon: ignored entirely
+		{Name: "scoped", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "recipes"})}, // declared scope
+		{Name: "badscope", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "Not A Slug"})}, // invalid scope: tracked, not searchable
+		{Name: "emails", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"title": "subject", "text": []string{"body", "notes"}})}, // multi-field text
+		{Name: "single", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"text": []string{"body"}})},        // one-element array
+		{Name: "badtext", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"text": 42})},                     // wrong text type: tracked, not searchable
 	}
 	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
 	want := []schemaDataset{
-		{name: "articles", typeId: "t1", titleField: "title", textField: "body", scope: ScopeBasic},
-		{name: "notes", typeId: "t1", titleField: "", textField: "content", scope: ScopeBasic},
-		{name: "headlines", typeId: "t2", titleField: "headline", textField: "", scope: ScopeBasic},
-		{name: "scoped", typeId: "t3", titleField: "", textField: "x", scope: "recipes"},
+		{name: "articles", typeId: "t1", titleField: "title", textFields: []string{"body"}, scope: ScopeBasic},
+		{name: "notes", typeId: "t1", titleField: "", textFields: []string{"content"}, scope: ScopeBasic},
+		{name: "headlines", typeId: "t2", titleField: "headline", textFields: nil, scope: ScopeBasic},
+		{name: "scoped", typeId: "t3", titleField: "", textFields: []string{"x"}, scope: "recipes"},
+		{name: "emails", typeId: "t4", titleField: "subject", textFields: []string{"body", "notes"}, scope: ScopeBasic},
+		{name: "single", typeId: "t4", titleField: "", textFields: []string{"body"}, scope: ScopeBasic},
 	}
 	if !reflect.DeepEqual(searchable, want) {
 		t.Errorf("searchable = %+v, want %+v", searchable, want)
@@ -52,7 +57,7 @@ func TestParseSchemaDatasets(t *testing.T) {
 	// No-x-search, malformed and invalid-scope docs land in the
 	// always-evicted set.
 	sort.Strings(unsearchable)
-	wantNames := []string{"badscope", "broken", "plain"}
+	wantNames := []string{"badscope", "badtext", "broken", "plain"}
 	if !reflect.DeepEqual(unsearchable, wantNames) {
 		t.Errorf("unsearchable = %v, want %v", unsearchable, wantNames)
 	}
@@ -112,6 +117,56 @@ func TestRenderSearchValue(t *testing.T) {
 	}
 	if got := renderSearchValue(nil); got != "" {
 		t.Errorf("renderSearchValue(nil) = %q, want empty", got)
+	}
+}
+
+func TestParseSearchTextFields(t *testing.T) {
+	cases := []struct {
+		raw    string
+		want   []string
+		wantOk bool
+	}{
+		{"", nil, true},                                // absent
+		{`""`, nil, true},                              // empty string = no mapping
+		{`"body"`, []string{"body"}, true},             // bare string
+		{`["body"]`, []string{"body"}, true},           // one-element array
+		{`["body","notes"]`, []string{"body", "notes"}, true},
+		{`["body","","notes"]`, []string{"body", "notes"}, true}, // empty keys dropped defensively
+		{`[]`, nil, true},                              // empty array = no mapping
+		{`42`, nil, false},                             // wrong type
+		{`["body",42]`, nil, false},                    // non-string element
+		{`{"k":"v"}`, nil, false},                      // wrong type
+	}
+	for _, tc := range cases {
+		got, ok := parseSearchTextFields(json.RawMessage(tc.raw))
+		if ok != tc.wantOk || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("parseSearchTextFields(%s) = (%v, %v), want (%v, %v)", tc.raw, got, ok, tc.want, tc.wantOk)
+		}
+	}
+}
+
+func TestRenderTextFields(t *testing.T) {
+	a := &anyenc.Arena{}
+	rec := a.NewObject()
+	rec.Set("body", a.NewString("first part"))
+	rec.Set("notes", a.NewString("second part"))
+	rec.Set("empty", a.NewString(""))
+
+	cases := []struct {
+		fields []string
+		want   string
+	}{
+		{nil, ""},
+		{[]string{"body"}, "first part"},
+		{[]string{"body", "notes"}, "first part\n\nsecond part"}, // mapping order
+		{[]string{"notes", "body"}, "second part\n\nfirst part"},
+		{[]string{"body", "missing", "empty", "notes"}, "first part\n\nsecond part"}, // absent/empty skipped
+		{[]string{"missing"}, ""},
+	}
+	for _, tc := range cases {
+		if got := renderTextFields(rec, tc.fields); got != tc.want {
+			t.Errorf("renderTextFields(%v) = %q, want %q", tc.fields, got, tc.want)
+		}
 	}
 }
 

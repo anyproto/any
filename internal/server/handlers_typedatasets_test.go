@@ -66,7 +66,7 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 		Name:     "articles",
 		IdRule:   "user",
 		DeleteBy: "author",
-		Search:   &api.DatasetSearchFields{Title: "title", Text: "body", Scope: "news"},
+		Search:   &api.DatasetSearchFields{Title: "title", Text: api.SearchText{"body"}, Scope: "news"},
 		Fields: []api.DatasetFieldDraft{
 			{Key: "title", Kind: "string", Required: true, MutableBy: "author"},
 			{Key: "author", Stamp: "creator"},
@@ -79,9 +79,17 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 	if draft.IdRule != space.IdUser || draft.DeleteBy != space.DeleteByAuthor {
 		t.Errorf("behavioral enums not mapped: %+v", draft)
 	}
-	if draft.Search == nil || draft.Search.Title != "title" || draft.Search.Text != "body" ||
+	if draft.Search == nil || draft.Search.Title != "title" ||
+		len(draft.Search.Text) != 1 || draft.Search.Text[0] != "body" ||
 		draft.Search.Scope != "news" {
 		t.Errorf("search not mapped: %+v", draft.Search)
+	}
+
+	// A multi-key text mapping rides through as the key list.
+	req.Search = &api.DatasetSearchFields{Text: api.SearchText{"body", "notes"}}
+	multi, code, _ := datasetDraftFromAPI(req)
+	if code != "" || len(multi.Search.Text) != 2 || multi.Search.Text[1] != "notes" {
+		t.Errorf("multi-key text not mapped: code=%q search=%+v", code, multi.Search)
 	}
 	if len(draft.Fields) != 2 || draft.Fields[0].Kind != space.PropertyKindString ||
 		!draft.Fields[0].Required || draft.Fields[0].MutableBy != space.MutableByAuthor ||
@@ -90,7 +98,7 @@ func TestDatasetDraftFromAPI(t *testing.T) {
 	}
 
 	// A non-slug scope is caught at the boundary.
-	req.Search = &api.DatasetSearchFields{Text: "body", Scope: "Not A Slug"}
+	req.Search = &api.DatasetSearchFields{Text: api.SearchText{"body"}, Scope: "Not A Slug"}
 	if _, code, _ := datasetDraftFromAPI(req); code != "request.invalid_field" {
 		t.Errorf("bad search.scope: code=%q", code)
 	}
@@ -511,6 +519,139 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 			t.Fatalf("built-in type: %d %s", rec.Code, rec.Body.String())
 		}
 		assertErrorCode(t, rec, "type.registered")
+	})
+}
+
+// TestTypeDatasets_SearchTextMultiField covers the string-or-array
+// search.text leaf: array declaration, wire read-back on
+// both surfaces, drift-patch of the array leaf, single-element
+// canonicalization, and the invalid-array rejects.
+func TestTypeDatasets_SearchTextMultiField(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, typeId, _ := setupSubscribeFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/types/" + typeId + "/datasets"
+
+	rec := doJSON(t, e, http.MethodPost, base, `{
+		"name": "emails", "idRule": "user",
+		"search": {"title": "subject", "text": ["body", "notes"], "scope": "email"},
+		"fields": [
+			{"key": "subject", "kind": "string", "mutableBy": "any"},
+			{"key": "body", "kind": "string", "mutableBy": "any"},
+			{"key": "notes", "kind": "string", "mutableBy": "any"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	var added api.AddDatasetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &added); err != nil {
+		t.Fatal(err)
+	}
+	defId := added.DatasetDefId
+
+	readText := func(t *testing.T) api.SearchText {
+		t.Helper()
+		var list api.TypeDatasetsListResponse
+		rec := doJSON(t, e, http.MethodGet, base, "")
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		for _, def := range list.Datasets {
+			if def.Id == defId {
+				if def.Search == nil {
+					t.Fatal("search mapping missing")
+				}
+				return def.Search.Text
+			}
+		}
+		t.Fatal("definition missing from list")
+		return nil
+	}
+	// discoveryText returns the RAW x-search.text of the discovery doc,
+	// so the canonical wire form (bare string vs array) is observable.
+	discoveryText := func(t *testing.T) json.RawMessage {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/datasets", "")
+		var ds api.DatasetsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &ds); err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range ds.Datasets {
+			if s.Name != "emails" {
+				continue
+			}
+			var doc struct {
+				Search struct {
+					Text json.RawMessage `json:"text"`
+				} `json:"x-search"`
+			}
+			if err := json.Unmarshal(s.Schema, &doc); err != nil {
+				t.Fatal(err)
+			}
+			return doc.Search.Text
+		}
+		t.Fatal("emails missing from discovery")
+		return nil
+	}
+
+	t.Run("array declaration reads back", func(t *testing.T) {
+		got := readText(t)
+		if len(got) != 2 || got[0] != "body" || got[1] != "notes" {
+			t.Errorf("text = %v", got)
+		}
+		if raw := string(discoveryText(t)); raw != `["body","notes"]` {
+			t.Errorf("discovery x-search.text = %s, want the array form", raw)
+		}
+	})
+
+	t.Run("drift-patch of the array leaf", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPatch, base+"/"+defId,
+			`{"set":{"search.text":["notes","subject"]}}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+		}
+		got := readText(t)
+		if len(got) != 2 || got[0] != "notes" || got[1] != "subject" {
+			t.Errorf("patched text = %v", got)
+		}
+	})
+
+	t.Run("single-element patch canonicalizes", func(t *testing.T) {
+		rec := doJSON(t, e, http.MethodPatch, base+"/"+defId,
+			`{"set":{"search.text":["body"]}}`)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+		}
+		got := readText(t)
+		if len(got) != 1 || got[0] != "body" {
+			t.Errorf("patched text = %v", got)
+		}
+		if raw := string(discoveryText(t)); raw != `"body"` {
+			t.Errorf("discovery x-search.text = %s, want the bare string", raw)
+		}
+	})
+
+	t.Run("patch rejects invalid text values", func(t *testing.T) {
+		for _, bad := range []string{`[]`, `[""]`, `["body","body"]`, `[42]`, `42`} {
+			rec := doJSON(t, e, http.MethodPatch, base+"/"+defId,
+				`{"set":{"search.text":`+bad+`}}`)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("patch %s: %d %s", bad, rec.Code, rec.Body.String())
+			}
+			assertErrorCode(t, rec, "request.invalid_field")
+		}
+	})
+
+	t.Run("declaration rejects invalid arrays", func(t *testing.T) {
+		for _, bad := range []string{`[]`, `[""]`, `["a","a"]`} {
+			rec := doJSON(t, e, http.MethodPost, base,
+				`{"name":"badtext","search":{"text":`+bad+`}}`)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("declare %s: %d %s", bad, rec.Code, rec.Body.String())
+			}
+			assertErrorCode(t, rec, "dataset.decl_invalid")
+		}
 	})
 }
 

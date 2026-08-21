@@ -760,7 +760,12 @@
                         "type": "string"
                     },
                     "text": {
-                        "type": "string"
+                        "description": "Text accepts a bare field-key string OR a non-empty array of\nunique field keys; a single key always reads back as the bare\nstring. The generated schema can only show the array form — the\nstring form is equally valid on the wire.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "title": {
                         "type": "string"

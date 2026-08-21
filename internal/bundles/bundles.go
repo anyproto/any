@@ -231,13 +231,16 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	}
 	r.observe(sp, b)
 
-	// Installed means THIS call's root won — a concurrent install can
-	// have registered first, in which case ours is already a loser.
-	// For a derived install there is no such contest, so the SDK's own
-	// "did this call register it" is the exact answer: both sides of a
-	// partition can report true for the one root they share, and
-	// materializing a root someone else registered reports false.
-	installed := created != "" && b.RootId == created
+	// Installed means THIS call minted the returned winner. For a
+	// created root the SDK's registered bool alone is weaker — it
+	// reports that this call wrote a registering change, but an
+	// inbound install landing between its read and apply can leave our
+	// fresh root a loser while the returned RootId is someone else's
+	// winner. A derived install has no such contest, so registered is
+	// the exact answer: both sides of a partition can report true for
+	// the one root they share, and materializing a root someone else
+	// registered reports false.
+	installed := registered && created != "" && b.RootId == created
 	if inst.Derived {
 		installed = registered
 	}
