@@ -73,6 +73,13 @@ func TestServer_PropertyFormat(t *testing.T) {
 	}
 	legacyDueProp := addResp.PropId
 
+	// The kind those formats imply, stated explicitly — accepted, not
+	// treated as a mismatch against the legacy string.
+	rec = doJSON(t, e, http.MethodPost, propsURL, `{"name":"Explicit due","kind":"datetime","format":{"type":"datetime"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("explicit datetime kind: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	for name, body := range map[string]string{
 		"unknown format type":  `{"name":"A","format":{"type":"rainbow"}}`,
 		"reserved tags format": `{"name":"B","format":{"type":"tags"}}`,
