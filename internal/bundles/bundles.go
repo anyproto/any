@@ -104,6 +104,11 @@ type Resolver struct {
 	// is not a refusal but is not free either (see converge). Set at
 	// construction; tests shorten it.
 	IndexWait time.Duration
+	// OfflineIndexWait replaces IndexWait when no peer is connected.
+	// The wait buys information only from peers we can reach; with
+	// none, thirty seconds of retrying learns exactly what the first
+	// second did. Set at construction; tests shorten it.
+	OfflineIndexWait time.Duration
 	// Quiescent reports whether a root has stopped receiving changes,
 	// so what is projected locally is the whole of it. Set at
 	// construction to the SDK's per-object sync state; tests
@@ -131,6 +136,10 @@ const (
 	// install path. Short: it rides a client request, and refusing is
 	// correct — the client retries.
 	DefaultIndexWait = 30 * time.Second
+	// DefaultOfflineIndexWait is the same wait with nobody to hear
+	// from: long enough for a peer that is mid-dial to land, short
+	// enough that an offline device is not stalled for nothing.
+	DefaultOfflineIndexWait = 3 * time.Second
 
 	// Retry schedule for the background path: a loser installed on
 	// another device cannot be deleted until its tree has synced here,
@@ -143,12 +152,13 @@ const (
 // NewResolver builds a Resolver with the given quiescence delay.
 func NewResolver(grace time.Duration) *Resolver {
 	return &Resolver{
-		Grace:      grace,
-		RetryDelay: retryDelay,
-		IndexWait:  DefaultIndexWait,
-		Quiescent:  syncQuiescent,
-		firstSeen:  map[string]time.Time{},
-		retrying:   map[string]struct{}{},
+		Grace:            grace,
+		RetryDelay:       retryDelay,
+		IndexWait:        DefaultIndexWait,
+		OfflineIndexWait: DefaultOfflineIndexWait,
+		Quiescent:        syncQuiescent,
+		firstSeen:        map[string]time.Time{},
+		retrying:         map[string]struct{}{},
 	}
 }
 
@@ -240,7 +250,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 // converge runs the pre-install convergence wait and decides what an
 // expired one means for this caller.
 func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) error {
-	waitCtx, cancel := context.WithTimeout(ctx, r.IndexWait)
+	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
 	err := sp.WaitIndexSynced(waitCtx)
 	cancel()
 	if err == nil {
@@ -268,6 +278,21 @@ func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) e
 		zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()),
 		zap.Bool("derived", inst.Derived), zap.Error(err))
 	return nil
+}
+
+// waitFor is how long to hold the convergence wait open: the full
+// bound while a peer is connected, the offline bound while none is.
+// A head-sync round against nobody answers the same way every time,
+// so the long wait would spend an offline device's whole deadline
+// learning what its first attempt already told it — and the install
+// it gates either proceeds regardless (derived, owner) or is refused
+// either way (any other member).
+func (r *Resolver) waitFor(sp space.Space) time.Duration {
+	st := sp.SyncStatus().Space()
+	if st.NetworkPeers == 0 && st.LocalPeers == 0 {
+		return r.OfflineIndexWait
+	}
+	return r.IndexWait
 }
 
 // tryAdopt is the pure-read half of Ensure: adopted=true when the

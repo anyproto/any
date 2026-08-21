@@ -1031,10 +1031,12 @@ Implementation slices landed:
       shape for a 1-1, where the ACL owner is a synthetic key nobody
       holds, both participants are writers, and neither can ever take
       the owner escape below (the ticket's `409 bundle.not_ready`
-      deadlock). A derived install runs the same 30s convergence wait
-      but installs when it expires instead of refusing — the residual
-      risk being that a blind claim demotes an unseen CREATED install
-      of the same id, irreversibly (docs/03-api.md states the trade).
+      deadlock). A derived install runs the same convergence wait
+      (30s connected, 3s with no peer — a head-sync round against
+      nobody always answers the same) but installs when it expires
+      instead of refusing; the residual risk is that a blind claim
+      demotes an unseen CREATED install of the same id, irreversibly
+      (docs/03-api.md states the trade).
       Costs, both permanent: no
       uninstall (any-sync's `ErrCantDeleteDerivedObject`) and no
       migration — an existing created install is ADOPTED, with

@@ -832,11 +832,12 @@ what puts the root's tree in the head-sync diff. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
 `general-chat/v1` — so there is no separate provenance field.
 
-Installing waits for the registry to converge first (bounded, 30s).
-It rides the space's index tree, and a member that ensures against
-state it has not synced yet reads "nothing installed" and mints a root
-competing with the one already out there. Adopting never waits — a
-read cannot fork anything. A space that has never been set up
+Installing waits for the registry to converge first (bounded, 30s —
+cut to 3s when no peer is connected, since a head-sync round against
+nobody answers the same way every time). It rides the space's index
+tree, and a member that ensures against state it has not synced yet
+reads "nothing installed" and mints a root competing with the one
+already out there. Adopting never waits — a read cannot fork anything. A space that has never been set up
 converges to an empty registry, which is a valid answer, not a stall.
 
 When the wait cannot complete, who is asking decides: the space's
@@ -889,15 +890,16 @@ If a created and a derived root are ever both claimed for one id, the
 derived one wins on every device and the created one becomes an
 ordinary resolvable loser. The verdict itself reads only the add-only
 claim set, so every device reaches the same one — but **the claim can
-still be made blind**. A derived install runs the same 30s convergence
-wait and, unlike a created one, installs anyway when it expires; if the
-space already carried a created install this device had not seen, that
-claim demotes it, irreversibly. Nothing is destroyed — the demoted root
+still be made blind**. A derived install runs the same convergence wait and, unlike a created
+one, installs anyway when it expires; if the space already carried a
+created install this device had not seen, that claim demotes it,
+irreversibly. Nothing is destroyed — the demoted root
 keeps its content and stays deletable — but the app's pointer moves,
 which for content that cannot be merged across objects (chat) amounts
 to the same thing. The wait is what narrows that window; proceeding
 past it is the deliberate trade that lets an offline 1-1 have a chat at
-all.
+all — and with no peer connected there is nothing to narrow, so the
+wait collapses to its offline bound and the chat appears in seconds.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist

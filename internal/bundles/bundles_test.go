@@ -27,17 +27,29 @@ type fakeSpace struct {
 	// do, and whether the registry converged.
 	role     space.Permission
 	indexErr error
+	// waited records the deadline the gate gave WaitIndexSynced.
+	waited time.Duration
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
 func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
 
-func (f *fakeSpace) SyncStatus() space.SyncStatusAPI { return f.status }
+func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
+	if f.status == nil {
+		f.status = &fakeSyncStatus{}
+	}
+	return f.status
+}
 
-func (f *fakeSpace) Info() space.SpaceInfo                 { return space.SpaceInfo{Id: f.id, OwnRole: f.role} }
-func (f *fakeSpace) WaitIndexSynced(context.Context) error { return f.indexErr }
-func (f *fakeSpace) Objects() space.ObjectService          { return f.objects }
-func (f *fakeSpace) Properties() space.PropertiesAPI       { return f.props }
+func (f *fakeSpace) Info() space.SpaceInfo { return space.SpaceInfo{Id: f.id, OwnRole: f.role} }
+func (f *fakeSpace) WaitIndexSynced(ctx context.Context) error {
+	if dl, ok := ctx.Deadline(); ok {
+		f.waited = time.Until(dl)
+	}
+	return f.indexErr
+}
+func (f *fakeSpace) Objects() space.ObjectService    { return f.objects }
+func (f *fakeSpace) Properties() space.PropertiesAPI { return f.props }
 
 // fakeObjects records what the resolver asked to create or derive.
 type fakeObjects struct {
@@ -70,14 +82,20 @@ func (f *fakeProperties) Get(context.Context, string) (*anyenc.Value, error) {
 	return (&anyenc.Arena{}).NewObject(), nil
 }
 
-// fakeSyncStatus reports one fixed per-object state.
+// fakeSyncStatus reports one fixed per-object state and a rollup whose
+// peer counts drive the convergence wait's length.
 type fakeSyncStatus struct {
 	space.SyncStatusAPI
 	state space.SyncState
+	peers int
 }
 
 func (f *fakeSyncStatus) Object(objectId string) space.ObjectSyncStatus {
 	return space.ObjectSyncStatus{ObjectId: objectId, State: f.state}
+}
+
+func (f *fakeSyncStatus) Space() space.SpaceSyncStatus {
+	return space.SpaceSyncStatus{State: f.state, NetworkPeers: f.peers}
 }
 
 // fakeBundles records the roots ResolveLoser was asked to delete and
@@ -586,5 +604,38 @@ func TestEnsureRefusesAbsentCreatedRoot(t *testing.T) {
 	}
 	if len(sp.bundles.ensured) != 0 {
 		t.Fatalf("refusal still installed: %+v", sp.bundles.ensured)
+	}
+}
+
+// TestConvergeWaitTracksConnectivity pins how long the install gate
+// holds the convergence wait open. Retrying a head-sync round against
+// nobody answers the same way every time, so a device with no peer
+// connected must not spend the full deadline learning that — while a
+// connected one takes the full bound, since that wait is the only
+// thing narrowing the window in which a derived claim can demote an
+// install it has not seen.
+func TestConvergeWaitTracksConnectivity(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "general-chat/v1", Derived: true}
+
+	r := newTestResolver(0)
+	r.IndexWait = time.Hour
+	r.OfflineIndexWait = time.Minute
+
+	offline := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	if _, _, err := r.Ensure(ctx, ctx, offline, inst); err != nil {
+		t.Fatalf("offline derived install: %v", err)
+	}
+	if offline.waited > time.Minute {
+		t.Fatalf("offline wait = %s, want the offline bound (%s)", offline.waited, time.Minute)
+	}
+
+	online := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	online.status = &fakeSyncStatus{state: space.SyncStateSyncing, peers: 1}
+	if _, _, err := r.Ensure(ctx, ctx, online, inst); err != nil {
+		t.Fatalf("online derived install: %v", err)
+	}
+	if online.waited <= time.Minute {
+		t.Fatalf("connected wait = %s, want the full bound (%s)", online.waited, time.Hour)
 	}
 }
