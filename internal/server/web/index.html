@@ -2038,12 +2038,26 @@
     return messages.map(m => renderChatMessage(o, m)).join('');
   }
 
+  // Server-stamped times are extended-JSON instants: {"$date": "<RFC 3339>"}
+  // (or {"$date": <unix millis>} outside RFC 3339's year range). Returns
+  // millis, or 0 when absent.
+  function instantMillis(v) {
+    if (!v || typeof v !== 'object') return 0;
+    const d = v.$date;
+    if (typeof d === 'number') return d;
+    if (typeof d !== 'string') return 0;
+    const ms = Date.parse(d);
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+
   function renderChatMessage(o, m) {
     const own = m.creator && App.accountId && m.creator === App.accountId;
     const author = own ? 'you' : shortId(m.creator || '');
-    const ts = m.createdAt ? new Date(m.createdAt * 1000) : null;
+    const created = instantMillis(m.createdAt);
+    const modified = instantMillis(m.modifiedAt);
+    const ts = created ? new Date(created) : null;
     const tsLabel = ts ? ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const edited = m.modifiedAt && m.modifiedAt > m.createdAt;
+    const edited = modified && created && modified > created;
     const agent = (m.agent && m.agent.name) ? m.agent : null;
 
     const reactions = m.reactions || {};
@@ -2051,14 +2065,17 @@
     const reactionsHTML = reactionEntries.length === 0 ? '' :
       '<div class="reactions">' +
         reactionEntries.map(([emoji, ids]) => {
-          const mine = Array.isArray(ids) && ids.includes(App.accountId);
+          // Reactions ship emoji-first with the identity at the leaf:
+          // {emoji: {accountId: instant}}. Only the keys matter here.
+          const reactors = Array.isArray(ids) ? ids : Object.keys(ids || {});
+          const mine = reactors.includes(App.accountId);
           return '<button class="reaction-chip' + (mine ? ' mine' : '') + '" ' +
             'data-act="chat-react" data-id="' + escapeHTML(o.id) +
             '" data-msg="' + escapeHTML(m.id) +
             '" data-emoji="' + escapeHTML(emoji) + '" ' +
-            'title="' + escapeHTML((ids || []).join(', ')) + '">' +
+            'title="' + escapeHTML(reactors.join(', ')) + '">' +
             escapeHTML(emoji) +
-            '<span class="count">' + (ids || []).length + '</span>' +
+            '<span class="count">' + reactors.length + '</span>' +
           '</button>';
         }).join('') +
       '</div>';
@@ -2271,7 +2288,7 @@
         '<div class="meta">status: ' + escapeHTML(info.status) +
           (info.ownRole ? ' · role: ' + escapeHTML(info.ownRole) : '') +
           (info.spaceType ? ' · type: ' + escapeHTML(info.spaceType) : '') +
-          ' · created ' + escapeHTML((info.createdAt || '').slice(0, 19)) +
+          ' · created ' + escapeHTML(String(info.createdAt || '').slice(0, 19)) +
         '</div>' +
       '</div>' +
       '<div class="row">' +

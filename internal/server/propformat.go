@@ -200,8 +200,11 @@ func validateFormatSemantics(f *api.PropertyFormat, kind string) string {
 			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
 		}
 	case api.FormatTypeDate, api.FormatTypeDatetime:
-		if kind != "" && kind != api.PropertyKindString {
-			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
+		// datetime is what these formats imply; string is the legacy
+		// ISO-8601 convention, kept because kind is pinned at first write
+		// and properties created under the old default must stay usable.
+		if kind != "" && kind != api.PropertyKindDatetime && kind != api.PropertyKindString {
+			return fmt.Sprintf("format %q requires kind datetime or string (or omit kind); got %q", f.Type, kind)
 		}
 		if f.UI != "" {
 			return fmt.Sprintf("format %q takes no ui (got %q)", f.Type, f.UI)
@@ -428,7 +431,10 @@ func datetimeValue(v *fastjson.Value) (time.Time, string) {
 		}
 		return ts, ""
 	case fastjson.TypeNumber:
-		return time.UnixMilli(dv.GetInt64()).UTC(), ""
+		// int64(float64), the same narrowing any-store's extended-JSON
+		// decoder applies — so validation and the stored instant agree
+		// on non-integer or very large literals.
+		return time.UnixMilli(int64(dv.GetFloat64())).UTC(), ""
 	}
 	return time.Time{}, `"$date" must be an RFC 3339 string or unix millis`
 }

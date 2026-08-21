@@ -509,7 +509,7 @@ components:
         kind:
           description: |-
             Kind is a PropertyKind* wire string. Required unless stamp
-            implies one (creator ⇒ string, createTime/modifyTime ⇒ number).
+            implies one (creator ⇒ string, createTime/modifyTime ⇒ datetime).
           type: string
         mutableBy:
           description: |-

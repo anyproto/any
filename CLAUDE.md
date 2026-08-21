@@ -376,7 +376,7 @@ Implementation slices landed:
       branch, tagged as `alpha.11`. The SDK pins the same version.
 
 15. **Space `createdAt`** — the SDK (v0.0.10) stamps a derived
-    `createdAt` (unix seconds, added-to-account time: create for the
+    `createdAt` (added-to-account time: create for the
     author, join for a joiner) on every new tech-space `spaces` row.
     No `any`-side code — `SpaceInfo.createdAt` (`GET /v1/spaces[/:id]`)
     and the raw space-list rows light up via passthrough; rows sort
@@ -793,11 +793,12 @@ Implementation slices landed:
     never fired before).
 
 28. **Objects `modifiedAt`** — every per-space `objects` row now
-    carries a derived row-root `modifiedAt` (unix seconds), stamped by
+    carries a derived row-root `modifiedAt`, stamped by
     the SDK's `SystemPropertiesHandler` from the change envelope:
     seeded at create (= the creating change's time), bumped by every
     valid synced write, LWW-convergent on the change's DAG order.
-    Author's clock — sort/display quality only. Local/account-scope
+    Author's clock — sort/display quality only. Both stamps are
+    `{"$date": …}` instants since item 37 (unix seconds when written). Local/account-scope
     writes don't bump it. Pure
     passthrough — an SDK bump plus docs (03-api.md § Data plane,
     08-clients.md § 3, 09-query.md § Paths) and

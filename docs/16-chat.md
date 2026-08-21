@@ -53,6 +53,27 @@ visible to other members — no read receipts, by design), and
 Everything a client renders is materialized into ordinary queryable
 fields — you never compute read state yourself.
 
+## Timestamps
+
+`createdAt` / `modifiedAt` and every reaction leaf
+(`reactions.<emoji>.<accountId>`) are instants:
+`{"$date": "2026-05-01T21:00:00.000Z"}`. Unwrap the one key
+(`new Date(v.$date)`), and compare instants to instants — an edited
+message is one whose `modifiedAt` is later than its `createdAt`.
+
+**Tolerate a number there.** The stamps are derived on each device from
+the change envelope, so a peer running an older build materializes the
+same message as unix seconds, and rows a device wrote before it upgraded
+read that way until the SDK's re-index reaches them. The wire
+`DataVersion` deliberately does not gate this — bumping it would park
+every chat change on peers that don't know the new version, i.e. stop
+messages syncing to protect a field's shape. So a client that may talk
+to mixed builds accepts both forms:
+
+```js
+const ms = v && typeof v === 'object' ? Date.parse(v.$date) : v * 1000;
+```
+
 ## What the SDK maintains for you
 
 Per message (local fields on the record, visible in query results and

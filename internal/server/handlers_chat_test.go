@@ -620,8 +620,8 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 // extDate decodes an extended-JSON instant — `{"$date": "<RFC 3339>"}`,
 // or `{"$date": <unix millis>}` for years outside RFC 3339's range.
 type extDate struct {
-	ISO    string  `json:"$date"`
-	Millis float64 `json:"-"`
+	iso    string
+	millis float64
 }
 
 func (d *extDate) UnmarshalJSON(raw []byte) error {
@@ -631,24 +631,25 @@ func (d *extDate) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &obj); err != nil {
 		return err
 	}
-	var iso string
-	if err := json.Unmarshal(obj.Date, &iso); err == nil {
-		d.ISO = iso
+	if len(obj.Date) == 0 {
+		return nil // absent or null — a zero stamp, not a decode failure
+	}
+	if err := json.Unmarshal(obj.Date, &d.iso); err == nil {
 		return nil
 	}
-	return json.Unmarshal(obj.Date, &d.Millis)
+	return json.Unmarshal(obj.Date, &d.millis)
 }
 
 // seconds renders the instant as unix seconds — what the chat tests
 // compare, since the stamps come from a change's second-resolution
 // timestamp. Zero for an absent stamp.
 func (d extDate) seconds() int64 {
-	if d.ISO != "" {
-		ts, err := time.Parse(time.RFC3339, d.ISO)
+	if d.iso != "" {
+		ts, err := time.Parse(time.RFC3339, d.iso)
 		if err != nil {
 			return 0
 		}
 		return ts.Unix()
 	}
-	return int64(d.Millis) / 1000
+	return int64(d.millis) / 1000
 }

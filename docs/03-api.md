@@ -593,9 +593,12 @@ object also hosts the `identities` directory, whose rows carry a synced
 decryption key; it is deliberately **not** reachable here — read it
 through `GET /v1/identities`. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. Rows carry `createdAt` as unix
-seconds (handler-derived added-to-account time, absent on pre-stamp
-rows), so newest-first creation ordering is `{"sort": ["-createdAt"]}`.
+you want the projected status/role. Rows carry `createdAt` as an
+instant — `{"$date": "<RFC 3339>"}`, the handler-derived added-to-account
+time, absent on pre-stamp rows — so newest-first creation ordering is
+`{"sort": ["-createdAt"]}` and a range filter takes the same shape
+(`{"$gte": {"$date": "…"}}`). The mapped `SpaceInfo.createdAt` on
+`GET /v1/spaces` stays a plain RFC 3339 string.
 The subscribe frame set and `closed`
 reasons are identical to the per-object `…/query/subscribe` (see the Data
 plane § Subscribe and `docs/04-events.md`); a space joined on another
@@ -2100,8 +2103,8 @@ body is always read back through the query path.
 {
   "id":               "<change-derived id>",
   "creator":          "<accountId>",
-  "createdAt":        1714597200,
-  "modifiedAt":       1714597200,
+  "createdAt":        {"$date": "2026-05-01T21:00:00.000Z"},
+  "modifiedAt":       {"$date": "2026-05-01T21:00:00.000Z"},
   "replyToMessageId": "<msgId>",
   "agent": {
     "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
@@ -2112,7 +2115,8 @@ body is always read back through the query path.
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
-  "reactions":        { "👍": { "<id1>": 1714597200, "<id2>": 1714597205 } }
+  "reactions":        { "👍": { "<id1>": {"$date": "2026-05-01T21:00:00.000Z"},
+                                "<id2>": {"$date": "2026-05-01T21:00:05.000Z"} } }
 }
 ```
 

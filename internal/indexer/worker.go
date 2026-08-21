@@ -25,6 +25,11 @@ type spaceWorker struct {
 	ix *Indexer
 	sp space.Space
 
+	// generation is the SDK store epoch this worker's cursor belongs to,
+	// resolved once at start (alignIndex) and persisted with every cursor
+	// write.
+	generation string
+
 	// dirty coalesces change notifications (cap 1, non-blocking sends):
 	// the subscribe callback runs synchronously on the SDK apply path
 	// and must not block. Lost signals are harmless — advance is
@@ -56,11 +61,78 @@ func (w *spaceWorker) start() {
 		default:
 		}
 	})
+	// Before the loops: the alignment can drop this space's index, and
+	// the embed loop caches the space collection handle — a drop racing
+	// it would put a dropped handle back in the cache.
+	w.alignIndex(w.ctx)
 	w.ix.wg.Add(1)
 	go w.advanceLoop()
 	if w.ix.HasEmbedder() {
 		w.ix.wg.Add(1)
 		go w.embedLoop()
+	}
+}
+
+// alignIndex decides, once per worker, whether the persisted index still
+// describes the SDK store it was built from, and starts over when it
+// does not.
+//
+// Two triggers, both from the SDK's ChangeIndexAPI contract:
+//
+//   - the per-space Generation changed — the SDK store was rebuilt from
+//     scratch and the applySeq axis restarted at zero;
+//   - the stored cursor sits past MaxApplySeq — an older sdk.db was
+//     restored from backup under a cursor that ran ahead of it.
+//
+// Either way the cursor names a position the feed will never report
+// again: ChangedSince returns nothing, forever, with no error, and the
+// index silently stops updating. Dropping the space's docs and
+// restarting at zero is the only recovery.
+//
+// Best-effort: a read that fails leaves the cursor alone (freezing the
+// index over a transient error would be worse than the drift), and the
+// next boot re-checks.
+func (w *spaceWorker) alignIndex(ctx context.Context) {
+	spaceId := w.sp.Id()
+	cursor, storedGen, err := w.ix.store.Cursor(ctx, spaceId)
+	if err != nil {
+		w.ix.lg.Warn("read index cursor", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	w.generation = storedGen
+	gen, err := w.sp.Changes().Generation(ctx)
+	if err != nil {
+		w.ix.lg.Warn("read space generation", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if gen != "" {
+		w.generation = gen
+	}
+	reason := ""
+	switch {
+	case gen != "" && storedGen != "" && storedGen != gen:
+		reason = "sdk store was rebuilt"
+	case cursor > 0:
+		max, mErr := w.sp.Changes().MaxApplySeq(ctx)
+		if mErr != nil {
+			w.ix.lg.Warn("read max applySeq", zap.String("spaceId", spaceId), zap.Error(mErr))
+			return
+		}
+		if cursor > max {
+			reason = "cursor past the sdk store's axis"
+		}
+	}
+	if reason == "" {
+		return
+	}
+	w.ix.lg.Info("reindexing space", zap.String("spaceId", spaceId), zap.String("reason", reason),
+		zap.Uint64("cursor", cursor), zap.String("was", storedGen), zap.String("now", gen))
+	if err := w.ix.store.DropSpace(ctx, spaceId); err != nil {
+		w.ix.lg.Warn("drop space index", zap.String("spaceId", spaceId), zap.Error(err))
+		return
+	}
+	if err := w.ix.store.SetCursor(ctx, spaceId, 0, w.generation); err != nil {
+		w.ix.lg.Warn("reset index cursor", zap.String("spaceId", spaceId), zap.Error(err))
 	}
 }
 
@@ -150,41 +222,6 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 	return err
 }
 
-// resolveCursor returns the position to advance from, and the SDK
-// generation it belongs to.
-//
-// The generation changes exactly when the SDK's store was rebuilt from
-// scratch (a wiped sdk.db), which restarts the applySeq axis at zero. A
-// cursor from the previous generation then sits past everything the feed
-// will ever report again, so the index would silently freeze — nothing
-// is "changed since" a number the axis never reaches. On a mismatch the
-// space's docs are dropped and indexing restarts from the beginning.
-//
-// A generation the SDK cannot report (an older store, a transient read
-// failure) is treated as "unknown, keep going": freezing the index on a
-// missing epoch would be worse than the drift it guards against.
-func (w *spaceWorker) resolveCursor(ctx context.Context) (uint64, string, error) {
-	spaceId := w.sp.Id()
-	cursor, storedGen, err := w.ix.store.Cursor(ctx, spaceId)
-	if err != nil {
-		return 0, "", err
-	}
-	gen, err := w.sp.Changes().Generation(ctx)
-	if err != nil {
-		w.ix.lg.Warn("read space generation", zap.String("spaceId", spaceId), zap.Error(err))
-		return cursor, storedGen, nil
-	}
-	if gen == "" || storedGen == "" || storedGen == gen {
-		return cursor, gen, nil
-	}
-	w.ix.lg.Info("sdk store was rebuilt, reindexing space",
-		zap.String("spaceId", spaceId), zap.String("was", storedGen), zap.String("now", gen))
-	if err := w.ix.store.DropSpace(ctx, spaceId); err != nil {
-		return 0, "", err
-	}
-	return 0, gen, nil
-}
-
 // advancePages is the single cursor-driven operation: stream everything
 // past the cursor through the chunkers and land it in the store, page
 // by page. Never touches the embedder — text-bearing docs land as
@@ -193,7 +230,7 @@ func (w *spaceWorker) resolveCursor(ctx context.Context) (uint64, string, error)
 // the page's change count.
 func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress func(n int)) error {
 	spaceId := w.sp.Id()
-	cursor, generation, err := w.resolveCursor(ctx)
+	cursor, _, err := w.ix.store.Cursor(ctx, spaceId)
 	if err != nil {
 		return err
 	}
@@ -243,7 +280,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			return err
 		}
 		cursor = changes[len(changes)-1].ApplySeq
-		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, generation); err != nil {
+		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, w.generation); err != nil {
 			return err
 		}
 		progress(len(changes))

@@ -168,7 +168,7 @@ func resolveIndexedProp(typeId string, d space.PropertyDef) (indexedProp, bool) 
 		return indexedProp{}, false
 	}
 	switch d.Kind {
-	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber:
+	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber, space.PropertyKindDatetime:
 	default:
 		return indexedProp{}, false // booleans/null/object carry no discoverable text
 	}
@@ -258,13 +258,7 @@ func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 	}
 	switch kind {
 	case space.PropertyKindDatetime:
-		if v.Type() == anyenc.TypeDateTime {
-			ts, err := v.DateTime()
-			if err != nil {
-				return ""
-			}
-			return ts.UTC().Format(time.RFC3339)
-		}
+		return renderDateTime(v)
 	case space.PropertyKindString:
 		if v.Type() == anyenc.TypeString {
 			return string(v.GetStringBytes())
@@ -286,6 +280,20 @@ func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+// renderDateTime renders an instant as RFC 3339 UTC — searchable text
+// ("2026-08" prefixes a month), not the `{"$date": …}` envelope. Empty
+// for anything that is not an instant.
+func renderDateTime(v *anyenc.Value) string {
+	if v == nil || v.Type() != anyenc.TypeDateTime {
+		return ""
+	}
+	ts, err := v.DateTime()
+	if err != nil {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339)
 }
 
 // renderNumber is the canonical JSON rendering (integers without a
