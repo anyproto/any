@@ -72,7 +72,7 @@ type schemaCatalog struct {
 
 // schemaDataset is one resolved runtime dataset with a search mapping.
 // textFields holds the mapped text keys in declaration order (the
-// `text` leaf is a bare field key or an array of keys — SYN-179).
+// `text` leaf is a bare field key or an array of keys).
 type schemaDataset struct {
 	name       string
 	typeId     string

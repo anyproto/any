@@ -269,7 +269,7 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 }
 
 // parseSearchTextLeaf parses PATCH's `search.text` value — the one
-// string-or-array leaf (SYN-179). A bare string passes verbatim; an
+// string-or-array leaf. A bare string passes verbatim; an
 // array must name at least one field key, none empty, no duplicates,
 // and a single-element array canonicalizes to the bare string so the
 // stored leaf keeps the scalar shape wherever possible. Returns
@@ -517,6 +517,12 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 	case errors.Is(err, space.ErrTypeRegistered):
 		return writeError(c, http.StatusBadRequest, "type.registered",
 			"type is a registered built-in; its datasets are statically declared", details)
+	case errors.Is(err, space.ErrInvalidFieldValue):
+		// A mutable path carrying a malformed value (e.g. a bad
+		// search.text form the local pre-validation didn't cover) —
+		// same code the handler's own leaf checks use.
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			sanitizeSDKMessage(err), details)
 	case errors.Is(err, space.ErrPinnedField):
 		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
 	case errors.Is(err, space.ErrNotFound):

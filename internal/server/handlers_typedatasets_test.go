@@ -523,7 +523,7 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 }
 
 // TestTypeDatasets_SearchTextMultiField covers the string-or-array
-// search.text leaf (SYN-179): array declaration, wire read-back on
+// search.text leaf: array declaration, wire read-back on
 // both surfaces, drift-patch of the array leaf, single-element
 // canonicalization, and the invalid-array rejects.
 func TestTypeDatasets_SearchTextMultiField(t *testing.T) {

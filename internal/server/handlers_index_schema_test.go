@@ -12,7 +12,7 @@ import (
 )
 
 // TestIndexer_SchemaChunkerMultiText drives the multi-field text
-// mapping (SYN-179) through the whole pipeline: a dataset declared
+// mapping through the whole pipeline: a dataset declared
 // with `text: ["body", "notes"]` indexes terms from every mapped
 // field under the declared scope, an empty field contributes nothing,
 // and re-mapping via PATCH takes effect on the next re-index.

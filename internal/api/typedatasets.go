@@ -73,7 +73,7 @@ type DatasetSearchFields struct {
 
 // SearchText is the search `text` mapping's wire form: a bare field
 // key or a non-empty array of field keys (the indexer joins the mapped
-// values into one body — SYN-179). A single key marshals as the bare
+// values into one body). A single key marshals as the bare
 // string, so single-field declarations and discovery output keep the
 // canonical scalar shape. An empty string unmarshals to nil ("no text
 // mapping"); an empty array stays a non-nil empty slice so declaration

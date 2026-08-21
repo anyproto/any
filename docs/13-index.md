@@ -165,7 +165,7 @@ user dataset names at the creation API.
 
 - **Mapping**: `x-search.title` → `IndexEntry.Title` (BM25F-boosted)
   and `Data`'s leading line; `x-search.text` → the rest of `Data`.
-  `text` is a bare field key or an array of keys (SYN-179): each
+  `text` is a bare field key or an array of keys: each
   mapped field renders separately and the non-empty values join with a
   blank line, in mapping order — a missing/empty field contributes
   nothing. Either side may be absent; title stays single-field.
