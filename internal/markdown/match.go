@@ -97,7 +97,11 @@ func resolveEdits(content string, edits []Edit) ([]span, error) {
 		}
 		newText := normalizeLF(e.NewText)
 		for _, m := range matches {
-			all = append(all, span{start: m[0], end: m[1], newText: newText, edit: i})
+			start, end := m[0], m[1]
+			if newText == "" {
+				start, end = widenBlockDeletion(content, start, end)
+			}
+			all = append(all, span{start: start, end: end, newText: newText, edit: i})
 		}
 	}
 	sort.Slice(all, func(a, b int) bool {
@@ -112,6 +116,59 @@ func resolveEdits(content string, edits []Edit) ([]span, error) {
 		}
 	}
 	return all, nil
+}
+
+// widenBlockDeletion expands a whole-block deletion to swallow the
+// blank-line separator it would otherwise leave behind. Blank lines
+// beyond one separator are empty paragraphs (see Split), so deleting
+// "b" out of "a\n\nb\n\nc" without this would replace the block with
+// two of them instead of removing it.
+//
+// Only a match that starts and ends on block boundaries is widened —
+// a mid-line fragment deletion must not eat its neighbours' newlines.
+// One separator is two newlines, except for the last block in the
+// document, where the run on its left is the only one and a single
+// trailing newline is the terminator rather than a separator.
+// Newlines come off the left first; the two runs merge once the
+// block text is spliced out, so the result is the same either way.
+func widenBlockDeletion(content string, start, end int) (int, int) {
+	left := countNewlinesBefore(content, start)
+	right := countNewlinesAfter(content, end)
+	atBlockStart := start == 0 || left >= 2
+	atBlockEnd := end == len(content) || right >= 2 || end+right == len(content)
+	if !atBlockStart || !atBlockEnd {
+		return start, end
+	}
+	want := 2
+	if right == 0 && end == len(content) {
+		// Last block, no terminator: its left run keeps standing in
+		// for the trailing empty paragraphs, one newline fewer.
+		want = 1
+	}
+	if want > left+right {
+		want = left + right
+	}
+	if fromLeft := min(want, left); fromLeft > 0 {
+		start -= fromLeft
+		want -= fromLeft
+	}
+	return start, end + want
+}
+
+func countNewlinesBefore(content string, at int) int {
+	n := 0
+	for at-n > 0 && content[at-n-1] == '\n' {
+		n++
+	}
+	return n
+}
+
+func countNewlinesAfter(content string, at int) int {
+	n := 0
+	for at+n < len(content) && content[at+n] == '\n' {
+		n++
+	}
+	return n
 }
 
 // exactMatches returns the [start, end) offsets of every

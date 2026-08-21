@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -46,6 +47,75 @@ func TestApplyEdits_EmptyNewTextDeletes(t *testing.T) {
 	}
 	if want := "keep\n\nkeep too"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestApplyEdits_EmptyNewTextDeletesWholeBlock(t *testing.T) {
+	// Quoting just the block text deletes the block: the separator it
+	// would otherwise leave behind is content under the empty-paragraph
+	// encoding. What the caller sees is the block list, so assert that.
+	cases := []struct {
+		name, content, oldText string
+		want                   []string
+	}{
+		{"middle", "a\n\nb\n\nc", "b", []string{"a", "c"}},
+		{"last", "a\n\nb", "b", []string{"a"}},
+		{"last with terminator", "a\n\nb\n", "b", []string{"a"}},
+		{"first", "a\n\nb", "a", []string{"b"}},
+		{"separator quoted explicitly", "a\n\nb\n\nc", "\n\nb", []string{"a", "c"}},
+		{"only block", "a", "a", nil},
+		// Empty paragraphs are blocks of their own: deleting a
+		// neighbour must not take them with it.
+		{"keeps a trailing empty paragraph", "a\n\n\nb", "b", []string{"a", ""}},
+		{"keeps it with a terminator", "a\n\n\nb\n", "b", []string{"a", ""}},
+		{"keeps a leading empty paragraph", "a\n\n\nb", "a", []string{"", "b"}},
+		{"keeps both sides", "a\n\n\nb\n\n\nc", "b", []string{"a", "", "", "c"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := applyEdits(tc.content, []Edit{{OldText: tc.oldText, NewText: ""}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if blocks := Split(got); !slices.Equal(blocks, tc.want) {
+				t.Errorf("edited %q -> blocks %q, want %q", got, blocks, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyEdits_EmptyNewTextKeepsNeighboursOfAFragment(t *testing.T) {
+	// A mid-line or partial-line deletion must not eat the surrounding
+	// newlines — only a whole-block match is widened.
+	cases := []struct{ name, content, oldText, want string }{
+		{"mid-line", "a\n\nsome typo here\n\nb", " typo", "a\n\nsome here\n\nb"},
+		{"line of a paragraph", "first\nsecond\n\nb", "second", "first\n\n\nb"},
+		{"prefix of a block", "a\n\nbcd\n\ne", "bc", "a\n\nd\n\ne"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := applyEdits(tc.content, []Edit{{OldText: tc.oldText, NewText: ""}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyEdits_EmptyNewTextAdjacentBlocks(t *testing.T) {
+	// Two widened deletions must not overlap into each other.
+	got, err := applyEdits("a\n\nb\n\nc", []Edit{
+		{OldText: "b", NewText: ""},
+		{OldText: "c", NewText: ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocks := Split(got); !slices.Equal(blocks, []string{"a"}) {
+		t.Errorf("edited %q -> blocks %q, want [a]", got, blocks)
 	}
 }
 

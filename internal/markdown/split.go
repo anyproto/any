@@ -23,25 +23,40 @@ import (
 //   - Table (line starting with `|`): consecutive non-blank lines.
 //   - Paragraph: anything else, until a blank line or a different
 //     block opens.
+//   - Empty paragraph: a blank line not acting as a block separator,
+//     returned as an empty entry.
 //
-// Blank lines are dropped entirely — they are pure separators between
-// blocks. The returned slice contains no empty entries.
+// One blank line between two content blocks is the plain separator;
+// every blank line beyond it is one empty paragraph. A run at either
+// edge of the document has no separator duty, so all of its lines are
+// empty paragraphs — including a document that is blank throughout.
+// splitLines still treats a single trailing newline as a terminator,
+// so content that merely ends in "\n" gains nothing.
 //
-// The returned strings carry no trailing newline. Joining with
-// "\n\n" reconstructs a canonical markdown document; round-trip is
-// idempotent — Split(Join(Split(x))) == Split(x).
+// The returned strings carry no trailing newline. Join reconstructs a
+// canonical markdown document; round-trip is idempotent —
+// Split(Join(Split(x))) == Split(x).
 func Split(md string) []string {
 	if md == "" {
 		return nil
 	}
 	lines := splitLines(md)
 	var out []string
+	// blanks counts the current run of blank lines; sawContent says
+	// whether a content block precedes it, which is what decides
+	// whether one of those lines is spent on separation.
+	blanks := 0
+	sawContent := false
 	i := 0
 	for i < len(lines) {
 		if isBlank(lines[i]) {
+			blanks++
 			i++
 			continue
 		}
+		out = appendEmpties(out, blanks, sawContent)
+		blanks = 0
+		sawContent = true
 
 		switch {
 		case isFenceOpen(lines[i]):
@@ -75,6 +90,21 @@ func Split(md string) []string {
 			out = append(out, block)
 			i = next
 		}
+	}
+	// A trailing run has no following block to separate from, so every
+	// line of it is an empty paragraph — same rule as a leading run.
+	return appendEmpties(out, blanks, false)
+}
+
+// appendEmpties appends the empty entries a blank run of n lines
+// stands for: one line pays for the separator when a content block
+// precedes the run, none does at either edge.
+func appendEmpties(out []string, n int, afterContent bool) []string {
+	if afterContent {
+		n--
+	}
+	for ; n > 0; n-- {
+		out = append(out, "")
 	}
 	return out
 }
@@ -184,16 +214,25 @@ func fenceOpener(l string) (string, bool) {
 
 // consumeFence returns the verbatim block (opener + body + closer if
 // present) and the index of the first line after it. Unterminated
-// fences run to EOF; we still return the block intact.
+// fences run to EOF; we still return the block intact, minus any
+// trailing blank lines — those belong to the document (as empty
+// paragraphs), not to a code block whose end we had to guess.
 func consumeFence(lines []string, start int) (string, int) {
 	opener, _ := fenceOpener(lines[start])
 	c := opener[0]
 	end := len(lines)
+	terminated := false
 	for j := start + 1; j < len(lines); j++ {
 		t := strings.TrimRight(trimLeadingSpaces(lines[j], 3), " \t")
 		if len(t) >= len(opener) && allByte(t, c) {
 			end = j + 1
+			terminated = true
 			break
+		}
+	}
+	if !terminated {
+		for end > start+1 && isBlank(lines[end-1]) {
+			end--
 		}
 	}
 	return strings.Join(lines[start:end], "\n"), end

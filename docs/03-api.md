@@ -952,7 +952,8 @@ The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
 "endpoints map 1:1 onto SDK methods" rule. `GET` reads every
 top-level block, renders each to its canonical markdown bytes, and
-joins with `\n\n`. `PUT` parses the incoming markdown, diffs against
+joins with `\n\n` (see *Empty paragraphs* below for the blank-line
+rule). `PUT` parses the incoming markdown, diffs against
 the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path a
 PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
@@ -983,7 +984,10 @@ shape. Matching rules:
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be
-  empty (deletes the matched text).
+  empty (deletes the matched text). When the match is a whole block,
+  the deletion takes one blank-line separator with it, so removing a
+  block leaves its neighbours adjacent rather than leaving empty
+  paragraphs behind; empty paragraphs that were already there stay.
 - Exact match first; on zero hits a whole-line fuzzy fallback
   retries with unicode punctuation folded to ASCII (curly quotes,
   dash family, NBSP; NFKC) and trailing whitespace ignored. A
@@ -1021,6 +1025,41 @@ identical to an existing one), and it inserts no leading separator —
 Empty/blank content is a 200 no-op. Use this for grow-by-append pages
 (e.g. agent debug logs that append every turn); a run of N appends is
 O(N) here versus O(N²) through `PUT`.
+
+##### Empty paragraphs
+
+An empty paragraph is a real block — a `paragraph` record with
+`text: ""` — and blank lines are how the markdown routes carry it.
+The rule, applied by both `PUT` (parse) and `GET` (render), so the
+two are exact inverses:
+
+- **Between two content blocks**: one blank line is the plain
+  separator; **every blank line beyond it is one empty paragraph**.
+  `alpha\n\nbeta` is two blocks; `alpha\n\n\nbeta` is two blocks with
+  one empty paragraph between them.
+- **At either edge**: a leading or trailing run has no separator to
+  build on, so **every one of its blank lines is an empty paragraph**
+  — with one exception below. The same holds for a document that is
+  blank throughout.
+- **A single trailing newline is a terminator, not content.**
+  `alpha\n` is one block, byte-identical on read-back to `alpha`.
+  A trailing empty paragraph therefore renders as `alpha\n\n`.
+
+Consequences worth designing against:
+
+- `GET` after `PUT` returns the same bytes for any document expressed
+  in this form, and re-`PUT`ting a `GET` writes nothing (`unchanged`
+  equals the block count). A client that hydrates from `GET` will not
+  see its own save come back reshaped.
+- The encoding is **ours, not CommonMark's**: every other markdown
+  renderer collapses blank runs. Content that round-trips through an
+  external tool, a paste, or a client that does not implement this
+  rule loses its empty paragraphs. Editors that want them preserved
+  must both emit and parse blank runs this way.
+- `POST …/editor/markdown/append` is the exception: a fragment is
+  positioned by the append itself, so blank lines wrapping it are
+  framing and are dropped. Empty paragraphs *between* the fragment's
+  own blocks are kept, and blank-only content stays a 200 no-op.
 
 #### Blocks
 

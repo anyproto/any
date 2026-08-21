@@ -31,6 +31,14 @@ shape:
 - **Full rewrite / import** → `PUT …/editor/markdown`.
 - **Tail growth** (logs, transcripts) → `POST …/editor/markdown/append`.
 
+An editor that renders empty paragraphs must emit and parse blank
+runs the way the markdown routes encode them — one blank line
+separates two blocks, each further blank line is an empty paragraph,
+and an edge run has no separator to build on. Serialize and parse
+have to be exact inverses, or every load reshapes the document and
+saves the difference back. Full rule in `03-api.md` § Empty
+paragraphs.
+
 Every write returns the shared `api.ModifyResult`
 (`{versionId, changeId, recordIds}`), never the record body —
 `recordIds[0]` is the server-derived id on a create, and `versionId` is
