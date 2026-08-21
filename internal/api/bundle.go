@@ -30,6 +30,11 @@ type Bundle struct {
 	// installed concurrently — merge what matters out of each, then
 	// resolve it.
 	Losers []string `json:"losers,omitempty"`
+	// Derived reports that the winner is the root derived from the
+	// bundle id: the same id on every device, so this install cannot
+	// fork — and cannot be uninstalled, a derived object being
+	// undeletable. Absent means an ordinary created root.
+	Derived bool `json:"derived,omitempty"`
 }
 
 // BundleEnsureRequest is the body of POST /v1/spaces/:spaceId/bundles.
@@ -44,14 +49,31 @@ type BundleEnsureRequest struct {
 	// RootProperties seeds the root's property values, keyed
 	// typeId → propId → value (same shape as POST /objects).
 	RootProperties map[string]map[string]any `json:"rootProperties,omitempty"`
+	// Derived installs the bundle on the root derived from its id
+	// rather than a created one. Every device computes that id
+	// offline, so the install never forks and never waits for the
+	// registry to converge — which is the only way both sides of a
+	// 1-1 (where nobody is the owner) can install while apart.
+	//
+	// Permanent in both directions: a derived root cannot be deleted,
+	// so the bundle can never be uninstalled, and an existing install
+	// on a created root is adopted rather than migrated. Ask for it
+	// for a space's chat; not for anything a user may remove.
+	Derived bool `json:"derived,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.
 type BundleEnsureResponse struct {
 	// Bundle is the converged registry row.
 	Bundle Bundle `json:"bundle"`
-	// Installed reports whether THIS call created the root. False
-	// means an existing install was adopted and nothing was written.
+	// Installed reports whether THIS call registered the install.
+	// False means an existing one was adopted — which for a derived
+	// bundle may still materialize the root's tree on this device,
+	// since that id is one every device can mint.
+	//
+	// For a derived install it reports what THIS DEVICE did: both
+	// sides of a partition can report true for the one root they
+	// share.
 	Installed bool `json:"installed"`
 }
 

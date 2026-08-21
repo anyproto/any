@@ -355,6 +355,10 @@ const docTemplate = `{
             "api.Bundle": {
                 "description": "Bundle is the converged registry row.",
                 "properties": {
+                    "derived": {
+                        "description": "Derived reports that the winner is the root derived from the\nbundle id: the same id on every device, so this install cannot\nfork — and cannot be uninstalled, a derived object being\nundeletable. Absent means an ordinary created root.",
+                        "type": "boolean"
+                    },
                     "id": {
                         "description": "Id is the stable bundle identifier — the record id. Permanent:\na successor install takes a new id (record deletes are refused,\nso a reused id could never be reclaimed).",
                         "type": "string"
@@ -413,6 +417,10 @@ const docTemplate = `{
             },
             "api.BundleEnsureRequest": {
                 "properties": {
+                    "derived": {
+                        "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
+                        "type": "boolean"
+                    },
                     "id": {
                         "description": "Id is the bundle identifier. Required.",
                         "type": "string"
@@ -446,7 +454,7 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/api.Bundle"
                     },
                     "installed": {
-                        "description": "Installed reports whether THIS call created the root. False\nmeans an existing install was adopted and nothing was written.",
+                        "description": "Installed reports whether THIS call registered the install.\nFalse means an existing one was adopted — which for a derived\nbundle may still materialize the root's tree on this device,\nsince that id is one every device can mint.\n\nFor a derived install it reports what THIS DEVICE did: both\nsides of a partition can report true for the one root they\nshare.",
                         "type": "boolean"
                     }
                 },
