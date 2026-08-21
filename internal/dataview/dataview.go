@@ -28,7 +28,11 @@
 // the record shape carries no server semantics worth an endpoint.
 package dataview
 
-import "github.com/anyproto/any-sync-sdk/handler"
+import (
+	anystore "github.com/anyproto/any-store/v2"
+
+	"github.com/anyproto/any-sync-sdk/handler"
+)
 
 const (
 	// TypeId is reserved — content-addressable user type ids never
@@ -90,6 +94,8 @@ func NewType() handler.Type {
 			Name:        Dataset,
 			DataVersion: DataVersion,
 			Schema:      datasetSchema(),
+			// Every documented read sorts by pos.
+			Indexes: []anystore.IndexInfo{{Name: "idx_pos", Fields: []string{FieldPos}}},
 		}},
 	}
 }
@@ -125,7 +131,11 @@ func datasetSchema() handler.Schema {
 		Fields: []handler.Field{
 			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
-			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
+			// Required: views are read in `pos` order, and an absent pos
+			// sorts as "" — ahead of every positioned view, on every
+			// peer. A loud create failure beats silently pinning a view
+			// to the top of everyone's list.
+			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLayout, Name: "Layout", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldQuery, Name: "Query", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},

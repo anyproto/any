@@ -180,12 +180,30 @@ func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
+	if isSerializedNil(typeId) {
+		return serializedNilIdError(c, "typeId", typeId)
+	}
+
+	ctx := c.Request().Context()
+
+	// Attach pre-flights the type the way objectCreate and the bundles
+	// root check do: `any.types` is a synced DAG write with no
+	// validation behind it, so a typo would otherwise be permanent.
+	// Detach deliberately does NOT pre-flight — it is the repair path
+	// for a bogus id that is already attached.
+	if attach {
+		if _, err := sp.Types().Get(ctx, typeId); err != nil {
+			return writeError(c, http.StatusNotFound, "type.not_found",
+				"this space has no such type",
+				map[string]any{"typeId": typeId, "spaceId": sp.Id()})
+		}
+	}
 
 	bind := sp.Properties().DetachType
 	if attach {
 		bind = sp.Properties().AttachType
 	}
-	res, err := bind(c.Request().Context(), objectId, typeId)
+	res, err := bind(ctx, objectId, typeId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
 			"spaceId":  sp.Id(),

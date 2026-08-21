@@ -72,14 +72,21 @@ migrating existing records.
 
 | Field | Scope | Rule |
 |-------|-------|------|
-| `name`, `layout` | synced | required on create |
-| `icon`, `pos`, `query`, `layoutSettings` | synced | free to rewrite |
+| `name`, `pos`, `layout` | synced | required on create |
+| `icon`, `query`, `layoutSettings` | synced | free to rewrite |
 | `localSettings` | **local** | device-only, never synced |
 | `creator`, `createdAt`, `modifiedAt` | derived | server-stamped, client writes rejected |
 
 Everything synced is `mutableBy: any` and any writer may delete a view:
 a shared view is space furniture, and readers/guests are already fenced
 by the ACL. Author-only would freeze a departed member's view forever.
+
+Deleting a view **burns its id permanently** — see
+[Ensuring the default view](#ensuring-the-default-view) before relying
+on a well-known id.
+
+`pos` is required precisely because views are read in `pos` order: an
+absent one sorts as `""`, ahead of every positioned view on every peer.
 
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
 `x-mutable-by`, `x-stamp`, `x-id`) rather than hardcoding them.
@@ -138,11 +145,37 @@ makes the default view safe:
 }
 ```
 
-Ensure the default view with a **fixed id plus upsert**, never
-create-on-open: two devices opening the same object would otherwise mint
-two "All" views. Concurrent creates of the *same* id by *different*
-members take arrival-order-dependent creation verdicts; the content
-still converges last-write-wins.
+Concurrent creates of the *same* id by *different* members take
+arrival-order-dependent creation verdicts; the content still converges
+last-write-wins.
+
+#### Ensuring the default view
+
+Ensure it with a **fixed id plus upsert**, never create-on-open: two
+devices opening the same object would otherwise mint two "All" views.
+
+**A deleted record id is burned permanently.** Ids never reuse, so once
+someone deletes the view with id `default`, upserting `default` again
+returns **HTTP 200 with a rejection** and creates nothing:
+
+```json
+{"versionId": "…", "changeId": "…", "recordIds": ["default"],
+ "rejections": [{"recordIndex": 0, "recordId": "default", "opIndex": -1,
+                 "reason": "crdt: record is deleted; the id cannot be reused"}]}
+```
+
+A client that only checks the status code therefore shows an empty view
+list with no error. **Always inspect `rejections`** on an ensure, and
+recover by walking a deterministic id sequence — `default`, `default-2`,
+`default-3`, … — taking the first id that is not rejected. The sequence
+is what preserves convergence: every device walks the same one and lands
+on the same replacement, instead of each minting a fresh id and
+recreating the duplicate problem.
+
+This is the cost of client-supplied ids, and it is why the product rule
+"at least one view always exists" is a **client** rule: the server
+cannot refuse the delete, so the client must not offer to delete the
+last remaining view.
 
 Device-local settings go through the same endpoint with
 `"scope": "local"` — explicit record id, no upsert (the record must

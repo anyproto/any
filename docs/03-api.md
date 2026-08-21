@@ -2014,12 +2014,17 @@ a rule naming a deleted property means.
 
 No bespoke endpoints: write through `POST /v1/spaces/:spaceId/modify`
 with `dataset: "data_views"`, read through `…/query[/subscribe]` sorted
-by `pos`. Record ids are **client-supplied** (`idRule: user`) — ensure
-the default view with a fixed id plus `upsert`, never create-on-open, or
-two devices mint two "All" views. `name` and `layout` are required on
-create; `creator` / `createdAt` / `modifiedAt` are server-stamped and
-reject client writes; every synced field is `mutableBy: any` and any
-writer may delete a view.
+by `pos`. `name`, `pos` and `layout` are required on create; `creator` /
+`createdAt` / `modifiedAt` are server-stamped and reject client writes;
+every synced field is `mutableBy: any` and any writer may delete a view.
+
+Record ids are **client-supplied** (`idRule: user`) — ensure the default
+view with a fixed id plus `upsert`, never create-on-open, or two devices
+mint two "All" views. A deleted id is **burned permanently**: re-upserting
+it returns `200` with a `rejections` entry and creates nothing, so an
+ensure must inspect `rejections` and fall through to the next id in a
+deterministic sequence (`default`, `default-2`, …). See
+`24-data-views.md` § Ensuring the default view.
 
 `localSettings` is `scope: local` — this device's override of
 `layoutSettings`, written with `"scope": "local"` on `/modify` (explicit
@@ -2048,9 +2053,14 @@ mixed-scope or unknown-key patches; scope is inferred from the props).
 Runtime type binding: `attach` adds a type to the object's `any.types`,
 admitting writes to that type's membership-gated datasets; `detach`
 removes it. Both take no body, return `ModifyResult`, and are idempotent
-(`$addToSet` / `$pull`). The object must already exist — an unknown id
-is `404 object.not_found`, not a silent create; bind at creation instead
-via the `types` array on `POST /v1/spaces/:spaceId/objects`.
+(`$addToSet` / `$pull`). Bind at creation instead via the `types` array
+on `POST /v1/spaces/:spaceId/objects` when the object is new.
+
+`attach` pre-flights both ids — `404 object.not_found` for an unknown
+object, `404 type.not_found` for a type the space doesn't have — because
+`any.types` is a synced DAG write with no validation behind it, so a
+typo would replicate permanently. `detach` deliberately checks neither:
+it is the repair path for a row that already carries a bogus id.
 
 Detaching is **not** a delete: values in that namespace and records in
 the type's datasets stay as orphan data, read-tolerant by design, and

@@ -237,8 +237,9 @@ func TestServer_DataView_Required(t *testing.T) {
 	spaceId, objectId := setupViewFixture(t, e)
 
 	for _, tc := range []struct{ name, payload string }{
-		{"no name", `{"layout": "table"}`},
-		{"no layout", `{"name": "All"}`},
+		{"no name", `{"layout": "table", "pos": "a0"}`},
+		{"no layout", `{"name": "All", "pos": "a0"}`},
+		{"no pos", `{"name": "All", "layout": "table"}`},
 	} {
 		body := fmt.Sprintf(`{
 			"objectId": %q, "dataset": %q,
@@ -397,8 +398,8 @@ func TestServer_DataView_DatasetDiscovery(t *testing.T) {
 		if got := ds.Schema.Properties[dataview.FieldModifiedAt].Stamp; got != "modifyTime" {
 			t.Errorf("modifiedAt x-stamp = %q, want modifyTime", got)
 		}
-		if len(ds.Schema.Required) != 2 {
-			t.Errorf("required = %v, want name+layout", ds.Schema.Required)
+		if got := fmt.Sprint(ds.Schema.Required); got != "[name pos layout]" {
+			t.Errorf("required = %v, want name+pos+layout", ds.Schema.Required)
 		}
 		return
 	}

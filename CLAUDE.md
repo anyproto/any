@@ -1114,16 +1114,24 @@ Implementation slices landed:
     discriminator reserving room for an aggregation-backed view.
     **No bespoke endpoints and no CLI** — writes ride
     `POST /v1/spaces/:id/modify`, reads `…/query[/subscribe]` sorted by
-    `pos`. **No bespoke handler either**: the dataset declares
+    `pos` (indexed). **No bespoke handler either**: the dataset declares
     `Handler: nil` and the SDK's generic SchemaHandler enforces the
-    declaration — `name`+`layout` required, everything synced
-    `MutableByAnyone` + `DeleteByAnyone` (a shared view is space
-    furniture; readers are ACL-fenced), `creator`/`createdAt`/
-    `modifiedAt` stamped (`StampCreator`/`CreateTime`/`ModifyTime`,
-    client writes rejected), `IdRule: IdUser` so the default view is a
-    fixed id + upsert instead of a create-on-open race. `Dynamic: true`
-    — schema is enforced on every peer at apply time, so a closed
-    keyspace would silently drop a newer client's key on an older peer.
+    declaration — `name`+`pos`+`layout` required (`pos` because an
+    absent one sorts as `""`, ahead of every positioned view on every
+    peer), everything synced `MutableByAnyone` + `DeleteByAnyone` (a
+    shared view is space furniture; readers are ACL-fenced),
+    `creator`/`createdAt`/`modifiedAt` stamped
+    (`StampCreator`/`CreateTime`/`ModifyTime`, client writes rejected),
+    `IdRule: IdUser` so the default view is a fixed id + upsert instead
+    of a create-on-open race. `Dynamic: true` — schema is enforced on
+    every peer at apply time, so a closed keyspace would silently drop
+    a newer client's key on an older peer. **A deleted record id is
+    burned permanently**: re-upserting it returns 200 with a
+    `rejections` entry and creates NOTHING, so the documented ensure
+    inspects `rejections` and walks a deterministic id sequence
+    (`default`, `default-2`, …) — the sequence is what keeps two
+    devices converging on the same replacement
+    (TestServer_DataView_DeletedIdIsBurned).
     Device tier: `localSettings` is a top-level `ScopeLocal` object
     mirroring `layoutSettings` (scope is per TOP-LEVEL field, so
     `layoutSettings.widths` cannot be device-local on its own) — the
@@ -1134,8 +1142,11 @@ Implementation slices landed:
     via `/objects/aggregate` for distinct values + counts, then one
     plain query window per visible group. Same slice wires the two
     former 501s `POST …/properties/:objectId/{attach,detach}/:typeId`
-    (`handlers_properties.go`, idempotent, 404 on an unknown object;
-    detach leaves records as read-tolerant orphans). Contract:
+    (`handlers_properties.go`, idempotent; attach pre-flights BOTH ids
+    — `404 object.not_found` / `type.not_found` — because `any.types`
+    is a synced DAG write with no validation behind it, so a typo'd
+    type would replicate forever; detach checks neither, it is the
+    repair path, and leaves records as read-tolerant orphans). Contract:
     docs/24-data-views.md, docs/03-api.md § Types + § Properties.
 
 37. **Datetime values (SYN-136)** — every timestamp is any-store's
