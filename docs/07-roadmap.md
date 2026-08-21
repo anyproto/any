@@ -127,13 +127,11 @@ Not this repo's work; gate on the SDK:
   stays 501 until the SDK adds it. The diagnostic equivalent is
   surfaced via `Space.Debug().Space()` / `/v1/spaces/:id/debug`, but
   that surface is explicitly not stable.
-- **`PropertiesAPI.{SetAccount, SetDevice, DetachType}`.** Return
-  errors today; routes are 501 until the rewrite-object (account scope)
-  and device-local store (device scope) ship. `AttachType` now works on
-  the SDK — `editor.EnsureType` uses it to attach the `editor` type
-  before membership-gated `editor_blocks` writes — but the HTTP route
-  `/v1/spaces/:id/properties/:objectId/attach/:typeId` stays 501 (no
-  agent-facing caller yet; wire it when one appears).
+- **`PropertiesAPI.{SetAccount, SetDevice}`.** Return errors today;
+  routes are 501 until the rewrite-object (account scope) and
+  device-local store (device scope) ship. `AttachType` / `DetachType`
+  are live on both sides — saved views were the caller that wired the
+  HTTP routes (status § 37).
 - **Record-level account transport.** Dataset schema fields can
   declare `account` scope and the tech-space carrier is already keyed
   `(objectId, dataset, recordId)`, but the SDK's account mirror
@@ -151,6 +149,16 @@ Not this repo's work; gate on the SDK:
   wrapped store error ("tree does not exist") and currently fall
   through to `500 internal`. We could widen the 404 mapping in the
   handler if/when the SDK stabilises a sentinel for this case.
+- **Scoped datasets (SYN-174).** Records that exist only for one
+  account or one device — the SDK scopes FIELDS, and the private tiers
+  of saved views (`24-data-views.md`) need scoped RECORDS. Shape agreed:
+  scope the whole dataset (parallel `data_views_account` / `_device`),
+  not a per-record flag — one dataset is one version domain, and mixing
+  DAG / tech-tree / local-lexid versions in one dataset breaks
+  versionId ordering and subscribe dedup. Account tier rides the
+  record-level account transport above; device tier additionally needs
+  the local sidecar (a record with no DAG behind it dies on
+  wipe-and-rebuild).
 - **Query `Projection`.** Accepted in the request body but mostly
   ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
   `IncludeMeta` in MVP. **`IncludeDeleted` now works** (SDK `v0.0.10` —

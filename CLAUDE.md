@@ -1096,6 +1096,47 @@ Implementation slices landed:
     read back with an empty `xKey`. The web UI's object-type filter
     skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
     docs/06-data-structure.md.
+37. **Built-in `data_view` type: saved views (SYN-175)** —
+    `internal/dataview` registers `data_view`, attachable to ANY object
+    including a TYPE object (that is how "views on a type" works —
+    `AttachType` has no meta-type guard), owning the `data_views`
+    dataset: one record per saved view
+    (`name`/`icon`/`pos`/`layout`/`query`/`layoutSettings`). Built-in
+    for the `page` reason — views are shared client vocabulary, and a
+    client-minted user type races into parallel definitions. `query`
+    and `layoutSettings` stay **opaque** (checked "is an object",
+    nothing more): clients own the filter/sort/groupBy vocabulary and
+    reconcile rules naming a deleted property, because validating refs
+    server-side would make a deleted property a WRITE FAILURE instead
+    of a rule the client marks invalid. `filter`/`sort` are the
+    `/query` body shapes verbatim, so a view feeds straight into
+    query/subscribe; `query.type` is `"plain"` today, the
+    discriminator reserving room for an aggregation-backed view.
+    **No bespoke endpoints and no CLI** — writes ride
+    `POST /v1/spaces/:id/modify`, reads `…/query[/subscribe]` sorted by
+    `pos`. **No bespoke handler either**: the dataset declares
+    `Handler: nil` and the SDK's generic SchemaHandler enforces the
+    declaration — `name`+`layout` required, everything synced
+    `MutableByAnyone` + `DeleteByAnyone` (a shared view is space
+    furniture; readers are ACL-fenced), `creator`/`createdAt`/
+    `modifiedAt` stamped (`StampCreator`/`CreateTime`/`ModifyTime`,
+    client writes rejected), `IdRule: IdUser` so the default view is a
+    fixed id + upsert instead of a create-on-open race. `Dynamic: true`
+    — schema is enforced on every peer at apply time, so a closed
+    keyspace would silently drop a newer client's key on an older peer.
+    Device tier: `localSettings` is a top-level `ScopeLocal` object
+    mirroring `layoutSettings` (scope is per TOP-LEVEL field, so
+    `layoutSettings.widths` cannot be device-local on its own) — the
+    client renders the merge, local wins. Not search-indexed (no
+    chunker). Only the SHARED tier ships; account/device-private views
+    need scoped DATASETS (SYN-174), and date bucketing in `groupBy`
+    needs native datetime values (SYN-136) — grouping is client-driven
+    via `/objects/aggregate` for distinct values + counts, then one
+    plain query window per visible group. Same slice wires the two
+    former 501s `POST …/properties/:objectId/{attach,detach}/:typeId`
+    (`handlers_properties.go`, idempotent, 404 on an unknown object;
+    detach leaves records as read-tolerant orphans). Contract:
+    docs/24-data-views.md, docs/03-api.md § Types + § Properties.
 
 37. **Datetime values (SYN-136)** — every timestamp is any-store's
     native instant (`TypeDateTime`: unix millis, memcmp-orderable,
@@ -1392,6 +1433,7 @@ auto-start.
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
+| `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

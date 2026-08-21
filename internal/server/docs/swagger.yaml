@@ -6030,6 +6030,104 @@ paths:
       summary: Get properties of an object
       tags:
       - properties
+  /spaces/{spaceId}/properties/{objectId}/attach/{typeId}:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ModifyResult'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Attach a type to an object
+      tags:
+      - properties
+  /spaces/{spaceId}/properties/{objectId}/detach/{typeId}:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ModifyResult'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Detach a type from an object
+      tags:
+      - properties
   /spaces/{spaceId}/properties/{objectId}/set/{typeId}:
     post:
       parameters:

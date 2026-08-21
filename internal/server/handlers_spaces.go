@@ -143,8 +143,8 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// patch's propIds determine the scope (all must share one).
 	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
 	g.POST("/spaces/:spaceId/properties/:objectId/set/:typeId", d.propertiesSet)
-	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", notImplemented("Properties.AttachType"))
-	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", notImplemented("Properties.DetachType"))
+	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", d.propertiesAttachType)
+	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", d.propertiesDetachType)
 
 	// Members. Static segments before the :identity wildcard so /me,
 	// /requests, and /subscribe don't get swallowed by the param matcher.
