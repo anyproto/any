@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
+	"reflect"
 )
 
 // Wire labels for the dataset-schema behavioral vocabulary. Mirror the
@@ -62,7 +62,11 @@ type DatasetDraftRequest struct {
 // the index scope slug the dataset's entries land under (index.
 // ValidScope); empty = the indexer's default scope ("basic").
 type DatasetSearchFields struct {
-	Title string     `json:"title,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Text accepts a bare field-key string OR a non-empty array of
+	// unique field keys; a single key always reads back as the bare
+	// string. The generated schema can only show the array form — the
+	// string form is equally valid on the wire.
 	Text  SearchText `json:"text,omitempty"`
 	Scope string     `json:"scope,omitempty"`
 }
@@ -95,7 +99,14 @@ func (t *SearchText) UnmarshalJSON(data []byte) error {
 	}
 	var keys []string
 	if err := json.Unmarshal(data, &keys); err != nil {
-		return errors.New("search text must be a string or an array of field keys")
+		// A typed error so bind failures name the field
+		// (bindErrorMessage renders UnmarshalTypeError with its Field)
+		// instead of degrading to the generic body-shape message.
+		return &json.UnmarshalTypeError{
+			Value: "neither a string nor an array of strings",
+			Type:  reflect.TypeFor[SearchText](),
+			Field: "search.text",
+		}
 	}
 	*t = SearchText(keys)
 	return nil

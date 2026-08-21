@@ -166,7 +166,8 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 }
 
 // datasetDefMutablePaths are the wire (== storage) paths PATCH accepts;
-// every mutable leaf is a plain string. Everything else on a dataset
+// every mutable leaf is a plain string except search.text, which is
+// string-or-array (parseSearchTextLeaf). Everything else on a dataset
 // definition is pinned — remove and re-add to change it. The wire
 // `name` (the collection name) is NOT here: it lives under the pinned
 // storage field `collection`, and the head record's storage `name`
@@ -274,19 +275,20 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 // stored leaf keeps the scalar shape wherever possible. Returns
 // ("", "") code/reason on success.
 func parseSearchTextLeaf(raw json.RawMessage) (val any, code, reason string) {
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return s, "", ""
-	}
-	var keys []string
-	if err := json.Unmarshal(raw, &keys); err != nil {
+	var text api.SearchText
+	if err := json.Unmarshal(raw, &text); err != nil {
 		return nil, "request.invalid_field", "search.text must be a string or an array of field keys"
 	}
-	if len(keys) == 0 {
+	if text == nil {
+		// An empty string decodes to nil — stored verbatim as the
+		// explicit clear the single-field form always allowed.
+		return "", "", ""
+	}
+	if len(text) == 0 {
 		return nil, "request.invalid_field", "search.text array must name at least one field key"
 	}
-	seen := make(map[string]struct{}, len(keys))
-	for _, k := range keys {
+	seen := make(map[string]struct{}, len(text))
+	for _, k := range text {
 		if k == "" {
 			return nil, "request.invalid_field", "search.text has an empty field key"
 		}
@@ -295,10 +297,10 @@ func parseSearchTextLeaf(raw json.RawMessage) (val any, code, reason string) {
 		}
 		seen[k] = struct{}{}
 	}
-	if len(keys) == 1 {
-		return keys[0], "", ""
+	if len(text) == 1 {
+		return text[0], "", ""
 	}
-	return keys, "", ""
+	return []string(text), "", ""
 }
 
 // typeRemoveDataset handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId.

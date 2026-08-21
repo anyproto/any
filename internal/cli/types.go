@@ -289,6 +289,9 @@ func newTypeDatasetAddCmd() *cobra.Command {
      {"key": "author",    "stamp": "creator"},
      {"key": "createdAt", "stamp": "createTime"},
      {"key": "updatedAt", "stamp": "modifyTime"}]}
+search.text is a bare field key or a non-empty array of keys, e.g.
+"search": {"title": "subject", "text": ["body", "notes"]} — the index
+joins the mapped fields into one body.
 Behavioral parts (name, idRule, deleteBy, field kinds/flags) are pinned;
 display parts patch via 'type dataset patch'. Declare required fields
 here — fields added later cannot be required.`,

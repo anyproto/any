@@ -90,8 +90,9 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 		}
-		// PR #173 stance: stored entries keep their old mapping until
-		// the record re-indexes on its next change.
+		// Stored entries keep their old mapping until the record
+		// re-indexes on its next change (docs/03-api.md § Runtime
+		// dataset schemas).
 		rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"emails","records":[
 			{"id":"m1","fields":{"subject":"Quarterly numbers","body":"revenue is up","notes":"follow up with legal"}}]}`)
 		if rec.Code != http.StatusOK {

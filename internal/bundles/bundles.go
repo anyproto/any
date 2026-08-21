@@ -188,14 +188,17 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		return space.Bundle{}, false, err
 	}
 
+	var created string
 	b, registered, err := sp.Bundles().Ensure(createCtx, space.EnsureBundleRequest{
 		Id:   inst.Id,
 		Name: inst.Name,
 		NewRoot: func(ctx context.Context) (string, error) {
-			return sp.Objects().Create(ctx, space.CreateObjectOpts{
+			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
 				Types:             inst.RootTypes,
 				InitialProperties: inst.RootProperties,
 			})
+			created = rootId
+			return rootId, err
 		},
 	})
 	if err != nil {
@@ -205,9 +208,12 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
 		return b, false, err
 	}
-	// registered means THIS call's root won — a concurrent install can
-	// have registered first, in which case ours is already a loser.
-	return b, registered, nil
+	// Installed means THIS call minted the returned winner. The SDK's
+	// registered bool alone is weaker — it reports that this call wrote
+	// a registering change, but an inbound install landing between its
+	// read and apply can leave our fresh root a loser while the
+	// returned RootId is someone else's winner.
+	return b, registered && created != "" && b.RootId == created, nil
 }
 
 // adopt returns a live install without writing anything.
