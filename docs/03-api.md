@@ -2002,7 +2002,9 @@ a **type object**, which is how "views on a type" works) and owns the
   "query":          { "type": "plain", "filter": {…}, "sort": […], "groupBy": {…} },
   "layoutSettings": { "visible": […], "order": […], "widths": {…} },
   "localSettings":  { "widths": {…} },
-  "creator": "<identity>", "createdAt": 1755700000, "modifiedAt": 1755700000
+  "creator": "<identity>",
+  "createdAt": { "$date": "2026-08-20T17:06:40Z" },
+  "modifiedAt": { "$date": "2026-08-20T17:06:40Z" }
 }
 ```
 

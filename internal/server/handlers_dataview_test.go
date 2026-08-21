@@ -23,10 +23,11 @@ type viewRecord struct {
 	LayoutSettings json.RawMessage `json:"layoutSettings"`
 	LocalSettings  json.RawMessage `json:"localSettings"`
 	Creator        string          `json:"creator"`
-	// The generic schema handler stamps times as JSON floats
-	// (NewNumberFloat64), so an int64 target fails to decode.
-	CreatedAt  float64 `json:"createdAt"`
-	ModifiedAt float64 `json:"modifiedAt"`
+	// Server-stamped times are instants — `{"$date": "<RFC 3339>"}` —
+	// so a numeric target decodes as a silent zero at best. extDate
+	// (handlers_chat_test.go) is the shared decoder.
+	CreatedAt  extDate `json:"createdAt"`
+	ModifiedAt extDate `json:"modifiedAt"`
 }
 
 // setupViewFixture creates a space and a host object for saved views.
@@ -115,6 +116,25 @@ func createView(t *testing.T, e http.Handler, spaceId, objectId, id, payload str
 	return decodeModifyResult(t, rec.Body.Bytes())
 }
 
+// writeLocalSettings writes the device-local half of a view — local
+// scope takes explicit record ids and no upsert.
+func writeLocalSettings(t *testing.T, e http.Handler, spaceId, objectId, id, value string) api.ModifyResult {
+	t.Helper()
+	body := fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q, "scope": "local",
+		"records": [{"id": %q, "ops": [{"type": "$set", "path": "localSettings", "value": %s}]}]
+	}`, objectId, dataview.Dataset, id, value)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("local write: %d %s", rec.Code, rec.Body.String())
+	}
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	if len(res.Rejections) > 0 {
+		t.Fatalf("local write rejected: %+v", res.Rejections)
+	}
+	return res
+}
+
 const defaultViewPayload = `{
 	"name": "All",
 	"icon": "📋",
@@ -159,8 +179,9 @@ func TestServer_DataView_CreateReadStamp(t *testing.T) {
 	if v.Creator == "" {
 		t.Errorf("creator not stamped")
 	}
-	if v.CreatedAt == 0 || v.ModifiedAt == 0 {
-		t.Errorf("timestamps not stamped: createdAt=%v modifiedAt=%v", v.CreatedAt, v.ModifiedAt)
+	if v.CreatedAt.seconds() == 0 || v.ModifiedAt.seconds() == 0 {
+		t.Errorf("timestamps not stamped: createdAt=%v modifiedAt=%v",
+			v.CreatedAt.seconds(), v.ModifiedAt.seconds())
 	}
 
 	// The opaque blobs come back byte-for-byte in structure — nothing
@@ -218,11 +239,12 @@ func TestServer_DataView_EditBumpsModifiedAt(t *testing.T) {
 	if after.Name != "Urgent" {
 		t.Errorf("name = %q, want Urgent", after.Name)
 	}
-	if after.CreatedAt != before.CreatedAt {
-		t.Errorf("createdAt moved: %v -> %v", before.CreatedAt, after.CreatedAt)
+	if after.CreatedAt.seconds() != before.CreatedAt.seconds() {
+		t.Errorf("createdAt moved: %v -> %v", before.CreatedAt.seconds(), after.CreatedAt.seconds())
 	}
-	if after.ModifiedAt < before.ModifiedAt {
-		t.Errorf("modifiedAt went backwards: %v -> %v", before.ModifiedAt, after.ModifiedAt)
+	if after.ModifiedAt.seconds() < before.ModifiedAt.seconds() {
+		t.Errorf("modifiedAt went backwards: %v -> %v",
+			before.ModifiedAt.seconds(), after.ModifiedAt.seconds())
 	}
 }
 
@@ -292,7 +314,7 @@ func TestServer_DataView_DerivedFieldsRejected(t *testing.T) {
 	}
 
 	after := getView(t, e, spaceId, objectId, "default")
-	if after.Creator != before.Creator || after.CreatedAt != before.CreatedAt {
+	if after.Creator != before.Creator || after.CreatedAt.seconds() != before.CreatedAt.seconds() {
 		t.Errorf("derived fields changed: %+v -> %+v", before, after)
 	}
 }
@@ -308,19 +330,7 @@ func TestServer_DataView_LocalSettings(t *testing.T) {
 	spaceId, objectId := setupViewFixture(t, e)
 	createView(t, e, spaceId, objectId, "default", defaultViewPayload)
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
-		"objectId": %q, "dataset": %q, "scope": "local",
-		"records": [{"id": "default", "ops": [
-			{"type": "$set", "path": "localSettings", "value": {"widths": {"name": 480}}}
-		]}]
-	}`, objectId, dataview.Dataset))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("local write: %d %s", rec.Code, rec.Body.String())
-	}
-	res := decodeModifyResult(t, rec.Body.Bytes())
-	if len(res.Rejections) > 0 {
-		t.Fatalf("local write rejected: %+v", res.Rejections)
-	}
+	res := writeLocalSettings(t, e, spaceId, objectId, "default", `{"widths": {"name": 480}}`)
 	if res.ChangeId != "" {
 		t.Errorf("local write minted a DAG changeId %q", res.ChangeId)
 	}
@@ -336,7 +346,7 @@ func TestServer_DataView_LocalSettings(t *testing.T) {
 	}
 
 	// The synced route must not reach a local-scope field.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, "scope": "synced",
 		"records": [{"id": "default", "ops": [
 			{"type": "$set", "path": "localSettings", "value": {"widths": {"name": 999}}}

@@ -1147,7 +1147,8 @@ Implementation slices landed:
     is a synced DAG write with no validation behind it, so a typo'd
     type would replicate forever; detach checks neither, it is the
     repair path, and leaves records as read-tolerant orphans). Contract:
-    docs/24-data-views.md, docs/03-api.md § Types + § Properties.
+    docs/24-data-views.md, docs/03-api.md § Types + § Properties,
+    client recipe docs/08-clients.md § 12.
 
 37. **Datetime values (SYN-136)** — every timestamp is any-store's
     native instant (`TypeDateTime`: unix millis, memcmp-orderable,

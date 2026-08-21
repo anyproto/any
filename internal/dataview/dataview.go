@@ -141,11 +141,10 @@ func datasetSchema() handler.Schema {
 			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLocalSettings, Name: "Local Settings", Schema: object(), Scope: handler.ScopeLocal, MutableBy: handler.MutableByAnyone},
 			{Id: FieldCreator, Name: "Creator", Schema: str(), Stamp: handler.StampCreator},
-			// Kind number matches what the SDK stamps today; a
-			// time-stamped field's kind is coerced to datetime once the
-			// SDK stores instants natively.
-			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindNumber), Stamp: handler.StampCreateTime},
-			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindNumber), Stamp: handler.StampModifyTime},
+			// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the
+			// wire, memcmp-orderable and index-keyable in the store.
+			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
+			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
 		},
 	}
 }

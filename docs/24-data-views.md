@@ -47,8 +47,8 @@ meta-type guard, so "views on a type" needs no special mechanism.
   },
   "localSettings": { "widths": { "name": 480 } },
   "creator": "<identity>",
-  "createdAt": 1755700000,
-  "modifiedAt": 1755700000
+  "createdAt": { "$date": "2026-08-20T17:06:40Z" },
+  "modifiedAt": { "$date": "2026-08-20T17:06:40Z" }
 }
 ```
 
@@ -91,10 +91,12 @@ absent one sorts as `""`, ahead of every positioned view on every peer.
 Read the rules from `GET /v1/spaces/:spaceId/datasets` (`x-scope`,
 `x-mutable-by`, `x-stamp`, `x-id`) rather than hardcoding them.
 
-`createdAt` / `modifiedAt` are unix seconds serialized as JSON **floats**
-(`1787334898.0`) — decode them into a floating-point or generic number
-type, not an integer one. Both are the author's clock: sort and display
-with them, never fence on them.
+`createdAt` / `modifiedAt` are **instants**, not numbers — they read and
+write as `{"$date": "<RFC 3339>"}` (`{"$date": <unix millis>}` for years
+outside RFC 3339's range). A numeric decode target silently yields zero,
+and a filter literal must carry the same shape or it matches nothing.
+Both are the author's clock: sort and display with them, never fence on
+them.
 
 ### `pos` — view order
 
@@ -289,6 +291,8 @@ resolves across all three tiers.
 
 ## Related
 
+- `08-clients.md` § 12 — the client call patterns: ensure, autosave
+  debounce, live-surface budget, migration off per-device storage
 - `03-api.md` § Types → Built-in `data_view` type, § Properties
 - `09-query.md` — the filter/sort grammar a view's `query` embeds
 - `14-aggregation.md` — the pipeline surface grouping depends on
