@@ -1,6 +1,9 @@
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 // Wire labels for the dataset-schema behavioral vocabulary. Mirror the
 // SDK enums 1:1 (space.Mutability / Stamp / IdRule / DeletePolicy).
@@ -60,8 +63,53 @@ type DatasetDraftRequest struct {
 // ValidScope); empty = the indexer's default scope ("basic").
 type DatasetSearchFields struct {
 	Title string `json:"title,omitempty"`
-	Text  string `json:"text,omitempty"`
-	Scope string `json:"scope,omitempty"`
+	// Text accepts a bare field-key string OR a non-empty array of
+	// unique field keys; a single key always reads back as the bare
+	// string. The generated schema can only show the array form — the
+	// string form is equally valid on the wire.
+	Text  SearchText `json:"text,omitempty"`
+	Scope string     `json:"scope,omitempty"`
+}
+
+// SearchText is the search `text` mapping's wire form: a bare field
+// key or a non-empty array of field keys (the indexer joins the mapped
+// values into one body). A single key marshals as the bare
+// string, so single-field declarations and discovery output keep the
+// canonical scalar shape. An empty string unmarshals to nil ("no text
+// mapping"); an empty array stays a non-nil empty slice so declaration
+// validation can reject it explicitly.
+type SearchText []string
+
+func (t SearchText) MarshalJSON() ([]byte, error) {
+	if len(t) == 1 {
+		return json.Marshal(t[0])
+	}
+	return json.Marshal([]string(t))
+}
+
+func (t *SearchText) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*t = nil
+		} else {
+			*t = SearchText{s}
+		}
+		return nil
+	}
+	var keys []string
+	if err := json.Unmarshal(data, &keys); err != nil {
+		// A typed error so bind failures name the field
+		// (bindErrorMessage renders UnmarshalTypeError with its Field)
+		// instead of degrading to the generic body-shape message.
+		return &json.UnmarshalTypeError{
+			Value: "neither a string nor an array of strings",
+			Type:  reflect.TypeFor[SearchText](),
+			Field: "search.text",
+		}
+	}
+	*t = SearchText(keys)
+	return nil
 }
 
 // DatasetFieldDraft is one field declaration — input to AddDataset and

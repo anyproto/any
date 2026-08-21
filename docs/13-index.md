@@ -165,10 +165,16 @@ user dataset names at the creation API.
 
 - **Mapping**: `x-search.title` → `IndexEntry.Title` (BM25F-boosted)
   and `Data`'s leading line; `x-search.text` → the rest of `Data`.
-  Either side may be absent. Values render by their ACTUAL type
+  `text` is a bare field key or an array of keys: each
+  mapped field renders separately and the non-empty values join with a
+  blank line, in mapping order — a missing/empty field contributes
+  nothing. Either side may be absent; title stays single-field.
+  Values render by their ACTUAL type
   (string / number canonical / array newline-join; else empty) — the
   SDK does not validate x-search fields against declared kinds. A
-  dataset without `x-search` is not indexed at all. Both sides empty
+  dataset without `x-search` is not indexed at all; a malformed `text`
+  form (wrong JSON type, non-string elements) makes the dataset
+  unsearchable, like a malformed doc. Both sides empty
   (cleared values, tombstone) ⇒ `Data ""` removal entry.
 - **Scope**: `x-search.scope` picks the scope the dataset's entries
   land under; absent = `basic`. An invalid slug (`index.ValidScope`)
