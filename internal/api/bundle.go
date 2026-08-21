@@ -66,12 +66,14 @@ type BundleEnsureRequest struct {
 type BundleEnsureResponse struct {
 	// Bundle is the converged registry row.
 	Bundle Bundle `json:"bundle"`
-	// Installed reports whether THIS call created the root. False
-	// means an existing install was adopted and nothing was written.
+	// Installed reports whether THIS call registered the install.
+	// False means an existing one was adopted — which for a derived
+	// bundle may still materialize the root's tree on this device,
+	// since that id is one every device can mint.
 	//
 	// For a derived install it reports what THIS DEVICE did: both
 	// sides of a partition can report true for the one root they
-	// share. False still means an existing install was adopted.
+	// share.
 	Installed bool `json:"installed"`
 }
 

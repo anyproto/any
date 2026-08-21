@@ -454,7 +454,7 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/api.Bundle"
                     },
                     "installed": {
-                        "description": "Installed reports whether THIS call created the root. False\nmeans an existing install was adopted and nothing was written.\n\nFor a derived install it reports what THIS DEVICE did: both\nsides of a partition can report true for the one root they\nshare. False still means an existing install was adopted.",
+                        "description": "Installed reports whether THIS call registered the install.\nFalse means an existing one was adopted — which for a derived\nbundle may still materialize the root's tree on this device,\nsince that id is one every device can mint.\n\nFor a derived install it reports what THIS DEVICE did: both\nsides of a partition can report true for the one root they\nshare.",
                         "type": "boolean"
                     }
                 },

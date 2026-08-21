@@ -820,7 +820,10 @@ reclaimed). In a path segment the slash is percent-encoded:
 `{id, name?, rootTypes?, rootProperties?, derived?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
-`installed: false`. Otherwise the server creates the root object with
+`installed: false`. That flag means "this call registered the install":
+a derived adopt can still materialize the root's tree locally (the id
+is this device's to mint) and reports `false`, because it registered
+nothing. Otherwise the server creates the root object with
 the requested types and initial properties, registers it in one change,
 and replies `installed: true`; that path is a write, so a member
 without write permission gets `403` (use `GET …/bundles/:bundleId`
@@ -842,8 +845,10 @@ space only this account has, and its own devices converge through the
 registry), so an offline owner is never blocked. Any other member —
 a joiner, either side of a 1-1 — is refused with
 `409 bundle.not_ready` rather than left to fork, and retries when the
-network is back. A **derived** root (below) is never refused: there is
-no competing id it could mint.
+network is back. A **derived** root (below) is never refused *for lack
+of convergence* — there is no competing id it could mint — though it
+still reports `409 bundle.not_ready` when the live winner is a created
+root whose tree has not arrived.
 
 Two devices that install while genuinely apart still each register a
 root; the registry converges on one winner and the other appears in
@@ -880,13 +885,19 @@ The price is permanence, in two directions:
   and the created `rootId`. Moving content between roots is the client's
   decision, never a side effect of a flag.
 
-A derived install still takes a short convergence wait (3s) — if a
-created install is out there, adopting it is better than installing
-alongside it — but expiring the wait costs nothing, so an offline
-client is never blocked. If a created and a derived root are ever both
-claimed for one id, the derived one wins on every device and the
-created one becomes an ordinary resolvable loser; the verdict reads
-only the add-only claim set, so it cannot be raced.
+If a created and a derived root are ever both claimed for one id, the
+derived one wins on every device and the created one becomes an
+ordinary resolvable loser. The verdict itself reads only the add-only
+claim set, so every device reaches the same one — but **the claim can
+still be made blind**. A derived install runs the same 30s convergence
+wait and, unlike a created one, installs anyway when it expires; if the
+space already carried a created install this device had not seen, that
+claim demotes it, irreversibly. Nothing is destroyed — the demoted root
+keeps its content and stays deletable — but the app's pointer moves,
+which for content that cannot be merged across objects (chat) amounts
+to the same thing. The wait is what narrows that window; proceeding
+past it is the deliberate trade that lets an offline 1-1 have a chat at
+all.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist

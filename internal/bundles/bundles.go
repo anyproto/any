@@ -100,14 +100,10 @@ type Resolver struct {
 	// shorten it.
 	RetryDelay time.Duration
 	// IndexWait bounds the convergence wait an install runs before
-	// minting a root. Set at construction; tests shorten it.
+	// minting a root — for a derived install too, where expiring it
+	// is not a refusal but is not free either (see converge). Set at
+	// construction; tests shorten it.
 	IndexWait time.Duration
-	// DerivedIndexWait bounds the same wait for a DERIVED install,
-	// where convergence is a preference rather than a gate — the wait
-	// can only change which install gets adopted, never whether two
-	// roots exist. Short: an offline device pays it once per space and
-	// then installs anyway. Set at construction; tests shorten it.
-	DerivedIndexWait time.Duration
 	// Quiescent reports whether a root has stopped receiving changes,
 	// so what is projected locally is the whole of it. Set at
 	// construction to the SDK's per-object sync state; tests
@@ -135,11 +131,6 @@ const (
 	// install path. Short: it rides a client request, and refusing is
 	// correct — the client retries.
 	DefaultIndexWait = 30 * time.Second
-	// DefaultDerivedIndexWait bounds the same wait for a derived
-	// install, which proceeds either way. Just long enough for a
-	// reachable network to answer, short enough not to stall an
-	// offline client that is entitled to install anyway.
-	DefaultDerivedIndexWait = 3 * time.Second
 
 	// Retry schedule for the background path: a loser installed on
 	// another device cannot be deleted until its tree has synced here,
@@ -152,13 +143,12 @@ const (
 // NewResolver builds a Resolver with the given quiescence delay.
 func NewResolver(grace time.Duration) *Resolver {
 	return &Resolver{
-		Grace:            grace,
-		RetryDelay:       retryDelay,
-		IndexWait:        DefaultIndexWait,
-		DerivedIndexWait: DefaultDerivedIndexWait,
-		Quiescent:        syncQuiescent,
-		firstSeen:        map[string]time.Time{},
-		retrying:         map[string]struct{}{},
+		Grace:      grace,
+		RetryDelay: retryDelay,
+		IndexWait:  DefaultIndexWait,
+		Quiescent:  syncQuiescent,
+		firstSeen:  map[string]time.Time{},
+		retrying:   map[string]struct{}{},
 	}
 }
 
@@ -214,6 +204,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	if inst.Derived {
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
+		req.RootProperties = inst.RootProperties
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -224,24 +215,21 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			return rootId, err
 		}
 	}
-	b, err := sp.Bundles().Ensure(createCtx, req)
+	b, registered, err := sp.Bundles().Ensure(createCtx, req)
 	if err != nil {
 		return space.Bundle{}, false, fmt.Errorf("bundle %s: ensure: %w", inst.Id, err)
 	}
 	r.observe(sp, b)
 
 	// Installed means THIS call's root won — a concurrent install can
-	// have registered first, in which case ours is already a loser. A
-	// derived install has no such contest: it reports what THIS DEVICE
-	// did, and both sides of a partition can report true for the one
-	// root they share. False still means "adopted something else" —
-	// an existing created install is never migrated behind the caller.
+	// have registered first, in which case ours is already a loser.
+	// For a derived install there is no such contest, so the SDK's own
+	// "did this call register it" is the exact answer: both sides of a
+	// partition can report true for the one root they share, and
+	// materializing a root someone else registered reports false.
 	installed := created != "" && b.RootId == created
-	if inst.Derived && b.Derived && existing.RootId == "" {
-		installed = true
-		if err := seedRootProperties(createCtx, sp, b.RootId, inst.RootProperties); err != nil {
-			return b, false, fmt.Errorf("bundle %s: %w", inst.Id, err)
-		}
+	if inst.Derived {
+		installed = registered
 	}
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
 		return b, false, err
@@ -252,11 +240,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 // converge runs the pre-install convergence wait and decides what an
 // expired one means for this caller.
 func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) error {
-	wait := r.IndexWait
-	if inst.Derived {
-		wait = r.DerivedIndexWait
-	}
-	waitCtx, cancel := context.WithTimeout(ctx, wait)
+	waitCtx, cancel := context.WithTimeout(ctx, r.IndexWait)
 	err := sp.WaitIndexSynced(waitCtx)
 	cancel()
 	if err == nil {
@@ -264,10 +248,16 @@ func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) e
 	}
 	switch {
 	case inst.Derived:
-		// Not a gate: an unconverged derived install lands on the same
-		// root id as everyone else's. The wait is still worth taking —
-		// a converged registry may hold an older CREATED install to
-		// adopt instead — but expiring it costs nothing.
+		// Not a gate — a derived install cannot mint a competing id,
+		// and refusing would deadlock the case it exists for: in a 1-1
+		// neither writer can ever take the owner escape below.
+		//
+		// It is not free either. If the space already carries a
+		// CREATED install this device has not seen, the derived claim
+		// demotes it to a loser on every replica, irreversibly (the
+		// derived root cannot be deleted). The wait is what narrows
+		// that window, which is why it is the full one and not a token
+		// pause; proceeding past it accepts the demotion.
 	case sp.Info().OwnRole == space.PermissionOwner:
 		// Nobody else could have installed into a space only this
 		// account has; its own devices converge through the registry.
@@ -277,22 +267,6 @@ func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) e
 	log.Warn("installing without a converged registry",
 		zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()),
 		zap.Bool("derived", inst.Derived), zap.Error(err))
-	return nil
-}
-
-// seedRootProperties writes the caller's initial property values onto
-// a derived root. A created root takes them through Objects().Create;
-// a derived one has no such hook, so they land as an ordinary write.
-// Every device seeds the same values, so concurrent seeds converge.
-func seedRootProperties(ctx context.Context, sp space.Space, rootId string, props map[string]map[string]any) error {
-	for typeId, kv := range props {
-		if len(kv) == 0 {
-			continue
-		}
-		if _, err := sp.Properties().Set(ctx, rootId, typeId, kv); err != nil {
-			return fmt.Errorf("seed root properties of type %s: %w", typeId, err)
-		}
-	}
 	return nil
 }
 

@@ -56,11 +56,10 @@ func (f *fakeObjects) Derive(_ context.Context, opts space.DeriveObjectOpts) (st
 	return "child-of-" + opts.ParentId + string(opts.Seed), nil
 }
 
-// fakeProperties satisfies the root-locality probe and records seeds.
-// absent stands in for a root whose tree has not reached this device.
+// fakeProperties satisfies the root-locality probe. absent stands in
+// for a root whose tree has not reached this device.
 type fakeProperties struct {
 	space.PropertiesAPI
-	seeded map[string]map[string]any
 	absent bool
 }
 
@@ -69,14 +68,6 @@ func (f *fakeProperties) Get(context.Context, string) (*anyenc.Value, error) {
 		return nil, nil
 	}
 	return (&anyenc.Arena{}).NewObject(), nil
-}
-
-func (f *fakeProperties) Set(_ context.Context, _, typeId string, patch map[string]any) (space.ModifyResult, error) {
-	if f.seeded == nil {
-		f.seeded = map[string]map[string]any{}
-	}
-	f.seeded[typeId] = patch
-	return space.ModifyResult{}, nil
 }
 
 // fakeSyncStatus reports one fixed per-object state.
@@ -108,24 +99,27 @@ type fakeBundles struct {
 
 // Ensure records the request and registers a row for it, standing in
 // for the SDK's adopt-or-install.
-func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest) (space.Bundle, error) {
+func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest) (space.Bundle, bool, error) {
 	f.mu.Lock()
 	f.ensured = append(f.ensured, req)
+	registered := f.row.RootId == ""
 	f.mu.Unlock()
 	rootId := "derived-root"
 	if !req.DerivedRoot {
 		var err error
 		if rootId, err = req.NewRoot(ctx); err != nil {
-			return space.Bundle{}, err
+			return space.Bundle{}, false, err
 		}
 	}
+	// The SDK materializes (and stamps) a derived root on the adopt
+	// path too, which is what makes it locally writable.
 	if f.after != nil {
 		f.after()
 	}
 	return space.Bundle{
 		Id: req.Id, Name: req.Name, RootId: rootId,
 		Roots: []string{rootId}, Derived: req.DerivedRoot,
-	}, nil
+	}, registered, nil
 }
 
 func (f *fakeBundles) Get(context.Context, string) (space.Bundle, error) {
@@ -503,8 +497,10 @@ func TestEnsureDerivedInstallsUnconverged(t *testing.T) {
 	if sp.objects.created != 0 {
 		t.Fatalf("derived install created %d object(s)", sp.objects.created)
 	}
-	if sp.props.seeded["any"]["description"] != "seeded" {
-		t.Fatalf("root properties not seeded on the derived root: %+v", sp.props.seeded)
+	// Seeding is the SDK's, so it happens before the install is
+	// registered — a failed seed must not leave a row to adopt.
+	if req.RootProperties["any"]["description"] != "seeded" {
+		t.Fatalf("root properties not forwarded to the SDK: %+v", req.RootProperties)
 	}
 }
 
@@ -563,6 +559,9 @@ func TestEnsureMintsAbsentDerivedRoot(t *testing.T) {
 	}
 	if installed {
 		t.Fatal("materializing an existing install must not report installed")
+	}
+	if sp.props.absent {
+		t.Fatal("the adopt path must leave the root locally writable")
 	}
 	if len(sp.bundles.ensured) != 1 || !sp.bundles.ensured[0].DerivedRoot {
 		t.Fatalf("did not reach the derived install path: %+v", sp.bundles.ensured)

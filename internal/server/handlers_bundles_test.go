@@ -537,3 +537,50 @@ func TestServer_BundleDerivedValidation(t *testing.T) {
 		t.Fatalf("unexpected error body: %s", rec.Body.String())
 	}
 }
+
+// TestServer_BundleDerivedRootPropertyTypes pins that a derived root
+// implements every type its seeded properties write into, even when
+// rootTypes does not name it — a property write to a type the object
+// does not implement is rejected, and the created path attaches the
+// same union at birth.
+func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerivedPropTypes")
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Doc","xKey":"doc"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var tr api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Topic","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add property: %d %s", rec.Code, rec.Body.String())
+	}
+	var prop api.AddPropertyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &prop); err != nil {
+		t.Fatalf("decode property: %v", err)
+	}
+
+	// rootTypes names nothing; the type comes from rootProperties.
+	res := ensureBundle(t, e, sp.Id,
+		`{"id":"docs/v1","name":"Docs","derived":true,"rootProperties":{"`+
+			tr.TypeId+`":{"`+prop.PropId+`":"seeded"}}}`)
+	if !res.Bundle.Derived {
+		t.Fatalf("not a derived install: %+v", res.Bundle)
+	}
+
+	var props map[string]any
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/properties/"+res.Bundle.RootId, &props)
+	record, _ := props["record"].(map[string]any)
+	typeProps, _ := record[tr.TypeId].(map[string]any)
+	if typeProps[prop.PropId] != "seeded" {
+		t.Fatalf("seeded value did not land: %+v", props)
+	}
+}

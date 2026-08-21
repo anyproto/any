@@ -1031,9 +1031,11 @@ Implementation slices landed:
       shape for a 1-1, where the ACL owner is a synthetic key nobody
       holds, both participants are writers, and neither can ever take
       the owner escape below (the ticket's `409 bundle.not_ready`
-      deadlock). For a derived install the gate becomes a 3s
-      best-effort preference (adopt an existing created install if the
-      network answers) that never refuses. Costs, both permanent: no
+      deadlock). A derived install runs the same 30s convergence wait
+      but installs when it expires instead of refusing — the residual
+      risk being that a blind claim demotes an unseen CREATED install
+      of the same id, irreversibly (docs/03-api.md states the trade).
+      Costs, both permanent: no
       uninstall (any-sync's `ErrCantDeleteDerivedObject`) and no
       migration — an existing created install is ADOPTED, with
       `Bundle.Derived` reporting which it is. If a created and a
