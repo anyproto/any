@@ -121,7 +121,8 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   over HTTP — POST a pipeline to the sibling `…/aggregate` endpoints
   (same two scopes, snapshot-only). Put `$match` first so it runs on an
   index, and mind the deliberate MongoDB divergences (group key comes
-  back as `id`, no compute operators). See `14-aggregation.md`.
+  back as `id`; compute operators are a closed set and the date ones are
+  inert on stored timestamps). See `14-aggregation.md`.
 
 ## 4. Chat: newest-first reads and backward pagination
 
