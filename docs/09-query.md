@@ -60,6 +60,26 @@ Multiple keys in one filter object are AND-ed. Examples:
 { "$or": [ { "<t>.a": 1 }, { "<t>.b": "x" } ] }             // disjunction
 ```
 
+### Dates
+
+Timestamps — the derived `createdAt` / `modifiedAt` stamps and any
+property declared with the `date` / `datetime` format — are instants,
+written and read as `{"$date": "<RFC 3339>"}`. A filter literal takes
+the same shape; a bare string or number compares against a different
+type and matches nothing:
+
+```json
+{ "modifiedAt":        { "$gte": { "$date": "2026-01-01T00:00:00Z" } } }
+{ "<typeId>.<propId>": { "$lt":  { "$date": "2026-08-05T00:00:00Z" } } }
+```
+
+Sorting is chronological (instants are memcmp-orderable and index-keyable),
+and `/aggregate` computes on them directly — `$year`, `$dateTrunc`,
+`$dateDiff` (docs/14-aggregation.md). A property declared `kind: "string"`
+with a date format stays an ISO-8601 string: it compares and sorts
+lexicographically, which is chronological for RFC 3339, but every date
+operator returns null for it.
+
 ### Arrays — the headline
 
 When a property is an **array**, the filter compares against its *elements*:

@@ -150,6 +150,41 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 	return err
 }
 
+// resolveCursor returns the position to advance from, and the SDK
+// generation it belongs to.
+//
+// The generation changes exactly when the SDK's store was rebuilt from
+// scratch (a wiped sdk.db), which restarts the applySeq axis at zero. A
+// cursor from the previous generation then sits past everything the feed
+// will ever report again, so the index would silently freeze — nothing
+// is "changed since" a number the axis never reaches. On a mismatch the
+// space's docs are dropped and indexing restarts from the beginning.
+//
+// A generation the SDK cannot report (an older store, a transient read
+// failure) is treated as "unknown, keep going": freezing the index on a
+// missing epoch would be worse than the drift it guards against.
+func (w *spaceWorker) resolveCursor(ctx context.Context) (uint64, string, error) {
+	spaceId := w.sp.Id()
+	cursor, storedGen, err := w.ix.store.Cursor(ctx, spaceId)
+	if err != nil {
+		return 0, "", err
+	}
+	gen, err := w.sp.Changes().Generation(ctx)
+	if err != nil {
+		w.ix.lg.Warn("read space generation", zap.String("spaceId", spaceId), zap.Error(err))
+		return cursor, storedGen, nil
+	}
+	if gen == "" || storedGen == "" || storedGen == gen {
+		return cursor, gen, nil
+	}
+	w.ix.lg.Info("sdk store was rebuilt, reindexing space",
+		zap.String("spaceId", spaceId), zap.String("was", storedGen), zap.String("now", gen))
+	if err := w.ix.store.DropSpace(ctx, spaceId); err != nil {
+		return 0, "", err
+	}
+	return 0, gen, nil
+}
+
 // advancePages is the single cursor-driven operation: stream everything
 // past the cursor through the chunkers and land it in the store, page
 // by page. Never touches the embedder — text-bearing docs land as
@@ -158,7 +193,7 @@ func (w *spaceWorker) advance(ctx context.Context) error {
 // the page's change count.
 func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress func(n int)) error {
 	spaceId := w.sp.Id()
-	cursor, err := w.ix.store.Cursor(ctx, spaceId)
+	cursor, generation, err := w.resolveCursor(ctx)
 	if err != nil {
 		return err
 	}
@@ -208,7 +243,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			return err
 		}
 		cursor = changes[len(changes)-1].ApplySeq
-		if err := w.ix.store.SetCursor(ctx, spaceId, cursor); err != nil {
+		if err := w.ix.store.SetCursor(ctx, spaceId, cursor, generation); err != nil {
 			return err
 		}
 		progress(len(changes))

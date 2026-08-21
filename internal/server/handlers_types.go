@@ -451,6 +451,8 @@ func propertyKindToString(k space.PropertyKind) string {
 		return api.PropertyKindArray
 	case space.PropertyKindObject:
 		return api.PropertyKindObject
+	case space.PropertyKindDatetime:
+		return api.PropertyKindDatetime
 	default:
 		return ""
 	}
@@ -470,6 +472,8 @@ func propertyKindFromString(s string) (space.PropertyKind, bool) {
 		return space.PropertyKindArray, true
 	case api.PropertyKindObject:
 		return space.PropertyKindObject, true
+	case api.PropertyKindDatetime:
+		return space.PropertyKindDatetime, true
 	default:
 		return 0, false
 	}

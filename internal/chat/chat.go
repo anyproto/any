@@ -9,8 +9,8 @@
 //	  "id":               "<auto-derived from changeId>",
 //	  "_ver": { "id": "<VersionId of creating change>", ... },  // SDK-managed
 //	  "creator":          "<accountId>",                     // server-stamped
-//	  "createdAt":        <unix-seconds>,                    // server-stamped
-//	  "modifiedAt":       <unix-seconds>,                    // bumped on edit
+//	  "createdAt":        {"$date": "<RFC 3339>"},           // server-stamped
+//	  "modifiedAt":       {"$date": "<RFC 3339>"},           // bumped on edit
 //	  "replyToMessageId": "<msgId>",                         // optional
 //	  "agent": {                                             // optional, create-only
 //	    "name": "<display label>", "debugLink": "<any://…>", "done": <bool>
@@ -157,6 +157,14 @@ const (
 // `agent` {name, debugLink, done} group.
 const dataVersion = "chat_messages-v2"
 
+// handlerVersion is this handler's LOCAL logic version — bumped when a
+// change to the handler makes rows already materialized on disk wrong,
+// so the SDK rebuilds them from the DAG (the SDK's docs/08-versioning.md).
+// It never leaves the device; the wire DataVersion above is what gates
+// peers. v2: the derived createdAt / modifiedAt stamps and the reaction
+// leaves are datetime instants, not epoch numbers.
+const handlerVersion = 2
+
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
 	MaxTextBytes      = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
@@ -190,12 +198,13 @@ func NewType() handler.Type {
 		Name:        Name,
 		Description: Description,
 		Datasets: []handler.Dataset{{
-			Name:         Dataset,
-			DataVersion:  dataVersion,
-			Handler:      messagesHandler{},
-			Schema:       datasetSchema(),
-			Indexes:      messagesHandler{}.Indexes(),
-			ReadTracking: readTracking(),
+			Name:           Dataset,
+			DataVersion:    dataVersion,
+			HandlerVersion: handlerVersion,
+			Handler:        messagesHandler{},
+			Schema:         datasetSchema(),
+			Indexes:        messagesHandler{}.Indexes(),
+			ReadTracking:   readTracking(),
 			// No version history for chat: clients render live records
 			// only (edits show the current text, deletes tombstone) —
 			// nothing reads a per-message timeline, so the index rows
@@ -238,8 +247,8 @@ func datasetSchema() handler.Schema {
 		Dynamic: true,
 		Fields: []handler.Field{
 			{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeDerived},
-			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
-			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindNumber), Scope: handler.ScopeDerived},
+			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived},
+			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Scope: handler.ScopeDerived},
 			{Id: FieldMentions, Name: "Mentions", Schema: handler.Leaf(handler.PropertyKindArray), Scope: handler.ScopeDerived},
 			{Id: FieldText, Name: "Text", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},
 			{Id: FieldReplyToMessageId, Name: "Reply To", Schema: handler.Leaf(handler.PropertyKindString), Scope: handler.ScopeSynced},

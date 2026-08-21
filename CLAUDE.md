@@ -1096,6 +1096,37 @@ Implementation slices landed:
     skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
     docs/06-data-structure.md.
 
+37. **Datetime values (SYN-136)** — every timestamp is any-store's
+    native instant (`TypeDateTime`: unix millis, memcmp-orderable,
+    index-keyable) instead of an ISO string or an epoch number, which is
+    what the date operators (`$year`/`$dateTrunc`/`$dateDiff`) compute
+    on — they returned null against everything the server stored.
+    **Wire shape: `{"$date": "2026-08-05T17:00:00.000Z"}`** in both
+    directions (writes also take `{"$date": <millis>}`), including
+    filter literals — a bare string or number is a different type and
+    matches nothing. SDK side (`any-sync-sdk`): new `datetime` property
+    kind, implied by the `date` / `datetime` formats (`kind: "string"`
+    stays accepted for the legacy ISO convention, and kind is pinned
+    first-write, so existing properties never move); derived stamps
+    (objects-row `createdAt`/`modifiedAt`, tech-space `spaces.createdAt`,
+    runtime-dataset `createTime`/`modifyTime`) are instants. `any` side:
+    `api.PropertyKindDatetime` on the types surface, `checkFormatValue`
+    validates the ext-JSON instant (a `date`-format value must land on
+    midnight UTC) while string-kind props keep the old checks, chat's
+    `createdAt`/`modifiedAt` AND its reaction leaves
+    (`reactions.<emoji>.<accountId>`) are instants, and the prop chunker
+    indexes a date as its RFC 3339 text so search still matches
+    "2026-08".
+    **No migration** — the SDK's new version-driven re-index (SYN-178)
+    rebuilds affected rows from the DAG when a handler version bumps,
+    lazily per object plus a background sweep per space. Consequence for
+    `any`: the search indexer now tracks the SDK's per-space
+    `Generation` next to its cursor and drops + reindexes the space when
+    it changes (a wiped sdk.db restarts applySeq at 0, which silently
+    froze the index before). Contract: docs/03-api.md § Types + § Data
+    plane + § Chat, docs/09-query.md § Dates, docs/14-aggregation.md,
+    docs/08-clients.md § 3.
+
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
 

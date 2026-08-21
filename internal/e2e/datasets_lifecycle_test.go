@@ -71,8 +71,8 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 			t.Errorf("typeId = %q, want %q", ds.TypeId, articleType)
 		}
 		var doc struct {
-			Id       string             `json:"x-id"`
-			DeleteBy string             `json:"x-delete-by"`
+			Id       string                        `json:"x-id"`
+			DeleteBy string                        `json:"x-delete-by"`
 			Search   *struct{ Title, Text string } `json:"x-search"`
 		}
 		if err := json.Unmarshal(ds.Schema, &doc); err != nil {
@@ -117,7 +117,7 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	if s, _ := q.Records[0]["author"].(string); s == "" {
 		t.Error("creator stamp missing")
 	}
-	if n, _ := q.Records[0]["createdAt"].(float64); n == 0 {
+	if ms := stampMillis(t, q.Records[0], "createdAt"); ms == 0 {
 		t.Error("createTime stamp missing")
 	}
 

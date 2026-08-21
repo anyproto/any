@@ -128,21 +128,22 @@ func chatMessages(t *testing.T, base string) chatListResp {
 //   - anyenc → fastjson renders numeric fields as JSON numbers in
 //     exponential form for large ints; we hop through float64 and cast.
 //   - Reactions are stored as `reactions.<emoji>.<accountId> =
-//     <timestamp>` (server-derived). The bespoke write handlers now
-//     return this same shape, so we just narrow the float64 timestamps
-//     to int64 — no transpose — and assertions compare object-to-object.
+//     <instant>` (server-derived). The bespoke write handlers return
+//     this same shape — no transpose — and every server-stamped time,
+//     the reaction leaves included, is an extended-JSON instant that we
+//     narrow to unix seconds here.
 func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 	t.Helper()
 	var f struct {
 		Id               string                        `json:"id"`
 		Creator          string                        `json:"creator"`
-		CreatedAt        float64                       `json:"createdAt"`
-		ModifiedAt       float64                       `json:"modifiedAt"`
+		CreatedAt        extDate                       `json:"createdAt"`
+		ModifiedAt       extDate                       `json:"modifiedAt"`
 		ReplyToMessageId string                        `json:"replyToMessageId"`
 		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
 		Mentions         []string                      `json:"mentions"`
-		Reactions        map[string]map[string]float64 `json:"reactions"`
+		Reactions        map[string]map[string]extDate `json:"reactions"`
 		Unread           bool                          `json:"unread"`
 		UnreadMention    bool                          `json:"unreadMention"`
 		UnreadReactions  bool                          `json:"unreadReactions"`
@@ -150,15 +151,15 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("chatMessages: decode record: %v\nraw=%s", err, raw)
 	}
-	// Reactions ship in storage layout (emoji → {accountId: ts}); narrow
-	// the JSON float64 timestamps to int64.
+	// Reactions ship in storage layout (emoji → {accountId: instant});
+	// narrow the instants to unix seconds.
 	var reactions map[string]map[string]int64
 	if len(f.Reactions) > 0 {
 		reactions = make(map[string]map[string]int64, len(f.Reactions))
 		for emoji, byAcct := range f.Reactions {
 			inner := make(map[string]int64, len(byAcct))
 			for acctId, ts := range byAcct {
-				inner[acctId] = int64(ts)
+				inner[acctId] = ts.seconds()
 			}
 			reactions[emoji] = inner
 		}
@@ -166,8 +167,8 @@ func decodeQueryChatMessage(t *testing.T, raw []byte) chatMsg {
 	return chatMsg{
 		Id:               f.Id,
 		Creator:          f.Creator,
-		CreatedAt:        int64(f.CreatedAt),
-		ModifiedAt:       int64(f.ModifiedAt),
+		CreatedAt:        f.CreatedAt.seconds(),
+		ModifiedAt:       f.ModifiedAt.seconds(),
 		ReplyToMessageId: f.ReplyToMessageId,
 		Agent:            f.Agent,
 		Text:             f.Text,

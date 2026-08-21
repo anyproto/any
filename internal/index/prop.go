@@ -248,14 +248,23 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 
 // renderPropValue turns a property value into indexable text: strings
 // as-is, numbers in canonical JSON rendering (distinctive numerals are
-// real discovery anchors), arrays as a newline join of their string and
-// number elements (other elements skipped), anything else (or absent)
-// empty.
+// real discovery anchors), instants as their RFC 3339 date-time (a
+// searchable "2026-08-05" prefix, not the `{"$date": …}` envelope),
+// arrays as a newline join of their string and number elements (other
+// elements skipped), anything else (or absent) empty.
 func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 	if v == nil {
 		return ""
 	}
 	switch kind {
+	case space.PropertyKindDatetime:
+		if v.Type() == anyenc.TypeDateTime {
+			ts, err := v.DateTime()
+			if err != nil {
+				return ""
+			}
+			return ts.UTC().Format(time.RFC3339)
+		}
 	case space.PropertyKindString:
 		if v.Type() == anyenc.TypeString {
 			return string(v.GetStringBytes())

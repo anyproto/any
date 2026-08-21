@@ -409,24 +409,27 @@ func prefixUpper(prefix string) string {
 	return prefix[:len(prefix)-1] + ";"
 }
 
-// Cursor returns the last indexed ApplySeq for the space (0 = never).
-func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, error) {
+// Cursor returns the last indexed ApplySeq for the space (0 = never)
+// and the SDK generation that seq belongs to ("" on rows written before
+// the generation was tracked, and on a never-indexed space).
+func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, string, error) {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	doc, err := coll.FindId(ctx, spaceId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
-		return 0, nil
+		return 0, "", nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
-	return uint64(doc.Value().GetInt("seq")), nil
+	v := doc.Value()
+	return uint64(v.GetInt("seq")), string(v.GetStringBytes("gen")), nil
 }
 
-// SetCursor persists the space cursor.
-func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64) error {
+// SetCursor persists the space cursor and the generation it belongs to.
+func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
@@ -435,6 +438,9 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64) error
 	doc := arena.NewObject()
 	doc.Set("id", arena.NewString(spaceId))
 	doc.Set("seq", arena.NewNumberInt(int(seq)))
+	if generation != "" {
+		doc.Set("gen", arena.NewString(generation))
+	}
 	return coll.UpsertOne(ctx, doc)
 }
 

@@ -120,7 +120,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	if err := ix1.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
-	cursor1, err := st1.Cursor(ctx, spaceId)
+	cursor1, _, err := st1.Cursor(ctx, spaceId)
 	if err != nil || cursor1 == 0 {
 		t.Fatalf("cursor after first sync = %d, %v; want > 0", cursor1, err)
 	}
@@ -147,14 +147,14 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	d.indexer = ix2
 	defer func() { _ = ix2.Close() }()
 
-	resumed, err := st2.Cursor(ctx, spaceId)
+	resumed, _, err := st2.Cursor(ctx, spaceId)
 	if err != nil || resumed != cursor1 {
 		t.Fatalf("cursor after reopen = %d, %v; want persisted %d", resumed, err, cursor1)
 	}
 	if err := ix2.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
-	cursor2, err := st2.Cursor(ctx, spaceId)
+	cursor2, _, err := st2.Cursor(ctx, spaceId)
 	if err != nil || cursor2 <= cursor1 {
 		t.Fatalf("cursor after catch-up = %d, %v; want > %d", cursor2, err, cursor1)
 	}

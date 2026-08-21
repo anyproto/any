@@ -398,9 +398,10 @@ func TestE2E_FullFlow(t *testing.T) {
 		if rec["id"] != spaceID {
 			t.Errorf("record id = %v, want %v", rec["id"], spaceID)
 		}
-		// Raw rows carry the handler-derived createdAt as unix seconds.
-		if ts, _ := rec["createdAt"].(float64); ts <= 0 {
-			t.Errorf("createdAt = %v, want positive unix seconds: %+v", rec["createdAt"], rec)
+		// Raw rows carry the handler-derived createdAt as an instant
+		// (`{"$date": …}`), the same shape every other stamp reads back as.
+		if ms := stampMillis(t, rec, "createdAt"); ms <= 0 {
+			t.Errorf("createdAt = %v, want a positive instant: %+v", rec["createdAt"], rec)
 		}
 	})
 

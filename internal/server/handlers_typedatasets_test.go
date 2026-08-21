@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -345,11 +346,18 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 		if s, _ := r["author"].(string); s == "" {
 			t.Error("creator stamp missing")
 		}
-		if n, _ := r["createdAt"].(float64); n == 0 {
-			t.Error("createTime stamp missing")
-		}
-		if n, _ := r["updatedAt"].(float64); n == 0 {
-			t.Error("modifyTime stamp missing")
+		// Time stamps are instants: `{"$date": "<RFC 3339>"}` on the
+		// wire, not epoch numbers.
+		for field, label := range map[string]string{"createdAt": "createTime", "updatedAt": "modifyTime"} {
+			obj, _ := r[field].(map[string]any)
+			iso, _ := obj["$date"].(string)
+			if iso == "" {
+				t.Errorf("%s stamp missing or not a $date instant: %#v", label, r[field])
+				continue
+			}
+			if _, err := time.Parse(time.RFC3339, iso); err != nil {
+				t.Errorf("%s stamp %q is not RFC 3339: %v", label, iso, err)
+			}
 		}
 	})
 

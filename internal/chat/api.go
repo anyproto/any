@@ -232,7 +232,13 @@ func getRaw(ctx context.Context, sp space.Space, objectId, msgId string) (*anyen
 // add-vs-remove decision in ToggleReaction.
 func identityHasEmoji(rec *anyenc.Value, callerId, emoji string) bool {
 	leaf := rec.Get(FieldReactions, emoji, callerId)
-	return leaf != nil && leaf.Type() == anyenc.TypeNumber
+	if leaf == nil {
+		return false
+	}
+	// The handler stamps the leaf with the reaction's moment: an instant
+	// today, an epoch number on rows written before that and not yet
+	// rebuilt. Either one means "this identity has reacted".
+	return leaf.Type() == anyenc.TypeDateTime || leaf.Type() == anyenc.TypeNumber
 }
 
 func getString(v *anyenc.Value, path ...string) string {

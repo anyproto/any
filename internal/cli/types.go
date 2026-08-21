@@ -123,7 +123,7 @@ func newTypePropertyAddCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "display name")
 	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key")
-	cmd.Flags().StringVar(&kind, "kind", "", "value kind (string/number/boolean/array/object; omit to default from format)")
+	cmd.Flags().StringVar(&kind, "kind", "", "value kind (string/number/boolean/array/object/datetime; omit to default from format)")
 	cmd.Flags().StringVar(&formatType, "format-type", "", "format: links/date/datetime/select/multiselect")
 	cmd.Flags().StringVar(&formatUI, "format-ui", "", "presentation hint: select/multiselect/link/links")
 	cmd.Flags().StringVar(&scope, "scope", "", "write/sync class: synced (default) / account / local")

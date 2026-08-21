@@ -53,6 +53,7 @@ func (stubChanges) Subscribe(func(space.ObjectChange)) func() { return func() {}
 func (stubChanges) ChangedSince(context.Context, uint64, int) ([]space.ObjectChange, error) {
 	return nil, nil
 }
+func (stubChanges) Generation(context.Context) (string, error) { return "gen-1", nil }
 
 func newRetryTestIndexer(t *testing.T, fs *fakeSpaces) *Indexer {
 	t.Helper()

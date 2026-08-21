@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -570,24 +571,23 @@ func chatList(t *testing.T, e http.Handler, base string) chatListResp {
 }
 
 // decodeChatMsg rehydrates one record from the query wire shape into
-// chatMsg. anyenc → fastjson renders numeric fields as JSON numbers in
-// exponential form for large ints (`1.78e+09`), which Go's
-// encoding/json can't unmarshal into int64, so we hop through float64.
-// Reactions ship in storage layout (emoji → {accountId: ts}) — the same
-// shape the write path no longer transposes.
+// chatMsg. Server-stamped times are instants — `{"$date": "<RFC 3339>"}`
+// — including the reaction leaves, which store the moment an account
+// reacted. Reactions ship in storage layout (emoji → {accountId: ts}) —
+// the same shape the write path no longer transposes.
 func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 	t.Helper()
 	var f struct {
 		Id               string                        `json:"id"`
 		Creator          string                        `json:"creator"`
-		CreatedAt        float64                       `json:"createdAt"`
-		ModifiedAt       float64                       `json:"modifiedAt"`
+		CreatedAt        extDate                       `json:"createdAt"`
+		ModifiedAt       extDate                       `json:"modifiedAt"`
 		ReplyToMessageId string                        `json:"replyToMessageId"`
 		Agent            *api.ChatAgentMeta            `json:"agent"`
 		Text             string                        `json:"text"`
 		Mentions         []string                      `json:"mentions"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
-		Reactions        map[string]map[string]float64 `json:"reactions"`
+		Reactions        map[string]map[string]extDate `json:"reactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatalf("decode message: %v\nraw=%s", err, raw)
@@ -598,7 +598,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		for emoji, byAcct := range f.Reactions {
 			inner := make(map[string]int64, len(byAcct))
 			for acct, ts := range byAcct {
-				inner[acct] = int64(ts)
+				inner[acct] = ts.seconds()
 			}
 			reactions[emoji] = inner
 		}
@@ -606,8 +606,8 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 	return chatMsg{
 		Id:               f.Id,
 		Creator:          f.Creator,
-		CreatedAt:        int64(f.CreatedAt),
-		ModifiedAt:       int64(f.ModifiedAt),
+		CreatedAt:        f.CreatedAt.seconds(),
+		ModifiedAt:       f.ModifiedAt.seconds(),
 		ReplyToMessageId: f.ReplyToMessageId,
 		Agent:            f.Agent,
 		Text:             f.Text,
@@ -615,4 +615,40 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Attachments:      f.Attachments,
 		Reactions:        reactions,
 	}
+}
+
+// extDate decodes an extended-JSON instant — `{"$date": "<RFC 3339>"}`,
+// or `{"$date": <unix millis>}` for years outside RFC 3339's range.
+type extDate struct {
+	ISO    string  `json:"$date"`
+	Millis float64 `json:"-"`
+}
+
+func (d *extDate) UnmarshalJSON(raw []byte) error {
+	var obj struct {
+		Date json.RawMessage `json:"$date"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return err
+	}
+	var iso string
+	if err := json.Unmarshal(obj.Date, &iso); err == nil {
+		d.ISO = iso
+		return nil
+	}
+	return json.Unmarshal(obj.Date, &d.Millis)
+}
+
+// seconds renders the instant as unix seconds — what the chat tests
+// compare, since the stamps come from a change's second-resolution
+// timestamp. Zero for an absent stamp.
+func (d extDate) seconds() int64 {
+	if d.ISO != "" {
+		ts, err := time.Parse(time.RFC3339, d.ISO)
+		if err != nil {
+			return 0
+		}
+		return ts.Unix()
+	}
+	return int64(d.Millis) / 1000
 }
