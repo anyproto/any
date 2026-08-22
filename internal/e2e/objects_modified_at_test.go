@@ -49,13 +49,13 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 
 	t.Run("create seeds modifiedAt", func(t *testing.T) {
 		row := queryRow(t, objA)
-		created, _ := row["createdAt"].(float64)
-		modified, _ := row["modifiedAt"].(float64)
+		created := stampMillis(t, row, "createdAt")
+		modified := stampMillis(t, row, "modifiedAt")
 		if created <= 0 {
-			t.Errorf("createdAt = %v, want positive unix seconds: %+v", row["createdAt"], row)
+			t.Errorf("createdAt = %v, want a positive instant: %+v", row["createdAt"], row)
 		}
 		if modified <= 0 {
-			t.Errorf("modifiedAt = %v, want positive unix seconds: %+v", row["modifiedAt"], row)
+			t.Errorf("modifiedAt = %v, want a positive instant: %+v", row["modifiedAt"], row)
 		}
 		if modified < created {
 			t.Errorf("modifiedAt %v < createdAt %v on a fresh row", modified, created)
@@ -77,9 +77,9 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 	t.Run("property write bumps modifiedAt", func(t *testing.T) {
 		rowA := queryRow(t, objA)
 		rowB := queryRow(t, objB)
-		modA, _ := rowA["modifiedAt"].(float64)
-		modB, _ := rowB["modifiedAt"].(float64)
-		createdA, _ := rowA["createdAt"].(float64)
+		modA := stampMillis(t, rowA, "modifiedAt")
+		modB := stampMillis(t, rowB, "modifiedAt")
+		createdA := stampMillis(t, rowA, "createdAt")
 		if modA <= modB {
 			t.Errorf("A.modifiedAt = %v not past B.modifiedAt = %v after writing A", modA, modB)
 		}

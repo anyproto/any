@@ -129,3 +129,52 @@ func TestPropChunker_CatalogTTLAndInvalidate(t *testing.T) {
 		t.Fatal("Invalidate should drop the snapshot")
 	}
 }
+
+// A date property is searchable text, not an opaque envelope: the value
+// indexes as RFC 3339, so "2026-08" matches the month. It also has to
+// reach the catalog at all — under the previous string default these
+// properties WERE indexed, so excluding the new kind would be a silent
+// search regression.
+func TestPropDatetimeIsIndexed(t *testing.T) {
+	arena := &anyenc.Arena{}
+	ts := time.Date(2026, 8, 5, 17, 0, 0, 0, time.UTC)
+
+	if got := renderPropValue(arena.NewDateTime(ts), space.PropertyKindDatetime); got != "2026-08-05T17:00:00Z" {
+		t.Errorf("datetime render = %q", got)
+	}
+	// A stale numeric value (a row the SDK's re-index hasn't reached)
+	// renders empty rather than as a bogus date.
+	if got := renderPropValue(arena.NewNumberInt(1786014230), space.PropertyKindDatetime); got != "" {
+		t.Errorf("numeric under a datetime kind render = %q", got)
+	}
+
+	def := space.PropertyDef{
+		Id: "p1", Name: "Due", Kind: space.PropertyKindDatetime,
+		Format: &space.PropertyFormat{Type: space.FormatDatetime},
+	}
+	got, ok := resolveIndexedProp("t1", def)
+	if !ok {
+		t.Fatal("a datetime property must enter the index catalog")
+	}
+	if got.scope != ScopeProps || got.kind != space.PropertyKindDatetime {
+		t.Errorf("indexed prop = %+v", got)
+	}
+}
+
+// The schema chunker's renderer sees actual anyenc types (x-search may
+// map undeclared fields), and stamped createTime/modifyTime fields are
+// instants.
+func TestRenderSearchValueDatetime(t *testing.T) {
+	arena := &anyenc.Arena{}
+	ts := time.Date(2026, 8, 5, 17, 0, 0, 0, time.UTC)
+
+	if got := renderSearchValue(arena.NewDateTime(ts)); got != "2026-08-05T17:00:00Z" {
+		t.Errorf("datetime render = %q", got)
+	}
+	arr := arena.NewArray()
+	arr.SetArrayItem(0, arena.NewString("alpha"))
+	arr.SetArrayItem(1, arena.NewDateTime(ts))
+	if got := renderSearchValue(arr); got != "alpha\n2026-08-05T17:00:00Z" {
+		t.Errorf("array render = %q", got)
+	}
+}

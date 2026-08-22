@@ -118,6 +118,11 @@ const (
 	PropertyKindNull    = "null"
 	PropertyKindArray   = "array"
 	PropertyKindObject  = "object"
+	// PropertyKindDatetime is an instant: `{"$date": "<RFC 3339>"}` on
+	// the wire in both directions (writes also accept
+	// `{"$date": <unix millis>}`). The kind the `date` / `datetime`
+	// formats imply — see docs/03-api.md § Types.
+	PropertyKindDatetime = "datetime"
 )
 
 // TypeInfo mirrors space.TypeInfo on the wire.

@@ -593,9 +593,12 @@ object also hosts the `identities` directory, whose rows carry a synced
 decryption key; it is deliberately **not** reachable here — read it
 through `GET /v1/identities`. Records are the **raw**
 tech-index rows (not the mapped `SpaceInfo`) — use `GET /v1/spaces` when
-you want the projected status/role. Rows carry `createdAt` as unix
-seconds (handler-derived added-to-account time, absent on pre-stamp
-rows), so newest-first creation ordering is `{"sort": ["-createdAt"]}`.
+you want the projected status/role. Rows carry `createdAt` as an
+instant — `{"$date": "<RFC 3339>"}`, the handler-derived added-to-account
+time, absent on pre-stamp rows — so newest-first creation ordering is
+`{"sort": ["-createdAt"]}` and a range filter takes the same shape
+(`{"$gte": {"$date": "…"}}`). The mapped `SpaceInfo.createdAt` on
+`GET /v1/spaces` stays a plain RFC 3339 string.
 The subscribe frame set and `closed`
 reasons are identical to the per-object `…/query/subscribe` (see the Data
 plane § Subscribe and `docs/04-events.md`); a space joined on another
@@ -1372,9 +1375,10 @@ row-root fields alongside `id`, all derived/read-only (client writes
 addressing them are rejected):
 
 - `author` — identity that created the object (root-change signer);
-- `createdAt` — object creation time, unix seconds (root-change time);
+- `createdAt` — object creation time (root-change time), an instant:
+  `{"$date": "2026-08-05T17:00:00.000Z"}`;
 - `spaceId`;
-- `modifiedAt` — unix seconds of the latest synced change that touched
+- `modifiedAt` — the instant of the latest synced change that touched
   the row. Any property write bumps it; peers converge on the same
   value (LWW on the change's DAG order). It is the **author's clock** —
   sort/display quality, never a fencing token. Local-scope writes
@@ -1792,13 +1796,23 @@ property's value convention beyond its structural kind:
 ```
 
 - `format.type` — `links` (array of `any://<objectId>` URI strings),
-  `date` (`2006-01-02` string), `datetime` (RFC 3339 string), `select`
-  (a single option key — string), `multiselect` (an array of option
-  keys). `tags` is reserved until the space-level tag table lands.
-  Pinned for the property's life and coupled to `kind` (`links` /
-  `multiselect` ⇒ `array`, `date`/`datetime`/`select` ⇒ `string`);
-  **`kind` may be omitted** when a format is set — it defaults from the
-  format type.
+  `date` (an instant at midnight UTC), `datetime` (an instant),
+  `select` (a single option key — string), `multiselect` (an array of
+  option keys). `tags` is reserved until the space-level tag table
+  lands. Pinned for the property's life and coupled to `kind` (`links` /
+  `multiselect` ⇒ `array`, `select` ⇒ `string`, `date`/`datetime` ⇒
+  `datetime`); **`kind` may be omitted** when a format is set — it
+  defaults from the format type.
+
+  An instant reads and writes as `{"$date": "<RFC 3339>"}` (writes also
+  take `{"$date": <unix millis>}`) — the native value any-store orders,
+  indexes and computes dates on (`$year`, `$dateTrunc`, `$dateDiff`;
+  docs/14-aggregation.md). Passing `"kind": "string"` alongside a
+  `date` / `datetime` format keeps the ISO-8601 convention these formats
+  carried before instants existed — `2006-01-02` for `date`, RFC 3339
+  for `datetime`. Kind is pinned at first write, so properties created
+  under the old default keep behaving exactly as they did, and every
+  date operator keeps returning null for them.
 - `format.ui` — presentation hint: `select` / `multiselect` / `link` /
   `links`. `date`/`datetime` take no ui.
 - `format.filter` — mongo-style condition over candidate objects
@@ -1816,7 +1830,9 @@ The SDK stores formats opaquely (structure-only checks); **this server
 is the semantics boundary**. Definition-time violations → `400
 property.format_invalid`. Value writes through `POST …/set/:typeId` and
 `initialProperties` on object create are shape-checked against the
-format (datetime must parse, links must be plain `any://<objectId>`
+format (a datetime-kind value must be a well-formed `{"$date": …}`
+instant and a `date` one must land on midnight UTC; a string-kind date
+must parse; links must be plain `any://<objectId>`
 URIs — no spaceId segment, no fragment) → `400
 property.format_violation` (`details: {propId, format, reason}`). No
 object-existence or object-type checks. Known gap: raw `POST
@@ -2204,8 +2220,8 @@ body is always read back through the query path.
 {
   "id":               "<change-derived id>",
   "creator":          "<accountId>",
-  "createdAt":        1714597200,
-  "modifiedAt":       1714597200,
+  "createdAt":        {"$date": "2026-05-01T21:00:00.000Z"},
+  "modifiedAt":       {"$date": "2026-05-01T21:00:00.000Z"},
   "replyToMessageId": "<msgId>",
   "agent": {
     "name": "bao", "debugLink": "any://<spaceId>/<debugObjId>#turn_3", "done": true
@@ -2216,7 +2232,8 @@ body is always read back through the query path.
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
-  "reactions":        { "👍": { "<id1>": 1714597200, "<id2>": 1714597205 } }
+  "reactions":        { "👍": { "<id1>": {"$date": "2026-05-01T21:00:00.000Z"},
+                                "<id2>": {"$date": "2026-05-01T21:00:05.000Z"} } }
 }
 ```
 
@@ -2227,9 +2244,9 @@ materializes its own values via `POST …/modify` with
 `{"scope":"local"}` (§ Modify records) and they never appear on other
 devices. Filterable like any field: `{"filter":{"unread":true}}`.
 
-`createdAt` and `modifiedAt` are unix-seconds, server-stamped. They
-are equal on a never-edited message — clients detect edits by
-comparing them. `text` is markdown; rendering is the client's
+`createdAt` and `modifiedAt` are server-stamped instants
+(`{"$date": "<RFC 3339>"}`). They are equal on a never-edited message —
+clients detect edits by comparing them. `text` is markdown; rendering is the client's
 problem (`internal/markdown` exists if anyone wants to round-trip).
 
 `mentions` is server-DERIVED (`x-scope` derived) — never accepted from
@@ -2343,9 +2360,10 @@ each page client-side for oldest-at-top display. The bespoke endpoint's
 replaces them. See `08-clients.md` for the full read/write recommendations.
 
 Reactions on queried records ship as
-`reactions.<emoji>.<accountId> = <timestamp>` (server-derived) — the
-same shape the bespoke send / edit / react responses return, so there
-is nothing to transpose between the read and write paths.
+`reactions.<emoji>.<accountId> = {"$date": "<RFC 3339>"}` (the instant
+the identity reacted, server-derived) — the same shape the bespoke send
+/ edit / react responses return, so there is nothing to transpose
+between the read and write paths.
 
 #### Edit / delete (own only)
 
@@ -2361,7 +2379,7 @@ ids. The handler enforces the same rules for peer-originated changes.
 `POST .../chat/messages/:msgId/reactions/:emoji` (no body) toggles the
 caller's reaction. The CRDT op is `$set` (add) or `$unset` (remove)
 on the leaf `reactions.<emoji>.<callerId>`; the value on add is the
-triggering change's timestamp, server-derived. Because the leaf is
+triggering change's instant, server-derived. Because the leaf is
 unique per (emoji, identity), two clients toggling at the same time
 can't corrupt each other. Returns `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`); read the

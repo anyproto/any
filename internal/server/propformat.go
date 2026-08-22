@@ -200,8 +200,11 @@ func validateFormatSemantics(f *api.PropertyFormat, kind string) string {
 			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
 		}
 	case api.FormatTypeDate, api.FormatTypeDatetime:
-		if kind != "" && kind != api.PropertyKindString {
-			return fmt.Sprintf("format %q requires kind string (or omit kind); got %q", f.Type, kind)
+		// datetime is what these formats imply; string is the legacy
+		// ISO-8601 convention, kept because kind is pinned at first write
+		// and properties created under the old default must stay usable.
+		if kind != "" && kind != api.PropertyKindDatetime && kind != api.PropertyKindString {
+			return fmt.Sprintf("format %q requires kind datetime or string (or omit kind); got %q", f.Type, kind)
 		}
 		if f.UI != "" {
 			return fmt.Sprintf("format %q takes no ui (got %q)", f.Type, f.UI)
@@ -319,18 +322,30 @@ func validateFormatValues(defs []space.PropertyDef, patch map[string]any) *forma
 		if !ok || v == nil || v.Type() == fastjson.TypeNull {
 			continue
 		}
-		if reason := checkFormatValue(def.Format.Type, v); reason != "" {
+		if reason := checkFormatValue(def, v); reason != "" {
 			return &formatViolation{PropId: propId, Format: def.Format.Type.String(), Reason: reason}
 		}
 	}
 	return nil
 }
 
-// checkFormatValue validates one value's shape against a format type.
-// Returns a human-readable reason, "" when conforming.
-func checkFormatValue(ft space.FormatType, v *fastjson.Value) string {
-	switch ft {
+// checkFormatValue validates one value's shape against its property
+// definition — the format, plus the kind for the two formats that carry
+// both a datetime and a legacy string form. Returns a human-readable
+// reason, "" when conforming.
+func checkFormatValue(def *space.PropertyDef, v *fastjson.Value) string {
+	switch def.Format.Type {
 	case space.FormatDate:
+		if def.Kind == space.PropertyKindDatetime {
+			ts, reason := datetimeValue(v)
+			if reason != "" {
+				return reason
+			}
+			if !ts.Equal(ts.UTC().Truncate(24 * time.Hour)) {
+				return fmt.Sprintf("date value %q must be midnight UTC", ts.UTC().Format(time.RFC3339))
+			}
+			return ""
+		}
 		s, ok := fastjsonString(v)
 		if !ok {
 			return "date value must be a string"
@@ -339,6 +354,10 @@ func checkFormatValue(ft space.FormatType, v *fastjson.Value) string {
 			return fmt.Sprintf("date value %q must be %q", s, dateLayout)
 		}
 	case space.FormatDatetime:
+		if def.Kind == space.PropertyKindDatetime {
+			_, reason := datetimeValue(v)
+			return reason
+		}
 		s, ok := fastjsonString(v)
 		if !ok {
 			return "datetime value must be a string"
@@ -388,4 +407,34 @@ func fastjsonString(v *fastjson.Value) (string, bool) {
 		return "", false
 	}
 	return string(v.GetStringBytes()), true
+}
+
+// datetimeValue reads the extended-JSON instant a datetime-kind property
+// takes — `{"$date": "<RFC 3339>"}` or `{"$date": <unix millis>}`, the
+// same shape reads return. Returns the instant, or the reason it is not
+// one.
+func datetimeValue(v *fastjson.Value) (time.Time, string) {
+	obj, err := v.Object()
+	if err != nil {
+		return time.Time{}, `datetime value must be {"$date": "<RFC 3339>"} or {"$date": <unix millis>}`
+	}
+	dv := obj.Get("$date")
+	if dv == nil || obj.Len() != 1 {
+		return time.Time{}, `datetime value must be an object with exactly one key, "$date"`
+	}
+	switch dv.Type() {
+	case fastjson.TypeString:
+		s := string(dv.GetStringBytes())
+		ts, perr := time.Parse(time.RFC3339Nano, s)
+		if perr != nil {
+			return time.Time{}, fmt.Sprintf("datetime value %q must be RFC 3339", s)
+		}
+		return ts, ""
+	case fastjson.TypeNumber:
+		// int64(float64), the same narrowing any-store's extended-JSON
+		// decoder applies — so validation and the stored instant agree
+		// on non-integer or very large literals.
+		return time.UnixMilli(int64(dv.GetFloat64())).UTC(), ""
+	}
+	return time.Time{}, `"$date" must be an RFC 3339 string or unix millis`
 }

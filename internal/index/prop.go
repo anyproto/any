@@ -168,7 +168,7 @@ func resolveIndexedProp(typeId string, d space.PropertyDef) (indexedProp, bool) 
 		return indexedProp{}, false
 	}
 	switch d.Kind {
-	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber:
+	case space.PropertyKindString, space.PropertyKindArray, space.PropertyKindNumber, space.PropertyKindDatetime:
 	default:
 		return indexedProp{}, false // booleans/null/object carry no discoverable text
 	}
@@ -248,14 +248,17 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 
 // renderPropValue turns a property value into indexable text: strings
 // as-is, numbers in canonical JSON rendering (distinctive numerals are
-// real discovery anchors), arrays as a newline join of their string and
-// number elements (other elements skipped), anything else (or absent)
-// empty.
+// real discovery anchors), instants as their RFC 3339 date-time (a
+// searchable "2026-08-05" prefix, not the `{"$date": …}` envelope),
+// arrays as a newline join of their string and number elements (other
+// elements skipped), anything else (or absent) empty.
 func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 	if v == nil {
 		return ""
 	}
 	switch kind {
+	case space.PropertyKindDatetime:
+		return renderDateTime(v)
 	case space.PropertyKindString:
 		if v.Type() == anyenc.TypeString {
 			return string(v.GetStringBytes())
@@ -277,6 +280,20 @@ func renderPropValue(v *anyenc.Value, kind space.PropertyKind) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+// renderDateTime renders an instant as RFC 3339 UTC — searchable text
+// ("2026-08" prefixes a month), not the `{"$date": …}` envelope. Empty
+// for anything that is not an instant.
+func renderDateTime(v *anyenc.Value) string {
+	if v == nil || v.Type() != anyenc.TypeDateTime {
+		return ""
+	}
+	ts, err := v.DateTime()
+	if err != nil {
+		return ""
+	}
+	return ts.UTC().Format(time.RFC3339)
 }
 
 // renderNumber is the canonical JSON rendering (integers without a

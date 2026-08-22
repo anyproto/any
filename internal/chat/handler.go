@@ -430,15 +430,18 @@ func stampCreate(ctx *handler.ChangeCtx, sink *handler.Sink) {
 		})
 	}
 	if ts := ctx.Change.Timestamp; ts > 0 {
+		// Instants, not epoch numbers — the shape any-store orders,
+		// indexes and computes dates on. The envelope carries unix
+		// SECONDS; a dateTime value is millis.
 		sink.Derive(handler.Op{
 			Type:    handler.OpSet,
 			Path:    []string{FieldCreatedAt},
-			Payload: a.NewNumberInt(int(ts)),
+			Payload: a.NewDateTimeMillis(ts * 1000),
 		})
 		sink.Derive(handler.Op{
 			Type:    handler.OpSet,
 			Path:    []string{FieldModifiedAt},
-			Payload: a.NewNumberInt(int(ts)),
+			Payload: a.NewDateTimeMillis(ts * 1000),
 		})
 	}
 }
@@ -468,7 +471,7 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 		sink.Derive(handler.Op{
 			Type:    handler.OpSet,
 			Path:    []string{FieldModifiedAt},
-			Payload: a.NewNumberInt(int(ctx.Change.Timestamp)),
+			Payload: a.NewDateTimeMillis(ctx.Change.Timestamp * 1000),
 		})
 	}
 	// Re-derive mentions from the new text. replyToMessageId is
@@ -575,7 +578,7 @@ func validateReactionToggle(ctx *handler.ChangeCtx, op *handler.Op, _ *handler.S
 			return rejectOp("missing change timestamp")
 		}
 		a := &anyenc.Arena{}
-		op.Payload = a.NewNumberInt(int(ts))
+		op.Payload = a.NewDateTimeMillis(ts * 1000)
 	}
 	return nil
 }

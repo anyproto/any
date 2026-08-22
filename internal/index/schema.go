@@ -332,8 +332,9 @@ func fieldValue(rec *anyenc.Value, field string) *anyenc.Value {
 // renderSearchValue turns a mapped field value into indexable text by
 // its ACTUAL type — the SDK does not validate x-search fields against
 // declared kinds (dynamic datasets may map undeclared fields): strings
-// as-is, numbers canonical, arrays a newline join of string/number
-// elements, anything else empty.
+// as-is, numbers canonical, instants as RFC 3339 (a searchable
+// "2026-08" prefix — stamped createTime/modifyTime fields are instants),
+// arrays a newline join of those, anything else empty.
 func renderSearchValue(v *anyenc.Value) string {
 	if v == nil {
 		return ""
@@ -343,6 +344,8 @@ func renderSearchValue(v *anyenc.Value) string {
 		return string(v.GetStringBytes())
 	case anyenc.TypeNumber:
 		return renderNumber(v.GetFloat64())
+	case anyenc.TypeDateTime:
+		return renderDateTime(v)
 	case anyenc.TypeArray:
 		var parts []string
 		for _, el := range v.GetArray() {
@@ -351,6 +354,10 @@ func renderSearchValue(v *anyenc.Value) string {
 				parts = append(parts, string(el.GetStringBytes()))
 			case anyenc.TypeNumber:
 				parts = append(parts, renderNumber(el.GetFloat64()))
+			case anyenc.TypeDateTime:
+				if text := renderDateTime(el); text != "" {
+					parts = append(parts, text)
+				}
 			}
 		}
 		return strings.Join(parts, "\n")

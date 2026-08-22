@@ -73,16 +73,32 @@ That list is exhaustive — anything absent from it is rejected, so
 there are no type conversions (`$toDate`, `$toInt`, …) and no array
 operators (`$map`, `$filter`, `$reduce`).
 
-**The date operators are inert on what `any` stores.** They need a
-native date value, and every timestamp here is something else: system
-stamps (`createdAt`, `modifiedAt`, chat `createdAt`, …) are unix-second
-numbers, user `date` / `datetime` properties are ISO strings. Both
-return `null` from `$year` / `$dateTrunc` / `$dateDiff`, and no
-`$toDate` exists to bridge them. A numeric stamp can still be bucketed
-arithmetically — `{"$round": [{"$divide": ["$modifiedAt", 86400]}, 0]}`
-groups by day — but `$round` is nearest, not floor, so the boundary
-sits at midday. Grouping by real calendar periods waits on native date
-values in the store.
+**The date operators compute on instants.** Every timestamp `any`
+stores is one: system stamps (`createdAt`, `modifiedAt`, chat
+`createdAt`, runtime-dataset `createTime`/`modifyTime`) and user
+properties declared with the `date` / `datetime` format. On the wire an
+instant is `{"$date": "2026-08-05T00:00:00.000Z"}` — in pipeline output
+too, so a `$dateTrunc` result reads back in the same shape as the field
+it came from.
+
+```sh
+# Objects per calendar month of their last edit.
+curl -s localhost:7001/v1/spaces/$S/objects/aggregate -d '{
+  "pipeline": [
+    {"$group": {"_id": {"$dateTrunc": {"date": "$modifiedAt", "unit": "month"}},
+                "n": {"$count": {}}}},
+    {"$sort": {"id": 1}}
+  ]}'
+```
+
+The exception is a date property declared `kind: "string"` — the
+ISO-8601 convention the date formats carried before instants existed.
+Those still return `null` from every date operator, and no `$toDate`
+exists to bridge them; ISO-8601 sorts lexicographically, so predicates
+(`$lt` / `$gte` against a literal) and `$split`-based bucketing are what
+they support. Kind is pinned at first write, so such a property stays a
+string for life — a client that wants date arithmetic on it defines a
+new property.
 
 ## Examples
 

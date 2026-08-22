@@ -120,7 +120,7 @@ type DatasetFieldDraft struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	// Kind is a PropertyKind* wire string. Required unless stamp
-	// implies one (creator ⇒ string, createTime/modifyTime ⇒ number).
+	// implies one (creator ⇒ string, createTime/modifyTime ⇒ datetime).
 	Kind string `json:"kind,omitempty"`
 	// Shape optionally refines array/object values.
 	Shape *DatasetFieldShape `json:"shape,omitempty"`

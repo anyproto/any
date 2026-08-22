@@ -60,6 +60,26 @@ func TestServer_PropertyFormat(t *testing.T) {
 	}
 	dueProp := addResp.PropId
 
+	// The same format with an explicit string kind — the ISO-8601
+	// convention these formats carried before instants existed. Kind is
+	// pinned first-write, so this is how a property created by an older
+	// client keeps behaving.
+	rec = doJSON(t, e, http.MethodPost, propsURL, `{"name":"Legacy due","kind":"string","format":{"type":"datetime"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("legacy datetime format: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &addResp); err != nil {
+		t.Fatalf("decode propId: %v", err)
+	}
+	legacyDueProp := addResp.PropId
+
+	// The kind those formats imply, stated explicitly — accepted, not
+	// treated as a mismatch against the legacy string.
+	rec = doJSON(t, e, http.MethodPost, propsURL, `{"name":"Explicit due","kind":"datetime","format":{"type":"datetime"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("explicit datetime kind: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	for name, body := range map[string]string{
 		"unknown format type":  `{"name":"A","format":{"type":"rainbow"}}`,
 		"reserved tags format": `{"name":"B","format":{"type":"tags"}}`,
@@ -119,14 +139,19 @@ func TestServer_PropertyFormat(t *testing.T) {
 		body string
 		want int
 	}{
-		"valid links":         {`{"patch":{"` + relatedProp + `":["any://objabc","any://objdef"]}}`, http.StatusOK},
-		"valid datetime":      {`{"patch":{"` + dueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusOK},
-		"bad datetime":        {`{"patch":{"` + dueProp + `":"tomorrow"}}`, http.StatusBadRequest},
-		"datetime non-string": {`{"patch":{"` + dueProp + `":12345}}`, http.StatusBadRequest},
-		"links non-array":     {`{"patch":{"` + relatedProp + `":"any://objabc"}}`, http.StatusBadRequest},
-		"links bad uri":       {`{"patch":{"` + relatedProp + `":["not-a-uri"]}}`, http.StatusBadRequest},
-		"links global form":   {`{"patch":{"` + relatedProp + `":["any://space1/objabc"]}}`, http.StatusBadRequest},
-		"links typed form":    {`{"patch":{"` + relatedProp + `":["any://o/space1/objabc"]}}`, http.StatusBadRequest},
+		"valid links":             {`{"patch":{"` + relatedProp + `":["any://objabc","any://objdef"]}}`, http.StatusOK},
+		"valid datetime":          {`{"patch":{"` + dueProp + `":{"$date":"2026-07-03T12:00:00Z"}}}`, http.StatusOK},
+		"valid datetime millis":   {`{"patch":{"` + dueProp + `":{"$date":1786014230123}}}`, http.StatusOK},
+		"bad datetime":            {`{"patch":{"` + dueProp + `":{"$date":"tomorrow"}}}`, http.StatusBadRequest},
+		"datetime bare string":    {`{"patch":{"` + dueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusBadRequest},
+		"datetime bare number":    {`{"patch":{"` + dueProp + `":12345}}`, http.StatusBadRequest},
+		"datetime extra key":      {`{"patch":{"` + dueProp + `":{"$date":"2026-07-03T12:00:00Z","tz":"UTC"}}}`, http.StatusBadRequest},
+		"legacy string datetime":  {`{"patch":{"` + legacyDueProp + `":"2026-07-03T12:00:00Z"}}`, http.StatusOK},
+		"legacy string bad value": {`{"patch":{"` + legacyDueProp + `":"tomorrow"}}`, http.StatusBadRequest},
+		"links non-array":         {`{"patch":{"` + relatedProp + `":"any://objabc"}}`, http.StatusBadRequest},
+		"links bad uri":           {`{"patch":{"` + relatedProp + `":["not-a-uri"]}}`, http.StatusBadRequest},
+		"links global form":       {`{"patch":{"` + relatedProp + `":["any://space1/objabc"]}}`, http.StatusBadRequest},
+		"links typed form":        {`{"patch":{"` + relatedProp + `":["any://o/space1/objabc"]}}`, http.StatusBadRequest},
 		// INTENTIONAL delta vs the pre-anyuri validator: a 1-4 char
 		// lowercase-alphanumeric first segment is the reserved kind-slug
 		// namespace (docs/19-links.md), so pathological short ids like
@@ -158,12 +183,12 @@ func TestServer_PropertyFormat(t *testing.T) {
 
 	// initialProperties on object create go through the same gate.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+dueProp+`":"not-a-date"}}}`)
+		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+dueProp+`":{"$date":"not-a-date"}}}}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("initialProperties violation: status=%d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+dueProp+`":"2026-01-01T00:00:00Z"}}}`)
+		`{"types":["`+tr.TypeId+`"],"initialProperties":{"`+tr.TypeId+`":{"`+dueProp+`":{"$date":"2026-01-01T00:00:00Z"}}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("initialProperties valid: status=%d body=%s", rec.Code, rec.Body.String())
 	}

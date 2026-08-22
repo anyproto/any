@@ -124,13 +124,25 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   synced write to the object and converges across peers, but it's the
   author's wall clock — fine for sorting and display, never a sync fence.
 
+- **Timestamps are instants, not numbers.** Every server-stamped time —
+  the row-root stamps, chat `createdAt` / `modifiedAt`, runtime-dataset
+  stamps — and every property declared with the `date` / `datetime`
+  format reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
+  the one key (`new Date(v.$date)`), and use the same shape in filter
+  literals and writes: `{"modifiedAt": {"$gte": {"$date": "…"}}}`. A bare
+  string or number does not error — comparisons across types go by type
+  rank and instants rank above both, so `$gte` matches every row and
+  `$lt` matches none. A range filter that forgets the wrapper returns a
+  wrong answer, not an empty one.
+
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
   over HTTP — POST a pipeline to the sibling `…/aggregate` endpoints
   (same two scopes, snapshot-only). Put `$match` first so it runs on an
   index, and mind the deliberate MongoDB divergences (group key comes
-  back as `id`; compute operators are a closed set and the date ones are
-  inert on stored timestamps). See `14-aggregation.md`.
+  back as `id`; compute operators are a closed set). Date operators work
+  on stored instants — `$dateTrunc` by month is a real group key. See
+  `14-aggregation.md`.
 
 ## 4. Chat: newest-first reads and backward pagination
 

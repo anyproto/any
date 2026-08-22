@@ -127,13 +127,13 @@ func TestStore_PrefixDeleteAndDropSpace(t *testing.T) {
 		t.Fatalf("deleted text still matches: %+v, %v", h, err)
 	}
 
-	if err := s.SetCursor(ctx, sp, 42); err != nil {
+	if err := s.SetCursor(ctx, sp, 42, "gen-1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DropSpace(ctx, sp); err != nil {
 		t.Fatal(err)
 	}
-	seq, err := s.Cursor(ctx, sp)
+	seq, _, err := s.Cursor(ctx, sp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,17 +152,17 @@ func TestStore_PrefixDeleteAndDropSpace(t *testing.T) {
 func TestStore_Cursor(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 0)
-	seq, err := s.Cursor(ctx, "fresh")
+	seq, _, err := s.Cursor(ctx, "fresh")
 	if err != nil || seq != 0 {
 		t.Fatalf("fresh cursor = %d, %v; want 0, nil", seq, err)
 	}
-	if err := s.SetCursor(ctx, "fresh", 7); err != nil {
+	if err := s.SetCursor(ctx, "fresh", 7, "gen-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetCursor(ctx, "fresh", 19); err != nil {
+	if err := s.SetCursor(ctx, "fresh", 19, "gen-1"); err != nil {
 		t.Fatal(err)
 	}
-	seq, err = s.Cursor(ctx, "fresh")
+	seq, _, err = s.Cursor(ctx, "fresh")
 	if err != nil || seq != 19 {
 		t.Fatalf("cursor = %d, %v; want 19, nil", seq, err)
 	}

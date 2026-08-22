@@ -355,7 +355,8 @@ any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-
 any type list   <spaceId>
 
 any type property list   <spaceId> <typeId>
-any type property add    <spaceId> <typeId> --name ... [--xkey ...] [--kind ...]
+any type property add    <spaceId> <typeId> --name ... [--xkey ...]
+                         [--kind string|number|boolean|array|object|datetime]
                          [--format-type links|date|datetime|select|multiselect] [--format-ui ...] [--scope ...]
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset <path> ...]
 any type property remove <spaceId> <typeId> <propId>

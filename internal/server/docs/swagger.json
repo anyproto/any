@@ -667,7 +667,7 @@
                         "type": "string"
                     },
                     "kind": {
-                        "description": "Kind is a PropertyKind* wire string. Required unless stamp\nimplies one (creator ⇒ string, createTime/modifyTime ⇒ number).",
+                        "description": "Kind is a PropertyKind* wire string. Required unless stamp\nimplies one (creator ⇒ string, createTime/modifyTime ⇒ datetime).",
                         "type": "string"
                     },
                     "mutableBy": {

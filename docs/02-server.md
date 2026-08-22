@@ -131,6 +131,14 @@ holds no lock until it boots an account.
     └── index/                   # local search index (index.db) — owned by the indexer
 ```
 
+**Upgrading is one-way.** any-store v2.0.0 renamed the database header
+magic; it still reads databases written by earlier v2 builds, but once a
+v2.0.0-era server has opened a data dir the header carries the new magic
+and a build pinned to an older any-store refuses it outright
+(`btree: database is corrupt` — the data is intact, the old code just
+doesn't recognize the file). Verified by rolling a server back after an
+upgrade. Keep a copy of the data dir if you need the option to downgrade.
+
 The SDK's `config.Storage.DataDir` points at `<account-dir>/sdk/`; the
 SDK derives `<account-dir>/files/` next to it for file bytes. A durable
 file's bytes are a cache (reclaimable via `/v1/files/cache/*` or

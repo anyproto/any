@@ -147,6 +147,8 @@ type fakeChanges struct {
 	changes []space.ObjectChange
 }
 
+func (f fakeChanges) Generation(context.Context) (string, error) { return "gen-1", nil }
+
 func (f fakeChanges) ChangedSince(_ context.Context, since uint64, limit int) ([]space.ObjectChange, error) {
 	var out []space.ObjectChange
 	for _, ch := range f.changes {
