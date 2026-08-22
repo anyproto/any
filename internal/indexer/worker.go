@@ -123,6 +123,14 @@ func (w *spaceWorker) alignIndex(ctx context.Context) {
 		}
 	}
 	if reason == "" {
+		if cursor > 0 && storedGen == "" && gen != "" {
+			// A cursor from before generation tracking: stamp the epoch
+			// now rather than at the next change, so the row describes
+			// itself even on a space that never changes again.
+			if err := w.ix.store.SetCursor(ctx, spaceId, cursor, gen); err != nil {
+				w.ix.lg.Warn("stamp index generation", zap.String("spaceId", spaceId), zap.Error(err))
+			}
+		}
 		return
 	}
 	w.ix.lg.Info("reindexing space", zap.String("spaceId", spaceId), zap.String("reason", reason),
