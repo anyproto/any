@@ -80,59 +80,56 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 		t.Errorf("bob: status after accept = %q, want active", bobSpace.Status)
 	}
 
-	// The 1-1's chat: the server arbitrates nothing, so the two
-	// clients agree that the INITIATING side registers the bundle and
-	// the other adopts it. Bob's Ensure must adopt Alice's root — a
-	// second root would split the conversation.
+	// The 1-1's chat, on a DERIVED root. Both participants are
+	// writers and the ACL owner is a synthetic key nobody holds, so
+	// neither side can ever claim "nobody else could have installed" —
+	// a created root leaves both refused until the registry converges,
+	// which never happens while they are apart. A derived root is the
+	// same id on both sides by construction, so each installs its own
+	// copy immediately and they meet on the one object.
 	const bundleId = "general-chat/v1"
-	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"]}`
+	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"],"derived":true}`
 
-	// Even the initiator waits for the registry to converge: a 1-1
-	// space is derived on both sides, so its index has to meet the
-	// peer's before an install can know whether one already exists.
+	// FIRST attempt, both sides, no convergence polling: that is the
+	// contract — a derived install never waits and never 409s.
 	var aliceBundle api.BundleEnsureResponse
-	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
-		aliceBundle = api.BundleEnsureResponse{}
-		code := tryJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
-			ensureBody, &aliceBundle)
-		return code == http.StatusOK && aliceBundle.Bundle.RootId != ""
-	}) {
-		t.Fatalf("initiator never installed the 1-1 chat: %+v", aliceBundle)
-	}
-	if !aliceBundle.Installed {
-		t.Fatalf("initiator adopted instead of installing: %+v", aliceBundle)
+	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+		ensureBody, http.StatusOK, &aliceBundle)
+	if aliceBundle.Bundle.RootId == "" || !aliceBundle.Bundle.Derived {
+		t.Fatalf("initiator did not install a derived chat: %+v", aliceBundle)
 	}
 
 	var bobBundle api.BundleEnsureResponse
-	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
-		bobBundle = api.BundleEnsureResponse{}
-		code := tryJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
-			ensureBody, &bobBundle)
-		return code == http.StatusOK && bobBundle.Bundle.RootId != ""
-	}) {
-		t.Fatalf("bob never resolved the 1-1 chat bundle: %+v", bobBundle)
+	mustJSON(t, http.MethodPost, bob.base+"/v1/spaces/"+aliceSpace.Id+"/bundles",
+		ensureBody, http.StatusOK, &bobBundle)
+	if bobBundle.Bundle.RootId != aliceBundle.Bundle.RootId {
+		t.Fatalf("1-1 chat forked: alice=%q bob=%q",
+			aliceBundle.Bundle.RootId, bobBundle.Bundle.RootId)
 	}
-	if bobBundle.Installed || bobBundle.Bundle.RootId != aliceBundle.Bundle.RootId {
-		t.Fatalf("1-1 chat diverged: alice=%q bob=%q (installed=%v)",
-			aliceBundle.Bundle.RootId, bobBundle.Bundle.RootId, bobBundle.Installed)
+	if !bobBundle.Bundle.Derived {
+		t.Fatalf("peer did not resolve the chat as derived: %+v", bobBundle.Bundle)
+	}
+	if len(aliceBundle.Bundle.Losers) != 0 || len(bobBundle.Bundle.Losers) != 0 {
+		t.Fatalf("derived install produced losers: alice=%v bob=%v",
+			aliceBundle.Bundle.Losers, bobBundle.Bundle.Losers)
 	}
 
-	// Content convergence: Alice writes a chat message in the 1-1 space,
-	// Bob (the other writer) reads it back after sync.
-	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+aliceSpace.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
-	aliceObj := alice.base + "/v1/spaces/" + aliceSpace.Id + "/objects/" + obj.ObjectId
-	bobObj := bob.base + "/v1/spaces/" + aliceSpace.Id + "/objects/" + obj.ObjectId
+	// Content convergence ON THE SHARED ROOT: each side materialized
+	// its own copy of the same object, so the two histories merge.
+	chatObj := "/v1/spaces/" + aliceSpace.Id + "/objects/" + aliceBundle.Bundle.RootId
+	aliceObj := alice.base + chatObj
+	bobObj := bob.base + chatObj
 
 	m1 := sendChat(t, aliceObj, `{"text":"hi from alice"}`)
+	m2 := sendChat(t, bobObj, `{"text":"hi from bob"}`)
 
-	var got chatMsg
+	var got, back chatMsg
 	if !pollUntilSynced(t, 3*time.Minute, aliceSpace.Id, []*peer{alice, bob}, func() bool {
 		got = findMessage(chatMessages(t, bobObj), "hi from alice")
-		return got.Id == m1.Id
+		back = findMessage(chatMessages(t, aliceObj), "hi from bob")
+		return got.Id == m1.Id && back.Id == m2.Id
 	}) {
-		t.Fatalf("bob never saw alice's message (id=%q)", got.Id)
+		t.Fatalf("derived chat never merged: bob saw %q, alice saw %q", got.Id, back.Id)
 	}
 }
 

@@ -126,3 +126,52 @@ func TestDiff_DuplicateBlocksMatchByPosition(t *testing.T) {
 	assert.Equal(t, NewOp{OpKeep, 2}, res.NewSeq[2])
 	assert.Empty(t, res.Deletes)
 }
+
+func TestDiff_EmptyParagraphKeepsItsId(t *testing.T) {
+	// Typing into a blank line, and clearing a paragraph, are updates
+	// of that record — not delete + insert. An empty entry scores 0
+	// against any text, so the similarity pass can never pair it; the
+	// positional pass has to.
+	typed := Diff([]string{"a", "", "b"}, []string{"a", "hello", "b"})
+	assert.Empty(t, typed.Deletes)
+	assert.Equal(t, []NewOp{{OpKeep, 0}, {OpUpdate, 1}, {OpKeep, 2}}, typed.NewSeq)
+
+	cleared := Diff([]string{"a", "hello", "b"}, []string{"a", "", "b"})
+	assert.Empty(t, cleared.Deletes)
+	assert.Equal(t, []NewOp{{OpKeep, 0}, {OpUpdate, 1}, {OpKeep, 2}}, cleared.NewSeq)
+}
+
+func TestDiff_EmptyParagraphRunsStayAnchored(t *testing.T) {
+	// Identical empties are one hash, so the LCS anchors them; adding
+	// one must not reshuffle the others.
+	res := Diff([]string{"a", "", "b"}, []string{"a", "", "", "b"})
+	assert.Empty(t, res.Deletes)
+	// Which of the interchangeable empties is the new one is not
+	// meaningful; that every old block survives, exactly one block is
+	// created, and the kept order is ascending, is.
+	inserts, prevOld := 0, -1
+	for i, op := range res.NewSeq {
+		if op.Kind == OpInsert {
+			inserts++
+			continue
+		}
+		assert.Greater(t, op.OldIdx, prevOld, "pos %d out of order: %+v", i, res.NewSeq)
+		prevOld = op.OldIdx
+	}
+	assert.Equal(t, 1, inserts, "%+v", res.NewSeq)
+}
+
+func TestDiff_EmptyPairingStaysMonotonic(t *testing.T) {
+	// The positional pass must respect pairs the similarity pass
+	// already accepted — a crossing would hand a later position a
+	// smaller lexid.
+	res := Diff([]string{"", "alpha text"}, []string{"alpha text!", ""})
+	for i, op := range res.NewSeq {
+		if op.Kind == OpUpdate && i > 0 {
+			prev := res.NewSeq[i-1]
+			if prev.Kind != OpInsert && prev.OldIdx > op.OldIdx {
+				t.Errorf("non-monotonic plan: %+v", res.NewSeq)
+			}
+		}
+	}
+}

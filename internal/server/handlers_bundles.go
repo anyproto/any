@@ -59,14 +59,16 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 
 // bundleEnsure handles POST /v1/spaces/:spaceId/bundles — adopt or
 // install. With a winner already registered the call is a local read
-// and writes nothing (`installed: false`); otherwise the server
-// creates the non-derived root with the requested types/properties and
-// registers it in one change.
+// and writes nothing (`installed: false`); otherwise the server mints
+// the root with the requested types/properties and registers it.
 //
-// Offline-capable: nothing here waits on the network. Two devices
-// ensuring while apart each register a root, the registry converges on
-// one winner, and the other surfaces in `losers` — so treat `rootId`
-// as provisional until the space has synced, and re-read after.
+// Two root strategies. A CREATED root (the default) gets a fresh id,
+// so two devices installing while apart each register one, the
+// registry converges on a winner and the other surfaces in `losers` —
+// treat `rootId` as provisional until the space has synced. A DERIVED
+// root (`"derived": true`) is computed from the bundle id, so every
+// device lands on the same one: no fork, no convergence wait, no
+// refusal — at the price of never being uninstallable.
 //
 //	@Summary	Install or adopt a bundle
 //	@Tags		bundles
@@ -147,6 +149,11 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema",
 			`rootProperties must be an object keyed by type id, e.g. {"any": {"description": "…"}}`, nil), true
 	}
+	if v := root.Get("derived"); v != nil && v.Type() != fastjson.TypeNull &&
+		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "derived must be a boolean", nil), true
+	}
+	inst.Derived = root.GetBool("derived")
 
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))
@@ -396,7 +403,7 @@ func (d *deps) bundleChild(c echo.Context) error {
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	objectId, err := bundles.Child(ctx, sp, b.RootId, req.Seed, req.Types...)
+	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Types...)
 	if err != nil {
 		// A child is built on its parent's tree, so a missing parent
 		// means the winner has not reached this device yet — the same
@@ -426,11 +433,12 @@ func bundleIdParam(c echo.Context) (string, error, bool) {
 
 func bundleToAPI(b space.Bundle) api.Bundle {
 	return api.Bundle{
-		Id:     b.Id,
-		Name:   b.Name,
-		RootId: b.RootId,
-		Roots:  b.Roots,
-		Losers: b.Losers,
+		Id:      b.Id,
+		Name:    b.Name,
+		RootId:  b.RootId,
+		Roots:   b.Roots,
+		Losers:  b.Losers,
+		Derived: b.Derived,
 	}
 }
 

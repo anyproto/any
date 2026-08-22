@@ -795,11 +795,10 @@ change" (`docs/13-index.md`).
 ### Bundles
 
 A **bundle** is one thing installed into a space — a chat, a
-marketplace bundle, an app's setup. It is a non-derived root object
-registered in the space's registry (the `bundles` dataset on the
-spaceIndex object; design in the SDK's `docs/bundles.md`), with every
-setup object derived from that root, so one converged id names the
-whole install.
+marketplace bundle, an app's setup. It is one root object registered in
+the space's registry (the `bundles` dataset on the spaceIndex object;
+design in the SDK's `docs/bundles.md`), with every setup object derived
+from that root, so one converged id names the whole install.
 
 Clients register their own: the server keeps no catalog and installs
 nothing on its own. What it does own is the registry mechanics —
@@ -821,10 +820,13 @@ reclaimed). In a path segment the slash is percent-encoded:
 `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
-`{id, name?, rootTypes?, rootProperties?}`. With a winner already
+`{id, name?, rootTypes?, rootProperties?, derived?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
-`installed: false`. Otherwise the server creates the root object with
+`installed: false`. That flag means "this call registered the install":
+a derived adopt can still materialize the root's tree locally (the id
+is this device's to mint) and reports `false`, because it registered
+nothing. Otherwise the server creates the root object with
 the requested types and initial properties, registers it in one change,
 and replies `installed: true`; that path is a write, so a member
 without write permission gets `403` (use `GET …/bundles/:bundleId`
@@ -833,11 +835,12 @@ what puts the root's tree in the head-sync diff. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
 `general-chat/v1` — so there is no separate provenance field.
 
-Installing waits for the registry to converge first (bounded, 30s).
-It rides the space's index tree, and a member that ensures against
-state it has not synced yet reads "nothing installed" and mints a root
-competing with the one already out there. Adopting never waits — a
-read cannot fork anything. A space that has never been set up
+Installing waits for the registry to converge first (bounded, 30s —
+cut to 3s when no peer is connected, since a head-sync round against
+nobody answers the same way every time). It rides the space's index
+tree, and a member that ensures against state it has not synced yet
+reads "nothing installed" and mints a root competing with the one
+already out there. Adopting never waits — a read cannot fork anything. A space that has never been set up
 converges to an empty registry, which is a valid answer, not a stall.
 
 When the wait cannot complete, who is asking decides: the space's
@@ -846,7 +849,10 @@ space only this account has, and its own devices converge through the
 registry), so an offline owner is never blocked. Any other member —
 a joiner, either side of a 1-1 — is refused with
 `409 bundle.not_ready` rather than left to fork, and retries when the
-network is back.
+network is back. A **derived** root (below) is never refused *for lack
+of convergence* — there is no competing id it could mint — though it
+still reports `409 bundle.not_ready` when the live winner is a created
+root whose tree has not arrived.
 
 Two devices that install while genuinely apart still each register a
 root; the registry converges on one winner and the other appears in
@@ -854,6 +860,49 @@ root; the registry converges on one winner and the other appears in
 clients re-read after. A winner whose tree has not reached this device
 yet is likewise `409 bundle.not_ready` rather than handed out: its id
 would reject every write. Retry.
+
+**Derived roots.** `"derived": true` installs the bundle on the root
+**derived from its id** instead of a created one. That id is a pure
+function of (space, bundle id) — the derived root change carries no
+identity, signature or timestamp — so every device and every member
+computes it offline, with zero communication. Nothing can fork: each
+side registers the same id, the claim set converges to one element and
+`losers` stays empty. The reply and every read report `derived: true`.
+
+This is the answer for a space's chat, and the only workable one for a
+**1-1**: its ACL owner is a synthetic key nobody holds, so both
+participants are writers, neither can ever claim the owner escape, and
+a created root leaves both refused until they converge — which never
+happens while they are apart. With a derived root each side installs
+immediately and they meet on the one object; the two copies merge like
+any other CRDT tree.
+
+The price is permanence, in two directions:
+
+- **No uninstall.** any-sync refuses to delete a derived tree, so the
+  bundle id stays bound to that root for the space's lifetime. There is
+  no reinstall-after-delete escape. Ask for it for setups that must
+  exist on both sides of a partition; not for anything a user may
+  remove.
+- **No migration.** A bundle already installed on a created root is
+  ADOPTED, not moved: the reply is `installed: false`, `derived: false`,
+  and the created `rootId`. Moving content between roots is the client's
+  decision, never a side effect of a flag.
+
+If a created and a derived root are ever both claimed for one id, the
+derived one wins on every device and the created one becomes an
+ordinary resolvable loser. The verdict itself reads only the add-only
+claim set, so every device reaches the same one — but **the claim can
+still be made blind**. A derived install runs the same convergence wait and, unlike a created
+one, installs anyway when it expires; if the space already carried a
+created install this device had not seen, that claim demotes it,
+irreversibly. Nothing is destroyed — the demoted root
+keeps its content and stays deletable — but the app's pointer moves,
+which for content that cannot be merged across objects (chat) amounts
+to the same thing. The wait is what narrows that window; proceeding
+past it is the deliberate trade that lets an offline 1-1 have a chat at
+all — and with no peer connected there is nothing to narrow, so the
+wait collapses to its offline bound and the chat appears in seconds.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
@@ -875,7 +924,10 @@ also readable through the ordinary dataset surface —
 "<spaceIndexObjectId>", "dataset": "bundles"}` — which is how a client
 subscribes to live conflict updates. That path is read-only: the SDK
 fences the dataset off the generic modify surface so no client can
-forge a claim.
+forge a claim. Raw rows carry the stored `rootId` register and no
+`derived` field — the derived-root verdict is applied by
+`GET …/bundles[/:bundleId]`, so read those when a bundle may be
+derived.
 
 **Children** (`POST …/bundles/:bundleId/children`, `{seed, types?}`)
 derive a setup object under the bundle's current winner. Same semantics
@@ -885,7 +937,10 @@ restored device reaches the whole install from the winner alone — and
 cascade-deleted with the root. Seeds are permanent. A child binds to
 its parent's tree, so on a member whose copy of the winner has not
 landed yet the call is `409 bundle.not_ready` — the same retryable
-state Ensure reports.
+state Ensure reports. Under a **derived** root the child binds by seed
+instead (any-sync rejects a derived object as a parent): same
+determinism, same ids everywhere, and the cascade the parent binding
+buys is moot on a root that can never be deleted.
 
 **Conflicts.** `losers` is the live conflict set: claimed roots that
 are neither the winner nor already deleted. Non-empty means two devices
@@ -921,8 +976,9 @@ and deletes nothing itself.
 
 **Agreeing who installs.** Nothing stops two members from ensuring the
 same bundle; the registry just converges and reports a loser. Clients
-that want to avoid the conflict entirely agree on one installer out of
-band — for a 1-1, the initiating side ensures and the other adopts.
+that want to avoid the conflict entirely either agree on one installer
+out of band, or ask for a `derived` root — the id both would compute
+anyway, which is what the per-space chat convention does.
 
 ### Objects
 
@@ -955,7 +1011,8 @@ The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
 "endpoints map 1:1 onto SDK methods" rule. `GET` reads every
 top-level block, renders each to its canonical markdown bytes, and
-joins with `\n\n`. `PUT` parses the incoming markdown, diffs against
+joins with `\n\n` (see *Empty paragraphs* below for the blank-line
+rule). `PUT` parses the incoming markdown, diffs against
 the current block tree by (type + position + text), and emits
 per-block create / update / delete ops through the same write path a
 PATCH /editor/blocks call would, so the same `editor_blocks` SSE events
@@ -986,7 +1043,10 @@ shape. Matching rules:
 - Every `oldText` matches against the ORIGINAL document,
   independently of the other edits; matched regions must not overlap.
 - Without `replaceAll` the match must be unique. `newText` may be
-  empty (deletes the matched text).
+  empty (deletes the matched text). When the match is a whole block,
+  the deletion takes one blank-line separator with it, so removing a
+  block leaves its neighbours adjacent rather than leaving empty
+  paragraphs behind; empty paragraphs that were already there stay.
 - Exact match first; on zero hits a whole-line fuzzy fallback
   retries with unicode punctuation folded to ASCII (curly quotes,
   dash family, NBSP; NFKC) and trailing whitespace ignored. A
@@ -1024,6 +1084,41 @@ identical to an existing one), and it inserts no leading separator —
 Empty/blank content is a 200 no-op. Use this for grow-by-append pages
 (e.g. agent debug logs that append every turn); a run of N appends is
 O(N) here versus O(N²) through `PUT`.
+
+##### Empty paragraphs
+
+An empty paragraph is a real block — a `paragraph` record with
+`text: ""` — and blank lines are how the markdown routes carry it.
+The rule, applied by both `PUT` (parse) and `GET` (render), so the
+two are exact inverses:
+
+- **Between two content blocks**: one blank line is the plain
+  separator; **every blank line beyond it is one empty paragraph**.
+  `alpha\n\nbeta` is two blocks; `alpha\n\n\nbeta` is two blocks with
+  one empty paragraph between them.
+- **At either edge**: a leading or trailing run has no separator to
+  build on, so **every one of its blank lines is an empty paragraph**
+  — with one exception below. The same holds for a document that is
+  blank throughout.
+- **A single trailing newline is a terminator, not content.**
+  `alpha\n` is one block, byte-identical on read-back to `alpha`.
+  A trailing empty paragraph therefore renders as `alpha\n\n`.
+
+Consequences worth designing against:
+
+- `GET` after `PUT` returns the same bytes for any document expressed
+  in this form, and re-`PUT`ting a `GET` writes nothing (`unchanged`
+  equals the block count). A client that hydrates from `GET` will not
+  see its own save come back reshaped.
+- The encoding is **ours, not CommonMark's**: every other markdown
+  renderer collapses blank runs. Content that round-trips through an
+  external tool, a paste, or a client that does not implement this
+  rule loses its empty paragraphs. Editors that want them preserved
+  must both emit and parse blank runs this way.
+- `POST …/editor/markdown/append` is the exception: a fragment is
+  positioned by the append itself, so blank lines wrapping it are
+  framing and are dropped. Empty paragraphs *between* the fragment's
+  own blocks are kept, and blank-only content stays a 200 no-op.
 
 #### Blocks
 
@@ -1855,11 +1950,20 @@ storage model, runtime registration): the SDK's
   AddDataset (an additive required field would reject the dataset's own
   history on fresh devices) and incompatible with `stamp`.
 - `search` — the x-search extraction mapping (docs/13-index.md
-  § Schema chunker); `title`/`text` either optional. The optional
-  `scope` slug (`index.ValidScope`; `400 request.invalid_field`
-  otherwise) picks the index scope the dataset's entries land under —
-  absent = `basic`. Scopes are the open slug set `/search` filters on;
-  `props` inherits that scope's FTS-only rule (never embedded).
+  § Schema chunker); `title`/`text` either optional. `text` is a bare
+  field key **or a non-empty array of field keys** (`["body",
+  "notes"]`) — the indexer renders each mapped field and joins the
+  non-empty values into one body, in mapping order. A single key is
+  canonicalized to the bare string on every read-back (definition list
+  and discovery), so single-field declarations keep the scalar shape.
+  An array must name at least one key, none empty, no duplicates
+  (`400 dataset.decl_invalid`). Mapped keys are not required to be
+  declared fields (dynamic datasets may map undeclared ones). The
+  optional `scope` slug (`index.ValidScope`; `400
+  request.invalid_field` otherwise) picks the index scope the
+  dataset's entries land under — absent = `basic`. Scopes are the open
+  slug set `/search` filters on; `props` inherits that scope's
+  FTS-only rule (never embedded).
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
@@ -1875,11 +1979,16 @@ collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
 **`PATCH …/datasets/:defId`** takes the same `{set, unset}` shape as
-property patch over the mutable string leaves `description`,
-`displayName`, `search.title`, `search.text`, `search.scope` (a whole
-`search` replace is pinned; a scope value must pass `index.ValidScope`).
-A scope patch applies to records as they (re-)index — already-indexed
-docs keep their stored scope until their object next goes dirty.
+property patch over the mutable leaves `description`, `displayName`,
+`search.title`, `search.text`, `search.scope` (a whole `search`
+replace is pinned; a scope value must pass `index.ValidScope`). Every
+leaf is a plain string except `search.text`, which also accepts a
+non-empty array of unique field keys — same forms and validation as
+the declaration (`400 request.invalid_field` on an invalid array; a
+single-element array is stored as the bare string). A search-mapping
+patch applies to records as they (re-)index — already-indexed docs
+keep their stored scope and extracted text until their object next
+goes dirty.
 Pinned path → `400 dataset.immutable`; unknown
 `defId` → `404 sdk.not_found` (existence-preflighted — the SDK itself
 would silently no-op).
@@ -2026,8 +2135,8 @@ as the `<objectId>` below.
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"] }
-→ 200 { "bundle": { "rootId": "<chat object>", ... }, "installed": true|false }
+{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"], "derived": true }
+→ 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```
 
 Ensure is adopt-or-install, so every client that runs it lands on the
@@ -2038,10 +2147,18 @@ mode this replaces, most visible in 1-1 direct spaces. `rootTypes:
 `general-chat/v1` is the convention for "the chat of this space", and a
 space can carry as many purpose-specific chat bundles as you want.
 
-Two caveats carry over from § Bundles: `rootId` is provisional until
-the space syncs (re-read after), and nothing stops two members
-ensuring concurrently — agree out of band on who installs (for a 1-1,
-the initiating side) or handle the resulting `losers`.
+`"derived": true` is part of the convention: the chat's root id is
+computed from the bundle id, so every member and device lands on it
+offline, two sides of a 1-1 included, and the chat can never fork into
+two parallel conversations. It also makes the chat permanent — a
+derived root cannot be deleted (§ Bundles → Derived roots), which is
+what you want for "the chat of this space" and not what you want for a
+bundle a user may uninstall.
+
+One caveat carries over from § Bundles for a **created** chat root
+(`derived` absent): `rootId` is provisional until the space syncs
+(re-read after), and two members ensuring concurrently produce
+`losers` to handle. A derived root has neither problem.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

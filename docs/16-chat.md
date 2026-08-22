@@ -12,34 +12,36 @@ server hands back:
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"] }
-→ 200 { "bundle": { "rootId": "<chat object>", ... }, "installed": true|false }
+{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"], "derived": true }
+→ 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```
 
-The call is adopt-or-install: the first client to run it creates the
-object, every later one — on any device, on any member — gets the same
-`rootId` back with `installed: false`. Use it as the `<objectId>` in
-every endpoint below. Do **not** `POST /objects` a fresh chat per
-client: a space would then carry two or three parallel chats depending
-on who spoke first (the failure mode bundles exist to prevent, most
-visible in 1-1 direct spaces). Additional, purpose-specific chats are
-still fine — give each its own bundle id.
+The call is adopt-or-install and `"derived": true` makes the root's id
+a function of the bundle id, so every client — on any device, on any
+member, online or not — computes the same `rootId`. Use it as the
+`<objectId>` in every endpoint below. Do **not** `POST /objects` a
+fresh chat per client: a space would then carry two or three parallel
+chats depending on who spoke first (the failure mode bundles exist to
+prevent, most visible in 1-1 direct spaces).
 
-Two things to handle, both detailed in `03-api.md` § Bundles:
+Ask for the derived root **because chat content cannot be merged across
+objects**: `creator` and `createdAt` are stamped from the change
+envelope, so copying messages into another object re-attributes and
+re-times every one of them. A fork is therefore not something to clean
+up afterwards — it has to be impossible. Two consequences worth
+knowing:
 
-- **`rootId` is provisional until the space syncs.** A device that
-  ensured while apart from its siblings can lose the race; re-read
-  after a sync rather than caching the id forever. A winner whose tree
-  has not arrived yet is refused with `409 bundle.not_ready` — poll,
-  don't create a chat to fill the gap.
-- **Nobody arbitrates who installs.** Two members ensuring before they
-  have seen each other both register a root, and the loser surfaces in
-  `losers`. Agree out of band on one installer — for a 1-1, the
-  initiating side — or merge and `POST …/resolve` the loser. Chat
-  messages cannot be merged across objects (creator and createdAt are
-  stamped from the change envelope, so a copy re-attributes and
-  re-times every message), which is exactly why agreeing up front beats
-  cleaning up after.
+- **The chat is permanent.** A derived root cannot be deleted, so the
+  bundle id stays bound to it for the space's lifetime. That is the
+  right trade for "the chat of this space" — and the wrong one for a
+  bundle a user may uninstall.
+- **An existing created chat is adopted, not migrated.** A space set up
+  before this convention keeps its created root (`derived: false` in
+  the reply), including the provisional-`rootId` and `losers` caveats
+  in `03-api.md` § Bundles.
+
+Additional, purpose-specific chats are still fine — give each its own
+bundle id.
 
 ## The model in four sentences
 
