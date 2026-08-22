@@ -1148,8 +1148,9 @@ Implementation slices landed:
     on — they returned null against everything the server stored.
     **Wire shape: `{"$date": "2026-08-05T17:00:00.000Z"}`** in both
     directions (writes also take `{"$date": <millis>}`), including
-    filter literals — a bare string or number is a different type and
-    matches nothing. SDK side (`any-sync-sdk`): new `datetime` property
+    filter literals — a bare number or string doesn't error, it answers
+    wrong: cross-type comparison goes by type rank and instants rank
+    above both, so `$gte` matches every row and `$lt`/`$eq` match none. SDK side (`any-sync-sdk`): new `datetime` property
     kind, implied by the `date` / `datetime` formats (`kind: "string"`
     stays accepted for the legacy ISO convention, and kind is pinned
     first-write, so existing properties never move); derived stamps

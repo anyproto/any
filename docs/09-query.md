@@ -64,14 +64,19 @@ Multiple keys in one filter object are AND-ed. Examples:
 
 Timestamps — the derived `createdAt` / `modifiedAt` stamps and any
 property declared with the `date` / `datetime` format — are instants,
-written and read as `{"$date": "<RFC 3339>"}`. A filter literal takes
-the same shape; a bare string or number compares against a different
-type and matches nothing:
+written and read as `{"$date": "<RFC 3339>"}`. A filter literal has to
+take the same shape:
 
 ```json
 { "modifiedAt":        { "$gte": { "$date": "2026-01-01T00:00:00Z" } } }
 { "<typeId>.<propId>": { "$lt":  { "$date": "2026-08-05T00:00:00Z" } } }
 ```
+
+**A bare number or string does not error — it silently answers wrong.**
+Comparisons across types are decided by type rank, and instants rank
+above both, so `{"modifiedAt": {"$gte": 1700000000}}` matches EVERY row
+whatever the date, `$lt` matches none, and `$eq` never matches. Verified
+against a live server. Wrap the literal and the answers are real.
 
 Sorting is chronological (instants are memcmp-orderable and index-keyable),
 and `/aggregate` computes on them directly — `$year`, `$dateTrunc`,
