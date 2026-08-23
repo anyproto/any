@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -286,4 +287,38 @@ func (d *deps) objectDelete(c echo.Context) error {
 			map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// objectGet handles GET /v1/spaces/:spaceId/objects/:objectId.
+//
+//	@Summary	Get an object's row
+//	@Description	The object's row from the space's objects collection: any.types and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.
+//	@Tags		objects
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Success	200			{object}	api.ObjectGetResponse
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	410			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/objects/{objectId} [get]
+func (d *deps) objectGet(c echo.Context) error {
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	rec, err := sp.Objects().Get(c.Request().Context(), objectId)
+	if err != nil {
+		details := map[string]any{"spaceId": sp.Id(), "objectId": objectId}
+		if errors.Is(err, space.ErrNotFound) {
+			return writeError(c, http.StatusNotFound, "object.not_found", "object not found in this space", details)
+		}
+		return sdkOpError(c, err, details)
+	}
+	fa := getFastjsonArena()
+	defer putFastjsonArena(fa)
+	return c.JSON(http.StatusOK, api.ObjectGetResponse{
+		ObjectId: objectId,
+		Record:   json.RawMessage(rec.FastJson(fa).MarshalTo(nil)),
+	})
 }

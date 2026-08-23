@@ -8,6 +8,9 @@ package api
 type AccountResponse struct {
 	Id       string           `json:"id"`
 	Metadata *AccountMetadata `json:"metadata,omitempty"`
+	// TechSpaceId is the account's tech space — the :spaceId for
+	// account-level bundles (see docs/03-api.md § Bundles).
+	TechSpaceId string `json:"techSpaceId"`
 }
 
 // AccountMetadata mirrors space.AccountMetadata.

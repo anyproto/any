@@ -64,13 +64,17 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	strip, errResp, done := d.techIndexFence(c, sp, objectId, dataset)
+	if done {
+		return errResp
+	}
 	res, err := q.Snapshot(c.Request().Context(), opts)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
 			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 		})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal)
+	return writeQueryResponse(c, res, opts.IncludeTotal, strip...)
 }
 
 // buildBodyQuery is the one implementation of the OPTIONAL windowed-

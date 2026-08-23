@@ -24,7 +24,7 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/account [get]
 func (d *deps) accountGet(c echo.Context) error {
-	resp := api.AccountResponse{Id: d.sdk.Account().Id()}
+	resp := api.AccountResponse{Id: d.sdk.Account().Id(), TechSpaceId: d.sdk.TechSpaceId()}
 	meta, present, err := d.sdk.Account().Metadata(c.Request().Context())
 	if err != nil {
 		return sdkOpError(c, err, nil)

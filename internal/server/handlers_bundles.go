@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
+	"github.com/anyproto/any/internal/index"
 )
 
 // Input caps. Bundle records are PERMANENT — the registry refuses
@@ -29,6 +32,7 @@ const (
 	maxBundleNameBytes  = 1024
 	maxBundleSeedBytes  = 256
 	maxBundleTypes      = 32
+	maxBundleDatasets   = 32
 	maxBundlePropsBytes = 64 * 1024
 )
 
@@ -154,6 +158,21 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "derived must be a boolean", nil), true
 	}
 	inst.Derived = root.GetBool("derived")
+	if v := root.Get("datasets"); v != nil && v.Type() != fastjson.TypeNull {
+		if v.Type() != fastjson.TypeArray {
+			return inst, writeError(c, http.StatusBadRequest, "request.schema",
+				"datasets must be an array of dataset drafts", nil), true
+		}
+		if !inst.Derived {
+			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"datasets require derived: true — a created root cannot carry declarations", nil), true
+		}
+		drafts, errResp, done := bundleDatasetsFromBody(c, v)
+		if done {
+			return inst, errResp, true
+		}
+		inst.Datasets = drafts
+	}
 
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))
@@ -206,6 +225,44 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		}
 	}
 	return inst, nil, false
+}
+
+// bundleDatasetsFromBody decodes the `datasets` drafts with the same
+// strict decoder and converter POST …/types/:typeId/datasets uses, and
+// applies the search indexer's reserved-name rule. Name conflicts with
+// what the space already hosts are the SDK's verdict (400 via
+// ErrBundleBadRequest) — on adopt the names legitimately exist.
+func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetDraft, error, bool) {
+	var reqs []api.DatasetDraftRequest
+	dec := json.NewDecoder(bytes.NewReader(v.MarshalTo(nil)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&reqs); err != nil {
+		return nil, writeError(c, http.StatusBadRequest, "request.schema",
+			"datasets: "+err.Error(), nil), true
+	}
+	if len(reqs) > maxBundleDatasets {
+		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"too many datasets", map[string]any{"max": maxBundleDatasets}), true
+	}
+	out := make([]space.DatasetDraft, 0, len(reqs))
+	for i := range reqs {
+		if reqs[i].Name == "" {
+			return nil, writeError(c, http.StatusBadRequest, "request.missing_field",
+				fmt.Sprintf("datasets[%d].name required", i), nil), true
+		}
+		if reqs[i].Name == index.DatasetProp || reqs[i].Name == index.DatasetSchemaVirtual {
+			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"dataset name is reserved by the search indexer",
+				map[string]any{"name": reqs[i].Name}), true
+		}
+		draft, code, reason := datasetDraftFromAPI(reqs[i])
+		if code != "" {
+			return nil, writeError(c, http.StatusBadRequest, code,
+				fmt.Sprintf("datasets[%d]: %s", i, reason), nil), true
+		}
+		out = append(out, draft)
+	}
+	return out, nil, false
 }
 
 // checkBundleRoot pre-flights everything that would otherwise fail

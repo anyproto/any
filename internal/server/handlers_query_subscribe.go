@@ -74,13 +74,17 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	strip, errResp, done := d.techIndexFence(c, sp, objectId, dataset)
+	if done {
+		return errResp
+	}
 	res, err := q.Subscribe(c.Request().Context(), opts)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
 			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 		})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
 }
 
 // streamQuerySubscribe pumps a QuerySubscription's windowed events to

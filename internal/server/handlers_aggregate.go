@@ -58,6 +58,15 @@ func (d *deps) spaceAggregate(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	// Aggregation output is caller-shaped, so guest keys cannot be
+	// stripped from it: the index object's `spaces` rows are query-only.
+	if d.isTechSpace(sp.Id()) && objectId == sp.SpaceIndexObjectId() {
+		if _, ok := techIndexAllowedDatasets[dataset]; !ok || dataset == SpaceListDataset {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"aggregate on the tech index object is limited to profile and bundles",
+				map[string]any{"objectId": objectId, "dataset": dataset})
+		}
+	}
 	return runAggregate(c, agg, explain, map[string]any{
 		"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 	})

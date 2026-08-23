@@ -25,7 +25,9 @@ Every error response — regardless of status code — has the same body:
 |--------|----------------------------------------------------------------|
 | 400    | Validation error on request body / path params / query string  |
 | 404    | Target not found (space, object, type, record)                 |
+| 405    | Surface not available on this space (`space.unsupported` — the tech space) |
 | 409    | Conflict (duplicate, precondition failed)                      |
+| 410    | Object deleted (`object.deleted` — the id existed and is gone for good) |
 | 500    | Internal error — unexpected SDK or server failure               |
 | 501    | Not implemented — routes for SDK placeholder APIs (sync-status, some Properties/Types subroutes) return this in v1 |
 | 503    | Server not ready (shutdown, reindex in progress)               |
@@ -65,10 +67,12 @@ space.not_accepted               # 409 — join pending approval; space not mate
 space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
+space.unsupported                # 405 — the surface is not available on the tech space (object/type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes)
 
 invite.invalid                   # invite token malformed or unrecognized
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
+object.deleted                   # 410 — GET …/objects/:objectId on a deleted object (distinct from never-existed)
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 

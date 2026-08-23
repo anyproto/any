@@ -328,6 +328,12 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusForbidden, "space.read_only",
 			"space is read-only for this account (guest access or reader role)", details)
 	}
+	if resp, done := unsupportedError(c, err, details); done {
+		return resp
+	}
+	if errors.Is(err, space.ErrObjectDeleted) {
+		return writeError(c, http.StatusGone, codeObjectDeleted, "object is deleted", details)
+	}
 	// Read-state marks racing a space delete/removal (the space is
 	// unknown, deleted, or pending at mark time) — a caller-visible
 	// state, not a server fault.
