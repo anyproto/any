@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -28,12 +29,13 @@ import (
 // eagerly-loaded spaceIndex on every device. Bounds keep one client
 // from bloating that object for everyone.
 const (
-	maxBundleIdBytes    = 256
-	maxBundleNameBytes  = 1024
-	maxBundleSeedBytes  = 256
-	maxBundleTypes      = 32
-	maxBundleDatasets   = 32
-	maxBundlePropsBytes = 64 * 1024
+	maxBundleIdBytes       = 256
+	maxBundleNameBytes     = 1024
+	maxBundleSeedBytes     = 256
+	maxBundleTypes         = 32
+	maxBundleDatasets      = 32
+	maxBundleDatasetsBytes = 64 * 1024
+	maxBundlePropsBytes    = 64 * 1024
 )
 
 // bundleCreateTimeout bounds the detached create-and-register section.
@@ -105,6 +107,24 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 		return errResp
 	}
 
+	// The tech-space rules fail fast, BEFORE the space resolve and the
+	// registry-convergence wait the resolver runs: derived-only,
+	// datasets required, no root types or properties (the SDK enforces
+	// the same; this spares an invalid request the wait).
+	if d.isTechSpace(c.Param("spaceId")) {
+		switch {
+		case !inst.Derived:
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"tech-space bundles are derived-only: set derived: true", nil)
+		case len(inst.Datasets) == 0:
+			return writeError(c, http.StatusBadRequest, "request.missing_field",
+				"tech-space bundles must declare datasets", nil)
+		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
+		}
+	}
+
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
@@ -162,6 +182,10 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		if v.Type() != fastjson.TypeArray {
 			return inst, writeError(c, http.StatusBadRequest, "request.schema",
 				"datasets must be an array of dataset drafts", nil), true
+		}
+		if len(v.MarshalTo(nil)) > maxBundleDatasetsBytes {
+			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"datasets too large", map[string]any{"max_bytes": maxBundleDatasetsBytes}), true
 		}
 		if !inst.Derived {
 			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -237,8 +261,15 @@ func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetD
 	dec := json.NewDecoder(bytes.NewReader(v.MarshalTo(nil)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&reqs); err != nil {
-		return nil, writeError(c, http.StatusBadRequest, "request.schema",
-			"datasets: "+err.Error(), nil), true
+		// Same envelope as the strict binder on the types route: the
+		// unknown field by name with the accepted list, type errors
+		// without Go type names.
+		if rest, ok := strings.CutPrefix(err.Error(), `json: unknown field `); ok {
+			return nil, unknownFieldRejected(c, []string{strings.Trim(rest, `"`)},
+				jsonFieldNames(reflect.TypeFor[api.DatasetDraftRequest]()), "datasets"), true
+		}
+		return nil, writeError(c, http.StatusBadRequest, "request.bad_json",
+			"datasets: "+bindErrorMessage[[]api.DatasetDraftRequest](err), nil), true
 	}
 	if len(reqs) > maxBundleDatasets {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -87,6 +88,10 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("datasets on a created root: %d %s", rec.Code, rec.Body.String())
 	}
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"favorites/v1","derived":true,"rootTypes":["any"],"datasets":`+favoritesDatasets+`}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("rootTypes on the tech space: %d %s", rec.Code, rec.Body.String())
+	}
 	ens := ensureBundle(t, e, tech, `{"id":"favorites/v1","name":"Favorites","derived":true,"datasets":`+favoritesDatasets+`}`)
 	if !ens.Installed || !ens.Bundle.Derived || ens.Bundle.RootId == "" {
 		t.Fatalf("ensure: %+v", ens)
@@ -167,6 +172,50 @@ func TestServer_TechSpace(t *testing.T) {
 	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"bundles"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("index bundles query: %d %s", rec.Code, rec.Body.String())
+	}
+	// The withheld guest/invite key fields are neither returned nor
+	// filterable (a filter on withheld data is a byte oracle).
+	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces"}`)
+	for _, leak := range []string{`"guestKey"`, `"issuedInviteKeys"`, `"issuedGuestKey"`} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(leak)) {
+			t.Fatalf("index spaces rows leak %s: %s", leak, rec.Body.String())
+		}
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces","filter":{"issuedInviteKeys.member":{"$regex":"^A"}}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("filter on withheld field: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces","sort":["-guestKey"]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("sort on withheld field: %d %s", rec.Code, rec.Body.String())
+	}
+	// No generic writes to the index tree, whatever the dataset name;
+	// no aggregate on a stripped dataset; no write sinks anywhere.
+	rec = doJSON(t, e, http.MethodPost, base+"/delete-records", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"entries","recordIds":["x"]}`)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("delete-records on the index: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/aggregate", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces","pipeline":[{"$count":"n"}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("aggregate on the spaces dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/aggregate", `{"objectId":"`+root+`","dataset":"entries","pipeline":[{"$merge":{"into":"x"}}]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("$merge sink must be refused: %d %s", rec.Code, rec.Body.String())
+	}
+	// A typo'd dataset is a client mistake, not an unsupported surface.
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entrees","records":[{"id":"f:x","fields":{"title":"t"}}]}`)
+	if rec.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("typo dataset must not read as unsupported: %d %s", rec.Code, rec.Body.String())
+	}
+	// Loser resolution and phase-2 children are off the tech surface.
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/favorites%2Fv1/resolve", `{"loserRootId":"`+root+`"}`)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("resolve on tech: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/favorites%2Fv1/children", `{"seed":"s1"}`)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("children on tech: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, base+"/modify", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces","records":[{"id":"x","ops":[{"type":"$set","path":"name","value":"nope"}]}]}`)
 	if rec.Code != http.StatusMethodNotAllowed {

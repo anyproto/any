@@ -60,11 +60,7 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, errResp, done := buildPerObjectQuery(c, sp)
-	if done {
-		return errResp
-	}
-	strip, errResp, done := d.techIndexFence(c, sp, objectId, dataset)
+	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
@@ -127,39 +123,53 @@ func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryO
 	})
 }
 
+// perObjectVet lets the caller inspect the parsed body once objectId
+// and dataset are known — the tech index fence. nil skips it; a
+// non-nil strip is applied to the response rows.
+type perObjectVet func(root *fastjson.Value, objectId, dataset string) (strip []string, errResp error, done bool)
+
 // buildPerObjectQuery is the per-object dataset counterpart to
 // buildSharedQuery. objectId and dataset are required body fields; a
 // missing or empty value short-circuits with 400 request.missing_field.
-func buildPerObjectQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, string, string, error, bool) {
+func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (space.Query, space.QueryOpts, string, string, []string, error, bool) {
 	body, err := readBody(c)
 	if err != nil || len(body) == 0 {
-		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
+		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
 	root, err := parser.ParseBytes(body)
 	if err != nil {
-		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
 	if errResp, done := checkUnknownFields(c, root, "", perObjectQueryFields...); done {
-		return nil, space.QueryOpts{}, "", "", errResp, true
+		return nil, space.QueryOpts{}, "", "", nil, errResp, true
 	}
 	objectId := string(root.GetStringBytes("objectId"))
 	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
-		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
+		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
 	}
 	if isSerializedNil(objectId) {
-		return nil, space.QueryOpts{}, "", "", serializedNilIdError(c, "objectId", objectId), true
+		return nil, space.QueryOpts{}, "", "", nil, serializedNilIdError(c, "objectId", objectId), true
 	}
 	if dataset == "" {
-		return nil, space.QueryOpts{}, "", "", writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
+		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
 	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, "", "", errResp, true
+		return nil, space.QueryOpts{}, "", "", nil, errResp, true
+	}
+	var strip []string
+	if vet != nil {
+		var errResp error
+		var done bool
+		strip, errResp, done = vet(root, objectId, dataset)
+		if done {
+			return nil, space.QueryOpts{}, "", "", nil, errResp, true
+		}
 	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
-	return q, opts, objectId, dataset, nil, false
+	return q, opts, objectId, dataset, strip, nil, false
 }
 
 // The closed top-level vocabularies of the query/subscribe request

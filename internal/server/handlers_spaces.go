@@ -29,13 +29,13 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/derived", d.derivedSpaceList)
 	g.POST("/spaces/derived/:name", d.derivedSpaceCreate)
 	g.GET("/spaces/:spaceId", d.spaceGet)
-	g.PATCH("/spaces/:spaceId", d.spaceUpdate, d.notOnTechSpace)
+	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	// Account-private per-space client settings (settings.notifyMode
 	// etc.) — separate from the member-replicated PATCH above.
-	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId", d.spaceDelete, d.notOnTechSpace)
+	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
+	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
-	g.POST("/spaces/:spaceId/search", d.search, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
 	// Raw Service.Derive / DeriveId are deliberately NOT exposed: a
@@ -53,64 +53,63 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// status=one_to_one_pending — no bespoke endpoint.
 	g.POST("/spaces/one-to-one", d.spaceOneToOne)
 	g.POST("/spaces/one-to-one/register-incoming", d.spaceOneToOneRegisterIncoming)
-	g.POST("/spaces/:spaceId/one-to-one/accept", d.spaceOneToOneAccept, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/one-to-one/decline", d.spaceOneToOneDecline, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/one-to-one/accept", d.spaceOneToOneAccept)
+	g.POST("/spaces/:spaceId/one-to-one/decline", d.spaceOneToOneDecline)
 
 	// Direct-add invites — spaces this account was added to by identity
 	// (ACL add). Sender side is POST /v1/spaces/:spaceId/acl/add; incoming
 	// invites surface via GET /v1/spaces?status=invite_pending — no
 	// bespoke list endpoint, mirroring the 1-1 pattern.
-	g.POST("/spaces/:spaceId/invite/accept", d.spaceInviteAccept, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/invite/decline", d.spaceInviteDecline, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/invite/accept", d.spaceInviteAccept)
+	g.POST("/spaces/:spaceId/invite/decline", d.spaceInviteDecline)
 
-	// The tech space is a valid :spaceId for bundles, type reads,
-	// dataset declarations, records, GET space, sync-status and debug;
-	// every other per-space family is refused with space.unsupported
-	// (techspace.go).
+	// The tech space is served only by the routes on
+	// techAllowedRoutes; everything else with its :spaceId answers
+	// 405 space.unsupported via techSpaceRouteGuard (techspace.go).
 
 	// Object lifecycle + data plane.
-	g.POST("/spaces/:spaceId/objects", d.objectCreate, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/objects", d.objectCreate)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.POST("/spaces/:spaceId/objects/aggregate", d.spaceAggregateObjects)
 	g.GET("/spaces/:spaceId/objects/:objectId", d.objectGet)
-	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete, d.notOnTechSpace)
+	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
 	// Reverse reference lookup over links-format property values —
 	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
-	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks, d.notOnTechSpace)
+	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
 
 	// Editor (built-in type — see internal/editor). Atomic blocks +
 	// markdown bridge, both backed by the per-object editor_blocks
 	// dataset. Liveness reuses the per-object query/subscribe endpoint
 	// with dataset=editor_blocks.
-	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet, d.notOnTechSpace)
-	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet, d.notOnTechSpace)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownEdit, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/editor/markdown/append", d.markdownAppend, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate, d.notOnTechSpace)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete, d.notOnTechSpace)
+	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
+	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownEdit)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/markdown/append", d.markdownAppend)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete)
 
 	// Chat (built-in type — see internal/chat). Writes only here;
 	// reads + liveness go through /query and /query/subscribe with
 	// dataset=chat_messages.
-	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend, d.notOnTechSpace)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read", d.chatReadReactions, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatEdit)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId", d.chatDelete)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions/:emoji", d.chatReact)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/read-all", d.chatReadAll)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read", d.chatRead)
+	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read", d.chatReadReactions)
 
 	// Version history (SDK Space.History(); SDK
 	// docs/version-history-proposal.md). Read-only; versions are the
 	// ChangeIds every write already returns. The static `diff` segment
 	// is registered before the `:version` matcher so it isn't
 	// swallowed.
-	g.GET("/spaces/:spaceId/objects/:objectId/history", d.historyList, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/objects/:objectId/history/diff", d.historyDiff, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt, d.notOnTechSpace)
+	g.GET("/spaces/:spaceId/objects/:objectId/history", d.historyList)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/diff", d.historyDiff)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version", d.historyViewAt)
+	g.GET("/spaces/:spaceId/objects/:objectId/history/:version/datasets/:dataset/records/:recordId", d.historyRecordAt)
 
 	g.POST("/spaces/:spaceId/query", d.spaceQuery)
 	g.POST("/spaces/:spaceId/query/subscribe", d.spaceQuerySubscribe)
@@ -125,13 +124,13 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 
 	// Types.
 	g.GET("/spaces/:spaceId/types", d.typeList)
-	g.POST("/spaces/:spaceId/types", d.typeCreate, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/types", d.typeCreate)
 	g.GET("/spaces/:spaceId/types/:typeId", d.typeGet)
-	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"), d.notOnTechSpace)
+	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"))
 	g.GET("/spaces/:spaceId/types/:typeId/properties", d.typeProperties)
-	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty, d.notOnTechSpace)
-	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty)
+	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty)
+	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty)
 
 	// Runtime dataset schemas on user types (handlers_typedatasets.go).
 	// Behavioral parts pin first-write; display parts patch; the data
@@ -147,43 +146,43 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// Properties. Scoped properties (v0.0.11) unified the former
 	// base/account/device set endpoints into one scope-aware Set — the
 	// patch's propIds determine the scope (all must share one).
-	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/properties/:objectId/set/:typeId", d.propertiesSet, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", notImplemented("Properties.AttachType"), d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", notImplemented("Properties.DetachType"), d.notOnTechSpace)
+	g.GET("/spaces/:spaceId/properties/:objectId", d.propertiesGet)
+	g.POST("/spaces/:spaceId/properties/:objectId/set/:typeId", d.propertiesSet)
+	g.POST("/spaces/:spaceId/properties/:objectId/attach/:typeId", notImplemented("Properties.AttachType"))
+	g.POST("/spaces/:spaceId/properties/:objectId/detach/:typeId", notImplemented("Properties.DetachType"))
 
 	// Members. Static segments before the :identity wildcard so /me,
 	// /requests, and /subscribe don't get swallowed by the param matcher.
-	g.GET("/spaces/:spaceId/members", d.memberList, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/members/me", d.memberMe, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/members/requests", d.memberJoinRequests, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/members/subscribe", d.subscribeMembers, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/members/:identity", d.memberGet, d.notOnTechSpace)
+	g.GET("/spaces/:spaceId/members", d.memberList)
+	g.GET("/spaces/:spaceId/members/me", d.memberMe)
+	g.GET("/spaces/:spaceId/members/requests", d.memberJoinRequests)
+	g.GET("/spaces/:spaceId/members/subscribe", d.subscribeMembers)
+	g.GET("/spaces/:spaceId/members/:identity", d.memberGet)
 
 	// Invites — owner/admin side mints + revokes; joiners use the
 	// /v1/spaces/join endpoint with the share-friendly token.
-	g.POST("/spaces/:spaceId/invites", d.inviteCreate, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/invites", d.inviteList, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/invites/:recordId", d.inviteGet, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/invites", d.inviteCreate)
+	g.GET("/spaces/:spaceId/invites", d.inviteList)
+	g.GET("/spaces/:spaceId/invites/:recordId", d.inviteGet)
+	g.DELETE("/spaces/:spaceId/invites", d.inviteRevokeAll)
+	g.DELETE("/spaces/:spaceId/invites/:recordId", d.inviteRevoke)
 
 	// Guest key — public read-only access. Owner mints/revokes; holders
 	// use /v1/spaces/join with the guest token (auto-detected), remove
 	// with the regular DELETE /v1/spaces/:spaceId.
-	g.POST("/spaces/:spaceId/guest-key", d.guestKeyCreate, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/guest-key", d.guestKeyRevoke, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/guest-key", d.guestKeyCreate)
+	g.DELETE("/spaces/:spaceId/guest-key", d.guestKeyRevoke)
 
 	// ACL — owner/admin operations on the membership state.
-	g.POST("/spaces/:spaceId/acl/accept", d.aclAccept, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/decline", d.aclDecline, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/permissions", d.aclChangePermissions, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/remove", d.aclRemove, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/add", d.aclAdd, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/ownership", d.aclOwnership, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/self-remove", d.aclSelfRemove, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/cancel-join", d.aclCancelJoin, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/acl/accept", d.aclAccept)
+	g.POST("/spaces/:spaceId/acl/decline", d.aclDecline)
+	g.POST("/spaces/:spaceId/acl/permissions", d.aclChangePermissions)
+	g.POST("/spaces/:spaceId/acl/remove", d.aclRemove)
+	g.POST("/spaces/:spaceId/acl/add", d.aclAdd)
+	g.POST("/spaces/:spaceId/acl/ownership", d.aclOwnership)
+	g.POST("/spaces/:spaceId/acl/self-remove", d.aclSelfRemove)
+	g.POST("/spaces/:spaceId/acl/cancel-join", d.aclCancelJoin)
+	g.POST("/spaces/:spaceId/acl/stop-sharing", d.aclStopSharing)
 
 	// Files (files v2 — see internal/server/handlers_files.go and
 	// docs/17-files.md). Attach streams the raw request body (exempt
@@ -193,19 +192,19 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// reads go through the per-object files/query[/subscribe] bridge —
 	// the payloads dataset lives on a derived child object the generic
 	// /query can't reach.
-	g.POST("/spaces/:spaceId/objects/:objectId/files", d.fileAttach, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/files/query", d.filesQuery, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/objects/:objectId/files/query/subscribe", d.filesQuerySubscribe, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files", d.fileList, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files/stats", d.fileStats, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files/subscribe", d.fileSubscribe, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files/:fileId", d.fileGet, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files/:fileId/content", d.fileContent, d.notOnTechSpace)
-	g.GET("/spaces/:spaceId/files/:fileId/status", d.fileStatusGet, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/files/:fileId/pin", d.filePin, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/files/:fileId/retry", d.fileRetry, d.notOnTechSpace)
-	g.POST("/spaces/:spaceId/files/:fileId/offload", d.fileOffload, d.notOnTechSpace)
-	g.DELETE("/spaces/:spaceId/files/:fileId", d.fileDelete, d.notOnTechSpace)
+	g.POST("/spaces/:spaceId/objects/:objectId/files", d.fileAttach)
+	g.POST("/spaces/:spaceId/objects/:objectId/files/query", d.filesQuery)
+	g.POST("/spaces/:spaceId/objects/:objectId/files/query/subscribe", d.filesQuerySubscribe)
+	g.GET("/spaces/:spaceId/files", d.fileList)
+	g.GET("/spaces/:spaceId/files/stats", d.fileStats)
+	g.GET("/spaces/:spaceId/files/subscribe", d.fileSubscribe)
+	g.GET("/spaces/:spaceId/files/:fileId", d.fileGet)
+	g.GET("/spaces/:spaceId/files/:fileId/content", d.fileContent)
+	g.GET("/spaces/:spaceId/files/:fileId/status", d.fileStatusGet)
+	g.POST("/spaces/:spaceId/files/:fileId/pin", d.filePin)
+	g.POST("/spaces/:spaceId/files/:fileId/retry", d.fileRetry)
+	g.POST("/spaces/:spaceId/files/:fileId/offload", d.fileOffload)
+	g.DELETE("/spaces/:spaceId/files/:fileId", d.fileDelete)
 
 	// Sync status — per-space rollup + per-object state. The peers
 	// row stays 501 until the SDK exposes a stable per-space peer
@@ -638,7 +637,11 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
-	if resp, done := unsupportedError(c, err, map[string]any{"spaceId": spaceID}); done {
+	var udet map[string]any
+	if spaceID != "" {
+		udet = map[string]any{"spaceId": spaceID}
+	}
+	if resp, done := unsupportedError(c, err, udet); done {
 		return resp
 	}
 	if errors.Is(err, space.ErrSpaceUnknown) {

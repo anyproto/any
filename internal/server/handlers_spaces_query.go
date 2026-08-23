@@ -32,7 +32,7 @@ var spaceListAllowedDatasets = map[string]struct{}{
 // (consumer-side guest-mode key / owner-side issued custody). The
 // mapped GET /v1/spaces omits them by shape; the raw path must strip
 // explicitly — same rationale as the identities symKey allowlist above.
-var spaceListStrippedFields = []string{"guestKey", "issuedGuestKey"}
+var spaceListStrippedFields = []string{"guestKey", "issuedGuestKey", "issuedInviteKeys"}
 
 // spaceListQuery handles POST /v1/spaces/query.
 //
@@ -121,6 +121,11 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 				"request.invalid_field",
 				"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
 				map[string]any{"dataset": dataset}), true
+		}
+		if dataset == SpaceListDataset && root != nil && queryTouchesFields(root, spaceListStrippedFields) {
+			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"filter/sort may not reference withheld fields",
+				map[string]any{"fields": spaceListStrippedFields}), true
 		}
 		svc := d.sdk.Spaces()
 		return svc.Query(svc.SpaceIndexObjectId(), dataset), nil, false

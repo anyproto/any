@@ -197,8 +197,13 @@ func NewResolver(grace time.Duration) *Resolver {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
+	// A request that declares datasets must always reach the SDK's
+	// Ensure: the adopt shortcut would silently skip the declaration
+	// rules the SDK applies on its own adopt path (declare on a root
+	// that carries none, refuse Datasets on a created-root install).
+	skipAdopt := len(inst.Datasets) > 0
 	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
-	if err != nil || adopted {
+	if err != nil || (adopted && !skipAdopt) {
 		return existing, false, err
 	}
 	if existing.RootId == "" {
@@ -207,7 +212,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		}
 		// The converged registry may name a winner the pre-read could
 		// not see.
-		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || adopted {
+		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && !skipAdopt) {
 			return existing, false, err
 		}
 	}

@@ -622,8 +622,10 @@ server feature. The recipe, with favourites as the example:
    <defId>` patches display parts. Re-sending `Ensure` with a longer
    `datasets` list adds nothing.
 
-Dataset names are unique per space, so prefix them when two bundles
-share the tech space (`favorites_entries`). Tree edge cases — an
+Dataset names are unique per space: they are part of the bundle's
+versioned vocabulary, chosen once when the bundle is designed —
+`favorites/v1` owns `entries` the way it owns its id, and a future
+bundle picks names that don't collide. Tree edge cases — an
 entry whose folder is removed, a move that forms a cycle across
 devices — are read-side product rules: compute the same view from
 the same records everywhere, never repair with writes.
