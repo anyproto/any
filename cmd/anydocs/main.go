@@ -325,13 +325,15 @@ const pageTpl = `<!doctype html>
 {{if .Page.Description}}<meta name="description" content="{{.Page.Description}}">{{end}}
 <link rel="stylesheet" href="{{.Root}}/assets/site.css">
 <link rel="icon" href="{{.Root}}/assets/favicon.svg">
+<script>try{var t=localStorage.getItem('any-docs-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
 <header class="top">
   <button class="menu" id="menu" aria-label="Menu">☰</button>
-  <a class="brand" href="{{.Root}}/index.html"><span class="logo">any</span> docs</a>
+  <a class="brand" href="{{.Root}}/index.html"><svg class="logo" viewBox="0 0 71 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 3h5v12H0zM2.5 0h15v3h-15zM5 9h5v3H5zM25 0h5v15h-5zM51 0h5v6h-5zM30 3h3v3h-3zM31.5 6h3v3h-3zM53.5 6h15v3h-15zM33 9h3v3h-3zM36 0h10v15H36zM61 0h10v6H61zM56 9h10v6H56zM10 3h10v12H10z"/></svg><span class="tag">docs</span></a>
   <div class="search"><input id="q" type="search" placeholder="Search docs… ( / )" autocomplete="off"><div id="results" class="results" hidden></div></div>
   <nav class="links"><a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a></nav>
+  <button class="mode" id="mode" aria-label="Toggle theme"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
 </header>
 <div class="shell">
 <aside class="side" id="side">
@@ -354,7 +356,7 @@ const pageTpl = `<!doctype html>
     {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{else}}<span></span>{{end}}
     {{if .Page.Next}}<a class="next" href="{{.Root}}{{.Page.Next.URL}}"><small>Next</small><span>{{.Page.Next.Title}}</span></a>{{end}}
   </nav>
-  <footer class="foot">Source: <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></footer>
+  <footer class="foot"><a href="https://github.com/anyproto/any/edit/main/website/{{.Page.Src}}">Edit this page on GitHub</a> · <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></footer>
 </main>
 </div>
 <script>window.__root={{.Root}};</script>
