@@ -71,6 +71,11 @@ Reads never leave the device. `POST /v1/spaces/:id/query` runs a filter/sort/lim
 <div class="cards">
 <a href="local-first.html"><strong>Local-first</strong><span>Offline is the normal case; sync is how devices catch up.</span></a>
 <a href="encryption.html"><strong>Encryption</strong><span>What nodes see, what they don't, and where the keys come from.</span></a>
+<a href="architecture.html"><strong>Architecture</strong><span>any-store → any-sync → SDK → any → clients: what each layer owns, and the node roles.</span></a>
+<a href="spaces-and-trees.html"><strong>Spaces and trees</strong><span>ACL plus object trees; changes, heads, head-sync, derived ids, the space lifecycle.</span></a>
+<a href="record-crdt.html"><strong>The record CRDT</strong><span>Datasets, records, per-path ops, `_ver`, handlers, tombstones — with a worked merge.</span></a>
+<a href="tech-space.html"><strong>The tech space</strong><span>The account's private space: the space list, devices, profile, account-scoped values, mirrors.</span></a>
+<a href="versioning-and-reindex.html"><strong>Versioning and re-index</strong><span>Handler versions, rebuilding rows from the DAG, why there are no migrations, index generations.</span></a>
 <a href="crdt-and-consistency.html"><strong>CRDTs and consistency</strong><span>Per-path last-writer-wins on DAG order, and what that means versus transactions.</span></a>
 <a href="zen-of-any.html"><strong>The zen of any</strong><span>The invariants the API keeps, and why.</span></a>
 <a href="dev-workflow.html"><strong>Developer workflow</strong><span>init, run, the CLI, the web UI, the data dir.</span></a>
