@@ -11,20 +11,20 @@ any is five layers, each with one job: an embedded document database, a peer-to-
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│  CLIENTS       web UI, CLI, JS / Python / mobile bindings, anyrt       │
-│                (programs and agents) — all speak HTTP/JSON + SSE       │
+│  CLIENTS       web UI, CLI, JS / Python / mobile bindings, anyrt      │
+│                (programs and agents) — all speak HTTP/JSON + SSE      │
 ├───────────────────────────────────────────────────────────────────────┤
-│  any           HTTP façade on 127.0.0.1:7001, CLI client, search index,│
-│                event bus, markdown bridge, bundles engine              │
+│  any           HTTP façade on 127.0.0.1:7001, CLI client, search,    │
+│                event bus, markdown bridge, bundles engine             │
 ├───────────────────────────────────────────────────────────────────────┤
-│  any-sync-sdk  Space / Object / record CRDT / types & properties /     │
-│                datasets & handlers / tech space / queries & subscribe  │
+│  any-sync-sdk  Space / Object / record CRDT / types & properties /    │
+│                datasets & handlers / tech space / queries & subscribe │
 ├───────────────────────────────────────────────────────────────────────┤
-│  any-sync      protocol: spaces, ACLs, object trees (signed+encrypted  │
-│                change DAGs), head-sync, files, nodeconf, mDNS p2p      │
+│  any-sync      protocol: spaces, ACLs, object trees (signed+encrypted │
+│                change DAGs), head-sync, files, nodeconf, mDNS p2p     │
 ├───────────────────────────────────────────────────────────────────────┤
-│  any-store     embedded document DB: collections, Mongo-style filters, │
-│                modifiers, indexes, transactions, FTS + vector indexes  │
+│  any-store     embedded document DB: collections, Mongo filters,      │
+│                modifiers, indexes, transactions, FTS + vector indexes │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
