@@ -4,26 +4,33 @@ description: Documentation for any — the open source, reactive, local-first, e
 ---
 <div class="hero">
 
-# any
+# <span>any</span><em>_</em>
 
 The open source, reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as first-class CRDT types, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
 
+<div class="pills"><span class="pill">local-first</span><span class="pill cyan">e2e encrypted</span><span class="pill amber">crdt</span><span class="pill magenta">mongo queries</span><span class="pill">sse live queries</span><span class="pill cyan">wasm-sandboxed programs</span><span class="pill amber">single go binary</span></div>
+
 </div>
 
-```sh
-any init && any run                       # your account, your data dir, one process
-curl -s localhost:7001/v1/spaces -d '{"name":"notes"}'      # a space
-curl -s localhost:7001/v1/spaces/$S/objects -d '{"name":"hello"}'   # an object
-curl -sN localhost:7001/v1/spaces/$S/objects/query/subscribe -d '{"limit":20}'   # live
-```
+<pre class="term"><code class="language-sh">$ any init
+<span class="out">account  A9f3…c21e   (mnemonic printed once — write it down)</span>
+$ any run &
+<span class="out">listening 127.0.0.1:7001   network prod   bootstrapping…done</span>
+$ curl -s :7001/v1/spaces -d '{"name":"notes"}' | jq -r .id
+<span class="out">bafyrei…7q.1a2b3c</span>
+$ curl -s :7001/v1/spaces/$S/objects -d '{"name":"hello","types":["page"]}'
+$ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"limit":20}'
+<span class="out">event: ready
+event: snapshot   {"records":[{"id":"…","any.name":"hello"}],"total":1}
+event: changes    …live from here, from every device you own</span></code></pre>
 
-## Three tiers
+<div class="tiers">
+<div class="tier" data-n="01"><h3>database</h3><p>Spaces of objects and datasets, typed properties, Mongo-style filters, aggregation pipelines, version history — every byte CRDT-merged and encrypted.</p><a href="database/index.html">Database</a></div>
+<div class="tier" data-n="02"><h3>sync &amp; realtime</h3><p>Windowed live queries over SSE, head-sync with peers, sync status, an ephemeral event bus, end-to-end encrypted push.</p><a href="realtime/index.html">Realtime</a></div>
+<div class="tier" data-n="03"><h3>runtime</h3><p>Python programs in a wasm cage with a recorded effect boundary; cron / once / event triggers pinned to a device; the bao agent.</p><a href="programs/index.html">Programs</a></div>
+</div>
 
-| Tier | What it is | Where to start |
-|---|---|---|
-| **Database** | Spaces of objects and datasets, typed properties, Mongo-style filters, aggregation, version history — all CRDT, all encrypted. | [Database](database/index.html) |
-| **Sync & realtime** | Windowed live queries over SSE, head-sync with peers, sync status, an ephemeral event bus, E2E push notifications. | [Realtime](realtime/index.html) |
-| **Runtime** | Python programs in a wasm cage with a recorded effect boundary; cron / once / event triggers pinned to a device; the bao agent. | [Programs](programs/index.html) |
+## Everything
 
 <div class="cards">
 <a href="understanding/index.html"><strong>Understanding any</strong><span>Local-first, encryption, CRDT consistency, the invariants.</span></a>
