@@ -181,35 +181,36 @@ func queryTouchesFields(root *fastjson.Value, fields []string) bool {
 		}
 		return false
 	}
+	// scanFilter walks v as a FILTER document. Field paths occur only
+	// as filter-document keys — at the top level and inside the
+	// logical combinators' sub-filters. Everything else (a comparison
+	// operator's value, an implicit-equality object literal) is DATA:
+	// a literal that merely contains a key named like a withheld field
+	// must not be rejected.
 	var scanFilter func(v *fastjson.Value) bool
 	scanFilter = func(v *fastjson.Value) bool {
-		if v == nil {
+		if v == nil || v.Type() != fastjson.TypeObject {
 			return false
 		}
-		switch v.Type() {
-		case fastjson.TypeObject:
-			obj, _ := v.Object()
-			found := false
-			obj.Visit(func(k []byte, sub *fastjson.Value) {
-				if found {
-					return
-				}
-				key := string(k)
-				if !strings.HasPrefix(key, "$") && hit(key) {
-					found = true
-					return
-				}
-				found = scanFilter(sub)
-			})
-			return found
-		case fastjson.TypeArray:
-			for _, e := range v.GetArray() {
-				if scanFilter(e) {
-					return true
-				}
+		obj, _ := v.Object()
+		found := false
+		obj.Visit(func(k []byte, sub *fastjson.Value) {
+			if found {
+				return
 			}
-		}
-		return false
+			switch key := string(k); key {
+			case "$and", "$or", "$nor":
+				for _, e := range sub.GetArray() {
+					if scanFilter(e) {
+						found = true
+						return
+					}
+				}
+			default:
+				found = !strings.HasPrefix(key, "$") && hit(key)
+			}
+		})
+		return found
 	}
 	if scanFilter(root.Get("filter")) {
 		return true
