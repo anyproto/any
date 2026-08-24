@@ -19,6 +19,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/swag/v2 v2.0.0-rc5
 	github.com/valyala/fastjson v1.6.10
+	github.com/yuin/goldmark v1.8.5
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8

@@ -1,0 +1,85 @@
+---
+title: System fields
+description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author`, and the built-in `any.*` and `nav.*` properties.
+order: 140
+---
+# System fields
+
+Every record carries fields you never write: per-field version stamps, a delivery counter, tombstone markers, creation and modification instants, and — on objects — a handful of built-in properties. This page lists them, says which are synced and which are peer-local, and which ones are safe to sort, page or filter on.
+
+## Record-level bookkeeping
+
+Present on every record returned by [`/query`](reading-data.html) and in subscribe events. Client writes addressing them are rejected.
+
+| Field | Scope | Meaning |
+|---|---|---|
+| `_ver.id` | peer-local | The record's **creation marker** — the version id of the change that created it. Set once, never bumped by edits. Indexed, monotonic on one device: the standard cursor for stable paging (`{"_ver.id": {"$lt": "<oldestSeen>"}}` sorted `["-_ver.id"]`) and the chronological order chat sorts on. |
+| `_ver.<path>` | peer-local | Per-field high-water mark: the version id of the last change that touched that path. Clients running subscribe-then-query-then-apply compare against it to dedupe live events. |
+| `_addSeq` | peer-local | The space's monotonic delivery counter on this device — advances on every change to any of an object's datasets. The search indexer's cursor. Compare and persist it; never assume another peer holds the same value for the same change. |
+| `_deletedAt` | synced | Present on a record-level tombstone. Tombstones are excluded from `/query`, subscribe and aggregation; they surface only to consumers that opt in (the search feed, history views with `deleted: true`). |
+| `_traces` | synced | Trace ids stamped through `traceIds` on the write, when any. |
+
+Version ids are peer-local: two devices holding the same change name it by different `_ver` values. Use them for ordering and paging *on the device that produced them*, never as identifiers you exchange. The exchangeable identifier of a change is its `changeId` — see [Version history](version-history.html).
+
+> **Note.** History diffs and event frames never carry `_ver`. Snapshot rows and `added`/`updated` records do, in full anyenc form, because projection is not applied yet; strip them locally if you need a leaner shape.
+
+## Row-root stamps on objects
+
+Every row of the per-space `objects` collection carries these next to `id`, all derived and read-only:
+
+| Field | Meaning |
+|---|---|
+| `author` | Identity that created the object (the root-change signer). |
+| `createdAt` | Creation instant — the root change's time. |
+| `modifiedAt` | Instant of the latest **synced** change that touched the row. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order). Local- and account-scope writes deliberately don't bump it. |
+| `spaceId` | The hosting space. |
+
+Both instants are the **author's clock** and are written in the `{"$date": …}` wire shape:
+
+```json
+{ "id": "bafy…", "author": "A5k…",
+  "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
+  "modifiedAt": { "$date": "2026-08-20T09:12:31.000Z" } }
+```
+
+"Recently modified first" is `{"sort": ["-modifiedAt"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches every row (`$gte`) or none (`$lt`, `$eq`), because cross-type comparison goes by type rank. See [Data types](data-types.html).
+
+Runtime datasets get the same trio on demand through `stamp: creator` / `createTime` / `modifyTime` fields ([Runtime datasets](runtime-datasets.html)); chat messages carry `creator` / `createdAt` / `modifiedAt`.
+
+> **Why it matters.** There is no server clock to trust. Every stamp is whichever device wrote the change, and the CRDT converges on *a* value, not the *true* time. Sort and display on these freely; never use them as a fence for "has everything before T arrived" — that is what [sync status](../realtime/sync-status.html) is for.
+
+## Built-in properties on objects
+
+Objects carry a few properties under the universal `any` type and the `nav` tree type. Paths use literal keys, not content-addressed property ids.
+
+| Path | Kind | Meaning |
+|---|---|---|
+| `any.types` | string array | The type ids attached to the object. A scalar filter is a *contains* test — `{"any.types": "chat"}` — and is how every cross-object query should be scoped. |
+| `any.name` | string | Display name. |
+| `any.description` | string | Description. Indexed with `any.name` under the search scope `basic`. |
+| `any.tags` | string array | Free-form labels; filter with `{"any.tags": "<label>"}`. |
+| `nav.type` | number | `1` = item, `2` = folder. |
+| `nav.parentId` | string | Id of the parent folder; `""` = root. |
+| `nav.pos` | string | Lexicographic position (lexid) among siblings. |
+
+`nav.*` is stamped on every create — `nav` is appended to `any.types` and the three values land on the row — with an optional `"nav"` block in the create body to override the defaults. `nav.pos` defaults to the next lexid after the folder's current maximum. Trees are built by querying the objects collection, not by a dedicated endpoint:
+
+```sh
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
+  -d '{"filter": {"nav.parentId": "obj_X"}, "sort": ["nav.pos"]}'
+```
+
+Moving an object is a property set on `nav` (`parentId` + `pos` in one change). Details in [Objects](objects.html).
+
+## Field scopes
+
+Every dataset field belongs to one scope, visible as `x-scope` in the dataset's [schema](runtime-datasets.html):
+
+| Scope | Behavior |
+|---|---|
+| `synced` | Written through the DAG, replicated to every member, in history. |
+| `derived` | Computed on apply (stamps, chat `creator`), read-only to writers. |
+| `local` | Device-local, never synced — chat's `unread` flags. Written through `POST …/modify` with `"scope": "local"`; never bumps `modifiedAt`. |
+| `account` | Synced across this account's devices only, invisible to other members (property definitions today). |
+
+Negation operators (`$ne`, `$nin`, `$not`, `$exists: false`) also match rows that lack the field entirely — on the objects collection, which holds every object including type definitions, always scope by `any.types` first.

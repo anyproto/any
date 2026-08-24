@@ -1,0 +1,238 @@
+---
+title: CLI
+description: Every any command group with its flags — a thin HTTP client over the local server, one command per endpoint, JSON on stdout.
+order: 20
+---
+# CLI
+
+`any` is one binary in two roles: `any run` starts the server, and every other subcommand is an HTTP call to it. The CLI never opens the SDK or touches storage, so anything you can do from the terminal you can do from `curl` — and vice versa.
+
+## Global flags and exit codes
+
+```
+--addr <host:port>     # default 127.0.0.1:7001 (bind address for `run`, connect address otherwise)
+--timeout <duration>   # request timeout, default 30s (does not apply to streams)
+--verbose              # log the HTTP request/response to stderr
+```
+
+| Exit code | Meaning |
+|---|---|
+| `0` | success |
+| `1` | user error — bad arguments, or a 4xx from the server |
+| `2` | server error — a 5xx |
+| `3` | transport error — the server cannot be reached |
+
+Output is pretty-printed JSON, always. The two deliberate exceptions are `any file download` (raw bytes to stdout) and streaming commands, which print one JSON object per SSE frame — `{"event": "<name>", "data": <payload>}` — so they pipe cleanly into `jq`. When the server is not running the CLI exits 3 and prints `start it with any run in another terminal`; there is no auto-start.
+
+Input conventions: `--file FILE` takes a JSON body (`-` = stdin); `--filter` is a Mongo-style filter object; JSON-valued flags accept `'<json>'`, `@FILE` or `-`.
+
+## Meta and auth
+
+```
+any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
+any run  [--config PATH] [--data-dir PATH] [--account ID] [--addr host:port]
+         [--wallet PATH] [--passkey-stdin] [--log-level debug|info|warn|error]
+any auth login [--mnemonic …|--mnemonic-stdin|--account ID]     # POST /v1/auth
+any auth status                                                   # GET /v1/auth
+any status                                                        # GET /v1/health
+any stop                                                          # POST /v1/shutdown
+any version
+```
+
+`any init` creates the data dir and an account wallet, printing the BIP-39 mnemonic to stderr once. With `--mnemonic` / `--mnemonic-stdin` it restores an existing account (same phrase, same account id, a fresh device key) — prefer stdin so the phrase stays out of shell history. `--index` defaults to 1 (the any derivation index; 0 restores an anytype-derived account); `--new` forces an additional account. `any run` never creates wallets: with no resolvable account it starts unauthorized and waits for `any auth login`. See [Accounts](../auth/accounts.html).
+
+## Account, identities, devices
+
+```
+any account                                          # GET /v1/account
+any account set-metadata --name N [--description D] [--icon CID]
+
+any identities list | get <identity> | subscribe     # alias: any contacts
+
+any devices list                                     # rows + active map + self
+any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
+any devices activate <app>
+any devices remove <peerId> --yes                    # permanent for that peer id
+any devices query [--filter J] [--sort K] [--limit N]
+any devices subscribe
+```
+
+## Spaces
+
+```
+any space get      <spaceId>
+any space update   <spaceId> [--name N] [--description D] [--icon-cid CID]   # unset flag = keep, --name='' = clear
+any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
+any space delete   <spaceId> --yes
+any space sync     <spaceId>                         # force one head-sync round
+any space derived                                    # list well-known derived spaces
+any space derived create <name>                      # materialize one (idempotent)
+any space query      [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--dataset spaces|profile]
+any space subscribe  [same flags]                    # live space list, one frame per line
+any datasets [<spaceId>]                             # dataset schemas (JSON Schema + x-scope)
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N]
+           [--mode hybrid|fts|vector] [--require T]... [--exclude T]...
+```
+
+`any space settings` writes the account-private per-space settings object; push reads `notifyMode` from it: `any space settings $SP --set notifyMode=mentions`. `any search` defaults to `hybrid` and degrades to FTS when the server has no embedder — the reply's `mode` says which ran.
+
+Space create, list and join have no dedicated subcommand yet — use `curl` against `POST /v1/spaces`, `GET /v1/spaces`, or `any join <invite>` below.
+
+## One-to-one spaces
+
+```
+any one-to-one start    <otherIdentity>              # aliases: any 1-1, any direct
+any one-to-one accept   <spaceId>
+any one-to-one decline  <spaceId>                    # sticky; a later start un-declines
+any one-to-one register <peerIdentity> [--name N] [--description D] [--icon-cid CID]
+any one-to-one pending                               # incoming requests
+```
+
+## Reads and writes
+
+```
+any query-subscribe <spaceId> <objectId> --dataset NAME [--filter J] [--sort K] [--limit N] [--offset N] [--total]
+any query-subscribe <spaceId> --properties [same flags]      # per-space objects collection
+any aggregate <spaceId> <objectId> --dataset NAME --pipeline '<json>'|@FILE|-
+any aggregate <spaceId> --properties --pipeline '<json>'|@FILE|-
+              [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
+any upsert <spaceId> <objectId> --dataset NAME --records '<json>'|@FILE|- [--page-size N] [--trace-id T]...
+```
+
+`query-subscribe` prints the `ready` → `snapshot` → `changes` → `closed` frames as JSON lines; `--limit` is required when `--sort` is set.
+
+```bash
+any query-subscribe $SP $CHAT --dataset chat_messages --sort=-_ver.id --limit 50 \
+  | jq 'select(.event=="changes") | .data[]'
+```
+
+Snapshot query, modify and delete-records have no subcommand yet — call `POST /v1/spaces/:id/query`, `/modify`, `/delete-records` directly.
+
+## Editor
+
+```
+any editor blocks create <spaceId> <objectId> --type T [--text S] [--style JSON] [--parent ID] [--pos LEXID]
+any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]...
+any editor blocks delete <spaceId> <objectId> <blockId>
+any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all]
+any editor edit          <spaceId> <objectId> --edits '<json>'|@FILE|-
+```
+
+`editor edit` is `PATCH …/editor/markdown`: each `oldText` must match the current rendering exactly (whole-line fuzzy fallback for unicode punctuation and trailing whitespace) and, without `--all`, exactly once.
+
+```bash
+any editor edit $SP $DOC --old '- [ ] buy milk' --new '- [x] buy milk'
+```
+
+## Chat
+
+```
+any chat send   <spaceId> <objectId> --text S | --file FILE|-  [--reply-to MSG]
+                [--agent-name N] [--agent-debug-link L] [--agent-done=false]
+any chat edit   <spaceId> <objectId> <msgId> --text S | --file FILE|-
+any chat delete <spaceId> <objectId> <msgId>
+any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
+```
+
+`<objectId>` is the `rootId` of the space's chat bundle. Text is markdown; `--file -` reads stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
+
+## Types and properties
+
+```
+any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
+any type list   <spaceId>
+any type property list   <spaceId> <typeId>
+any type property add    <spaceId> <typeId> --name N [--xkey K]
+                         [--kind string|number|boolean|array|object|datetime]
+                         [--format-type links|date|datetime|select|multiselect] [--format-ui U] [--scope S]
+any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset PATH]...
+any type property remove <spaceId> <typeId> <propId>
+any type property option set    <spaceId> <typeId> <propId> <key> [--name N] [--color C] [--pos LEXID]
+any type property option delete <spaceId> <typeId> <propId> <key>
+
+any type dataset list   <spaceId> <typeId>
+any type dataset add    <spaceId> <typeId> --draft '<json>'|@FILE|-
+any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset PATH]...
+any type dataset remove <spaceId> <typeId> <defId>
+any type dataset field add    <spaceId> <typeId> <defId> --field '<json>'|@FILE|-
+any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
+```
+
+```bash
+any type property patch $SP $T $P --set '{"format.options.high.name":"High","format.options.high.color":"red"}'
+any type property option set $SP $T $P high --name High --color red --pos a0    # same write, sugar
+```
+
+## Files
+
+```
+any file attach   <spaceId> <objectId> <path>|-  [--name N] [--mime M] [--variant V --variant-of FILE]
+any file list     <spaceId> [--object OBJ] [--limit N]
+any file get      <spaceId> <fileId>
+any file download <spaceId> <fileId> [-o PATH] [--variant V]     # raw bytes to stdout by default
+any file status   <spaceId> <fileId>
+any file stats    <spaceId>
+any file subscribe <spaceId>
+any file pin | retry | offload <spaceId> <fileId>
+any file delete   <spaceId> <fileId> --yes
+any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total]
+any file query-subscribe <spaceId> <objectId> [same flags]
+any file cache size | free <bytes> | sweep
+```
+
+The attach receipt normally shows `durable: false` — backup is background work; `any file subscribe` shows the `inflight → durable` flip. `offload` exits 1 with `file.not_durable` while the local bytes are the only copy.
+
+## Members, invites, ACL
+
+```
+any members list | me | requests <spaceId>
+any members get <spaceId> <identity>
+any members subscribe <spaceId>
+
+any invite create | list | revoke-all <spaceId>
+any invite get | revoke <spaceId> <recordId>
+any invite guest-key <spaceId>                      # public read-only token (owner)
+any invite guest-key-revoke <spaceId>               # rotate the read key
+any invite pending                                  # direct-add invites awaiting approval
+any invite accept | decline <spaceId>
+
+any join <invite>
+
+any acl accept | decline <spaceId>
+any acl grant        <spaceId> <identity> <permission>
+any acl remove       <spaceId> <identity>...
+any acl add          <spaceId> <identity>[,<identity>...] <permission>
+any acl ownership    <spaceId>
+any acl self-remove | cancel-join | stop-sharing <spaceId>
+```
+
+Permissions are `reader`, `writer`, `admin`, `owner`. `any acl add` adds accounts by identity in one ACL record; each added account sees an `invite_pending` row and resolves it with `any invite accept` / `decline`.
+
+## Sync status, events, processes, push, debug
+
+```
+any sync-status space     <spaceId>
+any sync-status object    <spaceId> <objectId>
+any sync-status subscribe [<spaceId> <objectId>]    # account-wide without args
+
+any events publish --type T [--scope device|account|space] [--space ID] [--target X] [--data J|@FILE|-]
+any events subscribe [--scope S]... [--type T|x.*]... [--space ID]... [--target X]...
+
+any process list
+any process cancel ID [--identity X]
+
+any push token set --platform ios|android --token TOKEN
+any push token revoke | status
+any push subscriptions
+
+any debug space  <spaceId>                          # per-peer headsync counters
+any debug object <spaceId> <objectId>               # tree + sync snapshot (walks the tree)
+any debug p2p                                       # LAN discovery snapshot
+```
+
+```bash
+any events publish --type ui.open_space --data '{"spaceId":"'$SP'"}'
+any events subscribe --type 'ui.*'
+```
+
+> **Note.** `any sync-status peers` is not wired — the endpoint returns `501` until the SDK exposes a stable per-space peer list; `any debug space` is the diagnostic equivalent. The push commands exit 1 with `push.disabled` unless the server has a push node configured.

@@ -36,3 +36,4 @@ prompt-*.md
 /staging.yml
 /.direnv/
 /.envrc
+website/dist/
