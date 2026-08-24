@@ -102,7 +102,7 @@ func TestAlignIndex_UnknownStoredGenerationAdopts(t *testing.T) {
 	cursor, gen := storedCursor(t, w)
 	require.EqualValues(t, 42, cursor)
 	require.Equal(t, "gen-1", w.generation)
-	_ = gen
+	require.Equal(t, "gen-1", gen, "the epoch is stamped on the row without waiting for a change")
 }
 
 // A store that cannot report its generation must not erase the one on

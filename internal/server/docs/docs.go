@@ -135,6 +135,10 @@ const docTemplate = `{
                     },
                     "metadata": {
                         "$ref": "#/components/schemas/api.AccountMetadata"
+                    },
+                    "techSpaceId": {
+                        "description": "TechSpaceId is the account's tech space — the :spaceId for\naccount-level bundles (see docs/03-api.md § Bundles).",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -355,6 +359,10 @@ const docTemplate = `{
             "api.Bundle": {
                 "description": "Bundle is the converged registry row.",
                 "properties": {
+                    "derived": {
+                        "description": "Derived reports that the winner is the root derived from the\nbundle id: the same id on every device, so this install cannot\nfork — and cannot be uninstalled, a derived object being\nundeletable. Absent means an ordinary created root.",
+                        "type": "boolean"
+                    },
                     "id": {
                         "description": "Id is the stable bundle identifier — the record id. Permanent:\na successor install takes a new id (record deletes are refused,\nso a reused id could never be reclaimed).",
                         "type": "string"
@@ -413,6 +421,18 @@ const docTemplate = `{
             },
             "api.BundleEnsureRequest": {
                 "properties": {
+                    "datasets": {
+                        "description": "Datasets declares runtime datasets on the derived root (same\nshape as POST …/types/:typeId/datasets); the root becomes a type\nimplementing itself, typeId = rootId, and the datasets are\nwritten through POST …/upsert / …/modify on the root. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/datasets routes. Derived installs only; required\non the tech space.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "derived": {
+                        "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
+                        "type": "boolean"
+                    },
                     "id": {
                         "description": "Id is the bundle identifier. Required.",
                         "type": "string"
@@ -446,7 +466,19 @@ const docTemplate = `{
                         "$ref": "#/components/schemas/api.Bundle"
                     },
                     "installed": {
-                        "description": "Installed reports whether THIS call created the root. False\nmeans an existing install was adopted and nothing was written.",
+                        "description": "Installed reports whether THIS call registered the install.\nFalse means an existing one was adopted — which for a derived\nbundle may still materialize the root's tree on this device,\nsince that id is one every device can mint.\n\nFor a derived install it reports what THIS DEVICE did: both\nsides of a partition can report true for the one root they\nshare.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.BundleGetResponse": {
+                "properties": {
+                    "bundle": {
+                        "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "synced": {
+                        "description": "Synced: see BundleListResponse.Synced.",
                         "type": "boolean"
                     }
                 },
@@ -460,6 +492,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "synced": {
+                        "description": "Synced reports whether the registry converged before this read\n(the read-side lock): true means an absent bundle is definitively\nnot installed; false (the wait expired — cold offline device)\nmeans absence is provisional.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -759,7 +795,12 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "text": {
-                        "type": "string"
+                        "description": "Text accepts a bare field-key string OR a non-empty array of\nunique field keys; a single key always reads back as the bare\nstring. The generated schema can only show the array form — the\nstring form is equally valid on the wire.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "title": {
                         "type": "string"
@@ -1630,6 +1671,17 @@ const docTemplate = `{
                     },
                     "treeLen": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ObjectGetResponse": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "record": {
+                        "type": "object"
                     }
                 },
                 "type": "object"
@@ -5560,7 +5612,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/api.Bundle"
+                                    "$ref": "#/components/schemas/api.BundleGetResponse"
                                 }
                             }
                         },
@@ -7668,6 +7720,75 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Delete an object",
+                "tags": [
+                    "objects"
+                ]
+            },
+            "get": {
+                "description": "The object's row from the space's objects collection: any.types and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.",
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ObjectGetResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get an object's row",
                 "tags": [
                     "objects"
                 ]

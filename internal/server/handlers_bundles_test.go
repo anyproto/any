@@ -156,8 +156,9 @@ func TestServer_BundleListAndGet(t *testing.T) {
 		t.Fatalf("list rows do not match the installs: %+v", list.Bundles)
 	}
 
-	var one api.Bundle
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &one)
+	var oneResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &oneResp)
+	one := oneResp.Bundle
 	if one.Id != testBundleId || one.RootId != a.Bundle.RootId || one.Name != "General" {
 		t.Fatalf("get = %+v, want the general chat row", one)
 	}
@@ -248,8 +249,9 @@ func TestServer_BundleResolveRejectsNonLoser(t *testing.T) {
 	}
 
 	// The install survives.
-	var after api.Bundle
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &after)
+	var afterResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &afterResp)
+	after := afterResp.Bundle
 	if after.RootId != inst.Bundle.RootId {
 		t.Fatalf("winner changed: %q vs %q", after.RootId, inst.Bundle.RootId)
 	}
@@ -404,5 +406,184 @@ func TestServer_BundleChildSeedCap(t *testing.T) {
 	rec := doJSON(t, e, http.MethodPost, path, `{"seed":"`+strings.Repeat("s", 257)+`"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversized seed: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestServer_BundleEnsureDerivedRoot pins the fork-proof install: the
+// root is derived from the bundle id, so the row reports it as derived
+// and a re-ensure adopts the very same one. Its setup objects hang off
+// it by seed — any-sync refuses a derived object as a parent — and are
+// still deterministic per seed.
+func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerived")
+	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["chat"],"derived":true}`
+
+	first := ensureBundle(t, e, sp.Id, body)
+	if !first.Installed || !first.Bundle.Derived || first.Bundle.RootId == "" {
+		t.Fatalf("derived install: %+v (installed=%v)", first.Bundle, first.Installed)
+	}
+	if !slices.Contains(first.Bundle.Roots, first.Bundle.RootId) || len(first.Bundle.Roots) != 1 {
+		t.Fatalf("derived install claimed more than its own root: %+v", first.Bundle.Roots)
+	}
+	if len(first.Bundle.Losers) != 0 {
+		t.Fatalf("derived install reported losers: %+v", first.Bundle.Losers)
+	}
+
+	second := ensureBundle(t, e, sp.Id, body)
+	if second.Installed || second.Bundle.RootId != first.Bundle.RootId || !second.Bundle.Derived {
+		t.Fatalf("re-ensure did not adopt the derived root: %+v (installed=%v)", second.Bundle, second.Installed)
+	}
+
+	var gotResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &gotResp)
+	got := gotResp.Bundle
+	if !got.Derived || got.RootId != first.Bundle.RootId {
+		t.Fatalf("read path lost the derived verdict: %+v", got)
+	}
+
+	// The requested type is on the root, so its dataset is writable.
+	if msg := chatSend(t, e, "/v1/spaces/"+sp.Id+"/objects/"+first.Bundle.RootId, "hello derived", ""); msg.Id == "" {
+		t.Fatalf("derived root does not accept chat writes: %+v", msg)
+	}
+
+	// Children: bound by seed, deterministic, distinct per seed.
+	path := "/v1/spaces/" + sp.Id + "/bundles/" + escapedBundleId(testBundleId) + "/children"
+	child := func(body string) api.BundleChildResponse {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, path, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("child of a derived root: %d %s", rec.Code, rec.Body.String())
+		}
+		var out api.BundleChildResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode child: %v", err)
+		}
+		return out
+	}
+	firstChild := child(`{"seed":"memory/v1","types":["agent_memory"]}`)
+	if again := child(`{"seed":"memory/v1","types":["agent_memory"]}`); again.ObjectId != firstChild.ObjectId {
+		t.Fatalf("child not deterministic: %q vs %q", firstChild.ObjectId, again.ObjectId)
+	}
+	if other := child(`{"seed":"notes/v1"}`); other.ObjectId == firstChild.ObjectId {
+		t.Fatalf("distinct seeds derived the same child: %q", other.ObjectId)
+	}
+	if firstChild.ObjectId == first.Bundle.RootId {
+		t.Fatal("child collided with its root")
+	}
+}
+
+// TestServer_BundleDerivedAdoptsCreatedInstall pins that nothing
+// migrates behind the client: a bundle already installed on a created
+// root stays on it, and the reply says so.
+func TestServer_BundleDerivedAdoptsCreatedInstall(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerivedAdopt")
+	created := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General"}`)
+	if created.Bundle.Derived {
+		t.Fatalf("created install reported as derived: %+v", created.Bundle)
+	}
+
+	derived := ensureBundle(t, e, sp.Id, `{"id":"`+testBundleId+`","name":"General","derived":true}`)
+	if derived.Installed || derived.Bundle.Derived {
+		t.Fatalf("derived request forked the created install: %+v (installed=%v)", derived.Bundle, derived.Installed)
+	}
+	if derived.Bundle.RootId != created.Bundle.RootId {
+		t.Fatalf("adopted a different root: %q vs %q", derived.Bundle.RootId, created.Bundle.RootId)
+	}
+}
+
+// TestServer_BundleDerivedRootProperties pins that a derived root is
+// seeded like a created one — it has no create-time hook, so the
+// values land as an ordinary write.
+func TestServer_BundleDerivedRootProperties(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerivedProps")
+	res := ensureBundle(t, e, sp.Id,
+		`{"id":"notes/v1","name":"Notes","rootTypes":["page"],"derived":true,`+
+			`"rootProperties":{"any":{"description":"Seeded description"}}}`)
+
+	var props map[string]any
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/properties/"+res.Bundle.RootId, &props)
+	record, _ := props["record"].(map[string]any)
+	anyProps, _ := record["any"].(map[string]any)
+	if anyProps["description"] != "Seeded description" {
+		t.Fatalf("derived root properties not seeded: %+v", props)
+	}
+	if anyProps["name"] != "Notes" {
+		t.Fatalf("bundle name not stamped on the derived root: %+v", anyProps)
+	}
+}
+
+// TestServer_BundleDerivedValidation pins the flag's shape.
+func TestServer_BundleDerivedValidation(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerivedValidation")
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles",
+		`{"id":"`+testBundleId+`","derived":"yes"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-boolean derived: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "derived must be a boolean") {
+		t.Fatalf("unexpected error body: %s", rec.Body.String())
+	}
+}
+
+// TestServer_BundleDerivedRootPropertyTypes pins that a derived root
+// implements every type its seeded properties write into, even when
+// rootTypes does not name it — a property write to a type the object
+// does not implement is rejected, and the created path attaches the
+// same union at birth.
+func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleDerivedPropTypes")
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Doc","xKey":"doc"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var tr api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Topic","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add property: %d %s", rec.Code, rec.Body.String())
+	}
+	var prop api.AddPropertyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &prop); err != nil {
+		t.Fatalf("decode property: %v", err)
+	}
+
+	// rootTypes names nothing; the type comes from rootProperties.
+	res := ensureBundle(t, e, sp.Id,
+		`{"id":"docs/v1","name":"Docs","derived":true,"rootProperties":{"`+
+			tr.TypeId+`":{"`+prop.PropId+`":"seeded"}}}`)
+	if !res.Bundle.Derived {
+		t.Fatalf("not a derived install: %+v", res.Bundle)
+	}
+
+	var props map[string]any
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/properties/"+res.Bundle.RootId, &props)
+	record, _ := props["record"].(map[string]any)
+	typeProps, _ := record[tr.TypeId].(map[string]any)
+	if typeProps[prop.PropId] != "seeded" {
+		t.Fatalf("seeded value did not land: %+v", props)
 	}
 }

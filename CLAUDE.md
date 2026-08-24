@@ -123,7 +123,13 @@ Implementation slices landed:
    a `handler.Type` for the `editor_blocks` dataset, one record per
    block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
-   level syntax), `nav.parentId`, `nav.pos` (lexid). Bespoke endpoints
+   level syntax), `nav.parentId`, `nav.pos` (lexid). An empty
+   paragraph is a `paragraph` record with `text: ""`; the markdown
+   bridge carries it as a blank line beyond the one separating two
+   blocks (edge runs have no separator to spend), so Split/Join stay
+   exact inverses and re-PUTting a GET writes nothing — the encoding
+   clients need to preserve vertical spacing (docs/03-api.md § Empty
+   paragraphs). Bespoke endpoints
    under `/v1/spaces/:s/objects/:o/editor/blocks` cover writes only —
    create / patch / delete. PATCH takes
    `{set: {"dotted.path": value}, unset: ["dotted.path"]}` for atomic
@@ -683,7 +689,10 @@ Implementation slices landed:
     ones, most visibly in a 1-1) — the convergence point moved from a
     hardcoded derive to the registry, so different clients can register
     different things. Convention: bundle id `general-chat/v1`,
-    `rootTypes: ["chat"]`. Contract: docs/03-api.md § Chat (Finding the
+    `rootTypes: ["chat"]`, `derived: true` (item 35 — the chat root's
+    id is computed from the bundle id, so it can never fork; chat
+    content cannot be merged across objects, so a fork has to be
+    impossible rather than resolvable). Contract: docs/03-api.md § Chat (Finding the
     chat object) + § Bundles, docs/16-chat.md, docs/08-clients.md § 4.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
@@ -1020,9 +1029,39 @@ Implementation slices landed:
     - The `id` is the whole identity — marketplace id, app slug, or a
       versioned convention like `general-chat/v1` — so there is no
       separate provenance field.
+    - **Derived roots (SYN-172).** `"derived": true` installs the
+      bundle on the root DERIVED from its id
+      (`spaceindex.BundleRootSeed`, seed `builtin:bundleRoot:<id>`).
+      A derived root change carries no identity/signature/timestamp, so
+      the id is a pure function of (space, bundle id): every device
+      computes it offline and no install can fork — the only workable
+      shape for a 1-1, where the ACL owner is a synthetic key nobody
+      holds, both participants are writers, and neither can ever take
+      the owner escape below (the ticket's `409 bundle.not_ready`
+      deadlock). A derived install runs the same convergence wait
+      (30s connected, 3s with no peer — a head-sync round against
+      nobody always answers the same) but installs when it expires
+      instead of refusing; the residual risk is that a blind claim
+      demotes an unseen CREATED install of the same id, irreversibly
+      (docs/03-api.md states the trade).
+      Costs, both permanent: no
+      uninstall (any-sync's `ErrCantDeleteDerivedObject`) and no
+      migration — an existing created install is ADOPTED, with
+      `Bundle.Derived` reporting which it is. If a created and a
+      derived root are both claimed, **the derived one wins on every
+      replica** (read-side verdict over the add-only `roots` set —
+      order-independent, unraceable), so the created one stays an
+      ordinary resolvable loser and the undeletable root is never
+      stranded as one. Children of a derived root bind BY SEED
+      (`<rootId>/<seed>`), not `ParentId` — any-sync rejects a derived
+      object as a parent (`objecttree.ErrDerivedParent`) — losing only
+      a cascade that is moot on an undeletable root. SDK:
+      `EnsureBundleRequest.{DerivedRoot,RootTypes}`, `Bundle.Derived`,
+      `BundlesAPI.DerivedRootId` (pure computation, no registry read).
     - **Convergence gate on install.** Adoption is a pure read (so
       readers/guests resolve installs they cannot create; the install
-      path is a write and 403s for them). Installing first runs
+      path is a write and 403s for them). Installing a CREATED root
+      first runs
       `sp.WaitIndexSynced` bounded 30s — the registry rides the space's
       index tree, and ensuring against unsynced state reads "nothing
       installed" and forks a second root. A bare `SyncHeads` nil is not
@@ -1058,8 +1097,9 @@ Implementation slices landed:
       Records are permanent and `roots` only grows — ids are a small
       fixed vocabulary, not a scratch namespace.
     - **Nobody arbitrates who installs** — the server used to pick a
-      sole installer, and no longer does. Clients agree out of band
-      (for a 1-1, the initiating side ensures) or handle `losers`.
+      sole installer, and no longer does. Clients either ask for a
+      derived root (the id both sides would compute anyway), agree out
+      of band, or handle `losers`.
     - Boot pass (`internal/server/derivedsetup.go`): for the well-known
       derived spaces the account already has, `WaitListSynced` (90s) →
       open → `WaitIndexSynced` (90s) → List, so a client ensuring right
@@ -1074,10 +1114,14 @@ Implementation slices landed:
       fake space — verdict order, timing guards, idempotency, retry),
       internal/server/handlers_bundles_test.go (ensure/adopt, root
       properties, list/get, children, resolve
-      verdicts, dataset read), internal/e2e/multipeer_bundles_test.go
+      verdicts, dataset read, derived install / adopt-precedence /
+      children / validation), internal/e2e/multipeer_bundles_test.go
       (joiner adopts the owner's root, children converge),
-      multipeer_onetoone_test.go (initiator ensures, peer adopts),
-      derived_spaces_test.go. Contract: docs/03-api.md § Bundles.
+      multipeer_onetoone_test.go (both sides install the derived chat
+      on the FIRST attempt — no convergence polling — and their copies
+      merge), derived_spaces_test.go, and the SDK's
+      e2e/bundles_test.go `TestE2E_BundlesDerivedRoot`. Contract:
+      docs/03-api.md § Bundles (incl. Derived roots).
 36. **Type xKey lives on the meta-type (SYN-173)** — a type's
     programmatic handle moved from `any.xkey` to `type.xkey` in the
     SDK. `any` is the universal type, so declaring `xkey` there
@@ -1096,7 +1140,57 @@ Implementation slices landed:
     read back with an empty `xKey`. The web UI's object-type filter
     skips the synthetic ids. Contract: docs/03-api.md § Types, SDK
     docs/06-data-structure.md.
-37. **Built-in `data_view` type: saved views (SYN-175)** —
+37. **Datetime values (SYN-136)** — every timestamp is any-store's
+    native instant (`TypeDateTime`: unix millis, memcmp-orderable,
+    index-keyable) instead of an ISO string or an epoch number, which is
+    what the date operators (`$year`/`$dateTrunc`/`$dateDiff`) compute
+    on — they returned null against everything the server stored.
+    **Wire shape: `{"$date": "2026-08-05T17:00:00.000Z"}`** in both
+    directions (writes also take `{"$date": <millis>}`), including
+    filter literals — a bare number or string doesn't error, it answers
+    wrong: cross-type comparison goes by type rank and instants rank
+    above both, so `$gte` matches every row and `$lt`/`$eq` match none. SDK side (`any-sync-sdk`): new `datetime` property
+    kind, implied by the `date` / `datetime` formats (`kind: "string"`
+    stays accepted for the legacy ISO convention, and kind is pinned
+    first-write, so existing properties never move); derived stamps
+    (objects-row `createdAt`/`modifiedAt`, tech-space `spaces.createdAt`,
+    runtime-dataset `createTime`/`modifyTime`) are instants. `any` side:
+    `api.PropertyKindDatetime` on the types surface, `checkFormatValue`
+    validates the ext-JSON instant (a `date`-format value must land on
+    midnight UTC) while string-kind props keep the old checks, chat's
+    `createdAt`/`modifiedAt` AND its reaction leaves
+    (`reactions.<emoji>.<accountId>`) are instants, and the prop chunker
+    indexes a date as its RFC 3339 text so search still matches
+    "2026-08".
+    **No migration** — the SDK's new version-driven re-index (SYN-178)
+    rebuilds affected rows from the DAG when a handler version bumps,
+    lazily per object plus a background sweep per space. Consequence for
+    `any`: the search indexer now tracks the SDK's per-space
+    `Generation` next to its cursor and drops + reindexes the space when
+    it changes (a wiped sdk.db restarts applySeq at 0, which silently
+    froze the index before). Contract: docs/03-api.md § Types + § Data
+    plane + § Chat, docs/09-query.md § Dates, docs/14-aggregation.md,
+    docs/08-clients.md § 3.
+
+38. **Favourites as a client bundle + created tech roots + locked bundle
+    reads** — favourites is a CLIENT-REGISTERED bundle (`favorites/v1`,
+    canonical declaration in docs/25-favorites.md; no server code, no
+    boot ensure, no reserved ids). The tech space accepts both bundle
+    root strategies: `derived: true`, or the default CREATED root minted
+    by the SDK's Ensure (self-typed, declaration-carrying) — deletable
+    (`DELETE …/objects/:rootId` = uninstall, id reads uninstalled,
+    reinstall mints fresh) and forking on concurrent offline installs
+    (`…/bundles/:id/resolve` is routed on the tech space). Read-side
+    lock: `GET …/bundles[/:id]` answers after the registry convergence
+    wait and carries `synced` (true = absence definitive; get returns
+    `{bundle, synced}`); ensure's convergence gate is the same wait.
+    Client startup contract: locked read → adopt; ensure on first
+    write; fork → merge loser entries → resolve. SDK prerequisite
+    (PR #108 branch): created roots with declarations + SDK-minted
+    roots (`NewRoot` optional), tech `ResolveLoser`, bundle-root-only
+    `Objects().Delete`, catalog release on type-object purge.
+
+39. **Built-in `data_view` type: saved views (SYN-175)** —
     `internal/dataview` registers `data_view`, attachable to ANY object
     including a TYPE object (that is how "views on a type" works —
     `AttachType` has no meta-type guard), owning the `data_views`
@@ -1150,36 +1244,6 @@ Implementation slices landed:
     docs/24-data-views.md, docs/03-api.md § Types + § Properties,
     client recipe docs/08-clients.md § 12.
 
-37. **Datetime values (SYN-136)** — every timestamp is any-store's
-    native instant (`TypeDateTime`: unix millis, memcmp-orderable,
-    index-keyable) instead of an ISO string or an epoch number, which is
-    what the date operators (`$year`/`$dateTrunc`/`$dateDiff`) compute
-    on — they returned null against everything the server stored.
-    **Wire shape: `{"$date": "2026-08-05T17:00:00.000Z"}`** in both
-    directions (writes also take `{"$date": <millis>}`), including
-    filter literals — a bare string or number is a different type and
-    matches nothing. SDK side (`any-sync-sdk`): new `datetime` property
-    kind, implied by the `date` / `datetime` formats (`kind: "string"`
-    stays accepted for the legacy ISO convention, and kind is pinned
-    first-write, so existing properties never move); derived stamps
-    (objects-row `createdAt`/`modifiedAt`, tech-space `spaces.createdAt`,
-    runtime-dataset `createTime`/`modifyTime`) are instants. `any` side:
-    `api.PropertyKindDatetime` on the types surface, `checkFormatValue`
-    validates the ext-JSON instant (a `date`-format value must land on
-    midnight UTC) while string-kind props keep the old checks, chat's
-    `createdAt`/`modifiedAt` AND its reaction leaves
-    (`reactions.<emoji>.<accountId>`) are instants, and the prop chunker
-    indexes a date as its RFC 3339 text so search still matches
-    "2026-08".
-    **No migration** — the SDK's new version-driven re-index (SYN-178)
-    rebuilds affected rows from the DAG when a handler version bumps,
-    lazily per object plus a background sweep per space. Consequence for
-    `any`: the search indexer now tracks the SDK's per-space
-    `Generation` next to its cursor and drops + reindexes the space when
-    it changes (a wiped sdk.db restarts applySeq at 0, which silently
-    froze the index before). Contract: docs/03-api.md § Types + § Data
-    plane + § Chat, docs/09-query.md § Dates, docs/14-aggregation.md,
-    docs/08-clients.md § 3.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1446,6 +1510,7 @@ auto-start.
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
 | `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
+| `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

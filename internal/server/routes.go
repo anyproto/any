@@ -93,6 +93,8 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/shutdown", d.shutdownHandler)
 	v1.GET("/openapi.json", serveOpenAPI)
 
+	v1.Use(d.techSpaceRouteGuard)
+
 	registerAuthRoutes(v1, d)
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)

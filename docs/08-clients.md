@@ -31,6 +31,14 @@ shape:
 - **Full rewrite / import** → `PUT …/editor/markdown`.
 - **Tail growth** (logs, transcripts) → `POST …/editor/markdown/append`.
 
+An editor that renders empty paragraphs must emit and parse blank
+runs the way the markdown routes encode them — one blank line
+separates two blocks, each further blank line is an empty paragraph,
+and an edge run has no separator to build on. Serialize and parse
+have to be exact inverses, or every load reshapes the document and
+saves the difference back. Full rule in `03-api.md` § Empty
+paragraphs.
+
 Every write returns the shared `api.ModifyResult`
 (`{versionId, changeId, recordIds}`), never the record body —
 `recordIds[0]` is the server-derived id on a create, and `versionId` is
@@ -122,7 +130,10 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   format reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
   the one key (`new Date(v.$date)`), and use the same shape in filter
   literals and writes: `{"modifiedAt": {"$gte": {"$date": "…"}}}`. A bare
-  string or number is a different type and matches nothing.
+  string or number does not error — comparisons across types go by type
+  rank and instants rank above both, so `$gte` matches every row and
+  `$lt` matches none. A range filter that forgets the wrapper returns a
+  wrong answer, not an empty one.
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
@@ -137,13 +148,16 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 **Where `<chatObjectId>` comes from:** register the space's chat as a
 bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
-with `{"id":"general-chat/v1","name":"General","rootTypes":["chat"]}`. The call is adopt-or-install, so every client
-lands on one object instead of each creating its own. Re-read after a
-sync (the winner is provisional) and poll through
-`409 bundle.not_ready` rather than creating a chat to fill the gap.
-Additional purpose-specific chats get their own bundle id. Full
-guidance: `16-chat.md` § Finding the chat object, `03-api.md`
-§ Bundles.
+with
+`{"id":"general-chat/v1","name":"General","rootTypes":["chat"],"derived":true}`.
+The call is adopt-or-install, so every client lands on one object
+instead of each creating its own, and `derived` makes that object's id
+a function of the bundle id — computed offline, identical on every
+device and member, so the chat cannot fork even when two sides install
+while apart (the 1-1 case, where neither participant is the owner). The
+trade is permanence: a derived root can never be deleted. Additional
+purpose-specific chats get their own bundle id. Full guidance:
+`16-chat.md` § Finding the chat object, `03-api.md` § Bundles.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -570,7 +584,40 @@ Full contract — payload shape, key derivations, heart compatibility,
 the security bound on a leaked `encKey` — in `20-push.md`
 (§ Receiver-side keys).
 
-## 12. Saved views: ensure one, patch by path, one window per visible group
+## 12. Account-level data: bundles on the tech space
+
+Anything private to the account, synced across its devices and spanning
+spaces, is a bundle on the **tech space** (`techSpaceId` from
+`GET /v1/account`). The startup contract:
+
+1. **Read, don't ensure.** `GET /v1/spaces/<tech>/bundles` is LOCKED on
+   registry convergence and replies with `synced`: when true, an absent
+   bundle is definitively not installed; when false (cold offline
+   device), treat absence as provisional and re-read after sync. Adopt
+   by taking `rootId` off the row; subscribe to the raw `bundles`
+   dataset for live updates.
+2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
+   "datasets": [...]}` — a CREATED root minted by the server, deletable
+   (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
+   call installs, later calls adopt. Do NOT reach for `"derived": true`
+   because a converged id sounds convenient — bundles exist precisely so
+   a converged install does not need a derived object. Derive only when
+   a fork would be UNMERGEABLE (chat-like content; the 1-1 general chat
+   is the canonical case), and accept the price: permanent,
+   uninstallable.
+3. **On a fork** (two devices installed while apart): the registry
+   converges on one winner, the other lands in `losers`. Merge the
+   loser's records into the winner through your own schema, then
+   `POST …/bundles/:id/resolve` with the loser root id.
+
+Dataset names are unique per space: part of the bundle's versioned
+vocabulary, chosen once — `favorites/v1` owns `entries` the way it owns
+its id (guide: `25-favorites.md`), and a future bundle picks names that
+don't collide. Tree edge cases — an entry whose folder is removed, a
+move that forms a cycle across devices — are read-side product rules:
+compute the same view from the same records everywhere, never repair
+with writes.
+## 13. Saved views: ensure one, patch by path, one window per visible group
 
 Saved views (`24-data-views.md`) are the first place a client both
 *writes* shared configuration and *reads* it back on every render, so

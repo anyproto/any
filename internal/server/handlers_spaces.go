@@ -63,11 +63,16 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/invite/accept", d.spaceInviteAccept)
 	g.POST("/spaces/:spaceId/invite/decline", d.spaceInviteDecline)
 
+	// The tech space is served only by the routes on
+	// techAllowedRoutes; everything else with its :spaceId answers
+	// 405 space.unsupported via techSpaceRouteGuard (techspace.go).
+
 	// Object lifecycle + data plane.
 	g.POST("/spaces/:spaceId/objects", d.objectCreate)
 	g.POST("/spaces/:spaceId/objects/query", d.spaceQueryObjects)
 	g.POST("/spaces/:spaceId/objects/query/subscribe", d.spaceQueryObjectsSubscribe)
 	g.POST("/spaces/:spaceId/objects/aggregate", d.spaceAggregateObjects)
+	g.GET("/spaces/:spaceId/objects/:objectId", d.objectGet)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
 	// Reverse reference lookup over links-format property values —
 	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
@@ -631,6 +636,13 @@ func oneToOneError(c echo.Context, err error, field string) error {
 func spaceError(c echo.Context, err error, spaceID string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	}
+	var udet map[string]any
+	if spaceID != "" {
+		udet = map[string]any{"spaceId": spaceID}
+	}
+	if resp, done := unsupportedError(c, err, udet); done {
+		return resp
 	}
 	if errors.Is(err, space.ErrSpaceUnknown) {
 		var details map[string]any

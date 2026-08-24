@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -25,11 +27,13 @@ import (
 // eagerly-loaded spaceIndex on every device. Bounds keep one client
 // from bloating that object for everyone.
 const (
-	maxBundleIdBytes    = 256
-	maxBundleNameBytes  = 1024
-	maxBundleSeedBytes  = 256
-	maxBundleTypes      = 32
-	maxBundlePropsBytes = 64 * 1024
+	maxBundleIdBytes       = 256
+	maxBundleNameBytes     = 1024
+	maxBundleSeedBytes     = 256
+	maxBundleTypes         = 32
+	maxBundleDatasets      = 32
+	maxBundleDatasetsBytes = 64 * 1024
+	maxBundlePropsBytes    = 64 * 1024
 )
 
 // bundleCreateTimeout bounds the detached create-and-register section.
@@ -59,14 +63,16 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 
 // bundleEnsure handles POST /v1/spaces/:spaceId/bundles — adopt or
 // install. With a winner already registered the call is a local read
-// and writes nothing (`installed: false`); otherwise the server
-// creates the non-derived root with the requested types/properties and
-// registers it in one change.
+// and writes nothing (`installed: false`); otherwise the server mints
+// the root with the requested types/properties and registers it.
 //
-// Offline-capable: nothing here waits on the network. Two devices
-// ensuring while apart each register a root, the registry converges on
-// one winner, and the other surfaces in `losers` — so treat `rootId`
-// as provisional until the space has synced, and re-read after.
+// Two root strategies. A CREATED root (the default) gets a fresh id,
+// so two devices installing while apart each register one, the
+// registry converges on a winner and the other surfaces in `losers` —
+// treat `rootId` as provisional until the space has synced. A DERIVED
+// root (`"derived": true`) is computed from the bundle id, so every
+// device lands on the same one: no fork, no convergence wait, no
+// refusal — at the price of never being uninstallable.
 //
 //	@Summary	Install or adopt a bundle
 //	@Tags		bundles
@@ -97,6 +103,21 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	inst, errResp, done := bundleInstallFromBody(c, root)
 	if done {
 		return errResp
+	}
+
+	// The tech-space rules fail fast, BEFORE the space resolve and the
+	// registry-convergence wait the resolver runs: derived-only,
+	// datasets required, no root types or properties (the SDK enforces
+	// the same; this spares an invalid request the wait).
+	if d.isTechSpace(c.Param("spaceId")) {
+		switch {
+		case len(inst.Datasets) == 0:
+			return writeError(c, http.StatusBadRequest, "request.missing_field",
+				"tech-space bundles must declare datasets", nil)
+		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
+		}
 	}
 
 	sp, errResp, done := d.resolveSpace(c)
@@ -146,6 +167,35 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 	if v := root.Get("rootProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema",
 			`rootProperties must be an object keyed by type id, e.g. {"any": {"description": "…"}}`, nil), true
+	}
+	if v := root.Get("derived"); v != nil && v.Type() != fastjson.TypeNull &&
+		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "derived must be a boolean", nil), true
+	}
+	inst.Derived = root.GetBool("derived")
+	if v := root.Get("datasets"); v != nil && v.Type() != fastjson.TypeNull {
+		if v.Type() != fastjson.TypeArray {
+			return inst, writeError(c, http.StatusBadRequest, "request.schema",
+				"datasets must be an array of dataset drafts", nil), true
+		}
+		buf := v.MarshalTo(nil)
+		if len(buf) > maxBundleDatasetsBytes {
+			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"datasets too large", map[string]any{"max_bytes": maxBundleDatasetsBytes}), true
+		}
+		drafts, errResp, done := bundleDatasetsFromBody(c, buf)
+		if done {
+			return inst, errResp, true
+		}
+		inst.Datasets = drafts
+	}
+	// A created datasets-carrying root is minted and self-typed by the
+	// SDK; rootTypes/rootProperties have no carrier there and must not
+	// be silently dropped.
+	if len(inst.Datasets) > 0 && !inst.Derived &&
+		(len(root.GetArray("rootTypes")) > 0 || root.Get("rootProperties") != nil) {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"rootTypes/rootProperties are not available on a created root with datasets — the server mints and self-types it (use derived: true to combine them)", nil), true
 	}
 
 	inst.Id = string(root.GetStringBytes("id"))
@@ -201,6 +251,45 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 	return inst, nil, false
 }
 
+// bundleDatasetsFromBody decodes the `datasets` drafts with the same
+// strict decoder and converter POST …/types/:typeId/datasets uses, and
+// applies the search indexer's reserved-name rule. Name conflicts with
+// what the space already hosts are the SDK's verdict (400 via
+// ErrBundleBadRequest) — on adopt the names legitimately exist.
+func bundleDatasetsFromBody(c echo.Context, body []byte) ([]space.DatasetDraft, error, bool) {
+	var reqs []api.DatasetDraftRequest
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&reqs); err != nil {
+		// Same envelope as the strict binder on the types route.
+		return nil, strictDecodeFailed(c, err, reflect.TypeFor[api.DatasetDraftRequest](),
+			"datasets", "datasets: ", bindErrorMessage[[]api.DatasetDraftRequest]), true
+	}
+	if len(reqs) > maxBundleDatasets {
+		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"too many datasets", map[string]any{"max": maxBundleDatasets}), true
+	}
+	out := make([]space.DatasetDraft, 0, len(reqs))
+	for i := range reqs {
+		if reqs[i].Name == "" {
+			return nil, writeError(c, http.StatusBadRequest, "request.missing_field",
+				fmt.Sprintf("datasets[%d].name required", i), nil), true
+		}
+		if reservedIndexDatasetName(reqs[i].Name) {
+			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"dataset name is reserved by the search indexer",
+				map[string]any{"name": reqs[i].Name}), true
+		}
+		draft, code, reason := datasetDraftFromAPI(reqs[i])
+		if code != "" {
+			return nil, writeError(c, http.StatusBadRequest, code,
+				fmt.Sprintf("datasets[%d]: %s", i, reason), nil), true
+		}
+		out = append(out, draft)
+	}
+	return out, nil, false
+}
+
 // checkBundleRoot pre-flights everything that would otherwise fail
 // silently or too late: a type id the space does not know (the create
 // path drops the attachment and reports success), and property values
@@ -251,11 +340,15 @@ func (d *deps) bundleList(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	// The read-side lock: answer from a converged registry so absence
+	// is definitive; when the wait expires (cold offline device) the
+	// reply says so instead of lying.
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	rows, err := d.bundleResolver().List(c.Request().Context(), sp)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), "")
 	}
-	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows))}
+	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows)), Synced: synced}
 	for _, b := range rows {
 		out.Bundles = append(out.Bundles, bundleToAPI(b))
 	}
@@ -270,7 +363,7 @@ func (d *deps) bundleList(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		bundleId	path		string	true	"Bundle ID, percent-encoded (general-chat%2Fv1)"
-//	@Success	200			{object}	api.Bundle
+//	@Success	200			{object}	api.BundleGetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
@@ -284,11 +377,12 @@ func (d *deps) bundleGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	b, err := d.bundleResolver().Get(c.Request().Context(), sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	return c.JSON(http.StatusOK, bundleToAPI(b))
+	return c.JSON(http.StatusOK, api.BundleGetResponse{Bundle: bundleToAPI(b), Synced: synced})
 }
 
 // bundleResolve handles POST /v1/spaces/:spaceId/bundles/:bundleId/resolve
@@ -396,7 +490,7 @@ func (d *deps) bundleChild(c echo.Context) error {
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	objectId, err := bundles.Child(ctx, sp, b.RootId, req.Seed, req.Types...)
+	objectId, err := bundles.Child(ctx, sp, b, req.Seed, req.Types...)
 	if err != nil {
 		// A child is built on its parent's tree, so a missing parent
 		// means the winner has not reached this device yet — the same
@@ -426,11 +520,12 @@ func bundleIdParam(c echo.Context) (string, error, bool) {
 
 func bundleToAPI(b space.Bundle) api.Bundle {
 	return api.Bundle{
-		Id:     b.Id,
-		Name:   b.Name,
-		RootId: b.RootId,
-		Roots:  b.Roots,
-		Losers: b.Losers,
+		Id:      b.Id,
+		Name:    b.Name,
+		RootId:  b.RootId,
+		Roots:   b.Roots,
+		Losers:  b.Losers,
+		Derived: b.Derived,
 	}
 }
 
@@ -451,6 +546,12 @@ func bundleError(c echo.Context, err error, spaceId, bundleId string) error {
 	case errors.Is(err, bundles.ErrRegistryNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the space's bundles registry has not synced to this device yet; retry", details)
+	case errors.Is(err, space.ErrDatasetNameUnsettled):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"a requested dataset name is held by a root no registry row references yet; retry after sync", details)
+	case errors.Is(err, space.ErrBundleRootNotSynced):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"the bundle root has not synced to this device yet; retry", details)
 	case errors.Is(err, bundles.ErrLoserNotReady), errors.Is(err, space.ErrLoserNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleLoserNotReady,
 			"the losing root is still syncing; retry once it has settled", details)

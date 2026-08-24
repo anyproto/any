@@ -71,11 +71,13 @@ type schemaCatalog struct {
 }
 
 // schemaDataset is one resolved runtime dataset with a search mapping.
+// textFields holds the mapped text keys in declaration order (the
+// `text` leaf is a bare field key or an array of keys).
 type schemaDataset struct {
 	name       string
 	typeId     string
 	titleField string
-	textField  string
+	textFields []string
 	scope      string
 }
 
@@ -124,15 +126,20 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 		}
 		var doc struct {
 			Search struct {
-				Title string `json:"title"`
-				Text  string `json:"text"`
-				Scope string `json:"scope"`
+				Title string          `json:"title"`
+				Text  json.RawMessage `json:"text"`
+				Scope string          `json:"scope"`
 			} `json:"x-search"`
 		}
-		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil ||
-			(doc.Search.Title == "" && doc.Search.Text == "") {
-			// Malformed schema doc or no search annotation — not indexed,
-			// evicted unconditionally.
+		if err := json.Unmarshal(ds.JSONSchema, &doc); err != nil {
+			// Malformed schema doc — not indexed, evicted unconditionally.
+			unsearchable = append(unsearchable, ds.Name)
+			continue
+		}
+		textFields, ok := parseSearchTextFields(doc.Search.Text)
+		if !ok || (doc.Search.Title == "" && len(textFields) == 0) {
+			// Malformed text mapping or no search annotation — same
+			// stance as a malformed doc.
 			unsearchable = append(unsearchable, ds.Name)
 			continue
 		}
@@ -149,11 +156,40 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 			name:       ds.Name,
 			typeId:     ds.TypeId,
 			titleField: doc.Search.Title,
-			textField:  doc.Search.Text,
+			textFields: textFields,
 			scope:      scope,
 		})
 	}
 	return searchable, unsearchable
+}
+
+// parseSearchTextFields decodes the discovery doc's `x-search.text`
+// wire forms: absent/empty-string → no text mapping, a bare string →
+// one key, an array of strings → the keys in order. Anything else
+// (wrong JSON type, non-string elements) reports !ok — the dataset is
+// treated like a malformed doc. Empty keys inside a valid array cannot
+// appear in a validated declaration and are dropped defensively.
+func parseSearchTextFields(raw json.RawMessage) (fields []string, ok bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if s == "" {
+			return nil, true
+		}
+		return []string{s}, true
+	}
+	var keys []string
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil, false
+	}
+	for _, k := range keys {
+		if k != "" {
+			fields = append(fields, k)
+		}
+	}
+	return fields, true
 }
 
 // trackRetired diffs the current runtime name set against everything
@@ -210,7 +246,8 @@ func (c *SchemaChunker) EvictDatasets(ctx context.Context, sp space.Space, attac
 
 // ChunksSince streams the object's runtime-dataset entries past the
 // cursor: per active dataset (owning type attached), every record with
-// ApplySeq > since maps x-search.title → Title and title+text → Data.
+// ApplySeq > since maps x-search.title → Title and title + the joined
+// text fields → Data.
 // Tombstones and records whose mapped fields render empty yield removal
 // entries (Data == ""). Datasets the worker just evicted (type not
 // attached) are never streamed in the same page.
@@ -253,7 +290,7 @@ func (c *SchemaChunker) ChunksSince(ctx context.Context, sp space.Space, objectI
 			}
 			if !IsDeleted(rec) {
 				title := renderSearchValue(fieldValue(rec, ds.titleField))
-				text := renderSearchValue(fieldValue(rec, ds.textField))
+				text := renderTextFields(rec, ds.textFields)
 				e.Title = title
 				e.Data = joinTitleText(title, text)
 			}
@@ -326,6 +363,20 @@ func renderSearchValue(v *anyenc.Value) string {
 		return strings.Join(parts, "\n")
 	}
 	return ""
+}
+
+// renderTextFields renders each mapped text field and joins the
+// non-empty values with a blank line in mapping order — one body per
+// record. A missing/empty field contributes nothing, same as an empty
+// single-field `text`.
+func renderTextFields(rec *anyenc.Value, fields []string) string {
+	var parts []string
+	for _, f := range fields {
+		if v := renderSearchValue(fieldValue(rec, f)); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // joinTitleText builds Data so Title's terms also appear in it (the

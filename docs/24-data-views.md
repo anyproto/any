@@ -464,7 +464,7 @@ resolves across all three tiers.
 
 ## Related
 
-- `08-clients.md` § 12 — the client call patterns: ensure, autosave
+- `08-clients.md` § 13 — the client call patterns: ensure, autosave
   debounce, live-surface budget, migration off per-device storage
 - `03-api.md` § Types → Built-in `data_view` type, § Properties
 - `09-query.md` — the filter/sort grammar a view's `query` embeds

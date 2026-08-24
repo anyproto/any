@@ -33,6 +33,14 @@ import (
 //	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets [get]
+//
+// reservedIndexDatasetName reports whether name collides with the
+// search indexer's virtual chunker doc-id namespaces — reserved on
+// every dataset-declaration path (types route and bundle ensure).
+func reservedIndexDatasetName(name string) bool {
+	return name == index.DatasetProp || name == index.DatasetSchemaVirtual
+}
+
 func (d *deps) typeDatasets(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -95,7 +103,7 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	// The index store keys documents objectId:<dataset>:<recordId>
 	// under the search indexer's virtual chunker names — a user dataset
 	// claiming one would collide with their doc-id namespaces.
-	if req.Name == index.DatasetProp || req.Name == index.DatasetSchemaVirtual {
+	if reservedIndexDatasetName(req.Name) {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"dataset name is reserved by the search indexer",
 			map[string]any{"name": req.Name})
@@ -166,7 +174,8 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 }
 
 // datasetDefMutablePaths are the wire (== storage) paths PATCH accepts;
-// every mutable leaf is a plain string. Everything else on a dataset
+// every mutable leaf is a plain string except search.text, which is
+// string-or-array (parseSearchTextLeaf). Everything else on a dataset
 // definition is pinned — remove and re-add to change it. The wire
 // `name` (the collection name) is NOT here: it lives under the pinned
 // storage field `collection`, and the head record's storage `name`
@@ -226,6 +235,14 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, "dataset.immutable",
 				datasetDefMutableHint, map[string]any{"path": path})
 		}
+		if path == "search.text" {
+			val, code, reason := parseSearchTextLeaf(raw)
+			if code != "" {
+				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+			}
+			patch.Set[path] = val
+			continue
+		}
 		var val string
 		if err := json.Unmarshal(raw, &val); err != nil {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -257,6 +274,41 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// parseSearchTextLeaf parses PATCH's `search.text` value — the one
+// string-or-array leaf. A bare string passes verbatim; an
+// array must name at least one field key, none empty, no duplicates,
+// and a single-element array canonicalizes to the bare string so the
+// stored leaf keeps the scalar shape wherever possible. Returns
+// ("", "") code/reason on success.
+func parseSearchTextLeaf(raw json.RawMessage) (val any, code, reason string) {
+	var text api.SearchText
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return nil, "request.invalid_field", "search.text must be a string or an array of field keys"
+	}
+	if text == nil {
+		// An empty string decodes to nil — stored verbatim as the
+		// explicit clear the single-field form always allowed.
+		return "", "", ""
+	}
+	if len(text) == 0 {
+		return nil, "request.invalid_field", "search.text array must name at least one field key"
+	}
+	seen := make(map[string]struct{}, len(text))
+	for _, k := range text {
+		if k == "" {
+			return nil, "request.invalid_field", "search.text has an empty field key"
+		}
+		if _, dup := seen[k]; dup {
+			return nil, "request.invalid_field", "search.text names a field key twice"
+		}
+		seen[k] = struct{}{}
+	}
+	if len(text) == 1 {
+		return text[0], "", ""
+	}
+	return []string(text), "", ""
 }
 
 // typeRemoveDataset handles DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId.
@@ -473,6 +525,12 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 	case errors.Is(err, space.ErrTypeRegistered):
 		return writeError(c, http.StatusBadRequest, "type.registered",
 			"type is a registered built-in; its datasets are statically declared", details)
+	case errors.Is(err, space.ErrInvalidFieldValue):
+		// A mutable path carrying a malformed value (e.g. a bad
+		// search.text form the local pre-validation didn't cover) —
+		// same code the handler's own leaf checks use.
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			sanitizeSDKMessage(err), details)
 	case errors.Is(err, space.ErrPinnedField):
 		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
 	case errors.Is(err, space.ErrNotFound):
@@ -547,7 +605,7 @@ func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, strin
 		if req.Search.Scope != "" && !index.ValidScope(req.Search.Scope) {
 			return draft, "request.invalid_field", "search.scope must be a slug (lowercase letters, digits, _ or -; max 64)"
 		}
-		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: req.Search.Text, Scope: req.Search.Scope}
+		draft.Search = &space.SearchFields{Title: req.Search.Title, Text: []string(req.Search.Text), Scope: req.Search.Scope}
 	}
 	for _, f := range req.Fields {
 		fd, code, reason := datasetFieldDraftFromAPI(f)
@@ -641,7 +699,7 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 		InvalidReason: def.InvalidReason,
 	}
 	if def.Search != nil {
-		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: def.Search.Text, Scope: def.Search.Scope}
+		out.Search = &api.DatasetSearchFields{Title: def.Search.Title, Text: api.SearchText(def.Search.Text), Scope: def.Search.Scope}
 	}
 	for _, f := range def.Fields {
 		scope := f.Scope
