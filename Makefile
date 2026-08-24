@@ -26,7 +26,7 @@ INDEX_TAGS := fts vector
 # dependency — yzma tracks llama.cpp releases.
 LLAMACPP_VERSION := b9590
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
@@ -71,3 +71,10 @@ any:
 	scripts/build-any.sh $${PLATFORM:-host} dist
 
 include makefiles/android.mk
+
+## Docs website: website/*.md -> website/dist (static, deploy as-is)
+docs:
+	go run ./cmd/anydocs -src website -out website/dist
+
+docs-serve: docs
+	@echo "http://127.0.0.1:8088/"; cd website/dist && python3 -m http.server 8088

@@ -1,0 +1,77 @@
+---
+title: Search
+description: A local BM25 + vector search index over every space, built from the change feed and queried through one endpoint.
+order: 0
+---
+# Search
+
+Every `any` server keeps a local search index — BM25 full-text plus semantic vectors — over the chats, documents, property values and runtime-dataset records of every space it holds. One endpoint, `POST /v1/spaces/:spaceId/search`, queries it in three modes; nothing leaves the machine.
+
+## The shape of it
+
+```
+   space change feed            index.db (per space)             /search
+ ┌──────────────────┐   chunkers   ┌───────────────────┐  fts    ┌──────────┐
+ │ chat_messages    │ ───────────▶ │ doc: objectId:    │ ──────▶ │          │
+ │ editor_blocks    │  text only   │      dataset:     │         │  hybrid  │
+ │ objects (props)  │              │      recordId     │  vector │  (RRF)   │
+ │ runtime datasets │              │ data, scope, hash │ ──────▶ │          │
+ └──────────────────┘              │ vector?, pending? │         └──────────┘
+                                   └───────────────────┘
+```
+
+- **Indexing** is a background consumer of each space's change feed. It never blocks writes and never touches the CRDT — the index is derived state that can be deleted and rebuilt.
+- **Full-text** search is always available, with no external dependency. New writes are searchable within about a 250 ms debounce.
+- **Vector** search activates when an embedder is configured. The default runs an embedding model in-process (llama.cpp, auto-downloaded); an unreachable embedder only pauses the vector side — full-text keeps working.
+- **Hybrid** is the default query mode: both legs fused by reciprocal rank, degrading to full-text on its own when the embedder cannot help. The reply says which mode actually ran.
+
+> **Why it matters.** Search over an encrypted, local-first database has to run where the plaintext is — on the device. There is no server-side index to leak, no query log anywhere else, and the same index works offline.
+
+## A first query
+
+```bash
+curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
+  -H 'content-type: application/json' \
+  -d '{"query": "zeppelin disaster", "limit": 5}'
+```
+
+```bash
+any search $SPACE "zeppelin disaster" --limit 5
+```
+
+```json
+{
+  "hits": [
+    { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
+      "recordId": "…", "data": "the zeppelin disaster of 1937",
+      "score": 0.0328 }
+  ],
+  "mode": "hybrid",
+  "vectorStatus": "used"
+}
+```
+
+Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row.
+
+## What is indexed
+
+| Content | Dataset in hits | Scope | Unit |
+|---|---|---|---|
+| Chat messages | `chat_messages` | `chat` | one message (text only) |
+| Editor documents | `editor_blocks` | `basic` | a ~1.5 KB window of consecutive blocks |
+| Object name / description | `prop` | `basic` | one entry per built-in |
+| User property values | `prop` | `props` (full-text only) | `"<prop name>: <value>"` |
+| Runtime-dataset records | the dataset's own name | `basic` (or the declared scope) | one record, by its `x-search` mapping |
+
+Programs, miniapps and file bytes are never indexed.
+
+## Reading further
+
+<div class="cards">
+<a href="full-text.html"><strong>Full-text search</strong><span>BM25, phrases, prefixes, require/exclude, stop words</span></a>
+<a href="vector.html"><strong>Vector search</strong><span>Semantic recall, the ANN index, similarity scores</span></a>
+<a href="hybrid.html"><strong>Hybrid ranking</strong><span>Reciprocal-rank fusion, vectorStatus, weighting knobs</span></a>
+<a href="indexing.html"><strong>How indexing works</strong><span>Chunkers, scopes, gating, removal, freshness</span></a>
+<a href="embedders.html"><strong>Embedders</strong><span>local, ollama, openai, auto, none — and outage semantics</span></a>
+<a href="evaluation.html"><strong>Evaluation</strong><span>What was measured and why the defaults are what they are</span></a>
+</div>
