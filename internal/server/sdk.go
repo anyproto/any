@@ -15,6 +15,7 @@ import (
 
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/dataview"
 	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
@@ -113,8 +114,9 @@ func serverTypes() []handler.Type {
 		chat.NewType(),
 		program.NewType(),
 		miniapp.NewType(),
-		nav.NewType(),  // property-only: no dataset, just nav.* schema
-		page.NewType(), // marker-only: the shared "this object is a document" type
+		dataview.NewType(), // data_views: one saved view per record, on any host object
+		nav.NewType(),      // property-only: no dataset, just nav.* schema
+		page.NewType(),     // marker-only: the shared "this object is a document" type
 	}
 }
 
@@ -141,9 +143,10 @@ func staticDatasetNames() []string {
 // under "props", meta.index overriding — see internal/index/prop.go).
 // Deliberately NOT indexed: program SOURCE and its docstrings (code, not
 // knowledge — anybao ADR-010 §5; discovery is help()/describe() in the
-// guest) and miniapp content — neither has a chunker. Agent and
-// enrichment data are harness-declared runtime datasets, indexed via
-// the schema chunker under their declared search scope.
+// guest), miniapp content, and saved views (`data_views` — navigation
+// chrome, not knowledge) — none has a chunker. Agent and enrichment
+// data are harness-declared runtime datasets, indexed via the schema
+// chunker under their declared search scope.
 func NewIndexRegistry() *index.Registry {
 	return index.NewRegistry(
 		editor.NewChunker(),

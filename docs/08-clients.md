@@ -617,6 +617,109 @@ don't collide. Tree edge cases — an entry whose folder is removed, a
 move that forms a cycle across devices — are read-side product rules:
 compute the same view from the same records everywhere, never repair
 with writes.
+## 13. Saved views: ensure one, patch by path, one window per visible group
+
+Saved views (`24-data-views.md`) are the first place a client both
+*writes* shared configuration and *reads* it back on every render, so
+the call patterns matter more than the record shape.
+
+- **Bind the type once, at create where you can.** A new host object
+  takes `{"types": ["data_view"]}` on `POST …/objects`; an existing one
+  needs `POST …/properties/:objectId/attach/data_view`. Attach is
+  idempotent, so calling it on every open is *correct but wasteful* —
+  it is a DAG write. Attach when you first add a view, not when you
+  open the object.
+
+- **Ensure the default view, never create-on-open.** Upsert a fixed
+  record id (`default`) so two devices opening the same object converge
+  on one view instead of minting two. **Then read `rejections`.** A
+  deleted id is burned forever, and re-upserting it returns `200` with a
+  rejection and creates nothing — a client that checks only the status
+  code renders an empty view list with no error. On a rejection, fall
+  through to the next id in a deterministic sequence (`default-2`,
+  `default-3`, …); walking the same sequence everywhere is what keeps
+  devices converging on the same replacement.
+
+- **Never offer to delete the last view.** "At least one view always
+  exists" cannot be enforced server-side — the delete gate is
+  per-record, not per-collection — so it is your rule. It also protects
+  users from burning the well-known id.
+
+- **Patch by path; a root `$set` merges, it does not replace.**
+  `{"type": "$set", "path": "layoutSettings.order", "value": [...]}`
+  touches one path and bumps `modifiedAt`; a root `$set` of the whole
+  record merges its keys and leaves `creator`, `createdAt` and your
+  `localSettings` intact. Per-path writes still concurrent-merge better:
+  two members retuning different parts of a view both keep their edit.
+
+- **Autosave: debounce the synced half, and put churn in the local
+  half.** Dragging a column boundary emits a write per frame if you let
+  it. Column widths belong in `localSettings` (`"scope": "local"` —
+  explicit record id, no upsert, no DAG change, invisible to other
+  members); genuine shared intent — renames, filter changes, column
+  visibility and order — goes to the synced fields, debounced. Render
+  the merge of `layoutSettings` and `localSettings`, local winning per
+  key.
+
+- **One subscription for the view list, not one per view.** The view
+  list is a single `…/query/subscribe` window on `dataset:
+  "data_views"` sorted by `pos` — §10's budget applies unchanged. The
+  *contents* of the active view are a second window; inactive views cost
+  nothing.
+
+- **Save the query keyed by `propId`, and scope it by type.** `xKey`
+  paths never reach the server, so a saved view keyed by xKey resolves
+  for nobody; propIds also survive a property rename. And a saved filter
+  must carry `{"any.types": "<typeId>"}` — `objects` holds every object
+  in the space and the negation operators match field-absent rows, so an
+  unscoped "status is not done" returns type definitions and bundle
+  roots along with the rows you wanted.
+
+- **Grouping is preflight-then-fan-out, one window per VISIBLE group.**
+  There is no grouped query. On opening a view with a `groupBy`, run a
+  preflight `/objects/aggregate` for the property's distinct values with
+  counts; that answer decides whether the field is groupable at all (more
+  distinct values than your column budget — a few dozen, well under
+  `groupLimit` — or a `400 aggregate.limit_exceeded` means no, fall back
+  to the ungrouped list without dropping the `groupBy`). Take columns
+  from the property's option catalog in its `pos` order so empty options
+  still get a column and columns don't reshuffle by count, then read each
+  group through its own plain windowed query. Collapsed and off-screen
+  groups get no window.
+
+  `/aggregate` is snapshot-only, so nothing about grouping updates
+  itself. Split it: the **column set streams** — subscribe to the
+  `properties` dataset on the type object and a new or renamed option
+  arrives live, no polling — while **counts and dangling keys** need the
+  preflight re-run on a coalesced timer (tens of seconds) while the view
+  is *visible*, plus immediately whenever the filter, the `groupBy` or
+  the catalog changes. Stop the timer when the view is hidden.
+
+  Two shapes bite here. A **multiselect** needs `$unwind` before
+  `$group`, or you group by the whole array and get one column per
+  distinct *combination*; counts then legitimately sum to more than the
+  object count. And the **"no value" group** arrives as `id: null` for a
+  single-value property but is *absent* for a multiselect (`$unwind`
+  drops docs missing the field), so count it separately with
+  `{"$exists": false}` — type-scoped, since that operator matches
+  everything without the field.
+
+- **Reconcile broken rules client-side.** `query` and `layoutSettings`
+  are opaque to the server precisely so a rule naming a deleted property
+  fails *soft*: you keep the view editable and mark the rule invalid,
+  rather than the server rejecting the write. Options are
+  dangling-tolerant the same way — a value can reference an option key
+  that no longer exists in the catalog.
+
+- **Timestamps are instants.** `createdAt` / `modifiedAt` read as
+  `{"$date": "<RFC 3339>"}`; a numeric decode target silently yields
+  zero, and a filter literal needs the same shape.
+
+Migrating from per-device storage (any-ui's `localMeta:table`): on first
+run with a view-capable server, ensure the default view, seed it from
+the local settings you already have, and treat the server as
+authoritative from then on — keeping the local copy as a fallback
+re-creates the divergence views exist to remove.
 
 ## See also
 
@@ -634,3 +737,5 @@ with writes.
   variants.
 - `20-push.md` — push notifications: sender model, payload wire shape,
   receiver-side key cache.
+- `24-data-views.md` — saved views: record shape, what stays opaque,
+  scope tiers, the grouping recipe in full.

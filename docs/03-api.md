@@ -2164,6 +2164,55 @@ definitions are frozen (no add/patch/remove — `400 type.registered`),
 so a built-in select/multiselect would carry a permanently empty,
 uneditable option set. Per-space columns remain a user-type concern.
 
+#### Built-in `data_view` type
+
+`data_view` is the built-in for **saved views** — a named, shareable way
+of looking at a set of objects. It attaches to a host object (including
+a **type object**, which is how "views on a type" works) and owns the
+`data_views` dataset, one record per view:
+
+```json
+{
+  "id": "default",
+  "name": "All", "icon": "📋", "pos": "a0", "layout": "table",
+  "query":          { "type": "plain", "filter": {…}, "sort": […], "groupBy": {…} },
+  "layoutSettings": { "visible": […], "order": […], "widths": {…} },
+  "localSettings":  { "widths": {…} },
+  "creator": "<identity>",
+  "createdAt": { "$date": "2026-08-20T17:06:40Z" },
+  "modifiedAt": { "$date": "2026-08-20T17:06:40Z" }
+}
+```
+
+`filter` and `sort` are the `/query` body shapes verbatim, so a view
+feeds straight into `…/objects/query[/subscribe]`. `query`,
+`layoutSettings` and `localSettings` are **opaque** — the server checks
+only that each is an object; clients own the vocabulary and decide what
+a rule naming a deleted property means.
+
+No bespoke endpoints: write through `POST /v1/spaces/:spaceId/modify`
+with `dataset: "data_views"`, read through `…/query[/subscribe]` sorted
+by `pos`. `name`, `pos` and `layout` are required on create; `creator` /
+`createdAt` / `modifiedAt` are server-stamped and reject client writes;
+every synced field is `mutableBy: any` and any writer may delete a view.
+
+Record ids are **client-supplied** (`idRule: user`) — ensure the default
+view with a fixed id plus `upsert`, never create-on-open, or two devices
+mint two "All" views. A deleted id is **burned permanently**: re-upserting
+it returns `200` with a `rejections` entry and creates nothing, so an
+ensure must inspect `rejections` and fall through to the next id in a
+deterministic sequence (`default`, `default-2`, …). See
+`24-data-views.md` § Ensuring the default view.
+
+`localSettings` is `scope: local` — this device's override of
+`layoutSettings`, written with `"scope": "local"` on `/modify` (explicit
+id, no upsert) and never synced. Column-drag autosave belongs there so
+it does not push a change to every member.
+
+Only the **shared** tier ships; account- and device-private views need
+scoped datasets (SYN-174). Full model, the client grouping recipe, and
+the tier roadmap: `24-data-views.md`.
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
@@ -2179,9 +2228,21 @@ a single scope-aware `/set/:typeId` → `PropertiesAPI.Set`: every propId in
 the patch must resolve to the SAME declared scope (the SDK rejects
 mixed-scope or unknown-key patches; scope is inferred from the props).
 
-Runtime type binding (`attach` / `detach`) is still `501
-sdk.not_implemented` — bind types at object-create time via the `types`
-array on `POST /v1/spaces/:spaceId/objects`. See `08-clients.md`
+Runtime type binding: `attach` adds a type to the object's `any.types`,
+admitting writes to that type's membership-gated datasets; `detach`
+removes it. Both take no body, return `ModifyResult`, and are idempotent
+(`$addToSet` / `$pull`). Bind at creation instead via the `types` array
+on `POST /v1/spaces/:spaceId/objects` when the object is new.
+
+`attach` pre-flights both ids — `404 object.not_found` for an unknown
+object, `404 type.not_found` for a type the space doesn't have — because
+`any.types` is a synced DAG write with no validation behind it, so a
+typo would replicate permanently. `detach` deliberately checks neither:
+it is the repair path for a row that already carries a bogus id.
+
+Detaching is **not** a delete: values in that namespace and records in
+the type's datasets stay as orphan data, read-tolerant by design, and
+re-attaching brings them back into view. See `08-clients.md`
 § "Preflight-validate writes against the bound types".
 
 ### Chat (built-in `chat` type)

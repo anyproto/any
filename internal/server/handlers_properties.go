@@ -125,3 +125,91 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
+
+// propertiesAttachType handles
+// POST /v1/spaces/:spaceId/properties/:objectId/attach/:typeId — binds a
+// type to an existing object's `any.types`, admitting writes to the
+// type's membership-gated datasets. Idempotent ($addToSet at the SDK
+// layer). The object must already exist — an unknown id is
+// `404 object.not_found`, not a silent create.
+//
+//	@Summary	Attach a type to an object
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Param		typeId		path		string	true	"Type ID"
+//	@Success	200			{object}	api.ModifyResult
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/attach/{typeId} [post]
+func (d *deps) propertiesAttachType(c echo.Context) error {
+	return d.propertiesTypeBinding(c, true)
+}
+
+// propertiesDetachType handles
+// POST /v1/spaces/:spaceId/properties/:objectId/detach/:typeId — removes
+// a type from `any.types`. Idempotent ($pull). Values in that
+// namespace and records in the type's datasets stay as orphan data,
+// read-tolerant by design; detaching is not a delete.
+//
+//	@Summary	Detach a type from an object
+//	@Tags		properties
+//	@Produce	json
+//	@Param		spaceId		path		string	true	"Space ID"
+//	@Param		objectId	path		string	true	"Object ID"
+//	@Param		typeId		path		string	true	"Type ID"
+//	@Success	200			{object}	api.ModifyResult
+//	@Failure	400			{object}	api.ErrorEnvelope
+//	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	500			{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/properties/{objectId}/detach/{typeId} [post]
+func (d *deps) propertiesDetachType(c echo.Context) error {
+	return d.propertiesTypeBinding(c, false)
+}
+
+// propertiesTypeBinding is the shared attach/detach body — the two
+// differ only in which SDK call they make.
+func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
+	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	if typeId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	}
+	if isSerializedNil(typeId) {
+		return serializedNilIdError(c, "typeId", typeId)
+	}
+
+	ctx := c.Request().Context()
+
+	// Attach pre-flights the type the way objectCreate and the bundles
+	// root check do: `any.types` is a synced DAG write with no
+	// validation behind it, so a typo would otherwise be permanent.
+	// Detach deliberately does NOT pre-flight — it is the repair path
+	// for a bogus id that is already attached.
+	if attach {
+		if _, err := sp.Types().Get(ctx, typeId); err != nil {
+			return writeError(c, http.StatusNotFound, "type.not_found",
+				"this space has no such type",
+				map[string]any{"typeId": typeId, "spaceId": sp.Id()})
+		}
+	}
+
+	bind := sp.Properties().DetachType
+	if attach {
+		bind = sp.Properties().AttachType
+	}
+	res, err := bind(ctx, objectId, typeId)
+	if err != nil {
+		return sdkOpError(c, err, map[string]any{
+			"spaceId":  sp.Id(),
+			"objectId": objectId,
+			"typeId":   typeId,
+		})
+	}
+	return c.JSON(http.StatusOK, modifyResultToAPI(res))
+}

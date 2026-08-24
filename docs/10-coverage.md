@@ -60,9 +60,10 @@ surface added.
 
 ## Notes
 
-- The `account`/`device` property scopes and `attach`/`detach`/type-delete/
-  type-prop-delete endpoints are server-side `501 sdk.not_implemented`
-  (`docs/07-roadmap.md`) — nothing to wrap.
+- The `account`/`device` property scopes and `Types.Delete` are
+  server-side `501 sdk.not_implemented` (`docs/07-roadmap.md`) —
+  nothing to wrap. `attach`/`detach` are live but host-side: the JS
+  client binds types at object create.
 - Chat-from-JS is wrapped (`sendChatMessage`). If atomic block editing or chat
   edit/delete/react becomes a real agent need, add thin wrappers (`blockCreate`
   etc.) following the dataset-helper pattern; they're a few lines each over
