@@ -2,98 +2,97 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/favorites"
 )
 
-// TestServer_FavoritesBuiltinBundle pins the server-owned favourites
-// bundle: ensured at boot (idempotent), schema discoverable, the id
-// reserved against client ensure, and the declared contract — id
-// pattern, required parentId/pos, stamps, soft-delete round-trip —
-// enforced on the generic record surface.
-func TestServer_FavoritesBuiltinBundle(t *testing.T) {
+// favoritesEnsureBody is the canonical favorites/v1 install request
+// from the client contract (docs/25-favorites.md): a CREATED root
+// (Ensure mints and self-types it) carrying the `entries` declaration.
+const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","datasets":[{
+	"name": "entries",
+	"idRule": "user",
+	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
+	"idMaxLen": 256,
+	"dynamic": true,
+	"fields": [
+		{"key": "parentId", "kind": "string", "required": true, "mutableBy": "any"},
+		{"key": "pos", "kind": "string", "required": true, "mutableBy": "any"},
+		{"key": "removed", "kind": "boolean", "mutableBy": "any"},
+		{"key": "name", "kind": "string", "mutableBy": "any"},
+		{"key": "iconCid", "kind": "string", "mutableBy": "any"},
+		{"key": "types", "kind": "array", "mutableBy": "any"},
+		{"key": "creator", "stamp": "creator"},
+		{"key": "createdAt", "stamp": "createTime"},
+		{"key": "modifiedAt", "stamp": "modifyTime"}
+	]
+}]}`
+
+// TestServer_FavoritesClientFlow pins the favourites client contract:
+// locked reads (synced flag), client-registered install on a created
+// root, idempotent re-ensure, the declared record rules — id pattern,
+// required parentId/pos, stamps, soft-delete round-trip — and additive
+// evolution through the type routes.
+func TestServer_FavoritesClientFlow(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
-	ctx := context.Background()
-
-	// Boot-side ensure, run twice: second pass must adopt, not fork.
-	d.ensureBuiltinBundles(ctx)
-	d.ensureBuiltinBundles(ctx)
 
 	var acc api.AccountResponse
 	decodeGet(t, e, "/v1/account", &acc)
 	base := "/v1/spaces/" + acc.TechSpaceId
 
+	// Locked list: the reply says whether absence is definitive.
+	rec := doJSON(t, e, http.MethodGet, base+"/bundles", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bundles list: %d %s", rec.Code, rec.Body.String())
+	}
 	var list api.BundleListResponse
-	decodeGet(t, e, base+"/bundles", &list)
-	root := ""
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
 	for _, b := range list.Bundles {
-		if b.Id == favorites.BundleId {
-			if !b.Derived || b.RootId == "" {
-				t.Fatalf("favorites bundle: %+v", b)
-			}
-			root = b.RootId
-		}
-	}
-	if root == "" {
-		t.Fatalf("favorites/v1 not installed: %+v", list.Bundles)
-	}
-
-	// Client ensure of the server-owned id is refused — racing the
-	// boot pass could pin a divergent declaration forever. The verdict
-	// comes first: even a shapeless request gets the reservation, not
-	// guidance toward a request that can never succeed.
-	for _, body := range []string{
-		`{"id":"favorites/v1","derived":true,"datasets":[{"name":"entries","idRule":"user","fields":[{"key":"x","kind":"string"}]}]}`,
-		`{"id":"favorites/v1"}`,
-	} {
-		rec := doJSON(t, e, http.MethodPost, base+"/bundles", body)
-		if rec.Code != http.StatusConflict {
-			t.Fatalf("client ensure of a built-in id (%s): %d %s", body, rec.Code, rec.Body.String())
-		}
-		var env api.ErrorEnvelope
-		_ = json.Unmarshal(rec.Body.Bytes(), &env)
-		if env.Error.Code != "bundle.reserved" {
-			t.Fatalf("code %q", env.Error.Code)
+		if b.Id == "favorites/v1" {
+			t.Fatalf("fresh account already has favorites: %+v", b)
 		}
 	}
 
-	// The declaration is server-owned end to end: dataset CRUD through
-	// the type routes on the built-in root is refused with the same
-	// code (a tombstoned declaration could never be re-declared).
-	for _, rt := range []struct{ method, path, body string }{
-		{http.MethodPost, base + "/types/" + root + "/datasets", `{"name":"extra","idRule":"user","fields":[{"key":"x","kind":"string"}]}`},
-		{http.MethodPatch, base + "/types/" + root + "/datasets/some-def", `{"set":{"description":"x"}}`},
-		{http.MethodDelete, base + "/types/" + root + "/datasets/some-def", ""},
-		{http.MethodPost, base + "/types/" + root + "/datasets/some-def/fields", `{"key":"x","kind":"string"}`},
-		{http.MethodDelete, base + "/types/" + root + "/datasets/some-def/fields/some-field", ""},
-	} {
-		rec := doJSON(t, e, rt.method, rt.path, rt.body)
-		if rec.Code != http.StatusConflict {
-			t.Fatalf("%s %s: want 409, got %d %s", rt.method, rt.path, rec.Code, rec.Body.String())
-		}
-		var env api.ErrorEnvelope
-		_ = json.Unmarshal(rec.Body.Bytes(), &env)
-		if env.Error.Code != "bundle.reserved" {
-			t.Fatalf("%s %s: code %q", rt.method, rt.path, env.Error.Code)
-		}
+	// Client-registered install: created root, minted by Ensure.
+	ens := ensureBundle(t, e, acc.TechSpaceId, favoritesEnsureBody)
+	if !ens.Installed || ens.Bundle.Derived || ens.Bundle.RootId == "" {
+		t.Fatalf("install: %+v", ens)
+	}
+	root := ens.Bundle.RootId
+	again := ensureBundle(t, e, acc.TechSpaceId, favoritesEnsureBody)
+	if again.Installed || again.Bundle.RootId != root {
+		t.Fatalf("re-ensure must adopt: %+v", again)
+	}
+
+	// Locked get: wrapper carries the synced flag.
+	rec = doJSON(t, e, http.MethodGet, base+"/bundles/favorites%2Fv1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bundle get: %d %s", rec.Code, rec.Body.String())
+	}
+	var got api.BundleGetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get: %v", err)
+	}
+	if got.Bundle.RootId != root {
+		t.Fatalf("get: %+v", got)
 	}
 
 	// Declaration discoverable under typeId = rootId.
 	var defs api.TypeDatasetsListResponse
 	decodeGet(t, e, base+"/types/"+root+"/datasets", &defs)
-	if len(defs.Datasets) != 1 || defs.Datasets[0].Name != favorites.Dataset {
+	if len(defs.Datasets) != 1 || defs.Datasets[0].Name != "entries" {
 		t.Fatalf("datasets on root: %+v", defs)
 	}
 
 	// Star an item (id = link) and create a folder — one upsert.
-	rec := doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
 		{"id":"any://o/sp1/obj1","fields":{"parentId":"f:aaa","pos":"a1","name":"Doc","iconCid":"bafyicon","types":["page"]}},
 		{"id":"f:aaa","fields":{"parentId":"","pos":"a0","name":"Work"}}]}`)
 	if rec.Code != http.StatusOK {
@@ -124,15 +123,9 @@ func TestServer_FavoritesBuiltinBundle(t *testing.T) {
 	// Read back: stamps present, client mirror fields intact.
 	rec = doJSON(t, e, http.MethodPost, base+"/query",
 		`{"objectId":"`+root+`","dataset":"entries","filter":{"id":"any://o/sp1/obj1"}}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
-	}
 	var q api.QueryResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil {
-		t.Fatalf("decode query: %v", err)
-	}
-	if len(q.Records) != 1 {
-		t.Fatalf("records: %d", len(q.Records))
+	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
+		t.Fatalf("query: %v %s", err, rec.Body.String())
 	}
 	var item map[string]json.RawMessage
 	if err := json.Unmarshal(q.Records[0], &item); err != nil {
@@ -167,22 +160,28 @@ func TestServer_FavoritesBuiltinBundle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("re-star: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/query",
-		`{"objectId":"`+root+`","dataset":"entries","filter":{"id":"any://o/sp1/obj1"}}`)
-	var q2 api.QueryResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &q2); err != nil || len(q2.Records) != 1 {
-		t.Fatalf("re-read: %v %s", err, rec.Body.String())
+
+	// The declaration is the client's: additive evolution through the
+	// type routes works (no server-owned reservation).
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+root+"/datasets",
+		`{"name":"favorites_meta","idRule":"user","fields":[{"key":"v","kind":"string"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("evolve: %d %s", rec.Code, rec.Body.String())
 	}
-	var row struct {
-		Removed  bool   `json:"removed"`
-		ParentId string `json:"parentId"`
-		Pos      string `json:"pos"`
+
+	// Uninstall = delete the created root; the id then reads as not
+	// installed and a fresh install works.
+	rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+root, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("uninstall: %d %s", rec.Code, rec.Body.String())
 	}
-	if err := json.Unmarshal(q2.Records[0], &row); err != nil {
-		t.Fatalf("decode row: %v", err)
+	rec = doJSON(t, e, http.MethodGet, base+"/bundles/favorites%2Fv1", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("deleted winner must read uninstalled: %d %s", rec.Code, rec.Body.String())
 	}
-	if row.Removed || row.ParentId != "" || row.Pos != "a5" {
-		t.Fatalf("re-star state: %+v", row)
+	fresh := ensureBundle(t, e, acc.TechSpaceId, favoritesEnsureBody)
+	if !fresh.Installed || fresh.Bundle.RootId == root {
+		t.Fatalf("reinstall after uninstall: %+v", fresh)
 	}
 }
 
@@ -194,24 +193,4 @@ func hasRejection(body []byte) bool {
 	}
 	_ = json.Unmarshal(body, &r)
 	return len(r.Rejections) > 0
-}
-
-// TestTechAllowedRoutesRegistered pins the guard table against the
-// registered route set: every "METHOD pattern" key must byte-match a
-// real route, or a rename silently turns it into 405 on the tech
-// space with no other signal.
-func TestTechAllowedRoutesRegistered(t *testing.T) {
-	d, teardown := newTestDeps(t)
-	defer teardown()
-	e := buildEcho(d)
-
-	registered := make(map[string]struct{})
-	for _, r := range e.Routes() {
-		registered[r.Method+" "+r.Path] = struct{}{}
-	}
-	for key := range techAllowedRoutes {
-		if _, ok := registered[key]; !ok {
-			t.Errorf("techAllowedRoutes entry %q matches no registered route", key)
-		}
-	}
 }

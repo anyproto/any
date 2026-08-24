@@ -234,10 +234,6 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	// well-known derived spaces this account already has
 	// (derivedsetup.go). Never creates a space; never blocks serving.
 	go d.bootstrapDerivedSetups(d.shutdownCtx)
-	// Declaration side: ensure the server-owned account-level bundles
-	// (favorites/v1) on the tech space — idempotent, offline-capable,
-	// never blocks serving (builtinbundles.go).
-	go d.ensureBuiltinBundles(d.shutdownCtx)
 	return eng, nil
 }
 

@@ -1,15 +1,17 @@
-# Favourites — the built-in account-level bundle
+# Favourites — the account-level bundle (client contract)
 
 Cross-space favourites: a tree of starred objects and folders, private
-to the account, synced across its devices, ordered. The server owns the
-declaration and ensures the bundle at boot; everything else — writes,
-reads, rendering, tree policy — is the client's, on the generic record
-surface. No favourites endpoints exist.
+to the account, synced across its devices, ordered. Favourites is a
+CLIENT-REGISTERED bundle — this document is the contract every client
+ships verbatim (the declaration below is canonical; identical requests
+converge). No favourites code exists on the server.
 
 ## Model
 
 One bundle, `favorites/v1`, on the **tech space** (`techSpaceId` from
-`GET /v1/account`). One dataset, `entries`: one record per entry, the
+`GET /v1/account`), installed on a CREATED root — deletable, forking
+on concurrent offline installs (see § Forks). One dataset, `entries`:
+one record per entry, the
 record id deterministic from what the entry IS —
 
 | entry | record id |
@@ -36,18 +38,56 @@ Fields (schema is discoverable: `GET /v1/spaces/<tech>/types/<rootId>/datasets`)
 Undeclared keys are permitted (`dynamic`) — a newer client's field is
 not dropped by an older peer.
 
-## Getting the root
+## Install and adopt
 
-The bundle is ensured at engine boot — never install it yourself
-(`POST …/bundles` with `favorites/v1` returns `409 bundle.reserved`).
+Startup is a locked read, never an ensure:
 
 ```
-GET /v1/spaces/<techSpaceId>/bundles
-→ { "bundles": [ { "id": "favorites/v1", "rootId": "<root>", "derived": true, … } ] }
+GET /v1/spaces/<techSpaceId>/bundles     → { "bundles": […], "synced": true|false }
 ```
 
-`rootId` is the `objectId` for every call below and is identical on
-every device of the account.
+The reply answers only after the registry convergence wait. `synced:
+true` + no `favorites/v1` row = definitively not installed. `synced:
+false` (cold offline device) = provisional; re-read after sync. When
+the row exists, take `rootId` — it is the `objectId` for everything
+below.
+
+Ensure on FIRST WRITE (the user's first star on a device that has no
+row), with the canonical request:
+
+```
+POST /v1/spaces/<techSpaceId>/bundles
+{ "id": "favorites/v1", "name": "Favorites", "datasets": [{
+    "name": "entries", "idRule": "user", "dynamic": true,
+    "idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$", "idMaxLen": 256,
+    "fields": [
+      {"key": "parentId", "kind": "string", "required": true, "mutableBy": "any"},
+      {"key": "pos", "kind": "string", "required": true, "mutableBy": "any"},
+      {"key": "removed", "kind": "boolean", "mutableBy": "any"},
+      {"key": "name", "kind": "string", "mutableBy": "any"},
+      {"key": "iconCid", "kind": "string", "mutableBy": "any"},
+      {"key": "types", "kind": "array", "mutableBy": "any"},
+      {"key": "creator", "stamp": "creator"},
+      {"key": "createdAt", "stamp": "createTime"},
+      {"key": "modifiedAt", "stamp": "modifyTime"}
+    ] }] }
+```
+
+Idempotent — the first call installs (the server mints and self-types
+the root), later calls adopt. Uninstall = `DELETE
+/v1/spaces/<tech>/objects/<rootId>`; the id then reads as not
+installed and a later install mints a fresh root.
+
+### Forks
+
+Two devices ensuring while apart (each starred something before first
+sync) install two roots; the registry converges on one winner, the
+other lands in the bundle's `losers`. The client that observes a loser
+merges its `entries` into the winner — upsert each live record through
+this schema (link ids merge into the same record; folders re-mint) —
+then calls `POST …/bundles/favorites%2Fv1/resolve` with the loser root
+id. Ensuring lazily (first write, not startup) is what keeps this
+rare.
 
 ## Writes
 

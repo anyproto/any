@@ -472,6 +472,18 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.BundleGetResponse": {
+                "properties": {
+                    "bundle": {
+                        "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "synced": {
+                        "description": "Synced: see BundleListResponse.Synced.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.BundleListResponse": {
                 "properties": {
                     "bundles": {
@@ -480,6 +492,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "synced": {
+                        "description": "Synced reports whether the registry converged before this read\n(the read-side lock): true means an absent bundle is definitively\nnot installed; false (the wait expired — cold offline device)\nmeans absence is provisional.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -5596,7 +5612,7 @@ const docTemplate = `{
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/api.Bundle"
+                                    "$ref": "#/components/schemas/api.BundleGetResponse"
                                 }
                             }
                         },

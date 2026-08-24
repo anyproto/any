@@ -111,19 +111,6 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	// the same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
-		// Reservation first: a built-in id answers 409 whatever the
-		// request's shape, as documented — shape guidance would coach
-		// the caller toward a request that can never succeed.
-		case builtinBundleId(inst.Id):
-			// Server-owned declaration: a client ensure racing the boot
-			// pass could pin a divergent schema forever (declarations
-			// are first-write). The bundle is ensured at boot; clients
-			// only read it.
-			return writeError(c, http.StatusConflict, "bundle.reserved",
-				"bundle id is server-owned and ensured at boot", map[string]any{"bundleId": inst.Id})
-		case !inst.Derived:
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"tech-space bundles are derived-only: set derived: true", nil)
 		case len(inst.Datasets) == 0:
 			return writeError(c, http.StatusBadRequest, "request.missing_field",
 				"tech-space bundles must declare datasets", nil)
@@ -195,10 +182,6 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		if len(buf) > maxBundleDatasetsBytes {
 			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"datasets too large", map[string]any{"max_bytes": maxBundleDatasetsBytes}), true
-		}
-		if !inst.Derived {
-			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"datasets require derived: true — a created root cannot carry declarations", nil), true
 		}
 		drafts, errResp, done := bundleDatasetsFromBody(c, buf)
 		if done {
@@ -349,11 +332,15 @@ func (d *deps) bundleList(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	// The read-side lock: answer from a converged registry so absence
+	// is definitive; when the wait expires (cold offline device) the
+	// reply says so instead of lying.
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	rows, err := d.bundleResolver().List(c.Request().Context(), sp)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), "")
 	}
-	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows))}
+	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows)), Synced: synced}
 	for _, b := range rows {
 		out.Bundles = append(out.Bundles, bundleToAPI(b))
 	}
@@ -368,7 +355,7 @@ func (d *deps) bundleList(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		bundleId	path		string	true	"Bundle ID, percent-encoded (general-chat%2Fv1)"
-//	@Success	200			{object}	api.Bundle
+//	@Success	200			{object}	api.BundleGetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
@@ -382,11 +369,12 @@ func (d *deps) bundleGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	b, err := d.bundleResolver().Get(c.Request().Context(), sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	return c.JSON(http.StatusOK, bundleToAPI(b))
+	return c.JSON(http.StatusOK, api.BundleGetResponse{Bundle: bundleToAPI(b), Synced: synced})
 }
 
 // bundleResolve handles POST /v1/spaces/:spaceId/bundles/:bundleId/resolve

@@ -78,11 +78,16 @@ var techAllowedRoutes = map[string]struct{}{
 	"POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields":            {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId": {},
 
-	// resolve and children stay off the list: tech bundles are
-	// derived-only (no losers) and phase-2 children are not exposed.
-	"POST /v1/spaces/:spaceId/bundles":          {},
-	"GET /v1/spaces/:spaceId/bundles":           {},
-	"GET /v1/spaces/:spaceId/bundles/:bundleId": {},
+	// children stay off the list (phase-2, not exposed). resolve is
+	// load-bearing: created installs can fork across offline devices,
+	// and the loser must be resolvable here like in any space. DELETE
+	// objects is the uninstall path — the SDK permits it for bundle
+	// roots only and refuses everything else.
+	"POST /v1/spaces/:spaceId/bundles":                   {},
+	"GET /v1/spaces/:spaceId/bundles":                    {},
+	"GET /v1/spaces/:spaceId/bundles/:bundleId":          {},
+	"POST /v1/spaces/:spaceId/bundles/:bundleId/resolve": {},
+	"DELETE /v1/spaces/:spaceId/objects/:objectId":       {},
 
 	"GET /v1/spaces/:spaceId/sync-status":                             {},
 	"GET /v1/spaces/:spaceId/sync-status/objects/:objectId":           {},

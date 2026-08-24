@@ -156,8 +156,9 @@ func TestServer_BundleListAndGet(t *testing.T) {
 		t.Fatalf("list rows do not match the installs: %+v", list.Bundles)
 	}
 
-	var one api.Bundle
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &one)
+	var oneResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &oneResp)
+	one := oneResp.Bundle
 	if one.Id != testBundleId || one.RootId != a.Bundle.RootId || one.Name != "General" {
 		t.Fatalf("get = %+v, want the general chat row", one)
 	}
@@ -248,8 +249,9 @@ func TestServer_BundleResolveRejectsNonLoser(t *testing.T) {
 	}
 
 	// The install survives.
-	var after api.Bundle
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &after)
+	var afterResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &afterResp)
+	after := afterResp.Bundle
 	if after.RootId != inst.Bundle.RootId {
 		t.Fatalf("winner changed: %q vs %q", after.RootId, inst.Bundle.RootId)
 	}
@@ -436,8 +438,9 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 		t.Fatalf("re-ensure did not adopt the derived root: %+v (installed=%v)", second.Bundle, second.Installed)
 	}
 
-	var got api.Bundle
-	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &got)
+	var gotResp api.BundleGetResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles/"+escapedBundleId(testBundleId), &gotResp)
+	got := gotResp.Bundle
 	if !got.Derived || got.RootId != first.Bundle.RootId {
 		t.Fatalf("read path lost the derived verdict: %+v", got)
 	}

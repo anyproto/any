@@ -88,6 +88,18 @@ type BundleEnsureResponse struct {
 // BundleListResponse is the reply to GET /v1/spaces/:spaceId/bundles.
 type BundleListResponse struct {
 	Bundles []Bundle `json:"bundles"`
+	// Synced reports whether the registry converged before this read
+	// (the read-side lock): true means an absent bundle is definitively
+	// not installed; false (the wait expired — cold offline device)
+	// means absence is provisional.
+	Synced bool `json:"synced"`
+}
+
+// BundleGetResponse is the reply to GET /v1/spaces/:spaceId/bundles/:bundleId.
+type BundleGetResponse struct {
+	Bundle Bundle `json:"bundle"`
+	// Synced: see BundleListResponse.Synced.
+	Synced bool `json:"synced"`
 }
 
 // BundleResolveRequest is the body of

@@ -232,6 +232,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
 		req.Datasets = inst.Datasets
+	} else if len(inst.Datasets) > 0 {
+		// SDK-minted created root: Ensure creates the object, stamps
+		// it as its own type and declares — the only create the tech
+		// space allows, and the same shape everywhere.
+		req.Datasets = inst.Datasets
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -258,7 +263,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived {
+	if inst.Derived || (len(inst.Datasets) > 0 && !inst.Derived) {
+		// Derived: registered is exact. SDK-minted created root: the
+		// minted id is not observable here, so registered is the
+		// answer, with the same narrow inbound-race weakness the
+		// created-root comment above describes.
 		installed = registered
 	}
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
@@ -313,6 +322,17 @@ func (r *Resolver) waitFor(sp space.Space) time.Duration {
 		return r.OfflineIndexWait
 	}
 	return r.IndexWait
+}
+
+// WaitConverged runs the registry-convergence wait the install gate
+// uses, bounded by the same knobs (offline fast expiry), and reports
+// whether the registry converged. The read-side lock for the bundles
+// surface: a read that answers after true reports definitive absence;
+// after false the caller labels the read provisional.
+func (r *Resolver) WaitConverged(ctx context.Context, sp space.Space) bool {
+	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
+	defer cancel()
+	return sp.WaitIndexSynced(waitCtx) == nil
 }
 
 // tryAdopt is the pure-read half of Ensure: adopted=true when the

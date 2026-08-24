@@ -84,10 +84,6 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ensure without datasets: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","datasets":`+scratchDatasets+`}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("datasets on a created root: %d %s", rec.Code, rec.Body.String())
-	}
 	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootTypes":["any"],"datasets":`+scratchDatasets+`}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("rootTypes on the tech space: %d %s", rec.Code, rec.Body.String())
@@ -209,9 +205,11 @@ func TestServer_TechSpace(t *testing.T) {
 		t.Fatalf("typo dataset must not read as unsupported: %d %s", rec.Code, rec.Body.String())
 	}
 	// Loser resolution and phase-2 children are off the tech surface.
+	// Resolve is reachable (created installs can fork); the winner is
+	// refused as a loser by the verdict, not by the route guard.
 	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/resolve", `{"loserRootId":"`+root+`"}`)
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("resolve on tech: %d %s", rec.Code, rec.Body.String())
+	if rec.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("resolve on tech must be routed: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"s1"}`)
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -227,9 +225,11 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown object: %d %s", rec.Code, rec.Body.String())
 	}
+	// DELETE is routed (uninstall of created bundle roots), but a
+	// DERIVED root refuses at the object layer — never a 204.
 	rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+root, "")
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("delete on tech: %d %s", rec.Code, rec.Body.String())
+	if rec.Code == http.StatusNoContent || rec.Code == http.StatusMethodNotAllowed {
+		t.Fatalf("derived root delete: %d %s", rec.Code, rec.Body.String())
 	}
 
 	// Sync-status and debug work.

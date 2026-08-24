@@ -87,9 +87,6 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
-	if errResp, done := d.refuseBuiltinBundleRoot(c, sp, typeId); done {
-		return errResp
-	}
 	req, ok := bindBodyStrict[api.DatasetDraftRequest](c, "")
 	if !ok {
 		return nil
@@ -158,9 +155,6 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 	if typeId == "" || defId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
 	}
-	if errResp, done := d.refuseBuiltinBundleRoot(c, sp, typeId); done {
-		return errResp
-	}
 	req, ok := bindBodyStrict[api.DatasetFieldDraft](c, "")
 	if !ok {
 		return nil
@@ -222,9 +216,6 @@ func (d *deps) typePatchDataset(c echo.Context) error {
 	defId := c.Param("defId")
 	if typeId == "" || defId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
-	}
-	if errResp, done := d.refuseBuiltinBundleRoot(c, sp, typeId); done {
-		return errResp
 	}
 	req, ok := bindBodyStrict[api.DatasetPatchRequest](c, "")
 	if !ok {
@@ -344,9 +335,6 @@ func (d *deps) typeRemoveDataset(c echo.Context) error {
 	if typeId == "" || defId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and defId required", nil)
 	}
-	if errResp, done := d.refuseBuiltinBundleRoot(c, sp, typeId); done {
-		return errResp
-	}
 	// Existence preflight: the SDK's RemoveDataset would otherwise mint
 	// a synced tombstone + removal row for an id that never existed and
 	// answer 204.
@@ -383,9 +371,6 @@ func (d *deps) typeRemoveDatasetField(c echo.Context) error {
 	fieldId := c.Param("fieldId")
 	if typeId == "" || fieldId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and fieldId required", nil)
-	}
-	if errResp, done := d.refuseBuiltinBundleRoot(c, sp, typeId); done {
-		return errResp
 	}
 	if errResp, done := requireType(c, sp, typeId); done {
 		return errResp

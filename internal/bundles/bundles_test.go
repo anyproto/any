@@ -135,9 +135,14 @@ func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest)
 	f.mu.Unlock()
 	rootId := "derived-root"
 	if !req.DerivedRoot {
-		var err error
-		if rootId, err = req.NewRoot(ctx); err != nil {
-			return space.Bundle{}, false, err
+		if req.NewRoot == nil {
+			// SDK-minted created root (datasets-carrying installs).
+			rootId = "minted-root"
+		} else {
+			var err error
+			if rootId, err = req.NewRoot(ctx); err != nil {
+				return space.Bundle{}, false, err
+			}
 		}
 	}
 	// The SDK materializes (and stamps) a derived root on the adopt
@@ -681,5 +686,31 @@ func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
 	}
 	if len(sp2.bundles.ensured) != 1 {
 		t.Fatalf("undeclared root must reach SDK Ensure once, got %d", len(sp2.bundles.ensured))
+	}
+}
+
+// TestEnsureCreatedWithDatasets pins the SDK-minted created-root path:
+// a datasets-carrying non-derived install passes no NewRoot (Ensure
+// mints and self-types the root — the only create the tech space
+// allows) and reports installed from the SDK's registered bool.
+func TestEnsureCreatedWithDatasets(t *testing.T) {
+	sp := newInstallFake(space.PermissionOwner, nil)
+	ctx := context.Background()
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
+		Id: "favorites/v1", Name: "Favorites",
+		Datasets: []space.DatasetDraft{{Name: "entries"}},
+	})
+	if err != nil || !installed || b.RootId != "minted-root" {
+		t.Fatalf("created+datasets install: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 1 {
+		t.Fatalf("ensure calls = %d", len(sp.bundles.ensured))
+	}
+	req := sp.bundles.ensured[0]
+	if req.DerivedRoot || req.NewRoot != nil || len(req.Datasets) != 1 {
+		t.Fatalf("request shape: %+v", req)
+	}
+	if sp.objects.created != 0 {
+		t.Fatalf("resolver must not create the root itself, got %d", sp.objects.created)
 	}
 }

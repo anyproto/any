@@ -588,25 +588,31 @@ the security bound on a leaked `encKey` — in `20-push.md`
 
 Anything private to the account, synced across its devices and spanning
 spaces, is a bundle on the **tech space** (`techSpaceId` from
-`GET /v1/account`). Two kinds:
+`GET /v1/account`). The startup contract:
 
-- **Built-in bundles** the server ensures at boot — today `favorites/v1`
-  (guide: `25-favorites.md`). Don't install these: ensure with a
-  built-in id returns `409 bundle.reserved`. Read the root id off
-  `GET /v1/spaces/<techSpaceId>/bundles` and write records.
-- **Your own bundles** for app-specific account data:
-  `POST …/bundles` with `{"id": "<app>/v1", "derived": true,
-  "datasets": [...]}` — idempotent (first call installs, later calls
-  adopt), the root id identical on every device. Keep `bundle.rootId`:
-  it is the `objectId` for every record call. The root is its own type,
-  so additive evolution goes through `POST …/types/<rootId>/datasets`.
+1. **Read, don't ensure.** `GET /v1/spaces/<tech>/bundles` is LOCKED on
+   registry convergence and replies with `synced`: when true, an absent
+   bundle is definitively not installed; when false (cold offline
+   device), treat absence as provisional and re-read after sync. Adopt
+   by taking `rootId` off the row; subscribe to the raw `bundles`
+   dataset for live updates.
+2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
+   "datasets": [...]}` — a CREATED root minted by the server, deletable
+   (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
+   call installs, later calls adopt. Add `"derived": true` only for a
+   bundle that must never fork or uninstall.
+3. **On a fork** (two devices installed while apart): the registry
+   converges on one winner, the other lands in `losers`. Merge the
+   loser's records into the winner through your own schema, then
+   `POST …/bundles/:id/resolve` with the loser root id.
 
 Dataset names are unique per space: part of the bundle's versioned
 vocabulary, chosen once — `favorites/v1` owns `entries` the way it owns
-its id, and a future bundle picks names that don't collide. Tree edge
-cases — an entry whose folder is removed, a move that forms a cycle
-across devices — are read-side product rules: compute the same view
-from the same records everywhere, never repair with writes.
+its id (guide: `25-favorites.md`), and a future bundle picks names that
+don't collide. Tree edge cases — an entry whose folder is removed, a
+move that forms a cycle across devices — are read-side product rules:
+compute the same view from the same records everywhere, never repair
+with writes.
 
 ## See also
 

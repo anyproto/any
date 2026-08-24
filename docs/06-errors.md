@@ -71,7 +71,6 @@ space.unsupported                # 405 — the surface is not available on the t
 
 invite.invalid                   # invite token malformed or unrecognized
 
-bundle.reserved                  # 409 — POST …/bundles with a server-owned id (built-in, ensured at boot); clients read it, never ensure it
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.deleted                   # 410 — GET …/objects/:objectId on a deleted object (distinct from never-existed)

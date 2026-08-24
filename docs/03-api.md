@@ -943,9 +943,13 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list — derived-only (`derived: true`,
-  `datasets` required; `rootTypes` / `rootProperties` / `resolve` /
-  `children` refused);
+- `bundles` ensure / get / list / resolve — `datasets` required, roots
+  minted by Ensure (`rootTypes` / `rootProperties` / `children`
+  refused). Both root strategies: `derived: true` for bundles that must
+  never fork or uninstall; the default CREATED root for ordinary app
+  installs — deletable (`DELETE …/objects/:rootId` = uninstall; the id
+  then reads as not installed and a fresh install works), forking on
+  concurrent offline installs and resolving like in any space;
 - `types` reads and `types/:rootId/datasets…` on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`; `GET …/objects/:objectId`;
@@ -961,15 +965,19 @@ returns `405 space.unsupported`. On the tech index object
 `spaces` rows; `identities` stays behind `GET /v1/identities`) and
 generic writes are refused.
 
-**Built-in account bundles.** `favorites/v1` is server-owned: the
-engine ensures it on the tech space at boot (idempotent, offline-
-capable — the root is derived, so every device computes the same id),
-with the `entries` declaration compiled into `internal/favorites`.
-Clients never install it — `POST …/bundles` with a built-in id returns
-`409 bundle.reserved` (a client ensure racing the boot pass could pin
-a divergent declaration forever; declarations are first-write) — they
-read the root id off `GET …/bundles` and go straight to records.
-Model and client contract: `docs/25-favorites.md`.
+**Locked reads.** `GET …/bundles` and `GET …/bundles/:bundleId` answer
+only after the space's registry convergence wait (local fast path when
+already synced; fast expiry with no reachable peer), and the reply
+carries `synced`: true means an absent bundle is definitively not
+installed; false (cold offline device) means absence is provisional.
+`GET …/bundles/:bundleId` returns `{bundle, synced}`. The ensure POST
+already runs the same wait as its convergence gate. The raw `bundles`
+dataset via `POST …/query[/subscribe]` stays the live local view.
+
+**Favourites** is a client-registered bundle (`favorites/v1`, created
+root, `entries` declaration) — a documented convention like
+`general-chat/v1`, no server code. Model and client contract:
+`docs/25-favorites.md`.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are

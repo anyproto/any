@@ -1173,20 +1173,23 @@ Implementation slices landed:
     plane + § Chat, docs/09-query.md § Dates, docs/14-aggregation.md,
     docs/08-clients.md § 3.
 
-38. **Built-in favourites bundle** — `internal/favorites` declares the
-    account-level `favorites/v1` bundle (dataset `entries`: item ids =
-    canonical `any://o/…` links, folder ids `f:<token>`, `parentId` +
-    lexid `pos` required, `removed` soft-delete flag, mirrored
-    `name`/`iconCid`/`types`, creator/createdAt/modifiedAt stamps;
-    `idRule: user` + pattern, dynamic). The engine ensures it on the
-    tech space at boot (`ensureBuiltinBundles`, builtinbundles.go —
-    idempotent, offline-capable, never blocks serving); client ensure
-    of a built-in id is refused `409 bundle.reserved` so a racing
-    install can never pin a divergent declaration (first-write). No
-    endpoints, no handler code — records ride the generic tech-space
-    surface (item's tech-space bundle slice). Everything else —
-    rendering, mirror refresh, soft-delete policy, tree semantics — is
-    the client contract in docs/25-favorites.md.
+38. **Favourites as a client bundle + created tech roots + locked bundle
+    reads** — favourites is a CLIENT-REGISTERED bundle (`favorites/v1`,
+    canonical declaration in docs/25-favorites.md; no server code, no
+    boot ensure, no reserved ids). The tech space accepts both bundle
+    root strategies: `derived: true`, or the default CREATED root minted
+    by the SDK's Ensure (self-typed, declaration-carrying) — deletable
+    (`DELETE …/objects/:rootId` = uninstall, id reads uninstalled,
+    reinstall mints fresh) and forking on concurrent offline installs
+    (`…/bundles/:id/resolve` is routed on the tech space). Read-side
+    lock: `GET …/bundles[/:id]` answers after the registry convergence
+    wait and carries `synced` (true = absence definitive; get returns
+    `{bundle, synced}`); ensure's convergence gate is the same wait.
+    Client startup contract: locked read → adopt; ensure on first
+    write; fork → merge loser entries → resolve. SDK prerequisite
+    (PR #108 branch): created roots with declarations + SDK-minted
+    roots (`NewRoot` optional), tech `ResolveLoser`, bundle-root-only
+    `Objects().Delete`, catalog release on type-object purge.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1452,7 +1455,7 @@ auto-start.
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
-| `docs/25-favorites.md` | built-in favourites bundle — model, record ids, soft-delete contract, rendering/mirror recipe, tree-policy decisions left to clients |
+| `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or
