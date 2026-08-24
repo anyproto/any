@@ -132,19 +132,46 @@ POST /v1/spaces/<tech>/query/subscribe
 
 Render **from the entries alone**: the mirrored `name` / `iconCid` /
 `types` make every entry displayable instantly — offline, and on a
-device that never loaded the target's space. Layer freshness on top:
-per space that has favourites, one
+device that never loaded the target's space. Layer freshness on top
+with **batched target subscriptions**:
+
+### Target subscriptions, in batches
+
+Group the item links by `spaceId` (the id prefix) and open ONE stream
+per space that has favourites:
 
 ```
 POST /v1/spaces/<spaceId>/objects/query/subscribe
-{ "filter": { "id": { "$in": [ …objectIds… ] } }, "sort": ["id"], "limit": n }
+{ "filter": { "id": { "$in": [ "<objectId1>", "<objectId2>", … ] } },
+  "sort": ["id"], "limit": <number of ids> }
 ```
 
-plus one `POST /v1/spaces/query/subscribe` for space name / icon /
-status. When a live row's `any.name` / `any.iconCid` / `any.types`
-differs from the mirror, write the difference back (**write only on
-difference** — after the first device refreshes, the others see the
-updated record and skip). Group by space client-side on the id prefix.
+- `limit` = the batch size: the window must hold every id, or targets
+  past the window read as absent. Favourites are small — one stream
+  per space carries the whole batch; there is no per-stream ceiling to
+  design around.
+- Skip spaces whose row is not loaded on this device (`localStatus`
+  from the space-list stream below) — the subscribe would fail; those
+  targets render from the mirror as unavailable-fresh.
+- **When the batch changes** (star/un-star adds or drops an id in that
+  space), close the stream and reconnect with the new `$in` list —
+  the windowed contract's recovery rule; there is no in-place filter
+  update.
+- Interpret deltas: `added`/`updated` rows carry the live `any.name` /
+  `any.iconCid` / `any.types` → refresh the mirror **only when a value
+  differs** (after the first device writes, the others see the updated
+  entry and skip — no ping-pong). A `removed` entry is definitive ONLY
+  with `reason: "deleted"`; `filtered-out` / `displaced` mean the
+  object still exists.
+- An id absent from the initial snapshot proves nothing (an object
+  tombstoned before this device subscribed never enters a window) —
+  it is *unavailable*, not deleted. `GET /v1/spaces/<s>/objects/<o>`
+  answers `410 object.deleted` when a definitive single check is
+  needed.
+
+Plus one account-wide `POST /v1/spaces/query/subscribe` for space
+name / icon / status / `localStatus` — it feeds both the "… in
+<Space>" labels and the space-gone cleanup signal.
 
 Target state, derived from those subscriptions:
 
