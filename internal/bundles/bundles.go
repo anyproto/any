@@ -80,6 +80,9 @@ type Install struct {
 	// 1-1's, where nobody is the owner) that is the point; for
 	// anything a user may remove it is the wrong trade.
 	Derived bool
+	// Datasets are declared on the derived root at install; the root
+	// then implements itself as a type (typeId = rootId). Derived only.
+	Datasets []space.DatasetDraft
 }
 
 // Resolver installs bundles and deletes their losing roots, carrying
@@ -194,8 +197,13 @@ func NewResolver(grace time.Duration) *Resolver {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
+	// A request that declares datasets must always reach the SDK's
+	// Ensure: the adopt shortcut would silently skip the declaration
+	// rules the SDK applies on its own adopt path (declare on a root
+	// that carries none, refuse Datasets on a created-root install).
+	skipAdopt := len(inst.Datasets) > 0
 	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
-	if err != nil || adopted {
+	if err != nil || (adopted && !skipAdopt) {
 		return existing, false, err
 	}
 	if existing.RootId == "" {
@@ -204,7 +212,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		}
 		// The converged registry may name a winner the pre-read could
 		// not see.
-		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || adopted {
+		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && !skipAdopt) {
 			return existing, false, err
 		}
 	}
@@ -215,6 +223,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
+		req.Datasets = inst.Datasets
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -505,15 +514,15 @@ func syncQuiescent(sp space.Space, objectId string) bool {
 
 // rootLocal reports whether the root object's tree has been projected
 // on this device. The SDK stamps `any.name` on every registered root,
-// so a local root always has a property record; a root registered by
-// another device has none until its tree arrives. One primary-key read.
+// so a local root always has an objects row; a root registered by
+// another device has none until its tree arrives. One primary-key
+// read, available on the tech handle too.
 func rootLocal(ctx context.Context, sp space.Space, rootId string) error {
-	rec, err := sp.Properties().Get(ctx, rootId)
-	if err != nil {
+	if _, err := sp.Objects().Get(ctx, rootId); err != nil {
+		if errors.Is(err, space.ErrNotFound) {
+			return ErrRootNotLocal
+		}
 		return fmt.Errorf("bundle root probe: %w", err)
-	}
-	if rec == nil {
-		return ErrRootNotLocal
 	}
 	return nil
 }

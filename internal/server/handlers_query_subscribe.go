@@ -70,7 +70,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, errResp, done := buildPerObjectQuery(c, sp)
+	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
@@ -80,7 +80,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 		})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
 }
 
 // streamQuerySubscribe pumps a QuerySubscription's windowed events to

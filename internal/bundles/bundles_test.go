@@ -22,7 +22,6 @@ type fakeSpace struct {
 	bundles *fakeBundles
 	status  *fakeSyncStatus
 	objects *fakeObjects
-	props   *fakeProperties
 	// role and indexErr drive the install gate: what this account may
 	// do, and whether the registry converged.
 	role     space.Permission
@@ -48,14 +47,23 @@ func (f *fakeSpace) WaitIndexSynced(ctx context.Context) error {
 	}
 	return f.indexErr
 }
-func (f *fakeSpace) Objects() space.ObjectService    { return f.objects }
-func (f *fakeSpace) Properties() space.PropertiesAPI { return f.props }
+func (f *fakeSpace) Objects() space.ObjectService { return f.objects }
 
-// fakeObjects records what the resolver asked to create or derive.
+// fakeObjects records what the resolver asked to create or derive and
+// satisfies the root-locality probe: absent stands in for a root
+// whose tree has not reached this device.
 type fakeObjects struct {
 	space.ObjectService
 	created int
 	derived []space.DeriveObjectOpts
+	absent  bool
+}
+
+func (f *fakeObjects) Get(context.Context, string) (*anyenc.Value, error) {
+	if f.absent {
+		return nil, space.ErrNotFound
+	}
+	return (&anyenc.Arena{}).NewObject(), nil
 }
 
 func (f *fakeObjects) Create(context.Context, space.CreateObjectOpts) (string, error) {
@@ -66,20 +74,6 @@ func (f *fakeObjects) Create(context.Context, space.CreateObjectOpts) (string, e
 func (f *fakeObjects) Derive(_ context.Context, opts space.DeriveObjectOpts) (string, error) {
 	f.derived = append(f.derived, opts)
 	return "child-of-" + opts.ParentId + string(opts.Seed), nil
-}
-
-// fakeProperties satisfies the root-locality probe. absent stands in
-// for a root whose tree has not reached this device.
-type fakeProperties struct {
-	space.PropertiesAPI
-	absent bool
-}
-
-func (f *fakeProperties) Get(context.Context, string) (*anyenc.Value, error) {
-	if f.absent {
-		return nil, nil
-	}
-	return (&anyenc.Arena{}).NewObject(), nil
 }
 
 // fakeSyncStatus reports one fixed per-object state and a rollup whose
@@ -444,7 +438,6 @@ func newInstallFake(role space.Permission, indexErr error) *fakeSpace {
 		id:       "space1",
 		bundles:  &fakeBundles{getErr: space.ErrBundleUnknown, failOn: map[string]error{}},
 		objects:  &fakeObjects{},
-		props:    &fakeProperties{},
 		role:     role,
 		indexErr: indexErr,
 	}
@@ -555,7 +548,7 @@ func TestChildDerivationShape(t *testing.T) {
 // itself.
 func TestEnsureMintsAbsentDerivedRoot(t *testing.T) {
 	sp := newInstallFake(space.PermissionWriter, nil)
-	sp.props.absent = true
+	sp.objects.absent = true
 	sp.bundles.getErr = nil
 	sp.bundles.row = space.Bundle{
 		Id: "general-chat/v1", RootId: "derived-root",
@@ -563,7 +556,7 @@ func TestEnsureMintsAbsentDerivedRoot(t *testing.T) {
 	}
 	// The SDK's Ensure materializes the tree, so the locality probe
 	// passes on the way out.
-	sp.bundles.after = func() { sp.props.absent = false }
+	sp.bundles.after = func() { sp.objects.absent = false }
 	ctx := context.Background()
 
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
@@ -578,7 +571,7 @@ func TestEnsureMintsAbsentDerivedRoot(t *testing.T) {
 	if installed {
 		t.Fatal("materializing an existing install must not report installed")
 	}
-	if sp.props.absent {
+	if sp.objects.absent {
 		t.Fatal("the adopt path must leave the root locally writable")
 	}
 	if len(sp.bundles.ensured) != 1 || !sp.bundles.ensured[0].DerivedRoot {
@@ -591,7 +584,7 @@ func TestEnsureMintsAbsentDerivedRoot(t *testing.T) {
 // write, so the caller is told to retry instead.
 func TestEnsureRefusesAbsentCreatedRoot(t *testing.T) {
 	sp := newInstallFake(space.PermissionOwner, nil)
-	sp.props.absent = true
+	sp.objects.absent = true
 	sp.bundles.getErr = nil
 	sp.bundles.row = space.Bundle{
 		Id: "general-chat/v1", RootId: "peer-root", Roots: []string{"peer-root"},

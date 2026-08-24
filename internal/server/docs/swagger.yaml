@@ -84,6 +84,11 @@ components:
           type: string
         metadata:
           $ref: '#/components/schemas/api.AccountMetadata'
+        techSpaceId:
+          description: |-
+            TechSpaceId is the account's tech space — the :spaceId for
+            account-level bundles (see docs/03-api.md § Bundles).
+          type: string
       type: object
     api.AddDatasetFieldResponse:
       properties:
@@ -318,6 +323,19 @@ components:
       type: object
     api.BundleEnsureRequest:
       properties:
+        datasets:
+          description: |-
+            Datasets declares runtime datasets on the derived root (same
+            shape as POST …/types/:typeId/datasets); the root becomes a type
+            implementing itself, typeId = rootId, and the datasets are
+            written through POST …/upsert / …/modify on the root. Declared
+            once on install; later evolution goes through the
+            …/types/:rootId/datasets routes. Derived installs only; required
+            on the tech space.
+          items:
+            $ref: '#/components/schemas/api.DatasetDraftRequest'
+          type: array
+          uniqueItems: false
         derived:
           description: |-
             Derived installs the bundle on the root derived from its id
@@ -1249,6 +1267,16 @@ components:
           type: string
         treeLen:
           type: integer
+      type: object
+    api.ObjectGetResponse:
+      properties:
+        objectId:
+          type: string
+        record:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
       type: object
     api.ObjectSyncStatusResponse:
       properties:
@@ -4715,6 +4743,51 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Delete an object
+      tags:
+      - objects
+    get:
+      description: 'The object''s row from the space''s objects collection: any.types
+        and property values. 404 object.not_found for an unknown id, 410 object.deleted
+        for a deleted object.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Object ID
+        in: path
+        name: objectId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ObjectGetResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "410":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Gone
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Get an object's row
       tags:
       - objects
   /spaces/{spaceId}/objects/{objectId}/backlinks:

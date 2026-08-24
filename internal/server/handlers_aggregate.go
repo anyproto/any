@@ -58,6 +58,16 @@ func (d *deps) spaceAggregate(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	// Aggregation output is caller-shaped, so withheld fields cannot
+	// be stripped from it: a dataset with a strip list (spaces) is
+	// query-only on the index object.
+	if d.isTechSpace(sp.Id()) && objectId == sp.SpaceIndexObjectId() {
+		if stripped, ok := techIndexDatasetPolicy[dataset]; !ok || len(stripped) > 0 {
+			return writeError(c, http.StatusBadRequest, "request.invalid_field",
+				"aggregate on the tech index object is limited to profile and bundles",
+				map[string]any{"objectId": objectId, "dataset": dataset})
+		}
+	}
 	return runAggregate(c, agg, explain, map[string]any{
 		"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 	})

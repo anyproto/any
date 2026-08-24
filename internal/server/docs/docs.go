@@ -135,6 +135,10 @@ const docTemplate = `{
                     },
                     "metadata": {
                         "$ref": "#/components/schemas/api.AccountMetadata"
+                    },
+                    "techSpaceId": {
+                        "description": "TechSpaceId is the account's tech space — the :spaceId for\naccount-level bundles (see docs/03-api.md § Bundles).",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -417,6 +421,14 @@ const docTemplate = `{
             },
             "api.BundleEnsureRequest": {
                 "properties": {
+                    "datasets": {
+                        "description": "Datasets declares runtime datasets on the derived root (same\nshape as POST …/types/:typeId/datasets); the root becomes a type\nimplementing itself, typeId = rootId, and the datasets are\nwritten through POST …/upsert / …/modify on the root. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/datasets routes. Derived installs only; required\non the tech space.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "derived": {
                         "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
                         "type": "boolean"
@@ -1643,6 +1655,21 @@ const docTemplate = `{
                     },
                     "treeLen": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.ObjectGetResponse": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "record": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -7681,6 +7708,75 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Delete an object",
+                "tags": [
+                    "objects"
+                ]
+            },
+            "get": {
+                "description": "The object's row from the space's objects collection: any.types and property values. 404 object.not_found for an unknown id, 410 object.deleted for a deleted object.",
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Object ID",
+                        "in": "path",
+                        "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ObjectGetResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Gone"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Get an object's row",
                 "tags": [
                     "objects"
                 ]

@@ -207,8 +207,12 @@ var, never the request body).
 
 | Method | Path                         | Purpose                                |
 |--------|------------------------------|----------------------------------------|
-| GET    | `/v1/account`                | own id + metadata                      |
+| GET    | `/v1/account`                | own id, `techSpaceId`, metadata        |
 | PUT    | `/v1/account/metadata`       | `Account.UpdateMetadata`               |
+
+`GET /v1/account` also returns `techSpaceId` — the account's tech
+space, the `:spaceId` for account-level bundles (§ Bundles, "Tech-space
+bundles"). It never appears in `GET /v1/spaces`.
 
 ```json
 // PUT /v1/account/metadata
@@ -820,7 +824,7 @@ reclaimed). In a path segment the slash is percent-encoded:
 `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
-`{id, name?, rootTypes?, rootProperties?, derived?}`. With a winner already
+`{id, name?, rootTypes?, rootProperties?, derived?, datasets?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -904,6 +908,21 @@ past it is the deliberate trade that lets an offline 1-1 have a chat at
 all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
+**Bundle datasets.** `datasets: [...]` (the same draft shape as
+`POST …/types/:typeId/datasets`, ≤32 entries) declares runtime
+datasets on a **derived** root. The root then implements itself as a
+type — `any.types = ["__type__", "<rootId>"]`, `typeId = rootId` — so
+`GET …/types/:rootId/datasets` and `GET …/datasets` list the
+declarations, and records go through `POST …/upsert` / `…/modify` /
+`…/query[/subscribe]` with `objectId = rootId`. Declared once, in one
+change, on install; an adopt declares them only on a root that carries
+no declaration yet. Later evolution is `POST/PATCH/DELETE
+…/types/:rootId/datasets…` — `Ensure` never patches, adds or
+resurrects a dataset. Dataset names are unique per space: a name
+another type or bundle owns, or a reserved one, fails with `400
+request.invalid_field` before the permanent root is derived;
+`datasets` without `derived: true` is `400` as well.
+
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
 in the space (`400 type.not_found` — the create path would otherwise
@@ -916,6 +935,39 @@ refuses record deletes, so an id is spent for the space's lifetime, and
 another claim rather than replacing one. The registry rides the
 eagerly-loaded spaceIndex on every device, so treat ids as a small
 fixed vocabulary, not a scratch namespace.
+
+#### Tech-space bundles
+
+Account-level product data — favourites, pinned items, personal
+settings — lives in bundles on the account's **tech space**, whose id
+`GET /v1/account` returns as `techSpaceId`. The tech space is a valid
+`:spaceId` for:
+
+- `bundles` ensure / get / list — derived-only (`derived: true`,
+  `datasets` required; `rootTypes` / `rootProperties` / `resolve` /
+  `children` refused);
+- `types` reads and `types/:rootId/datasets…` on bundle roots;
+- records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
+  `delete-records`, `aggregate`; `GET …/objects/:objectId`;
+- `GET` the space (a synthetic row: `spaceType: any.techspace`,
+  owner, derived), `sync-status`, `debug`, `sync`.
+
+Everything else — `POST …/objects`, `DELETE …/objects/:id`,
+`POST …/types`, properties, members, invites, guest key, ACL, files,
+chat, editor, history, search, `PATCH`/`DELETE` the space, settings —
+returns `405 space.unsupported`. On the tech index object
+(`spaceIndexObjectId` of the tech row) reads are limited to the
+`spaces`, `profile` and `bundles` datasets (guest keys stripped from
+`spaces` rows; `identities` stays behind `GET /v1/identities`) and
+generic writes are refused.
+
+The favourites recipe (`08-clients.md`) is one bundle, `favorites/v1`,
+with one `entries` dataset (`idRule: user`, item ids are `any://o/…`
+links, folder ids client-minted `f:…`), installed once per device with
+the same request and then written through `upsert` / `modify` on the
+root. Two devices installing concurrently converge on one declaration;
+a device that adopts before the root tree arrives declares its own copy
+and the duplicate folds after sync.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
@@ -988,6 +1040,7 @@ anyway, which is what the per-space chat convention does.
 | POST   | `/v1/spaces/:spaceId/objects/query`                       | `Space.QueryObjects.Snapshot`      |
 | POST   | `/v1/spaces/:spaceId/objects/query/subscribe`             | `Space.QueryObjects.Subscribe` (SSE) |
 | POST   | `/v1/spaces/:spaceId/objects/aggregate`                   | `Space.AggregateObjects` (pipeline) |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Get` — the objects row; `404 object.not_found` / `410 object.deleted` |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | reverse reference lookup (no SDK method) |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
