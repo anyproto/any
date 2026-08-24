@@ -9,7 +9,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const favoritesDatasets = `[{
+const scratchDatasets = `[{
 	"name": "entries",
 	"idRule": "user",
 	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
@@ -80,24 +80,24 @@ func TestServer_TechSpace(t *testing.T) {
 	}
 
 	// Bundles: derived-only with datasets.
-	rec := doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"favorites/v1","derived":true}`)
+	rec := doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ensure without datasets: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"favorites/v1","datasets":`+favoritesDatasets+`}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","datasets":`+scratchDatasets+`}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("datasets on a created root: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"favorites/v1","derived":true,"rootTypes":["any"],"datasets":`+favoritesDatasets+`}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootTypes":["any"],"datasets":`+scratchDatasets+`}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("rootTypes on the tech space: %d %s", rec.Code, rec.Body.String())
 	}
-	ens := ensureBundle(t, e, tech, `{"id":"favorites/v1","name":"Favorites","derived":true,"datasets":`+favoritesDatasets+`}`)
+	ens := ensureBundle(t, e, tech, `{"id":"notes/v1","name":"Favorites","derived":true,"datasets":`+scratchDatasets+`}`)
 	if !ens.Installed || !ens.Bundle.Derived || ens.Bundle.RootId == "" {
 		t.Fatalf("ensure: %+v", ens)
 	}
 	root := ens.Bundle.RootId
-	again := ensureBundle(t, e, tech, `{"id":"favorites/v1","derived":true,"datasets":`+favoritesDatasets+`}`)
+	again := ensureBundle(t, e, tech, `{"id":"notes/v1","derived":true,"datasets":`+scratchDatasets+`}`)
 	if again.Installed || again.Bundle.RootId != root {
 		t.Fatalf("re-ensure must adopt: %+v", again)
 	}
@@ -209,11 +209,11 @@ func TestServer_TechSpace(t *testing.T) {
 		t.Fatalf("typo dataset must not read as unsupported: %d %s", rec.Code, rec.Body.String())
 	}
 	// Loser resolution and phase-2 children are off the tech surface.
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles/favorites%2Fv1/resolve", `{"loserRootId":"`+root+`"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/resolve", `{"loserRootId":"`+root+`"}`)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("resolve on tech: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles/favorites%2Fv1/children", `{"seed":"s1"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles/notes%2Fv1/children", `{"seed":"s1"}`)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("children on tech: %d %s", rec.Code, rec.Body.String())
 	}

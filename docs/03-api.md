@@ -961,13 +961,15 @@ returns `405 space.unsupported`. On the tech index object
 `spaces` rows; `identities` stays behind `GET /v1/identities`) and
 generic writes are refused.
 
-The favourites recipe (`08-clients.md`) is one bundle, `favorites/v1`,
-with one `entries` dataset (`idRule: user`, item ids are `any://o/…`
-links, folder ids client-minted `f:…`), installed once per device with
-the same request and then written through `upsert` / `modify` on the
-root. Two devices installing concurrently converge on one declaration;
-a device that adopts before the root tree arrives declares its own copy
-and the duplicate folds after sync.
+**Built-in account bundles.** `favorites/v1` is server-owned: the
+engine ensures it on the tech space at boot (idempotent, offline-
+capable — the root is derived, so every device computes the same id),
+with the `entries` declaration compiled into `internal/favorites`.
+Clients never install it — `POST …/bundles` with a built-in id returns
+`409 bundle.reserved` (a client ensure racing the boot pass could pin
+a divergent declaration forever; declarations are first-write) — they
+read the root id off `GET …/bundles` and go straight to records.
+Model and client contract: `docs/25-favorites.md`.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are

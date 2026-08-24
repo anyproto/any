@@ -122,6 +122,13 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
+		case builtinBundleId(inst.Id):
+			// Server-owned declaration: a client ensure racing the boot
+			// pass could pin a divergent schema forever (declarations
+			// are first-write). The bundle is ensured at boot; clients
+			// only read it.
+			return writeError(c, http.StatusConflict, "bundle.reserved",
+				"bundle id is server-owned and ensured at boot", map[string]any{"bundleId": inst.Id})
 		}
 	}
 
