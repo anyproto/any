@@ -379,7 +379,10 @@ distinct from the on-wire header `type`: a 1-1 space reports
 `spaceType:"any.onetoone"`, a created space `"any.space"` — use it to
 tell direct chats from regular spaces client-side. `author` is the
 space owner's account identity, resolved best-effort from the ACL (empty
-when the ACL isn't loadable). Both are omitted when empty.
+when the ACL isn't loadable) — except on a 1-1, where the owner slot is a
+synthetic shared key nobody holds, so `author` carries the **other
+participant** instead (each side sees its counterpart — use it for "chat
+with X", not for "who created this"). Both are omitted when empty.
 
 `SpaceInfo.ownRole` is the caller's own role in the space — `owner` /
 `admin` / `writer` / `reader` / `guest` / `none` — mirrored from ACL

@@ -92,12 +92,12 @@ func TestE2E_MultideviceTechBundle(t *testing.T) {
 	// Restore: the bundle row and the root's records reach B.
 	start := time.Now()
 	if !pollUntil(3*time.Minute, func() bool {
-		resp, raw := doRequest(t, http.MethodGet, techBase(devB.base)+"/bundles/favorites%2Fv1", "")
+		resp, raw := doRequest(t, http.MethodGet, techBase(devB.base)+"/bundles/notes%2Fv1", "")
 		if resp.StatusCode != http.StatusOK {
 			return false
 		}
-		var b api.Bundle
-		if err := json.Unmarshal(raw, &b); err != nil || b.RootId != root {
+		var b api.BundleGetResponse
+		if err := json.Unmarshal(raw, &b); err != nil || b.Bundle.RootId != root {
 			return false
 		}
 		return countRecords(t, devB.base, tech, root, "entries") == 2
