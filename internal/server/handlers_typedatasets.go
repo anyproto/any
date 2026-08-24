@@ -33,6 +33,14 @@ import (
 //	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets [get]
+//
+// reservedIndexDatasetName reports whether name collides with the
+// search indexer's virtual chunker doc-id namespaces — reserved on
+// every dataset-declaration path (types route and bundle ensure).
+func reservedIndexDatasetName(name string) bool {
+	return name == index.DatasetProp || name == index.DatasetSchemaVirtual
+}
+
 func (d *deps) typeDatasets(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -95,7 +103,7 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	// The index store keys documents objectId:<dataset>:<recordId>
 	// under the search indexer's virtual chunker names — a user dataset
 	// claiming one would collide with their doc-id namespaces.
-	if req.Name == index.DatasetProp || req.Name == index.DatasetSchemaVirtual {
+	if reservedIndexDatasetName(req.Name) {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"dataset name is reserved by the search indexer",
 			map[string]any{"name": req.Name})

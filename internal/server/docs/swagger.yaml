@@ -388,6 +388,14 @@ components:
             share.
           type: boolean
       type: object
+    api.BundleGetResponse:
+      properties:
+        bundle:
+          $ref: '#/components/schemas/api.Bundle'
+        synced:
+          description: 'Synced: see BundleListResponse.Synced.'
+          type: boolean
+      type: object
     api.BundleListResponse:
       properties:
         bundles:
@@ -395,6 +403,13 @@ components:
             $ref: '#/components/schemas/api.Bundle'
           type: array
           uniqueItems: false
+        synced:
+          description: |-
+            Synced reports whether the registry converged before this read
+            (the read-side lock): true means an absent bundle is definitively
+            not installed; false (the wait expired — cold offline device)
+            means absence is provisional.
+          type: boolean
       type: object
     api.BundleResolveRequest:
       properties:
@@ -1273,10 +1288,7 @@ components:
         objectId:
           type: string
         record:
-          items:
-            type: integer
-          type: array
-          uniqueItems: false
+          type: object
       type: object
     api.ObjectSyncStatusResponse:
       properties:
@@ -3582,7 +3594,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/api.Bundle'
+                $ref: '#/components/schemas/api.BundleGetResponse'
           description: OK
         "400":
           content:

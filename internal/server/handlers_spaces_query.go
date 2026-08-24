@@ -1,8 +1,6 @@
 package server
 
 import (
-	"net/http"
-
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
@@ -22,9 +20,9 @@ const SpaceListDataset = "spaces"
 // (GET /v1/identities) strips that field; the raw query path would not,
 // so `identities` must never be reachable here. Read the directory
 // through GET /v1/identities instead.
-var spaceListAllowedDatasets = map[string]struct{}{
-	"spaces":  {},
-	"profile": {},
+var spaceListDatasetPolicy = map[string][]string{
+	SpaceListDataset: spaceListStrippedFields,
+	"profile":        nil,
 }
 
 // spaceListStrippedFields are `spaces`-row fields withheld from the raw
@@ -116,16 +114,10 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 				dataset = ds
 			}
 		}
-		if _, ok := spaceListAllowedDatasets[dataset]; !ok {
-			return nil, writeError(c, http.StatusBadRequest,
-				"request.invalid_field",
-				"dataset must be one of: spaces, profile (read identities via GET /v1/identities)",
-				map[string]any{"dataset": dataset}), true
-		}
-		if dataset == SpaceListDataset && root != nil && queryTouchesFields(root, spaceListStrippedFields) {
-			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"filter/sort may not reference withheld fields",
-				map[string]any{"fields": spaceListStrippedFields}), true
+		if _, errResp, done := vetIndexDatasetRead(c, root, dataset, spaceListDatasetPolicy,
+			" (read identities via GET /v1/identities)",
+			map[string]any{"dataset": dataset}); done {
+			return nil, errResp, true
 		}
 		svc := d.sdk.Spaces()
 		return svc.Query(svc.SpaceIndexObjectId(), dataset), nil, false

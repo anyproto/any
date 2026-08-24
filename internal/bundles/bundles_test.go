@@ -28,9 +28,27 @@ type fakeSpace struct {
 	indexErr error
 	// waited records the deadline the gate gave WaitIndexSynced.
 	waited time.Duration
+	// types serves the root's dataset declarations for the adopt-side
+	// settled check; nil = every root reads as declaration-less.
+	types *fakeTypes
+}
+
+// fakeTypes stubs the one TypesAPI read Ensure performs.
+type fakeTypes struct {
+	space.TypesAPI
+	defs map[string][]space.DatasetDef
+	err  error
+}
+
+func (f *fakeTypes) Datasets(_ context.Context, typeId string) ([]space.DatasetDef, error) {
+	if f == nil {
+		return nil, nil
+	}
+	return f.defs[typeId], f.err
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
+func (f *fakeSpace) Types() space.TypesAPI     { return f.types }
 func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
 
 func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
@@ -118,9 +136,14 @@ func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest)
 	f.mu.Unlock()
 	rootId := "derived-root"
 	if !req.DerivedRoot {
-		var err error
-		if rootId, err = req.NewRoot(ctx); err != nil {
-			return space.Bundle{}, false, err
+		if req.NewRoot == nil {
+			// SDK-minted created root (datasets-carrying installs).
+			rootId = "minted-root"
+		} else {
+			var err error
+			if rootId, err = req.NewRoot(ctx); err != nil {
+				return space.Bundle{}, false, err
+			}
 		}
 	}
 	// The SDK materializes (and stamps) a derived root on the adopt
@@ -630,5 +653,100 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	}
 	if online.waited <= time.Minute {
 		t.Fatalf("connected wait = %s, want the full bound (%s)", online.waited, time.Hour)
+	}
+}
+
+// TestEnsureDatasetsAdoptStaysRead pins the reader-side contract for
+// datasets-carrying re-ensures: once the installed root carries its
+// declaration (first-write-pinned), adoption is a pure read and must
+// not reach the SDK's Ensure — its write gate would reject readers and
+// guests re-running the documented idempotent request. A root without
+// a declaration still falls through so the SDK can declare.
+func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "notes/v1", Derived: true,
+		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+
+	sp := newInstallFake(space.PermissionReader, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+	sp.types = &fakeTypes{defs: map[string][]space.DatasetDef{"root-1": {{Name: "entries"}}}}
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
+	if err != nil || installed || b.RootId != "root-1" {
+		t.Fatalf("reader adopt: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("declared root adopt reached SDK Ensure %d time(s)", len(sp.bundles.ensured))
+	}
+
+	sp2 := newInstallFake(space.PermissionOwner, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("undeclared root ensure: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 1 {
+		t.Fatalf("undeclared root must reach SDK Ensure once, got %d", len(sp2.bundles.ensured))
+	}
+}
+
+// TestEnsureCreatedWithDatasets pins the SDK-minted created-root path:
+// a datasets-carrying non-derived install passes no NewRoot (Ensure
+// mints and self-types the root — the only create the tech space
+// allows) and reports installed from the SDK's registered bool.
+func TestEnsureCreatedWithDatasets(t *testing.T) {
+	sp := newInstallFake(space.PermissionOwner, nil)
+	ctx := context.Background()
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
+		Id: "favorites/v1", Name: "Favorites",
+		Datasets: []space.DatasetDraft{{Name: "entries"}},
+	})
+	if err != nil || !installed || b.RootId != "minted-root" {
+		t.Fatalf("created+datasets install: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 1 {
+		t.Fatalf("ensure calls = %d", len(sp.bundles.ensured))
+	}
+	req := sp.bundles.ensured[0]
+	if req.DerivedRoot || req.NewRoot != nil || len(req.Datasets) != 1 {
+		t.Fatalf("request shape: %+v", req)
+	}
+	if sp.objects.created != 0 {
+		t.Fatalf("resolver must not create the root itself, got %d", sp.objects.created)
+	}
+}
+
+// TestEnsureDatasetsAdoptRoles pins the settled verdicts around the
+// heal fallthrough: a defs-read error or a read-only role always
+// adopts (never the SDK write gate); only a writer with a
+// declaration-less root falls through so the SDK heals.
+func TestEnsureDatasetsAdoptRoles(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "notes/v1", Derived: true,
+		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+	row := space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+
+	// Reader + defs-read error: adopt.
+	sp := newInstallFake(space.PermissionReader, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.types = &fakeTypes{err: errors.New("store closing")}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst); err != nil {
+		t.Fatalf("reader adopt on read error: %v", err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("read error pushed the reader into SDK Ensure")
+	}
+
+	// Reader + empty defs: adopt (cannot heal).
+	sp2 := newInstallFake(space.PermissionReader, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = row
+	sp2.types = &fakeTypes{}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("reader adopt on empty defs: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 0 {
+		t.Fatalf("declaration-less adopt pushed the reader into SDK Ensure")
 	}
 }

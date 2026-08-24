@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -77,11 +78,16 @@ var techAllowedRoutes = map[string]struct{}{
 	"POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields":            {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId": {},
 
-	// resolve and children stay off the list: tech bundles are
-	// derived-only (no losers) and phase-2 children are not exposed.
-	"POST /v1/spaces/:spaceId/bundles":          {},
-	"GET /v1/spaces/:spaceId/bundles":           {},
-	"GET /v1/spaces/:spaceId/bundles/:bundleId": {},
+	// children stay off the list (phase-2, not exposed). resolve is
+	// load-bearing: created installs can fork across offline devices,
+	// and the loser must be resolvable here like in any space. DELETE
+	// objects is the uninstall path — the SDK permits it for bundle
+	// roots only and refuses everything else.
+	"POST /v1/spaces/:spaceId/bundles":                   {},
+	"GET /v1/spaces/:spaceId/bundles":                    {},
+	"GET /v1/spaces/:spaceId/bundles/:bundleId":          {},
+	"POST /v1/spaces/:spaceId/bundles/:bundleId/resolve": {},
+	"DELETE /v1/spaces/:spaceId/objects/:objectId":       {},
 
 	"GET /v1/spaces/:spaceId/sync-status":                             {},
 	"GET /v1/spaces/:spaceId/sync-status/objects/:objectId":           {},
@@ -126,11 +132,23 @@ func (d *deps) techIndexFence(c echo.Context, root *fastjson.Value, indexId, obj
 	if objectId != indexId {
 		return nil, nil, false
 	}
-	stripped, ok := techIndexDatasetPolicy[dataset]
+	return vetIndexDatasetRead(c, root, dataset, techIndexDatasetPolicy,
+		" on the tech index object (read identities via GET /v1/identities)",
+		map[string]any{"objectId": objectId, "dataset": dataset})
+}
+
+// vetIndexDatasetRead is the ONE read-side vet for index-object
+// datasets, shared by the tech-space fence and the account-level
+// space-list query: allowlist membership plus no filter/sort touching
+// withheld fields. Allowlist, strip lists and the refusal message all
+// derive from the policy table, so a policy edit cannot leave a route
+// behind.
+func vetIndexDatasetRead(c echo.Context, root *fastjson.Value, dataset string, policy map[string][]string, note string, details map[string]any) (strip []string, errResp error, done bool) {
+	stripped, ok := policy[dataset]
 	if !ok {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"dataset must be one of: spaces, profile, bundles on the tech index object (read identities via GET /v1/identities)",
-			map[string]any{"objectId": objectId, "dataset": dataset}), true
+			"dataset must be one of: "+strings.Join(policyDatasets(policy, false), ", ")+note,
+			details), true
 	}
 	if len(stripped) > 0 && root != nil && queryTouchesFields(root, stripped) {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -138,6 +156,22 @@ func (d *deps) techIndexFence(c echo.Context, root *fastjson.Value, indexId, obj
 			map[string]any{"fields": stripped}), true
 	}
 	return stripped, nil, false
+}
+
+// policyDatasets lists a policy table's dataset names, sorted;
+// unstripped=true keeps only datasets with no strip list (the set
+// aggregate may touch — its output is caller-shaped, so withheld
+// fields cannot be stripped from it).
+func policyDatasets(policy map[string][]string, unstripped bool) []string {
+	out := make([]string, 0, len(policy))
+	for name, stripped := range policy {
+		if unstripped && len(stripped) > 0 {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // queryTouchesFields reports whether the request's filter or sort
@@ -152,35 +186,36 @@ func queryTouchesFields(root *fastjson.Value, fields []string) bool {
 		}
 		return false
 	}
+	// scanFilter walks v as a FILTER document. Field paths occur only
+	// as filter-document keys — at the top level and inside the
+	// logical combinators' sub-filters. Everything else (a comparison
+	// operator's value, an implicit-equality object literal) is DATA:
+	// a literal that merely contains a key named like a withheld field
+	// must not be rejected.
 	var scanFilter func(v *fastjson.Value) bool
 	scanFilter = func(v *fastjson.Value) bool {
-		if v == nil {
+		if v == nil || v.Type() != fastjson.TypeObject {
 			return false
 		}
-		switch v.Type() {
-		case fastjson.TypeObject:
-			obj, _ := v.Object()
-			found := false
-			obj.Visit(func(k []byte, sub *fastjson.Value) {
-				if found {
-					return
-				}
-				key := string(k)
-				if !strings.HasPrefix(key, "$") && hit(key) {
-					found = true
-					return
-				}
-				found = scanFilter(sub)
-			})
-			return found
-		case fastjson.TypeArray:
-			for _, e := range v.GetArray() {
-				if scanFilter(e) {
-					return true
-				}
+		obj, _ := v.Object()
+		found := false
+		obj.Visit(func(k []byte, sub *fastjson.Value) {
+			if found {
+				return
 			}
-		}
-		return false
+			switch key := string(k); key {
+			case "$and", "$or", "$nor":
+				for _, e := range sub.GetArray() {
+					if scanFilter(e) {
+						found = true
+						return
+					}
+				}
+			default:
+				found = !strings.HasPrefix(key, "$") && hit(key)
+			}
+		})
+		return found
 	}
 	if scanFilter(root.Get("filter")) {
 		return true

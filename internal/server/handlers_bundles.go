@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
-	"github.com/anyproto/any/internal/index"
 )
 
 // Input caps. Bundle records are PERMANENT — the registry refuses
@@ -113,9 +111,6 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	// the same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
-		case !inst.Derived:
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"tech-space bundles are derived-only: set derived: true", nil)
 		case len(inst.Datasets) == 0:
 			return writeError(c, http.StatusBadRequest, "request.missing_field",
 				"tech-space bundles must declare datasets", nil)
@@ -183,19 +178,24 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 			return inst, writeError(c, http.StatusBadRequest, "request.schema",
 				"datasets must be an array of dataset drafts", nil), true
 		}
-		if len(v.MarshalTo(nil)) > maxBundleDatasetsBytes {
+		buf := v.MarshalTo(nil)
+		if len(buf) > maxBundleDatasetsBytes {
 			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"datasets too large", map[string]any{"max_bytes": maxBundleDatasetsBytes}), true
 		}
-		if !inst.Derived {
-			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"datasets require derived: true — a created root cannot carry declarations", nil), true
-		}
-		drafts, errResp, done := bundleDatasetsFromBody(c, v)
+		drafts, errResp, done := bundleDatasetsFromBody(c, buf)
 		if done {
 			return inst, errResp, true
 		}
 		inst.Datasets = drafts
+	}
+	// A created datasets-carrying root is minted and self-typed by the
+	// SDK; rootTypes/rootProperties have no carrier there and must not
+	// be silently dropped.
+	if len(inst.Datasets) > 0 && !inst.Derived &&
+		(len(root.GetArray("rootTypes")) > 0 || root.Get("rootProperties") != nil) {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"rootTypes/rootProperties are not available on a created root with datasets — the server mints and self-types it (use derived: true to combine them)", nil), true
 	}
 
 	inst.Id = string(root.GetStringBytes("id"))
@@ -256,20 +256,14 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 // applies the search indexer's reserved-name rule. Name conflicts with
 // what the space already hosts are the SDK's verdict (400 via
 // ErrBundleBadRequest) — on adopt the names legitimately exist.
-func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetDraft, error, bool) {
+func bundleDatasetsFromBody(c echo.Context, body []byte) ([]space.DatasetDraft, error, bool) {
 	var reqs []api.DatasetDraftRequest
-	dec := json.NewDecoder(bytes.NewReader(v.MarshalTo(nil)))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&reqs); err != nil {
-		// Same envelope as the strict binder on the types route: the
-		// unknown field by name with the accepted list, type errors
-		// without Go type names.
-		if rest, ok := strings.CutPrefix(err.Error(), `json: unknown field `); ok {
-			return nil, unknownFieldRejected(c, []string{strings.Trim(rest, `"`)},
-				jsonFieldNames(reflect.TypeFor[api.DatasetDraftRequest]()), "datasets"), true
-		}
-		return nil, writeError(c, http.StatusBadRequest, "request.bad_json",
-			"datasets: "+bindErrorMessage[[]api.DatasetDraftRequest](err), nil), true
+		// Same envelope as the strict binder on the types route.
+		return nil, strictDecodeFailed(c, err, reflect.TypeFor[api.DatasetDraftRequest](),
+			"datasets", "datasets: ", bindErrorMessage[[]api.DatasetDraftRequest]), true
 	}
 	if len(reqs) > maxBundleDatasets {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -281,7 +275,7 @@ func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetD
 			return nil, writeError(c, http.StatusBadRequest, "request.missing_field",
 				fmt.Sprintf("datasets[%d].name required", i), nil), true
 		}
-		if reqs[i].Name == index.DatasetProp || reqs[i].Name == index.DatasetSchemaVirtual {
+		if reservedIndexDatasetName(reqs[i].Name) {
 			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"dataset name is reserved by the search indexer",
 				map[string]any{"name": reqs[i].Name}), true
@@ -346,11 +340,15 @@ func (d *deps) bundleList(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	// The read-side lock: answer from a converged registry so absence
+	// is definitive; when the wait expires (cold offline device) the
+	// reply says so instead of lying.
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	rows, err := d.bundleResolver().List(c.Request().Context(), sp)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), "")
 	}
-	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows))}
+	out := api.BundleListResponse{Bundles: make([]api.Bundle, 0, len(rows)), Synced: synced}
 	for _, b := range rows {
 		out.Bundles = append(out.Bundles, bundleToAPI(b))
 	}
@@ -365,7 +363,7 @@ func (d *deps) bundleList(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"
 //	@Param		bundleId	path		string	true	"Bundle ID, percent-encoded (general-chat%2Fv1)"
-//	@Success	200			{object}	api.Bundle
+//	@Success	200			{object}	api.BundleGetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
@@ -379,11 +377,12 @@ func (d *deps) bundleGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
 	b, err := d.bundleResolver().Get(c.Request().Context(), sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
 	}
-	return c.JSON(http.StatusOK, bundleToAPI(b))
+	return c.JSON(http.StatusOK, api.BundleGetResponse{Bundle: bundleToAPI(b), Synced: synced})
 }
 
 // bundleResolve handles POST /v1/spaces/:spaceId/bundles/:bundleId/resolve
@@ -547,6 +546,12 @@ func bundleError(c echo.Context, err error, spaceId, bundleId string) error {
 	case errors.Is(err, bundles.ErrRegistryNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the space's bundles registry has not synced to this device yet; retry", details)
+	case errors.Is(err, space.ErrDatasetNameUnsettled):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"a requested dataset name is held by a root no registry row references yet; retry after sync", details)
+	case errors.Is(err, space.ErrBundleRootNotSynced):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"the bundle root has not synced to this device yet; retry", details)
 	case errors.Is(err, bundles.ErrLoserNotReady), errors.Is(err, space.ErrLoserNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleLoserNotReady,
 			"the losing root is still syncing; retry once it has settled", details)

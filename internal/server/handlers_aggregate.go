@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -64,7 +65,7 @@ func (d *deps) spaceAggregate(c echo.Context) error {
 	if d.isTechSpace(sp.Id()) && objectId == sp.SpaceIndexObjectId() {
 		if stripped, ok := techIndexDatasetPolicy[dataset]; !ok || len(stripped) > 0 {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"aggregate on the tech index object is limited to profile and bundles",
+				"aggregate on the tech index object is limited to: "+strings.Join(policyDatasets(techIndexDatasetPolicy, true), ", "),
 				map[string]any{"objectId": objectId, "dataset": dataset})
 		}
 	}

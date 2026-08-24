@@ -584,51 +584,39 @@ Full contract — payload shape, key derivations, heart compatibility,
 the security bound on a leaked `encKey` — in `20-push.md`
 (§ Receiver-side keys).
 
-## 12. Account-level data: one bundle on the tech space
+## 12. Account-level data: bundles on the tech space
 
-Favourites, pinned items, personal settings — anything private to the
-account, synced across its devices and spanning spaces — is a bundle
-on the **tech space** (`techSpaceId` from `GET /v1/account`), not a
-server feature. The recipe, with favourites as the example:
+Anything private to the account, synced across its devices and spanning
+spaces, is a bundle on the **tech space** (`techSpaceId` from
+`GET /v1/account`). The startup contract:
 
-1. **Install once per device, same request every time.**
-   `POST /v1/spaces/<techSpaceId>/bundles` with
-   `{"id":"favorites/v1","derived":true,"datasets":[{"name":"entries",
-   "idRule":"user","idPattern":"^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
-   "idMaxLen":256,"fields":[{"key":"parentId","kind":"string",
-   "mutableBy":"any"},{"key":"pos","kind":"string","mutableBy":"any"},
-   {"key":"removed","kind":"bool","mutableBy":"any"},{"key":"name",
-   "kind":"string","mutableBy":"any"},{"key":"iconCid","kind":"string",
-   "mutableBy":"any"},{"key":"types","kind":"array","mutableBy":"any"}]}]}`.
-   Idempotent: the first call installs, every later one adopts. Keep
-   `bundle.rootId` — it is the `objectId` for everything below and the
-   same on every device.
-2. **Star = upsert, un-star = soft delete.** Item ids are the target's
-   canonical link (`any://o/…`), folder ids are client-minted `f:…`, so
-   two devices starring the same object write the same record and
-   "is this starred" is a point lookup. Never hard-delete: tombstones
-   are sticky and would ban the link forever; `$set removed: true`
-   instead, re-star clears it.
-3. **Render from one subscription.** `POST …/query/subscribe` on the
-   root with `sort: ["parentId", "pos"]` is the whole tree; the mirrored
-   `name` / `iconCid` / `types` fields render without loading the
-   target's space. Refresh a mirror only when a live target row differs
-   (write on difference, so devices do not ping-pong). Resolve targets
-   per space with `objects/query/subscribe` filtered by id; an absent
-   row means unavailable, not deleted — `GET …/objects/:id` answers
-   `410 object.deleted` for the definitive case.
-4. **Evolve through the type routes.** The root is its own type:
-   `POST …/types/<rootId>/datasets` adds a dataset, `PATCH …/datasets/
-   <defId>` patches display parts. Re-sending `Ensure` with a longer
-   `datasets` list adds nothing.
+1. **Read, don't ensure.** `GET /v1/spaces/<tech>/bundles` is LOCKED on
+   registry convergence and replies with `synced`: when true, an absent
+   bundle is definitively not installed; when false (cold offline
+   device), treat absence as provisional and re-read after sync. Adopt
+   by taking `rootId` off the row; subscribe to the raw `bundles`
+   dataset for live updates.
+2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
+   "datasets": [...]}` — a CREATED root minted by the server, deletable
+   (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
+   call installs, later calls adopt. Do NOT reach for `"derived": true`
+   because a converged id sounds convenient — bundles exist precisely so
+   a converged install does not need a derived object. Derive only when
+   a fork would be UNMERGEABLE (chat-like content; the 1-1 general chat
+   is the canonical case), and accept the price: permanent,
+   uninstallable.
+3. **On a fork** (two devices installed while apart): the registry
+   converges on one winner, the other lands in `losers`. Merge the
+   loser's records into the winner through your own schema, then
+   `POST …/bundles/:id/resolve` with the loser root id.
 
-Dataset names are unique per space: they are part of the bundle's
-versioned vocabulary, chosen once when the bundle is designed —
-`favorites/v1` owns `entries` the way it owns its id, and a future
-bundle picks names that don't collide. Tree edge cases — an
-entry whose folder is removed, a move that forms a cycle across
-devices — are read-side product rules: compute the same view from
-the same records everywhere, never repair with writes.
+Dataset names are unique per space: part of the bundle's versioned
+vocabulary, chosen once — `favorites/v1` owns `entries` the way it owns
+its id (guide: `25-favorites.md`), and a future bundle picks names that
+don't collide. Tree edge cases — an entry whose folder is removed, a
+move that forms a cycle across devices — are read-side product rules:
+compute the same view from the same records everywhere, never repair
+with writes.
 
 ## See also
 

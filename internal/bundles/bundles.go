@@ -197,13 +197,34 @@ func NewResolver(grace time.Duration) *Resolver {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	// A request that declares datasets must always reach the SDK's
-	// Ensure: the adopt shortcut would silently skip the declaration
-	// rules the SDK applies on its own adopt path (declare on a root
-	// that carries none, refuse Datasets on a created-root install).
-	skipAdopt := len(inst.Datasets) > 0
+	// A datasets-carrying request reaches the SDK's Ensure only when
+	// the adopted root does not carry a declaration yet (the SDK
+	// declares on its own adopt path). Once the declaration exists it
+	// is first-write-pinned, so adoption stays the pure read the
+	// contract promises — a reader/guest re-running the documented
+	// idempotent ensure must not land in Ensure's write gate.
+	settled := func(b space.Bundle) bool {
+		if len(inst.Datasets) == 0 {
+			return true
+		}
+		defs, err := sp.Types().Datasets(ctx, b.RootId)
+		if err != nil || len(defs) > 0 {
+			// A transient read error must not push the caller into the
+			// SDK Ensure's write gate — adopt; the declaration heals on
+			// a later ensure.
+			return true
+		}
+		switch sp.Info().OwnRole {
+		case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
+			return false // fall through so the SDK heals the declaration
+		default:
+			// A reader/guest cannot heal and must never hit the write
+			// gate re-running the documented idempotent ensure.
+			return true
+		}
+	}
 	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
-	if err != nil || (adopted && !skipAdopt) {
+	if err != nil || (adopted && settled(existing)) {
 		return existing, false, err
 	}
 	if existing.RootId == "" {
@@ -212,7 +233,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		}
 		// The converged registry may name a winner the pre-read could
 		// not see.
-		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && !skipAdopt) {
+		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && settled(existing)) {
 			return existing, false, err
 		}
 	}
@@ -223,6 +244,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
+		req.Datasets = inst.Datasets
+	} else if len(inst.Datasets) > 0 {
+		// SDK-minted created root: Ensure creates the object, stamps
+		// it as its own type and declares — the only create the tech
+		// space allows, and the same shape everywhere.
 		req.Datasets = inst.Datasets
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
@@ -250,7 +276,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived {
+	if inst.Derived || (len(inst.Datasets) > 0 && !inst.Derived) {
+		// Derived: registered is exact. SDK-minted created root: the
+		// minted id is not observable here, so registered is the
+		// answer, with the same narrow inbound-race weakness the
+		// created-root comment above describes.
 		installed = registered
 	}
 	if err := rootLocal(ctx, sp, b.RootId); err != nil {
@@ -305,6 +335,17 @@ func (r *Resolver) waitFor(sp space.Space) time.Duration {
 		return r.OfflineIndexWait
 	}
 	return r.IndexWait
+}
+
+// WaitConverged runs the registry-convergence wait the install gate
+// uses, bounded by the same knobs (offline fast expiry), and reports
+// whether the registry converged. The read-side lock for the bundles
+// surface: a read that answers after true reports definitive absence;
+// after false the caller labels the read provisional.
+func (r *Resolver) WaitConverged(ctx context.Context, sp space.Space) bool {
+	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
+	defer cancel()
+	return sp.WaitIndexSynced(waitCtx) == nil
 }
 
 // tryAdopt is the pure-read half of Ensure: adopted=true when the

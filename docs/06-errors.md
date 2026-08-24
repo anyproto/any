@@ -71,6 +71,7 @@ space.unsupported                # 405 — the surface is not available on the t
 
 invite.invalid                   # invite token malformed or unrecognized
 
+
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.deleted                   # 410 — GET …/objects/:objectId on a deleted object (distinct from never-existed)
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure

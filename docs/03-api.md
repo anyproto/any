@@ -921,7 +921,7 @@ no declaration yet. Later evolution is `POST/PATCH/DELETE
 resurrects a dataset. Dataset names are unique per space: a name
 another type or bundle owns, or a reserved one, fails with `400
 request.invalid_field` before the permanent root is derived;
-`datasets` without `derived: true` is `400` as well.
+`datasets` combines with `derived: true` or stands alone (a created root the server mints and self-types); `rootTypes`/`rootProperties` next to `datasets` need `derived: true`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
@@ -943,9 +943,17 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list — derived-only (`derived: true`,
-  `datasets` required; `rootTypes` / `rootProperties` / `resolve` /
-  `children` refused);
+- `bundles` ensure / get / list / resolve — `datasets` required, roots
+  minted by Ensure (`rootTypes` / `rootProperties` / `children`
+  refused). The normal shape is the default CREATED root — deletable
+  (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
+  installed and a fresh install works), forking on concurrent offline
+  installs and resolving like in any space. `derived: true` is the
+  EXCEPTION, not a peer option: a permanent, uninstallable root,
+  justified only when a fork would be unmergeable (chat-like content —
+  the general-chat convention, above all in a 1-1, where the
+  convergence gate cannot work). Records-shaped bundles merge, so they
+  are created;
 - `types` reads and `types/:rootId/datasets…` on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`; `GET …/objects/:objectId`;
@@ -961,13 +969,19 @@ returns `405 space.unsupported`. On the tech index object
 `spaces` rows; `identities` stays behind `GET /v1/identities`) and
 generic writes are refused.
 
-The favourites recipe (`08-clients.md`) is one bundle, `favorites/v1`,
-with one `entries` dataset (`idRule: user`, item ids are `any://o/…`
-links, folder ids client-minted `f:…`), installed once per device with
-the same request and then written through `upsert` / `modify` on the
-root. Two devices installing concurrently converge on one declaration;
-a device that adopts before the root tree arrives declares its own copy
-and the duplicate folds after sync.
+**Locked reads.** `GET …/bundles` and `GET …/bundles/:bundleId` answer
+only after the space's registry convergence wait (local fast path when
+already synced; fast expiry with no reachable peer), and the reply
+carries `synced`: true means an absent bundle is definitively not
+installed; false (cold offline device) means absence is provisional.
+`GET …/bundles/:bundleId` returns `{bundle, synced}`. The ensure POST
+already runs the same wait as its convergence gate. The raw `bundles`
+dataset via `POST …/query[/subscribe]` stays the live local view.
+
+**Favourites** is a client-registered bundle (`favorites/v1`, created
+root, `entries` declaration) — a documented convention like
+`general-chat/v1`, no server code. Model and client contract:
+`docs/25-favorites.md`.
 
 **Reads.** `GET …/bundles` lists the live rows as of local state;
 `GET …/bundles/:bundleId` reads one (`404 bundle.not_found`). Rows are
