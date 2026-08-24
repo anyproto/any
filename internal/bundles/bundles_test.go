@@ -37,13 +37,14 @@ type fakeSpace struct {
 type fakeTypes struct {
 	space.TypesAPI
 	defs map[string][]space.DatasetDef
+	err  error
 }
 
 func (f *fakeTypes) Datasets(_ context.Context, typeId string) ([]space.DatasetDef, error) {
 	if f == nil {
 		return nil, nil
 	}
-	return f.defs[typeId], nil
+	return f.defs[typeId], f.err
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
@@ -712,5 +713,40 @@ func TestEnsureCreatedWithDatasets(t *testing.T) {
 	}
 	if sp.objects.created != 0 {
 		t.Fatalf("resolver must not create the root itself, got %d", sp.objects.created)
+	}
+}
+
+// TestEnsureDatasetsAdoptRoles pins the settled verdicts around the
+// heal fallthrough: a defs-read error or a read-only role always
+// adopts (never the SDK write gate); only a writer with a
+// declaration-less root falls through so the SDK heals.
+func TestEnsureDatasetsAdoptRoles(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "notes/v1", Derived: true,
+		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+	row := space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+
+	// Reader + defs-read error: adopt.
+	sp := newInstallFake(space.PermissionReader, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.types = &fakeTypes{err: errors.New("store closing")}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst); err != nil {
+		t.Fatalf("reader adopt on read error: %v", err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("read error pushed the reader into SDK Ensure")
+	}
+
+	// Reader + empty defs: adopt (cannot heal).
+	sp2 := newInstallFake(space.PermissionReader, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = row
+	sp2.types = &fakeTypes{}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("reader adopt on empty defs: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 0 {
+		t.Fatalf("declaration-less adopt pushed the reader into SDK Ensure")
 	}
 }

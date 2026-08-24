@@ -208,7 +208,20 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			return true
 		}
 		defs, err := sp.Types().Datasets(ctx, b.RootId)
-		return err == nil && len(defs) > 0
+		if err != nil || len(defs) > 0 {
+			// A transient read error must not push the caller into the
+			// SDK Ensure's write gate — adopt; the declaration heals on
+			// a later ensure.
+			return true
+		}
+		switch sp.Info().OwnRole {
+		case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
+			return false // fall through so the SDK heals the declaration
+		default:
+			// A reader/guest cannot heal and must never hit the write
+			// gate re-running the documented idempotent ensure.
+			return true
+		}
 	}
 	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
 	if err != nil || (adopted && settled(existing)) {

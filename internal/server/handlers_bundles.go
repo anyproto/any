@@ -189,6 +189,14 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		}
 		inst.Datasets = drafts
 	}
+	// A created datasets-carrying root is minted and self-typed by the
+	// SDK; rootTypes/rootProperties have no carrier there and must not
+	// be silently dropped.
+	if len(inst.Datasets) > 0 && !inst.Derived &&
+		(len(root.GetArray("rootTypes")) > 0 || root.Get("rootProperties") != nil) {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"rootTypes/rootProperties are not available on a created root with datasets — the server mints and self-types it (use derived: true to combine them)", nil), true
+	}
 
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))
@@ -538,6 +546,12 @@ func bundleError(c echo.Context, err error, spaceId, bundleId string) error {
 	case errors.Is(err, bundles.ErrRegistryNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the space's bundles registry has not synced to this device yet; retry", details)
+	case errors.Is(err, space.ErrDatasetNameUnsettled):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"a requested dataset name is held by a root no registry row references yet; retry after sync", details)
+	case errors.Is(err, space.ErrBundleRootNotSynced):
+		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
+			"the bundle root has not synced to this device yet; retry", details)
 	case errors.Is(err, bundles.ErrLoserNotReady), errors.Is(err, space.ErrLoserNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleLoserNotReady,
 			"the losing root is still syncing; retry once it has settled", details)

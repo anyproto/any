@@ -921,7 +921,7 @@ no declaration yet. Later evolution is `POST/PATCH/DELETE
 resurrects a dataset. Dataset names are unique per space: a name
 another type or bundle owns, or a reserved one, fails with `400
 request.invalid_field` before the permanent root is derived;
-`datasets` without `derived: true` is `400` as well.
+`datasets` combines with `derived: true` or stands alone (a created root the server mints and self-types); `rootTypes`/`rootProperties` next to `datasets` need `derived: true`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
