@@ -77,4 +77,4 @@ docs:
 	go run ./cmd/anydocs -src website -out website/dist
 
 docs-serve: docs
-	@echo "http://127.0.0.1:8088/"; cd website/dist && python3 -m http.server 8088
+	@echo "http://0.0.0.0:8088/"; cd website/dist && python3 -m http.server 8088 --bind 0.0.0.0
