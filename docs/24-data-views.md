@@ -200,10 +200,101 @@ local half.
 Saved views are **not** search-indexed: a view name is navigation
 chrome, not knowledge.
 
+## Building the query
+
+`query.filter` and `query.sort` use the `/query` grammar unchanged —
+operators, array semantics and paging are all in `09-query.md`. What
+follows is only what is different because the query is **saved and
+shared** rather than built fresh per request.
+
+**Key properties by `propId`, never by `xKey`.** The wire path is
+`<typeId>.<propId>`, both content-addressed ids. `xKey` is a
+client-side convenience that anyHelper maps on the way in — it never
+reaches the server, so an xKey path saved in a view resolves for
+nobody, including the client that wrote it. Resolve `xKey → propId`
+once via `GET …/types/:typeId/properties` and store the propId.
+This is also what makes a view survive a property rename: the display
+name changes, the propId does not.
+
+**Every view over a type's objects must carry its own type scope.**
+
+```json
+{"filter": {"any.types": "<typeId>", "<typeId>.<propId>": {"$in": ["urgent"]}}}
+```
+
+The scope is not optional politeness. `objects` is a per-space
+collection holding *every* object — type definitions, chat objects,
+bundle roots — and the negation operators (`$ne`, `$nin`, `$not`,
+`$exists: false`) match field-absent rows, so an unscoped saved filter
+like "status is not done" quietly returns the whole space. A filter
+built once and replayed for months is exactly where that bites.
+
+**Sort:** dotted paths, `-` prefix for descending, applied
+left-to-right. A `/query/subscribe` with `limit > 0` **requires** a
+sort — a windowed live view without one is a 400, so a view whose sort
+a user cleared still needs a fallback (`["-modifiedAt"]`).
+
+**Dates:** filter literals are instants — `{"createdAt": {"$gte":
+{"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or ISO string does
+not error, it answers wrong: cross-type comparison goes by type rank,
+so `$gte` matches everything and `$lt`/`$eq` match nothing.
+
+**Paging:** `limit` / `offset` for a table page. `includeTotal` is
+page-bounded — with `limit: 50` you get `total ≤ 50` — so a row count
+for the footer needs its own `$count` pipeline, not `includeTotal`.
+
+### Reconciling a stale query
+
+A saved filter outlives the properties it names. Detect it client-side:
+diff the propIds the filter references against
+`GET …/types/:typeId/properties`. A propId that is gone means the rule
+is dangling — **mark the rule invalid and keep the view editable**;
+never drop it silently and never block the write. The server will not
+help here, deliberately: it treats `query` as opaque so that a deleted
+property cannot turn every subsequent write to the view into a failure.
+
+Select/multiselect values reference immutable option keys, so the same
+applies one level down: an option key missing from the property's
+current `format.options` is dangling (options are dangling-tolerant by
+design — delete is a hard `$unset` and values keep the orphan key).
+
 ## Grouping
 
-Grouping is **client-driven**, in three steps. `groupBy` in the record
-is a render directive; it is not a query the server executes.
+`groupBy` is a **render directive**, not a query the server executes:
+
+```json
+"groupBy": { "propId": "<propId>" }
+```
+
+The server never reads it. Everything below is the client protocol, and
+the record shape stays open — extra keys (collapsed set, group order,
+show-empty) are yours to add, so treat the single-key shape above as
+the minimum rather than the contract.
+
+**The protocol, in one paragraph.** When a client opens a view carrying
+a `groupBy`, it first runs a **preflight aggregation** to learn the
+property's distinct values and their counts. That answer decides
+whether the field is groupable at all — past a column budget, refuse to
+group rather than render the result. Only then does it open **one
+query/subscribe per group**, and only for the groups actually on
+screen. There is no single "grouped query": the server returns rows, and
+the grouping is assembled client-side from N windows.
+
+Budget the preflight twice. `groupLimit` (200 above) is the server-side
+backstop that turns a runaway grouping into a `400`; the number of
+columns a UI can actually show is far smaller, so apply your own cap —
+somewhere around a few dozen — and treat exceeding it as "not
+groupable" even when the aggregate succeeds. The preflight is one
+snapshot request; the cost that matters is the N live windows it
+authorises.
+
+**v1 groups by `select` and `multiselect` only.** Those are the kinds
+with a bounded, named, ordered value set — the option catalog gives
+columns a name, a colour, an order, and an empty column for an option
+nothing uses yet. A free-text or number property has no catalog, so its
+"columns" would be whatever values happen to exist; offer grouping on
+those only once you have a product answer for how many columns is too
+many. Dates are out for a different reason (below).
 
 **1. Ask for the distinct values, with counts.** `/aggregate` is the
 only surface that answers "what values does this property take":
@@ -212,7 +303,7 @@ only surface that answers "what values does this property take":
 POST /v1/spaces/:spaceId/objects/aggregate
 {
   "pipeline": [
-    {"$match":  {"any.types": "<typeId>"}},
+    {"$match":  {"any.types": "<typeId>", "…": "the view's own filter"}},
     {"$group":  {"_id": "$<typeId>.<propId>", "count": {"$count": {}}}},
     {"$sort":   {"count": -1}}
   ],
@@ -220,36 +311,118 @@ POST /v1/spaces/:spaceId/objects/aggregate
 }
 ```
 
-`$match` should carry the view's own filter, so the counts describe the
-view rather than the whole space. Result docs come back with the group
-key as **`id`**, not `_id` (see `14-aggregation.md`).
+`$match` carries the view's own filter, so the counts describe the view
+rather than the whole space. Result docs come back with the group key as
+**`id`**, not `_id` (see `14-aggregation.md`).
 
-**2. Decide whether the property is groupable at all.** Too many
-distinct values, or a `400 aggregate.limit_exceeded` on `groupLimit`,
-means "not groupable" — surface that instead of rendering hundreds of
-columns.
-
-For `select` / `multiselect` the **column set comes from the property's
-option catalog** (`GET …/types/:typeId/properties`), not from the
-aggregate: the catalog is ordered, named and colored, and it gives an
-option with zero matches its own empty column. The aggregate then adds
-counts and reveals dangling option keys — values pointing at an option
-that was deleted (options are dangling-tolerant by design).
-
-**3. Read each group with its own plain query.** One
-`…/objects/query/subscribe` window per **visible** group, filtered to
-that value:
+**A multiselect needs `$unwind` first.** `$group` on an array field
+groups by the **whole array**, so grouping the raw field yields one
+group per distinct *combination* — `["urgent","backend"]` and
+`["urgent"]` land in different columns and neither counts as "urgent".
+Unwind to get per-option counts:
 
 ```json
-{"filter": {"<typeId>.<propId>": "<optionKey>"}, "sort": ["-modifiedAt"], "limit": 50}
+"pipeline": [
+  {"$match":  {"any.types": "<typeId>"}},
+  {"$unwind": "$<typeId>.<propId>"},
+  {"$group":  {"_id": "$<typeId>.<propId>", "count": {"$count": {}}}}
+]
 ```
+
+An object with two options is then counted in both groups — which is
+what a multiselect board should show, and means the group counts sum to
+more than the object count. Say so in the UI rather than letting the
+numbers look broken.
+
+**2. Decide whether the property is groupable at all.** Either signal —
+more distinct values than your column budget, or a
+`400 aggregate.limit_exceeded` when `groupLimit` trips — means "not
+groupable". Surface that as a state the user can see and undo (fall
+back to the ungrouped list, keep the `groupBy` in the record so the
+choice isn't silently lost), rather than rendering hundreds of columns
+or opening hundreds of subscriptions.
+
+The **column set comes from the property's option catalog**
+(`GET …/types/:typeId/properties`), not from the aggregate: the catalog
+is ordered (`format.options.<key>.pos`), named and coloured, and it
+gives an option with zero matches its own empty column. Order columns by
+the catalog's `pos`, not by count, or columns reshuffle under the user
+as data changes. The aggregate then supplies counts and reveals dangling
+keys — values pointing at an option that was deleted.
+
+**The "no value" group is separate.** For a single-value property the
+aggregate returns it as `{"id": null, "count": N}`. For a multiselect it
+does **not** appear at all — `$unwind` drops documents whose field is
+missing — so count that group on its own:
+
+```json
+"pipeline": [
+  {"$match": {"any.types": "<typeId>", "<typeId>.<propId>": {"$exists": false}}},
+  {"$count": "n"}
+]
+```
+
+Keep the type scope in that `$match`: `$exists: false` matches every
+object that simply lacks the field, including type definitions.
+
+**3. Read each group with its own plain query.** One
+`…/objects/query/subscribe` window per **visible** group:
+
+```json
+{"filter": {"any.types": "<typeId>", "<typeId>.<propId>": "<optionKey>"},
+ "sort": ["-modifiedAt"], "limit": 50}
+```
+
+For a multiselect the same scalar spelling is **contains**, so an object
+carrying that option matches — no `$unwind` on the read path, that stage
+exists only for counting. The empty group's window swaps the value
+condition for `{"$exists": false}`.
 
 Recompute counts when a change frame arrives. Do not open a window for a
 collapsed or off-screen group — one window per visible group is the
-budget.
+budget (`08-clients.md` § 10).
 
-`/aggregate` is snapshot-only: there is no subscribe variant, so counts
-refresh by re-running the pipeline, never by streaming.
+### Keeping the groups fresh
+
+`/aggregate` is snapshot-only — there is no subscribe variant — so a
+group that did not exist when the view opened never appears on its own,
+and counts drift as soon as anything moves. Two halves, and only one of
+them needs polling:
+
+**The column set streams.** A type's property definitions live in the
+`properties` dataset on the **type object**, which is an ordinary
+per-object dataset:
+
+```json
+POST /v1/spaces/:spaceId/query/subscribe
+{"objectId": "<typeId>", "dataset": "properties", "sort": ["_ver.id"], "limit": 100}
+```
+
+Hold that one stream while a grouped view is open and a new option — or
+a rename, a recolour, a reorder — arrives live, so a newly added option
+becomes a new empty column with no polling at all. This is the whole
+column set for select/multiselect grouping.
+
+**Counts do not.** Only the aggregate knows how many rows sit in each
+group, and which option keys are dangling. Re-run the preflight:
+
+- on a coalesced timer while the grouped view is **visible** — tens of
+  seconds, not seconds; counts are advisory decoration, and each run is
+  a full pass over the matching rows;
+- immediately when something invalidates it outright: the view's filter
+  or `groupBy` changed, the view was reopened, or the catalog stream
+  reported a new option;
+- opportunistically when a change frame from any group's window shows a
+  row whose group property changed — that is the cheap signal that the
+  distribution moved.
+
+Stop the timer when the view is hidden or closed. A count that is a
+minute stale is invisible to users; a poll loop running behind a
+background tab is not.
+
+Grouping on an **open value set** (not offered in v1) has no catalog to
+stream, so there the timer is the *only* way a new group is ever
+discovered — one more reason v1 stays on select/multiselect.
 
 ### Date grouping is out of this iteration
 

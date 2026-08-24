@@ -620,15 +620,42 @@ the call patterns matter more than the record shape.
   *contents* of the active view are a second window; inactive views cost
   nothing.
 
-- **Grouping: one window per VISIBLE group.** Ask `/objects/aggregate`
-  for the property's distinct values with counts, decide from that
-  answer whether the property is groupable at all (too many distinct
-  values, or a `400 aggregate.limit_exceeded`, means no), take
-  select/multiselect columns from the property's option catalog so empty
-  options still get a column, then read each group through its own plain
-  windowed query. Collapsed and off-screen groups get no window.
-  `/aggregate` is snapshot-only — recompute counts on change frames,
-  never expect them to stream.
+- **Save the query keyed by `propId`, and scope it by type.** `xKey`
+  paths never reach the server, so a saved view keyed by xKey resolves
+  for nobody; propIds also survive a property rename. And a saved filter
+  must carry `{"any.types": "<typeId>"}` — `objects` holds every object
+  in the space and the negation operators match field-absent rows, so an
+  unscoped "status is not done" returns type definitions and bundle
+  roots along with the rows you wanted.
+
+- **Grouping is preflight-then-fan-out, one window per VISIBLE group.**
+  There is no grouped query. On opening a view with a `groupBy`, run a
+  preflight `/objects/aggregate` for the property's distinct values with
+  counts; that answer decides whether the field is groupable at all (more
+  distinct values than your column budget — a few dozen, well under
+  `groupLimit` — or a `400 aggregate.limit_exceeded` means no, fall back
+  to the ungrouped list without dropping the `groupBy`). Take columns
+  from the property's option catalog in its `pos` order so empty options
+  still get a column and columns don't reshuffle by count, then read each
+  group through its own plain windowed query. Collapsed and off-screen
+  groups get no window.
+
+  `/aggregate` is snapshot-only, so nothing about grouping updates
+  itself. Split it: the **column set streams** — subscribe to the
+  `properties` dataset on the type object and a new or renamed option
+  arrives live, no polling — while **counts and dangling keys** need the
+  preflight re-run on a coalesced timer (tens of seconds) while the view
+  is *visible*, plus immediately whenever the filter, the `groupBy` or
+  the catalog changes. Stop the timer when the view is hidden.
+
+  Two shapes bite here. A **multiselect** needs `$unwind` before
+  `$group`, or you group by the whole array and get one column per
+  distinct *combination*; counts then legitimately sum to more than the
+  object count. And the **"no value" group** arrives as `id: null` for a
+  single-value property but is *absent* for a multiselect (`$unwind`
+  drops docs missing the field), so count it separately with
+  `{"$exists": false}` — type-scoped, since that operator matches
+  everything without the field.
 
 - **Reconcile broken rules client-side.** `query` and `layoutSettings`
   are opaque to the server precisely so a rule naming a deleted property
