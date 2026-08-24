@@ -80,11 +80,11 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 	}
 
 	// The row is also readable by id, percent-encoded in the path.
-	var got api.Bundle
+	var got api.BundleGetResponse
 	mustJSON(t, http.MethodGet,
 		joiner.base+"/v1/spaces/"+sp.Id+"/bundles/"+url.PathEscape(bundleId),
 		"", http.StatusOK, &got)
-	if got.RootId != installed.Bundle.RootId || got.Name != "General" {
+	if got.Bundle.RootId != installed.Bundle.RootId || got.Bundle.Name != "General" {
 		t.Fatalf("joiner GET = %+v", got)
 	}
 
