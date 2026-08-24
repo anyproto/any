@@ -112,3 +112,5 @@ Values sit at `record[typeId][propId]` on the object's row — `{"<typeId>": {"<
 
 - [Data types](data-types.html) — kinds, formats, instants, scopes.
 - [Runtime datasets](runtime-datasets.html) — declaring dataset schemas on a type.
+- [Property lifecycle](property-lifecycle.html) — pins, patches, removal and read tolerance in depth.
+- [Data model](data-model.html) — how types and datasets compose on one object.
