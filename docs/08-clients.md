@@ -599,8 +599,12 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
    "datasets": [...]}` — a CREATED root minted by the server, deletable
    (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
-   call installs, later calls adopt. Add `"derived": true` only for a
-   bundle that must never fork or uninstall.
+   call installs, later calls adopt. Do NOT reach for `"derived": true`
+   because a converged id sounds convenient — bundles exist precisely so
+   a converged install does not need a derived object. Derive only when
+   a fork would be UNMERGEABLE (chat-like content; the 1-1 general chat
+   is the canonical case), and accept the price: permanent,
+   uninstallable.
 3. **On a fork** (two devices installed while apart): the registry
    converges on one winner, the other lands in `losers`. Merge the
    loser's records into the winner through your own schema, then

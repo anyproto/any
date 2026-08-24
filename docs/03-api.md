@@ -945,11 +945,15 @@ settings — lives in bundles on the account's **tech space**, whose id
 
 - `bundles` ensure / get / list / resolve — `datasets` required, roots
   minted by Ensure (`rootTypes` / `rootProperties` / `children`
-  refused). Both root strategies: `derived: true` for bundles that must
-  never fork or uninstall; the default CREATED root for ordinary app
-  installs — deletable (`DELETE …/objects/:rootId` = uninstall; the id
-  then reads as not installed and a fresh install works), forking on
-  concurrent offline installs and resolving like in any space;
+  refused). The normal shape is the default CREATED root — deletable
+  (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
+  installed and a fresh install works), forking on concurrent offline
+  installs and resolving like in any space. `derived: true` is the
+  EXCEPTION, not a peer option: a permanent, uninstallable root,
+  justified only when a fork would be unmergeable (chat-like content —
+  the general-chat convention, above all in a 1-1, where the
+  convergence gate cannot work). Records-shaped bundles merge, so they
+  are created;
 - `types` reads and `types/:rootId/datasets…` on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`; `GET …/objects/:objectId`;
