@@ -28,9 +28,26 @@ type fakeSpace struct {
 	indexErr error
 	// waited records the deadline the gate gave WaitIndexSynced.
 	waited time.Duration
+	// types serves the root's dataset declarations for the adopt-side
+	// settled check; nil = every root reads as declaration-less.
+	types *fakeTypes
+}
+
+// fakeTypes stubs the one TypesAPI read Ensure performs.
+type fakeTypes struct {
+	space.TypesAPI
+	defs map[string][]space.DatasetDef
+}
+
+func (f *fakeTypes) Datasets(_ context.Context, typeId string) ([]space.DatasetDef, error) {
+	if f == nil {
+		return nil, nil
+	}
+	return f.defs[typeId], nil
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
+func (f *fakeSpace) Types() space.TypesAPI     { return f.types }
 func (f *fakeSpace) Bundles() space.BundlesAPI { return f.bundles }
 
 func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
@@ -630,5 +647,39 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	}
 	if online.waited <= time.Minute {
 		t.Fatalf("connected wait = %s, want the full bound (%s)", online.waited, time.Hour)
+	}
+}
+
+// TestEnsureDatasetsAdoptStaysRead pins the reader-side contract for
+// datasets-carrying re-ensures: once the installed root carries its
+// declaration (first-write-pinned), adoption is a pure read and must
+// not reach the SDK's Ensure — its write gate would reject readers and
+// guests re-running the documented idempotent request. A root without
+// a declaration still falls through so the SDK can declare.
+func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "notes/v1", Derived: true,
+		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+
+	sp := newInstallFake(space.PermissionReader, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+	sp.types = &fakeTypes{defs: map[string][]space.DatasetDef{"root-1": {{Name: "entries"}}}}
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
+	if err != nil || installed || b.RootId != "root-1" {
+		t.Fatalf("reader adopt: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("declared root adopt reached SDK Ensure %d time(s)", len(sp.bundles.ensured))
+	}
+
+	sp2 := newInstallFake(space.PermissionOwner, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("undeclared root ensure: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 1 {
+		t.Fatalf("undeclared root must reach SDK Ensure once, got %d", len(sp2.bundles.ensured))
 	}
 }

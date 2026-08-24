@@ -1665,11 +1665,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "record": {
-                        "items": {
-                            "type": "integer"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
+                        "type": "object"
                     }
                 },
                 "type": "object"

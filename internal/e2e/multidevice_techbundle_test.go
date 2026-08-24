@@ -1,6 +1,6 @@
 // Two `any` servers sharing ONE account (same mnemonic, distinct device
 // keys) install an account-level bundle on the tech space: device A
-// ensures favorites/v1 with an `entries` dataset and writes records,
+// ensures notes/v1 with an `entries` dataset and writes records,
 // device B restores, reads them through the tech-space routes, writes
 // its own and A converges.
 package e2e
@@ -15,7 +15,7 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const favoritesDatasetsBody = `[{
+const scratchDatasetsBody = `[{
 	"name": "entries",
 	"idRule": "user",
 	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
@@ -64,7 +64,7 @@ func TestE2E_MultideviceTechBundle(t *testing.T) {
 
 	var ens api.BundleEnsureResponse
 	mustJSON(t, http.MethodPost, techBase(devA.base)+"/bundles",
-		`{"id":"favorites/v1","name":"Favorites","derived":true,"datasets":`+favoritesDatasetsBody+`}`,
+		`{"id":"notes/v1","name":"Notes","derived":true,"datasets":`+scratchDatasetsBody+`}`,
 		http.StatusOK, &ens)
 	if !ens.Installed || ens.Bundle.RootId == "" {
 		t.Fatalf("devA ensure: %+v", ens)
@@ -110,7 +110,7 @@ func TestE2E_MultideviceTechBundle(t *testing.T) {
 	// declaration under typeId = rootId.
 	var adopted api.BundleEnsureResponse
 	mustJSON(t, http.MethodPost, techBase(devB.base)+"/bundles",
-		`{"id":"favorites/v1","derived":true,"datasets":`+favoritesDatasetsBody+`}`, http.StatusOK, &adopted)
+		`{"id":"notes/v1","derived":true,"datasets":`+scratchDatasetsBody+`}`, http.StatusOK, &adopted)
 	if adopted.Installed || adopted.Bundle.RootId != root {
 		t.Fatalf("devB ensure must adopt: %+v", adopted)
 	}

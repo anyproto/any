@@ -76,19 +76,25 @@ func bindBodyStrict[T any](c echo.Context, hint string) (*T, bool) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(req); err != nil {
-		// encoding/json exports no sentinel for the DisallowUnknownFields
-		// rejection; the message form `json: unknown field "x"` is its
-		// documented shape.
-		if rest, ok := strings.CutPrefix(err.Error(), `json: unknown field `); ok {
-			field := strings.Trim(rest, `"`)
-			accepted := jsonFieldNames(reflect.TypeFor[T]())
-			_ = unknownFieldRejected(c, []string{field}, accepted, hint)
-			return nil, false
-		}
-		_ = writeError(c, http.StatusBadRequest, "request.bad_json", bindErrorMessage[T](err), nil)
+		_ = strictDecodeFailed(c, err, reflect.TypeFor[T](), hint, "", bindErrorMessage[T])
 		return nil, false
 	}
 	return req, true
+}
+
+// strictDecodeFailed renders a DisallowUnknownFields decode failure
+// with the shared envelope: the unknown field by name plus the
+// accepted list (from acceptedType's json tags), or request.bad_json
+// via msg. encoding/json exports no sentinel for the unknown-field
+// rejection; the message form `json: unknown field "x"` is its
+// documented shape. prefix, when non-empty, prefixes the bad-json
+// message (e.g. the body field being decoded).
+func strictDecodeFailed(c echo.Context, err error, acceptedType reflect.Type, hint, prefix string, msg func(error) string) error {
+	if rest, ok := strings.CutPrefix(err.Error(), `json: unknown field `); ok {
+		return unknownFieldRejected(c, []string{strings.Trim(rest, `"`)},
+			jsonFieldNames(acceptedType), hint)
+	}
+	return writeError(c, http.StatusBadRequest, "request.bad_json", prefix+msg(err), nil)
 }
 
 // bindErrorMessage renders a JSON bind failure into a message that says

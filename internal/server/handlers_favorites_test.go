@@ -46,16 +46,43 @@ func TestServer_FavoritesBuiltinBundle(t *testing.T) {
 	}
 
 	// Client ensure of the server-owned id is refused — racing the
-	// boot pass could pin a divergent declaration forever.
-	rec := doJSON(t, e, http.MethodPost, base+"/bundles",
-		`{"id":"favorites/v1","derived":true,"datasets":[{"name":"entries","idRule":"user","fields":[{"key":"x","kind":"string"}]}]}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("client ensure of a built-in id: %d %s", rec.Code, rec.Body.String())
+	// boot pass could pin a divergent declaration forever. The verdict
+	// comes first: even a shapeless request gets the reservation, not
+	// guidance toward a request that can never succeed.
+	for _, body := range []string{
+		`{"id":"favorites/v1","derived":true,"datasets":[{"name":"entries","idRule":"user","fields":[{"key":"x","kind":"string"}]}]}`,
+		`{"id":"favorites/v1"}`,
+	} {
+		rec := doJSON(t, e, http.MethodPost, base+"/bundles", body)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("client ensure of a built-in id (%s): %d %s", body, rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != "bundle.reserved" {
+			t.Fatalf("code %q", env.Error.Code)
+		}
 	}
-	var env api.ErrorEnvelope
-	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Error.Code != "bundle.reserved" {
-		t.Fatalf("code %q", env.Error.Code)
+
+	// The declaration is server-owned end to end: dataset CRUD through
+	// the type routes on the built-in root is refused with the same
+	// code (a tombstoned declaration could never be re-declared).
+	for _, rt := range []struct{ method, path, body string }{
+		{http.MethodPost, base + "/types/" + root + "/datasets", `{"name":"extra","idRule":"user","fields":[{"key":"x","kind":"string"}]}`},
+		{http.MethodPatch, base + "/types/" + root + "/datasets/some-def", `{"set":{"description":"x"}}`},
+		{http.MethodDelete, base + "/types/" + root + "/datasets/some-def", ""},
+		{http.MethodPost, base + "/types/" + root + "/datasets/some-def/fields", `{"key":"x","kind":"string"}`},
+		{http.MethodDelete, base + "/types/" + root + "/datasets/some-def/fields/some-field", ""},
+	} {
+		rec := doJSON(t, e, rt.method, rt.path, rt.body)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("%s %s: want 409, got %d %s", rt.method, rt.path, rec.Code, rec.Body.String())
+		}
+		var env api.ErrorEnvelope
+		_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		if env.Error.Code != "bundle.reserved" {
+			t.Fatalf("%s %s: code %q", rt.method, rt.path, env.Error.Code)
+		}
 	}
 
 	// Declaration discoverable under typeId = rootId.
@@ -66,7 +93,7 @@ func TestServer_FavoritesBuiltinBundle(t *testing.T) {
 	}
 
 	// Star an item (id = link) and create a folder — one upsert.
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec := doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
 		{"id":"any://o/sp1/obj1","fields":{"parentId":"f:aaa","pos":"a1","name":"Doc","iconCid":"bafyicon","types":["page"]}},
 		{"id":"f:aaa","fields":{"parentId":"","pos":"a0","name":"Work"}}]}`)
 	if rec.Code != http.StatusOK {
@@ -167,4 +194,24 @@ func hasRejection(body []byte) bool {
 	}
 	_ = json.Unmarshal(body, &r)
 	return len(r.Rejections) > 0
+}
+
+// TestTechAllowedRoutesRegistered pins the guard table against the
+// registered route set: every "METHOD pattern" key must byte-match a
+// real route, or a rename silently turns it into 405 on the tech
+// space with no other signal.
+func TestTechAllowedRoutesRegistered(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	registered := make(map[string]struct{})
+	for _, r := range e.Routes() {
+		registered[r.Method+" "+r.Path] = struct{}{}
+	}
+	for key := range techAllowedRoutes {
+		if _, ok := registered[key]; !ok {
+			t.Errorf("techAllowedRoutes entry %q matches no registered route", key)
+		}
+	}
 }

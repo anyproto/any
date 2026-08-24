@@ -197,13 +197,21 @@ func NewResolver(grace time.Duration) *Resolver {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	// A request that declares datasets must always reach the SDK's
-	// Ensure: the adopt shortcut would silently skip the declaration
-	// rules the SDK applies on its own adopt path (declare on a root
-	// that carries none, refuse Datasets on a created-root install).
-	skipAdopt := len(inst.Datasets) > 0
+	// A datasets-carrying request reaches the SDK's Ensure only when
+	// the adopted root does not carry a declaration yet (the SDK
+	// declares on its own adopt path). Once the declaration exists it
+	// is first-write-pinned, so adoption stays the pure read the
+	// contract promises — a reader/guest re-running the documented
+	// idempotent ensure must not land in Ensure's write gate.
+	settled := func(b space.Bundle) bool {
+		if len(inst.Datasets) == 0 {
+			return true
+		}
+		defs, err := sp.Types().Datasets(ctx, b.RootId)
+		return err == nil && len(defs) > 0
+	}
 	existing, adopted, err := r.tryAdopt(ctx, sp, inst)
-	if err != nil || (adopted && !skipAdopt) {
+	if err != nil || (adopted && settled(existing)) {
 		return existing, false, err
 	}
 	if existing.RootId == "" {
@@ -212,7 +220,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		}
 		// The converged registry may name a winner the pre-read could
 		// not see.
-		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && !skipAdopt) {
+		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && settled(existing)) {
 			return existing, false, err
 		}
 	}

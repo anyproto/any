@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -126,11 +127,23 @@ func (d *deps) techIndexFence(c echo.Context, root *fastjson.Value, indexId, obj
 	if objectId != indexId {
 		return nil, nil, false
 	}
-	stripped, ok := techIndexDatasetPolicy[dataset]
+	return vetIndexDatasetRead(c, root, dataset, techIndexDatasetPolicy,
+		" on the tech index object (read identities via GET /v1/identities)",
+		map[string]any{"objectId": objectId, "dataset": dataset})
+}
+
+// vetIndexDatasetRead is the ONE read-side vet for index-object
+// datasets, shared by the tech-space fence and the account-level
+// space-list query: allowlist membership plus no filter/sort touching
+// withheld fields. Allowlist, strip lists and the refusal message all
+// derive from the policy table, so a policy edit cannot leave a route
+// behind.
+func vetIndexDatasetRead(c echo.Context, root *fastjson.Value, dataset string, policy map[string][]string, note string, details map[string]any) (strip []string, errResp error, done bool) {
+	stripped, ok := policy[dataset]
 	if !ok {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"dataset must be one of: spaces, profile, bundles on the tech index object (read identities via GET /v1/identities)",
-			map[string]any{"objectId": objectId, "dataset": dataset}), true
+			"dataset must be one of: "+strings.Join(policyDatasets(policy, false), ", ")+note,
+			details), true
 	}
 	if len(stripped) > 0 && root != nil && queryTouchesFields(root, stripped) {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -138,6 +151,22 @@ func (d *deps) techIndexFence(c echo.Context, root *fastjson.Value, indexId, obj
 			map[string]any{"fields": stripped}), true
 	}
 	return stripped, nil, false
+}
+
+// policyDatasets lists a policy table's dataset names, sorted;
+// unstripped=true keeps only datasets with no strip list (the set
+// aggregate may touch — its output is caller-shaped, so withheld
+// fields cannot be stripped from it).
+func policyDatasets(policy map[string][]string, unstripped bool) []string {
+	out := make([]string, 0, len(policy))
+	for name, stripped := range policy {
+		if unstripped && len(stripped) > 0 {
+			continue
+		}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // queryTouchesFields reports whether the request's filter or sort

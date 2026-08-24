@@ -7,7 +7,7 @@ import "encoding/json"
 // property values, meta included), rendered as JSON.
 type ObjectGetResponse struct {
 	ObjectId string          `json:"objectId"`
-	Record   json.RawMessage `json:"record"`
+	Record   json.RawMessage `json:"record" swaggertype:"object"`
 }
 
 // ObjectsCreateResponse is the body returned by POST /v1/spaces/:spaceId/objects.

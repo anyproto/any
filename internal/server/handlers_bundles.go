@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
-	"github.com/anyproto/any/internal/index"
 )
 
 // Input caps. Bundle records are PERMANENT — the registry refuses
@@ -113,6 +111,16 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	// the same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
+		// Reservation first: a built-in id answers 409 whatever the
+		// request's shape, as documented — shape guidance would coach
+		// the caller toward a request that can never succeed.
+		case builtinBundleId(inst.Id):
+			// Server-owned declaration: a client ensure racing the boot
+			// pass could pin a divergent schema forever (declarations
+			// are first-write). The bundle is ensured at boot; clients
+			// only read it.
+			return writeError(c, http.StatusConflict, "bundle.reserved",
+				"bundle id is server-owned and ensured at boot", map[string]any{"bundleId": inst.Id})
 		case !inst.Derived:
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"tech-space bundles are derived-only: set derived: true", nil)
@@ -122,13 +130,6 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
-		case builtinBundleId(inst.Id):
-			// Server-owned declaration: a client ensure racing the boot
-			// pass could pin a divergent schema forever (declarations
-			// are first-write). The bundle is ensured at boot; clients
-			// only read it.
-			return writeError(c, http.StatusConflict, "bundle.reserved",
-				"bundle id is server-owned and ensured at boot", map[string]any{"bundleId": inst.Id})
 		}
 	}
 
@@ -190,7 +191,8 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 			return inst, writeError(c, http.StatusBadRequest, "request.schema",
 				"datasets must be an array of dataset drafts", nil), true
 		}
-		if len(v.MarshalTo(nil)) > maxBundleDatasetsBytes {
+		buf := v.MarshalTo(nil)
+		if len(buf) > maxBundleDatasetsBytes {
 			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"datasets too large", map[string]any{"max_bytes": maxBundleDatasetsBytes}), true
 		}
@@ -198,7 +200,7 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 			return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"datasets require derived: true — a created root cannot carry declarations", nil), true
 		}
-		drafts, errResp, done := bundleDatasetsFromBody(c, v)
+		drafts, errResp, done := bundleDatasetsFromBody(c, buf)
 		if done {
 			return inst, errResp, true
 		}
@@ -263,20 +265,14 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 // applies the search indexer's reserved-name rule. Name conflicts with
 // what the space already hosts are the SDK's verdict (400 via
 // ErrBundleBadRequest) — on adopt the names legitimately exist.
-func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetDraft, error, bool) {
+func bundleDatasetsFromBody(c echo.Context, body []byte) ([]space.DatasetDraft, error, bool) {
 	var reqs []api.DatasetDraftRequest
-	dec := json.NewDecoder(bytes.NewReader(v.MarshalTo(nil)))
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&reqs); err != nil {
-		// Same envelope as the strict binder on the types route: the
-		// unknown field by name with the accepted list, type errors
-		// without Go type names.
-		if rest, ok := strings.CutPrefix(err.Error(), `json: unknown field `); ok {
-			return nil, unknownFieldRejected(c, []string{strings.Trim(rest, `"`)},
-				jsonFieldNames(reflect.TypeFor[api.DatasetDraftRequest]()), "datasets"), true
-		}
-		return nil, writeError(c, http.StatusBadRequest, "request.bad_json",
-			"datasets: "+bindErrorMessage[[]api.DatasetDraftRequest](err), nil), true
+		// Same envelope as the strict binder on the types route.
+		return nil, strictDecodeFailed(c, err, reflect.TypeFor[api.DatasetDraftRequest](),
+			"datasets", "datasets: ", bindErrorMessage[[]api.DatasetDraftRequest]), true
 	}
 	if len(reqs) > maxBundleDatasets {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -288,7 +284,7 @@ func bundleDatasetsFromBody(c echo.Context, v *fastjson.Value) ([]space.DatasetD
 			return nil, writeError(c, http.StatusBadRequest, "request.missing_field",
 				fmt.Sprintf("datasets[%d].name required", i), nil), true
 		}
-		if reqs[i].Name == index.DatasetProp || reqs[i].Name == index.DatasetSchemaVirtual {
+		if reservedIndexDatasetName(reqs[i].Name) {
 			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"dataset name is reserved by the search indexer",
 				map[string]any{"name": reqs[i].Name}), true
