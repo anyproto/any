@@ -1,4 +1,14 @@
 (function(){
+  var btn=document.getElementById('mode');if(!btn)return;
+  btn.onclick=function(){
+    var cur=document.documentElement.dataset.theme;
+    if(!cur)cur=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+    var next=cur==='dark'?'light':'dark';
+    document.documentElement.dataset.theme=next;
+    try{localStorage.setItem('any-docs-theme',next)}catch(e){}
+  };
+})();
+(function(){
   var root=window.__root||'.';
   var q=document.getElementById('q'),res=document.getElementById('results'),idx=null,sel=-1;
   document.getElementById('menu').onclick=function(){document.getElementById('side').classList.toggle('open')};
@@ -27,43 +37,59 @@
   // heading anchors
   document.querySelectorAll('.doc h2[id],.doc h3[id]').forEach(function(h){var a=document.createElement('a');a.href='#'+h.id;a.textContent=h.textContent;h.textContent='';h.appendChild(a)});
   // scroll active sidebar link into view
-  var act=document.querySelector('.side a.active');if(act)act.scrollIntoView({block:'center'});
-})();
-(function(){
-  document.querySelectorAll('.doc pre > code').forEach(function(c){
-    var m=/language-([\w-]+)/.exec(c.className||'');var lang=m?m[1]:'';c.parentNode.setAttribute('data-lang',lang);
-    if(c.parentNode.classList.contains('term')||!/^(sh|bash|shell|console|fish|zsh)$/.test(lang))return;
-    var esc=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')};
-    c.innerHTML=c.textContent.split('\n').map(function(l){
-      if(/^\s*#/.test(l))return '<span class="c">'+esc(l)+'</span>';
-      var o=esc(l);
-      o=o.replace(/('[^']*'|"[^"]*")/g,'<span class="s">$1</span>');
-      o=o.replace(/(\s)(--?[\w-]+)/g,'$1<span class="n">$2</span>');
-      o=o.replace(/^(\s*)(\$ |&gt; )/,'$1<span class="p">$2</span>');
-      o=o.replace(/^(\s*(?:<span class="p">[^<]*<\/span>)?)(any|anyrt|curl|make|go|nix|git|uv|cargo|export|cd|python3|pnpm)\b/,'$1<span class="k">$2</span>');
-      return o}).join('\n');
-  });
+  var act=document.querySelector('.side a.active');
+  if(act){var side=document.getElementById('side');side.scrollTop=act.offsetTop-side.clientHeight/2;}
 })();
 (function(){
   var esc=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')};
+  // Token-first highlighter: protected regions (strings, comments) are matched
+  // once and emitted verbatim; keyword/flag rules only ever see the gaps
+  // between them, so JSON inside a bash string or a Go struct tag can never
+  // pick up keyword colors.
+  function hl(t,prot,cls,gap){
+    var out='',i=0,m;prot.lastIndex=0;
+    while((m=prot.exec(t))){
+      out+=gap(esc(t.slice(i,m.index)));
+      out+='<span class="'+cls(m[0],prot.lastIndex,t)+'">'+esc(m[0])+'</span>';
+      i=prot.lastIndex;
+      if(m.index===prot.lastIndex)prot.lastIndex++; // zero-width safety
+    }
+    return out+gap(esc(t.slice(i)));
+  }
   document.querySelectorAll('.doc pre > code').forEach(function(c){
-    var lang=c.parentNode.getAttribute('data-lang')||'';
+    var m=/language-([\w-]+)/.exec(c.className||'');var lang=m?m[1]:'';c.parentNode.setAttribute('data-lang',lang);
     if(c.parentNode.classList.contains('term'))return;
-    if(/^(json|jsonc|yaml|yml|toml)$/.test(lang)){
-      c.innerHTML=esc(c.textContent).replace(/(#.*$|\/\/.*$)/gm,'<span class="c">$1</span>')
-        .replace(/("[^"\n]*")(\s*:)/g,'<span class="k">$1</span>$2')
-        .replace(/(:\s*)("[^"\n]*")/g,'$1<span class="s">$2</span>')
-        .replace(/\b(true|false|null)\b/g,'<span class="n">$1</span>')
-        .replace(/(:\s*)(-?\d+(?:\.\d+)?)/g,'$1<span class="n">$2</span>');
+    if(/^(sh|bash|shell|console|fish|zsh)$/.test(lang)){
+      c.innerHTML=c.textContent.split('\n').map(function(l){
+        if(/^\s*#/.test(l))return '<span class="c">'+esc(l)+'</span>';
+        var o=hl(l,/'[^']*'|"[^"]*"/g,
+          function(){return 's'},
+          function(g){return g.replace(/(^|\s)(--?[\w][\w-]*)/g,'$1<span class="n">$2</span>')
+            .replace(/(\$\{?[A-Za-z_]\w*\}?)/g,'<span class="a">$1</span>')
+            .replace(/(\s)(#.*)$/,'$1<span class="c">$2</span>')});
+        o=o.replace(/^(\s*)(\$ |&gt; )/,'$1<span class="p">$2</span>');
+        o=o.replace(/^(\s*(?:<span class="p">[^<]*<\/span>)?)(any|anyrt|curl|make|go|nix|git|uv|cargo|export|cd|python3|pnpm)\b/,'$1<span class="k">$2</span>');
+        return o}).join('\n');
+    }else if(/^(json|jsonc|yaml|yml|toml)$/.test(lang)){
+      c.innerHTML=hl(c.textContent,/"[^"\n]*"|'[^'\n]*'|#.*$|\/\/.*$/gm,
+        function(s,end,t){
+          if(s[0]==='#'||s[0]==='/')return 'c';
+          return /^\s*:/.test(t.slice(end))?'k':'s'},
+        function(g){return g.replace(/\b(true|false|null)\b/g,'<span class="a">$1</span>')
+          .replace(/([:\s,\[=])(-?\d+(?:\.\d+)?)(?=[\s,\]}]|$)/g,'$1<span class="a">$2</span>')});
     }else if(/^(py|python)$/.test(lang)){
-      var t=esc(c.textContent),out='',re=/("""[\s\S]*?"""|'''[\s\S]*?'''|"[^"\n]*"|'[^'\n]*'|#.*$)/gm,i=0,m;
-      var kw=function(s){return s.replace(/\b(def|return|if|elif|else|for|in|while|import|from|as|with|not|and|or|None|True|False|class|try|except|raise|yield|lambda|pass|await|async)\b/g,'<span class="k">$1</span>').replace(/\b(use|effect|span|print|main)(?=\()/g,'<span class="n">$1</span>')};
-      while((m=re.exec(t))){out+=kw(t.slice(i,m.index));out+='<span class="'+(m[0][0]==='#'?'c':'s')+'">'+m[0]+'</span>';i=re.lastIndex}
-      c.innerHTML=out+kw(t.slice(i));
+      c.innerHTML=hl(c.textContent,/"""[\s\S]*?"""|'''[\s\S]*?'''|"[^"\n]*"|'[^'\n]*'|#.*$/gm,
+        function(s){return s[0]==='#'?'c':'s'},
+        function(g){return g.replace(/\b(def|return|if|elif|else|for|in|while|import|from|as|with|not|and|or|class|try|except|raise|yield|lambda|pass|await|async)\b/g,'<span class="k">$1</span>')
+          .replace(/\b(None|True|False)\b/g,'<span class="a">$1</span>')
+          .replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="a">$1</span>')
+          .replace(/\b(use|effect|span|print|main)(?=\()/g,'<span class="n">$1</span>')});
     }else if(/^(go|rust|rs|js|javascript|ts|typescript)$/.test(lang)){
-      c.innerHTML=esc(c.textContent).replace(/(\/\/.*$)/gm,'<span class="c">$1</span>')
-        .replace(/("[^"\n]*"|`[^`]*`|'[^'\n]*')/g,'<span class="s">$1</span>')
-        .replace(/\b(func|let|const|var|return|if|else|for|await|async|fn|use|pub|struct|impl|match|import|export|new|type|interface)\b/g,'<span class="k">$1</span>');
+      c.innerHTML=hl(c.textContent,/\/\/.*$|`[^`]*`|"[^"\n]*"|'[^'\n]*'/gm,
+        function(s){return s[0]==='/'?'c':'s'},
+        function(g){return g.replace(/\b(func|let|const|var|return|if|else|for|range|await|async|fn|use|pub|struct|impl|match|import|export|new|type|interface|defer|chan|map|package)\b/g,'<span class="k">$1</span>')
+          .replace(/\b(true|false|null|nil|undefined)\b/g,'<span class="a">$1</span>')
+          .replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="a">$1</span>')});
     }
   });
 })();
