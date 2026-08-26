@@ -37,7 +37,7 @@ type derivedSpaceDef struct {
 }
 
 var derivedSpaceDefs = []derivedSpaceDef{
-	// bao — the account's agent space (bobrik and friends).
+	// bao — the account's agent space.
 	{Name: "bao", DisplayName: "bao", Seed: "any/space/bao/v1"},
 }
 

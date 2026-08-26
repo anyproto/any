@@ -224,13 +224,6 @@ Implementation slices landed:
     declares it as runtime datasets on objects it derives itself and
     owns the record shapes, validation, and search mappings; nothing
     agent-specific is compiled into this server (docs/11-agent-memory.md).
-12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
-    Full docs (storage shape, refresh mechanics, validation rules,
-    flags, what's missing) in
-    [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) and
-    [`cmd/bobrik-watch/BOBRIK.md`](cmd/bobrik-watch/BOBRIK.md). Read
-    those before changing anything under that directory.
-
 12. **Dataset schemas + space-list query/subscribe** — built on the
     SDK's unified tech-space query (`Service.Query` /
     `SpaceIndexObjectId`) and required-schema work (`handler.Dataset.Schema`
@@ -1262,8 +1255,8 @@ llama.cpp bindings need libffi, which the dev shell provides
 (a bare tagged binary panics on `libffi.so.8` at startup).
 
 ```
-make build                                        # canonical: any + any-agent-runtime,
-                                                  # with -tags '$(INDEX_TAGS)' (fts vector)
+make build                                        # canonical: bin/any, with
+                                                  # -tags '$(INDEX_TAGS)' (fts vector)
 go build ./cmd/any                                # AVOID for servers you'll query:
                                                   # no index tags -> search returns nothing
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
@@ -1296,41 +1289,8 @@ build jobs (desktop x6 tarballs — 4 platforms plus 2 App-Sandbox-safe darwin
 fans in to a single `publish` job that ships them all in ONE GitHub Release (both
 mobile assets sha256-pinned in the notes) and dispatches the 3 client repos.
 
-For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
-
-### Running bobrik — the canonical sequence
-
-After ANY change to Go code, `anyHelper.js`, programs, skills, or
-tool-descriptions, run these three steps in order:
-
-```
-# 1. Always rebuild first — never skip this.
-make build                                        # builds any, bobrik-watch, any-agent-runtime
-
-# 2. (Re)start any and bobrik-watch (restart both so the new binaries take over).
-#    e.g. stop the running instances, then:
-./any run                                         # foreground server (or your start skill)
-./bin/bobrik-watch                                # default: space=bao, watches chat "general"
-
-# 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
-#    tool-descriptions from disk into the bao space).
-./bin/bobrik-watch --bootstrap                    # POST /bootstrap to the running instance
-```
-
-Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
-how new JS reaches a live agent: a binary restart alone does NOT re-sync
-the in-space programs/skills of an already-running watcher; `--bootstrap`
-POSTs `/bootstrap` to the running watcher's control API (`--control-addr`,
-default `127.0.0.1:7010`), which re-runs the bootstrap sync against disk.
-That sync is **incremental/hash-gated** — unchanged programs/skills are
-skipped, deleted ones swept — so it's cheap to run often.
-(`--bootstrap-clean` POSTs `/bootstrap-clean`, the wipe-and-rebuild
-recovery path.) See
-[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Startup sync
-for the mechanics.
-
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
-(`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
+(`any-sync-sdk`, `any-sync`, `any-store`) are
 **published modules**, not sibling checkouts — `go.mod` is the single
 source of truth for the exact versions. Don't restate version numbers
 here: they drift on every bump and go stale silently. Which SDK feature
