@@ -21,7 +21,7 @@ deliberately out of scope (they're admin/host concerns, reachable via the raw
 | Members (read) | `GET /members`, `GET /members/:identity` | `listSpaceMembers`, `getSpaceMember` |
 | Chat (write) | `POST …/objects/:o/chat/messages` | `sendChatMessage` (auto-stamps the `agent` group; reads/list via `getObjects`) |
 | Spaces (list) | `GET /spaces` | `listSpaces` |
-| Programs | (via `/modify` + `/query` on `program_*` datasets) | `listPrograms`/`getProgram`/`saveProgram`/`saveTool`/`runProgram` |
+| Programs | (harness-declared `program` user type — via `/modify` + `/query` on its `program_source` runtime dataset) | `listPrograms`/`getProgram`/`saveProgram`/`saveTool`/`runProgram` |
 
 ## Added in this pass
 

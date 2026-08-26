@@ -34,7 +34,6 @@ swagger:
 build: swagger llamacpp-soft
 	@mkdir -p $(OUT)
 	go build -v -tags '$(INDEX_TAGS)' -ldflags '$(LDFLAGS)' -o $(OUT)/$(BINARY) ./cmd/any
-	go build -v -o $(OUT)/any-agent-runtime $(PKG)/cmd/any-agent-runtime
 
 # Prebuilt llama.cpp shared libs for `index.embedder: local` — fetched
 # once into bin/llamacpp/ (cached tarball under third_party/llamacpp/);

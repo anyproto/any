@@ -1437,8 +1437,8 @@ Two query scopes:
 - `POST /v1/spaces/:spaceId/query` (+ `/subscribe`) — **per-object**.
   Reads one of an object's own datasets (`objectId` and `dataset`
   required). Used for a type object's `properties` definitions
-  dataset, `editor_blocks`, `chat_messages`, `program_source`,
-  `mini_app`, etc.
+  dataset, `editor_blocks`, `chat_messages`, runtime datasets such
+  as `program_source` / `mini_app`, etc.
 
 Every row in the per-space `objects` collection carries SDK-stamped
 row-root fields alongside `id`, all derived/read-only (client writes

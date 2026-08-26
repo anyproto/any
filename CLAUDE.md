@@ -249,9 +249,7 @@ Implementation slices landed:
       a `handler.Schema` (`internal/chat`, `internal/editor`): fields +
       per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
       rest synced; editor all synced). `Dynamic: true` keeps undeclared
-      keys permitted, mirroring the `objects` dataset. Opaque content
-      datasets (program/miniapp) stay schema-less (default
-      Dynamic).
+      keys permitted, mirroring the `objects` dataset.
     - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
       and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
       `[{name, schema}]` where `schema` is a JSON Schema doc with a
@@ -298,8 +296,8 @@ Implementation slices landed:
       the type is attached, `Data ""` otherwise (record-level eviction
       of cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `program` and
-      `miniapp`.
+    - Excluded from indexing entirely: any runtime dataset declared
+      without `search` (anybao's `program_source`, `mini_app`).
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
       index.NewPropChunker())`, stored on `deps.chunkers`.
@@ -1262,7 +1260,7 @@ llama.cpp bindings need libffi, which the dev shell provides
 (a bare tagged binary panics on `libffi.so.8` at startup).
 
 ```
-make build                                        # canonical: any + any-agent-runtime,
+make build                                        # canonical: any,
                                                   # with -tags '$(INDEX_TAGS)' (fts vector)
 go build ./cmd/any                                # AVOID for servers you'll query:
                                                   # no index tags -> search returns nothing
@@ -1305,7 +1303,7 @@ tool-descriptions, run these three steps in order:
 
 ```
 # 1. Always rebuild first — never skip this.
-make build                                        # builds any, bobrik-watch, any-agent-runtime
+make build                                        # builds any
 
 # 2. (Re)start any and bobrik-watch (restart both so the new binaries take over).
 #    e.g. stop the running instances, then:

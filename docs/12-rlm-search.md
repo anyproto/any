@@ -318,7 +318,7 @@ all verified by smoke test + `search_test.js`:
 - the primitives and data helpers arrive as explicit parameters, so
   the root sees OUR instances (noTrace client) regardless of kernel
   state — which also makes the loop runnable outside the kernel
-  (tests, `any-agent-runtime`);
+  (tests);
 - cells use `return <value>` to surface a value — there is no
   implicit last-expression capture (the cell contract in the system
   prompt says so);

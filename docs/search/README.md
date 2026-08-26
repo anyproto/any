@@ -44,7 +44,7 @@ this for *why* and *how well*.
 |---|---|---|
 | Editor | one-doc-per-block → coalesced windows (heading + ~1.5 KB budget), `recordId = win_<anchor>` | `internal/editor/window.go`, `chunker.go` |
 | Memory | `agent_memory_items` indexed per-record, scope `agent` | `internal/agentmem/chunker.go` |
-| Programs | **not indexed** — source only (docstrings are the docs, anybao ADR-010); discovery is the agent's prompt inventory + `help()` | `internal/program/program.go` |
+| Programs | **not indexed** — a harness-declared user type whose `program_source` runtime dataset has no `search` mapping (docstrings are the docs, anybao ADR-010); discovery is the agent's prompt inventory + `help()` | anybao `runtime/src/program_schema.rs` |
 | Incremental embed | per-doc content hash → reconcile diff (editor) + per-record no-op skip (chat/memory) | `internal/indexer/{worker,store}.go` |
 | ANN index | configurable `index.vector.mode` (default **IVF-SQ**; btree/hnsw/hybrid/bruteforce) | `internal/indexer/store.go`, `../05-config.md` |
 | Embedder fallback | `embedder: auto` — online primary + local fallback, circuit breaker, same model | `internal/indexer/embed_fallback.go` |
