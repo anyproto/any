@@ -162,9 +162,8 @@ Implementation slices landed:
    same as PUT), and creates the new blocks in one ModifyBatch —
    O(chunk), not O(doc). Purely additive; same reply shape as PUT with
    only `inserted` populated (`markdown.Append` in `internal/markdown`).
-   Grow-by-append pages (e.g. the agent debug log, via
-   `anyHelper.appendToObject`) use it so a run of N appends is O(N),
-   not O(N²). CLI: `any editor blocks create/patch/delete`.
+   Grow-by-append pages (e.g. an agent's debug log) use it so a run of
+   N appends is O(N), not O(N²). CLI: `any editor blocks create/patch/delete`.
 8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
    space's `name` / `description` / `icon` in a derived in-space
    `spaceIndex` object (one per space, deterministic id) rather than
@@ -1468,7 +1467,7 @@ auto-start.
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
-| `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
+| `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, xKey paths |
 | `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
