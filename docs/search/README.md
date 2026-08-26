@@ -407,9 +407,8 @@ mechanisms address this (`docs/05-config.md`):
   measure our content directly.
 - **Reranker tier** — a cross-encoder over the fused top-N would give a
   calibrated relevance score (enabling true "nothing relevant"
-  abstention, which the floor can't). Deferred; the RLM `search`/`ask`
-  loop ([`../12-rlm-search.md`](../12-rlm-search.md)) is the heavyweight
-  stand-in.
+  abstention, which the floor can't). Deferred; an LLM recall loop in the
+  agent harness is the heavyweight stand-in.
 - **Upstream FTS asks — LANDED in any-store alpha.15** (phrase, prefix,
   `$require`/`$exclude`/`$defaultOperator`, per-index BM25 `b`/`k1`,
   per-field BM25F weights). Adoption status:

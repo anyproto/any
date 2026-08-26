@@ -19,21 +19,41 @@ Unzip and add `any.xcframework` to your target as an embedded binary. The archiv
 
 ## The surface
 
-The header exposes four functions. Strings are C strings; `AnyServerStart` returns the bound **port** on success or a negative error code:
+The header exposes four functions. Strings are C strings:
 
 | Function | Purpose |
 |----------|---------|
-| `AnyServerStart(dataDir, listenAddr, nodeconfYAML, indexEnabled) -> int` | Boot the server. Returns the bound port (≥ 0) once the listener is up; negative on failure (already running, bad data dir, boot error). |
-| `AnyServerStartWithPush(dataDir, listenAddr, nodeconfYAML, indexEnabled, pushPeerId, pushAddrs) -> int` | Same, plus the push node. Empty strings = no push. |
-| `AnyServerStop()` | Graceful shutdown; waits for the server to exit. Safe when not running. |
-| `AnyServerStopNow()` | Hard stop, returns promptly — for `applicationWillTerminate` or an expiring background task. |
+| `AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs) -> AnyLibStartResult` | Boot the engine. Blocks until the listener is up. |
+| `AnyLibStop()` | Graceful shutdown; waits for the engine to exit. Safe when not running. |
+| `AnyLibStopNow()` | Hard stop, returns promptly — for `applicationWillTerminate` or an expiring background task. |
+| `AnyLibVersion() -> char *` | The linked archive's version string. Valid for the process lifetime; do **not** free it. |
 
-`nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `indexEnabled` lets a share extension skip the search indexer entirely.
+`AnyLibStart` hands back a struct, by value, with everything you need to react:
+
+```c
+typedef struct {
+    int32_t code;         // 0 ok
+    char    address[64];  // "127.0.0.1:53421" when code == 0
+    char    message[512]; // the engine's own detail when code != 0
+} AnyLibStartResult;
+```
+
+Both buffers are always NUL-terminated, so a long message loses its tail rather than its terminator. Nothing here is heap-allocated and nothing needs freeing.
+
+| `code` | Meaning |
+|--------|---------|
+| `0` | Up. `address` holds the bound host:port. |
+| `1` | An instance is already running in this process — stop it first. |
+| `2` | Bad data dir: empty, or not creatable. |
+| `3` | Boot failed. `message` says why. |
+| `4` | The on-disk search index can't be opened by this build and must be deleted to rebuild. Offer the user a "reset local data" path, not a plain retry — the index is a derived cache, so deleting it is the whole fix. |
+
+`nodeconfYAML` selects the network: an empty string means the production any-sync network embedded in the archive; pass a nodeconf's YAML text to join another ([Networks](networks.html)). `pushPeerId` / `pushAddrs` configure the push node — empty strings keep push off ([Push](../notifications/push.html)).
 
 ## Start it
 
 ```swift
-import AnyServer
+import AnyLib
 
 final class AnyBackend {
     static let shared = AnyBackend()
@@ -43,14 +63,36 @@ final class AnyBackend {
         let dataDir = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("any").path
-        let port = AnyServerStart(dataDir, "127.0.0.1:0", "", true)   // ":0" → OS picks a port
-        guard port >= 0 else { throw NSError(domain: "any", code: Int(port)) }
-        baseURL = URL(string: "http://127.0.0.1:\(port)/v1")!
+
+        // The parameters are `char *`, not `const char *`, so Swift won't
+        // bridge a String for you. NULL reads as "" on the Go side.
+        let dir = strdup(dataDir), addr = strdup("127.0.0.1:0")   // ":0" → OS picks a port
+        defer { free(dir); free(addr) }
+
+        var res = AnyLibStart(dir, addr, nil, nil, nil)        // nil nodeconf = production; nil push pair = off
+        guard res.code == 0 else {
+            throw NSError(domain: "any", code: Int(res.code),
+                          userInfo: [NSLocalizedDescriptionKey: read(&res.message)])
+        }
+        baseURL = URL(string: "http://\(read(&res.address))/v1")!
     }
 
-    func stop() { AnyServerStop() }
+    func stop() { AnyLibStop() }
+
+    /// Fixed-size `char[]` fields arrive as Swift tuples; rebind to read them.
+    private func read<T>(_ field: inout T) -> String {
+        withUnsafePointer(to: &field) {
+            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<T>.size) {
+                String(cString: $0)
+            }
+        }
+    }
 }
 ```
+
+Build the URL from `address` rather than interpolating a port — that is the address the listener actually bound.
+
+Code `4` deserves its own branch: it means the on-disk search index can't be read by this build (typically after an app update bumped the index schema). Offer "reset local data and retry" rather than a plain retry — the index is a derived cache, so deleting `<dataDir>/index` is the whole fix and nothing syncable is lost.
 
 Use Application Support (excluded from iCloud backup if you prefer) as the data dir; it holds the wallet, databases, files, and index for the account ([Data dir](../operations/data-dir.html)).
 
@@ -90,8 +132,8 @@ for try await line in bytes.lines { /* accumulate until "" then dispatch on even
 
 ## Lifecycle notes
 
-- **One server per process.** A second `AnyServerStart` while running fails; stop first.
-- **Background expiry.** Call `AnyServerStopNow()` from a deadline-bounded task expiration handler; `AnyServerStop()` drains open streams with a 10 s ceiling.
+- **One instance per process.** A second `AnyLibStart` while running fails; stop first.
+- **Background expiry.** Call `AnyLibStopNow()` from a deadline-bounded task expiration handler; `AnyLibStop()` drains open streams with a 10 s ceiling.
 - **App Sandbox helpers on macOS** use the `-sandbox` desktop tarball rather than this archive ([Builds and CI](../operations/builds-and-ci.html)).
 - **Push.** Start with the push node and cache each space's `SpaceInfo.push` keys in a shared-access-group keychain item so the Notification Service Extension can decrypt while the server is not running ([Push](../notifications/push.html)).
 

@@ -309,9 +309,9 @@ passes the push node explicitly at start:
 - **Android (gomobile)**: `mobile.StartWithPush(dataDir, listenAddr,
   nodeconfYAML, pushPeerId, pushAddrs)` — `pushAddrs` comma-separated,
   same format `ANY_PUSH_ADDRS` parses. Plain `Start` keeps push off.
-- **iOS (c-archive)**: `AnyServerStartWithPush(dataDir, listenAddr,
-  nodeconfYAML, indexEnabled, pushPeerId, pushAddrs)` — same
-  semantics; `AnyServerStart` keeps push off.
+- **iOS (c-archive)**: `AnyLibStart(dataDir, listenAddr,
+  nodeconfYAML, pushPeerId, pushAddrs)` — same semantics; empty
+  strings keep push off. There is no separate `…WithPush` variant.
 - **Go hosts**: `embedded.Start(embedded.Options{…, PushPeerId,
   PushAddrs})`.
 

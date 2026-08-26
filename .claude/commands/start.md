@@ -13,7 +13,7 @@ Run `git fetch origin`.
 
 ## 3. Build
 
-Run `make build` (swagger gen + `bin/any` + `bin/bobrik-watch`). Stop and show the output if it fails.
+Run `make build` (swagger gen + `bin/any`). Stop and show the output if it fails.
 
 ## 4. Wallet check
 

@@ -173,6 +173,13 @@ func (s *Store) Dim() int {
 // the configured one when the DB has none, error on a real mismatch
 // (EnsureIndex would also catch it, but per-collection and later — this
 // surfaces it once, at open, with a clear remedy).
+//
+// Both mismatch arms wrap ErrIndexRebuildRequired as a PREFIX. Prefix,
+// not suffix, for two reasons: hosts read the head of a truncated
+// message first, and the tails keep the substrings any-kotlin's
+// AnyRuntimeImpl still matches on ("indexer:", "remove ", "to rebuild")
+// so wiring the sentinel doesn't break Android before it adopts the
+// code. Pinned by TestRebuildRequiredMessagesKeepAndroidSubstrings.
 func (s *Store) checkMeta(ctx context.Context) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
@@ -186,7 +193,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 		return err
 	}
 	if got := doc.Value().GetInt("schema"); got != indexSchemaVersion {
-		return fmt.Errorf("indexer: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", got, indexSchemaVersion, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, got, indexSchemaVersion, filepath.Dir(s.path))
 	}
 	got := doc.Value().GetInt("dim")
 	switch {
@@ -198,7 +205,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	case got == 0:
 		return s.writeMetaDim(ctx, s.dim) // first run with a known dim
 	default:
-		return fmt.Errorf("indexer: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", got, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
 	}
 }
 
@@ -216,9 +223,13 @@ func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
 }
 
 // EnsureDim records the dimension learned from the first successful
-// embedding. A no-op when it matches the known dim; an error when the
-// embedder's output contradicts what this DB was built with (model
-// changed under a populated index).
+// embedding. A no-op when it matches the known dim; an
+// ErrIndexRebuildRequired when the embedder's output contradicts what
+// this DB was built with (model changed under a populated index) — the
+// vectors already stored are unusable, so the db has to go.
+//
+// Unreachable on mobile today (vector is off in both binds), wrapped
+// anyway so the host contract doesn't depend on that staying true.
 func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	if dim <= 0 {
 		return fmt.Errorf("indexer: EnsureDim: invalid dim %d", dim)
@@ -229,7 +240,7 @@ func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	case s.dim == dim:
 		return nil
 	case s.dim != 0:
-		return fmt.Errorf("indexer: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", dim, s.dim, filepath.Dir(s.path))
+		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
 	}
 	if err := s.writeMetaDim(ctx, dim); err != nil {
 		return err
