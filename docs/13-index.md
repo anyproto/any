@@ -521,17 +521,22 @@ observable, not silent. Tests covering either leg are tagged to match
 (`go test` without tags compiles but skips them; `make test` runs the
 full `fts vector` suite).
 
-On the mobile embed path (`internal/embedded.Start`, exported to iOS as
-`AnyServerStart`) the caller drives `index.enabled` rather than reading
-a config file: the boot gate is `indexEnabled && fts`, where `fts` is the
-compiled cap and `indexEnabled` is the `AnyServerStart` argument. So an
-FTS build can still keep the indexer dormant per engine instance — the
-iOS share extension passes `false` (it never searches, and every MB of
-appex headroom matters), the app passes `true` if it wants engine search.
-`index.embedder` is hard-forced to `"none"` on this path regardless (no
-embedder is ever constructed on mobile). The gomobile/Android bind passes
-a constant `true` — load-bearing now that it builds with `fts`; Android
-has no share extension that would want the index off.
+On the mobile embed path (`internal/embedded.Start`) the host passes
+`index.enabled` explicitly instead of reading a config file, and the boot
+gate is `indexEnabled && fts`. Both shims now pass a constant `true`
+(`mobile/ios`, `mobile/android`), so in practice the compiled `fts` cap is
+the only thing deciding whether the indexer runs. `indexEnabled` used to
+be an `AnyServerStart` argument, and the one caller that passed `false`
+was the iOS share extension's second engine — IOS-527 removes that engine
+and IOS-528 removed the argument with it. `index.embedder` is hard-forced
+to `"none"` on this path regardless (no embedder is ever constructed on
+mobile).
+
+A mobile host that can't open its index gets a distinguishable failure:
+`ErrIndexRebuildRequired` (schema version or vector dimension mismatch,
+`internal/indexer/errors.go`) reaches the iOS shim as start code `4`, so
+the app can offer "reset local data" instead of a generic retry. The index
+is a derived cache, so deleting it is always the whole fix.
 
 ### Search
 

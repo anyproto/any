@@ -1,7 +1,7 @@
 // Package embedded is the shared, build-tag-free lifecycle core for
 // embedding the `any` HTTP server inside a host process. Both mobile
-// binding shims sit on top of it: the gomobile `mobile` package (Android)
-// and the c-archive `cmd/anyserver` shim (iOS). Each shim is a thin
+// binding shims sit on top of it: the gomobile `mobile` package
+// (`mobile/android`) and the c-archive shim (`mobile/ios`). Each shim is a thin
 // host-idiom adapter; this package owns the real logic so it is exercised
 // once by a single host-runnable test suite (IOS-6169).
 //
@@ -44,11 +44,15 @@ import (
 
 // Exported sentinel errors. Both shims map from this one source so the
 // host error contract has a single definition. The iOS c-archive shim
-// maps each to a negative C error code the Swift side mirrors:
+// (mobile/ios) maps each to a C code the Swift side mirrors:
 //
-//	ErrAlreadyRunning -> -1
-//	ErrBadDataDir     -> -2
-//	a boot failure    -> -3 (see BootError)
+//	ErrAlreadyRunning              -> 1
+//	ErrBadDataDir                  -> 2
+//	a boot failure                 -> 3 (see BootError)
+//	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first)
+//
+// The Android gomobile shim (mobile/android) surfaces the error string
+// and no code today; converging it is Android-owned work.
 //
 // An empty nodeconfYAML is not an error: it selects the embedded
 // production nodeconf, the same default the CLI and desktop sidecar boot
@@ -64,9 +68,11 @@ var (
 
 // BootError wraps a failure that occurred while bringing the server up
 // after the config validated — engine/account boot, listener bind, or a
-// config the runtime rejected. The iOS shim maps any BootError to -3. The
-// distinct type lets a caller tell "the config was fine but boot failed"
-// from "the input was bad" (ErrBadDataDir) without string matching.
+// config the runtime rejected. The iOS shim maps a BootError to code 3,
+// EXCEPT when it wraps indexer.ErrIndexRebuildRequired, which gets its own
+// code 4 because the host has a specific recovery to offer. The distinct
+// type lets a caller tell "the config was fine but boot failed" from "the
+// input was bad" (ErrBadDataDir) without string matching.
 type BootError struct{ Err error }
 
 func (e *BootError) Error() string {

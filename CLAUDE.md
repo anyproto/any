@@ -1386,6 +1386,8 @@ From `docs/00-overview.md`:
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
 ├── anyuri/               PUBLIC: canonical any:// link grammar (docs/19-links.md)
+├── mobile/ios/           iOS c-archive shim (//export + module.modulemap)
+├── mobile/android/       Android gomobile bind shim (package NAME stays `mobile`)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -1399,7 +1401,19 @@ Everything lives under `internal/` with ONE deliberate exception:
 `anyuri/` is public (`github.com/anyproto/any/anyuri`) — any owns the
 link format and clients/agents import the Build/Parse rule instead of
 reimplementing it (SYN-75). Don't add further public packages without
-the same kind of explicit contract. Request/response
+the same kind of explicit contract.
+
+The two `mobile/` shims are not packages anyone imports — they're
+binding surfaces, and they sit outside `cmd/` because `cmd/` is Go's
+convention for RUNNABLE binaries and neither a c-archive nor an AAR is
+one (IOS-528). Both are thin adapters over `internal/embedded`, which
+owns the actual lifecycle. Two things there look like mistakes and
+aren't: `mobile/android` declares `package mobile` (gomobile derives the
+AAR's Java class from the package NAME, so renaming it breaks Android
+consumers), and `build-xcframework.sh` builds `-o anyserver.a` from
+`./mobile/ios` (cgo names the generated header after `-o`, and
+`anyserver.h` is what the modulemap and Swift's `import AnyServer`
+depend on). Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.
 

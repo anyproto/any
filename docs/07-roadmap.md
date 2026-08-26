@@ -275,7 +275,7 @@ pluggable embedders, parallel batched pipelines),
   (`internal/e2e/push_test.go`). Full contract in `docs/20-push.md`.
   Embedded servers (any.aar / xcframework) bridge the push node through
   `embedded.Options` — `mobile.StartWithPush` /
-  `AnyServerStartWithPush`, addrs comma-separated (SYN-83);
+  `AnyServerStart`, addrs comma-separated (SYN-83);
   the host supplies the peer alongside its nodeconf choice; with
   neither supplied, the packaged production pair applies
   (`config.ApplyPushDefaults`).

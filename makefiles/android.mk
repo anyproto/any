@@ -7,7 +7,7 @@ ANY_TAGS := gomobile fts
 
 # Build the go.mod-PINNED gomobile + gobind into GOPATH/bin and initialize
 # gomobile. `go build <cmd-pkg>` resolves the commands at the version pinned
-# in go.mod (golang.org/x/mobile, held in the module graph by mobile/tools.go's
+# in go.mod (golang.org/x/mobile, held in the module graph by mobile/android/tools.go's
 # `bind` import) — NO `@latest`, so the toolchain can't drift release-to-release.
 # `gomobile init` runs here on the build path; the Android job exports the NDK
 # env (ANDROID_NDK{,_HOME,_ROOT}) before invoking make so init can locate the
@@ -18,8 +18,13 @@ setup-gomobile:
 	go build -o "$(GOBIN)/" golang.org/x/mobile/cmd/gomobile golang.org/x/mobile/cmd/gobind
 	PATH="$(GOBIN):$$PATH" $(GOMOBILE) init
 
-# Produce dist/android/any.aar from the github.com/anyproto/any/mobile
-# package. We build a SINGLE ABI (arm64-v8a) via an explicit `-target` — every
+# Produce dist/android/any.aar from the github.com/anyproto/any/mobile/android
+# package. The DIRECTORY moved under mobile/ (IOS-528) but the Go package is
+# still named `mobile`, and gomobile derives the generated Java class from the
+# package name, not the path — so `-javapkg=io.anyproto.any` plus package
+# `mobile` keeps the AAR API byte-identical across that move. Renaming the
+# package (not the directory) is what would break Android consumers.
+# We build a SINGLE ABI (arm64-v8a) via an explicit `-target` — every
 # shipping Android device is arm64 (Google Play has required 64-bit since 2019),
 # so armeabi-v7a (dead 32-bit ARM) and x86/x86_64 (Intel emulator only) are
 # intentionally dropped to keep the AAR small. The consuming APK's
@@ -42,7 +47,7 @@ build-android: setup-gomobile
 		-androidapi 26 \
 		-javapkg=io.anyproto.any \
 		-o dist/android/any.aar \
-		github.com/anyproto/any/mobile
+		github.com/anyproto/any/mobile/android
 	@echo "Built dist/android/any.aar"
 
 # Drop the freshly-built AAR into a sibling any-kotlin checkout and

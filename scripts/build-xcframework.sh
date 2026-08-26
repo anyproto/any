@@ -50,6 +50,11 @@ rm -rf build
 # full-text leg (capFTS=true) — see IOS-6169 tag reconciliation. Building
 # without `fts` would ship an FTS-disabled archive, contradicting the Phase B
 # caps contract. `-trimpath` for path-leak parity with build-any.sh.
+#
+# The `anyserver` in `-o anyserver.a` is NOT the package name (the shim lives at
+# ./mobile/ios, IOS-528) — cgo names the generated header after the -o argument,
+# so it is what makes the header `anyserver.h`, which mobile/ios/module.modulemap
+# names and the Swift side imports as `AnyServer`. Renaming it renames the module.
 build_slice() {
     name="$1"
     cc="$2"
@@ -57,9 +62,9 @@ build_slice() {
     mkdir -p "build/$name/headers"
     CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$ROOT/scripts/$cc" \
         go build -trimpath -tags 'mobile fts' -buildmode=c-archive -ldflags "$LDFLAGS" \
-        -o "build/$name/anyserver.a" ./cmd/anyserver
+        -o "build/$name/anyserver.a" ./mobile/ios
     cp "build/$name/anyserver.h" "build/$name/headers/anyserver.h"
-    cp cmd/anyserver/module.modulemap "build/$name/headers/module.modulemap"
+    cp mobile/ios/module.modulemap "build/$name/headers/module.modulemap"
 }
 
 build_slice device clangwrap-ios.sh
