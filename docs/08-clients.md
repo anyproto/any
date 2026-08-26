@@ -294,8 +294,13 @@ Call patterns:
   retry, adjust your query style to lexical; `skipped` is the echo of
   your own `mode: "fts"`.
 - **Hits carry identity, not full records.** `{scope, objectId,
-  dataset, recordId, data, score}` — `data` is the indexed text
-  (per-record, short by construction). To hydrate the full record,
+  dataset, recordId, chunk?, data, dataOffset?, dataTotal, score}` —
+  `data` is a ≤ `maxData`-rune window (default 512) of the indexed
+  text around the first matching term; `dataOffset` / `dataTotal`
+  locate it in the chunk's full text, and `maxData: -1` asks for the
+  whole chunk. Long records index as several chunks, each a separate
+  hit with its `chunk` number — dedupe on `(objectId, dataset,
+  recordId)` when a record should count once. To hydrate the full record,
   query the dataset: `POST /query` with `dataset = chat_messages /
   editor_blocks` filtered by `id == recordId`. For `dataset == "prop"`
   hits (property values), `recordId` is the propId — or the reserved

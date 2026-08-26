@@ -569,3 +569,63 @@ func TestStore_FilterTerms(t *testing.T) {
 	got, err = s.FilterTerms(ctx, sp, all, []string{"windows"}, nil)
 	check("require unmatched", got, err)
 }
+
+// Chunk docs share the record's id range: a record-id delete removes
+// every chunk, a chunk-id delete removes only that chunk, and sibling
+// records whose ids extend the record's are untouched.
+func TestStore_ChunkRangeDelete(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 2)
+	const sp = "chunks"
+	rec := entry("basic", "o1", "email_messages", "m1", "", 1)
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: withData(rec, "chunk zero"), Chunk: 0},
+		{Entry: withData(rec, "chunk one"), Chunk: 1},
+		{Entry: withData(rec, "chunk two"), Chunk: 2},
+		{Entry: entry("basic", "o1", "email_messages", "m1:x", "sibling colon", 2)},
+		{Entry: entry("basic", "o1", "email_messages", "m10", "sibling digit", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	hashes, err := s.DocHashesByRecords(ctx, sp, []string{"o1:email_messages:m1"})
+	if err != nil || len(hashes) != 3 {
+		t.Fatalf("record hashes = %v (%v), want the 3 chunk docs", hashes, err)
+	}
+	hits, _ := s.SearchFTS(ctx, sp, "chunk", nil, 10)
+	if len(hits) != 3 {
+		t.Fatalf("chunk hits = %d, want 3", len(hits))
+	}
+	chunks := map[int]bool{}
+	for _, h := range hits {
+		if h.RecordId != "m1" {
+			t.Fatalf("chunk hit recordId = %s, want m1", h.RecordId)
+		}
+		chunks[h.Chunk] = true
+	}
+	if !chunks[0] || !chunks[1] || !chunks[2] {
+		t.Fatalf("chunk numbers = %v", chunks)
+	}
+
+	// Delete one chunk by its id: the others and the siblings stay.
+	if err := s.Apply(ctx, sp, nil, []string{chunkDocId("o1:email_messages:m1", 2)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hits, _ = s.SearchFTS(ctx, sp, "chunk", nil, 10); len(hits) != 2 {
+		t.Fatalf("after chunk delete = %d, want 2", len(hits))
+	}
+	// Delete the record: every chunk goes, siblings stay.
+	if err := s.Apply(ctx, sp, nil, []string{"o1:email_messages:m1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hits, _ = s.SearchFTS(ctx, sp, "chunk", nil, 10); len(hits) != 0 {
+		t.Fatalf("after record delete = %d, want 0", len(hits))
+	}
+	if hits, _ = s.SearchFTS(ctx, sp, "sibling", nil, 10); len(hits) != 2 {
+		t.Fatalf("siblings = %d, want 2", len(hits))
+	}
+}
+
+func withData(e index.IndexEntry, data string) index.IndexEntry {
+	e.Data = data
+	return e
+}

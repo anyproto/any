@@ -85,6 +85,10 @@ type Options struct {
 	// leg can't drag hybrid below the dense leg. Vector weight is left
 	// alone (cosine is uncalibrated). Off by default.
 	AdaptiveWeights bool
+	// ChunkRunes is the split target for long records (chunk.go): an
+	// entry longer than this many runes is indexed as several chunk
+	// docs. <= 0 = DefaultChunkRunes.
+	ChunkRunes int
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 = the legacy "> 0" floor.
 	MinVectorSim float64
@@ -175,6 +179,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.VectorWeight <= 0 {
 		o.VectorWeight = 1
+	}
+	if o.ChunkRunes <= 0 {
+		o.ChunkRunes = DefaultChunkRunes
 	}
 	return o
 }
@@ -544,15 +551,24 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		slices.SortStableFunc(hits, func(a, b Hit) int { return cmp.Compare(b.Score, a.Score) })
 	}
 
+	maxData := req.MaxData
+	if maxData == 0 {
+		maxData = api.DefaultSearchMaxData
+	}
+	terms := snippetTerms(req.Query, req.Require)
 	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode, VectorStatus: vectorStatus}
 	for _, h := range hits {
+		data, offset, total := snippet(h.Data, terms, maxData)
 		out.Hits = append(out.Hits, api.SearchHit{
-			Scope:    h.Scope,
-			ObjectId: h.ObjectId,
-			Dataset:  h.Dataset,
-			RecordId: h.RecordId,
-			Data:     h.Data,
-			Score:    h.Score,
+			Scope:      h.Scope,
+			ObjectId:   h.ObjectId,
+			Dataset:    h.Dataset,
+			RecordId:   h.RecordId,
+			Chunk:      h.Chunk,
+			Data:       data,
+			DataOffset: offset,
+			DataTotal:  total,
+			Score:      h.Score,
 		})
 	}
 	return out, nil

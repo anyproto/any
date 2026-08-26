@@ -25,7 +25,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 {
   "hits": [
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
-      "recordId": "…", "data": "…", "score": 0.0328 }
+      "recordId": "…", "data": "…", "dataTotal": 29, "score": 0.0328 }
   ],
   "mode": "hybrid",
   "vectorStatus": "used"

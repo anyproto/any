@@ -33,10 +33,12 @@ const (
 	// "props" (rebuild backfills "name: value" entries for existing
 	// rows) + type-definition rows excluded from the prop chunker and
 	// short prop docs no longer embedded (rebuild purges stale
-	// type-name docs and name vectors). Mismatch = boot error advising
+	// type-name docs and name vectors); v6 = long records split into
+	// chunk docs (`base<U+001F>n` ids + `chunk` field — rebuild replaces
+	// whole-record docs with chunked ones). Mismatch = boot error advising
 	// removal; no migration — the index is derived state (re-indexes on
 	// the next change).
-	indexSchemaVersion = 5
+	indexSchemaVersion = 6
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -101,6 +103,7 @@ type Hit struct {
 	ObjectId string
 	Dataset  string
 	RecordId string
+	Chunk    int // 0-based chunk of the record this doc holds (chunk.go)
 	Data     string
 	Score    float64
 }
@@ -109,6 +112,7 @@ type Hit struct {
 // while the store has a vector index stores the doc as pending.
 type DocUpsert struct {
 	Entry  index.IndexEntry
+	Chunk  int // which chunk of the record Entry.Data holds (expandEntry)
 	Vector []float32
 }
 
@@ -389,10 +393,11 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	return true, nil
 }
 
-// docId is the per-collection primary key: objectId:dataset:recordId.
-// The shape makes removal a primary-key prefix delete at every
+// docId is the per-collection primary key of a record's first chunk:
+// objectId:dataset:recordId (later chunks append a control-byte suffix,
+// chunk.go). The shape makes removal a primary-key range delete at every
 // granularity — `objectId:` (object deleted), `objectId:dataset:`
-// (type detached), exact id (record deleted) — and keeps ids unique
+// (type detached), `[id, id+" ")` (record deleted) — and keeps ids unique
 // even though recordIds repeat across objects (propIds do). Object ids
 // and dataset names are colon-free by construction (CIDs; slug-checked
 // names), so prefixes parse unambiguously. Record ids MAY contain
@@ -446,10 +451,12 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 
 // Apply lands one advance page in a single write transaction:
 // structural prefix deletes first (object deletions / type-detach
-// evictions — ':'-terminated id prefixes), then record deletions
-// (missing ids ignored), then upserts (full-doc replace — a re-written
-// record goes back to pending until re-embedded). Atomic with the page,
-// so eviction can never race the cursor.
+// evictions — ':'-terminated id prefixes), then doc deletions — each
+// id removes that doc AND every chunk under it (the record range,
+// chunk.go; a chunk id has no chunks of its own, so passing one deletes
+// exactly it; missing ids are a no-op) — then upserts (full-doc replace
+// — a re-written doc goes back to pending until re-embedded). Atomic
+// with the page, so eviction can never race the cursor.
 func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
 		return nil
@@ -481,11 +488,14 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 	for _, up := range ups {
 		e := up.Entry
 		doc := arena.NewObject()
-		doc.Set("id", arena.NewString(docId(e.ObjectId, e.Dataset, e.RecordId)))
+		doc.Set("id", arena.NewString(chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)))
 		doc.Set("scope", arena.NewString(e.Scope))
 		doc.Set("objectId", arena.NewString(e.ObjectId))
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
+		if up.Chunk > 0 {
+			doc.Set("chunk", arena.NewNumberInt(up.Chunk))
+		}
 		doc.Set("data", arena.NewString(e.Data))
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data)))
@@ -505,7 +515,11 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 	for _, id := range dels {
-		if err := coll.DeleteId(tx.Context(), id); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+		idRange := query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
+		}
+		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
 			return err
 		}
 	}
@@ -582,6 +596,34 @@ func (s *Store) DocHashesByIds(ctx context.Context, spaceId string, ids []string
 		vals[i] = arena.NewString(id)
 	}
 	return collectHashes(ctx, coll, query.Key{Path: idPath, Filter: query.NewInValue(vals...)})
+}
+
+// DocHashesByRecords returns id→hash for every chunk doc of the given
+// record ids (base doc ids, chunk.go) — one primary-key range seek per
+// record. The incremental stream path diffs a re-streamed record's new
+// chunk set against it.
+func (s *Store) DocHashesByRecords(ctx context.Context, spaceId string, bases []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(bases) == 0 {
+		return out, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	for _, base := range bases {
+		got, err := collectHashes(ctx, coll, query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, base)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(base))},
+		})
+		if err != nil {
+			return nil, err
+		}
+		for id, h := range got {
+			out[id] = h
+		}
+	}
+	return out, nil
 }
 
 func collectHashes(ctx context.Context, coll anystore.Collection, filter query.Filter) (map[string]string, error) {
@@ -840,6 +882,7 @@ func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) 
 			ObjectId: string(v.GetStringBytes("objectId")),
 			Dataset:  string(v.GetStringBytes("dataset")),
 			RecordId: string(v.GetStringBytes("recordId")),
+			Chunk:    v.GetInt("chunk"),
 			Data:     string(v.GetStringBytes("data")),
 			Score:    score(iter),
 		})

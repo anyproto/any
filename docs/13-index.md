@@ -208,6 +208,26 @@ user dataset names at the creation API.
   treated as runtime — belt-and-braces against definitions synced from
   a peer with a different compiled-in set.
 
+### Chunking long records (`internal/indexer/chunk.go`)
+
+Chunkers emit **one entry per record**; the indexer splits it. An
+entry whose `Data` exceeds `Options.ChunkRunes` (default
+`DefaultChunkRunes` = 2000 runes, ~500 tokens of prose) is indexed as
+several chunk docs — cut at a blank line, a line break, a sentence end
+or whitespace found in the second half of the window, hard-cut when
+there is none; no overlap, deterministic, so the content hash of an
+unchanged chunk is stable. Chunk 0 keeps the entry's head; chunks
+`n > 0` re-prefix the entry's `Title` (when set) so a mid-mail passage
+keeps its subject for BM25F and the embedder. Each chunk embeds whole
+(the target sits well inside the local embedder's 2048-token clamp),
+so vector recall covers the entire record, not just its head; and a
+hit's `data` is the matching passage, not the whole record. The hit's
+`recordId` is the record's; `chunk` says which piece — chunks of one
+record are separate hits, so consumers counting records dedupe on
+`(objectId, dataset, recordId)`. Editor windows and chat messages are
+below the bound by construction; runtime-dataset records (mail bodies)
+and long property values are what this is for.
+
 ### Content hashes (incremental embedding)
 
 Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`,
@@ -243,7 +263,8 @@ Three granularities, all addSeq-consistent (discovered through the same
 
 | What happened | Who detects it | Index operation |
 |---------------|----------------|-----------------|
-| record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → `DeleteId(objectId:dataset:recordId)` |
+| record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → range delete `[objectId:dataset:recordId, +" ")` (the record's every chunk) |
+| record shrank to fewer chunks | the indexer (`planDocs` diffs the new chunk set against `DocHashesByRecords`) | delete the trailing chunk ids, upsert the changed ones |
 | any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
 | type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`; runtime datasets via the schema chunker's `EvictDatasets`) | prefix delete `objectId:dataset:` |
 | runtime dataset definition removed | the schema chunker (name vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
@@ -309,15 +330,22 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
 ### Store layout
 
 - **One collection per space** (named by spaceId). Doc shape:
-  `{id: objectId+":"+dataset+":"+recordId, scope, objectId, dataset,
-  recordId, data, addSeq, vector?, pending?}`. The id shape makes every
-  removal a primary-key operation — `objectId:` prefix (object
-  deleted), `objectId:dataset:` prefix (type detached), exact id
-  (record deleted) — and keeps ids unique even though recordIds repeat
-  across objects (propIds do). Prefix ranges use bytewise bounds
-  `[P, P[:len-1]+";")` (`;` = `:`+1) and drive the primary btree
-  directly; per-doc deletion cleans FTS and vector entries in the same
-  transaction.
+  `{id, scope, objectId, dataset, recordId, chunk?, data, title, hash,
+  applySeq, vector?, pending?}` where `id` is
+  `objectId:dataset:recordId` for a record's first chunk and that base
+  + `U+001F` + `n` for chunk `n > 0` (`chunk` is stored only when
+  non-zero). The id shape makes every removal a primary-key range
+  operation — `objectId:` prefix (object deleted), `objectId:dataset:`
+  prefix (type detached), `[base, base+" ")` (record deleted — the
+  base doc plus every chunk suffix; a chunk id passed the same way
+  removes exactly that chunk) — and keeps ids unique even though
+  recordIds repeat across objects (propIds do). The chunk separator is
+  a control byte no SDK id pattern admits (auto ids are CIDs, user ids
+  default to `[A-Za-z0-9._:-]+`), so every byte a real id can continue
+  `base` with sorts at or above `0x20` and the record range is exact.
+  Prefix ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1)
+  and drive the primary btree directly; per-doc deletion cleans FTS and
+  vector entries in the same transaction.
 - Indexes per collection: BM25 **full-text** on `data`
   (`IndexKindFulltext`); sparse range on `pending` (embed queue); and —
   once at least one embedded doc exists — a **cosine vector index** on
@@ -536,15 +564,26 @@ has no share extension that would want the index off.
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
-require?, exclude?}` →
-`{hits: [{scope, objectId, dataset, recordId, data, score}], mode,
-vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
+require?, exclude?, maxData?}` →
+`{hits: [{scope, objectId, dataset, recordId, chunk?, data,
+dataOffset?, dataTotal, score}], mode, vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
 embedder, hits below the similarity floor are dropped as noise), `hybrid`
 (default — both legs fused by reciprocal rank, k=60; degrades to `fts`
 when the embedder is missing or the query embedding fails — `mode` in
 the reply is the mode that actually ran). Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
-[--limit N] [--mode ...] [--require T ...] [--exclude T ...]`.
+[--limit N] [--mode ...] [--require T ...] [--exclude T ...]
+[--max-data N]`.
+
+**Hit `data` is a window, not the record.** Each hit's `data` is at
+most `maxData` runes (default 512; `-1` = the whole chunk text) cut
+around the first occurrence of any query / `require` term — the head
+when none occurs literally (a vector-only hit) — snapped to word
+boundaries. `dataOffset` is the window's rune offset into the chunk's
+indexed text and `dataTotal` that text's rune length, so a client can
+tell a clipped preview from the full text and ask for more. `chunk`
+(omitted when 0) is which chunk of the record the hit is (§ Chunking
+long records). The full record is one dataset query away.
 
 **FTS query operators (lexical leg).** `query` itself understands
 `"quoted phrases"` (matched by adjacency) and trailing-`*` prefixes
@@ -644,15 +683,14 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   whose `_addSeq` moves afterwards get (re-)indexed.
 - Embedder latency only delays the vector leg: fresh writes are FTS-
   searchable immediately and gain vector recall once embedded.
-- **Long records are truncated for embedding** (explicit decision, not
-  an accident): the `local` embedder clamps input to
-  `index.local.contextSize` tokens (default 2048, EOS preserved for
-  last-token pooling), so only the head of a very long record carries
-  vector recall — FTS still covers the full text, and editor blocks /
-  chat messages are naturally far smaller than the bound. The chunker
-  contract stays one record = one doc = one vector. TODO: split long
-  records into multiple chunks chunker-side (changes the doc-id scheme
-  and tombstone handling) if head-only vector recall proves limiting.
+- **Embedder input is still clamped** to `index.local.contextSize`
+  tokens (default 2048, EOS preserved for last-token pooling). Chunking
+  (§ Chunking long records, 2000-rune target) keeps every chunk inside
+  it for prose; a chunk of dense CJK or code can still exceed the clamp
+  and embed head-only — FTS covers its full text regardless.
+- **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
+  appears only in another chunk of the same record does not satisfy a
+  `require` for this one.
 
 ## Tests
 

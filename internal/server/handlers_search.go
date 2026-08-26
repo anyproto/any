@@ -62,6 +62,9 @@ func (d *deps) search(c echo.Context) error {
 	if req.Limit > maxSearchLimit {
 		req.Limit = maxSearchLimit
 	}
+	if req.MaxData < -1 {
+		return writeError(c, http.StatusBadRequest, "request.bad", "maxData must be >= -1 (-1 = unbounded)", nil)
+	}
 
 	if d.indexer == nil {
 		return writeError(c, http.StatusConflict, "index.disabled",

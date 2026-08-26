@@ -45,7 +45,7 @@ Changes().Subscribe ─▶ dirty ─▶ debounce 250ms ─▶ advance
                                                     └─ persist cursor
 ```
 
-Per dirty object the worker reads the shared objects row once, then: a deleted object → prefix delete `objectId:`; a gated chunker whose type is not attached → prefix delete `objectId:<dataset>:`; otherwise stream the chunker's entries past the cursor — an entry with empty `data` deletes its document, any other upserts it. All of a page's deletes and upserts land in one transaction, then the cursor moves. Re-applying a page is idempotent, so a crash mid-page is safe. Text-bearing upserts are marked `pending` for the [embed loop](vector.html) — full-text is searchable before any embedding happens.
+Per dirty object the worker reads the shared objects row once, then: a deleted object → prefix delete `objectId:`; a gated chunker whose type is not attached → prefix delete `objectId:<dataset>:`; otherwise stream the chunker's entries past the cursor — an entry with empty `data` deletes the record's documents, any other is split into chunk documents of at most ~2000 runes (chunk 0 keeps the record's id, later chunks carry a suffix and re-prefix the title) and upserted where its content hash changed, with chunks the record no longer produces deleted. All of a page's deletes and upserts land in one transaction, then the cursor moves. Re-applying a page is idempotent, so a crash mid-page is safe. Text-bearing upserts are marked `pending` for the [embed loop](vector.html) — full-text is searchable before any embedding happens.
 
 The cursor is any-sync's per-space, per-device delivery counter (`_addSeq`). It is an opaque local ordering key, never comparable across devices.
 

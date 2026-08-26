@@ -44,14 +44,14 @@ any search $SPACE "zeppelin disaster" --limit 5
   "hits": [
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
-      "score": 0.0328 }
+      "dataTotal": 29, "score": 0.0328 }
   ],
   "mode": "hybrid",
   "vectorStatus": "used"
 }
 ```
 
-Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row.
+Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row. `data` is a window of at most `maxData` runes (default 512, `-1` for the whole chunk) around the first matching term; `dataOffset` and `dataTotal` locate it in the indexed text. Long records are indexed in chunks of roughly 2000 runes, and each chunk is a separate hit carrying its `chunk` number — dedupe on `(objectId, dataset, recordId)` when a record should count once.
 
 ## What is indexed
 
@@ -61,7 +61,7 @@ Hits carry identity, not full records — hydrate them with a [dataset query](..
 | Editor documents | `editor_blocks` | `basic` | a ~1.5 KB window of consecutive blocks |
 | Object name / description | `prop` | `basic` | one entry per built-in |
 | User property values | `prop` | `props` (full-text only) | `"<prop name>: <value>"` |
-| Runtime-dataset records | the dataset's own name | `basic` (or the declared scope) | one record, by its `x-search` mapping |
+| Runtime-dataset records | the dataset's own name | `basic` (or the declared scope) | one record, by its `x-search` mapping — split into ~2000-rune chunks when long |
 
 Programs, miniapps and file bytes are never indexed.
 

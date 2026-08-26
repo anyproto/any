@@ -122,7 +122,8 @@ local FTS + vector index over chats, editor blocks, and properties
 embedder configured on the server it degrades to FTS (the reply's
 `mode` says which ran). The `query` accepts `"quoted phrases"` and
 `prefix*` on the lexical leg; `--require` / `--exclude` (repeatable) add
-must / must-not terms.
+must / must-not terms; `--max-data N` bounds each hit's `data` window
+(default 512 runes, `-1` = the whole chunk).
 
 `any space query` / `any space subscribe` wrap `POST /v1/spaces/query`
 and `/query/subscribe` (`Service.Query` over the tech-space `spaces`
