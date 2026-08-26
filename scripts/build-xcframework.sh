@@ -47,14 +47,14 @@ rm -rf build
 #
 # Tags `mobile fts`: `mobile` selects the iOS embedded build (pidlock no-op,
 # swaggo-free openapi stub, vector/embedding off); `fts` turns on the BM25
-# full-text leg (capFTS=true). Building
-# without `fts` would ship an FTS-disabled archive, contradicting the Phase B
-# caps contract. `-trimpath` for path-leak parity with build-any.sh.
+# full-text leg (capFTS=true). Building without `fts` would ship an
+# FTS-disabled archive, contradicting the Phase B caps contract. `-trimpath`
+# for path-leak parity with build-any.sh.
 #
-# The `any-lib` in `-o any-lib.a` is NOT the package name (the shim lives at
-# ./mobile/ios) — cgo names the generated header after the -o argument, so it is
-# what makes the header `any-lib.h`, which mobile/ios/module.modulemap names and
-# the Swift side imports as `AnyLib`. Renaming it renames the module.
+# cgo names the generated header after the -o argument, not after the package
+# path, so `-o anylib.a` is what makes the header `anylib.h` — the name
+# mobile/ios/module.modulemap points `module AnyLib` at. Renaming -o renames
+# the header the Swift `import AnyLib` resolves through.
 build_slice() {
     name="$1"
     cc="$2"
@@ -62,8 +62,8 @@ build_slice() {
     mkdir -p "build/$name/headers"
     CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$ROOT/scripts/$cc" \
         go build -trimpath -tags 'mobile fts' -buildmode=c-archive -ldflags "$LDFLAGS" \
-        -o "build/$name/any-lib.a" ./mobile/ios
-    cp "build/$name/any-lib.h" "build/$name/headers/any-lib.h"
+        -o "build/$name/anylib.a" ./mobile/ios
+    cp "build/$name/anylib.h" "build/$name/headers/anylib.h"
     cp mobile/ios/module.modulemap "build/$name/headers/module.modulemap"
 }
 
@@ -73,8 +73,8 @@ build_slice sim clangwrap-iossim.sh
 echo "== assembling any.xcframework =="
 rm -rf any.xcframework
 xcodebuild -create-xcframework \
-    -library build/device/any-lib.a -headers build/device/headers \
-    -library build/sim/any-lib.a -headers build/sim/headers \
+    -library build/device/anylib.a -headers build/device/headers \
+    -library build/sim/anylib.a -headers build/sim/headers \
     -output any.xcframework
 # Keep the per-slice Info.plist (do not strip — spike 0.5).
 cat any.xcframework/Info.plist

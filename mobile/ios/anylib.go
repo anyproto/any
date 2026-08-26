@@ -1,5 +1,5 @@
-// Command any-lib is the C-archive surface that embeds the `any` engine
-// in an iOS app. Built with `-tags 'mobile fts' -buildmode=c-archive` it
+// Package main is the C-archive surface that embeds the `any` engine in
+// an iOS app. Built with `-tags 'mobile fts' -buildmode=c-archive` it
 // links the full embedded dependency graph (any-sync + libp2p + QUIC +
 // the modernc SQLite shim) and exposes four C entry points the Swift
 // side calls over its lifecycle: AnyLibStart, AnyLibStop, AnyLibStopNow
@@ -106,17 +106,15 @@ type startResult struct {
 // (returning a code and the underlying error's message). It is the
 // testable core behind the //export AnyLibStart wrapper.
 //
-// The index is always on: the one caller that wanted it off was the iOS
-// share extension's second engine, which is being removed. The effective
-// gate is now the compiled `fts` cap alone, same as the Android bind.
-// pushPeerId/pushAddrs configure the push node (addrs comma-separated,
-// see embedded.Options) — empty strings keep push off.
+// The search index is not a host parameter: it rides the compiled `fts`
+// cap alone, same as the Android bind. pushPeerId/pushAddrs configure the
+// push node (addrs comma-separated, see embedded.Options) — empty strings
+// keep push off.
 func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) startResult {
 	addr, err := embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,
 		NodeconfYAML: nodeconfYAML,
-		IndexEnabled: true,
 		PushPeerId:   pushPeerId,
 		PushAddrs:    pushAddrs,
 	})
@@ -174,8 +172,8 @@ func copyBounded(dst []byte, s string) {
 	if len(dst) == 0 {
 		return
 	}
-	if max := len(dst) - 1; len(s) > max {
-		s = s[:max]
+	if lim := len(dst) - 1; len(s) > lim {
+		s = s[:lim]
 		for len(s) > 0 {
 			// DecodeLastRuneInString reports (RuneError, 1) only for an
 			// invalid encoding; a genuine U+FFFD decodes with size 3, so

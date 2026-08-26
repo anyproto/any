@@ -45,9 +45,9 @@ import (
 // host error contract has a single definition. The iOS c-archive shim
 // (mobile/ios) maps each to a C code the Swift side mirrors:
 //
-//	ErrAlreadyRunning              -> 1
-//	ErrBadDataDir                  -> 2
-//	a boot failure                 -> 3 (see BootError)
+//	ErrAlreadyRunning               -> 1
+//	ErrBadDataDir                   -> 2
+//	a boot failure                  -> 3 (see BootError)
 //	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first)
 //
 // The Android gomobile shim (mobile/android) surfaces the error string
@@ -131,9 +131,6 @@ type Options struct {
 	// NodeconfYAML is the any-sync network config contents (staging/prod
 	// yml). Required — there is no filesystem fallback on this path.
 	NodeconfYAML string
-	// IndexEnabled requests the FTS index (see the index-policy block in
-	// Start); a build without the `fts` tag ignores it.
-	IndexEnabled bool
 	// PushPeerId is the push node's peer id. The push node is a
 	// direct out-of-band peer, deliberately NOT part of NodeconfYAML —
 	// but it pairs with the nodeconf choice (staging vs prod), so the
@@ -160,21 +157,16 @@ func assembleConfig(opts Options) config.Config {
 	cfg.Network.Nodeconf = strings.TrimSpace(opts.NodeconfYAML)
 	// FTS-only index policy. "none" makes the embedder factory return a
 	// true-nil so the compiled-out local llama.cpp embedder is never
-	// reached. Index.Enabled is gated on BOTH the compiled FTS cap and the
-	// caller's IndexEnabled request: config.Defaults() ships
-	// Index.Enabled=true, so this is a LOAD-BEARING override. FTS runs only
-	// when the `fts` tag is compiled in AND the caller opts in — a build
-	// without the tag leaves CompiledCaps()'s fts bit false and the dormant
-	// indexer never starts regardless of IndexEnabled; with `fts` the caller
-	// decides. The iOS share extension passes IndexEnabled=false to keep the
-	// indexer dormant for the memory headroom (it never searches), the app
-	// passes true if it wants engine search. (capFTS is unexported;
+	// reached. The compiled `fts` cap is the whole gate, and neither shim
+	// exposes it as a host parameter: config.Defaults() ships
+	// Index.Enabled=true, so this is a LOAD-BEARING override that keeps the
+	// indexer dormant in a build without the tag. (capFTS is unexported;
 	// CompiledCaps is the exported reader.)
 	cfg.Index.Embedder = "none"
 	fts, _ := indexer.CompiledCaps()
-	cfg.Index.Enabled = opts.IndexEnabled && fts
-	// Every in-process boot (iOS/iPadOS app, future sharing extension) is
-	// headless — no /ui debug harness, no advertising log.
+	cfg.Index.Enabled = fts
+	// Every in-process boot is headless — no /ui debug harness, no
+	// advertising log.
 	cfg.WebUI.Enabled = false
 	// Push node: plain field fill — the config.Push tristate does
 	// the enablement on its own (nil Enabled + non-empty PeerId + addrs ⇒

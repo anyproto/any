@@ -7,17 +7,16 @@ package indexer
 // off substring-matching this text. That makes the wording a wire
 // contract with another repo that nothing else in either build would
 // catch: rewording a message here silently stops a user's index from
-// ever being rebuilt, with no compile error and no failing test.
+// ever being rebuilt, with no compile error and no failing test. It is
+// also why the sentinel is wrapped as a PREFIX rather than replacing the
+// text — the substrings stay in every tail.
 //
-// Kept separate from errors_test.go's substring assertions on purpose —
-// that one pins the three literals, this one runs the consumer's actual
-// predicate, lowercasing and all.
-//
-// Delete both once Android keys off ErrIndexRebuildRequired / start
-// code 4.
+// Delete this file once Android keys off ErrIndexRebuildRequired /
+// start code 4.
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -64,4 +63,54 @@ func TestAndroidMatcherRejectsUnrelatedFailures(t *testing.T) {
 			t.Fatalf("any-kotlin would wipe the index for an unrelated failure: %q", msg)
 		}
 	}
+}
+
+func openStoreErrText(t *testing.T, ctx context.Context, schema int) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "index.db")
+	seedSchema(t, ctx, path, schema)
+
+	st, err := OpenStore(ctx, path, 0, false)
+	if err == nil {
+		st.Close()
+		t.Fatal("OpenStore on a foreign schema succeeded")
+	}
+	return err.Error()
+}
+
+func dimMismatchErrText(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "index.db")
+	st, err := OpenStore(ctx, path, 768, true)
+	if err != nil {
+		t.Fatalf("OpenStore (first, dim 768): %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	st, err = OpenStore(ctx, path, 1024, true)
+	if err == nil {
+		st.Close()
+		t.Fatal("OpenStore with a contradicting dim succeeded")
+	}
+	return err.Error()
+}
+
+func ensureDimErrText(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	st, err := OpenStoreInMemory(ctx, 768, true)
+	if err != nil {
+		t.Fatalf("OpenStoreInMemory: %v", err)
+	}
+	defer st.Close()
+
+	err = st.EnsureDim(ctx, 1024)
+	if err == nil {
+		t.Fatal("EnsureDim with a contradicting dim succeeded")
+	}
+	return err.Error()
 }

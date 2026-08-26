@@ -521,16 +521,11 @@ observable, not silent. Tests covering either leg are tagged to match
 (`go test` without tags compiles but skips them; `make test` runs the
 full `fts vector` suite).
 
-On the mobile embed path (`internal/embedded.Start`) the host passes
-`index.enabled` explicitly instead of reading a config file, and the boot
-gate is `indexEnabled && fts`. Both shims now pass a constant `true`
-(`mobile/ios`, `mobile/android`), so in practice the compiled `fts` cap is
-the only thing deciding whether the indexer runs. `indexEnabled` used to
-be an `AnyLibStart` argument, and the one caller that passed `false`
-was the iOS share extension's second engine — IOS-527 removes that engine
-and IOS-528 removed the argument with it. `index.embedder` is hard-forced
-to `"none"` on this path regardless (no embedder is ever constructed on
-mobile).
+On the mobile embed path (`internal/embedded.Start`) there is no config
+file and no host parameter: the compiled `fts` cap is the whole gate, so
+both shims run the indexer exactly when their binary was built with the
+tag (both are). `index.embedder` is hard-forced to `"none"` on this path
+regardless — no embedder is ever constructed on mobile.
 
 A mobile host that can't open its index gets a distinguishable failure:
 `ErrIndexRebuildRequired` (schema version or vector dimension mismatch,

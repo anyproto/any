@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -86,42 +85,6 @@ func TestEnsureDim_ModelChangedIsRebuildRequired(t *testing.T) {
 	}
 }
 
-// TestRebuildRequiredMessagesKeepAndroidSubstrings pins the reason the
-// sentinel is wrapped as a PREFIX rather than a suffix or a replacement.
-//
-// any-kotlin's AnyRuntimeImpl decides whether to wipe a user's local
-// index by substring-matching "indexer:", "remove " and "to rebuild" out
-// of this error text. That's the defect the sentinel fixes on the iOS
-// side (start code 4), but Android hasn't adopted the code yet, and
-// changing its behaviour is not ours to do. So until it does, these three
-// substrings are load-bearing: rewording a message here silently
-// disables a user's index recovery on Android, with no compile error and
-// no failing Go test anywhere else.
-//
-// Delete this test once Android keys off ErrIndexRebuildRequired.
-func TestRebuildRequiredMessagesKeepAndroidSubstrings(t *testing.T) {
-	ctx := context.Background()
-
-	messages := map[string]string{
-		"schema mismatch": openStoreErrText(t, ctx, indexSchemaVersion+1),
-		"dim mismatch":    dimMismatchErrText(t, ctx),
-		"EnsureDim":       ensureDimErrText(t, ctx),
-	}
-
-	// The exact literals any-kotlin matches on.
-	needles := []string{"indexer:", "remove ", "to rebuild"}
-
-	for name, msg := range messages {
-		t.Run(name, func(t *testing.T) {
-			for _, needle := range needles {
-				if !strings.Contains(msg, needle) {
-					t.Errorf("message lost the any-kotlin substring %q: %s", needle, msg)
-				}
-			}
-		})
-	}
-}
-
 // seedSchema writes a meta row carrying the given schema version, so a
 // later OpenStore reads a db it considers foreign.
 func seedSchema(t *testing.T, ctx context.Context, path string, schema int) {
@@ -145,54 +108,4 @@ func seedSchema(t *testing.T, ctx context.Context, path string, schema int) {
 	if err := coll.UpsertOne(ctx, meta); err != nil {
 		t.Fatalf("seed meta: %v", err)
 	}
-}
-
-func openStoreErrText(t *testing.T, ctx context.Context, schema int) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "index.db")
-	seedSchema(t, ctx, path, schema)
-
-	st, err := OpenStore(ctx, path, 0, false)
-	if err == nil {
-		st.Close()
-		t.Fatal("OpenStore on a foreign schema succeeded")
-	}
-	return err.Error()
-}
-
-func dimMismatchErrText(t *testing.T, ctx context.Context) string {
-	t.Helper()
-
-	path := filepath.Join(t.TempDir(), "index.db")
-	st, err := OpenStore(ctx, path, 768, true)
-	if err != nil {
-		t.Fatalf("OpenStore (first, dim 768): %v", err)
-	}
-	if err := st.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	st, err = OpenStore(ctx, path, 1024, true)
-	if err == nil {
-		st.Close()
-		t.Fatal("OpenStore with a contradicting dim succeeded")
-	}
-	return err.Error()
-}
-
-func ensureDimErrText(t *testing.T, ctx context.Context) string {
-	t.Helper()
-
-	st, err := OpenStoreInMemory(ctx, 768, true)
-	if err != nil {
-		t.Fatalf("OpenStoreInMemory: %v", err)
-	}
-	defer st.Close()
-
-	err = st.EnsureDim(ctx, 1024)
-	if err == nil {
-		t.Fatal("EnsureDim with a contradicting dim succeeded")
-	}
-	return err.Error()
 }

@@ -1406,13 +1406,13 @@ the same kind of explicit contract.
 The two `mobile/` shims are not packages anyone imports — they're
 binding surfaces, and they sit outside `cmd/` because `cmd/` is Go's
 convention for RUNNABLE binaries and neither a c-archive nor an AAR is
-one (IOS-528). Both are thin adapters over `internal/embedded`, which
+one. Both are thin adapters over `internal/embedded`, which
 owns the actual lifecycle. Two things there look like mistakes and
 aren't: `mobile/android` declares `package mobile` (gomobile derives the
 AAR's Java class from the package NAME, so renaming it breaks Android
-consumers), and `build-xcframework.sh` builds `-o any-lib.a` from
+consumers), and `build-xcframework.sh` builds `-o anylib.a` from
 `./mobile/ios` (cgo names the generated header after `-o`, and
-`any-lib.h` is what the modulemap and Swift's `import AnyLib`
+`anylib.h` is what the modulemap and Swift's `import AnyLib`
 depend on). Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.

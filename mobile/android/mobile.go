@@ -47,14 +47,12 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 // when both are non-empty; pass empty strings for the exact Start
 // behavior (every /v1/push endpoint returns 409 push.disabled).
 func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) error {
-	// Load-bearing since the bind builds with `fts`: the core gate is
-	// `IndexEnabled && capFTS`. A constant, not a bind parameter — Android
-	// has no share extension that would want the index off.
+	// The FTS index rides the compiled `fts` cap alone (the bind builds with
+	// it); it is not a bind parameter.
 	_, err := embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,
 		NodeconfYAML: nodeconfYAML,
-		IndexEnabled: true,
 		PushPeerId:   pushPeerId,
 		PushAddrs:    pushAddrs,
 	})
