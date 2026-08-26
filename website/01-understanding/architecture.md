@@ -9,24 +9,13 @@ any is five layers, each with one job: an embedded document database, a peer-to-
 
 ## The stack
 
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│  CLIENTS       web UI, CLI, JS / Python / mobile bindings, anyrt      │
-│                (programs and agents) — all speak HTTP/JSON + SSE      │
-├───────────────────────────────────────────────────────────────────────┤
-│  any           HTTP façade on 127.0.0.1:7001, CLI client, search,    │
-│                event bus, markdown bridge, bundles engine             │
-├───────────────────────────────────────────────────────────────────────┤
-│  any-sync-sdk  Space / Object / record CRDT / types & properties /    │
-│                datasets & handlers / tech space / queries & subscribe │
-├───────────────────────────────────────────────────────────────────────┤
-│  any-sync      protocol: spaces, ACLs, object trees (signed+encrypted │
-│                change DAGs), head-sync, files, nodeconf, mDNS p2p     │
-├───────────────────────────────────────────────────────────────────────┤
-│  any-store     embedded document DB: collections, Mongo filters,      │
-│                modifiers, indexes, transactions, FTS + vector indexes │
-└───────────────────────────────────────────────────────────────────────┘
-```
+| Layer | What it owns |
+|-------|--------------|
+| **Clients** | Web UI, CLI, JS / Python / mobile bindings, anyrt (programs and agents) — all speak HTTP/JSON + SSE. |
+| **any** | HTTP façade on `127.0.0.1:7001`, CLI client, search index, event bus, markdown bridge, bundles engine. |
+| **any-sync-sdk** | Space / Object / record CRDT, types and properties, datasets and handlers, tech space, queries and subscribe. |
+| **any-sync** | The protocol: spaces, ACLs, object trees (signed + encrypted change DAGs), head-sync, files, nodeconf, mDNS p2p. |
+| **any-store** | Embedded document DB: collections, Mongo filters, modifiers, indexes, transactions, FTS + vector indexes. |
 
 Everything above the any-sync layer runs inside one process on your machine. Below it sits the network — and, as the next sections show, the network holds only ciphertext.
 

@@ -9,18 +9,11 @@ any is a reactive, local-first, end-to-end-encrypted database with Mongo-style q
 
 ## The three tiers
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  RUNTIME     anyrt — programs in wasm, scheduled jobs, agents    │
-│              (talks to the database over the same HTTP API)     │
-├─────────────────────────────────────────────────────────────────┤
-│  SYNC        any-sync — CRDT changes, ACLs, head-sync, p2p LAN  │
-│              (nodes relay ciphertext; keys never leave devices) │
-├─────────────────────────────────────────────────────────────────┤
-│  DATABASE    any-store — local document DB, queries, indexes,   │
-│              live windowed subscriptions, full-text + vectors   │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Tier | Component | What it does |
+|------|-----------|--------------|
+| **Runtime** | anyrt | Programs in wasm, scheduled jobs, agents — talks to the database over the same HTTP API. |
+| **Sync** | any-sync | CRDT changes, ACLs, head-sync, p2p LAN; nodes relay ciphertext and keys never leave devices. |
+| **Database** | any-store | Local document DB: queries, indexes, live windowed subscriptions, full-text + vectors. |
 
 **Database.** Every device runs the whole database locally. Reads are indexed queries against a file on disk; writes commit locally and return immediately. The server process (`any run`) exposes it on `127.0.0.1:7001` as HTTP/JSON with Server-Sent Events for live updates.
 
