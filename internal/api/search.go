@@ -22,10 +22,11 @@ type SearchRequest struct {
 	// Mode is hybrid (default), fts, or vector. Vector requires an
 	// embedder configured on the server.
 	Mode string `json:"mode,omitempty"`
-	// Require / Exclude are extra must / must-not terms for the FTS leg
-	// ($require / $exclude) — a hit must contain every Require term and no
-	// Exclude term. Each term may be a "phrase" or prefix*. Applied to the
-	// lexical leg only; ignored in pure vector mode.
+	// Require / Exclude are extra must / must-not terms ($require /
+	// $exclude) — a hit must contain every Require term and no Exclude
+	// term, in every mode: the FTS leg matches on them, and vector hits
+	// are post-filtered against the FTS index before fusion. Each term
+	// may be a "phrase" or prefix*.
 	Require []string `json:"require,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 }

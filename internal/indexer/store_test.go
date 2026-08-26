@@ -503,3 +503,69 @@ func TestStore_FTSOperators(t *testing.T) {
 		t.Fatalf("prefix silv* = %v, want only b3", got)
 	}
 }
+
+// FilterTerms enforces require / exclude on hits that did not come from
+// the lexical leg (SYN-187): require keeps only docs containing every
+// term (minus excluded ones), exclude-only drops docs containing any
+// excluded term, and no terms is a pass-through.
+func TestStore_FilterTerms(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 2)
+	const sp = "filter"
+
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("basic", "o1", "editor_blocks", "b1", "Anytype on Android is fast", 1)},
+		{Entry: entry("basic", "o2", "editor_blocks", "b2", "Anytype on iOS is fast", 2)},
+		{Entry: entry("basic", "o3", "editor_blocks", "b3", "Android beta builds", 3)},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	all := []Hit{
+		{Scope: "basic", ObjectId: "o1", Dataset: "editor_blocks", RecordId: "b1", Score: 0.9},
+		{Scope: "basic", ObjectId: "o2", Dataset: "editor_blocks", RecordId: "b2", Score: 0.8},
+		{Scope: "basic", ObjectId: "o3", Dataset: "editor_blocks", RecordId: "b3", Score: 0.7},
+	}
+	ids := func(hs []Hit) []string {
+		out := make([]string, 0, len(hs))
+		for _, h := range hs {
+			out = append(out, h.RecordId)
+		}
+		return out
+	}
+	check := func(name string, got []Hit, err error, want ...string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		g := ids(got)
+		if len(g) != len(want) {
+			t.Fatalf("%s = %v, want %v", name, g, want)
+		}
+		for i := range want {
+			if g[i] != want[i] {
+				t.Fatalf("%s = %v, want %v", name, g, want)
+			}
+		}
+	}
+
+	got, err := s.FilterTerms(ctx, sp, all, nil, nil)
+	check("no terms", got, err, "b1", "b2", "b3")
+
+	got, err = s.FilterTerms(ctx, sp, all, []string{"android"}, nil)
+	check("require android", got, err, "b1", "b3")
+
+	got, err = s.FilterTerms(ctx, sp, all, nil, []string{"android"})
+	check("exclude android", got, err, "b2")
+
+	got, err = s.FilterTerms(ctx, sp, all, []string{"anytype"}, []string{"ios"})
+	check("require anytype exclude ios", got, err, "b1")
+
+	got, err = s.FilterTerms(ctx, sp, all, []string{`"android beta"`}, nil)
+	check("require phrase", got, err, "b3")
+
+	got, err = s.FilterTerms(ctx, sp, all, []string{"andr*"}, nil)
+	check("require prefix", got, err, "b1", "b3")
+
+	got, err = s.FilterTerms(ctx, sp, all, []string{"windows"}, nil)
+	check("require unmatched", got, err)
+}

@@ -700,6 +700,67 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
 }
 
+// FilterTerms keeps only the hits that satisfy the Require / Exclude
+// terms — the same $require / $exclude semantics SearchFTSQuery applies
+// to the lexical leg, re-checked against the FTS index for hits that
+// arrived some other way (the vector leg). One indexed query bounded to
+// the hits' doc ids; the analyzer decides "contains", so a phrase or
+// prefix term behaves exactly as it does in the lexical leg. Nothing to
+// enforce (no terms, no hits, FTS compiled out) returns hits unchanged.
+//
+// Negated clauses only tombstone docs a positive clause already scored,
+// so an exclude-only filter is run inverted: match the excluded terms as
+// shoulds and drop whatever comes back.
+func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, require, exclude []string) ([]Hit, error) {
+	if !capFTS || len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
+		return hits, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	arena := &anyenc.Arena{}
+	ids := make([]*anyenc.Value, len(hits))
+	for i, h := range hits {
+		ids[i] = arena.NewString(docId(h.ObjectId, h.Dataset, h.RecordId))
+	}
+	var clauses []query.TextClause
+	keepMatched := len(require) > 0
+	if keepMatched {
+		clauses = appendClauses(clauses, require, query.TextMust)
+		clauses = appendClauses(clauses, exclude, query.TextMustNot)
+	} else {
+		clauses = appendClauses(clauses, exclude, query.TextShould)
+	}
+	filter := query.And{
+		query.Text{Clauses: clauses},
+		query.Key{Path: idPath, Filter: query.NewInValue(ids...)},
+	}
+	iter, err := coll.Find(filter).Limit(uint(len(hits))).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	matched := map[string]bool{}
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, err
+		}
+		matched[string(doc.Value().GetStringBytes("id"))] = true
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]Hit, 0, len(hits))
+	for _, h := range hits {
+		if matched[docId(h.ObjectId, h.Dataset, h.RecordId)] == keepMatched {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
 // appendClauses parses each term (so phrase/prefix syntax is honored) and
 // appends it with the given boolean role.
 func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []query.TextClause {

@@ -754,8 +754,8 @@ Body:
   "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
   "limit":   10,                      // optional: default 10, max 100
   "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
-  "require": ["1937"],                // optional FTS must-have terms (phrase/prefix ok); ignored in vector mode
-  "exclude": ["fiction"]              // optional FTS must-not terms
+  "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
+  "exclude": ["fiction"]              // optional must-not terms
 }
 ```
 
@@ -778,6 +778,13 @@ Reply:
   "vectorStatus": "used"
 }
 ```
+
+`require` / `exclude` are a contract on every returned hit, whatever
+the mode: the FTS leg matches on them, and vector hits (hybrid and pure
+`vector`) are post-filtered against the FTS index before fusion, so
+fusion can never re-admit a hit the lexical leg would have refused.
+Terms are matched by the index analyzer — a `"phrase"` or `prefix*`
+term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
 `fts` when no embedder is configured or it is unreachable; `mode:

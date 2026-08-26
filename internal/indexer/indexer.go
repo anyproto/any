@@ -510,6 +510,14 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
+				// require / exclude are a contract on the hit, not on the
+				// leg: the vector leg is post-filtered against the FTS index
+				// so fusion can't re-admit a doc the lexical leg would have
+				// refused (SYN-187).
+				vecHits, err = ix.store.FilterTerms(ctx, spaceId, vecHits, req.Require, req.Exclude)
+				if err != nil {
+					return api.SearchResponse{}, err
+				}
 				vectorStatus = api.VectorStatusUsed
 			}
 		}

@@ -47,7 +47,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scopes, "scopes", "", "comma-separated scope filter (basic,chat,agent)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max hits (default 10, max 100)")
 	cmd.Flags().StringVar(&mode, "mode", "", "hybrid (default), fts, or vector")
-	cmd.Flags().StringArrayVar(&require, "require", nil, "FTS must-have term (repeatable; phrase/prefix ok)")
-	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "FTS must-not term (repeatable; phrase/prefix ok)")
+	cmd.Flags().StringArrayVar(&require, "require", nil, "must-have term, enforced in every mode (repeatable; phrase/prefix ok)")
+	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "must-not term, enforced in every mode (repeatable; phrase/prefix ok)")
 	return cmd
 }

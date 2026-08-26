@@ -552,9 +552,13 @@ within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 terms ($require / $exclude — a hit must contain every `require` term and
 no `exclude` term); each may itself be a phrase or prefix. A bare term
 alongside a `require` is an optional boost, not a filter (Lucene
-should-semantics). Operators apply to the FTS leg only and are ignored in
-pure `vector` mode. Stop-word stripping is skipped when `query` contains a
-`"` so phrases survive intact.
+should-semantics). Phrases / prefixes in `query` shape the FTS leg only;
+`require` / `exclude` bind every hit: the vector leg is post-filtered
+against the FTS index (`Store.FilterTerms`, one id-bounded `$text` query
+over the leg's hits) before fusion, so hybrid and pure `vector` honor
+them too — the contract is "must contain / must not contain", not "the
+lexical leg agreed". Stop-word stripping is skipped when `query` contains
+a `"` so phrases survive intact.
 
 **Ranking knobs (`index.search.*`, docs/05-config.md).** Three app-side
 dials, all defaulting to pre-tuning behavior so an absent config block
