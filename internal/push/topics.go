@@ -7,7 +7,7 @@
 // space-level mode; as soon as any chat overrides, the space flips to
 // PER-CHAT topics for every chat (effective mode = chat override ??
 // space mode). Topic vocabulary interops with anytype-heart
-// (task-push-notifications.md § Topic vocabulary).
+// (docs/20-push.md § Topic vocabulary).
 
 package push
 

@@ -304,8 +304,15 @@ jobs:
             26.*) echo "iOS 26 SDK present." ;;
             *) echo "::error::iOS 26 SDK required (deployment target 26.0); runner has $SDK. Use a runner image with Xcode 26."; exit 1 ;;
           esac
-      - name: Gate on anyserver tests
-        run: go test -count=1 ./cmd/anyserver/
+      - name: Gate on mobile shim tests
+        # Both shims, on the one runner that has a Go toolchain and no NDK to
+        # wait for. The android suite is behind `-tags gomobile` (mobile.go is
+        # `android || gomobile`), so without the tag it builds nothing and goes
+        # green having run zero tests.
+        run: |
+          set -euo pipefail
+          go test -count=1 ./mobile/ios/
+          go test -count=1 -tags gomobile ./mobile/android/
       - name: Build any.xcframework.zip
         env:
           ANY_BUILD_VERSION: ${{ needs.version.outputs.version }}

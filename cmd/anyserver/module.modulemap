@@ -1,1 +1,0 @@
-module AnyServer { header "anyserver.h" export * }

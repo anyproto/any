@@ -31,13 +31,12 @@ func nodeconfFixture(t *testing.T) string {
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
 
 // start is the lifecycle tests' shorthand for the common Options shape:
-// ephemeral loopback listen, index on, no push node.
+// ephemeral loopback listen, no push node.
 func start(dataDir, nodeconfYAML string) (string, error) {
 	return Start(Options{
 		DataDir:      dataDir,
 		ListenAddr:   loopbackEphemeral,
 		NodeconfYAML: nodeconfYAML,
-		IndexEnabled: true,
 	})
 }
 

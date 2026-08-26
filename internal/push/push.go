@@ -1,5 +1,5 @@
-// Package push runs the account's client side of push notifications
-// (SYN-47): device-token persistence + registration with the push
+// Package push runs the account's client side of push notifications:
+// device-token persistence + registration with the push
 // node, the subscription sync loop (desired-topic reconcile →
 // SubscribeAll full replace), and a buffered notify queue so HTTP
 // handlers never block on the push server. Structural twin of

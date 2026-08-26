@@ -1,10 +1,10 @@
-// Chat notify hooks (SYN-47 M4) — the sender side of push. The HTTP
+// Chat notify hooks — the sender side of push. The HTTP
 // chat handlers call these after a successful send / edit / read;
 // each builds heart's wire payload + topic superset and feeds
 // Enqueue. Sender-scoped BY CONSTRUCTION: hooks fire only on this
 // server's own writes (a remote peer's message was pushed by ITS
 // sender), which is exactly why this is a handler hook and not a
-// Changes() feed — see task-push-notifications.md § Triggers.
+// Changes() feed — see docs/20-push.md § Triggers.
 //
 // Everything here is best-effort and MUST NOT block or fail the HTTP
 // response: the record read-back runs on a service-lifetime goroutine
@@ -139,7 +139,7 @@ func (s *Service) ChatMentionsBefore(ctx context.Context, sp space.Space, object
 // NEWLY-ADDED mentions — bare identity + per-chat mention topics
 // only, never the "chats" / per-chat broadcast topics (an edit is not
 // a new message for the room; only a fresh ping notifies, decision 1
-// in task-push-notifications.md). Asynchronous and non-blocking.
+// in docs/20-push.md § Triggers). Asynchronous and non-blocking.
 func (s *Service) NotifyChatEdit(sp space.Space, objectId, msgId string, before []string) {
 	s.goHook(func(ctx context.Context) {
 		rec, err := chatRecord(ctx, sp, objectId, msgId)

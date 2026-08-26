@@ -102,8 +102,7 @@ Implementation slices landed:
    Lets an agent subscribed to `chat_messages` filter to human-typed
    messages (`agent` absent) when deciding what to respond to.
    `any chat send --agent-name <name> [--agent-debug-link L]
-   [--agent-done=false]`. Contract spec: task-agent-message-field.md +
-   ../any-ui/docs/tasks/agent-message-field.md.
+   [--agent-done=false]`. Contract: docs/03-api.md § Chat.
    **Mentions (SYN-72)**: records carry a server-DERIVED `mentions`
    identity array (ScopeDerived, client writes rejected) — parsed from
    `any://m/…` links in text via `anyuri.ExtractMentions` plus the
@@ -163,9 +162,8 @@ Implementation slices landed:
    same as PUT), and creates the new blocks in one ModifyBatch —
    O(chunk), not O(doc). Purely additive; same reply shape as PUT with
    only `inserted` populated (`markdown.Append` in `internal/markdown`).
-   Grow-by-append pages (e.g. the agent debug log, via
-   `anyHelper.appendToObject`) use it so a run of N appends is O(N),
-   not O(N²). CLI: `any editor blocks create/patch/delete`.
+   Grow-by-append pages (e.g. an agent's debug log) use it so a run of
+   N appends is O(N), not O(N²). CLI: `any editor blocks create/patch/delete`.
 8. **Per-space `spaceIndex` derived metadata** — the SDK now owns each
    space's `name` / `description` / `icon` in a derived in-space
    `spaceIndex` object (one per space, deterministic id) rather than
@@ -224,13 +222,6 @@ Implementation slices landed:
     declares it as runtime datasets on objects it derives itself and
     owns the record shapes, validation, and search mappings; nothing
     agent-specific is compiled into this server (docs/11-agent-memory.md).
-12. **bobrik-watch** — JS-powered chat agent in `cmd/bobrik-watch/`.
-    Full docs (storage shape, refresh mechanics, validation rules,
-    flags, what's missing) in
-    [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) and
-    [`cmd/bobrik-watch/BOBRIK.md`](cmd/bobrik-watch/BOBRIK.md). Read
-    those before changing anything under that directory.
-
 12. **Dataset schemas + space-list query/subscribe** — built on the
     SDK's unified tech-space query (`Service.Query` /
     `SpaceIndexObjectId`) and required-schema work (`handler.Dataset.Schema`
@@ -1262,8 +1253,8 @@ llama.cpp bindings need libffi, which the dev shell provides
 (a bare tagged binary panics on `libffi.so.8` at startup).
 
 ```
-make build                                        # canonical: any + any-agent-runtime,
-                                                  # with -tags '$(INDEX_TAGS)' (fts vector)
+make build                                        # canonical: bin/any, with
+                                                  # -tags '$(INDEX_TAGS)' (fts vector)
 go build ./cmd/any                                # AVOID for servers you'll query:
                                                   # no index tags -> search returns nothing
 make llamacpp                                     # prebuilt llama.cpp libs into bin/llamacpp
@@ -1296,41 +1287,8 @@ build jobs (desktop x6 tarballs — 4 platforms plus 2 App-Sandbox-safe darwin
 fans in to a single `publish` job that ships them all in ONE GitHub Release (both
 mobile assets sha256-pinned in the notes) and dispatches the 3 client repos.
 
-For bobrik-watch commands, see [`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md).
-
-### Running bobrik — the canonical sequence
-
-After ANY change to Go code, `anyHelper.js`, programs, skills, or
-tool-descriptions, run these three steps in order:
-
-```
-# 1. Always rebuild first — never skip this.
-make build                                        # builds any, bobrik-watch, any-agent-runtime
-
-# 2. (Re)start any and bobrik-watch (restart both so the new binaries take over).
-#    e.g. stop the running instances, then:
-./any run                                         # foreground server (or your start skill)
-./bin/bobrik-watch                                # default: space=bao, watches chat "general"
-
-# 3. Refresh the JS of bobrik/bao (reloads anyHelper.js, programs, skills,
-#    tool-descriptions from disk into the bao space).
-./bin/bobrik-watch --bootstrap                    # POST /bootstrap to the running instance
-```
-
-Step 1 is mandatory every time — `make build` always. Steps 2 and 3 are
-how new JS reaches a live agent: a binary restart alone does NOT re-sync
-the in-space programs/skills of an already-running watcher; `--bootstrap`
-POSTs `/bootstrap` to the running watcher's control API (`--control-addr`,
-default `127.0.0.1:7010`), which re-runs the bootstrap sync against disk.
-That sync is **incremental/hash-gated** — unchanged programs/skills are
-skipped, deleted ones swept — so it's cheap to run often.
-(`--bootstrap-clean` POSTs `/bootstrap-clean`, the wipe-and-rebuild
-recovery path.) See
-[`cmd/bobrik-watch/CLAUDE.md`](cmd/bobrik-watch/CLAUDE.md) § Startup sync
-for the mechanics.
-
 Module path: `github.com/anyproto/any`. Go 1.26.2. Dependencies
-(`any-sync-sdk`, `any-sync`, `any-store`, `anytype-agent-runtime`) are
+(`any-sync-sdk`, `any-sync`, `any-store`) are
 **published modules**, not sibling checkouts — `go.mod` is the single
 source of truth for the exact versions. Don't restate version numbers
 here: they drift on every bump and go stale silently. Which SDK feature
@@ -1386,6 +1344,8 @@ From `docs/00-overview.md`:
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
 ├── anyuri/               PUBLIC: canonical any:// link grammar (docs/19-links.md)
+├── mobile/ios/           iOS c-archive shim (//export + module.modulemap)
+├── mobile/android/       Android gomobile bind shim (package NAME stays `mobile`)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -1399,7 +1359,19 @@ Everything lives under `internal/` with ONE deliberate exception:
 `anyuri/` is public (`github.com/anyproto/any/anyuri`) — any owns the
 link format and clients/agents import the Build/Parse rule instead of
 reimplementing it (SYN-75). Don't add further public packages without
-the same kind of explicit contract. Request/response
+the same kind of explicit contract.
+
+The two `mobile/` shims are not packages anyone imports — they're
+binding surfaces, and they sit outside `cmd/` because `cmd/` is Go's
+convention for RUNNABLE binaries and neither a c-archive nor an AAR is
+one. Both are thin adapters over `internal/embedded`, which
+owns the actual lifecycle. Two things there look like mistakes and
+aren't: `mobile/android` declares `package mobile` (gomobile derives the
+AAR's Java class from the package NAME, so renaming it breaks Android
+consumers), and `build-xcframework.sh` builds `-o anylib.a` from
+`./mobile/ios` (cgo names the generated header after `-o`, and
+`anylib.h` is what the modulemap and Swift's `import AnyLib`
+depend on). Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.
 
@@ -1495,10 +1467,8 @@ auto-start.
 | `docs/06-errors.md` | error response shape, HTTP codes, code namespace |
 | `docs/07-roadmap.md` | v1.x / v2 plans, open questions, SDK prerequisites |
 | `docs/08-clients.md` | client call-pattern recommendations (writes via handlers, reads via query/subscribe, chat newest-first paging) |
-| `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, anyHelper surface |
-| `docs/10-coverage.md` | anyHelper ↔ server endpoint coverage map (what's wrapped, what's deliberately out of agent scope) |
+| `docs/09-query.md` | any-store query guide — filter operators, array matching, sort, paging, indexes, xKey paths |
 | `docs/11-agent-memory.md` | agent data — harness-owned userspace runtime datasets; pointer to the anybao repo |
-| `docs/12-rlm-search.md` | RLM-style `search@v1` program (implemented) — recursive-LM recall without a vector index; loop mechanics, stats, guardrails |
 | `docs/13-index.md` | search index — `IndexEntry`/`Chunker` contract, scopes, tombstones, addSeq; the indexer (store layout, advance/embed loops, purge rule), `/search` modes + errors |
 | `docs/14-aggregation.md` | aggregation pipelines — `/aggregate` endpoints, stage set, pushdown guidance, limits, MongoDB-divergence catalog |
 | `docs/16-chat.md` | chat client guide — building a messenger UI on `chat_messages`: rendering, liveness, and SDK read-tracking (account-private, forward-only unread state) |

@@ -93,6 +93,9 @@ and both are deferred.
 any/
 ├── cmd/any/              main() — dispatches to cli or server subcommand
 ├── anyuri/               PUBLIC: canonical any:// link grammar (19-links.md)
+├── mobile/
+│   ├── ios/              c-archive shim (//export + module.modulemap)
+│   └── android/          gomobile bind shim (package NAME stays `mobile`)
 ├── internal/
 │   ├── cli/              CLI subcommands, flag parsing, rendering
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
@@ -112,6 +115,11 @@ exception: `anyuri/` (`github.com/anyproto/any/anyuri`) — the canonical
 `any://` link grammar. `any` owns the format, and clients/agents import
 the Build/Parse rule instead of reimplementing it (see
 [19-links.md](19-links.md)).
+
+The `mobile/` shims aren't imported either — they're binding surfaces
+(one c-archive, one AAR), both thin adapters over `internal/embedded`,
+which owns the lifecycle. They sit outside `cmd/` because `cmd/` is Go's
+convention for runnable binaries and neither artifact is one.
 
 ## Relationship to the SDK
 

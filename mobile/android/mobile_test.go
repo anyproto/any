@@ -4,7 +4,7 @@
 // internal/embedded. Because mobile.go carries `//go:build android ||
 // gomobile`, this suite compiles and runs ONLY under `-tags gomobile`; a
 // default-tag `go test ./mobile/...` builds nothing here (a false green).
-// Run it with: go test -tags gomobile ./mobile/... -race
+// Run it with: go test -tags gomobile ./mobile/android/ -race
 package mobile
 
 import (
