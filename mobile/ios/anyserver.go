@@ -218,6 +218,10 @@ var versionString = C.CString(embedded.Version())
 // address, or a non-zero code with the server's own error message. See
 // the AnyServerStartResult typedef and the code constants.
 //
+// Any argument may be NULL and reads as an empty string (C.GoString
+// treats NULL as ""), which spares the Swift caller a strdup for the
+// push pair it usually leaves off.
+//
 //export AnyServerStart
 func AnyServerStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs *C.char) C.AnyServerStartResult {
 	res := startServer(
