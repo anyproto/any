@@ -131,12 +131,13 @@ func TestPlanDocs(t *testing.T) {
 		t.Fatalf("shrink dels = %v, want the two trailing chunk ids", shrink.dels)
 	}
 
-	// Tombstone → base id deleted once, even though stored lists chunks.
+	// Tombstone → the base id alone (its range delete covers the chunks
+	// stored lists — no per-chunk deletes).
 	gone := e
 	gone.Data = ""
 	var del pageOps
 	planDocs([]index.IndexEntry{gone}, stored, 200, &del)
-	if len(del.ups) != 0 || len(del.dels) != 3 || del.dels[0] != base {
+	if len(del.ups) != 0 || len(del.dels) != 1 || del.dels[0] != base {
 		t.Fatalf("tombstone = ups %d dels %v", len(del.ups), del.dels)
 	}
 }

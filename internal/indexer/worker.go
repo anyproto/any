@@ -3,7 +3,6 @@ package indexer
 import (
 	"context"
 	"errors"
-	"slices"
 	"sync"
 	"time"
 
@@ -411,10 +410,15 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 // stored may not list).
 func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) {
 	seen := make(map[string]bool, len(entries))
+	var gone map[string]bool // bases whose range delete already covers their chunks
 	for _, e := range entries {
 		base := docId(e.ObjectId, e.Dataset, e.RecordId)
 		if e.Data == "" {
 			page.dels = append(page.dels, base)
+			if gone == nil {
+				gone = map[string]bool{}
+			}
+			gone[base] = true
 			continue
 		}
 		for _, up := range expandEntry(e, chunkRunes) {
@@ -427,9 +431,10 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 		}
 	}
 	for id := range stored {
-		if !seen[id] && !slices.Contains(page.dels, id) {
-			page.dels = append(page.dels, id) // vanished
+		if seen[id] || gone[recordBase(id)] {
+			continue
 		}
+		page.dels = append(page.dels, id) // vanished
 	}
 }
 

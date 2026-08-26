@@ -568,6 +568,28 @@ func TestStore_FilterTerms(t *testing.T) {
 
 	got, err = s.FilterTerms(ctx, sp, all, []string{"windows"}, nil)
 	check("require unmatched", got, err)
+
+	// Chunk-aware: the term lives in chunk 1 only; the chunk-1 hit passes,
+	// the chunk-0 hit of the same record does not.
+	rec := entry("basic", "o4", "editor_blocks", "b4", "", 4)
+	if err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: withData(rec, "opening words"), Chunk: 0},
+		{Entry: withData(rec, "closing words about android"), Chunk: 1},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	chunks := []Hit{
+		{Scope: "basic", ObjectId: "o4", Dataset: "editor_blocks", RecordId: "b4", Chunk: 0},
+		{Scope: "basic", ObjectId: "o4", Dataset: "editor_blocks", RecordId: "b4", Chunk: 1},
+	}
+	got, err = s.FilterTerms(ctx, sp, chunks, []string{"android"}, nil)
+	if err != nil || len(got) != 1 || got[0].Chunk != 1 {
+		t.Fatalf("chunk-aware require = %+v (%v), want only chunk 1", got, err)
+	}
+	got, err = s.FilterTerms(ctx, sp, chunks, nil, []string{"android"})
+	if err != nil || len(got) != 1 || got[0].Chunk != 0 {
+		t.Fatalf("chunk-aware exclude = %+v (%v), want only chunk 0", got, err)
+	}
 }
 
 // Chunk docs share the record's id range: a record-id delete removes

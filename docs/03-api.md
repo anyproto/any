@@ -793,7 +793,7 @@ when nothing matches literally; `dataOffset` (omitted when 0) is the
 window's rune offset into the chunk's indexed text and `dataTotal`
 that text's rune length — `data` is the whole chunk iff `dataOffset`
 is 0 and its rune length equals `dataTotal`. `maxData: -1` returns the
-whole chunk; `maxData < -1` is `400 request.bad`. The full record is
+whole chunk; `maxData < -1` is `400 request.invalid_field`. The full record is
 one dataset query away (`docs/08-clients.md` § 6).
 
 `require` / `exclude` are a contract on every returned hit, whatever

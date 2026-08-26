@@ -578,26 +578,6 @@ func (s *Store) DocHashes(ctx context.Context, spaceId, idPrefix string) (map[st
 	return collectHashes(ctx, coll, idRange)
 }
 
-// DocHashesByIds returns id→hash for the stored docs among the given ids
-// (missing ids are simply absent from the map). The per-record
-// incremental path uses it to detect records that re-streamed without an
-// indexed-text change.
-func (s *Store) DocHashesByIds(ctx context.Context, spaceId string, ids []string) (map[string]string, error) {
-	if len(ids) == 0 {
-		return map[string]string{}, nil
-	}
-	coll, err := s.spaceColl(ctx, spaceId)
-	if err != nil {
-		return nil, err
-	}
-	arena := &anyenc.Arena{}
-	vals := make([]*anyenc.Value, len(ids))
-	for i, id := range ids {
-		vals[i] = arena.NewString(id)
-	}
-	return collectHashes(ctx, coll, query.Key{Path: idPath, Filter: query.NewInValue(vals...)})
-}
-
 // DocHashesByRecords returns id→hash for every chunk doc of the given
 // record ids (base doc ids, chunk.go) — one primary-key range seek per
 // record. The incremental stream path diffs a re-streamed record's new
@@ -764,7 +744,7 @@ func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, req
 	arena := &anyenc.Arena{}
 	ids := make([]*anyenc.Value, len(hits))
 	for i, h := range hits {
-		ids[i] = arena.NewString(docId(h.ObjectId, h.Dataset, h.RecordId))
+		ids[i] = arena.NewString(hitDocId(h))
 	}
 	var clauses []query.TextClause
 	keepMatched := len(require) > 0
@@ -796,11 +776,17 @@ func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, req
 	}
 	out := make([]Hit, 0, len(hits))
 	for _, h := range hits {
-		if matched[docId(h.ObjectId, h.Dataset, h.RecordId)] == keepMatched {
+		if matched[hitDocId(h)] == keepMatched {
 			out = append(out, h)
 		}
 	}
 	return out, nil
+}
+
+// hitDocId is the primary key of the doc a hit came from — the record's
+// base id plus its chunk suffix (chunk.go).
+func hitDocId(h Hit) string {
+	return chunkDocId(docId(h.ObjectId, h.Dataset, h.RecordId), h.Chunk)
 }
 
 // appendClauses parses each term (so phrase/prefix syntax is honored) and

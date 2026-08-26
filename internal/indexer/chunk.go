@@ -43,6 +43,14 @@ func chunkDocId(base string, n int) string {
 	return base + chunkSep + strconv.Itoa(n)
 }
 
+// recordBase strips a chunk suffix, returning the record's base doc id.
+func recordBase(id string) string {
+	if i := strings.Index(id, chunkSep); i >= 0 {
+		return id[:i]
+	}
+	return id
+}
+
 // recordUpper is the exclusive upper bound of the id range holding a
 // record's docs (the base id plus every chunk suffix).
 func recordUpper(base string) string {
@@ -63,6 +71,14 @@ func expandEntry(e index.IndexEntry, maxRunes int) []DocUpsert {
 		maxRunes = DefaultChunkRunes
 	}
 	pieces := splitText(e.Data, maxRunes)
+	if len(pieces) > 1 && e.Title != "" {
+		// Later chunks get the title re-prefixed; split so the prefixed
+		// chunk still fits the bound (the title is short by nature —
+		// a title eating half the budget just means smaller chunks).
+		if budget := maxRunes - utf8.RuneCountInString(e.Title) - 1; budget >= maxRunes/2 {
+			pieces = splitText(e.Data, budget)
+		}
+	}
 	out := make([]DocUpsert, 0, len(pieces))
 	for i, p := range pieces {
 		ce := e
