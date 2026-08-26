@@ -1,7 +1,7 @@
 // Device-token persistence: one JSON file (push-token.json) in the
 // per-account data dir. Device-local by design — a push token names
 // THIS device's APNs/FCM endpoint, so it must never ride a synced
-// dataset (task-push-notifications.md § Settings storage).
+// dataset (docs/20-push.md).
 
 package push
 

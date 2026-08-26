@@ -102,8 +102,7 @@ Implementation slices landed:
    Lets an agent subscribed to `chat_messages` filter to human-typed
    messages (`agent` absent) when deciding what to respond to.
    `any chat send --agent-name <name> [--agent-debug-link L]
-   [--agent-done=false]`. Contract spec: task-agent-message-field.md +
-   ../any-ui/docs/tasks/agent-message-field.md.
+   [--agent-done=false]`. Contract: docs/03-api.md § Chat.
    **Mentions (SYN-72)**: records carry a server-DERIVED `mentions`
    identity array (ScopeDerived, client writes rejected) — parsed from
    `any://m/…` links in text via `anyuri.ExtractMentions` plus the
