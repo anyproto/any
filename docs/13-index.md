@@ -526,7 +526,7 @@ On the mobile embed path (`internal/embedded.Start`) the host passes
 gate is `indexEnabled && fts`. Both shims now pass a constant `true`
 (`mobile/ios`, `mobile/android`), so in practice the compiled `fts` cap is
 the only thing deciding whether the indexer runs. `indexEnabled` used to
-be an `AnyServerStart` argument, and the one caller that passed `false`
+be an `AnyLibStart` argument, and the one caller that passed `false`
 was the iOS share extension's second engine — IOS-527 removes that engine
 and IOS-528 removed the argument with it. `index.embedder` is hard-forced
 to `"none"` on this path regardless (no embedder is ever constructed on

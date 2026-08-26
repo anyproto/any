@@ -1410,9 +1410,9 @@ one (IOS-528). Both are thin adapters over `internal/embedded`, which
 owns the actual lifecycle. Two things there look like mistakes and
 aren't: `mobile/android` declares `package mobile` (gomobile derives the
 AAR's Java class from the package NAME, so renaming it breaks Android
-consumers), and `build-xcframework.sh` builds `-o anyserver.a` from
+consumers), and `build-xcframework.sh` builds `-o any-lib.a` from
 `./mobile/ios` (cgo names the generated header after `-o`, and
-`anyserver.h` is what the modulemap and Swift's `import AnyServer`
+`any-lib.h` is what the modulemap and Swift's `import AnyLib`
 depend on). Request/response
 types live in `internal/api/` and are imported by both `server/` and `cli/` — do
 not redefine them on one side.

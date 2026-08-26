@@ -1,8 +1,8 @@
 package main
 
 // Host-build tests for the c-archive shim. They exercise the plain Go
-// funcs (startServer / stopServer / errCode / copyBounded) — the
-// //export AnyServerStart/Stop/StopNow/Version wrappers cannot be called
+// funcs (startEngine / stopEngine / errCode / copyBounded) — the
+// //export AnyLibStart/Stop/StopNow/Version wrappers cannot be called
 // from `go test` (that's the accepted seam, exercised by the Swift app),
 // and neither can anything typed in terms of C, since cgo is not
 // permitted in a _test.go file. The package imports "C", but a plain
@@ -34,7 +34,7 @@ import (
 const loopbackEphemeral = "127.0.0.1:0" // OS-assigned free port
 
 // addressLen / messageLen mirror the C buffer sizes in the
-// AnyServerStartResult typedef. The truncation tests run copyBounded at
+// AnyLibStartResult typedef. The truncation tests run copyBounded at
 // exactly these widths so a change to the typedef that isn't mirrored
 // here shows up as a stale constant rather than a silent gap.
 const (
@@ -56,18 +56,18 @@ func nodeconfFixture(t *testing.T) string {
 	return string(raw)
 }
 
-// cleanupServer guarantees the process-global embedded singleton is torn
-// down after a test that started it, so a leftover server can't poison the
+// cleanupEngine guarantees the process-global embedded singleton is torn
+// down after a test that started it, so a leftover engine can't poison the
 // next test (the embedded state is process-global).
-func cleanupServer(t *testing.T) {
+func cleanupEngine(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() { stopServer(false) })
+	t.Cleanup(func() { stopEngine(false) })
 }
 
 // start boots with push off — the arguments every lifecycle test shares.
 func start(t *testing.T, dataDir string) startResult {
 	t.Helper()
-	return startServer(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "")
+	return startEngine(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "")
 }
 
 // dialAddr asserts the address is bound and reachable: a TCP dial
@@ -81,34 +81,34 @@ func dialAddr(t *testing.T, addr string) {
 	conn.Close()
 }
 
-// TestStartServer_SuccessFillsAddress asserts the shim's success path:
+// TestStartEngine_SuccessFillsAddress asserts the shim's success path:
 // code 0, `address` carrying the bound ephemeral host:port, and `message`
 // EMPTY. The empty message is half the contract — the host reads a
 // non-empty message as "something went wrong", so a success that leaked
 // text would surface a phantom error.
-func TestStartServer_SuccessFillsAddress(t *testing.T) {
-	cleanupServer(t)
+func TestStartEngine_SuccessFillsAddress(t *testing.T) {
+	cleanupEngine(t)
 
 	res := start(t, t.TempDir())
 	if res.code != codeOK {
-		t.Fatalf("startServer: code %d (%q), want codeOK (%d)", res.code, res.message, codeOK)
+		t.Fatalf("startEngine: code %d (%q), want codeOK (%d)", res.code, res.message, codeOK)
 	}
 	if res.address == "" {
-		t.Fatal("startServer: empty address on success")
+		t.Fatal("startEngine: empty address on success")
 	}
 	if res.message != "" {
-		t.Fatalf("startServer: message %q on success, want empty", res.message)
+		t.Fatalf("startEngine: message %q on success, want empty", res.message)
 	}
 
-	// The reported address is the server's actually-bound one.
+	// The reported address is the engine's actually-bound one.
 	if got := embedded.Address(); got != res.address {
-		t.Fatalf("Address()=%q, startServer returned %q — mismatch", got, res.address)
+		t.Fatalf("Address()=%q, startEngine returned %q — mismatch", got, res.address)
 	}
 
 	// It is bound: a dial succeeds.
 	dialAddr(t, res.address)
 
-	stopServer(true)
+	stopEngine(true)
 
 	// After a graceful stop the singleton is cleared: Address() is empty.
 	if addr := embedded.Address(); addr != "" {
@@ -116,12 +116,12 @@ func TestStartServer_SuccessFillsAddress(t *testing.T) {
 	}
 }
 
-// TestStartServer_FailureFillsMessage asserts the mirror of the success
+// TestStartEngine_FailureFillsMessage asserts the mirror of the success
 // case, and the reason this whole interface exists: a failure carries a
 // non-empty explanation and no address. Driven through the bad-data-dir
-// path because it fails deterministically without a live server.
-func TestStartServer_FailureFillsMessage(t *testing.T) {
-	cleanupServer(t)
+// path because it fails deterministically without a live engine.
+func TestStartEngine_FailureFillsMessage(t *testing.T) {
+	cleanupEngine(t)
 
 	res := start(t, "")
 	if res.code != codeBadDataDir {
@@ -135,10 +135,10 @@ func TestStartServer_FailureFillsMessage(t *testing.T) {
 	}
 }
 
-// TestStartServer_AlreadyRunning asserts a second start while one is up
+// TestStartEngine_AlreadyRunning asserts a second start while one is up
 // maps embedded.ErrAlreadyRunning -> codeAlreadyRunning.
-func TestStartServer_AlreadyRunning(t *testing.T) {
-	cleanupServer(t)
+func TestStartEngine_AlreadyRunning(t *testing.T) {
+	cleanupEngine(t)
 
 	if res := start(t, t.TempDir()); res.code != codeOK {
 		t.Fatalf("first start: code %d (%q), want codeOK", res.code, res.message)
@@ -149,13 +149,13 @@ func TestStartServer_AlreadyRunning(t *testing.T) {
 	}
 }
 
-// TestStartServer_BadDataDir asserts the bad-data-dir paths map
+// TestStartEngine_BadDataDir asserts the bad-data-dir paths map
 // embedded.ErrBadDataDir -> codeBadDataDir: an empty path, and a path
 // whose parent is a file (so MkdirAll cannot create it). A non-empty
 // nodeconf is supplied so the failure is genuinely the data dir, not a
 // missing nodeconf.
-func TestStartServer_BadDataDir(t *testing.T) {
-	cleanupServer(t)
+func TestStartEngine_BadDataDir(t *testing.T) {
+	cleanupEngine(t)
 
 	if res := start(t, ""); res.code != codeBadDataDir {
 		t.Fatalf("empty data dir: code %d, want codeBadDataDir (%d)", res.code, codeBadDataDir)

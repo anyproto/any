@@ -1,6 +1,6 @@
 #!/bin/sh
 # clangwrap-ios.sh — CC wrapper for cgo cross-compiling to ios/arm64 (device).
-# Used to build the anyserver c-archive (IOS-6169).
+# Used to build the any-lib c-archive.
 # Sets the iphoneos sysroot + ios deployment target on every cgo clang
 # invocation. SDK path is resolved at runtime (no hardcoded paths).
 #

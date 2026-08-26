@@ -91,9 +91,9 @@ func TestEnsureDim_ModelChangedIsRebuildRequired(t *testing.T) {
 //
 // any-kotlin's AnyRuntimeImpl decides whether to wipe a user's local
 // index by substring-matching "indexer:", "remove " and "to rebuild" out
-// of this error text. That's the defect IOS-528 fixes on the iOS side
-// (code 4), but Android hasn't adopted the code yet, and this PR must
-// not change Android behaviour. So until it does, these three
+// of this error text. That's the defect the sentinel fixes on the iOS
+// side (start code 4), but Android hasn't adopted the code yet, and
+// changing its behaviour is not ours to do. So until it does, these three
 // substrings are load-bearing: rewording a message here silently
 // disables a user's index recovery on Android, with no compile error and
 // no failing Go test anywhere else.

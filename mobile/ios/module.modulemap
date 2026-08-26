@@ -1,1 +1,1 @@
-module AnyServer { header "anyserver.h" export * }
+module AnyLib { header "any-lib.h" export * }

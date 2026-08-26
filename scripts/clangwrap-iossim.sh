@@ -1,6 +1,6 @@
 #!/bin/sh
 # clangwrap-iossim.sh — CC wrapper for cgo cross-compiling to the
-# ios/arm64 *simulator*. Used to build the anyserver c-archive (IOS-6169).
+# ios/arm64 *simulator*. Used to build the any-lib c-archive.
 #
 # Device and arm64-simulator share GOOS=ios GOARCH=arm64, so cgo's own
 # flags can't tell them apart (golang/go#57442). ONLY this wrapper

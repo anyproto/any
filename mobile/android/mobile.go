@@ -5,13 +5,12 @@
 // types cross the bridge — keep the surface flat (top-level funcs,
 // string/error only). All lifecycle logic lives in internal/embedded; this
 // package is a thin host-idiom adapter over it so both mobile shims (this
-// gomobile one and the iOS c-archive at mobile/ios) share one tested core
-// (IOS-6169).
+// gomobile one and the iOS c-archive at mobile/ios) share one tested core.
 //
-// The package is NAMED mobile while its directory is mobile/android
-// (IOS-528): gomobile derives the generated Java class from the package
-// name, so the name is the AAR's public API and the directory is free to
-// move. Do not "fix" the mismatch.
+// The package is NAMED mobile while its directory is mobile/android:
+// gomobile derives the generated Java class from the package name, so the
+// name is the AAR's public API and the directory is free to move. Do not
+// "fix" the mismatch.
 package mobile
 
 import (
@@ -39,7 +38,7 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 	return StartWithPush(dataDir, listenAddr, nodeconfYAML, "", "")
 }
 
-// StartWithPush is Start plus the push-notification node (SYN-83). The
+// StartWithPush is Start plus the push-notification node. The
 // push node is a direct out-of-band peer, not part of nodeconfYAML — it
 // pairs with the nodeconf choice, so a host overriding the network passes
 // both from the same place. pushPeerId is the node's peer id; pushAddrs

@@ -19,7 +19,7 @@ setup-gomobile:
 	PATH="$(GOBIN):$$PATH" $(GOMOBILE) init
 
 # Produce dist/android/any.aar from the github.com/anyproto/any/mobile/android
-# package. The DIRECTORY moved under mobile/ (IOS-528) but the Go package is
+# package. The DIRECTORY moved under mobile/ but the Go package is
 # still named `mobile`, and gomobile derives the generated Java class from the
 # package name, not the path — so `-javapkg=io.anyproto.any` plus package
 # `mobile` keeps the AAR API byte-identical across that move. Renaming the

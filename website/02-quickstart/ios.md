@@ -23,19 +23,19 @@ The header exposes four functions. Strings are C strings:
 
 | Function | Purpose |
 |----------|---------|
-| `AnyServerStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs) -> AnyServerStartResult` | Boot the server. Blocks until the listener is up. |
-| `AnyServerStop()` | Graceful shutdown; waits for the server to exit. Safe when not running. |
-| `AnyServerStopNow()` | Hard stop, returns promptly — for `applicationWillTerminate` or an expiring background task. |
-| `AnyServerVersion() -> char *` | The linked server's version string. Valid for the process lifetime; do **not** free it. |
+| `AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs) -> AnyLibStartResult` | Boot the engine. Blocks until the listener is up. |
+| `AnyLibStop()` | Graceful shutdown; waits for the engine to exit. Safe when not running. |
+| `AnyLibStopNow()` | Hard stop, returns promptly — for `applicationWillTerminate` or an expiring background task. |
+| `AnyLibVersion() -> char *` | The linked archive's version string. Valid for the process lifetime; do **not** free it. |
 
-`AnyServerStart` hands back a struct, by value, with everything you need to react:
+`AnyLibStart` hands back a struct, by value, with everything you need to react:
 
 ```c
 typedef struct {
     int32_t code;         // 0 ok
     char    address[64];  // "127.0.0.1:53421" when code == 0
-    char    message[512]; // the server's own detail when code != 0
-} AnyServerStartResult;
+    char    message[512]; // the engine's own detail when code != 0
+} AnyLibStartResult;
 ```
 
 Both buffers are always NUL-terminated, so a long message loses its tail rather than its terminator. Nothing here is heap-allocated and nothing needs freeing.
@@ -43,7 +43,7 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 | `code` | Meaning |
 |--------|---------|
 | `0` | Up. `address` holds the bound host:port. |
-| `1` | A server is already running in this process — stop it first. |
+| `1` | An instance is already running in this process — stop it first. |
 | `2` | Bad data dir: empty, or not creatable. |
 | `3` | Boot failed. `message` says why. |
 | `4` | The on-disk search index can't be opened by this build and must be deleted to rebuild. Offer the user a "reset local data" path, not a plain retry — the index is a derived cache, so deleting it is the whole fix. |
@@ -53,7 +53,7 @@ Both buffers are always NUL-terminated, so a long message loses its tail rather 
 ## Start it
 
 ```swift
-import AnyServer
+import AnyLib
 
 final class AnyBackend {
     static let shared = AnyBackend()
@@ -69,7 +69,7 @@ final class AnyBackend {
         let dir = strdup(dataDir), addr = strdup("127.0.0.1:0")   // ":0" → OS picks a port
         defer { free(dir); free(addr) }
 
-        var res = AnyServerStart(dir, addr, nil, nil, nil)        // nil nodeconf = production; nil push pair = off
+        var res = AnyLibStart(dir, addr, nil, nil, nil)        // nil nodeconf = production; nil push pair = off
         guard res.code == 0 else {
             throw NSError(domain: "any", code: Int(res.code),
                           userInfo: [NSLocalizedDescriptionKey: read(&res.message)])
@@ -77,7 +77,7 @@ final class AnyBackend {
         baseURL = URL(string: "http://\(read(&res.address))/v1")!
     }
 
-    func stop() { AnyServerStop() }
+    func stop() { AnyLibStop() }
 
     /// Fixed-size `char[]` fields arrive as Swift tuples; rebind to read them.
     private func read<T>(_ field: inout T) -> String {
@@ -132,8 +132,8 @@ for try await line in bytes.lines { /* accumulate until "" then dispatch on even
 
 ## Lifecycle notes
 
-- **One server per process.** A second `AnyServerStart` while running fails; stop first.
-- **Background expiry.** Call `AnyServerStopNow()` from a deadline-bounded task expiration handler; `AnyServerStop()` drains open streams with a 10 s ceiling.
+- **One instance per process.** A second `AnyLibStart` while running fails; stop first.
+- **Background expiry.** Call `AnyLibStopNow()` from a deadline-bounded task expiration handler; `AnyLibStop()` drains open streams with a 10 s ceiling.
 - **App Sandbox helpers on macOS** use the `-sandbox` desktop tarball rather than this archive ([Builds and CI](../operations/builds-and-ci.html)).
 - **Push.** Start with the push node and cache each space's `SpaceInfo.push` keys in a shared-access-group keychain item so the Notification Service Extension can decrypt while the server is not running ([Push](../notifications/push.html)).
 

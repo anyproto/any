@@ -3,7 +3,7 @@
 // binding shims sit on top of it: the gomobile `mobile` package
 // (`mobile/android`) and the c-archive shim (`mobile/ios`). Each shim is a thin
 // host-idiom adapter; this package owns the real logic so it is exercised
-// once by a single host-runnable test suite (IOS-6169).
+// once by a single host-runnable test suite.
 //
 // What it owns:
 //   - a mutex-guarded, single-server-per-process singleton with a
@@ -16,9 +16,8 @@
 //     Android's low-memory killer);
 //   - config assembly: config.Defaults() + DataDir + Listen.Addr +
 //     Network.Nodeconf + index policy (Embedder="none", Index.Enabled =
-//     the compiled FTS cap) + headless (WebUI.Enabled=false, IOS-116) +
-//     the push node peer (Options.PushPeerId/PushAddrs → cfg.Push,
-//     SYN-83);
+//     the compiled FTS cap) + headless (WebUI.Enabled=false) +
+//     the push node peer (Options.PushPeerId/PushAddrs → cfg.Push);
 //   - the run via main's canonical embedder seam, server.RunWith.
 //
 // The embedded path never reads config.yaml or ANY_* env — the host owns
@@ -135,7 +134,7 @@ type Options struct {
 	// IndexEnabled requests the FTS index (see the index-policy block in
 	// Start); a build without the `fts` tag ignores it.
 	IndexEnabled bool
-	// PushPeerId is the push node's peer id (SYN-83). The push node is a
+	// PushPeerId is the push node's peer id. The push node is a
 	// direct out-of-band peer, deliberately NOT part of NodeconfYAML —
 	// but it pairs with the nodeconf choice (staging vs prod), so the
 	// host supplies both from the same place. Empty = push stays off
@@ -174,10 +173,10 @@ func assembleConfig(opts Options) config.Config {
 	cfg.Index.Embedder = "none"
 	fts, _ := indexer.CompiledCaps()
 	cfg.Index.Enabled = opts.IndexEnabled && fts
-	// IOS-116: every in-process boot (iOS/iPadOS app, future sharing
-	// extension) is headless — no /ui debug harness, no advertising log.
+	// Every in-process boot (iOS/iPadOS app, future sharing extension) is
+	// headless — no /ui debug harness, no advertising log.
 	cfg.WebUI.Enabled = false
-	// Push node (SYN-83): plain field fill — the config.Push tristate does
+	// Push node: plain field fill — the config.Push tristate does
 	// the enablement on its own (nil Enabled + non-empty PeerId + addrs ⇒
 	// Active). Empty inputs leave the defaults and push stays off.
 	cfg.Push.PeerId = opts.PushPeerId
