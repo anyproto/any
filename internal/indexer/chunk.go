@@ -81,8 +81,10 @@ func expandEntry(e index.IndexEntry, maxRunes int) []DocUpsert {
 	}
 	pieces := splitText(e.Data, maxRunes)
 	if len(pieces) > 1 && title != "" {
-		// Split so a prefixed chunk still fits the bound.
-		pieces = splitText(e.Data, maxRunes-utf8.RuneCountInString(title)-1)
+		// Split so a prefixed chunk still fits the bound. The clamp above
+		// keeps the budget positive for any sane bound; max guards the
+		// degenerate ones.
+		pieces = splitText(e.Data, max(maxRunes-utf8.RuneCountInString(title)-1, 1))
 	}
 	out := make([]DocUpsert, 0, len(pieces))
 	for i, p := range pieces {
@@ -102,6 +104,11 @@ func expandEntry(e index.IndexEntry, maxRunes int) []DocUpsert {
 // falling back to a hard cut. Pieces are trimmed of surrounding
 // whitespace; an empty piece is dropped. Deterministic, no overlap.
 func splitText(text string, maxRunes int) []string {
+	// A non-positive bound would make breakPoint return a zero-length cut
+	// and the loop below never advance.
+	if maxRunes < 1 {
+		maxRunes = 1
+	}
 	if utf8.RuneCountInString(text) <= maxRunes {
 		return []string{text}
 	}

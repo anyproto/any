@@ -63,9 +63,13 @@ func snippet(data string, terms [][]rune, maxRunes int) (string, int, int) {
 	// a default to the head (an unbroken alphanumeric run, a hash).
 	at := -1
 	for _, anchored := range []bool{true, false} {
+		// terms arrive longest-first (snippetTerms): the most selective
+		// one that occurs picks the window, so an incidental short term
+		// earlier in the text does not drag it away from the passage.
 		for _, t := range terms {
-			if i := indexRunesAt(lower, t, anchored); i >= 0 && (at < 0 || i < at) {
+			if i := indexRunesAt(lower, t, anchored); i >= 0 {
 				at = i
+				break
 			}
 		}
 		if at >= 0 {
