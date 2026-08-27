@@ -209,7 +209,7 @@ shared** rather than built fresh per request.
 
 **Key properties by `propId`, never by `xKey`.** The wire path is
 `<typeId>.<propId>`, both content-addressed ids. `xKey` is a
-client-side convenience that anyHelper maps on the way in — it never
+client-side convenience that helpers map on the way in — it never
 reaches the server, so an xKey path saved in a view resolves for
 nobody, including the client that wrote it. Resolve `xKey → propId`
 once via `GET …/types/:typeId/properties` and store the propId.

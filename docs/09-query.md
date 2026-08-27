@@ -16,7 +16,7 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
 | Endpoint | Scope | Reads |
 |----------|-------|-------|
 | `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` collection — one row per object, its computed property values keyed `<typeId>.<propId>` plus `any.*` / `nav.*` |
-| `POST /v1/spaces/:spaceId/query` | **per-object** | one of a single object's datasets (`editor_blocks`, `chat_messages`, `program_source`, `mini_app`, …); needs `objectId` + `dataset` |
+| `POST /v1/spaces/:spaceId/query` | **per-object** | one of a single object's datasets (`editor_blocks`, `chat_messages`, runtime datasets such as `program_source` / `mini_app`, …); needs `objectId` + `dataset` |
 
 ## Request body
 
@@ -109,8 +109,8 @@ whole supported set (`details.operator` carries the token you sent).
    `$exists:false` also match objects that simply don't have the field. On the
    cross-object `objects` collection — which holds *every* object including type
    definitions — `{"<t>.n":{"$ne":2}}` returns piles of unrelated objects.
-   Always scope cross-object queries by type (`{"any.types":"<typeId>"}`);
-   `anyHelper.getObjects(typeKey, …)` does this for you.
+   Always scope cross-object queries by type
+   (`{"any.types":"<typeId>"}`).
 
 2. **`includeTotal` is page-bounded in v0.0.4.** It is *intended* to be the
    unbounded match count, but the SDK applies `limit`/`offset` to the count too,
@@ -130,14 +130,15 @@ On the wire, property paths are `<typeId>.<propId>` — both are CID ids — plu
 the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
 `_ver.id`, and the row-root derived stamps `author`, `createdAt`,
 `modifiedAt`, `spaceId` (objects collection only — see `03-api.md`
-§ Data plane; `{"sort": ["-modifiedAt"]}` is the recency ordering). Through **anyHelper** you use dotted **xKey** paths instead
+§ Data plane; `{"sort": ["-modifiedAt"]}` is the recency ordering).
+
+Client helpers typically expose dotted **xKey** paths instead
 (`"recipe.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
-slug of the name, returned by `createType` as `type.xKey`; builtins use their
-id) plus the *property xKey*. anyHelper resolves these to the server's
-`<typeId>.<propId>` on the way in and reverse-maps records to readable nested
-form (keyed by type xKey) on the way out. The xKey is stable across display-name
-renames; builtin paths (`any.types`, `nav.parentId`, `program.name`) pass
-through unchanged.
+slug of the name, returned by type creation as `type.xKey`; builtins use
+their id) plus the *property xKey* — and resolve them to the server's
+`<typeId>.<propId>` on the way in. The xKey never reaches the server. It
+is stable across display-name renames; builtin paths (`any.types`,
+`nav.parentId`) pass through unchanged.
 
 ## Paging
 
@@ -160,21 +161,3 @@ or sorting cross-object queries on a `<typeId>.<propId>` is a scan proportional
 to the space size. It's fine at prototype scale; for hot, large-space queries
 prefer an indexed builtin field or a dedicated per-object dataset. There is no
 "create index" API yet.
-
-## anyHelper surface
-
-| Method | Maps to |
-|--------|---------|
-| `getObjects("xkey")` or `getObjects({type, filter, sort, limit, offset, includeTotal, space})` | **cross-object** query; readable dotted xKey filter/sort keys; normalized records |
-| `getObjects({objectId, dataset, filter, sort, limit, offset, includeTotal, space})` | **per-object dataset** query; literal field keys; raw records |
-
-`getObjects` is the single query method (both modes). It returns the records
-**array directly** — iterate it as-is (`for (var o of getObjects("x")) …`). An
-empty array means "no matches"; it **throws** on a real failure (unknown type —
-the error message lists the available types; server error; bad arguments), so
-failures surface instead of masquerading as an empty result. When
-`includeTotal` is requested the (page-bounded) total is attached as
-`arr.total`. For dataset writes use `setRecord` (atomic per-field `$set` upsert)
-/ `deleteRecord`; for property writes use `createObject`/`updateObject` with
-nested type groups (`{ book: { author: "..." } }`) — dotted
-`"typeXKey.prop"` paths are read/filter/sort syntax, not write syntax.

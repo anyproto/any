@@ -82,12 +82,12 @@ the affected window can't be located incrementally.
   not the whole doc. The read is still O(doc) per edit (re-reads the
   blocks to form windows), but that's cheap against the local DB; the
   expensive axis (embedding) is incremental.
-- **Programs are not indexed.** The `program` type carries only
-  `program_source`, and it has no chunker — code (docstrings included)
-  is not a search target (anybao ADR-010 §5). A program's one-liner
-  lives in its `summary` property (not indexed either — builtin type
-  decls carry no `meta["index"]` flag; revisit only if evidence
-  demands program recall).
+- **Programs are not indexed.** `program` is a harness-declared user
+  type (anybao ADR-010 §5): its `program_source` runtime dataset is
+  declared without a `search` mapping, so the schema chunker skips it
+  — code (docstrings included) is not a search target — and its
+  `summary` property is added with `meta.index: none` (revisit only if
+  evidence demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
   vocabulary, and property meta flags can mint new ones. `props` is FTS-only (see the prop chunker below).
@@ -253,8 +253,8 @@ miss the map and re-upsert once.
 
 ### Excluded from indexing entirely
 
-`program_source` and `miniapp` have **no chunker**;
-`Registry.ForDataset` returns nothing for them.
+Runtime datasets declared without a `search` mapping (anybao's
+`program_source`, `mini_app`) are never indexed — see § Schema chunker.
 
 ## Removal semantics
 
@@ -553,17 +553,17 @@ observable, not silent. Tests covering either leg are tagged to match
 (`go test` without tags compiles but skips them; `make test` runs the
 full `fts vector` suite).
 
-On the mobile embed path (`internal/embedded.Start`, exported to iOS as
-`AnyServerStart`) the caller drives `index.enabled` rather than reading
-a config file: the boot gate is `indexEnabled && fts`, where `fts` is the
-compiled cap and `indexEnabled` is the `AnyServerStart` argument. So an
-FTS build can still keep the indexer dormant per engine instance — the
-iOS share extension passes `false` (it never searches, and every MB of
-appex headroom matters), the app passes `true` if it wants engine search.
-`index.embedder` is hard-forced to `"none"` on this path regardless (no
-embedder is ever constructed on mobile). The gomobile/Android bind passes
-a constant `true` — load-bearing now that it builds with `fts`; Android
-has no share extension that would want the index off.
+On the mobile embed path (`internal/embedded.Start`) there is no config
+file and no host parameter: the compiled `fts` cap is the whole gate, so
+both shims run the indexer exactly when their binary was built with the
+tag (both are). `index.embedder` is hard-forced to `"none"` on this path
+regardless — no embedder is ever constructed on mobile.
+
+A mobile host that can't open its index gets a distinguishable failure:
+`ErrIndexRebuildRequired` (schema version or vector dimension mismatch,
+`internal/indexer/errors.go`) reaches the iOS shim as start code `4`, so
+the app can offer "reset local data" instead of a generic retry. The index
+is a derived cache, so deleting it is always the whole fix.
 
 ### Search
 
@@ -652,14 +652,10 @@ search" (`disabled`). Value table in `docs/03-api.md` § search.
 This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
 
-**Agent-facing tool.** bobrik-watch wraps this endpoint as the `semsearch`
-tool (`cmd/bobrik-watch/programs/semsearch@v1.js` +
-`tool-descriptions/semsearch.md`, over `anyHelper.search`) — the **cheap**
-recall tool the agent reaches for first, in contrast to the **expensive**
-RLM `search`/`ask` loop (`docs/12-rlm-search.md`). The two tool descriptions
-cross-reference each other so the agent picks by cost. `semsearch` passes
-`opts.space` straight through to `:spaceId`, so the cross-space paradigm
-(any space on the account) holds here too.
+**Agent-facing tool.** The agent harness (anybao) wraps this endpoint as
+its recall tool. `spaceId` is a plain path parameter, so one tool covers
+every space on the account — recall in another space is the same call
+with a different id, not a different code path.
 
 Errors: `index.disabled` (409, `index.enabled: false`),
 `index.no_embedder` (400, `mode=vector` with no embedder configured),
