@@ -1,5 +1,3 @@
-//go:build fts
-
 package indexer
 
 import (
@@ -75,5 +73,36 @@ func TestSnippetOffsetLocatesDataAfterTrim(t *testing.T) {
 	n := utf8.RuneCountInString(got)
 	if off+n > total || string(runes[off:off+n]) != got {
 		t.Errorf("dataOffset %d does not locate data\n at offset: %q\n returned:  %q", off, string(runes[off:min(off+n, total)]), got)
+	}
+}
+
+// A quoted phrase must survive term extraction: stripStopWords splits on
+// whitespace, so stripping inside a phrase leaves an unbalanced token
+// that matches nothing and the window anchors on an incidental word.
+func TestSnippetTermsKeepPhrasesIntact(t *testing.T) {
+	for _, term := range snippetTerms(`"the big apple"`, nil) {
+		if strings.ContainsAny(term, `"`) {
+			t.Errorf("term %q carries a quote — it can never match", term)
+		}
+	}
+	got := strings.Join(snippetTerms(`"the big apple"`, nil), ",")
+	if !strings.Contains(got, "the") {
+		t.Errorf("phrase lost its stop word: %q", got)
+	}
+}
+
+// Term order is load-bearing (snippet takes the first match), so rank by
+// runes — bytes put a 3-rune CJK term above an 8-rune ASCII one.
+func TestSnippetTermsRankByRunes(t *testing.T) {
+	got := snippetTerms("日本 catastrophe", nil)
+	if len(got) == 0 || got[0] != "catastrophe" {
+		t.Errorf("terms = %v, want the 11-rune term first", got)
+	}
+}
+
+// foldTerms must lowercase: snippet compares against lowercased data.
+func TestFoldTermsLowercases(t *testing.T) {
+	if d, _, _ := snippet("alpha Needle omega", foldTerms([]string{"NEEDLE"}), 512); !strings.Contains(d, "Needle") {
+		t.Errorf("uppercase term did not match: %q", d)
 	}
 }

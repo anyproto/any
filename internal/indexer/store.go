@@ -590,17 +590,25 @@ func (s *Store) DocHashesByRecords(ctx context.Context, spaceId string, bases []
 	if err != nil {
 		return nil, err
 	}
-	// One OR of per-record ranges, not one query per record: an advance
-	// page carries up to BatchLimit records and each query is a fresh
-	// plan and iterator.
-	ranges := make(query.Or, 0, len(bases))
+	// One query per record. An Or of the ranges looks cheaper but is not:
+	// And keeps only its first contributing conjunct in IndexBounds and Or
+	// does not tighten, so the combined filter yields NO primary-key
+	// bounds and every call degrades to a full collection scan (measured
+	// 416x slower over 64 records of a 20k-doc space).
+	out := make(map[string]string, len(bases))
 	for _, base := range bases {
-		ranges = append(ranges, query.And{
+		got, err := collectHashes(ctx, coll, query.And{
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, base)},
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(base))},
 		})
+		if err != nil {
+			return nil, err
+		}
+		for id, h := range got {
+			out[id] = h
+		}
 	}
-	return collectHashes(ctx, coll, ranges)
+	return out, nil
 }
 
 func collectHashes(ctx context.Context, coll anystore.Collection, filter query.Filter) (map[string]string, error) {

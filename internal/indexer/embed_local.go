@@ -240,24 +240,25 @@ func (l *Local) threadCount() int {
 	return max(1, runtime.NumCPU()-1)
 }
 
-// truncateTokens clamps tokens to nCtx, keeping EOS as the final token —
-// with last-token pooling the embedding is read from the final position,
-// which must stay the trained pooling token after truncation.
 // maxDocTokens is the real per-text bound: the unified KV cache splits
-// nCtx across batchDocs sequences, rounded up to a whole block. Texts
-// are truncated to it, so a decode can never be refused for want of a
-// KV slot however batchDocs is configured.
+// nCtx across batchDocs sequences, floored to a whole block. Texts are
+// truncated to it, so a decode can never be refused for want of a KV
+// slot however batchDocs is configured.
 func (l *Local) maxDocTokens() int {
-	per := l.nCtx
-	if l.batchDocs > 1 {
-		per = l.nCtx / l.batchDocs
+	if l.batchDocs <= 1 {
+		return l.nCtx // one sequence, the whole context is its slot
 	}
-	if r := per % localSeqTokenBlock; r != 0 {
-		per += localSeqTokenBlock - r
-	}
+	// Floor to a whole block: rounding up would promise more than
+	// nCtx/batchDocs when batchDocs does not divide nCtx, which is the
+	// decode refusal this bound exists to prevent.
+	per := l.nCtx / l.batchDocs
+	per -= per % localSeqTokenBlock
 	return min(max(per, localSeqTokenBlock), l.nCtx)
 }
 
+// truncateTokens clamps tokens to nCtx, keeping EOS as the final token —
+// with last-token pooling the embedding is read from the final position,
+// which must stay the trained pooling token after truncation.
 func truncateTokens(tokens []llama.Token, nCtx int, eos llama.Token) []llama.Token {
 	if len(tokens) <= nCtx {
 		return tokens

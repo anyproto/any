@@ -79,13 +79,14 @@ func expandEntry(e index.IndexEntry, maxRunes int) []DocUpsert {
 	if half := maxRunes / 2; utf8.RuneCountInString(title) > half {
 		title = string([]rune(title)[:half])
 	}
-	pieces := splitText(e.Data, maxRunes)
-	if len(pieces) > 1 && title != "" {
-		// Split so a prefixed chunk still fits the bound. The clamp above
-		// keeps the budget positive for any sane bound; max guards the
-		// degenerate ones.
-		pieces = splitText(e.Data, max(maxRunes-utf8.RuneCountInString(title)-1, 1))
+	// Budget the re-prefixed title out of the bound before splitting, so
+	// a prefixed chunk still fits it. The clamp above keeps the budget
+	// positive for any sane bound; max guards the degenerate ones.
+	budget := maxRunes
+	if title != "" && utf8.RuneCountInString(e.Data) > maxRunes {
+		budget = max(maxRunes-utf8.RuneCountInString(title)-1, 1)
 	}
+	pieces := splitText(e.Data, budget)
 	out := make([]DocUpsert, 0, len(pieces))
 	for i, p := range pieces {
 		ce := e

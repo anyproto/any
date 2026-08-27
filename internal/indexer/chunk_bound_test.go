@@ -1,5 +1,3 @@
-//go:build fts
-
 package indexer
 
 import (

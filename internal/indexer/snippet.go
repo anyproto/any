@@ -12,8 +12,13 @@ import (
 // snippetTerms is the lowercase term list a hit's Data window is
 // centered on: the query's words and the require terms, with phrase
 // quotes and prefix stars stripped so "zeppelin disaster" and zepp*
-// locate the same text the FTS leg matched on. Stop words stay — the
-// list only picks a window, it doesn't rank.
+// locate the same text the FTS leg matched on. Stop words are dropped
+// from the free-text query — "the" opens nearly every record, so
+// centering on it returns the head instead of the passage — but not
+// when the query carries a quote, exactly as the lexical leg skips
+// stripping there: stripStopWords splits on whitespace, so it would
+// leave an unbalanced `apple"` that matches nothing. require terms are
+// explicit constraints and are never stripped.
 func snippetTerms(q string, require []string) []string {
 	var out []string
 	add := func(s string) {
@@ -25,17 +30,21 @@ func snippetTerms(q string, require []string) []string {
 			}
 		}
 	}
-	// Stop words are dropped from the free-text query for the same reason
-	// the lexical leg drops them: "the" occurs in the first line of almost
-	// every record, so centering on it returns the head instead of the
-	// passage. require terms are explicit constraints and stay.
-	add(stripStopWords(q))
+	if strings.Contains(q, `"`) {
+		add(q)
+	} else {
+		add(stripStopWords(q))
+	}
 	for _, r := range require {
 		add(r)
 	}
-	// Longest first: a selective term locates the passage, a short one
-	// matches incidentally.
-	slices.SortStableFunc(out, func(a, b string) int { return len(b) - len(a) })
+	// Longest first (in runes — bytes would rank a 3-rune CJK term above
+	// an 8-rune ASCII one): snippet takes the first term that occurs, so
+	// a selective term locates the passage and a short one does not drag
+	// the window to an incidental match.
+	slices.SortStableFunc(out, func(a, b string) int {
+		return utf8.RuneCountInString(b) - utf8.RuneCountInString(a)
+	})
 	return out
 }
 
@@ -113,11 +122,13 @@ func snippet(data string, terms [][]rune, maxRunes int) (string, int, int) {
 	return string(runes[start:end]), start, total
 }
 
-// foldTerms lowercases snippet terms once per request into rune slices.
+// foldTerms lowercases snippet terms once per request into rune slices —
+// snippet compares against a per-rune-lowercased copy of the data, so a
+// term carrying an uppercase rune could never match.
 func foldTerms(terms []string) [][]rune {
 	out := make([][]rune, 0, len(terms))
 	for _, t := range terms {
-		out = append(out, []rune(t))
+		out = append(out, []rune(strings.Map(unicode.ToLower, t)))
 	}
 	return out
 }
