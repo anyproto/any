@@ -597,8 +597,10 @@ no `exclude` term); each may itself be a phrase or prefix. A bare term
 alongside a `require` is an optional boost, not a filter (Lucene
 should-semantics). Phrases / prefixes in `query` shape the FTS leg only;
 `require` / `exclude` bind every hit: the vector leg is post-filtered
-against the FTS index (`Store.FilterTerms`, one id-bounded `$text` query
-over the leg's hits) before fusion, so hybrid and pure `vector` honor
+against the FTS index (`Store.FilterTerms`, one `$text` query restricted
+to the leg's hit ids — any-store prices that restriction against the
+posting lists and probes per candidate when cheaper) before fusion, so
+hybrid and pure `vector` honor
 them too — the contract is "must contain / must not contain", not "the
 lexical leg agreed". Stop-word stripping is skipped when `query` contains
 a `"` so phrases survive intact.

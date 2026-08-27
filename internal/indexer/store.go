@@ -725,10 +725,14 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 // FilterTerms keeps only the hits that satisfy the Require / Exclude
 // terms — the same $require / $exclude semantics SearchFTSQuery applies
 // to the lexical leg, re-checked against the FTS index for hits that
-// arrived some other way (the vector leg). One indexed query bounded to
-// the hits' doc ids; the analyzer decides "contains", so a phrase or
-// prefix term behaves exactly as it does in the lexical leg. Nothing to
-// enforce (no terms, no hits, FTS compiled out) returns hits unchanged.
+// arrived some other way (the vector leg). One indexed query restricted
+// to the hits' doc ids: any-store costs the pk restriction against the
+// posting lists and probes the text index per candidate when that is
+// cheaper (any-store v2.0.1 — before it, the $text predicate always
+// drove and this cost the term's whole posting list). The analyzer
+// decides "contains", so a phrase or prefix term behaves exactly as it
+// does in the lexical leg. Nothing to enforce (no terms, no hits, FTS
+// compiled out) returns hits unchanged.
 //
 // Negated clauses only tombstone docs a positive clause already scored,
 // so an exclude-only filter is run inverted: match the excluded terms as
