@@ -9,12 +9,11 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
-// Long records are split into several index docs — one record = one
-// hit-sized unit was the old contract, and it made a 37 KB email body a
-// single `data` value AND clamped its vector recall to whatever head the
-// embedder's context window kept. Chunking is generic: the worker splits
-// every chunker's entry, so chunkers keep emitting one entry per record
-// and never learn about it.
+// Long records are split into several index docs. A record longer than
+// the bound would otherwise be one oversized `data` value on every hit,
+// and carry vector recall only for the head its embedding covered.
+// Chunking is generic: the worker splits every chunker's entry, so
+// chunkers keep emitting one entry per record and never learn about it.
 //
 // Doc ids: chunk 0 keeps the record's id (`objectId:dataset:recordId`);
 // chunk n > 0 is that id + chunkSep + n. chunkSep is U+001F, a control
@@ -70,20 +69,26 @@ func expandEntry(e index.IndexEntry, maxRunes int) []DocUpsert {
 	if maxRunes <= 0 {
 		maxRunes = DefaultChunkRunes
 	}
+	title := e.Title
+	// The title is re-prefixed onto later chunks, so it spends the same
+	// budget as the text. It is not a curated string — a runtime dataset
+	// maps whatever field x-search.title names — so clamp it to half the
+	// bound. Unclamped it both overruns maxRunes and, since it is
+	// prefixed FIRST and the embedder truncates the head, crowds the
+	// record's own text out of the vector.
+	if half := maxRunes / 2; utf8.RuneCountInString(title) > half {
+		title = string([]rune(title)[:half])
+	}
 	pieces := splitText(e.Data, maxRunes)
-	if len(pieces) > 1 && e.Title != "" {
-		// Later chunks get the title re-prefixed; split so the prefixed
-		// chunk still fits the bound (the title is short by nature —
-		// a title eating half the budget just means smaller chunks).
-		if budget := maxRunes - utf8.RuneCountInString(e.Title) - 1; budget >= maxRunes/2 {
-			pieces = splitText(e.Data, budget)
-		}
+	if len(pieces) > 1 && title != "" {
+		// Split so a prefixed chunk still fits the bound.
+		pieces = splitText(e.Data, maxRunes-utf8.RuneCountInString(title)-1)
 	}
 	out := make([]DocUpsert, 0, len(pieces))
 	for i, p := range pieces {
 		ce := e
-		if i > 0 && e.Title != "" && !strings.HasPrefix(p, e.Title) {
-			p = e.Title + "\n" + p
+		if i > 0 && title != "" && !strings.HasPrefix(p, title) {
+			p = title + "\n" + p
 		}
 		ce.Data = p
 		out = append(out, DocUpsert{Entry: ce, Chunk: i})

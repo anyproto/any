@@ -583,27 +583,24 @@ func (s *Store) DocHashes(ctx context.Context, spaceId, idPrefix string) (map[st
 // record. The incremental stream path diffs a re-streamed record's new
 // chunk set against it.
 func (s *Store) DocHashesByRecords(ctx context.Context, spaceId string, bases []string) (map[string]string, error) {
-	out := map[string]string{}
 	if len(bases) == 0 {
-		return out, nil
+		return map[string]string{}, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, err
 	}
+	// One OR of per-record ranges, not one query per record: an advance
+	// page carries up to BatchLimit records and each query is a fresh
+	// plan and iterator.
+	ranges := make(query.Or, 0, len(bases))
 	for _, base := range bases {
-		got, err := collectHashes(ctx, coll, query.And{
+		ranges = append(ranges, query.And{
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, base)},
 			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(base))},
 		})
-		if err != nil {
-			return nil, err
-		}
-		for id, h := range got {
-			out[id] = h
-		}
 	}
-	return out, nil
+	return collectHashes(ctx, coll, ranges)
 }
 
 func collectHashes(ctx context.Context, coll anystore.Collection, filter query.Filter) (map[string]string, error) {
@@ -914,7 +911,6 @@ func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
 	}
 	return coll.Find(pendingEqOne).Count(ctx)
 }
-
 
 // SetVectors lands one embed batch in a single write transaction:
 // $set vector + clear pending, update-only (a doc deleted since Pending

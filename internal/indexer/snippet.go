@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -24,10 +25,17 @@ func snippetTerms(q string, require []string) []string {
 			}
 		}
 	}
-	add(q)
+	// Stop words are dropped from the free-text query for the same reason
+	// the lexical leg drops them: "the" occurs in the first line of almost
+	// every record, so centering on it returns the head instead of the
+	// passage. require terms are explicit constraints and stay.
+	add(stripStopWords(q))
 	for _, r := range require {
 		add(r)
 	}
+	// Longest first: a selective term locates the passage, a short one
+	// matches incidentally.
+	slices.SortStableFunc(out, func(a, b string) int { return len(b) - len(a) })
 	return out
 }
 
@@ -49,10 +57,19 @@ func snippet(data string, terms [][]rune, maxRunes int) (string, int, int) {
 	for i, r := range runes {
 		lower[i] = unicode.ToLower(r)
 	}
+	// Anchored first: a token-boundary match is the text the analyzer
+	// actually scored. Only when no term matches that way does an
+	// unanchored match stand in — better a window on the characters than
+	// a default to the head (an unbroken alphanumeric run, a hash).
 	at := -1
-	for _, t := range terms {
-		if i := indexRunes(lower, t); i >= 0 && (at < 0 || i < at) {
-			at = i
+	for _, anchored := range []bool{true, false} {
+		for _, t := range terms {
+			if i := indexRunesAt(lower, t, anchored); i >= 0 && (at < 0 || i < at) {
+				at = i
+			}
+		}
+		if at >= 0 {
+			break
 		}
 	}
 	slack := maxRunes / 4
@@ -81,7 +98,15 @@ func snippet(data string, terms [][]rune, maxRunes int) (string, int, int) {
 	if e == total || end-e < slack || unicode.IsSpace(runes[e]) {
 		end = e
 	}
-	return strings.TrimSpace(string(runes[start:end])), start, total
+	// Trim inside the window, then move start past what was trimmed, so
+	// the returned offset still locates the returned text in data.
+	for start < end && unicode.IsSpace(runes[start]) {
+		start++
+	}
+	for end > start && unicode.IsSpace(runes[end-1]) {
+		end--
+	}
+	return string(runes[start:end]), start, total
 }
 
 // foldTerms lowercases snippet terms once per request into rune slices.
@@ -93,13 +118,21 @@ func foldTerms(terms []string) [][]rune {
 	return out
 }
 
-// indexRunes is strings.Index over rune slices.
-func indexRunes(hay, needle []rune) int {
+// indexRunesAt finds needle in hay. Anchored, the match must start at a
+// token boundary — the analyzer matches tokens, so an unanchored
+// substring ("one" inside "money") would point the window at text the
+// engine never scored. A prefix term keeps its trailing boundary open,
+// so only the leading edge is checked.
+func indexRunesAt(hay, needle []rune, anchored bool) int {
 	if len(needle) == 0 || len(needle) > len(hay) {
 		return -1
 	}
+	wordRune := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 outer:
 	for i := 0; i+len(needle) <= len(hay); i++ {
+		if anchored && i > 0 && wordRune(hay[i-1]) && wordRune(needle[0]) {
+			continue // mid-word start
+		}
 		for j := range needle {
 			if hay[i+j] != needle[j] {
 				continue outer
