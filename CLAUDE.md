@@ -240,9 +240,7 @@ Implementation slices landed:
       a `handler.Schema` (`internal/chat`, `internal/editor`): fields +
       per-field scope (chat `creator`/`createdAt`/`modifiedAt` = derived,
       rest synced; editor all synced). `Dynamic: true` keeps undeclared
-      keys permitted, mirroring the `objects` dataset. Opaque content
-      datasets (program/miniapp) stay schema-less (default
-      Dynamic).
+      keys permitted, mirroring the `objects` dataset.
     - **Schema discovery.** `GET /v1/spaces/:id/datasets` (`Space.Datasets`)
       and `GET /v1/datasets` (`Service.Datasets`, account-scoped) return
       `[{name, schema}]` where `schema` is a JSON Schema doc with a
@@ -289,8 +287,8 @@ Implementation slices landed:
       the type is attached, `Data ""` otherwise (record-level eviction
       of cleared values / detached types). Catalog = per-space TTL
       snapshot (30s; `Invalidate` for tests).
-    - Excluded from indexing entirely: `program` and
-      `miniapp`.
+    - Excluded from indexing entirely: any runtime dataset declared
+      without `search` (anybao's `program_source`, `mini_app`).
     - Wiring: `server.NewIndexRegistry()` →
       `index.NewRegistry(editor.NewChunker(), chat.NewChunker(),
       index.NewPropChunker())`, stored on `deps.chunkers`.

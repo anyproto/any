@@ -16,7 +16,7 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
 | Endpoint | Scope | Reads |
 |----------|-------|-------|
 | `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` collection — one row per object, its computed property values keyed `<typeId>.<propId>` plus `any.*` / `nav.*` |
-| `POST /v1/spaces/:spaceId/query` | **per-object** | one of a single object's datasets (`editor_blocks`, `chat_messages`, `program_source`, `mini_app`, …); needs `objectId` + `dataset` |
+| `POST /v1/spaces/:spaceId/query` | **per-object** | one of a single object's datasets (`editor_blocks`, `chat_messages`, runtime datasets such as `program_source` / `mini_app`, …); needs `objectId` + `dataset` |
 
 ## Request body
 
@@ -138,7 +138,7 @@ slug of the name, returned by type creation as `type.xKey`; builtins use
 their id) plus the *property xKey* — and resolve them to the server's
 `<typeId>.<propId>` on the way in. The xKey never reaches the server. It
 is stable across display-name renames; builtin paths (`any.types`,
-`nav.parentId`, `program.name`) pass through unchanged.
+`nav.parentId`) pass through unchanged.
 
 ## Paging
 

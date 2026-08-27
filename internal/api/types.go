@@ -132,7 +132,7 @@ type TypeInfo struct {
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
 	// XKey is the stable, caller-side programmatic key. For builtin/registered
-	// types it equals Id (a clean literal like "program"); for user types it's
+	// types it equals Id (a clean literal like "chat"); for user types it's
 	// the value set at create (or derived from Name by the client). Clients use
 	// it as the stable type handle in dotted property paths.
 	XKey    string `json:"xKey,omitempty"`

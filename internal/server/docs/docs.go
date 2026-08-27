@@ -2740,7 +2740,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "xKey": {
-                        "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"program\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
+                        "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"chat\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
                         "type": "string"
                     }
                 },

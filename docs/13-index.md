@@ -82,12 +82,12 @@ the affected window can't be located incrementally.
   not the whole doc. The read is still O(doc) per edit (re-reads the
   blocks to form windows), but that's cheap against the local DB; the
   expensive axis (embedding) is incremental.
-- **Programs are not indexed.** The `program` type carries only
-  `program_source`, and it has no chunker — code (docstrings included)
-  is not a search target (anybao ADR-010 §5). A program's one-liner
-  lives in its `summary` property (not indexed either — builtin type
-  decls carry no `meta["index"]` flag; revisit only if evidence
-  demands program recall).
+- **Programs are not indexed.** `program` is a harness-declared user
+  type (anybao ADR-010 §5): its `program_source` runtime dataset is
+  declared without a `search` mapping, so the schema chunker skips it
+  — code (docstrings included) is not a search target — and its
+  `summary` property is added with `meta.index: none` (revisit only if
+  evidence demands program recall).
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
   vocabulary, and property meta flags can mint new ones. `props` is FTS-only (see the prop chunker below).
@@ -233,8 +233,8 @@ miss the map and re-upsert once.
 
 ### Excluded from indexing entirely
 
-`program_source` and `miniapp` have **no chunker**;
-`Registry.ForDataset` returns nothing for them.
+Runtime datasets declared without a `search` mapping (anybao's
+`program_source`, `mini_app`) are never indexed — see § Schema chunker.
 
 ## Removal semantics
 

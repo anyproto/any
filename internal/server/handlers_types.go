@@ -390,7 +390,7 @@ func (d *deps) typeRemoveProperty(c echo.Context) error {
 }
 
 func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
-	// Builtin/registered types have clean literal ids (program, chat, …) and no
+	// Builtin/registered types have clean literal ids (chat, editor, …) and no
 	// caller-set xKey; report xKey=id so every type has a stable programmatic
 	// handle (user types carry the xKey set at create / derived from name).
 	xkey := t.XKey
