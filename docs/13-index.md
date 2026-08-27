@@ -431,16 +431,20 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   `index.local.dim` truncates output vectors (Matryoshka) to shrink
   the IVF index. One llama context per process, mutex-serialized;
   within an `EmbedDocs` call texts pack into multi-sequence decodes —
-  up to `index.local.batchDocs` docs (default 16) per `llama_decode`,
-  greedy in order under the `contextSize` token budget. Batching
-  amortizes per-decode overhead; how much it buys depends on where the
-  bottleneck sits. Measured on ~330-token docs: GTX 1080 via Vulkan
-  7.4 → 8.5 docs/s (+16%), 24-core CPU 1.8 → 2.0 docs/s (+9%) — both
-  legs are compute-bound there, so the win is modest; hardware where
-  per-decode overhead dominates (fast GPUs on small models) gains
-  more. Batched and single decodes produce identical vectors
-  (TestLocal_BatchedMatchesSingle); `batchDocs: 1` restores
-  one-doc-per-decode. Compute threads
+  up to `index.local.batchDocs` docs (**default 1**) per `llama_decode`,
+  greedy in order under the `contextSize` token budget. **Batching costs
+  context**: the unified KV cache PARTITIONS `contextSize` across the
+  packed sequences, so `batchDocs: N` caps each text at
+  `contextSize/N` tokens (rounded up to a 256-token block). `tokenize`
+  truncates to that bound (`Local.maxDocTokens`), so a wider batch never
+  fails a decode — it silently embeds less of each text, and the server
+  logs a warning at construction when the bound falls below
+  `contextSize`. Measured on a mixed record stream (the production
+  shape), width buys nothing once the bound is held equal: GTX 1080 via
+  Vulkan 10.1 docs/s at `batchDocs: 1` vs 9.2 at 4; 32-core CPU 2.16 vs
+  2.14. Apparent gains at wide settings come from the truncated bound,
+  not from batching. Batched and single decodes produce identical
+  vectors (TestLocal_BatchedMatchesSingle). Compute threads
   (`NThreads`/`NThreadsBatch`)
   default to `runtime.NumCPU()-1` (leave one core free); override with
   `index.local.threads` / `ANY_INDEX_LOCAL_THREADS` — going past the
@@ -683,11 +687,13 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   whose `_addSeq` moves afterwards get (re-)indexed.
 - Embedder latency only delays the vector leg: fresh writes are FTS-
   searchable immediately and gain vector recall once embedded.
-- **Embedder input is still clamped** to `index.local.contextSize`
-  tokens (default 2048, EOS preserved for last-token pooling). Chunking
+- **Embedder input is still clamped**, per SEQUENCE, to
+  `index.local.contextSize / index.local.batchDocs` tokens (default
+  2048 / 1 = 2048, EOS preserved for last-token pooling). Chunking
   (§ Chunking long records, 2000-rune target) keeps every chunk inside
   it for prose; a chunk of dense CJK or code can still exceed the clamp
-  and embed head-only — FTS covers its full text regardless.
+  and embed head-only — FTS covers its full text regardless. Raising
+  `batchDocs` lowers this bound proportionally.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
   `require` for this one.
