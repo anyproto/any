@@ -97,15 +97,44 @@ func (l *Local) Hardware() Hardware {
 			}
 			h.Backends = append(h.Backends, name+" from "+filepath.Base(strings.TrimSpace(path)))
 		default:
-			// Device enumeration, e.g. "ggml_vulkan: 0 = AMD ... (radv) | uma: 1 | ..."
-			if _, desc, ok := strings.Cut(line, " = "); ok {
-				h.Devices = append(h.Devices, strings.TrimSpace(desc))
-			} else if _, desc, ok := strings.Cut(line, "GPU name:"); ok {
-				h.Devices = append(h.Devices, strings.TrimSpace(desc))
+			if d := deviceDescription(line); d != "" {
+				h.Devices = append(h.Devices, d)
 			}
 		}
 	}
 	return h
+}
+
+// deviceDescription pulls the device out of an enumeration line, or
+// returns "" for the capability lines that share the same prefixes.
+// Vulkan and CUDA number their devices ("ggml_vulkan: 0 = AMD ...",
+// "  Device 0: NVIDIA ..."); Metal names its one device on a labelled
+// line and then logs dozens of "<capability> = true" lines, which is
+// why a bare " = " is not enough to go on.
+func deviceDescription(line string) string {
+	for _, label := range []string{"GPU name:", "picking default device:", "deviceDescription:"} {
+		if _, desc, ok := strings.Cut(line, label); ok {
+			return strings.TrimSpace(desc)
+		}
+	}
+	head, desc, ok := strings.Cut(line, " = ")
+	if !ok {
+		return ""
+	}
+	// The head must end in a device index: "ggml_vulkan: 0", "Device 1".
+	_, num, ok := strings.Cut(head, ": ")
+	if !ok {
+		return ""
+	}
+	if num = strings.TrimSpace(num); num == "" {
+		return ""
+	}
+	for _, r := range num {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return strings.TrimSpace(desc)
 }
 
 // libVersionStamp reads the VERSION file fetch-llamacpp.sh writes next

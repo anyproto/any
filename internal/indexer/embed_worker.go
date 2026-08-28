@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,10 +48,10 @@ const (
 // Why a process: llama.cpp faults are not recoverable in Go. A Vulkan
 // device-lost throws vk::DeviceLostError out of vk::Queue::submit and
 // the C++ exception unwinds into a purego frame with no handler, so
-// std::terminate aborts the process; GGML_ASSERT calls abort() outright.
-// In-process that killed the server. Here it kills the child: the round
-// fails, its docs stay `pending`, and the next tick retries — the outage
-// semantics the pipeline already has for an unreachable embedder.
+// std::terminate aborts; GGML_ASSERT calls abort() outright. An abort
+// here kills only the child — the round fails, its docs stay `pending`,
+// and the next tick retries, the outage semantics the pipeline already
+// has for an unreachable embedder.
 //
 // One child, spawned lazily on the first request and shared by every
 // space worker; requests serialize on mu, exactly as they did on the
@@ -254,8 +255,15 @@ func (w *workerEmbedder) embed(ctx context.Context, role string, texts []string)
 	if err := w.ensureChild(); err != nil {
 		return nil, err
 	}
-	hdr, bin, err := w.roundTrip(workerReq{Op: workerOpEmbed, Role: role, Texts: texts})
+	hdr, bin, err := w.roundTrip(ctx, workerReq{Op: workerOpEmbed, Role: role, Texts: texts})
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The caller went away. The child owes us a response we will
+			// never read, so it cannot be reused — but nothing is wrong
+			// with it, so no backoff and no GPU demotion.
+			w.abortChild()
+			return nil, ctxErr
+		}
 		w.failChild(err)
 		return nil, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
 	}
@@ -276,10 +284,11 @@ func (w *workerEmbedder) embed(ctx context.Context, role string, texts []string)
 }
 
 // roundTrip writes one request and waits for its response. Every
-// non-nil error means the stream is unusable — a dead child, a timeout
-// (the wedged-GPU case), or a desynchronized frame — so the caller
-// respawns. Caller holds mu.
-func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
+// non-nil error leaves the stream unusable — a dead child, a timeout
+// (the wedged-GPU case), a desynchronized frame, or an abandoned
+// request whose answer nobody will read — so the caller retires the
+// child rather than reusing it. Caller holds mu.
+func (w *workerEmbedder) roundTrip(ctx context.Context, req workerReq) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
 		return workerResp{}, nil, fmt.Errorf("write to embedder child: %w", err)
@@ -297,7 +306,19 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 		return m.hdr, m.bin, nil
 	case <-timer.C:
 		return workerResp{}, nil, fmt.Errorf("embedder child did not answer in %s", w.reqTimeout)
+	case <-ctx.Done():
+		return workerResp{}, nil, ctx.Err()
 	}
+}
+
+// abortChild retires a child whose in-flight response is abandoned. Not
+// a fault: no backoff, no GPU demotion, no warning. Caller holds mu.
+func (w *workerEmbedder) abortChild() {
+	if w.child == nil {
+		return
+	}
+	w.lg.Debug("embedder child retired: request abandoned")
+	w.stopChild(false)
 }
 
 // ensureChild spawns the child if needed, honoring the restart backoff.
@@ -330,7 +351,6 @@ func (w *workerEmbedder) ensureChild() error {
 		return fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
 	}
 	w.child = c
-	w.live.Store(c.cmd.Process)
 	return nil
 }
 
@@ -340,21 +360,38 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Pipes created before a Start that never happens are never closed
+	// by exec.Cmd, so close them on every early return.
+	var pipes []io.Closer
+	closePipes := func() {
+		for _, p := range pipes {
+			_ = p.Close()
+		}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
 	}
+	pipes = append(pipes, stdin)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		closePipes()
 		return nil, err
 	}
+	pipes = append(pipes, stdout)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		closePipes()
 		return nil, err
 	}
+	pipes = append(pipes, stderr)
 	if err := cmd.Start(); err != nil {
+		closePipes()
 		return nil, fmt.Errorf("start embedder child: %w", err)
 	}
+	// Visible to Close from here on: the handshake below can take
+	// minutes on a cold model, and shutdown must be able to kill it.
+	w.live.Store(cmd.Process)
 	c := &embedChild{
 		cmd:     cmd,
 		stdin:   stdin,
@@ -374,6 +411,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		if !ok || m.err != nil || m.hdr.Op != workerOpReady {
 			// stop() joins the stderr pump, so the tail is complete.
 			waitErr := c.stop(false)
+			w.live.Store(nil)
 			return nil, fmt.Errorf("embedder child failed to start: %s", firstNonEmpty(
 				errText(m.err), handshakeText(ok, m.hdr), c.stderr.String(), errText(waitErr), "no output"))
 		}
@@ -383,11 +421,12 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		}
 	case <-timer.C:
 		waitErr := c.stop(false)
+		w.live.Store(nil)
 		return nil, fmt.Errorf("embedder child did not become ready in %s: %s", w.startTimeout,
 			firstNonEmpty(c.stderr.String(), errText(waitErr), "no output"))
 	}
 	w.lg.Info("local embedder child started",
-		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", spec.threads),
+		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", w.hw.Threads),
 		zap.String("hardware", w.hw.String()))
 	w.lg.Debug("local embedder system info", zap.String("systemInfo", w.hw.SystemInfo))
 	return c, nil
@@ -395,9 +434,12 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 
 // failChild retires a child whose stream broke and classifies the
 // death: any abnormal exit with GPU offload active demotes this process
-// to CPU. The check is deliberately coarse — on a GPU-less machine the
-// demotion is a no-op, and every restart starts on the GPU again.
-// Caller holds mu.
+// to CPU. The check is deliberately coarse. A wedged GPU stops
+// answering rather than dying, so a request timeout has to count as a
+// fault — at the price of demoting a merely slow batch. That costs one
+// run at CPU speed (~4x slower embedding, FTS untouched) against
+// repeated multi-minute stalls, and a restart starts on the GPU again.
+// On a GPU-less machine the demotion is a no-op. Caller holds mu.
 func (w *workerEmbedder) failChild(cause error) {
 	c := w.child
 	if c == nil {
@@ -475,17 +517,24 @@ func (c *embedChild) readLoop(r *bufio.Reader) {
 	}
 }
 
+// pumpStderr drains the child's stderr for as long as it lives. It must
+// never stop early: an unread pipe fills at 64 KiB and blocks the child
+// mid-decode. Over-long lines are truncated, not fatal.
 func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 	defer close(c.errDone)
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 8<<10), 64<<10)
-	for sc.Scan() {
-		line := sc.Text()
-		if line == "" {
-			continue
+	br := bufio.NewReaderSize(r, 8<<10)
+	for {
+		line, err := br.ReadString('\n')
+		if line = strings.TrimRight(line, "\r\n"); line != "" {
+			if len(line) > 4<<10 {
+				line = line[:4<<10] + "…"
+			}
+			c.stderr.add(line)
+			lg.Debug("embedder child", zap.String("stderr", line))
 		}
-		c.stderr.add(line)
-		lg.Debug("embedder child", zap.String("stderr", line))
+		if err != nil {
+			return
+		}
 	}
 }
 

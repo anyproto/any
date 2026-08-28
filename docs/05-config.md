@@ -127,8 +127,9 @@ index:
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
     threads: 0                        # CPU budget of the embedder child process; 0 = runtime.NumCPU()-1
                                       # (leave one free). Lower it to keep background indexing off the
-                                      # user's cores; changeable at runtime, takes effect on the child's
-                                      # next spawn (docs/13-index.md § The embedder child process)
+                                      # user's cores. Set here and restart — the runtime setter behind it
+                                      # has no HTTP or CLI surface yet
+                                      # (docs/13-index.md § The embedder child process)
     requestTimeout: 3m                # bound on one embed round-trip with the child; a hung GPU stops
                                       # answering rather than failing, and this is what unwedges it
     niceness: 10                      # scheduling priority of the embedder child (0-19, higher = more

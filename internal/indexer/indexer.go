@@ -329,12 +329,16 @@ func (ix *Indexer) Close() error {
 	if ix.cancel != nil {
 		ix.cancel()
 	}
-	ix.wg.Wait()
-	// The local embedder owns OS resources (background download, loaded
-	// model); the HTTP embedders don't implement Closer.
+	// Before wg.Wait, not after: an embed round in flight holds its
+	// worker goroutine for as long as the embedder takes to answer, and
+	// closing the embedder is what ends it (the local one kills its
+	// child process). The round's docs stay pending. The local embedder
+	// also owns a background download and a loaded model; the HTTP
+	// embedders don't implement Closer.
 	if c, ok := ix.opts.Embedder.(io.Closer); ok {
 		_ = c.Close()
 	}
+	ix.wg.Wait()
 	return ix.store.Close()
 }
 

@@ -483,10 +483,12 @@ the background download (`index.model_download` reporting is unchanged).
 request that outlives `index.local.requestTimeout` (default 3m) kills
 the child and fails the round; the next round respawns behind an
 exponential backoff (1s → 1m). The timeout matters as much as the
-isolation — a wedged GPU stops answering rather than failing, which
-blocked the embed loop indefinitely before. An error *frame* is
-different: the child reporting a failed call is still healthy and is
-kept. Its stderr is logged, and the tail is quoted when it dies — that
+isolation — a wedged GPU stops answering rather than failing, so
+without a bound the embed loop waits forever. A timeout therefore counts
+as a fault and demotes the GPU, at the price of demoting a merely slow
+batch: one run at CPU speed against repeated multi-minute stalls. An
+error *frame* is different — the child reporting a failed call is still
+healthy and is kept. Its stderr is logged, and the tail is quoted when it dies — that
 is where llama.cpp's abort message lands.
 
 **Priority.** The child runs *below* the server: `index.local.niceness`
@@ -507,11 +509,12 @@ correlated with crashes and throughput. It is collected by filtering
 llama.cpp's own log callback down to the enumeration lines; everything
 else stays silent.
 
-**Threads.** `index.local.threads` is the child's CPU budget, and it is
-changeable at runtime via `Indexer.SetEmbedThreads`: the value lands on
-the spawn spec and an idle child is retired, so the next request comes
-up with the new count. Lowering it is how background indexing is kept
-off the user's cores.
+**Threads.** `index.local.threads` is the child's CPU budget — lower it
+to keep background indexing off the user's cores. Set it in config and
+restart: `Indexer.SetEmbedThreads` changes it in place (the value lands
+on the spawn spec and an idle child is retired, so the next request
+comes up with the new count), but nothing calls it yet; it is the seam
+a settings surface plugs into.
 
 ### GPU offload (local embedder)
 
@@ -532,7 +535,7 @@ compute buffers that scale with `contextSize`). Measured on a GTX 1080
 ≈ 2.0 docs/s at ~14 cores vs Vulkan 56 s ≈ 8.5 docs/s — a ~4× win with
 the CPU left essentially idle.
 
-**A GPU that dies mid-run no longer takes the server with it.** It kills
+**A GPU that dies mid-run does not take the server with it.** It kills
 the embedder child (above), and the parent demotes itself to CPU for the
 rest of the run: every later spawn passes `--gpu-layers 0`, one WARN
 names the reason and quotes the child's stderr, and the affected docs

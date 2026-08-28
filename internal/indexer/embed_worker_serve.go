@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"sync/atomic"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -78,14 +80,33 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
 		return err
 	}
-	for {
-		var req workerReq
-		if _, err := readFrame(r, &req); err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return nil // parent gone
+
+	// Reading runs on its own goroutine so the end of the stream — the
+	// parent closing stdin, or dying — is noticed even mid-decode. A
+	// decode cannot be interrupted, so a wedged child that waited for
+	// the next request to spot the EOF would outlive its parent holding
+	// the model; it exits instead.
+	var decoding atomic.Bool
+	reqs := make(chan workerReq)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(reqs)
+		for {
+			var req workerReq
+			if _, err := readFrame(r, &req); err != nil {
+				if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+					readErr <- err
+				}
+				if decoding.Load() {
+					os.Exit(0)
+				}
+				return
 			}
-			return err
+			reqs <- req
 		}
+	}()
+
+	for req := range reqs {
 		switch req.Op {
 		case workerOpClose:
 			return nil
@@ -94,7 +115,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 				return err
 			}
 		case workerOpEmbed:
-			if err := serveEmbed(ctx, l, w, req); err != nil {
+			decoding.Store(true)
+			err := serveEmbed(ctx, l, w, req)
+			decoding.Store(false)
+			if err != nil {
 				return err
 			}
 		default:
@@ -102,6 +126,12 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 				return err
 			}
 		}
+	}
+	select {
+	case err := <-readErr:
+		return err
+	default:
+		return nil // parent gone
 	}
 }
 

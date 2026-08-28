@@ -344,8 +344,8 @@ Implementation slices landed:
       as the hidden `any run embedder` and speaks framed JSON+float32
       over stdin/stdout; it only embeds — no store, no data dir. A
       llama.cpp abort (Vulkan device-lost throwing through the FFI
-      frame, GGML_ASSERT) used to kill the server and now kills the
-      child: the round fails, docs stay `pending`, and a crash with GPU
+      frame, GGML_ASSERT) kills the child, not the server: the round
+      fails, docs stay `pending`, and a crash with GPU
       offload active demotes the process to `--gpu-layers 0` for the
       rest of the run (in-memory — every start tries the GPU again).
       `index.local.requestTimeout` (3m) unwedges a hung GPU, which stops

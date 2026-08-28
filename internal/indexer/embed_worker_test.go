@@ -237,6 +237,37 @@ func TestWorkerEmbedder_RequestTimeout(t *testing.T) {
 	}
 }
 
+// A cancelled caller must not pin the mutex for the whole request
+// timeout, and must not be mistaken for a fault: no backoff, no GPU
+// demotion, just a retired child.
+func TestWorkerEmbedder_ContextCancelAborts(t *testing.T) {
+	h := &helperSpawner{modes: []string{"hang", "ok"}}
+	w := newTestWorker(t, h, -1)
+	w.reqTimeout = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := w.EmbedDocs(ctx, []string{"slow"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("cancel took %s", elapsed)
+	}
+	if w.gpuDisabled {
+		t.Error("an abandoned request must not demote the GPU")
+	}
+	if !w.nextTry.IsZero() {
+		t.Error("an abandoned request must not impose a restart backoff")
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatalf("respawn failed: %v", err)
+	}
+}
+
 func TestWorkerEmbedder_GarbageOnStdout(t *testing.T) {
 	h := &helperSpawner{modes: []string{"garbage", "ok"}}
 	w := newTestWorker(t, h, 0)
@@ -435,6 +466,26 @@ func TestEmbedderCmdArgs(t *testing.T) {
 			if strings.Contains(args, s) {
 				t.Errorf("%s: args %q should not carry %q", c.name, args, s)
 			}
+		}
+	}
+}
+
+// Metal logs dozens of "<capability> = true" lines under the same
+// prefix as its device line; only real enumeration lines are devices.
+func TestDeviceDescription(t *testing.T) {
+	cases := map[string]string{
+		"ggml_vulkan: 0 = AMD Radeon (RADV) (radv) | uma: 1 | fp16: 1": "AMD Radeon (RADV) (radv) | uma: 1 | fp16: 1",
+		"  Device 1: NVIDIA GeForce RTX 4090, compute capability 8.9":  "",
+		"ggml_metal_init: picking default device: Apple M2 Pro":        "Apple M2 Pro",
+		"ggml_metal_init: GPU name:   Apple M2 Pro":                    "Apple M2 Pro",
+		"ggml_metal_init: simdgroup reduction   = true":                "",
+		"ggml_metal_init: hasUnifiedMemory      = true":                "",
+		"ggml_metal_init: recommendedMaxWorkingSetSize  = 21845.34 MB": "",
+		"ggml_cuda_init: found 1 CUDA devices:":                        "",
+	}
+	for line, want := range cases {
+		if got := deviceDescription(line); got != want {
+			t.Errorf("deviceDescription(%q) = %q, want %q", line, got, want)
 		}
 	}
 }

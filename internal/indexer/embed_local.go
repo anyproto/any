@@ -219,9 +219,8 @@ func loadLlamaRuntime(libDir string) error {
 	if err := llama.Load(libDir); err != nil {
 		return fmt.Errorf("indexer: local embedder: load llama.cpp from %s: %w", libDir, err)
 	}
-	// Not LogSilent: the callback keeps the handful of lines that say
-	// which backends loaded and what devices they found (Hardware),
-	// and drops everything else.
+	// Silent except for the handful of lines naming the backends that
+	// loaded and the devices they found (Hardware).
 	llama.LogSet(llamaLogCapture())
 	llama.Init() // loads backend libs (cpu variants / metal) from the same dir
 	llamaRuntime.loaded = true

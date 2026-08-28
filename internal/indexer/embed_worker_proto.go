@@ -93,9 +93,12 @@ func readFrame(r *bufio.Reader, hdr any) ([]byte, error) {
 	if string(pre[:len(workerFrameMagic)]) != workerFrameMagic {
 		return nil, fmt.Errorf("indexer: embed worker: bad frame magic %q", pre[:len(workerFrameMagic)])
 	}
+	// int, not uint32: a desynchronized stream can declare 2^31+ bytes,
+	// which is negative on a 32-bit build — a make() panic in the read
+	// goroutine, i.e. exactly the crash this process boundary prevents.
 	jsLen := int(binary.LittleEndian.Uint32(pre[4:]))
 	binLen := int(binary.LittleEndian.Uint32(pre[8:]))
-	if jsLen > workerMaxJSON || binLen > workerMaxBin {
+	if jsLen < 0 || binLen < 0 || jsLen > workerMaxJSON || binLen > workerMaxBin {
 		return nil, fmt.Errorf("indexer: embed worker: frame too large (json %d, bin %d)", jsLen, binLen)
 	}
 	js := make([]byte, jsLen)
@@ -140,7 +143,7 @@ func decodeVectors(bin []byte, n, dim int) ([][]float32, error) {
 	if n == 0 {
 		return nil, nil
 	}
-	if n < 0 || dim <= 0 || len(bin) != n*dim*4 {
+	if n < 0 || dim <= 0 || n > workerMaxBin/4 || dim > workerMaxBin/4 || len(bin) != n*dim*4 {
 		return nil, fmt.Errorf("indexer: embed worker: vector block is %d bytes, want %d (n %d, dim %d)", len(bin), n*dim*4, n, dim)
 	}
 	out := make([][]float32, n)
