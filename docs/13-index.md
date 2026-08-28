@@ -530,7 +530,13 @@ mechanism, no config, no error. llama.cpp's default model params offload
 all layers when a usable GPU device exists; `index.local.gpuLayers: 0`
 forces CPU-only inference (the opt-out when the embedder shouldn't take
 VRAM — full offload of the default model costs ~2 GB, dominated by
-compute buffers that scale with `contextSize`). Measured on a GTX 1080
+compute buffers that scale with `contextSize`). It also turns
+llama.cpp's `op_offload` off: `n_gpu_layers` only places the *weights*,
+and with op offload left on a registered GPU still receives whole
+matmuls, so the compute never reaches the CPU threads. Measured on an
+RDNA2 iGPU with a 1200-token document: 6.6 s offloaded against 1.1 s
+across 16 CPU threads. That path is also the one that hangs the compute
+ring, so the crash demotion below depends on this too. Measured on a GTX 1080
 (478 editor-window docs, ~330 tokens each, `batchDocs` 16): CPU 240 s
 ≈ 2.0 docs/s at ~14 cores vs Vulkan 56 s ≈ 8.5 docs/s — a ~4× win with
 the CPU left essentially idle.

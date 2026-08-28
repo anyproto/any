@@ -272,6 +272,7 @@ func (l *Local) ensureLoaded() error {
 	cp.NThreadsBatch = threads
 	cp.PoolingType = llama.PoolingTypeLast // Qwen3-Embedding pools the trailing EOS
 	cp.Embeddings = 1
+	cp.OpOffload = opOffload(l.gpuLayers)
 	lctx, err := llama.InitFromModel(model, cp)
 	if err != nil {
 		_ = llama.ModelFree(model)
@@ -299,6 +300,21 @@ func (l *Local) threadCount() int {
 // nCtx across batchDocs sequences, floored to a whole block. Texts are
 // truncated to it, so a decode can never be refused for want of a KV
 // slot however batchDocs is configured.
+// opOffload maps the gpu-layer setting onto llama.cpp's op_offload.
+// n_gpu_layers only decides where the WEIGHTS live; with op_offload on
+// (the default) llama.cpp still hands whole matmuls to a registered GPU
+// device, so `gpuLayers: 0` alone leaves the compute on the GPU.
+// Measured on an RDNA2 iGPU with a 1200-token document: 6.6 s with op
+// offload against 1.1 s across 16 CPU threads without it — and the
+// offloaded path is the one that hangs the compute ring. CPU-only has
+// to mean both.
+func opOffload(gpuLayers int) uint8 {
+	if gpuLayers == 0 {
+		return 0
+	}
+	return 1
+}
+
 func (l *Local) maxDocTokens() int { return maxDocTokens(l.nCtx, l.batchDocs) }
 
 func maxDocTokens(nCtx, batchDocs int) int {

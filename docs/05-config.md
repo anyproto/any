@@ -137,8 +137,9 @@ index:
                                       # child, Windows drops its priority class
     gpuLayers: ~                      # n_gpu_layers override; absent = offload all when a GPU
                                       # backend is usable (Metal/Vulkan ship in the default
-                                      # bundles, CPU fallback automatic); 0 = force CPU
-                                      # (docs/13-index.md § GPU offload)
+                                      # bundles, CPU fallback automatic); 0 = force CPU —
+                                      # weights AND compute (it also disables llama.cpp's
+                                      # op_offload) (docs/13-index.md § GPU offload)
     batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens
                                       # (also capped by the contextSize token budget); 1 = sequential
   vector:

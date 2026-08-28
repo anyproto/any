@@ -58,6 +58,16 @@ func TestNewEmbedder_Local(t *testing.T) {
 	}
 }
 
+// gpuLayers 0 must take the compute off the GPU, not just the weights.
+func TestOpOffloadFollowsGpuLayers(t *testing.T) {
+	cases := map[int]uint8{0: 0, -1: 1, 1: 1, 99: 1}
+	for gpuLayers, want := range cases {
+		if got := opOffload(gpuLayers); got != want {
+			t.Errorf("opOffload(%d) = %d, want %d", gpuLayers, got, want)
+		}
+	}
+}
+
 func TestLocal_DefaultsAndDim(t *testing.T) {
 	dir := t.TempDir()
 	// Pre-create the model in the shared dir so NewLocal skips the download.
