@@ -65,5 +65,10 @@ jobs:
       - uses: ./.github/actions/go-private-auth
         with:
           token: ${{ secrets.ANY_CI_TOKEN }}
+      # The test packages don't reach internal/cli — only cmd/any imports
+      # it — so build the whole tree too, or a Windows-only break in the
+      # CLI reaches main and surfaces first in the nightly release build.
+      - name: go build
+        run: go build -tags 'fts vector' ./...
       - name: go test
         run: go test -tags 'fts vector' ./internal/server/ ./internal/config/

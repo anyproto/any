@@ -14,7 +14,7 @@ order: 10
    - `auth.walletPath` / `--wallet` → that wallet, data flat at the root (manual mode);
    - `account:` / `ANY_ACCOUNT` / `--account` → `<root>/<id>/` if present, else the root wallet (its derived id must match);
    - no selector → the root `wallet.key` if one exists, else a sole `<root>/<id>/` directory, else **no account**.
-3. **With an account, boot its engine** before the listener binds, so boot failures surface immediately: pid lock in the account dir → open the wallet → derive the account id → open the SDK → open the search indexer. `any run` never generates a wallet; create accounts with `any init` or over HTTP.
+3. **With an account, boot its engine** before the listener binds, so boot failures surface immediately: take the instance lock in the account dir → open the wallet → derive the account id → open the SDK → open the search indexer. `any run` never generates a wallet; create accounts with `any init` or over HTTP.
 4. **Without an account, start unauthorized.** Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required` until `POST /v1/auth` creates, restores or selects an account and boots the engine in place — no restart. See [Accounts](../auth/accounts.html).
 5. **Bind** `127.0.0.1:<port>` (default 7001) and serve.
 
@@ -66,7 +66,9 @@ curl -s -X POST http://127.0.0.1:7001/v1/shutdown
 
 ## Single-instance lock
 
-When an account's engine boots, the server writes `<account-dir>/server.pid` (the root itself for the legacy flat layout). A lock held by a live PID fails the boot with a clear message — `409 auth.account_in_use` when it happens through `POST /v1/auth`. Stale locks whose PID no longer exists are reclaimed.
+When an account's engine boots, the server takes an exclusive OS file lock on `<account-dir>/server.lock` (the root itself for the legacy flat layout) — `flock(2)` on Linux and macOS, `LockFileEx` on Windows. A held lock fails the boot with a clear message — `409 auth.account_in_use` when it happens through `POST /v1/auth`.
+
+The kernel releases the lock when the holder exits by any means, so there is nothing stale to reclaim: a crashed server blocks nobody. Neither file is removed on shutdown. `server.lock` is empty; the holder's pid goes in `<account-dir>/server.pid` purely to name it in that error (`details.pid`, absent when the file is unreadable). Treat `server.pid` as a label, never as proof a server is running.
 
 The lock is **per account**: two servers may share one data-dir root as long as they serve different accounts on different ports. An unauthorized server holds no lock until it boots an account.
 

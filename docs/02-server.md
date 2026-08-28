@@ -46,7 +46,8 @@ self-daemonization, no `--detach` — run under a terminal, `tmux`,
    - No selector: a root `wallet.key` (legacy flat layout) is the
      default account; else a sole `<root>/<id>/` dir; else **no
      account**.
-3. With an account: boot its engine — pid lock in the account dir, open
+3. With an account: boot its engine — take the instance lock in the
+   account dir, open
    the wallet, derive the account id, open the SDK and the indexer —
    before the listener binds, so boot FAILURES surface immediately.
    `run` does NOT auto-generate a wallet anymore; create accounts with
@@ -129,8 +130,9 @@ holds no lock until it boots an account.
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
-├── server.lock  server.pid      #   its data stays directly at the root
-├── sdk/  index/                 #   exactly as before (no migration)
+├── server.lock                  #   its data stays directly at the root
+├── server.pid                   #   exactly as before (no migration)
+├── sdk/  index/
 └── <accountId>/                 # every account created since
     ├── wallet.key               # auth.FileProvider wallet (mode 0600)
     ├── server.lock              # per-account single-instance lock (OS file lock)
@@ -198,7 +200,7 @@ on `/sync-status` — this flag only reports the one-shot boot pass.
 
 v1 is deliberately single-account per process. Two accounts → two
 `any run` processes on different ports (they may share one data-dir
-root — each account dir carries its own pid lock). Switching the
+root — each account dir carries its own instance lock). Switching the
 account of a RUNNING server is not supported: stop it and start with
 `--account <id>` (or let `POST /v1/auth` pick on an unauthorized
 server). Multi-account per process is deferred.

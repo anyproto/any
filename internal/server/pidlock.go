@@ -34,8 +34,7 @@ var pidLockLog = logger.NewNamed("pidlock")
 // to the file drops. Those aren't platforms we ship, but a second opener
 // would be a trap on the ones that are, too.
 type Lock struct {
-	fl      *flock.Flock
-	pidPath string
+	fl *flock.Flock
 }
 
 // Acquire takes the single-instance lock for an account dir. Returns
@@ -52,11 +51,15 @@ func Acquire(dir string) (*Lock, error) {
 		return nil, &ErrLocked{PID: readHolderPID(pidPath), Path: lockPath}
 	}
 
-	// Best-effort: the lock is the contract, this is the name on it.
+	// Best-effort: the lock is the contract, this is the name on it. On
+	// failure drop the file rather than leave a previous holder's pid to
+	// be reported as ours — an absent pid reads as unknown, a wrong one
+	// names an unrelated process.
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		pidLockLog.Warn("write pid file", zap.Error(err))
+		_ = os.Remove(pidPath)
 	}
-	return &Lock{fl: fl, pidPath: pidPath}, nil
+	return &Lock{fl: fl}, nil
 }
 
 // Release drops the OS lock and closes the lock file. Safe to call from
