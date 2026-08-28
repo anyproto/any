@@ -3,7 +3,6 @@
 package server
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -13,9 +12,9 @@ import (
 // a nil lock and never blocks a second acquire of the same path — the exact
 // opposite of the host build (TestAcquirePIDLock_HostHoldsLock).
 func TestAcquirePIDLock_MobileNoOp(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.pid")
+	dir := t.TempDir()
 
-	lock, err := acquirePIDLock(path)
+	lock, err := acquirePIDLock(dir)
 	if err != nil {
 		t.Fatalf("mobile acquirePIDLock must not error: %v", err)
 	}
@@ -28,7 +27,7 @@ func TestAcquirePIDLock_MobileNoOp(t *testing.T) {
 	}
 
 	// A second acquire of the same path also no-ops — never blocks.
-	if _, err := acquirePIDLock(path); err != nil {
+	if _, err := acquirePIDLock(dir); err != nil {
 		t.Fatalf("second mobile acquirePIDLock must not error: %v", err)
 	}
 }

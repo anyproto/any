@@ -1,9 +1,8 @@
-//go:build !mobile && !windows
+//go:build !mobile
 
 package server
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -13,8 +12,8 @@ import (
 // (TestAcquirePIDLock_MobileNoOp, pidlock_acquire_mobile_test.go) asserts
 // the opposite — that under -tags mobile the lock is bypassed.
 func TestAcquirePIDLock_HostHoldsLock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.pid")
-	lock, err := acquirePIDLock(path)
+	dir := t.TempDir()
+	lock, err := acquirePIDLock(dir)
 	if err != nil {
 		t.Fatalf("first acquirePIDLock: %v", err)
 	}
@@ -23,7 +22,7 @@ func TestAcquirePIDLock_HostHoldsLock(t *testing.T) {
 	}
 	defer func() { _ = lock.Release() }()
 
-	if _, err := acquirePIDLock(path); err == nil {
+	if _, err := acquirePIDLock(dir); err == nil {
 		t.Fatal("second acquirePIDLock on a held path must fail on the host build")
 	}
 }

@@ -14,7 +14,7 @@ A missing config file is not an error: defaults are used.
 
 ```yaml
 # Data ROOT. Each account lives in <dataDir>/<accountId>/ (wallet.key,
-# server.pid, sdk/, index/); a wallet.key directly at the root is the
+# server.lock, server.pid, sdk/, index/); a wallet.key directly at the root is the
 # legacy flat layout and acts as the default account with its data at
 # the root. config.yaml and the shared models/ cache sit at the root.
 # Layout details: 02-server.md § Data dir layout.

@@ -1,9 +1,13 @@
-# PR gate: the generated OpenAPI spec (internal/server/docs) must match
-# the handler annotations. `anyrt drift` in anybao verifies its pin
+# PR gate, two jobs:
+#
+# swagger-drift — the generated OpenAPI spec (internal/server/docs) must
+# match the handler annotations. `anyrt drift` in anybao verifies its pin
 # against this spec, so a handler PR that changes annotations without
 # regenerating leaves the published contract lying about the server.
 # Fix locally with `make swagger` and commit the diff (`make build`
 # runs it too).
+#
+# windows-tests — the only place a Windows binary is executed at all.
 name: pr-checks
 
 on:
@@ -41,3 +45,25 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+
+  # Nothing else executes a Windows build: the release artifact is
+  # cross-compiled on ubuntu and only the darwin tarballs are smoke-tested.
+  # The single-instance lock is the surface that broke there before, so run
+  # the packages that own it natively. The SDK-backed server tests self-skip
+  # without a staging config, leaving the pure-unit set.
+  windows-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      - name: go test
+        run: go test -tags 'fts vector' ./internal/server/ ./internal/config/

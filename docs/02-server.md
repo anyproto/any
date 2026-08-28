@@ -102,11 +102,20 @@ process exits with 0.
 
 ## Single-instance lock
 
-The server writes a PID lock file at `<account-dir>/server.pid` when
-the account's engine boots (the root itself for the legacy flat
-layout). If the lock is held by a live PID, the boot fails with a
-clear message — `409 auth.account_in_use` when it happens via
-`POST /v1/auth`. Stale locks (PID no longer exists) are reclaimed.
+When the account's engine boots, the server takes an exclusive OS file
+lock on `<account-dir>/server.lock` (the root itself for the legacy flat
+layout) — `flock(2)` on unix, `LockFileEx` on Windows. A held lock fails
+the boot with a clear message: `409 auth.account_in_use` when it happens
+via `POST /v1/auth`.
+
+The kernel releases the lock when the holder exits by any means, so
+there is nothing stale to reclaim — a crashed server blocks nobody, and
+neither file below is removed on release or on crash. `server.lock`
+itself is empty; the holder's pid goes in `<account-dir>/server.pid`
+right after acquiring, purely to name it in the error
+(`details.pid` — best-effort, and absent if that file is unreadable).
+Treat `server.pid` as a label, never as proof a server is running.
+
 One lock per ACCOUNT: two servers may share a root as long as they
 serve different accounts (on different ports). An unauthorized server
 holds no lock until it boots an account.
@@ -120,11 +129,12 @@ holds no lock until it boots an account.
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
-├── server.pid                   #   its data stays directly at the root
+├── server.lock  server.pid      #   its data stays directly at the root
 ├── sdk/  index/                 #   exactly as before (no migration)
 └── <accountId>/                 # every account created since
     ├── wallet.key               # auth.FileProvider wallet (mode 0600)
-    ├── server.pid               # per-account lock file
+    ├── server.lock              # per-account single-instance lock (OS file lock)
+    ├── server.pid               # holder's pid, for error messages only
     ├── sdk/                     # any-store DB(s) — owned by the SDK
     ├── files/                   # file content (one CARv2 per rootCid) — owned
     │                            #   by the SDK (files v2, docs/17-files.md)
