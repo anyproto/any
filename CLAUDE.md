@@ -351,7 +351,11 @@ Implementation slices landed:
       `index.local.requestTimeout` (3m) unwedges a hung GPU, which stops
       answering rather than failing; `index.local.threads` is the
       child's CPU budget and is runtime-settable via
-      `Indexer.SetEmbedThreads`. Local defaults to Qwen3-Embedding-0.6B
+      `Indexer.SetEmbedThreads`; `index.local.niceness` (10) runs the
+      child below the server. The `ready` frame carries a `Hardware`
+      report (backends + the .so each came from, GPU/driver names,
+      llama.cpp release stamp, CPU features) — logged per spawn, kept
+      behind `Indexer.EmbedHardware()` for later statistics. Local defaults to Qwen3-Embedding-0.6B
       Q8_0 (1024-dim, last-pooling, L2-normalized, Qwen instruct query
       prefix), auto-downloaded sha-pinned into `<data-dir>/index/models`
       with logged progress (`embed_local_download.go`, resumable, never

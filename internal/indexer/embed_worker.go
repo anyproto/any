@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -64,6 +65,12 @@ type workerEmbedder struct {
 	newCmd func(localSpec) (*exec.Cmd, error)
 	now    func() time.Time
 
+	// live is the running child's process and closing the shutdown
+	// flag — both read without mu so Close can kill a child while a
+	// request holds the mutex.
+	live    atomic.Pointer[os.Process]
+	closing atomic.Bool
+
 	mu sync.Mutex
 	// spec holds the parameters every spawn is rendered from. Two
 	// writers: the GPU demotion below, and SetThreads.
@@ -73,9 +80,12 @@ type workerEmbedder struct {
 	// was active. In-memory by design: every `any run` starts on the GPU
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
-	backoff     time.Duration
-	nextTry     time.Time
-	closed      bool
+	// hw is what the last started child reported about this machine —
+	// kept for logging now, for hardware/error/speed statistics later.
+	hw      Hardware
+	backoff time.Duration
+	nextTry time.Time
+	closed  bool
 }
 
 func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*workerEmbedder, error) {
@@ -201,9 +211,29 @@ func (w *workerEmbedder) SetThreads(n int) {
 	}
 }
 
-// Close retires the child and stops any background model download.
-func (w *workerEmbedder) Close() error {
+// Hardware reports what the last started child said it runs on (zero
+// value before the first spawn). The server logs it; a future stats
+// collector reads it.
+func (w *workerEmbedder) Hardware() Hardware {
 	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.hw
+}
+
+// Close retires the child and stops any background model download. An
+// idle child exits gracefully on stdin EOF; a busy one is KILLED before
+// the mutex is taken, because a request in flight holds it for as long
+// as requestTimeout (a wedged GPU does exactly that) and shutdown must
+// not wait that out. The interrupted round fails and its docs stay
+// pending, which is the normal outage path.
+func (w *workerEmbedder) Close() error {
+	w.closing.Store(true)
+	if !w.mu.TryLock() {
+		if p := w.live.Load(); p != nil {
+			_ = p.Kill()
+		}
+		w.mu.Lock()
+	}
 	defer w.mu.Unlock()
 	if w.closed {
 		return nil
@@ -273,7 +303,7 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 // ensureChild spawns the child if needed, honoring the restart backoff.
 // Caller holds mu.
 func (w *workerEmbedder) ensureChild() error {
-	if w.closed {
+	if w.closed || w.closing.Load() {
 		return errors.New("indexer: local embedder: closed")
 	}
 	if w.child != nil {
@@ -300,6 +330,7 @@ func (w *workerEmbedder) ensureChild() error {
 		return fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
 	}
 	w.child = c
+	w.live.Store(c.cmd.Process)
 	return nil
 }
 
@@ -347,13 +378,18 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 				errText(m.err), handshakeText(ok, m.hdr), c.stderr.String(), errText(waitErr), "no output"))
 		}
 		c.dim = m.hdr.Dim
+		if m.hdr.Hardware != nil {
+			w.hw = *m.hdr.Hardware
+		}
 	case <-timer.C:
 		waitErr := c.stop(false)
 		return nil, fmt.Errorf("embedder child did not become ready in %s: %s", w.startTimeout,
 			firstNonEmpty(c.stderr.String(), errText(waitErr), "no output"))
 	}
 	w.lg.Info("local embedder child started",
-		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", spec.threads))
+		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", spec.threads),
+		zap.String("hardware", w.hw.String()))
+	w.lg.Debug("local embedder system info", zap.String("systemInfo", w.hw.SystemInfo))
 	return c, nil
 }
 
@@ -369,6 +405,7 @@ func (w *workerEmbedder) failChild(cause error) {
 		return
 	}
 	w.child = nil
+	w.live.Store(nil)
 	gpu := c.gpu
 	// stop() joins the stderr pump before returning, so the tail read
 	// after it is complete — that is where llama.cpp's abort message is.
@@ -394,6 +431,7 @@ func (w *workerEmbedder) stopChild(graceful bool) {
 	}
 	c := w.child
 	w.child = nil
+	w.live.Store(nil)
 	_ = c.stop(graceful)
 }
 

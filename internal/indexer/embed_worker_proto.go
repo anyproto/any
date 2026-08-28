@@ -56,6 +56,9 @@ type workerResp struct {
 	Dim   int    `json:"dim,omitempty"`
 	N     int    `json:"n,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Hardware rides the `ready` frame: what llama.cpp reports about the
+	// machine it just initialized on.
+	Hardware *Hardware `json:"hardware,omitempty"`
 }
 
 func writeFrame(w *bufio.Writer, hdr any, bin []byte) error {

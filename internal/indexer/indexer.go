@@ -251,6 +251,17 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 // HasEmbedder reports whether the vector pipeline is active.
 func (ix *Indexer) HasEmbedder() bool { return ix.opts.Embedder != nil }
 
+// EmbedHardware reports what the local embedder runs on — backends,
+// devices and lib version as llama.cpp reports them — or false for an
+// embedder that does not decode on this machine. Logged at child start;
+// the accessor exists for hardware/error/speed statistics.
+func (ix *Indexer) EmbedHardware() (Hardware, bool) {
+	if h, ok := ix.opts.Embedder.(interface{ Hardware() Hardware }); ok {
+		return h.Hardware(), true
+	}
+	return Hardware{}, false
+}
+
 // SetEmbedThreads changes the CPU budget the local embedder decodes
 // with; 0 restores the default (NumCPU()-1). It takes effect when the
 // embedder child next spawns, and is a no-op for embedders that don't

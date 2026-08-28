@@ -74,7 +74,8 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 
 	r := bufio.NewReaderSize(in, 64<<10)
 	w := bufio.NewWriter(out)
-	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim}, nil); err != nil {
+	hw := l.Hardware()
+	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
 		return err
 	}
 	for {

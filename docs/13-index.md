@@ -413,7 +413,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
 - `openai` — any OpenAI-compatible `/embeddings` API.
-- `local` — **default**: **in-process llama.cpp**, no external service. yzma purego
+- `local` — **default**: **llama.cpp in a child process**, no external service
+  (§ The embedder child process). yzma purego
   bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
   `index.local.libDir` (default: `llamacpp/` next to the binary —
   populated by `make llamacpp`, which also runs as a failure-tolerant
@@ -495,6 +496,17 @@ to interactive work instead of competing with it. Nicing happens inside
 the child before llama.cpp loads — on Linux every existing task is
 niced, and the decode threads llama.cpp spawns later inherit it.
 
+**Hardware.** The child reports what llama.cpp initialized on — OS/arch,
+the backends that registered and the shared object each came from, the
+devices they found (GPU name and driver), the pinned llama.cpp release,
+CPU count and thread budget, plus `llama_print_system_info()` — in the
+`ready` frame. The server logs it on every spawn ("local embedder child
+started", with the CPU feature string at DEBUG) and keeps the last
+report behind `Indexer.EmbedHardware()`, so hardware can later be
+correlated with crashes and throughput. It is collected by filtering
+llama.cpp's own log callback down to the enumeration lines; everything
+else stays silent.
+
 **Threads.** `index.local.threads` is the child's CPU budget, and it is
 changeable at runtime via `Indexer.SetEmbedThreads`: the value lands on
 the spawn spec and an idle child is retired, so the next request comes
@@ -571,7 +583,7 @@ rule for `vector` is stronger than for `fts`:
   `capVector` is `vector && !gomobile`, so even `gomobile bind -tags
   vector` keeps the whole embedding/ANN leg out — no embedder is
   constructed, no model is downloaded, and the embedder implementations
-  (ollama, openai, and the in-process llama.cpp `local`) are not linked
+  (ollama, openai, and the llama.cpp-backed `local`) are not linked
   at all. This is deliberate: the `local` embedder links the yzma /
   jupiterrider-ffi llama.cpp bindings, whose libffi CIF descriptors
   resolve `ffi_prep_cif` at package load — a symbol Android doesn't

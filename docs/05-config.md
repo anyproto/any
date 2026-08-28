@@ -116,7 +116,7 @@ index:
     baseUrl: https://api.deepinfra.com/v1/openai
     model: Qwen/Qwen3-Embedding-0.6B  # for auto, MUST equal the local fallback model
     apiKey: ...                       # sent as Bearer; never logged
-  local:                              # in-process llama.cpp — all fields optional;
+  local:                              # llama.cpp in a child process — all fields optional;
                                       # the default embedder needs no config at all
     modelPath: ""                     # existing GGUF; set ⇒ no download (air-gapped)
     modelUrl: ""                      # download-source override for the default path
@@ -282,7 +282,7 @@ vector side just reports `unavailable` until they're met.
 ### `index.embedder: auto` (online primary + local fallback)
 
 Prefers an online OpenAI-compatible API for speed and falls back to the
-in-process local model during an outage, so vector search stays fresh
+local model during an outage, so vector search stays fresh
 instead of pausing. The online primary is configured by the `openai`
 block (`baseUrl` / `model` / `apiKey`); the fallback by the `local` block
 (auto-downloaded at boot regardless, so it's ready). A circuit breaker

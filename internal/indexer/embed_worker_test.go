@@ -56,7 +56,12 @@ func runEmbedHelper(mode string) int {
 
 	in := bufio.NewReaderSize(os.Stdin, 1<<16)
 	out := bufio.NewWriter(os.Stdout)
-	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim}, nil); err != nil {
+	hw := &Hardware{
+		OS: "testos", Arch: "testarch", LibVersion: "btest",
+		Backends: []string{"CPU from libggml-cpu-test.so"},
+		Devices:  []string{"Test Device"},
+	}
+	if err := writeFrame(out, workerResp{Op: workerOpReady, Dim: helperDim, Hardware: hw}, nil); err != nil {
 		return 1
 	}
 	for {
@@ -321,6 +326,63 @@ func TestWorkerEmbedder_CloseReapsChild(t *testing.T) {
 	}
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err == nil {
 		t.Fatal("want an error after Close")
+	}
+}
+
+// The handshake carries what llama.cpp says the machine is; the server
+// keeps it for logging and later statistics.
+func TestWorkerEmbedder_HardwareFromHandshake(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	if hw := w.Hardware(); hw.OS != "" {
+		t.Fatalf("hardware known before the first spawn: %+v", hw)
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	hw := w.Hardware()
+	if hw.OS != "testos" || hw.LibVersion != "btest" || len(hw.Backends) != 1 || len(hw.Devices) != 1 {
+		t.Fatalf("hardware not captured: %+v", hw)
+	}
+	if s := hw.String(); !strings.Contains(s, "testos/testarch") || !strings.Contains(s, "llama.cpp btest") ||
+		!strings.Contains(s, "libggml-cpu-test.so") || !strings.Contains(s, "Test Device") {
+		t.Fatalf("hardware line %q", s)
+	}
+}
+
+// Shutdown must not wait out a request in flight — a wedged GPU holds
+// one for as long as the request timeout.
+func TestWorkerEmbedder_CloseInterruptsRequest(t *testing.T) {
+	h := &helperSpawner{modes: []string{"hang"}}
+	w := newTestWorker(t, h, 0)
+	w.reqTimeout = time.Hour // only Close can end this round
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := w.EmbedDocs(context.Background(), []string{"wedged"})
+		errCh <- err
+	}()
+	// Let the request reach the child before closing.
+	deadline := time.Now().Add(10 * time.Second)
+	for w.live.Load() == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	start := time.Now()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("Close waited %s for the in-flight request", elapsed)
+	}
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("the interrupted round should fail so its docs stay pending")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the in-flight request never returned")
+	}
+	if st := h.cmds[0].ProcessState; st == nil {
+		t.Fatal("child not reaped")
 	}
 }
 
