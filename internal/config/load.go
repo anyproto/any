@@ -167,6 +167,14 @@ func applyEnv(cfg *Config) {
 			cfg.Index.Local.Threads = n
 		}
 	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_NICENESS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Index.Local.Niceness = &n
+		}
+	}
+	if v := os.Getenv("ANY_INDEX_LOCAL_REQUEST_TIMEOUT"); v != "" {
+		cfg.Index.Local.RequestTimeout = v
+	}
 	if v := os.Getenv("ANY_INDEX_LOCAL_GPU_LAYERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Index.Local.GpuLayers = &n

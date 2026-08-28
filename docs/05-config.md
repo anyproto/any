@@ -125,7 +125,15 @@ index:
     contextSize: 2048                 # truncation bound in tokens (docs/13-index.md)
     queryPrefix: ""                   # "" = Qwen retrieval instruction for the default model
     dim: 0                            # Matryoshka output truncation; 0 = model dim (1024)
-    threads: 0                        # llama.cpp compute threads; 0 = runtime.NumCPU()-1 (leave one free)
+    threads: 0                        # CPU budget of the embedder child process; 0 = runtime.NumCPU()-1
+                                      # (leave one free). Lower it to keep background indexing off the
+                                      # user's cores; changeable at runtime, takes effect on the child's
+                                      # next spawn (docs/13-index.md § The embedder child process)
+    requestTimeout: 3m                # bound on one embed round-trip with the child; a hung GPU stops
+                                      # answering rather than failing, and this is what unwedges it
+    niceness: 10                      # scheduling priority of the embedder child (0-19, higher = more
+                                      # background); 0 = leave at the server's priority. Unix nices the
+                                      # child, Windows drops its priority class
     gpuLayers: ~                      # n_gpu_layers override; absent = offload all when a GPU
                                       # backend is usable (Metal/Vulkan ship in the default
                                       # bundles, CPU fallback automatic); 0 = force CPU
@@ -239,14 +247,19 @@ ANY_INDEX_LOCAL_CONTEXT_SIZE=2048
 ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
 ANY_INDEX_LOCAL_DIM=512
 ANY_INDEX_LOCAL_THREADS=8            # 0/unset = runtime.NumCPU()-1
+ANY_INDEX_LOCAL_GPU_LAYERS=0         # 0 = force CPU-only decoding
+ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m   # bound on one embed round-trip with the child process
+ANY_INDEX_LOCAL_NICENESS=10          # child scheduling priority; 0 = same as the server
 ```
 
 ### `index.embedder: local` prerequisites
 
 The local embedder is the **fallback** under the default `auto` (and used
 directly with `index.embedder: local`; set `none` for FTS-only). It runs
-llama.cpp in-process (no CGO — yzma dlopens the
-shared libs at runtime). Supported platforms: macOS arm64 (Metal) and
+llama.cpp in a child process (`any run embedder`, this same binary; no
+CGO — yzma dlopens the shared libs at runtime), so a llama.cpp abort
+costs a round of embedding instead of the server
+(docs/13-index.md § The embedder child process). Supported platforms: macOS arm64 (Metal) and
 Linux amd64 (CPU). Missing prerequisites never break boot or FTS — the
 vector side just reports `unavailable` until they're met.
 

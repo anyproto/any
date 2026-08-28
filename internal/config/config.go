@@ -241,10 +241,24 @@ type IndexLocal struct {
 	// 0 keeps the model's full dimension (1024 for the default model).
 	Dim int `yaml:"dim"`
 	// Threads sets the llama.cpp compute thread count (NThreads /
-	// NThreadsBatch). 0 = default to runtime.NumCPU()-1 (leave one core
-	// free). Going beyond the physical core count can regress on
-	// hyperthreaded CPUs.
+	// NThreadsBatch) — the CPU budget the embedder child decodes with.
+	// 0 = default to runtime.NumCPU()-1 (leave one core free). Going
+	// beyond the physical core count can regress on hyperthreaded CPUs;
+	// lowering it is how you keep background indexing off the user's
+	// cores. Changeable at runtime (Indexer.SetEmbedThreads) — it takes
+	// effect on the child's next spawn.
 	Threads int `yaml:"threads"`
+	// Niceness lowers the embedder child's scheduling priority so a
+	// re-index yields to interactive work: 0..19 on Unix (nice), a
+	// below-normal/idle priority class on Windows. Absent = 10; 0 keeps
+	// the server's own priority. Raising priority is not supported.
+	Niceness *int `yaml:"niceness"`
+	// RequestTimeout bounds one embed round-trip with the child process
+	// (Go duration string). Default 3m. It exists to unwedge a hung GPU:
+	// a lost device stops answering rather than failing, so without a
+	// bound the embed loop blocks forever. Generous by design — a 64-doc
+	// batch of long texts is ~30s on CPU.
+	RequestTimeout string `yaml:"requestTimeout"`
 	// GpuLayers overrides llama.cpp's n_gpu_layers. Absent keeps the
 	// llama.cpp default: offload every layer when a usable GPU backend
 	// is present, CPU otherwise. 0 forces CPU-only inference even with

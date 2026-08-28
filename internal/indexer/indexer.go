@@ -251,6 +251,17 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 // HasEmbedder reports whether the vector pipeline is active.
 func (ix *Indexer) HasEmbedder() bool { return ix.opts.Embedder != nil }
 
+// SetEmbedThreads changes the CPU budget the local embedder decodes
+// with; 0 restores the default (NumCPU()-1). It takes effect when the
+// embedder child next spawns, and is a no-op for embedders that don't
+// decode on this machine (ollama / openai / none). This is the seam a
+// settings surface plugs into — index.local.threads seeds the value.
+func (ix *Indexer) SetEmbedThreads(n int) {
+	if s, ok := ix.opts.Embedder.(interface{ SetThreads(int) }); ok {
+		s.SetThreads(n)
+	}
+}
+
 // Start lists current spaces, spawns a worker per indexable space, and
 // subscribes to space-list changes for live discovery. Non-blocking.
 // The passed ctx bounds all background work — cancel it (or call Close)
