@@ -32,7 +32,14 @@ type AddPropertyRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	XKey        string `json:"xKey,omitempty"`
-	Kind        string `json:"kind,omitempty"`
+	// XKind is a free-form classification hint, stored verbatim and
+	// never interpreted by the server (space.PropertyDraft.XKind).
+	// It is the field a caller uses to record a client-side kind
+	// marker WITHOUT overloading XKey, which is the stable handle
+	// callers address the property by. Freely mutable afterwards via
+	// PATCH `xKind`; settable here so a caller need not POST-then-PATCH.
+	XKind string `json:"xKind,omitempty"`
+	Kind  string `json:"kind,omitempty"`
 	// Meta is an opaque consumer flag map, stored verbatim on the
 	// property definition. meta["index"] = "<scope>" marks the property
 	// for the search indexer (docs/13-index.md).

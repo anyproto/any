@@ -103,13 +103,13 @@ func newTypePropertyListCmd() *cobra.Command {
 }
 
 func newTypePropertyAddCmd() *cobra.Command {
-	var name, xkey, kind, formatType, formatUI, scope string
+	var name, xkey, xkind, kind, formatType, formatUI, scope string
 	cmd := &cobra.Command{
 		Use:   "add <spaceId> <typeId>",
 		Short: "add a property (use --format-type select|multiselect for option properties)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := api.AddPropertyRequest{Name: name, XKey: xkey, Kind: kind, Scope: scope}
+			req := api.AddPropertyRequest{Name: name, XKey: xkey, XKind: xkind, Kind: kind, Scope: scope}
 			if formatType != "" {
 				req.Format = &api.PropertyFormat{Type: formatType, UI: formatUI}
 			}
@@ -123,6 +123,7 @@ func newTypePropertyAddCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&name, "name", "", "display name")
 	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key")
+	cmd.Flags().StringVar(&xkind, "xkind", "", "free-form classification hint, stored verbatim")
 	cmd.Flags().StringVar(&kind, "kind", "", "value kind (string/number/boolean/array/object/datetime; omit to default from format)")
 	cmd.Flags().StringVar(&formatType, "format-type", "", "format: links/date/datetime/select/multiselect")
 	cmd.Flags().StringVar(&formatUI, "format-ui", "", "presentation hint: select/multiselect/link/links")

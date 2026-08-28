@@ -130,6 +130,15 @@ components:
           type: string
         xKey:
           type: string
+        xKind:
+          description: |-
+            XKind is a free-form classification hint, stored verbatim and
+            never interpreted by the server (space.PropertyDraft.XKind).
+            It is the field a caller uses to record a client-side kind
+            marker WITHOUT overloading XKey, which is the stable handle
+            callers address the property by. Freely mutable afterwards via
+            PATCH `xKind`; settable here so a caller need not POST-then-PATCH.
+          type: string
       type: object
     api.AddPropertyResponse:
       properties:
