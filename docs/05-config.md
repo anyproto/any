@@ -130,7 +130,7 @@ index:
                                       # backend is usable (Metal/Vulkan ship in the default
                                       # bundles, CPU fallback automatic); 0 = force CPU
                                       # (docs/13-index.md § GPU offload)
-    batchDocs: 16                     # docs packed per llama_decode as parallel sequences
+    batchDocs: 1                      # docs per llama_decode; N caps each text at contextSize/N tokens
                                       # (also capped by the contextSize token budget); 1 = sequential
   vector:
     dim: 0                            # 0 = learned from the first successful embedding

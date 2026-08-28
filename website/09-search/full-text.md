@@ -46,7 +46,7 @@ curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/search \
 any search $SPACE '"zeppelin disaster" hind*' --require 1937 --exclude fiction
 ```
 
-Bare terms combine with **OR** by default: a hit needs any of them, and more matching terms rank higher. A bare term next to a `require` is an optional boost, not a filter. The operators apply to the lexical leg only — in pure `vector` mode they are ignored.
+Bare terms combine with **OR** by default: a hit needs any of them, and more matching terms rank higher. A bare term next to a `require` is an optional boost, not a filter. Phrases and prefixes in `query` shape the lexical leg only; `require` and `exclude` bind every hit — vector hits (hybrid and pure `vector` mode) are post-filtered against the FTS index before fusion, so no mode returns a hit that violates them.
 
 > **Note.** `index.search.defaultOperator: and` makes every bare term required. It is precise for short keyword input a client controls, but on natural-language queries it collapses recall (few documents contain *every* word — measured on BEIR, nDCG@10 fell from 0.66 to 0.02). Prefer phrases, `require` and `exclude`, which add precision without the cliff.
 

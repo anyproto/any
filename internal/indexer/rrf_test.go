@@ -113,3 +113,17 @@ func TestLegConfidence(t *testing.T) {
 		t.Errorf("empty confidence = %.2f, want 1", c)
 	}
 }
+
+// Chunks of one record are distinct fusion keys: they neither merge
+// nor sum their rank mass.
+func TestFuseRRF_ChunksStayDistinct(t *testing.T) {
+	c0 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 0, Data: "zero"}
+	c1 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 1, Data: "one"}
+	out := fuseRRF([][]Hit{{c0}, {c1}}, nil, 10)
+	if len(out) != 2 {
+		t.Fatalf("fused = %+v, want both chunks", out)
+	}
+	if out[0].Score != out[1].Score {
+		t.Fatalf("scores differ %v / %v — one chunk absorbed the other's mass", out[0].Score, out[1].Score)
+	}
+}

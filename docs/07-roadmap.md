@@ -179,16 +179,19 @@ pluggable embedders, parallel batched pipelines),
   pre-existing content stays unsearchable until rewritten. A deliberate
   full re-index (walk all objects, not just `_addSeq > cursor`) is an
   open design.
-- **Search quality.** Snippets/highlighting, per-scope weights,
+- **Search quality.** Highlighting (hit `data` is already a windowed
+  snippet — `maxData`), per-scope weights,
   cross-space search, tunable score thresholds beyond the
   zero-similarity noise floor, query-time `VectorEf` tuning.
 - **Embedding hygiene.** Re-embed on model change (currently a dim
   mismatch is a boot error suggesting removing `<data-dir>/index/`).
-- **Long-record chunk splitting.** The local embedder truncates input
-  to `index.local.contextSize` tokens (head-only vector recall, FTS
-  unaffected — docs/13-index.md § Known limits). Splitting one record
-  into N sub-chunks is a chunker-contract change (doc-id scheme,
-  tombstones for shrinking records).
+- **Chunk-level `require` / `exclude`.** Terms bind the hit's chunk,
+  not the record (docs/13-index.md § Known limits); record-level
+  semantics would need a per-record verdict over sibling chunks.
+- **Record ids with control bytes.** The chunk id scheme assumes no
+  record id byte below 0x20 (true for auto ids and the SDK's default
+  `idPattern`); a runtime dataset declaring a permissive pattern is not
+  rejected anywhere yet.
 - **Local embedder follow-ups.** Multi-sequence batched decode (texts
   currently embed sequentially under one mutex); a packaged
   distribution story for the llama.cpp libs (today: `make llamacpp`
@@ -232,6 +235,15 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Long-record chunking + windowed hit data (SYN-188)** — the
+  indexer splits any chunker entry over `Options.ChunkRunes` (2000)
+  into chunk docs (`base<U+001F>n` ids, record range `[base,
+  base+" ")`, per-record hash diff in `planDocs`); hits carry `chunk`,
+  `data` is a `maxData`-rune window (default 512) with `dataOffset` /
+  `dataTotal`. docs/13-index.md § Chunking long records.
+- **`require` / `exclude` in every mode (SYN-187)** — vector hits are
+  post-filtered against the FTS index (`Store.FilterTerms`, K widened
+  up to 1000 when terms thin the leg) before fusion.
 - **Derived spaces registry (SYN-164)** — well-known per-account
   spaces (`bao`) derived from a compiled-in registry
   (`internal/server/derivedspaces.go`, seed convention

@@ -33,10 +33,12 @@ const (
 	// "props" (rebuild backfills "name: value" entries for existing
 	// rows) + type-definition rows excluded from the prop chunker and
 	// short prop docs no longer embedded (rebuild purges stale
-	// type-name docs and name vectors). Mismatch = boot error advising
+	// type-name docs and name vectors); v6 = long records split into
+	// chunk docs (`base<U+001F>n` ids + `chunk` field — rebuild replaces
+	// whole-record docs with chunked ones). Mismatch = boot error advising
 	// removal; no migration — the index is derived state (re-indexes on
 	// the next change).
-	indexSchemaVersion = 5
+	indexSchemaVersion = 6
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -101,6 +103,7 @@ type Hit struct {
 	ObjectId string
 	Dataset  string
 	RecordId string
+	Chunk    int // 0-based chunk of the record this doc holds (chunk.go)
 	Data     string
 	Score    float64
 }
@@ -109,6 +112,7 @@ type Hit struct {
 // while the store has a vector index stores the doc as pending.
 type DocUpsert struct {
 	Entry  index.IndexEntry
+	Chunk  int // which chunk of the record Entry.Data holds (expandEntry)
 	Vector []float32
 }
 
@@ -400,10 +404,11 @@ func (s *Store) EnsureVectorIndex(ctx context.Context, spaceId string) (bool, er
 	return true, nil
 }
 
-// docId is the per-collection primary key: objectId:dataset:recordId.
-// The shape makes removal a primary-key prefix delete at every
+// docId is the per-collection primary key of a record's first chunk:
+// objectId:dataset:recordId (later chunks append a control-byte suffix,
+// chunk.go). The shape makes removal a primary-key range delete at every
 // granularity — `objectId:` (object deleted), `objectId:dataset:`
-// (type detached), exact id (record deleted) — and keeps ids unique
+// (type detached), `[id, id+" ")` (record deleted) — and keeps ids unique
 // even though recordIds repeat across objects (propIds do). Object ids
 // and dataset names are colon-free by construction (CIDs; slug-checked
 // names), so prefixes parse unambiguously. Record ids MAY contain
@@ -457,10 +462,12 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 
 // Apply lands one advance page in a single write transaction:
 // structural prefix deletes first (object deletions / type-detach
-// evictions — ':'-terminated id prefixes), then record deletions
-// (missing ids ignored), then upserts (full-doc replace — a re-written
-// record goes back to pending until re-embedded). Atomic with the page,
-// so eviction can never race the cursor.
+// evictions — ':'-terminated id prefixes), then doc deletions — each
+// id removes that doc AND every chunk under it (the record range,
+// chunk.go; a chunk id has no chunks of its own, so passing one deletes
+// exactly it; missing ids are a no-op) — then upserts (full-doc replace
+// — a re-written doc goes back to pending until re-embedded). Atomic
+// with the page, so eviction can never race the cursor.
 func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
 		return nil
@@ -492,11 +499,14 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 	for _, up := range ups {
 		e := up.Entry
 		doc := arena.NewObject()
-		doc.Set("id", arena.NewString(docId(e.ObjectId, e.Dataset, e.RecordId)))
+		doc.Set("id", arena.NewString(chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)))
 		doc.Set("scope", arena.NewString(e.Scope))
 		doc.Set("objectId", arena.NewString(e.ObjectId))
 		doc.Set("dataset", arena.NewString(e.Dataset))
 		doc.Set("recordId", arena.NewString(e.RecordId))
+		if up.Chunk > 0 {
+			doc.Set("chunk", arena.NewNumberInt(up.Chunk))
+		}
 		doc.Set("data", arena.NewString(e.Data))
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
 		doc.Set("hash", arena.NewString(docHash(e.Data)))
@@ -516,7 +526,11 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 	for _, id := range dels {
-		if err := coll.DeleteId(tx.Context(), id); err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+		idRange := query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
+		}
+		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
 			return err
 		}
 	}
@@ -575,24 +589,37 @@ func (s *Store) DocHashes(ctx context.Context, spaceId, idPrefix string) (map[st
 	return collectHashes(ctx, coll, idRange)
 }
 
-// DocHashesByIds returns id→hash for the stored docs among the given ids
-// (missing ids are simply absent from the map). The per-record
-// incremental path uses it to detect records that re-streamed without an
-// indexed-text change.
-func (s *Store) DocHashesByIds(ctx context.Context, spaceId string, ids []string) (map[string]string, error) {
-	if len(ids) == 0 {
+// DocHashesByRecords returns id→hash for every chunk doc of the given
+// record ids (base doc ids, chunk.go) — one primary-key range seek per
+// record. The incremental stream path diffs a re-streamed record's new
+// chunk set against it.
+func (s *Store) DocHashesByRecords(ctx context.Context, spaceId string, bases []string) (map[string]string, error) {
+	if len(bases) == 0 {
 		return map[string]string{}, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
 		return nil, err
 	}
-	arena := &anyenc.Arena{}
-	vals := make([]*anyenc.Value, len(ids))
-	for i, id := range ids {
-		vals[i] = arena.NewString(id)
+	// One query per record. An Or of the ranges looks cheaper but is not:
+	// And keeps only its first contributing conjunct in IndexBounds and Or
+	// does not tighten, so the combined filter yields NO primary-key
+	// bounds and every call degrades to a full collection scan (measured
+	// 416x slower over 64 records of a 20k-doc space).
+	out := make(map[string]string, len(bases))
+	for _, base := range bases {
+		got, err := collectHashes(ctx, coll, query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, base)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(base))},
+		})
+		if err != nil {
+			return nil, err
+		}
+		for id, h := range got {
+			out[id] = h
+		}
 	}
-	return collectHashes(ctx, coll, query.Key{Path: idPath, Filter: query.NewInValue(vals...)})
+	return out, nil
 }
 
 func collectHashes(ctx context.Context, coll anystore.Collection, filter query.Filter) (map[string]string, error) {
@@ -711,6 +738,77 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
 }
 
+// FilterTerms keeps only the hits that satisfy the Require / Exclude
+// terms — the same $require / $exclude semantics SearchFTSQuery applies
+// to the lexical leg, re-checked against the FTS index for hits that
+// arrived some other way (the vector leg). One indexed query restricted
+// to the hits' doc ids: any-store costs the pk restriction against the
+// posting lists and probes the text index per candidate when that is
+// cheaper (any-store v2.0.1 — before it, the $text predicate always
+// drove and this cost the term's whole posting list). The analyzer
+// decides "contains", so a phrase or prefix term behaves exactly as it
+// does in the lexical leg. Nothing to enforce (no terms, no hits, FTS
+// compiled out) returns hits unchanged.
+//
+// Negated clauses only tombstone docs a positive clause already scored,
+// so an exclude-only filter is run inverted: match the excluded terms as
+// shoulds and drop whatever comes back.
+func (s *Store) FilterTerms(ctx context.Context, spaceId string, hits []Hit, require, exclude []string) ([]Hit, error) {
+	if !capFTS || len(hits) == 0 || (len(require) == 0 && len(exclude) == 0) {
+		return hits, nil
+	}
+	coll, err := s.spaceColl(ctx, spaceId)
+	if err != nil {
+		return nil, err
+	}
+	arena := &anyenc.Arena{}
+	ids := make([]*anyenc.Value, len(hits))
+	for i, h := range hits {
+		ids[i] = arena.NewString(hitDocId(h))
+	}
+	var clauses []query.TextClause
+	keepMatched := len(require) > 0
+	if keepMatched {
+		clauses = appendClauses(clauses, require, query.TextMust)
+		clauses = appendClauses(clauses, exclude, query.TextMustNot)
+	} else {
+		clauses = appendClauses(clauses, exclude, query.TextShould)
+	}
+	filter := query.And{
+		query.Text{Clauses: clauses},
+		query.Key{Path: idPath, Filter: query.NewInValue(ids...)},
+	}
+	iter, err := coll.Find(filter).Limit(uint(len(hits))).Iter(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+	matched := map[string]bool{}
+	for iter.Next() {
+		doc, err := iter.Doc()
+		if err != nil {
+			return nil, err
+		}
+		matched[string(doc.Value().GetStringBytes("id"))] = true
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]Hit, 0, len(hits))
+	for _, h := range hits {
+		if matched[hitDocId(h)] == keepMatched {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+// hitDocId is the primary key of the doc a hit came from — the record's
+// base id plus its chunk suffix (chunk.go).
+func hitDocId(h Hit) string {
+	return chunkDocId(docId(h.ObjectId, h.Dataset, h.RecordId), h.Chunk)
+}
+
 // appendClauses parses each term (so phrase/prefix syntax is honored) and
 // appends it with the given boolean role.
 func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []query.TextClause {
@@ -790,6 +888,7 @@ func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) 
 			ObjectId: string(v.GetStringBytes("objectId")),
 			Dataset:  string(v.GetStringBytes("dataset")),
 			RecordId: string(v.GetStringBytes("recordId")),
+			Chunk:    v.GetInt("chunk"),
 			Data:     string(v.GetStringBytes("data")),
 			Score:    score(iter),
 		})
@@ -831,7 +930,6 @@ func (s *Store) PendingCount(ctx context.Context, spaceId string) (int, error) {
 	}
 	return coll.Find(pendingEqOne).Count(ctx)
 }
-
 
 // SetVectors lands one embed batch in a single write transaction:
 // $set vector + clear pending, update-only (a doc deleted since Pending

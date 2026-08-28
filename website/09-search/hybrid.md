@@ -25,7 +25,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 {
   "hits": [
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
-      "recordId": "…", "data": "…", "score": 0.0328 }
+      "recordId": "…", "data": "…", "dataTotal": 29, "score": 0.0328 }
   ],
   "mode": "hybrid",
   "vectorStatus": "used"
@@ -42,7 +42,7 @@ Each leg returns a ranked list; a document's fused score is the sum over the leg
 fused(doc) = ftsWeight / (60 + rank_fts) + vectorWeight / (60 + rank_vec)
 ```
 
-Full-text operators (`"phrases"`, `prefix*`, `require`, `exclude`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included.
+Full-text operators (`"phrases"`, `prefix*`) shape the lexical leg's list; the vector leg always embeds the whole `query` verbatim, stop words included. `require` / `exclude` bind every hit regardless of leg: vector hits are post-filtered against the FTS index before fusion, so a fused result never contains a doc the lexical constraint would have refused.
 
 ## Read `vectorStatus` before trusting recall
 

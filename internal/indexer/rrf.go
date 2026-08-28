@@ -44,9 +44,10 @@ func legConfidence(hits []Hit) float64 {
 }
 
 // fuseRRF merges ranked hit lists by reciprocal rank fusion, deduping by
-// docId (objectId, dataset, recordId) — recordIds repeat across objects
-// (propIds do), so a shorter key would collapse distinct hits and sum
-// their contributions. The fused Score replaces the per-leg scores —
+// doc id (objectId, dataset, recordId, chunk) — recordIds repeat across
+// objects (propIds do) and a record spans several chunk docs, so a
+// shorter key would collapse distinct hits and sum their contributions
+// (a long record would outrank a precise short one on chunk count). The fused Score replaces the per-leg scores —
 // BM25 and cosine similarity aren't comparable, ranks are. Ties break by
 // doc key for determinism.
 //
@@ -65,7 +66,7 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 			w = weights[li]
 		}
 		for rank, h := range list {
-			key := docId(h.ObjectId, h.Dataset, h.RecordId)
+			key := hitDocId(h)
 			a, ok := byKey[key]
 			if !ok {
 				a = &acc{hit: h}
@@ -82,7 +83,7 @@ func fuseRRF(lists [][]Hit, weights []float64, limit int) []Hit {
 	slices.SortFunc(out, func(a, b Hit) int {
 		return cmp.Or(
 			cmp.Compare(b.Score, a.Score),
-			cmp.Compare(docId(a.ObjectId, a.Dataset, a.RecordId), docId(b.ObjectId, b.Dataset, b.RecordId)),
+			cmp.Compare(hitDocId(a), hitDocId(b)),
 		)
 	})
 	if limit > 0 && len(out) > limit {

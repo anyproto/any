@@ -85,6 +85,10 @@ type Options struct {
 	// leg can't drag hybrid below the dense leg. Vector weight is left
 	// alone (cosine is uncalibrated). Off by default.
 	AdaptiveWeights bool
+	// ChunkRunes is the split target for long records (chunk.go): an
+	// entry longer than this many runes is indexed as several chunk
+	// docs. <= 0 = DefaultChunkRunes.
+	ChunkRunes int
 	// MinVectorSim drops vector hits below this cosine similarity before
 	// fusion. Default 0 = the legacy "> 0" floor.
 	MinVectorSim float64
@@ -175,6 +179,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.VectorWeight <= 0 {
 		o.VectorWeight = 1
+	}
+	if o.ChunkRunes <= 0 {
+		o.ChunkRunes = DefaultChunkRunes
 	}
 	return o
 }
@@ -434,6 +441,42 @@ func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 	return nil
 }
 
+// vectorLeg runs the ANN leg and enforces require / exclude on it:
+// they are a contract on the hit, not on the leg, so vector hits are
+// post-filtered against the FTS index and fusion can't re-admit a doc
+// the lexical leg would have refused (SYN-187). any-store won't take
+// $knn and $text in one query, so a selective term thins a fixed K —
+// the leg widens K (×4, up to maxVectorFetch) until fetch survivors
+// remain or the space runs out; past that the leg is genuinely
+// starved.
+func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, fetch int) ([]Hit, error) {
+	k := fetch
+	for {
+		raw, err := ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
+		if err != nil {
+			return nil, err
+		}
+		if len(req.Require) == 0 && len(req.Exclude) == 0 {
+			return raw, nil
+		}
+		kept, err := ix.store.FilterTerms(ctx, spaceId, raw, req.Require, req.Exclude)
+		if err != nil {
+			return nil, err
+		}
+		if len(kept) >= fetch || len(raw) < k || k >= maxVectorFetch {
+			if len(kept) > fetch {
+				kept = kept[:fetch]
+			}
+			return kept, nil
+		}
+		k = min(k*4, maxVectorFetch)
+	}
+}
+
+// maxVectorFetch bounds the ANN over-fetch when require / exclude thin
+// the vector leg.
+const maxVectorFetch = 1000
+
 // Search runs the requested mode over the space's local index. The
 // caller validates mode/scopes; this layer only degrades hybrid→fts
 // when the embedder is missing or the query embedding fails.
@@ -506,7 +549,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				mode = api.SearchModeFTS
 				vectorStatus = api.VectorStatusUnavailable
 			} else {
-				vecHits, err = ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, fetch, ix.opts.MinVectorSim)
+				vecHits, err = ix.vectorLeg(ctx, spaceId, qv, req, fetch)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
@@ -536,15 +579,24 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		slices.SortStableFunc(hits, func(a, b Hit) int { return cmp.Compare(b.Score, a.Score) })
 	}
 
+	maxData := req.MaxData
+	if maxData == 0 {
+		maxData = api.DefaultSearchMaxData
+	}
+	terms := foldTerms(snippetTerms(req.Query, req.Require))
 	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode, VectorStatus: vectorStatus}
 	for _, h := range hits {
+		data, offset, total := snippet(h.Data, terms, maxData)
 		out.Hits = append(out.Hits, api.SearchHit{
-			Scope:    h.Scope,
-			ObjectId: h.ObjectId,
-			Dataset:  h.Dataset,
-			RecordId: h.RecordId,
-			Data:     h.Data,
-			Score:    h.Score,
+			Scope:      h.Scope,
+			ObjectId:   h.ObjectId,
+			Dataset:    h.Dataset,
+			RecordId:   h.RecordId,
+			Chunk:      h.Chunk,
+			Data:       data,
+			DataOffset: offset,
+			DataTotal:  total,
+			Score:      h.Score,
 		})
 	}
 	return out, nil

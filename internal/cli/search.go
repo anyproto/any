@@ -20,6 +20,7 @@ func newSearchCmd() *cobra.Command {
 		mode    string
 		require []string
 		exclude []string
+		maxData int
 	)
 	cmd := &cobra.Command{
 		Use:   "search <spaceId> <query>",
@@ -33,6 +34,7 @@ func newSearchCmd() *cobra.Command {
 				Mode:    mode,
 				Require: require,
 				Exclude: exclude,
+				MaxData: maxData,
 			}
 			if scopes != "" {
 				req.Scopes = strings.Split(scopes, ",")
@@ -47,7 +49,8 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scopes, "scopes", "", "comma-separated scope filter (basic,chat,agent)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max hits (default 10, max 100)")
 	cmd.Flags().StringVar(&mode, "mode", "", "hybrid (default), fts, or vector")
-	cmd.Flags().StringArrayVar(&require, "require", nil, "FTS must-have term (repeatable; phrase/prefix ok)")
-	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "FTS must-not term (repeatable; phrase/prefix ok)")
+	cmd.Flags().StringArrayVar(&require, "require", nil, "must-have term, enforced in every mode (repeatable; phrase/prefix ok)")
+	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "must-not term, enforced in every mode (repeatable; phrase/prefix ok)")
+	cmd.Flags().IntVar(&maxData, "max-data", 0, "max runes of data per hit around the first match (default 512; -1 = whole chunk)")
 	return cmd
 }

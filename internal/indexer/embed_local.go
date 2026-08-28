@@ -11,7 +11,9 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"github.com/hybridgroup/yzma/pkg/llama"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -25,18 +27,23 @@ const (
 	localDefaultDim  = 1024
 	// Truncation bound, not the model maximum (Qwen3 goes to 32k): for
 	// embeddings NBatch must cover the whole input, so context size is
-	// also the compute/memory bound per text. docs/13-index.md § Known
-	// limits records the truncation decision.
+	// also the compute/memory bound per text. The bound is per SEQUENCE
+	// (maxDocTokens) — batchDocs > 1 divides it. docs/13-index.md
+	// § Known limits records the truncation decision.
 	localDefaultCtx = 2048
 	// Qwen3-Embedding retrieval instruction. Documents embed bare;
 	// queries carry the task instruction (skipping it costs a few
 	// points of retrieval quality per the model card).
 	localQueryPrefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
-	// Docs packed per llama_decode as parallel sequences (also bounded
-	// by nCtx tokens per decode). 16 covers a full 2048-token budget of
-	// typical editor windows (~330 tokens) and amortizes the per-decode
-	// overhead that dominates GPU embedding of short texts.
-	localDefaultBatchDocs = 16
+	// Docs packed per llama_decode as parallel sequences. The unified KV
+	// cache PARTITIONS the context across NSeqMax, so packing N docs cuts
+	// the per-doc token bound to nCtx/N — a wider batch buys throughput
+	// only by truncating every text. One doc per decode keeps the whole
+	// nCtx available to it, which is what localDefaultCtx documents.
+	localDefaultBatchDocs = 1
+	// llama.cpp rounds the per-sequence KV allocation up to this many
+	// tokens, so a sequence never gets less than one block.
+	localSeqTokenBlock = 256
 )
 
 // Local embeds in-process through llama.cpp (yzma purego bindings — no
@@ -96,6 +103,10 @@ func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProces
 	}
 	if l.batchDocs <= 0 {
 		l.batchDocs = localDefaultBatchDocs
+	}
+	if per := l.maxDocTokens(); per < l.nCtx {
+		logger.NewNamed("indexer").Warn("index: local embedder batchDocs truncates texts below contextSize",
+			zap.Int("batchDocs", l.batchDocs), zap.Int("contextSize", l.nCtx), zap.Int("maxDocTokens", per))
 	}
 
 	l.libDir = cfg.LibDir
@@ -197,7 +208,8 @@ func (l *Local) ensureLoaded() error {
 	cp := llama.ContextDefaultParams()
 	cp.NCtx = uint32(l.nCtx)
 	// Embeddings need the whole input in one logical/physical batch;
-	// a decode packs up to batchDocs sequences into that token budget.
+	// a decode packs up to batchDocs sequences into that token budget,
+	// each capped at maxDocTokens by tokenize.
 	cp.NBatch = uint32(l.nCtx)
 	cp.NUbatch = uint32(l.nCtx)
 	cp.NSeqMax = uint32(l.batchDocs)
@@ -226,6 +238,22 @@ func (l *Local) threadCount() int {
 		return l.threads
 	}
 	return max(1, runtime.NumCPU()-1)
+}
+
+// maxDocTokens is the real per-text bound: the unified KV cache splits
+// nCtx across batchDocs sequences, floored to a whole block. Texts are
+// truncated to it, so a decode can never be refused for want of a KV
+// slot however batchDocs is configured.
+func (l *Local) maxDocTokens() int {
+	if l.batchDocs <= 1 {
+		return l.nCtx // one sequence, the whole context is its slot
+	}
+	// Floor to a whole block: rounding up would promise more than
+	// nCtx/batchDocs when batchDocs does not divide nCtx, which is the
+	// decode refusal this bound exists to prevent.
+	per := l.nCtx / l.batchDocs
+	per -= per % localSeqTokenBlock
+	return min(max(per, localSeqTokenBlock), l.nCtx)
 }
 
 // truncateTokens clamps tokens to nCtx, keeping EOS as the final token —
@@ -273,7 +301,7 @@ func (l *Local) tokenize(text string) []llama.Token {
 	if len(tokens) == 0 {
 		tokens = []llama.Token{eos}
 	}
-	return truncateTokens(tokens, l.nCtx, eos)
+	return truncateTokens(tokens, l.maxDocTokens(), eos)
 }
 
 // groupEnd returns the exclusive end index of the next decode group

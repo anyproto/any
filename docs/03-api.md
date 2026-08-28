@@ -754,8 +754,9 @@ Body:
   "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
   "limit":   10,                      // optional: default 10, max 100
   "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
-  "require": ["1937"],                // optional FTS must-have terms (phrase/prefix ok); ignored in vector mode
-  "exclude": ["fiction"]              // optional FTS must-not terms
+  "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
+  "exclude": ["fiction"],             // optional must-not terms
+  "maxData": 512                      // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
 }
 ```
 
@@ -772,12 +773,35 @@ Reply:
   "hits": [
     { "scope": "chat", "objectId": "…", "dataset": "chat_messages",
       "recordId": "…", "data": "the zeppelin disaster of 1937",
-      "score": 0.0328 }
+      "dataTotal": 29, "score": 0.0328 },
+    { "scope": "email", "objectId": "…", "dataset": "email_messages",
+      "recordId": "…", "chunk": 2, "data": "…the Hindenburg burned at…",
+      "dataOffset": 1210, "dataTotal": 1984, "score": 0.0161 }
   ],
   "mode": "hybrid",
   "vectorStatus": "used"
 }
 ```
+
+**`data` is a bounded window, not the record.** Long records are
+indexed as several chunks (~2000 runes each, `docs/13-index.md`
+§ Chunking long records) and every chunk is its own hit — `chunk`
+(omitted when 0) says which; dedupe on `(objectId, dataset, recordId)`
+to count records. Within a hit, `data` is at most `maxData` runes
+(default 512) cut around the first query / `require` term, the head
+when nothing matches literally; `dataOffset` (omitted when 0) is the
+window's rune offset into the chunk's indexed text and `dataTotal`
+that text's rune length — `data` is the whole chunk iff `dataOffset`
+is 0 and its rune length equals `dataTotal`. `maxData: -1` returns the
+whole chunk; `maxData < -1` is `400 request.invalid_field`. The full record is
+one dataset query away (`docs/08-clients.md` § 6).
+
+`require` / `exclude` are a contract on every returned hit, whatever
+the mode: the FTS leg matches on them, and vector hits (hybrid and pure
+`vector`) are post-filtered against the FTS index before fusion, so
+fusion can never re-admit a hit the lexical leg would have refused.
+Terms are matched by the index analyzer — a `"phrase"` or `prefix*`
+term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
 `fts` when no embedder is configured or it is unreachable; `mode:

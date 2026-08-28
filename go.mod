@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/anyproto/any-store v0.4.7
-	github.com/anyproto/any-store/v2 v2.0.0
+	github.com/anyproto/any-store/v2 v2.0.1
 	github.com/anyproto/any-sync v0.13.1
 	github.com/anyproto/any-sync-sdk v0.2.6
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
@@ -15,14 +15,14 @@ require (
 	github.com/pb33f/libopenapi v0.38.7
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.1
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag/v2 v2.0.0-rc5
 	github.com/valyala/fastjson v1.6.10
 	github.com/yuin/goldmark v1.8.5
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
-	golang.org/x/text v0.40.0
+	golang.org/x/text v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -42,7 +42,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/crackcomm/go-gitignore v0.0.0-20241020182519-7843d2ba8fdf // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/disintegration/imaging v1.6.2 // indirect
@@ -87,7 +86,7 @@ require (
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jupiterrider/ffi v0.6.0 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
@@ -112,7 +111,6 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/petar/GoLLRB v0.0.0-20210522233825-ae3b015fd3e9 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/polydawn/refmt v0.90.0 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -145,8 +143,9 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/image v0.40.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect

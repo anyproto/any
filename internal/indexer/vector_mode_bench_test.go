@@ -62,6 +62,7 @@ func applyVecs(t *testing.T, s *Store, vecs [][]float32, start, end int) {
 //   - INCREMENTAL: build the index on a 64-doc seed (as the embed loop
 //     does after the first batch), then upsert the rest into the existing
 //     index — serial per-doc graph maintenance. The PRODUCTION path.
+//
 // Gated: ANY_VEC_BENCH=1.
 func TestVectorModeIngestProfile(t *testing.T) {
 	if os.Getenv("ANY_VEC_BENCH") == "" {

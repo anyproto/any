@@ -395,25 +395,47 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 	if err != nil {
 		return err
 	}
+	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
+	return nil
+}
+
+// planDocs turns chunker entries into page ops against the stored
+// id→hash map covering every doc the entries could own: each entry
+// expands to its chunk docs (expandEntry); a chunk whose stored hash
+// matches is left alone (its vector survives), a changed or new one is
+// upserted, and every stored id the entries no longer produce — a
+// vanished doc, a record that now splits into fewer chunks, or an
+// entry with empty Data — is deleted. Base ids of empty-Data entries
+// are always deleted (the store's range delete covers chunks that
+// stored may not list).
+func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) {
 	seen := make(map[string]bool, len(entries))
+	var gone map[string]bool // bases whose range delete already covers their chunks
 	for _, e := range entries {
-		id := docId(e.ObjectId, e.Dataset, e.RecordId)
-		seen[id] = true
+		base := docId(e.ObjectId, e.Dataset, e.RecordId)
 		if e.Data == "" {
-			page.dels = append(page.dels, id)
+			page.dels = append(page.dels, base)
+			if gone == nil {
+				gone = map[string]bool{}
+			}
+			gone[base] = true
 			continue
 		}
-		if h, ok := stored[id]; ok && h == docHash(e.Data) {
-			continue // unchanged — keep the stored doc and its vector
+		for _, up := range expandEntry(e, chunkRunes) {
+			id := chunkDocId(base, up.Chunk)
+			seen[id] = true
+			if h, ok := stored[id]; ok && h == docHash(up.Entry.Data) {
+				continue // unchanged — keep the stored doc and its vector
+			}
+			page.ups = append(page.ups, up)
 		}
-		page.ups = append(page.ups, DocUpsert{Entry: e})
 	}
 	for id := range stored {
-		if !seen[id] {
-			page.dels = append(page.dels, id) // vanished
+		if seen[id] || gone[recordBase(id)] {
+			continue
 		}
+		page.dels = append(page.dels, id) // vanished
 	}
-	return nil
 }
 
 // streamChunks runs a per-record chunker. On the cold cursor (0) nothing
@@ -430,36 +452,22 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 		return err
 	}
 	if cursor == 0 {
-		for _, e := range entries {
-			if e.Data == "" {
-				page.dels = append(page.dels, docId(e.ObjectId, e.Dataset, e.RecordId))
-			} else {
-				page.ups = append(page.ups, DocUpsert{Entry: e})
-			}
-		}
+		planDocs(entries, nil, w.ix.opts.ChunkRunes, page)
 		return nil
 	}
-	ids := make([]string, 0, len(entries))
+	bases := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.Data != "" {
-			ids = append(ids, docId(e.ObjectId, e.Dataset, e.RecordId))
+			bases = append(bases, docId(e.ObjectId, e.Dataset, e.RecordId))
 		}
 	}
-	stored, err := w.ix.store.DocHashesByIds(ctx, w.sp.Id(), ids)
+	// Per-record chunk sets, so a re-streamed record with unchanged text
+	// keeps its vectors and one that shrank drops its trailing chunks.
+	stored, err := w.ix.store.DocHashesByRecords(ctx, w.sp.Id(), bases)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		id := docId(e.ObjectId, e.Dataset, e.RecordId)
-		if e.Data == "" {
-			page.dels = append(page.dels, id)
-			continue
-		}
-		if h, ok := stored[id]; ok && h == docHash(e.Data) {
-			continue // re-streamed but indexed text unchanged — keep vector
-		}
-		page.ups = append(page.ups, DocUpsert{Entry: e})
-	}
+	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
 	return nil
 }
 

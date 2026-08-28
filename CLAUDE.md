@@ -320,9 +320,14 @@ Implementation slices landed:
       `EnsureVectorIndex`; 1m ticker retries. Embedder latency never
       delays the cursor or FTS searchability.
     - `Store`: one any-store DB at `<data-dir>/index/index.db`,
-      collection per space; doc id **`objectId:dataset:recordId`** —
-      every removal is a primary-key op (prefix ranges with bytewise
-      upper bound `prefix[:len-1]+";"`); BM25 FTS on `data` + sparse
+      collection per space; doc id **`objectId:dataset:recordId`** for a
+      record's first chunk, `+ U+001F + n` for chunk n — the worker
+      splits any chunker entry over `Options.ChunkRunes` (2000 runes)
+      into chunk docs (`chunk.go`; hits carry `chunk`, consumers dedupe
+      on record) and `planDocs` hash-diffs a re-streamed record's chunk
+      set. Every removal is a primary-key range op (structural prefixes
+      with bytewise upper bound `prefix[:len-1]+";"`; a record's docs
+      are `[base, base+" ")`); BM25 FTS on `data` + sparse
       range on `pending` ensured at open; **IVF-SQ cosine vector index
       created lazily** (`EnsureVectorIndex`) once ≥1 embedded doc
       exists — IVF trains from existing docs and cannot be created
@@ -354,7 +359,11 @@ Implementation slices landed:
       `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
       an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
-      `{query, scopes?, limit?, mode?}` → `{hits, mode, vectorStatus}`;
+      `{query, scopes?, limit?, mode?, require?, exclude?, maxData?}` →
+      `{hits, mode, vectorStatus}` — `require`/`exclude` bind every
+      hit in every mode (vector leg post-filtered via
+      `Store.FilterTerms`), hit `data` is a `maxData`-rune window
+      (default 512) with `dataOffset`/`dataTotal`;
       modes `hybrid` (RRF k=60, default; degrades to fts without
       embedder — reply `mode` reports what ran) / `fts` / `vector` (400
       `index.no_embedder` without embedder). `vectorStatus`

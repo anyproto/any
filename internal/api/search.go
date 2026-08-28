@@ -22,25 +22,48 @@ type SearchRequest struct {
 	// Mode is hybrid (default), fts, or vector. Vector requires an
 	// embedder configured on the server.
 	Mode string `json:"mode,omitempty"`
-	// Require / Exclude are extra must / must-not terms for the FTS leg
-	// ($require / $exclude) — a hit must contain every Require term and no
-	// Exclude term. Each term may be a "phrase" or prefix*. Applied to the
-	// lexical leg only; ignored in pure vector mode.
+	// Require / Exclude are extra must / must-not terms ($require /
+	// $exclude) — a hit must contain every Require term and no Exclude
+	// term, in every mode: the FTS leg matches on them, and vector hits
+	// are post-filtered against the FTS index before fusion. Each term
+	// may be a "phrase" or prefix*.
 	Require []string `json:"require,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
+	// MaxData bounds each hit's Data to a window of at most this many
+	// runes around the first query/require term match (the head when
+	// nothing matches). 0 = DefaultSearchMaxData; -1 = the whole indexed
+	// chunk text. DataOffset / DataTotal on the hit locate the window.
+	MaxData int `json:"maxData,omitempty"`
 }
+
+// DefaultSearchMaxData is the Data window applied when a request leaves
+// MaxData unset: enough for a one-line preview or an agent to judge the
+// match, and a bounded reply whatever the record size — the full record
+// stays one dataset query away.
+const DefaultSearchMaxData = 512
 
 // SearchHit is one ranked result — the indexed record's identity plus
 // its indexed text. Score semantics depend on the effective mode: BM25
 // for fts, cosine similarity for vector, RRF for hybrid; within one
 // response higher is always better.
 type SearchHit struct {
-	Scope    string  `json:"scope"`
-	ObjectId string  `json:"objectId"`
-	Dataset  string  `json:"dataset"`
-	RecordId string  `json:"recordId"`
-	Data     string  `json:"data"`
-	Score    float64 `json:"score"`
+	Scope    string `json:"scope"`
+	ObjectId string `json:"objectId"`
+	Dataset  string `json:"dataset"`
+	RecordId string `json:"recordId"`
+	// Chunk is the 0-based chunk of the record this hit is: long records
+	// are indexed as several docs, each a separate hit — dedupe on
+	// (objectId, dataset, recordId) when a record should count once.
+	Chunk int `json:"chunk,omitempty"`
+	// Data is the hit's indexed text, windowed to MaxData runes around
+	// the first matching term. DataOffset is the window's rune offset
+	// into the chunk's full indexed text and DataTotal that text's rune
+	// length — Data is the whole text iff DataOffset == 0 and
+	// len([]rune(Data)) == DataTotal.
+	Data       string  `json:"data"`
+	DataOffset int     `json:"dataOffset,omitempty"`
+	DataTotal  int     `json:"dataTotal"`
+	Score      float64 `json:"score"`
 }
 
 // VectorStatus values — the search response tells the consumer (often

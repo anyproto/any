@@ -252,10 +252,11 @@ type IndexLocal struct {
 	// shouldn't take VRAM (docs/13-index.md § GPU offload).
 	GpuLayers *int `yaml:"gpuLayers"`
 	// BatchDocs caps how many documents pack into one llama_decode as
-	// parallel sequences (also bounded by ContextSize tokens per
-	// decode). Batching amortizes per-decode overhead — the main
-	// embedding throughput lever, biggest on GPU backends. 0 = default
-	// 16; 1 = one doc per decode (the pre-batching behavior).
+	// parallel sequences. The unified KV cache partitions ContextSize
+	// across them, so N caps each text at ContextSize/N tokens — a wider
+	// batch trades input length for a per-decode saving that measures as
+	// nothing on a realistic record mix (docs/13-index.md). 0 = default
+	// 1 (one doc per decode, the whole ContextSize available to it).
 	BatchDocs int `yaml:"batchDocs"`
 }
 
