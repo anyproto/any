@@ -50,12 +50,13 @@ any type property add $SPACE $TYPE --name Author --xkey author --kind string
 |-------|---------|
 | `name`, `description` | Display metadata; mutable. |
 | `xKey` | Client-side stable label. **The server never keys values by it** — values are stored and written by `propId`. |
+| `xKind` | Free-form classification hint, stored verbatim and never interpreted; mutable. Use it for a client-side kind marker so `xKey` stays a per-property handle rather than a per-kind one. |
 | `kind` | `string` / `number` / `boolean` / `array` / `object` / `datetime`. Pinned at first write. May be omitted when `format` is set. |
 | `format` | Value convention beyond the kind — see [Data types](data-types.html). `format.type` is pinned. |
 | `scope` | `synced` (default), `account`, or `local`. Pinned. `derived` is reserved for built-ins. |
 | `meta` | Opaque string map, stored verbatim. Conventions: `meta.index` (search scope or `"none"`), `meta.pos` (display order lexid), `meta.icon`. |
 
-`GET …/types/:typeId/properties` returns `{properties: [{id, name, xKey, kind, scope, format?, meta?}]}` — this is where a client resolves `xKey → propId` before writing.
+`GET …/types/:typeId/properties` returns `{properties: [{id, name, xKey, xKind?, kind, scope, format?, meta?}]}` — this is where a client resolves `xKey → propId` before writing.
 
 > **Why it matters.** Definitions are synced records. A rename, a reorder via `meta.pos` or a new select option written on one device converges on every member's device through the same CRDT as the data, with no schema-migration step.
 

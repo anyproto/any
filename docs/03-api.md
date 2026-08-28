@@ -1819,6 +1819,19 @@ existence-checked server-side — the SDK's `Properties` returns an empty
 slice for unknown ids — so a `200 []` always means "the type exists and
 has no property definitions yet", never "no such type".
 
+`POST …/properties` accepts an optional **`xKind`** — a free-form
+classification hint, stored verbatim, never interpreted, returned by
+`GET …/properties`, and freely mutable afterwards
+(`PATCH …/properties/:propId` `{"set": {"xKind": "<hint>"}}`). It exists
+so a client-side kind marker does not have to be smuggled through
+`xKey`: `xKey` is the stable programmatic HANDLE a caller addresses the
+property by, so a marker there makes every property of that kind share
+one key (two multiselects on one type both keyed `tags`), which costs
+every other consumer a name fallback. Put the slug in `xKey`, the
+marker in `xKind`. Like `meta.icon`, the vocabulary is owned by its
+consumers — the server neither validates nor enumerates it, and other
+clients should tolerate and preserve hints they do not recognize.
+
 `POST …/properties` accepts an optional **`meta`** object (string →
 string) stored verbatim on the property definition and returned by
 `GET …/properties`. It is opaque consumer metadata; three conventions

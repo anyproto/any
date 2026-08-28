@@ -140,6 +140,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		Name:        req.Name,
 		Description: req.Description,
 		XKey:        req.XKey,
+		XKind:       req.XKind,
 		Kind:        kind,
 		Meta:        req.Meta,
 		Format:      formatDraftFromAPI(req.Format),

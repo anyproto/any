@@ -179,6 +179,10 @@
                     },
                     "xKey": {
                         "type": "string"
+                    },
+                    "xKind": {
+                        "description": "XKind is a free-form classification hint, stored verbatim and\nnever interpreted by the server (space.PropertyDraft.XKind).\nIt is the field a caller uses to record a client-side kind\nmarker WITHOUT overloading XKey, which is the stable handle\ncallers address the property by. Freely mutable afterwards via\nPATCH `xKind`; settable here so a caller need not POST-then-PATCH.",
+                        "type": "string"
                     }
                 },
                 "type": "object"

@@ -386,3 +386,105 @@ func errCode(t *testing.T, body []byte) string {
 	}
 	return env.Error.Code
 }
+
+// TestServer_AddPropertyXKind covers `xKind` on the create path: the
+// free-form classification hint rides POST …/properties, round-trips
+// through GET …/properties, and stays freely mutable via PATCH.
+//
+// It exists so a client-side kind marker does not have to be smuggled
+// through `xKey`. `xKey` is the stable handle a caller addresses the
+// property by; a marker there makes every property of that kind share
+// one key, so the two properties below — both multiselects — would be
+// indistinguishable to any consumer resolving by xKey.
+func TestServer_AddPropertyXKind(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"XKindDemo"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /v1/spaces: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatalf("decode space: %v", err)
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types",
+		`{"name":"Company","xKey":"company"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	propsURL := "/v1/spaces/" + sp.Id + "/types/" + created.TypeId + "/properties"
+
+	// Two multiselects on one type: distinct slug xKeys, the same marker.
+	for _, body := range []string{
+		`{"name":"Categories","xKey":"categories","xKind":"tags",` +
+			`"kind":"array","format":{"type":"multiselect"}}`,
+		`{"name":"Focus","xKey":"focus","xKind":"tags",` +
+			`"kind":"array","format":{"type":"multiselect"}}`,
+	} {
+		rec = doJSON(t, e, http.MethodPost, propsURL, body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("add property %s: status=%d body=%s", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A property that declares no xKind reads back empty — the field is
+	// optional, not defaulted from anything.
+	rec = doJSON(t, e, http.MethodPost, propsURL, `{"name":"Domain","xKey":"domain","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add plain property: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var plain api.AddPropertyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &plain); err != nil {
+		t.Fatalf("decode plain prop: %v", err)
+	}
+
+	byXKey := func() map[string]api.PropertyDef {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, propsURL, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list properties: status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var list api.PropertiesListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatalf("decode properties: %v", err)
+		}
+		out := make(map[string]api.PropertyDef, len(list.Properties))
+		for _, p := range list.Properties {
+			out[p.XKey] = p
+		}
+		return out
+	}
+
+	props := byXKey()
+	for _, xkey := range []string{"categories", "focus"} {
+		p, ok := props[xkey]
+		if !ok {
+			t.Fatalf("property %q missing from %v", xkey, props)
+		}
+		if p.XKind != "tags" {
+			t.Errorf("property %q xKind = %q, want tags", xkey, p.XKind)
+		}
+	}
+	if p := props["domain"]; p.XKind != "" {
+		t.Errorf("plain property xKind = %q, want empty", p.XKind)
+	}
+	if props["categories"].Id == props["focus"].Id {
+		t.Fatal("the two multiselects collapsed onto one property")
+	}
+
+	// xKind stays freely mutable, like name / description / xKey.
+	rec = doJSON(t, e, http.MethodPatch, propsURL+"/"+plain.PropId, `{"set":{"xKind":"url"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch xKind: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if p := byXKey()["domain"]; p.XKind != "url" {
+		t.Errorf("patched xKind = %q, want url", p.XKind)
+	}
+}
