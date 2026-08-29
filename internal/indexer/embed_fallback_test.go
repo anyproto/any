@@ -108,3 +108,55 @@ func TestFallbackEmbedder(t *testing.T) {
 		t.Fatalf("Dim = %d, want 8 (from fallback)", d)
 	}
 }
+
+// slowEmbedder never answers before its ctx ends — a hung primary.
+type slowEmbedder struct{ stubEmbedder }
+
+func (s *slowEmbedder) EmbedQuery(ctx context.Context, _ string) ([]float32, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// A budgeted query (Indexer.Search) must not spend its whole budget on
+// a hung primary: the primary gets half, the fallback the rest.
+func TestFallbackEmbedder_QueryBudgetSplit(t *testing.T) {
+	primary := &slowEmbedder{stubEmbedder{dim: 8}}
+	fallback := &stubEmbedder{dim: 8}
+	f := newFallbackEmbedder(primary, fallback)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	v, err := f.EmbedQuery(ctx, "q")
+	if err != nil {
+		t.Fatalf("fallback should answer inside the budget: %v", err)
+	}
+	if len(v) != 8 || fallback.queries != 1 {
+		t.Fatalf("fallback not used: v=%d queries=%d", len(v), fallback.queries)
+	}
+	if elapsed := time.Since(start); elapsed >= 400*time.Millisecond {
+		t.Fatalf("query took %s, the whole budget", elapsed)
+	}
+	if left := time.Until(mustDeadline(t, ctx)); left <= 0 {
+		t.Fatal("no budget left for the fallback")
+	}
+
+	// Without a deadline the primary is simply tried, as before.
+	free, cancelFree := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancelFree()
+	}()
+	if _, err := f.EmbedQuery(free, "q"); err != nil {
+		t.Fatalf("fallback after a cancelled primary: %v", err)
+	}
+}
+
+func mustDeadline(t *testing.T, ctx context.Context) time.Time {
+	t.Helper()
+	d, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("ctx has no deadline")
+	}
+	return d
+}

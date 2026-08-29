@@ -806,7 +806,8 @@ term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
 `fts` when no embedder is configured, it is unreachable, or the query
-embedding does not finish within the server's budget (5 s); `mode:
+embedding does not finish within the server's budget
+(`index.search.queryEmbedTimeout`, default 5 s); `mode:
 "vector"` requests get `400 index.no_embedder` (none configured) or
 `503 index.embedder_unavailable` (configured but down or too slow —
 retryable).

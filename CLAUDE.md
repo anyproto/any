@@ -382,9 +382,12 @@ Implementation slices landed:
       `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
       an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
       The query embedding in `Indexer.Search` is bounded
-      (`Options.QueryEmbedTimeout`, 5s, every embedder): past it hybrid
-      answers fts/`unavailable` and vector 503s, so a cold load or a
-      wedged child degrades a search instead of holding it.
+      (`index.search.queryEmbedTimeout`, default 5s, every embedder;
+      `auto` gives the online primary half of it so the local fallback
+      still decodes): past it hybrid answers fts/`unavailable` and
+      vector 503s, so a cold load or a wedged child degrades a search
+      instead of holding it. A frame that fails mid-batch returns the
+      vectors embedded so far and the embed loop lands them.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
       `{query, scopes?, limit?, mode?, require?, exclude?, maxData?}` →
       `{hits, mode, vectorStatus}` — `require`/`exclude` bind every

@@ -22,6 +22,42 @@ func (b blockingEmbedder) EmbedQuery(ctx context.Context, _ string) ([]float32, 
 	return nil, ctx.Err()
 }
 
+// cancellingQueryEmbedder cancels the request itself while embedding —
+// a client that disconnects after the lexical leg already ran.
+type cancellingQueryEmbedder struct {
+	axisEmbedder
+	cancel context.CancelFunc
+}
+
+func (c cancellingQueryEmbedder) EmbedQuery(ctx context.Context, _ string) ([]float32, error) {
+	c.cancel()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+type searchOut struct {
+	res api.SearchResponse
+	err error
+}
+
+// searchBounded runs Search off the test goroutine so a Search that
+// does not bound the embedding fails the test instead of hanging it.
+func searchBounded(t *testing.T, ix *Indexer, ctx context.Context, sp string, req api.SearchRequest) searchOut {
+	t.Helper()
+	ch := make(chan searchOut, 1)
+	go func() {
+		res, err := ix.Search(ctx, sp, req)
+		ch <- searchOut{res, err}
+	}()
+	select {
+	case out := <-ch:
+		return out
+	case <-time.After(2 * time.Second):
+		t.Fatal("Search did not bound the query embedding")
+		return searchOut{}
+	}
+}
+
 // Search bounds the query embedding: past the budget hybrid answers
 // lexical-only and says so, vector fails as an embedder outage, and a
 // caller that left gets its own cancellation rather than a degraded
@@ -41,31 +77,31 @@ func TestIndexer_SearchQueryEmbedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	start := time.Now()
-	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
+	out := searchBounded(t, ix, ctx, sp, api.SearchRequest{Query: "anytype", Limit: 10})
+	if out.err != nil {
+		t.Fatal(out.err)
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("hybrid search waited %s for the query embedding", elapsed)
+	if out.res.Mode != api.SearchModeFTS || out.res.VectorStatus != api.VectorStatusUnavailable {
+		t.Fatalf("mode %q vectorStatus %q, want fts/unavailable", out.res.Mode, out.res.VectorStatus)
 	}
-	if res.Mode != api.SearchModeFTS || res.VectorStatus != api.VectorStatusUnavailable {
-		t.Fatalf("mode %q vectorStatus %q, want fts/unavailable", res.Mode, res.VectorStatus)
-	}
-	if len(res.Hits) != 1 {
-		t.Fatalf("lexical leg lost: %d hits", len(res.Hits))
+	if len(out.res.Hits) != 1 {
+		t.Fatalf("lexical leg lost: %d hits", len(out.res.Hits))
 	}
 
-	_, err = ix.Search(ctx, sp, api.SearchRequest{Query: "anytype", Mode: api.SearchModeVector, Limit: 10})
-	if !errors.Is(err, ErrEmbedderUnavailable) {
-		t.Fatalf("vector mode err = %v, want ErrEmbedderUnavailable", err)
+	out = searchBounded(t, ix, ctx, sp, api.SearchRequest{Query: "anytype", Mode: api.SearchModeVector, Limit: 10})
+	if !errors.Is(out.err, ErrEmbedderUnavailable) {
+		t.Fatalf("vector mode err = %v, want ErrEmbedderUnavailable", out.err)
 	}
 
+	// The request itself ending mid-embed is the caller's cancellation,
+	// not a degraded reply.
 	gone, cancel := context.WithCancel(ctx)
-	cancel()
-	_, err = ix.Search(gone, sp, api.SearchRequest{Query: "anytype", Limit: 10})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled caller err = %v, want context.Canceled", err)
+	defer cancel()
+	ix.opts.Embedder = cancellingQueryEmbedder{axisEmbedder{dim: 4}, cancel}
+	ix.opts.QueryEmbedTimeout = time.Minute
+	out = searchBounded(t, ix, gone, sp, api.SearchRequest{Query: "anytype", Limit: 10})
+	if !errors.Is(out.err, context.Canceled) {
+		t.Fatalf("cancelled caller err = %v, want context.Canceled", out.err)
 	}
 }
 

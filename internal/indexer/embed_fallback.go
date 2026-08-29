@@ -90,16 +90,31 @@ func (f *fallbackEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]f
 	return f.fallback.EmbedDocs(ctx, texts)
 }
 
+// EmbedQuery tries the primary within half of whatever deadline the
+// caller has left, so a budgeted search (Indexer.Search) that finds the
+// primary hung still reaches the local fallback with time to decode —
+// the outage the fallback exists for must not eat the whole budget.
 func (f *fallbackEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
 	if f.allowPrimary() {
-		if v, err := f.primary.EmbedQuery(ctx, text); err == nil {
+		pctx, cancel := halfDeadline(ctx)
+		v, err := f.primary.EmbedQuery(pctx, text)
+		cancel()
+		if err == nil {
 			f.recordOK()
 			return v, nil
-		} else {
-			f.recordFail(err)
 		}
+		f.recordFail(err)
 	}
 	return f.fallback.EmbedQuery(ctx, text)
+}
+
+// halfDeadline derives a context that expires halfway to ctx's
+// deadline; without a deadline it is ctx itself (cancellable).
+func halfDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if d, ok := ctx.Deadline(); ok {
+		return context.WithTimeout(ctx, time.Until(d)/2)
+	}
+	return context.WithCancel(ctx)
 }
 
 // Dim returns the fallback (local) dimension — known offline without a

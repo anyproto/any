@@ -289,7 +289,9 @@ Call patterns:
 - **Check `vectorStatus` in every reply** before drawing conclusions
   from an empty/weak result set: `used` means semantic recall
   participated; `unavailable` means the embedder is configured but
-  down — results are lexical-only *right now*, retry may differ;
+  down, still loading its model, or slower than the server's query
+  budget (`index.search.queryEmbedTimeout`, default 5 s) — results are
+  lexical-only *right now*, retry may differ;
   `disabled` means this server never runs vector search — don't
   retry, adjust your query style to lexical; `skipped` is the echo of
   your own `mode: "fts"`.
@@ -321,8 +323,8 @@ Call patterns:
   on this server is not in it (use `/query` for exhaustive reads).
 - Errors: `409 index.disabled` (indexer off on this server), `400
   index.no_embedder` (`mode: "vector"` on an FTS-only server), `503
-  index.embedder_unavailable` (`mode: "vector"` during an embedder
-  outage — retryable).
+  index.embedder_unavailable` (`mode: "vector"` while the embedder is
+  down, loading, or over the query budget — retryable).
 
 ## 7. Direct (1-1) chats: derive by identity, approve incoming
 

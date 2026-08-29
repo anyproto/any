@@ -84,7 +84,7 @@ type workerEmbedder struct {
 	backoff time.Duration
 	nextTry time.Time
 
-	mu sync.Mutex // guards spec, gpuDisabled, hw, closed — nothing else
+	mu sync.Mutex // guards spec, gpuDisabled, hw — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
 	// writers: the GPU demotion below, and SetThreads. A child whose
 	// spec no longer matches is retired on its next use.
@@ -95,8 +95,7 @@ type workerEmbedder struct {
 	gpuDisabled bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
-	hw     Hardware
-	closed bool
+	hw Hardware
 }
 
 func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*workerEmbedder, error) {
@@ -173,10 +172,12 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 }
 
 // EmbedDocs sends the batch one decode group per frame — batchDocs
-// texts, exactly one llama_decode in the child — and re-takes the slot
-// for every frame, which is where a waiting query gets in. A failure
-// mid-batch fails the whole call: the docs stay pending and the next
-// round redoes them, same as a failed batch did.
+// texts, one llama_decode in the child — and re-takes the slot for
+// every frame, which is where a waiting query gets in (the frames of
+// one call may straddle a respawn). A failure mid-batch returns the
+// vectors embedded so far with the error (a prefix of texts): the
+// caller lands those, and only the rest stays pending for the next
+// round.
 func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
@@ -186,10 +187,10 @@ func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]flo
 	for start := 0; start < len(texts); start += group {
 		end := min(start+group, len(texts))
 		vecs, err := w.embed(ctx, workerRoleDoc, texts[start:end])
-		if err != nil {
-			return nil, err
-		}
 		out = append(out, vecs...)
+		if err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }
@@ -263,9 +264,6 @@ func (w *workerEmbedder) Close() error {
 			_ = w.slot.acquire(context.Background(), false)
 		}
 		w.stopChild(true)
-		w.mu.Lock()
-		w.closed = true
-		w.mu.Unlock()
 		w.slot.release(false)
 		if w.dl != nil {
 			w.dl.Close()
@@ -331,13 +329,14 @@ func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
 	}
 }
 
-var errWorkerClosed = errors.New("indexer: local embedder: closed")
+var errWorkerClosed = fmt.Errorf("%w: local embedder closed", ErrEmbedderUnavailable)
 
 // serve runs one frame. Caller holds the slot. The caller's ctx is
 // consulted only before the request is written — after that the
-// round trip runs to its own timeout.
+// round trip runs to its own timeout. A query never pays for a stale
+// child's retirement and respawn; a doc frame does.
 func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
-	if err := w.ensureChild(); err != nil {
+	if err := w.ensureChild(req.Role != workerRoleQuery); err != nil {
 		return frameResult{err: err}
 	}
 	if req.Op == workerOpDim {
@@ -393,15 +392,16 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 }
 
 // ensureChild spawns the child if needed, honoring the restart backoff.
-// A running child whose spec has moved on (threads changed, GPU
-// demoted while it was busy) is retired first. Caller holds the slot.
-func (w *workerEmbedder) ensureChild() error {
+// With retireStale, a running child whose spec has moved on (threads
+// changed, GPU demoted while it was busy) is retired first — the
+// respawn is a doc frame's cost, not a query's. Caller holds the slot.
+func (w *workerEmbedder) ensureChild(retireStale bool) error {
 	if w.closing.Load() {
 		return errWorkerClosed
 	}
 	spec := w.childSpec()
 	if w.child != nil {
-		if w.child.spec == spec {
+		if !retireStale || w.child.spec == spec {
 			return nil
 		}
 		w.stopChild(true)
@@ -577,32 +577,33 @@ func (w *workerEmbedder) penalize() {
 
 // childSlot is a one-slot semaphore with two classes of waiters:
 // queries go ahead of doc frames. A doc caller that wins the slot while
-// a query is waiting hands it straight back and parks until every
-// waiting query has been served; doc callers hold the slot for one
-// decode group at a time, so a query's wait is bounded by the decode in
-// flight. Acquisition is context-aware — a caller that gives up leaves
-// the queue instead of parking until its turn.
+// a query is waiting hands it straight back — the release wakes the
+// query parked ahead of it — and queues again behind the queries
+// waiting at that moment, once per frame: on its second win it keeps
+// the slot. So a query waits for at most the decode in flight (doc
+// callers hold the slot for one decode group at a time), and a
+// saturating query stream still lets a doc frame through per round
+// instead of starving indexing. Acquisition is context-aware — a
+// caller that gives up leaves the queue instead of parking until its
+// turn.
 type childSlot struct {
-	slot chan struct{} // cap 1
-
-	mu     sync.Mutex
-	urgent int           // queries waiting or holding
-	idle   chan struct{} // closed and replaced when urgent drops to 0
+	slot   chan struct{} // cap 1
+	urgent atomic.Int32  // queries waiting or holding
 }
 
 func newChildSlot() *childSlot {
-	return &childSlot{slot: make(chan struct{}, 1), idle: make(chan struct{})}
+	return &childSlot{slot: make(chan struct{}, 1)}
 }
 
 // acquire takes the slot for a query (urgent) or a doc frame. It
 // returns ctx.Err() without the slot when the caller gives up first.
 func (s *childSlot) acquire(ctx context.Context, urgent bool) error {
 	if urgent {
-		s.addUrgent(1)
+		s.urgent.Add(1)
 		select {
 		case s.slot <- struct{}{}:
 		case <-ctx.Done():
-			s.addUrgent(-1)
+			s.urgent.Add(-1)
 			return ctx.Err()
 		}
 		if err := ctx.Err(); err != nil { // select may pick the slot on a ctx already done
@@ -611,29 +612,22 @@ func (s *childSlot) acquire(ctx context.Context, urgent bool) error {
 		}
 		return nil
 	}
+	yielded := false
 	for {
 		select {
 		case s.slot <- struct{}{}:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-		waiting, idle := s.urgentState()
-		if !waiting {
-			if err := ctx.Err(); err != nil {
-				s.release(false)
-				return err
-			}
+		if err := ctx.Err(); err != nil {
+			s.release(false)
+			return err
+		}
+		if yielded || s.urgent.Load() == 0 {
 			return nil
 		}
-		// A query is waiting: hand the slot over and park until the
-		// urgent queue is empty. idle was captured before the release,
-		// so a query finishing in between still wakes us.
+		yielded = true
 		s.release(false)
-		select {
-		case <-idle:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
 	}
 }
 
@@ -651,24 +645,8 @@ func (s *childSlot) tryAcquire() bool {
 func (s *childSlot) release(urgent bool) {
 	<-s.slot
 	if urgent {
-		s.addUrgent(-1)
+		s.urgent.Add(-1)
 	}
-}
-
-func (s *childSlot) addUrgent(d int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.urgent += d
-	if s.urgent == 0 && d < 0 {
-		close(s.idle)
-		s.idle = make(chan struct{})
-	}
-}
-
-func (s *childSlot) urgentState() (waiting bool, idle <-chan struct{}) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.urgent > 0, s.idle
 }
 
 // embedChild is one live child process plus the goroutines draining its

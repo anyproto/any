@@ -39,8 +39,8 @@ type Options struct {
 	EmbedBatch int
 	// EmbedConcurrency is how many EmbedBatch chunks the embed loop embeds
 	// in parallel per round. Default 1 (sequential — right for the local
-	// model, which serializes internally). Raise it for an online API
-	// (openai/auto) where parallel requests are the throughput win.
+	// child, which serves one frame at a time). Raise it for an online
+	// API (openai/auto) where parallel requests are the throughput win.
 	EmbedConcurrency int
 	// Debounce delays an advance after a dirty signal so write bursts
 	// coalesce into one page (and fuller embed batches). Default 250ms —
@@ -587,13 +587,20 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				if err := ctx.Err(); err != nil {
 					return api.SearchResponse{}, err // caller gone: nothing to degrade for
 				}
-				if errors.Is(embErr, context.DeadlineExceeded) {
+				overBudget := errors.Is(embErr, context.DeadlineExceeded)
+				if overBudget {
 					embErr = fmt.Errorf("query embedding exceeded %s", ix.opts.QueryEmbedTimeout)
 				}
 				if mode == api.SearchModeVector {
 					return api.SearchResponse{}, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, embErr)
 				}
-				ix.lg.Warn("hybrid search degrades to fts: query embedding failed", zap.Error(embErr))
+				if overBudget {
+					// Expected while a model loads — one line per search,
+					// not a warning per keystroke.
+					ix.lg.Info("hybrid search degrades to fts: query embedding over budget", zap.Error(embErr))
+				} else {
+					ix.lg.Warn("hybrid search degrades to fts: query embedding failed", zap.Error(embErr))
+				}
 				mode = api.SearchModeFTS
 				vectorStatus = api.VectorStatusUnavailable
 			} else {

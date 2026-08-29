@@ -465,13 +465,17 @@ back as raw little-endian float32. One child, spawned lazily on the
 first embed call and shared by every space worker. The stream carries
 one request at a time, and the server shares it through a one-slot
 semaphore with two classes: `EmbedDocs` sends a batch one decode group
-per frame (`batchDocs` texts, exactly one `llama_decode`) and re-takes
-the slot for every frame, and a search query takes the slot ahead of
-any waiting doc frame. A query therefore waits for at most the decode
-in flight — ~1–2 s worst case for a 2048-token doc on CPU, well under
-that on a GPU — never for a 64-doc batch, however many spaces are
-backfilling. Acquisition is context-aware: a caller that gives up
-leaves the queue instead of parking until its turn.
+per frame (`batchDocs` texts, one `llama_decode`) and re-takes the
+slot for every frame, and a search query takes the slot ahead of any
+waiting doc frame. A doc frame yields to the queries waiting at that
+moment once, then runs — so a saturating query stream lets a doc frame
+through per round instead of starving indexing. Once the child is up, a query therefore waits
+for at most the decode in flight — ~1–2 s worst case for a 2048-token
+doc on CPU, well under that on a GPU — never for a 64-doc batch,
+however many spaces are backfilling. A cold spawn or a wedged child
+holds the slot longer; that is what the query budget in § Search is
+for. Acquisition is context-aware: a caller that gives up leaves the
+queue instead of parking until its turn.
 
 **Why.** llama.cpp faults are not recoverable in Go. A Vulkan
 device-lost throws `vk::DeviceLostError` out of `vk::Queue::submit` and
@@ -672,10 +676,11 @@ embedder, hits below the similarity floor are dropped as noise), `hybrid`
 (default — both legs fused by reciprocal rank, k=60; degrades to `fts`
 when the embedder is missing or the query embedding fails or exceeds
 its budget — `mode` in the reply is the mode that actually ran). The
-query embedding is bounded (`indexer.Options.QueryEmbedTimeout`, 5 s):
-a cold model load, a wedged child or a slow API degrades the search
-instead of holding it, and a caller that disconnects leaves the
-embedder's queue at once. Scores are comparable only
+query embedding is bounded (`index.search.queryEmbedTimeout`, default
+5 s): a cold model load, a wedged child or a slow API degrades the
+search instead of holding it, and a caller that disconnects leaves the
+embedder's queue at once. Under `auto` the online primary gets half of
+the remaining budget so the local fallback still has time to decode. Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 [--limit N] [--mode ...] [--require T ...] [--exclude T ...]
 [--max-data N]`.
@@ -788,8 +793,8 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 - Embedder latency only delays the vector leg: fresh writes are FTS-
   searchable immediately and gain vector recall once embedded. At query
   time the local child serves a search ahead of doc frames (wait ≤ one
-  decode) and the embedding is capped at 5 s, past which hybrid answers
-  lexical-only.
+  decode) and the embedding is capped (`index.search.queryEmbedTimeout`,
+  default 5 s), past which hybrid answers lexical-only.
 - **Embedder input is still clamped**, per SEQUENCE, to
   `index.local.contextSize / index.local.batchDocs` tokens (default
   2048 / 1 = 2048, EOS preserved for last-token pooling). Chunking

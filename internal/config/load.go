@@ -236,6 +236,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_INDEX_SEARCH_DEFAULT_OPERATOR"); v != "" {
 		cfg.Index.Search.DefaultOperator = v
 	}
+	if v := os.Getenv("ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT"); v != "" {
+		cfg.Index.Search.QueryEmbedTimeout = v
+	}
 }
 
 // splitNonEmpty splits a comma-separated env value into trimmed,
