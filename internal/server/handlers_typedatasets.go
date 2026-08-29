@@ -466,20 +466,13 @@ func (d *deps) spaceUpsert(c echo.Context) error {
 	res, err := sp.Upsert(c.Request().Context(), batch)
 	if err != nil {
 		details := map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId, "dataset": req.Dataset}
-		msg := err.Error()
-		switch {
-		case errors.Is(err, space.ErrUpsertRequiresUserIds):
+		if errors.Is(err, space.ErrUpsertRequiresUserIds) {
 			return writeError(c, http.StatusBadRequest, "upsert.requires_user_ids",
 				"upsert serves only datasets declared with id rule \"user\" — the record id is the idempotency key",
 				details)
-		// STOPGAP: matched on message text until the SDK exports
-		// sentinels (the oneToOneError pattern).
-		case strings.Contains(msg, "unknown dataset"), strings.Contains(msg, "SDK-internal"):
-			return writeError(c, http.StatusBadRequest, "dataset.unknown",
-				"dataset is not defined in this space", details)
-		default:
-			return sdkOpError(c, err, details)
 		}
+		// dataset.unknown is mapped inside sdkOpError (unknownDatasetError).
+		return sdkOpError(c, err, details)
 	}
 	return c.JSON(http.StatusOK, upsertResultToAPI(res))
 }
