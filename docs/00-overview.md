@@ -103,6 +103,7 @@ any/
 │   ├── api/              request/response types shared by server and cli
 │   ├── client/           HTTP client used by cli/ to call server/
 │   ├── config/           config file + env var loading
+│   ├── localstore/       local store naming + tag fence over the SDK's sdk.db
 │   ├── markdown/         block-tree diff for the markdown round-trip
 │   ├── nav/              virtual `nav` type (folder/item, parentId, pos)
 │   ├── version/          binary version string

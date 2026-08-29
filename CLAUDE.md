@@ -1241,6 +1241,33 @@ Implementation slices landed:
     repair path, and leaves records as read-tolerant orphans). Contract:
     docs/24-data-views.md, docs/03-api.md § Types + § Properties,
     client recipe docs/08-clients.md § 12.
+40. **Local store** — device-local, non-CRDT any-store collections at
+    `/v1/local` (`internal/localstore` + `handlers_local.go`,
+    `api/local.go`, `client/local.go`, `cli/local.go` — `any local …`).
+    They live INSIDE the SDK's `sdk.db` (handle via `SDK.Store()`,
+    any-sync-sdk#111) under a name tag — `l_a_<name>` /
+    `l_s_<spaceId>_<name>` — because a DB-wide read tx is what makes
+    local↔synced `$lookup` and `$out`/`$merge` rollups possible
+    (both gated upstream today; docs/07-roadmap.md); the SDK's orphan
+    sweep classifies the `l` prefix as a fixed collection and never
+    touches it. `localstore.ParseRef` is the single fence: every name
+    reaching any-store — wire refs, drop, and the raw `$out`/`$merge
+    into`/`$lookup from` names inside a pipeline — passes it, so the
+    server can never address an SDK collection (`400
+    local.bad_sink_target`). Two invariants kept structurally: `any`
+    never writes an SDK collection (a direct write is reverted by
+    re-index) and never opens a tx spanning a local and an SDK
+    collection. Not a dataset: no type/schema/handler, no `_ver`, no
+    subscribe, not search-indexed; **a space-scoped collection
+    outlives its space** (no cleanup hook — `drop` is the cleanup
+    path; 1-1 re-derivation inherits stale rows); `sdk.db` is
+    therefore no longer freely wipeable. Writes chunk at 256 docs per
+    tx (single any-store writer shared with the CRDT apply path);
+    delete-by-filter is not atomic per call. Config `local.enabled`
+    (`ANY_LOCAL_ENABLED`, default true) → `409 local.disabled`.
+    Contract: docs/26-local-store.md, docs/03-api.md § Local store,
+    docs/06-errors.md, docs/01-cli.md, docs/05-config.md,
+    docs/02-server.md § Data dir layout.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
@@ -1358,7 +1385,8 @@ any/
 │   ├── server/           HTTP server, route wiring, SDK lifecycle
 │   ├── api/              request/response types shared by server and cli
 │   ├── client/           HTTP client used by cli/ to call server/
-│   └── config/           config file + env var loading
+│   ├── config/           config file + env var loading
+│   └── localstore/       local store naming + tag fence over the SDK's sdk.db
 └── docs/
 ```
 
@@ -1394,9 +1422,14 @@ These cut across files and are easy to violate accidentally:
 - **Endpoints map 1:1 onto SDK methods; CLI commands map 1:1 onto endpoints.** If the
   SDK has it, we expose it. If it doesn't, we don't. Don't invent convenience
   endpoints that aggregate multiple SDK calls — that's a v1.x decision.
-  Sole exception: `POST /v1/spaces/:id/search` — the search index is a
-  consumer-side feature built on `Changes()` + the chunkers
-  (`docs/13-index.md`), not an SDK method.
+  Exceptions, all consumer-side features rather than SDK methods:
+  `POST /v1/spaces/:id/search` (the search index, built on `Changes()`
+  + the chunkers, `docs/13-index.md`), `/v1/events` + `/v1/processes`
+  (the ephemeral bus, `docs/21-events.md`), and `/v1/local` (the local
+  store over `SDK.Store()`, `docs/26-local-store.md`). The local store
+  never writes an SDK collection and never opens a transaction that
+  spans a local (`l_*`) and an SDK collection — `localstore.ParseRef`
+  is the one place a collection name is admitted.
 - **Localhost-only.** The server refuses to bind anything other than a loopback
   address and must fail clearly if `--addr 0.0.0.0:...` is passed. No auth middleware,
   no rate limiting in v1 — that comes with the remote-access story (v2). CORS: only the fixed desktop-shell webview allowlist (any-ui PR-095; `routes.go`), which doesn't change the loopback trust model.
@@ -1488,6 +1521,7 @@ auto-start.
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
 | `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
 | `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
+| `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

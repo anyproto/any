@@ -122,6 +122,18 @@ becomes useful. Needs:
 
 Not this repo's work; gate on the SDK:
 
+- **Local store: sink-target validator on the public aggregate.**
+  `Space.Aggregate` / `AggregateObjects` apply a blanket `ReadOnly()`,
+  so a synced-source pipeline cannot `$out`/`$merge` into a local
+  collection. The fence exists for a reason (`$out` could rewrite
+  `<spaceId>_objects`); the replacement is a consumer-supplied target
+  validator the server points at `localstore.ParseRef`.
+- **Local store: cross-collection `$lookup` (any-store).** `$lookup
+  from` is rejected unless it names the aggregated collection, and the
+  lookup reads from the source's namespace. Resolving `from` to the
+  target collection's namespace (two call sites; the read tx is
+  already DB-wide) unlocks local↔synced joins — exactly what
+  co-locating the local store in `sdk.db` is for.
 - **`SyncStatusAPI.Peers` (or equivalent).** No production-grade
   per-space peer list on the SDK today — `/v1/spaces/:id/sync-status/peers`
   stays 501 until the SDK adds it. The diagnostic equivalent is
@@ -235,6 +247,14 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Local store** — device-local, non-CRDT any-store collections at
+  `/v1/local` (`docs/26-local-store.md`), inside the SDK's `sdk.db`
+  under the `l_` tag (`internal/localstore` is the single fence).
+  Local↔local `$out`/`$merge`/`$lookup` ship; synced→local rollups and
+  cross-collection joins wait on the upstream gates below. Out of
+  scope for now: auto-cleanup on space delete (a space-scoped
+  collection outlives its space), TTL / expiration, a collection
+  registry, subscribe, FTS/vector indexes, backup/export.
 - **Long-record chunking + windowed hit data (SYN-188)** — the
   indexer splits any chunker entry over `Options.ChunkRunes` (2000)
   into chunk docs (`base<U+001F>n` ids, record range `[base,

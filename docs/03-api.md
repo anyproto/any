@@ -57,6 +57,7 @@
   - [Sync status](#sync-status)
   - [Events](#events)
   - [Processes](#processes)
+  - [Local store](#local-store)
   - [Push notifications](#push-notifications)
   - [Debug (diagnostic)](#debug-diagnostic)
 - [Body shapes (examples)](#body-shapes-examples)
@@ -2993,6 +2994,57 @@ holds an interest on that space **covering `process.*`** (a stream
 filtered to other types doesn't count). No `/processes/subscribe` — watch
 raw frames via `GET /v1/events/subscribe?type=process.*`. Routes sit
 outside the space group like `/v1/events`.
+
+### Local store
+
+Device-local, non-CRDT any-store collections — query / modifiers /
+indexes / aggregation for state that must never sync (scratch sets,
+ingest staging, per-device caches). They live inside the SDK's own
+`sdk.db` under a name tag (`l_a_<name>` / `l_s_<spaceId>_<name>`),
+which is what makes local↔synced `$lookup` and `$out`/`$merge`
+possible later; today both are gated upstream and sinks/lookups are
+local-only. Not a dataset: no type, no schema, no `_ver`, no
+subscribe, not search-indexed, and **a space-scoped collection
+outlives its space**. Full model + trade-offs: `docs/26-local-store.md`.
+Account-scoped routes outside the space group; `409 local.disabled`
+when `local.enabled: false`.
+
+| Method | Path                     | Purpose                                                       |
+|--------|--------------------------|---------------------------------------------------------------|
+| GET    | `/v1/local/meta`         | `{stages, accumulators}` — the pipeline vocabulary any-store accepts |
+| GET    | `/v1/local/collections`  | list `?scope=account\|space&spaceId=` → `{collections: [{scope, spaceId?, name, storageName, count, indexes}]}` |
+| PUT    | `/v1/local/collections`  | ensure `{scope, spaceId?, name, indexes?}` → `{collection, created}` (201 created / 200 existed) |
+| DELETE | `/v1/local/collections`  | drop `?scope=&spaceId=&name=` → 204 (no space pre-flight: the cleanup path for a gone space) |
+| POST   | `/v1/local/insert`       | `{coll, docs: [..]}` → `{ids}` — a missing `id` is minted; existing `id` → 409 |
+| POST   | `/v1/local/upsert`       | `{coll, docs: [..]}` → `{ids}` — whole-document replace-or-insert |
+| POST   | `/v1/local/update`       | `{coll, id, modifier, upsert?}` → `{modified, record}` — mongo-style `$set`/`$unset`/`$inc`… |
+| POST   | `/v1/local/delete`       | `{coll, ids: [..]}` or `{coll, filter}` → `{deleted}` |
+| POST   | `/v1/local/get`          | `{coll, id}` → `{record}` |
+| POST   | `/v1/local/query`        | `{coll, filter?, sort?, limit?, offset?, includeTotal?}` → `{records, total?, hasNext?}` |
+| POST   | `/v1/local/aggregate`    | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` → `{records}` \| `{plan}` \| `{written}` |
+| POST   | `/v1/local/indexes`      | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` → `{indexes}` |
+
+`coll` is `{scope: "account" | "space", spaceId?, name}`; `name`
+matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped op pre-flights
+the space (`404 space.not_found`), except drop. Every op on an
+un-ensured collection is `404 local.collection_not_found`.
+`filter` / `sort` / `modifier` / `pipeline` are the raw any-store
+shapes `/query` and `/aggregate` take. Query `limit` defaults to 100
+(cap 1000).
+
+**Sinks and lookups name collections by `storageName`** — `$out
+"l_a_rollup"`, `$merge {into: "l_s_<spaceId>_x"}`, `$lookup {from:
+…}` — and every such name is fenced before any-store parses: anything
+outside the local store is `400 local.bad_sink_target`. A sink
+pipeline answers `{written: n}`; its target is created if absent.
+`$out`/`$merge` into the aggregated collection itself and `$merge`
+results lacking `id` are `400 local.bad_pipeline`.
+
+**Writes are chunked, 256 docs per transaction** (any-store has one
+writer per DB and the CRDT apply path shares it): insert/upsert take
+≤ 1000 docs per request (`400 local.too_many_docs`) and a mid-way
+failure leaves earlier chunks committed; delete-by-filter collects ids
+under one read and removes them in chunks — **not atomic per call**.
 
 ### Push notifications
 
