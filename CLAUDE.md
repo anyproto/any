@@ -338,8 +338,24 @@ Implementation slices landed:
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
       prompts), `openai` (OpenAI-compatible `/embeddings`), and
-      `local` (**in-process llama.cpp** via yzma purego bindings, no
-      CGO; `embed_local.go`). Local defaults to Qwen3-Embedding-0.6B
+      `local` (**llama.cpp in a child process** via yzma purego
+      bindings, no CGO; `embed_worker.go` supervises, `embed_local.go`
+      decodes inside the child). The child is this same binary re-exec'd
+      as the hidden `any run embedder` and speaks framed JSON+float32
+      over stdin/stdout; it only embeds — no store, no data dir. A
+      llama.cpp abort (Vulkan device-lost throwing through the FFI
+      frame, GGML_ASSERT) kills the child, not the server: the round
+      fails, docs stay `pending`, and a crash with GPU
+      offload active demotes the process to `--gpu-layers 0` for the
+      rest of the run (in-memory — every start tries the GPU again).
+      `index.local.requestTimeout` (3m) unwedges a hung GPU, which stops
+      answering rather than failing; `index.local.threads` is the
+      child's CPU budget and is runtime-settable via
+      `Indexer.SetEmbedThreads`; `index.local.niceness` (10) runs the
+      child below the server. The `ready` frame carries a `Hardware`
+      report (backends + the .so each came from, GPU/driver names,
+      llama.cpp release stamp, CPU features) — logged per spawn, kept
+      behind `Indexer.EmbedHardware()` for later statistics. Local defaults to Qwen3-Embedding-0.6B
       Q8_0 (1024-dim, last-pooling, L2-normalized, Qwen instruct query
       prefix), auto-downloaded sha-pinned into `<data-dir>/index/models`
       with logged progress (`embed_local_download.go`, resumable, never

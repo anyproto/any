@@ -251,6 +251,28 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 // HasEmbedder reports whether the vector pipeline is active.
 func (ix *Indexer) HasEmbedder() bool { return ix.opts.Embedder != nil }
 
+// EmbedHardware reports what the local embedder runs on — backends,
+// devices and lib version as llama.cpp reports them — or false for an
+// embedder that does not decode on this machine. Logged at child start;
+// the accessor exists for hardware/error/speed statistics.
+func (ix *Indexer) EmbedHardware() (Hardware, bool) {
+	if h, ok := ix.opts.Embedder.(interface{ Hardware() Hardware }); ok {
+		return h.Hardware(), true
+	}
+	return Hardware{}, false
+}
+
+// SetEmbedThreads changes the CPU budget the local embedder decodes
+// with; 0 restores the default (NumCPU()-1). It takes effect when the
+// embedder child next spawns, and is a no-op for embedders that don't
+// decode on this machine (ollama / openai / none). This is the seam a
+// settings surface plugs into — index.local.threads seeds the value.
+func (ix *Indexer) SetEmbedThreads(n int) {
+	if s, ok := ix.opts.Embedder.(interface{ SetThreads(int) }); ok {
+		s.SetThreads(n)
+	}
+}
+
 // Start lists current spaces, spawns a worker per indexable space, and
 // subscribes to space-list changes for live discovery. Non-blocking.
 // The passed ctx bounds all background work — cancel it (or call Close)
@@ -307,12 +329,16 @@ func (ix *Indexer) Close() error {
 	if ix.cancel != nil {
 		ix.cancel()
 	}
-	ix.wg.Wait()
-	// The local embedder owns OS resources (background download, loaded
-	// model); the HTTP embedders don't implement Closer.
+	// Before wg.Wait, not after: an embed round in flight holds its
+	// worker goroutine for as long as the embedder takes to answer, and
+	// closing the embedder is what ends it (the local one kills its
+	// child process). The round's docs stay pending. The local embedder
+	// also owns a background download and a loaded model; the HTTP
+	// embedders don't implement Closer.
 	if c, ok := ix.opts.Embedder.(io.Closer); ok {
 		_ = c.Close()
 	}
+	ix.wg.Wait()
 	return ix.store.Close()
 }
 

@@ -41,6 +41,9 @@ const (
 	// only by truncating every text. One doc per decode keeps the whole
 	// nCtx available to it, which is what localDefaultCtx documents.
 	localDefaultBatchDocs = 1
+	// Background niceness for the embedder child. Indexing is never
+	// urgent: it must not compete with what the user is doing.
+	localDefaultNiceness = 10
 	// llama.cpp rounds the per-sequence KV allocation up to this many
 	// tokens, so a sequence never gets less than one block.
 	localSeqTokenBlock = 256
@@ -86,64 +89,114 @@ type Local struct {
 // copy already present in legacyModelsDir (the old per-data-dir
 // location) is used as-is so existing downloads aren't repeated.
 func NewLocal(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*Local, error) {
-	l := &Local{
+	spec, dl, err := resolveLocalSpec(cfg, modelsDir, legacyModelsDir, onProcess)
+	if err != nil {
+		return nil, err
+	}
+	return newLocalFromSpec(spec, dl), nil
+}
+
+// localSpec is everything needed to run the model: resolved paths plus
+// decode params. Shared by the in-process Local (which the embedder
+// child runs) and the parent-side supervisor, which renders it into the
+// child's flags — so both sides derive their parameters from one place.
+type localSpec struct {
+	modelPath    string
+	libDir       string
+	queryPrefix  string
+	nCtx         int
+	threads      int // 0 = runtime.NumCPU()-1
+	outDim       int
+	batchDocs    int
+	gpuLayers    int // -1 = llama.cpp default (offload all when a GPU is present)
+	niceness     int // child scheduling priority; 0 = same as the server
+	defaultModel bool
+}
+
+// resolveLocalSpec turns config into a runnable spec: model path (incl.
+// the legacy per-data-dir location), lib dir, query prefix and decode
+// bounds. A missing default model starts the background download, whose
+// handle it returns — readiness is the destination file, so callers keep
+// treating "still downloading" as an ordinary embedder outage.
+func resolveLocalSpec(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (localSpec, *modelDownload, error) {
+	s := localSpec{
 		nCtx:         cfg.ContextSize,
 		threads:      cfg.Threads,
 		outDim:       cfg.Dim,
 		queryPrefix:  cfg.QueryPrefix,
 		gpuLayers:    -1,
+		niceness:     localDefaultNiceness,
 		batchDocs:    cfg.BatchDocs,
 		defaultModel: cfg.ModelPath == "",
 	}
-	if l.nCtx <= 0 {
-		l.nCtx = localDefaultCtx
+	if cfg.Niceness != nil {
+		s.niceness = max(*cfg.Niceness, 0)
+	}
+	if s.nCtx <= 0 {
+		s.nCtx = localDefaultCtx
 	}
 	if cfg.GpuLayers != nil {
-		l.gpuLayers = *cfg.GpuLayers
+		s.gpuLayers = *cfg.GpuLayers
 	}
-	if l.batchDocs <= 0 {
-		l.batchDocs = localDefaultBatchDocs
+	if s.batchDocs <= 0 {
+		s.batchDocs = localDefaultBatchDocs
 	}
-	if per := l.maxDocTokens(); per < l.nCtx {
+	if per := maxDocTokens(s.nCtx, s.batchDocs); per < s.nCtx {
 		logger.NewNamed("indexer").Warn("index: local embedder batchDocs truncates texts below contextSize",
-			zap.Int("batchDocs", l.batchDocs), zap.Int("contextSize", l.nCtx), zap.Int("maxDocTokens", per))
+			zap.Int("batchDocs", s.batchDocs), zap.Int("contextSize", s.nCtx), zap.Int("maxDocTokens", per))
 	}
 
-	l.libDir = cfg.LibDir
-	if l.libDir == "" {
-		l.libDir = os.Getenv("YZMA_LIB")
+	s.libDir = cfg.LibDir
+	if s.libDir == "" {
+		s.libDir = os.Getenv("YZMA_LIB")
 	}
-	if l.libDir == "" {
+	if s.libDir == "" {
 		exe, err := os.Executable()
 		if err != nil {
-			return nil, fmt.Errorf("indexer: local embedder: resolve executable for default libDir: %w", err)
+			return localSpec{}, nil, fmt.Errorf("indexer: local embedder: resolve executable for default libDir: %w", err)
 		}
-		l.libDir = filepath.Join(filepath.Dir(exe), "llamacpp")
+		s.libDir = filepath.Join(filepath.Dir(exe), "llamacpp")
 	}
 
+	var dl *modelDownload
 	if cfg.ModelPath != "" {
 		// Air-gapped: the file is the user's responsibility, no download.
-		l.modelPath = cfg.ModelPath
+		s.modelPath = cfg.ModelPath
 	} else {
-		l.modelPath = filepath.Join(modelsDir, localModelName)
+		s.modelPath = filepath.Join(modelsDir, localModelName)
 		if legacy := filepath.Join(legacyModelsDir, localModelName); legacyModelsDir != "" {
 			if _, err := os.Stat(legacy); err == nil {
-				l.modelPath = legacy
+				s.modelPath = legacy
 			}
 		}
-		if _, err := os.Stat(l.modelPath); err != nil {
+		if _, err := os.Stat(s.modelPath); err != nil {
 			url, sha := localModelURL, localModelSHA256
 			if cfg.ModelUrl != "" {
 				url, sha = cfg.ModelUrl, cfg.ModelSha256
-				l.defaultModel = false
+				s.defaultModel = false
 			}
-			l.dl = startModelDownload(url, l.modelPath, sha, nil, onProcess)
+			dl = startModelDownload(url, s.modelPath, sha, nil, onProcess)
 		}
 	}
-	if l.queryPrefix == "" && l.defaultModel {
-		l.queryPrefix = localQueryPrefix
+	if s.queryPrefix == "" && s.defaultModel {
+		s.queryPrefix = localQueryPrefix
 	}
-	return l, nil
+	return s, dl, nil
+}
+
+func newLocalFromSpec(s localSpec, dl *modelDownload) *Local {
+	return &Local{
+		modelPath:    s.modelPath,
+		libDir:       s.libDir,
+		nCtx:         s.nCtx,
+		threads:      s.threads,
+		outDim:       s.outDim,
+		queryPrefix:  s.queryPrefix,
+		gpuLayers:    s.gpuLayers,
+		batchDocs:    s.batchDocs,
+		defaultModel: s.defaultModel,
+		dl:           dl,
+	}
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
@@ -166,7 +219,9 @@ func loadLlamaRuntime(libDir string) error {
 	if err := llama.Load(libDir); err != nil {
 		return fmt.Errorf("indexer: local embedder: load llama.cpp from %s: %w", libDir, err)
 	}
-	llama.LogSet(llama.LogSilent())
+	// Silent except for the handful of lines naming the backends that
+	// loaded and the devices they found (Hardware).
+	llama.LogSet(llamaLogCapture())
 	llama.Init() // loads backend libs (cpu variants / metal) from the same dir
 	llamaRuntime.loaded = true
 	return nil
@@ -217,6 +272,7 @@ func (l *Local) ensureLoaded() error {
 	cp.NThreadsBatch = threads
 	cp.PoolingType = llama.PoolingTypeLast // Qwen3-Embedding pools the trailing EOS
 	cp.Embeddings = 1
+	cp.OpOffload = opOffload(l.gpuLayers)
 	lctx, err := llama.InitFromModel(model, cp)
 	if err != nil {
 		_ = llama.ModelFree(model)
@@ -244,16 +300,33 @@ func (l *Local) threadCount() int {
 // nCtx across batchDocs sequences, floored to a whole block. Texts are
 // truncated to it, so a decode can never be refused for want of a KV
 // slot however batchDocs is configured.
-func (l *Local) maxDocTokens() int {
-	if l.batchDocs <= 1 {
-		return l.nCtx // one sequence, the whole context is its slot
+// opOffload maps the gpu-layer setting onto llama.cpp's op_offload.
+// n_gpu_layers only decides where the WEIGHTS live; with op_offload on
+// (the default) llama.cpp still hands whole matmuls to a registered GPU
+// device, so `gpuLayers: 0` alone leaves the compute on the GPU.
+// Measured on an RDNA2 iGPU with a 1200-token document: 6.6 s with op
+// offload against 1.1 s across 16 CPU threads without it — and the
+// offloaded path is the one that hangs the compute ring. CPU-only has
+// to mean both.
+func opOffload(gpuLayers int) uint8 {
+	if gpuLayers == 0 {
+		return 0
+	}
+	return 1
+}
+
+func (l *Local) maxDocTokens() int { return maxDocTokens(l.nCtx, l.batchDocs) }
+
+func maxDocTokens(nCtx, batchDocs int) int {
+	if batchDocs <= 1 {
+		return nCtx // one sequence, the whole context is its slot
 	}
 	// Floor to a whole block: rounding up would promise more than
 	// nCtx/batchDocs when batchDocs does not divide nCtx, which is the
 	// decode refusal this bound exists to prevent.
-	per := l.nCtx / l.batchDocs
+	per := nCtx / batchDocs
 	per -= per % localSeqTokenBlock
-	return min(max(per, localSeqTokenBlock), l.nCtx)
+	return min(max(per, localSeqTokenBlock), nCtx)
 }
 
 // truncateTokens clamps tokens to nCtx, keeping EOS as the final token —
