@@ -199,7 +199,8 @@ Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
 `400 request.invalid_field` (mnemonic+accountId together, or index
 without mnemonic), `404 auth.account_not_found` (accountId without a
 local wallet), `409 auth.account_in_use` (another process holds that
-account's pid lock), `409 auth.mnemonic_mismatch` (existing wallet file
+account's single-instance lock; `details.pid` names the holder when
+known), `409 auth.mnemonic_mismatch` (existing wallet file
 disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
 var, never the request body).

@@ -74,10 +74,9 @@ becomes useful. Needs:
 7. **CLI binary vs plugin architecture.** Current plan: monolithic
    `any` binary with subcommands. Plugins are not on the roadmap;
    flag if anyone wants them.
-8. **Windows support.** Server + CLI both work in principle (nothing
-   Unix-specific since we dropped Unix sockets). Verify during first
-   implementation; single-instance lock needs a Windows-friendly
-   replacement for the PID-based check.
+8. ~~**Windows support.**~~ Resolved: the single-instance lock is an
+   OS file lock on every platform (SYN-168, see Done). Nothing else is
+   Unix-specific since we dropped Unix sockets.
 9. ~~**External semantic-search service.**~~ Resolved: the local
    search index (`13-index.md`) provides hybrid recall; the agent's
    data is harness-owned userspace runtime datasets
@@ -247,6 +246,15 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Cross-platform single-instance lock (SYN-168)** — one
+  `gofrs/flock` implementation for every platform replaces the PID
+  file plus `kill(pid, 0)` liveness probe, which had no Windows
+  equivalent and left `pidlock_windows.go` a fatal stub: a Windows
+  server with a wallet never bound. The lock is on
+  `<account-dir>/server.lock` and the kernel releases it, so stale-lock
+  reclaim is gone; `server.pid` survives only to name the holder in
+  `409 auth.account_in_use`. Companion: a `windows-latest` job in
+  pr-checks — the first CI that executes a Windows build.
 - **Local store** — device-local, non-CRDT any-store collections at
   `/v1/local` (`docs/26-local-store.md`), inside the SDK's `sdk.db`
   under the `l_` tag (`internal/localstore` is the single fence).

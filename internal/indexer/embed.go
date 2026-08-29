@@ -8,6 +8,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 // ErrEmbedderUnavailable wraps query-time embedding failures: the
@@ -37,3 +38,36 @@ type Embedder interface {
 // switch) and embed_factory_novector.go (a no-op returning nil, so the
 // indexer runs FTS-only when the `vector` tag is absent or the build is
 // gomobile). See docs/13-index.md § build tags.
+
+// Hardware is what the embedder actually runs on, as llama.cpp reports
+// it: the backends it registered, the devices they found, and the libs
+// they came from. The child collects it once at startup and hands it to
+// the server in the `ready` frame, which logs it and keeps it — the
+// input for correlating speed and crashes with hardware later.
+type Hardware struct {
+	OS         string   `json:"os"`
+	Arch       string   `json:"arch"`
+	CPUs       int      `json:"cpus"`
+	Threads    int      `json:"threads"`
+	GpuLayers  int      `json:"gpuLayers"`
+	LibDir     string   `json:"libDir,omitempty"`
+	LibVersion string   `json:"libVersion,omitempty"` // llama.cpp release + platform, from the libs' VERSION stamp
+	Backends   []string `json:"backends,omitempty"`   // "Vulkan from libggml-vulkan.so"
+	Devices    []string `json:"devices,omitempty"`    // "AMD ... (RADV RAPHAEL_MENDOCINO) (radv) | uma: 1 | ..."
+	SystemInfo string   `json:"systemInfo,omitempty"` // llama_print_system_info()
+}
+
+// String renders the one-line form used in logs.
+func (h Hardware) String() string {
+	parts := []string{h.OS + "/" + h.Arch}
+	if h.LibVersion != "" {
+		parts = append(parts, "llama.cpp "+h.LibVersion)
+	}
+	if len(h.Backends) > 0 {
+		parts = append(parts, strings.Join(h.Backends, ", "))
+	}
+	if len(h.Devices) > 0 {
+		parts = append(parts, strings.Join(h.Devices, "; "))
+	}
+	return strings.Join(parts, " | ")
+}

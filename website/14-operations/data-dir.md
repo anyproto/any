@@ -5,7 +5,7 @@ order: 30
 ---
 # Data directory
 
-`dataDir` (default `~/.any`) is a **root** that can hold several accounts. Each account keeps its wallet, pid lock, CRDT storage, file bytes and search index in its own subdirectory; the config file and the embedder model cache sit at the root and are shared.
+`dataDir` (default `~/.any`) is a **root** that can hold several accounts. Each account keeps its wallet, instance lock, CRDT storage, file bytes and search index in its own subdirectory; the config file and the embedder model cache sit at the root and are shared.
 
 ## Layout
 
@@ -14,11 +14,12 @@ order: 30
 ├── config.yaml                  # optional, if not passed via --config
 ├── models/                      # shared embedder model cache (all accounts)
 ├── wallet.key                   # LEGACY flat layout = the DEFAULT account;
-├── server.pid                   #   its data stays directly at the root
+├── server.lock  server.pid      #   its data stays directly at the root
 ├── sdk/  index/  files/         #   exactly as below
 └── <accountId>/                 # every other account
     ├── wallet.key               # account + device keys (mode 0600)
-    ├── server.pid               # per-account single-instance lock
+    ├── server.lock              # per-account single-instance lock (OS file lock)
+    ├── server.pid               # holder's pid, for error messages only
     ├── sdk/                     # any-store databases — owned by the SDK
     ├── files/                   # file content, one CARv2 per rootCid — owned by the SDK
     └── index/                   # local search index (index.db) — owned by the indexer
@@ -31,7 +32,8 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | Path | Owner | Contents | Derived? |
 |---|---|---|---|
 | `wallet.key` | server | the account's signing keys and this device's key | **no — the only copy of the device key** |
-| `server.pid` | server | lock held by the running process; stale PIDs are reclaimed | yes |
+| `server.lock` | server | the single-instance lock itself — an OS file lock, empty, released by the kernel when the process exits | yes |
+| `server.pid` | server | the lock holder's pid, written after acquiring; names it in `409 auth.account_in_use` and nothing more | yes |
 | `sdk/` | SDK | the CRDT storage: every space's change DAGs, materialized records, the tech space | re-syncable from peers for shared content |
 | `files/` | SDK | file bytes; a durable file's bytes are a cache, a non-durable file's bytes are the only copy | partly — see [Status and durability](../files/status-and-durability.html) |
 | `index/` | indexer | `index.db` — BM25 + vector index per space, cursors, schema version | yes — but rebuilds only from the next change |
@@ -45,7 +47,8 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 |---|---|
 | `index/` | safe; the server rebuilds the index, but only content that changes afterwards is re-indexed ("index from the next change"). Also the fix for a schema-version or embedding-dimension mismatch at boot. |
 | `models/` | safe; the model downloads again on next boot (a model already in a legacy `<account-dir>/index/models/` keeps being used from there) |
-| `server.pid` | safe when no server is running; reclaimed automatically when stale |
+| `server.lock` | safe when no server is running; the lock lives in the kernel, not in the file, so a leftover file blocks nothing |
+| `server.pid` | safe any time; it only labels the current holder |
 | `files/` | **loses non-durable files** — bytes not yet backed up to the network have no other copy. Use the cache endpoints or per-file offload instead ([Cache](../files/cache.html)). |
 | `sdk/` | loses every unsynced change and forces a full re-sync of shared spaces; a wiped storage also restarts the index generation, which the indexer detects and re-indexes |
 | `wallet.key` | **loses this device's key**. The account survives if you kept the mnemonic — `any init --mnemonic` derives the same account id with a fresh device key. |

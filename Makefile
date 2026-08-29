@@ -23,8 +23,12 @@ INDEX_TAGS := fts vector
 
 # llama.cpp release pin for the local embedder's shared libs
 # (docs/13-index.md § local embedder). Bump together with the yzma
-# dependency — yzma tracks llama.cpp releases.
-LLAMACPP_VERSION := b9590
+# dependency — yzma tracks llama.cpp releases, and only a matching pair
+# works: too old a build fails to load ("undefined symbol"), too new a
+# one loads but reads shifted struct fields (llama_model_n_embd comes
+# back 0 and context creation aborts). yzma's README carries the
+# compatibility table; verify a bump by embedding with the real model.
+LLAMACPP_VERSION := b10620
 
 .PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve
 

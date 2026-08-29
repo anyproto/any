@@ -1,9 +1,14 @@
-# PR gate: the generated OpenAPI spec (internal/server/docs) must match
-# the handler annotations. `anyrt drift` in anybao verifies its pin
+# PR gate, two jobs on the self-hosted ubuntu pool.
+#
+# swagger-drift — the generated OpenAPI spec (internal/server/docs) must
+# match the handler annotations. `anyrt drift` in anybao verifies its pin
 # against this spec, so a handler PR that changes annotations without
 # regenerating leaves the published contract lying about the server.
 # Fix locally with `make swagger` and commit the diff (`make build`
 # runs it too).
+#
+# tests — the unit suite. Windows runs in its own workflow (windows-any),
+# off the PR path, because that runner is GitHub-hosted and billed at 2x.
 name: pr-checks
 
 on:
@@ -41,3 +46,26 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+
+  # `make test` is the canonical command (go test -tags 'fts vector' ./...);
+  # the index lives behind those tags, so an untagged run would exercise a
+  # different build than the one we ship. Nothing here loads llama.cpp: the
+  # local-embedder tests cover factory behaviour only and the live probe
+  # skips without ANY_LIVE_INDEX. Network-backed tests self-skip without a
+  # staging config.
+  tests:
+    runs-on: [self-hosted, github-runner-ubuntu]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      - name: go test
+        run: make test

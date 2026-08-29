@@ -413,7 +413,8 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
 - `ollama` — local `/api/embed`, default `embeddinggemma`, doc/query
   task prompts.
 - `openai` — any OpenAI-compatible `/embeddings` API.
-- `local` — **default**: **in-process llama.cpp**, no external service. yzma purego
+- `local` — **default**: **llama.cpp in a child process**, no external service
+  (§ The embedder child process). yzma purego
   bindings (no CGO) dlopen the prebuilt llama.cpp shared libs from
   `index.local.libDir` (default: `llamacpp/` next to the binary —
   populated by `make llamacpp`, which also runs as a failure-tolerant
@@ -453,6 +454,68 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   `libffi.so.8` (ubiquitous on mainstream distros; NixOS: `nix develop`
   — the flake's dev shell provides it).
 
+### The embedder child process
+
+The `local` embedder does not decode in the server process. It re-execs
+this binary as `any run embedder` (a hidden subcommand — self-exec keeps
+distribution to one signed artifact) and talks to it over stdin/stdout
+with a magic-prefixed, length-delimited frame protocol; vectors come
+back as raw little-endian float32. One child, spawned lazily on the
+first embed call and shared by every space worker, requests serialized —
+the same serialization the in-process model's mutex provided.
+
+**Why.** llama.cpp faults are not recoverable in Go. A Vulkan
+device-lost throws `vk::DeviceLostError` out of `vk::Queue::submit` and
+the C++ exception unwinds into a purego frame with no handler, so
+`std::terminate` aborts the process; `GGML_ASSERT` calls `abort()`
+outright. In-process, either one killed the whole server mid-decode. In
+the child they kill only the child: the round fails, its docs stay
+`pending`, and the next tick retries — the outage semantics this
+pipeline already has for an unreachable embedder.
+
+**The child only embeds.** It is handed a model path and decode
+parameters and answers with vectors. It never opens the index db, the
+data dir, or any-store — the cursor, `pending` marking, `SetVectors` and
+the vector index all stay in the server, and so do model discovery and
+the background download (`index.model_download` reporting is unchanged).
+
+**Failure handling.** A dead child, a desynchronized stream, or a
+request that outlives `index.local.requestTimeout` (default 3m) kills
+the child and fails the round; the next round respawns behind an
+exponential backoff (1s → 1m). The timeout matters as much as the
+isolation — a wedged GPU stops answering rather than failing, so
+without a bound the embed loop waits forever. A timeout therefore counts
+as a fault and demotes the GPU, at the price of demoting a merely slow
+batch: one run at CPU speed against repeated multi-minute stalls. An
+error *frame* is different — the child reporting a failed call is still
+healthy and is kept. Its stderr is logged, and the tail is quoted when it dies — that
+is where llama.cpp's abort message lands.
+
+**Priority.** The child runs *below* the server: `index.local.niceness`
+(default 10, 0 disables) nices it on Unix and drops it to a
+below-normal/idle priority class on Windows, so a full re-index yields
+to interactive work instead of competing with it. Nicing happens inside
+the child before llama.cpp loads — on Linux every existing task is
+niced, and the decode threads llama.cpp spawns later inherit it.
+
+**Hardware.** The child reports what llama.cpp initialized on — OS/arch,
+the backends that registered and the shared object each came from, the
+devices they found (GPU name and driver), the pinned llama.cpp release,
+CPU count and thread budget, plus `llama_print_system_info()` — in the
+`ready` frame. The server logs it on every spawn ("local embedder child
+started", with the CPU feature string at DEBUG) and keeps the last
+report behind `Indexer.EmbedHardware()`, so hardware can later be
+correlated with crashes and throughput. It is collected by filtering
+llama.cpp's own log callback down to the enumeration lines; everything
+else stays silent.
+
+**Threads.** `index.local.threads` is the child's CPU budget — lower it
+to keep background indexing off the user's cores. Set it in config and
+restart: `Indexer.SetEmbedThreads` changes it in place (the value lands
+on the spawn spec and an idle child is retired, so the next request
+comes up with the new count), but nothing calls it yet; it is the seam
+a settings surface plugs into.
+
 ### GPU offload (local embedder)
 
 The shipped llama.cpp bundles are **GPU-capable with automatic CPU
@@ -467,12 +530,31 @@ mechanism, no config, no error. llama.cpp's default model params offload
 all layers when a usable GPU device exists; `index.local.gpuLayers: 0`
 forces CPU-only inference (the opt-out when the embedder shouldn't take
 VRAM — full offload of the default model costs ~2 GB, dominated by
-compute buffers that scale with `contextSize`). Measured on a GTX 1080
+compute buffers that scale with `contextSize`). It also turns
+llama.cpp's `op_offload` off: `n_gpu_layers` only places the *weights*,
+and with op offload left on a registered GPU still receives whole
+matmuls, so the compute never reaches the CPU threads. Measured on an
+RDNA2 iGPU with a 1200-token document: 6.6 s offloaded against 1.1 s
+across 16 CPU threads. That path is also the one that hangs the compute
+ring, so the crash demotion below depends on this too. Measured on a GTX 1080
 (478 editor-window docs, ~330 tokens each, `batchDocs` 16): CPU 240 s
 ≈ 2.0 docs/s at ~14 cores vs Vulkan 56 s ≈ 8.5 docs/s — a ~4× win with
-the CPU left essentially idle. If a GPU dies mid-run, decodes error and the
-affected docs stay `pending` (standard outage semantics); a restart
-re-selects backends cleanly. CUDA/ROCm builds are deliberately not
+the CPU left essentially idle.
+
+**A GPU that dies mid-run does not take the server with it.** It kills
+the embedder child (above), and the parent demotes itself to CPU for the
+rest of the run: every later spawn passes `--gpu-layers 0`, one WARN
+names the reason and quotes the child's stderr, and the affected docs
+re-embed on CPU off the `pending` queue. The demotion is in-memory only
+— the next `any run` starts on the GPU again, so a driver or hardware
+fix recovers on its own and a permanently bad GPU costs one crashed
+child per run instead of a crash loop. Seen in the wild on an AMD iGPU
+that also drives the display: embedding load hangs the compute ring
+(`ring comp_* timeout` in the kernel log), the kernel resets it, and the
+in-flight submit comes back device-lost. On such a machine set
+`index.local.gpuLayers: 0` and skip the crashed child entirely.
+
+CUDA/ROCm builds are deliberately not
 bundled (per-vendor, hundreds of MB, no upstream Linux CUDA prebuilt);
 point `index.local.libDir` at a custom llama.cpp build to use them.
 
@@ -510,7 +592,7 @@ rule for `vector` is stronger than for `fts`:
   `capVector` is `vector && !gomobile`, so even `gomobile bind -tags
   vector` keeps the whole embedding/ANN leg out — no embedder is
   constructed, no model is downloaded, and the embedder implementations
-  (ollama, openai, and the in-process llama.cpp `local`) are not linked
+  (ollama, openai, and the llama.cpp-backed `local`) are not linked
   at all. This is deliberate: the `local` embedder links the yzma /
   jupiterrider-ffi llama.cpp bindings, whose libffi CIF descriptors
   resolve `ffi_prep_cif` at package load — a symbol Android doesn't

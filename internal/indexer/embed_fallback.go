@@ -108,6 +108,24 @@ func (f *fallbackEmbedder) Dim(ctx context.Context) (int, error) {
 	return f.fallback.Dim(ctx)
 }
 
+// SetThreads forwards the CPU budget to the fallback — the local model
+// is the only leg that decodes on this machine.
+func (f *fallbackEmbedder) SetThreads(n int) {
+	if s, ok := f.fallback.(interface{ SetThreads(int) }); ok {
+		s.SetThreads(n)
+	}
+}
+
+// Hardware reports the fallback's machine — the local model is the only
+// leg that runs here, and under the default `auto` embedder this
+// wrapper is what Indexer.EmbedHardware sees.
+func (f *fallbackEmbedder) Hardware() Hardware {
+	if h, ok := f.fallback.(interface{ Hardware() Hardware }); ok {
+		return h.Hardware()
+	}
+	return Hardware{}
+}
+
 // Close releases the fallback's resources (the local model owns the
 // background download + llama runtime). The primary (HTTP client) has none.
 func (f *fallbackEmbedder) Close() error {

@@ -52,8 +52,8 @@ and both are deferred.
 
 ## What's in scope (v1)
 
-- `any run` — foreground server; writes PID lock; graceful shutdown on
-  SIGINT/SIGTERM or `any stop`.
+- `any run` — foreground server; takes the single-instance lock;
+  graceful shutdown on SIGINT/SIGTERM or `any stop`.
 - Auto-wallet-create on first run (via `auth.FileProvider`).
 - HTTP endpoints for:
   - Account (own identity, metadata)

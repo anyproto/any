@@ -194,6 +194,9 @@ index:
   local:
     modelPath: /models/custom.gguf
     contextSize: 4096
+    threads: 6
+    gpuLayers: 0
+    requestTimeout: 90s
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -205,18 +208,29 @@ index:
 	if cfg.Index.Embedder != "local" || cfg.Index.Local.ModelPath != "/models/custom.gguf" || cfg.Index.Local.ContextSize != 4096 {
 		t.Errorf("file values not applied: %+v", cfg.Index)
 	}
+	// The embedder-child knobs: CPU budget, forced-CPU decoding, and the
+	// round-trip bound all come from config.yaml.
+	if cfg.Index.Local.Threads != 6 || cfg.Index.Local.RequestTimeout != "90s" {
+		t.Errorf("child knobs not applied: %+v", cfg.Index.Local)
+	}
+	if cfg.Index.Local.GpuLayers == nil || *cfg.Index.Local.GpuLayers != 0 {
+		t.Errorf("gpuLayers not applied: %v", cfg.Index.Local.GpuLayers)
+	}
 
 	// Env wins over file.
 	t.Setenv("ANY_INDEX_LOCAL_MODEL_PATH", "/models/other.gguf")
 	t.Setenv("ANY_INDEX_LOCAL_LIB_DIR", "/opt/llamacpp")
 	t.Setenv("ANY_INDEX_LOCAL_CONTEXT_SIZE", "1024")
 	t.Setenv("ANY_INDEX_LOCAL_DIM", "512")
+	t.Setenv("ANY_INDEX_LOCAL_THREADS", "3")
+	t.Setenv("ANY_INDEX_LOCAL_REQUEST_TIMEOUT", "45s")
 	cfg, err = Load(Flags{ConfigPath: path})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Index.Local.ModelPath != "/models/other.gguf" || cfg.Index.Local.LibDir != "/opt/llamacpp" ||
-		cfg.Index.Local.ContextSize != 1024 || cfg.Index.Local.Dim != 512 {
+		cfg.Index.Local.ContextSize != 1024 || cfg.Index.Local.Dim != 512 ||
+		cfg.Index.Local.Threads != 3 || cfg.Index.Local.RequestTimeout != "45s" {
 		t.Errorf("env values not applied: %+v", cfg.Index.Local)
 	}
 }

@@ -31,7 +31,7 @@ CLI-side flags (`--addr`, `--timeout`, `--verbose`) are on the [CLI](cli.html) p
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
-| `dataDir` | `ANY_DATA_DIR` | `~/.any` | data ROOT; each account lives at `<root>/<accountId>/` (wallet.key, server.pid, sdk/, index/); a root-level `wallet.key` is the default account with flat layout; `models/` is shared |
+| `dataDir` | `ANY_DATA_DIR` | `~/.any` | data ROOT; each account lives at `<root>/<accountId>/` (wallet.key, server.lock, server.pid, sdk/, index/); a root-level `wallet.key` is the default account with flat layout; `models/` is shared |
 | `account` | `ANY_ACCOUNT` | `""` | account to boot when the root holds several; empty = the default account or the sole nested dir; ambiguous ⇒ the server starts unauthorized |
 | `listen.addr` | `ANY_LISTEN_ADDR` | `127.0.0.1:7001` | loopback only — any other bind address is refused |
 | `webUI.enabled` | — | `true` | serve the embedded `/ui` debug harness; embedded mobile hosts force it off |

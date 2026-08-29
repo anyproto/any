@@ -28,27 +28,43 @@ func TestNewEmbedder_Local(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, ok := e.(*Local)
+	// The local embedder decodes in a child process (embed_worker.go);
+	// the in-process Local is what that child runs.
+	w, ok := e.(*workerEmbedder)
 	if !ok {
-		t.Fatalf("want *Local, got %T", e)
+		t.Fatalf("want *workerEmbedder, got %T", e)
 	}
-	defer l.Close()
+	defer w.Close()
 
 	// Air-gapped config (ModelPath set) must not spawn a download.
-	if l.dl != nil {
+	if w.dl != nil {
 		t.Error("ModelPath override must not start a download")
 	}
 	// Custom model ⇒ no implicit Qwen query prefix.
-	if l.queryPrefix != "" {
-		t.Errorf("custom model must not inherit the default query prefix, got %q", l.queryPrefix)
+	if w.spec.queryPrefix != "" {
+		t.Errorf("custom model must not inherit the default query prefix, got %q", w.spec.queryPrefix)
 	}
 
-	// Not ready ⇒ ordinary error (ridden by the embed loop's retry), no panic.
-	if _, err := l.EmbedDocs(context.Background(), []string{"x"}); err == nil {
+	// Not ready ⇒ ordinary error (ridden by the embed loop's retry), no
+	// panic and no child spawned.
+	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err == nil {
 		t.Error("EmbedDocs without model must error")
 	}
-	if _, err := l.EmbedQuery(context.Background(), "x"); err == nil {
+	if _, err := w.EmbedQuery(context.Background(), "x"); err == nil {
 		t.Error("EmbedQuery without model must error")
+	}
+	if w.child != nil {
+		t.Error("a missing model must not leave a child process running")
+	}
+}
+
+// gpuLayers 0 must take the compute off the GPU, not just the weights.
+func TestOpOffloadFollowsGpuLayers(t *testing.T) {
+	cases := map[int]uint8{0: 0, -1: 1, 1: 1, 99: 1}
+	for gpuLayers, want := range cases {
+		if got := opOffload(gpuLayers); got != want {
+			t.Errorf("opOffload(%d) = %d, want %d", gpuLayers, got, want)
+		}
 	}
 }
 

@@ -24,7 +24,7 @@ curl -s http://127.0.0.1:7001/v1/health
 | connection refused | no server on that port; start with `any run` (the CLI exits 3 and says so) |
 | `"account": ""` and `401 auth.required` everywhere | server is unauthorized — `any auth login` or `POST /v1/auth` ([Accounts](../auth/accounts.html)) |
 | `"bootstrapping": true` | the background boot pass is still loading spaces; reads may serve pre-offline state |
-| `409 auth.account_in_use` on auth | another process holds this account's pid lock |
+| `409 auth.account_in_use` on auth | another process holds this account's instance lock |
 
 Add `--verbose` to any CLI command to see the HTTP exchange on stderr.
 

@@ -1,0 +1,53 @@
+# The only place a Windows binary is built and executed. Every release
+# artifact is cross-compiled on an ubuntu runner and only the darwin
+# tarballs are smoke-tested, so a Windows-only break — a `syscall`
+# reference, a build-tagged stub, a path assumption — reaches a release
+# unseen. That is how the single-instance lock shipped broken.
+#
+# Not a PR gate: windows-latest is a GitHub-hosted runner billed at 2x,
+# and every other CI job here runs on the self-hosted ubuntu pool. On
+# push to main a break is known within minutes and always before the
+# 00:30 UTC nightly publishes; the daily run at 00:00 catches the breaks
+# that arrive without a commit — a toolchain or dependency bump.
+name: windows-any
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *' # 30 min before nightly-any publishes
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-any-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-tests:
+    if: github.repository == 'anyproto/any'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: ./.github/actions/go-private-auth
+        with:
+          token: ${{ secrets.ANY_CI_TOKEN }}
+      # The test packages don't reach internal/cli — only cmd/any imports
+      # it — so build the whole tree too, or a Windows-only break in the
+      # CLI reaches a release having passed every gate.
+      - name: go build
+        run: go build -tags 'fts vector' ./...
+      # internal/server owns the single-instance lock, internal/config the
+      # paths it uses. The SDK-backed server tests self-skip without a
+      # staging config, leaving the pure-unit set.
+      - name: go test
+        run: go test -tags 'fts vector' ./internal/server/ ./internal/config/

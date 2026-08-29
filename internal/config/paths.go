@@ -49,9 +49,20 @@ func WalletPath(cfg Config, dataDir string) string {
 	return filepath.Join(dataDir, "wallet.key")
 }
 
-// PIDPath returns <dataDir>/server.pid.
+// PIDPath returns <dataDir>/server.pid — the plain-text pid of the
+// process holding the lock, written after acquiring it. Advisory: it
+// names the holder in error messages, it never decides who holds the
+// lock. See LockPath.
 func PIDPath(dataDir string) string {
 	return filepath.Join(dataDir, "server.pid")
+}
+
+// LockPath returns <dataDir>/server.lock — the file the single-instance
+// OS lock is taken on. Its contents are never read: on Windows the lock
+// covers byte 0 and byte-range locks are mandatory, so no other process
+// could read it anyway.
+func LockPath(dataDir string) string {
+	return filepath.Join(dataDir, "server.lock")
 }
 
 // AccountDir returns the per-account data dir <root>/<accountId>.
