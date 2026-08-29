@@ -1199,6 +1199,9 @@ components:
           $ref: '#/components/schemas/api.LocalCollection'
         filter:
           additionalProperties: {}
+          description: |-
+            Filter is omitzero, not omitempty: `{}` (delete everything) must
+            survive marshalling; only a nil map is absent.
           type: object
         ids:
           items:

@@ -100,9 +100,11 @@ type LocalUpdateResponse struct {
 // removed in chunks of 256 — NOT atomic per call; a concurrent writer
 // can interleave.
 type LocalDeleteRequest struct {
-	Coll   LocalCollection `json:"coll"`
-	Ids    []string        `json:"ids,omitempty"`
-	Filter map[string]any  `json:"filter,omitempty"`
+	Coll LocalCollection `json:"coll"`
+	Ids  []string        `json:"ids,omitempty"`
+	// Filter is omitzero, not omitempty: `{}` (delete everything) must
+	// survive marshalling; only a nil map is absent.
+	Filter map[string]any `json:"filter,omitzero"`
 }
 
 // LocalDeleteResponse is the body of POST /v1/local/delete.

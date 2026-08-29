@@ -1564,6 +1564,7 @@ const docTemplate = `{
                     },
                     "filter": {
                         "additionalProperties": {},
+                        "description": "Filter is omitzero, not omitempty: ` + "`" + `{}` + "`" + ` (delete everything) must\nsurvive marshalling; only a nil map is absent.",
                         "type": "object"
                     },
                     "ids": {
