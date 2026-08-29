@@ -114,9 +114,10 @@ func localRefFromValue(c echo.Context, v *fastjson.Value, what string, strict bo
 		string(v.GetStringBytes("name")))
 }
 
-// localRef is the wire → Ref step: ParseRef, then the space pre-flight
-// for space scope (a deleted/unknown space can't be resurrected as a
-// namespace — this does not clean anything up).
+// localRef is the wire → Ref step: ParseRef. The space pre-flight for
+// space scope is localSpaceCheck (404 space.not_found / 409
+// space.deleted — a dead space can't be resurrected as a namespace;
+// this does not clean anything up).
 func localRef(c echo.Context, scope, spaceId, name string) (localstore.Ref, error, bool) {
 	ref, err := localstore.ParseRef(localstore.Scope(scope), spaceId, name)
 	if err != nil {

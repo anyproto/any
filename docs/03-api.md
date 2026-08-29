@@ -3026,7 +3026,8 @@ when `local.enabled: false`.
 
 `coll` is `{scope: "account" | "space", spaceId?, name}`; `name`
 matches `^[a-z0-9][a-z0-9_-]{0,63}$`. A space-scoped op pre-flights
-the space (`404 space.not_found`), except drop. Every op on an
+the space (`404 space.not_found` unknown, `409 space.deleted`
+tombstoned), except drop. Every op on an
 un-ensured collection is `404 local.collection_not_found`.
 `filter` / `sort` / `modifier` / `pipeline` are the raw any-store
 shapes `/query` and `/aggregate` take. Query `limit` defaults to 100

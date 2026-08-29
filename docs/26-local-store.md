@@ -92,10 +92,10 @@ convention:
   the fixed tag segments keep the storage-name split exact.
 - **Space scope** binds a collection to a space id and pre-flights
   the space on every operation except drop (`404 space.not_found` for
-  an unknown or deleted space — a dead space cannot be resurrected as
-  a namespace). **Nothing drops a space-scoped collection when its
-  space goes away**; it outlives the space and `drop` is the cleanup
-  path. The sharp case is a 1-1 space: delete is local-only and the id
+  an unknown space, `409 space.deleted` for a tombstoned one — a dead
+  space cannot be resurrected as a namespace). **Nothing drops a
+  space-scoped collection when its space goes away**; it outlives the
+  space and `drop` is the cleanup path. The sharp case is a 1-1 space: delete is local-only and the id
   is re-derivable from both account keys, so re-deriving the same 1-1
   inherits the stale rows. Derived spaces can't hit this (undeletable).
   Clients that care version or namespace their collection names.
