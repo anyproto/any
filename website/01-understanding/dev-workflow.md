@@ -85,7 +85,8 @@ When the server is down the CLI exits 3 with `start it with any run in another t
 ├── models/                     # shared embedder model cache (~600 MB, downloaded once)
 └── <accountId>/
     ├── wallet.key              # 0600
-    ├── server.pid              # single-instance lock (stale PIDs reclaimed)
+    ├── server.lock             # single-instance lock (an OS file lock)
+    ├── server.pid              # holder's pid, for error messages only
     ├── sdk/                    # any-store databases — owned by the SDK
     ├── files/                  # file bytes, one CARv2 per root CID
     └── index/                  # local search index — derived, safe to delete

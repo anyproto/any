@@ -85,14 +85,14 @@ If the engine fails to boot after a fresh wallet was created in this call, the h
 | 400 | `auth.bad_mnemonic` | phrase fails BIP-39 validation |
 | 400 | `request.invalid_field` | `mnemonic` + `accountId` together, or `index` without `mnemonic` |
 | 404 | `auth.account_not_found` | `accountId` has no local wallet |
-| 409 | `auth.account_in_use` | another process holds that account's pid lock |
+| 409 | `auth.account_in_use` | another process holds that account's instance lock |
 | 409 | `auth.mnemonic_mismatch` | the wallet on disk disagrees with the supplied phrase / index |
 | 409 | `auth.already_authorized` | the server already booted an account |
 | 400 | `auth.passkey_required` | encrypted wallet; the passkey comes from the configured env var, never the body |
 
 ## One server, one account
 
-A process serves exactly one account for its lifetime. To switch, stop it and start with `--account <id>` (or let `POST /v1/auth` pick on an unauthorized server). Two accounts at once means two `any run` processes on different ports; they may share one data-dir root because every account dir carries its own pid lock.
+A process serves exactly one account for its lifetime. To switch, stop it and start with `--account <id>` (or let `POST /v1/auth` pick on an unauthorized server). Two accounts at once means two `any run` processes on different ports; they may share one data-dir root because every account dir carries its own instance lock.
 
 ## Data dir layout
 
@@ -103,10 +103,11 @@ The data dir is a root that can hold several accounts:
 ├── config.yaml
 ├── models/                 # embedder model cache, shared by all accounts
 ├── wallet.key              # legacy flat layout = the DEFAULT account
-├── server.pid              #   (its sdk/ and index/ sit directly at the root)
+├── server.lock server.pid  #   (its sdk/ and index/ sit directly at the root)
 └── <accountId>/
     ├── wallet.key          # mode 0600
-    ├── server.pid          # per-account single-instance lock
+    ├── server.lock         # per-account single-instance lock (OS file lock)
+    ├── server.pid          # holder's pid, for error messages only
     ├── sdk/                # any-store databases, owned by the SDK
     ├── files/              # file content, owned by the SDK
     └── index/              # local search index

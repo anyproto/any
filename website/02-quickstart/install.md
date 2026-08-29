@@ -93,7 +93,7 @@ The server serves as soon as it prints `LISTENING`; `bootstrapping` flips to `fa
 | Path | What |
 |------|------|
 | `~/.any/` | Data root (`--data-dir` / `ANY_DATA_DIR`). |
-| `~/.any/<accountId>/` | This account's wallet, pid lock, databases, files, search index. |
+| `~/.any/<accountId>/` | This account's wallet, instance lock, databases, files, search index. |
 | `~/.config/any/config.yaml` | Optional config; also `<data-dir>/config.yaml` ([Configuration](../operations/configuration.html)). |
 | `http://127.0.0.1:7001` | The API (`--addr` / `ANY_LISTEN_ADDR`; loopback only). |
 | `http://127.0.0.1:7001/ui` | Built-in debug web UI. |

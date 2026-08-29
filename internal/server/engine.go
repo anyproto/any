@@ -24,7 +24,7 @@ import (
 )
 
 // engine bundles everything that exists only while an account is
-// booted: the per-account pid lock, the SDK, the indexer and the push
+// booted: the per-account instance lock, the SDK, the indexer and the push
 // service. One per process; built either directly by server.Run (an
 // identity resolved at boot) or later by POST /v1/auth.
 type engine struct {
@@ -73,7 +73,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	// before touching the wallet, and never clean up on this path. Goes
 	// through acquirePIDLock so the mobile build (one in-process instance)
 	// can no-op it at both bootAccount sites; see pidlock_acquire*.go.
-	lock, err := acquirePIDLock(config.PIDPath(id.Dir))
+	lock, err := acquirePIDLock(id.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	// Hold the lock from here. On failure release it, and if we just
 	// created a per-account wallet, remove the orphan dir. Registered
 	// before the sdk-close defer so (LIFO) sdk.Close runs first, then
-	// release, then the dir removal — the pid file is gone cleanly
+	// release, then the dir removal — the lock file is closed cleanly
 	// before RemoveAll. Scoped to per-account dirs: never the legacy
 	// flat root or an explicit --wallet path.
 	defer func() {
@@ -349,7 +349,7 @@ func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
 
 // closeEngine tears down the live engine, if any: indexer and push
 // first so their workers stop reading from the SDK, then the SDK,
-// then the pid lock.
+// then the single-instance lock.
 func (d *deps) closeEngine(lg logger.CtxLogger) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
@@ -374,7 +374,7 @@ func (d *deps) closeEngine(lg logger.CtxLogger) {
 		lg.Warn("sdk close", zap.Error(err))
 	}
 	if err := eng.lock.Release(); err != nil {
-		lg.Warn("release pid lock", zap.Error(err))
+		lg.Warn("release instance lock", zap.Error(err))
 	}
 	d.eng = nil
 }

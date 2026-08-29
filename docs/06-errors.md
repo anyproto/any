@@ -56,7 +56,7 @@ auth.already_authorized          # 409 — engine already booted; restart to swi
 auth.bad_mnemonic                # 400 — BIP-39 validation failed
 auth.mnemonic_mismatch           # 409 — wallet on disk disagrees with the phrase/index
 auth.account_not_found           # 404 — accountId has no local wallet
-auth.account_in_use              # 409 — another process holds the account's pid lock
+auth.account_in_use              # 409 — another process holds the account's instance lock
 auth.passkey_required            # wallet encrypted, no passkey provided
 auth.passkey_wrong
 
