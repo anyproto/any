@@ -253,11 +253,12 @@ type IndexLocal struct {
 	// below-normal/idle priority class on Windows. Absent = 10; 0 keeps
 	// the server's own priority. Raising priority is not supported.
 	Niceness *int `yaml:"niceness"`
-	// RequestTimeout bounds one embed round-trip with the child process
-	// (Go duration string). Default 3m. It exists to unwedge a hung GPU:
-	// a lost device stops answering rather than failing, so without a
-	// bound the embed loop blocks forever. Generous by design — a 64-doc
-	// batch of long texts is ~30s on CPU.
+	// RequestTimeout bounds one frame to the child process — one decode
+	// group of up to BatchDocs texts (Go duration string). Default 3m.
+	// It exists to unwedge a hung GPU: a lost device stops answering
+	// rather than failing, so without a bound the embed loop blocks
+	// forever. Generous by design — it polices a wedge, not slow
+	// hardware.
 	RequestTimeout string `yaml:"requestTimeout"`
 	// GpuLayers overrides llama.cpp's n_gpu_layers. Absent keeps the
 	// llama.cpp default: offload every layer when a usable GPU backend

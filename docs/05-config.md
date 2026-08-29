@@ -130,8 +130,9 @@ index:
                                       # user's cores. Set here and restart — the runtime setter behind it
                                       # has no HTTP or CLI surface yet
                                       # (docs/13-index.md § The embedder child process)
-    requestTimeout: 3m                # bound on one embed round-trip with the child; a hung GPU stops
-                                      # answering rather than failing, and this is what unwedges it
+    requestTimeout: 3m                # bound on one frame to the child (one decode group of batchDocs
+                                      # texts); a hung GPU stops answering rather than failing, and this
+                                      # is what unwedges it
     niceness: 10                      # scheduling priority of the embedder child (0-19, higher = more
                                       # background); 0 = leave at the server's priority. Unix nices the
                                       # child, Windows drops its priority class

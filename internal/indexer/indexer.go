@@ -3,6 +3,7 @@ package indexer
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -96,6 +97,14 @@ type Options struct {
 	// vector leg always gets the full query). Default off in the zero
 	// Options; OpenIndexer turns it on unless config disables it.
 	StopWords bool
+	// QueryEmbedTimeout bounds the query embedding inside Search, for
+	// every embedder: past it hybrid degrades to fts (vectorStatus
+	// unavailable) and mode=vector fails as embedder-unavailable, so a
+	// cold model load, a wedged child or a slow API never holds a
+	// search — the local child already serves queries ahead of doc
+	// frames, so in normal operation the budget is far from reached.
+	// Default 5s.
+	QueryEmbedTimeout time.Duration
 }
 
 // ProcessUpdate phases — each work unit reports started once, then
@@ -182,6 +191,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.ChunkRunes <= 0 {
 		o.ChunkRunes = DefaultChunkRunes
+	}
+	if o.QueryEmbedTimeout <= 0 {
+		o.QueryEmbedTimeout = 5 * time.Second
 	}
 	return o
 }
@@ -566,8 +578,18 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			}
 			mode = api.SearchModeFTS // hybrid degrades
 		} else {
-			qv, embErr := ix.opts.Embedder.EmbedQuery(ctx, req.Query)
+			// Bounded: the degrade path below is only reachable if the
+			// embed call returns.
+			qctx, cancel := context.WithTimeout(ctx, ix.opts.QueryEmbedTimeout)
+			qv, embErr := ix.opts.Embedder.EmbedQuery(qctx, req.Query)
+			cancel()
 			if embErr != nil {
+				if err := ctx.Err(); err != nil {
+					return api.SearchResponse{}, err // caller gone: nothing to degrade for
+				}
+				if errors.Is(embErr, context.DeadlineExceeded) {
+					embErr = fmt.Errorf("query embedding exceeded %s", ix.opts.QueryEmbedTimeout)
+				}
 				if mode == api.SearchModeVector {
 					return api.SearchResponse{}, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, embErr)
 				}

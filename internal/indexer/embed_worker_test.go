@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,9 @@ func TestEmbedWorkerHelper(t *testing.T) {
 const helperDim = 4
 
 func runEmbedHelper(mode string) int {
+	// "slow" answers each request, and "slowstart" the handshake, after
+	// this delay.
+	delay, _ := time.ParseDuration(os.Getenv("ANY_EMBED_WORKER_DELAY"))
 	switch mode {
 	case "exit": // dies before the handshake, e.g. libs missing
 		fmt.Fprintln(os.Stderr, "helper: cannot load model")
@@ -41,6 +45,8 @@ func runEmbedHelper(mode string) int {
 	case "garbage": // a C library printing on stdout
 		fmt.Fprint(os.Stdout, strings.Repeat("X", 32))
 		select {}
+	case "slowstart": // a cold model load
+		time.Sleep(delay)
 	case "real":
 		cfg := EmbedWorkerConfig{
 			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
@@ -80,13 +86,19 @@ func runEmbedHelper(mode string) int {
 				return 1
 			}
 			continue
+		case "slow": // a long decode
+			time.Sleep(delay)
 		}
+		// Deterministic vectors: v[j] = len(text)*10 + j, except the last
+		// component, which carries the frame's text count so a test can
+		// see how the parent split a batch.
 		vecs := make([][]float32, len(req.Texts))
 		for i, txt := range req.Texts {
 			v := make([]float32, helperDim)
 			for j := range v {
 				v[j] = float32(len(txt)*10 + j)
 			}
+			v[helperDim-1] = float32(len(req.Texts))
 			vecs[i] = v
 		}
 		bin, dim, err := encodeVectors(vecs)
@@ -104,12 +116,16 @@ func runEmbedHelper(mode string) int {
 // the mode for that spawn index, the last mode repeating.
 type helperSpawner struct {
 	modes []string
+	env   []string
+
+	mu    sync.Mutex
 	specs []localSpec
 	cmds  []*exec.Cmd
-	env   []string
 }
 
 func (h *helperSpawner) cmd(s localSpec) (*exec.Cmd, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	mode := h.modes[min(len(h.specs), len(h.modes)-1)]
 	h.specs = append(h.specs, s)
 	c := exec.Command(os.Args[0], "-test.run=TestEmbedWorkerHelper")
@@ -118,20 +134,29 @@ func (h *helperSpawner) cmd(s localSpec) (*exec.Cmd, error) {
 	return c, nil
 }
 
+// spawns is how many children were started so far.
+func (h *helperSpawner) spawns() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.specs)
+}
+
+// delayEnv sets the helper's per-request ("slow") / handshake
+// ("slowstart") delay.
+func delayEnv(d time.Duration) []string {
+	return []string{"ANY_EMBED_WORKER_DELAY=" + d.String()}
+}
+
 func newTestWorker(t *testing.T, h *helperSpawner, gpuLayers int) *workerEmbedder {
 	t.Helper()
 	model := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(model, []byte("gguf"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	w := &workerEmbedder{
-		spec:         localSpec{modelPath: model, nCtx: 2048, batchDocs: 1, gpuLayers: gpuLayers},
-		lg:           logger.NewNamed("indexer.test"),
-		reqTimeout:   10 * time.Second,
-		startTimeout: 30 * time.Second,
-		newCmd:       h.cmd,
-		now:          time.Now,
-	}
+	w := newWorkerEmbedderFromSpec(localSpec{modelPath: model, nCtx: 2048, batchDocs: 1, gpuLayers: gpuLayers}, 10*time.Second)
+	w.lg = logger.NewNamed("indexer.test")
+	w.startTimeout = 30 * time.Second
+	w.newCmd = h.cmd
 	t.Cleanup(func() { _ = w.Close() })
 	return w
 }
@@ -139,9 +164,28 @@ func newTestWorker(t *testing.T, h *helperSpawner, gpuLayers int) *workerEmbedde
 // clearBackoff skips the restart wait a failure imposes, so a test can
 // assert the respawn without sleeping.
 func clearBackoff(w *workerEmbedder) {
+	_ = w.slot.acquire(context.Background(), false)
+	w.nextTry = time.Time{}
+	w.slot.release(false)
+}
+
+func gpuDisabled(w *workerEmbedder) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.nextTry = time.Time{}
+	return w.gpuDisabled
+}
+
+// waitLive blocks until the child process is up (the request reached
+// the spawn), bounded.
+func waitLive(t *testing.T, w *workerEmbedder) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for w.live.Load() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("child never spawned")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func TestWorkerEmbedder_RoundTrip(t *testing.T) {
@@ -161,8 +205,130 @@ func TestWorkerEmbedder_RoundTrip(t *testing.T) {
 	if _, err := w.EmbedQuery(context.Background(), "q"); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.specs) != 1 {
-		t.Fatalf("spawned %d children, want 1", len(h.specs))
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A batch goes to the child one decode group per frame, so a waiting
+// query can get in between groups.
+func TestWorkerEmbedder_DocsFrames(t *testing.T) {
+	h := &helperSpawner{modes: []string{"ok"}}
+	w := newTestWorker(t, h, 0)
+	w.mu.Lock()
+	w.spec.batchDocs = 2
+	w.mu.Unlock()
+	texts := []string{"a", "bb", "ccc", "dddd", "eeeee"}
+	vecs, err := w.EmbedDocs(context.Background(), texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFrame := []float32{2, 2, 2, 2, 1}
+	for i, v := range vecs {
+		if v[0] != float32(len(texts[i])*10) {
+			t.Fatalf("vector %d out of order: %v", i, v)
+		}
+		if v[helperDim-1] != wantFrame[i] {
+			t.Fatalf("text %d went in a frame of %v texts, want %v", i, v[helperDim-1], wantFrame[i])
+		}
+	}
+	// batchDocs=1 (the default): one text per frame. The spec change
+	// retires the child, so this is a fresh spawn.
+	w.mu.Lock()
+	w.spec.batchDocs = 1
+	w.mu.Unlock()
+	vecs, err = w.EmbedDocs(context.Background(), texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range vecs {
+		if v[helperDim-1] != 1 {
+			t.Fatalf("text %d went in a frame of %v texts, want 1", i, v[helperDim-1])
+		}
+	}
+	if h.spawns() != 2 || h.specs[1].batchDocs != 1 {
+		t.Fatalf("spawns %d, specs %v; want a respawn on the spec change", h.spawns(), h.specs)
+	}
+}
+
+// The point of per-frame slots: a search does not wait for the batch
+// in flight, only for its current decode.
+func TestWorkerEmbedder_QueryJumpsDocQueue(t *testing.T) {
+	const frame = 300 * time.Millisecond
+	h := &helperSpawner{modes: []string{"slow"}, env: delayEnv(frame)}
+	w := newTestWorker(t, h, 0)
+	texts := make([]string, 8)
+	for i := range texts {
+		texts[i] = "doc"
+	}
+	docsDone := make(chan error, 1)
+	go func() {
+		_, err := w.EmbedDocs(context.Background(), texts)
+		docsDone <- err
+	}()
+	waitLive(t, w)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if _, err := w.EmbedQuery(ctx, "q"); err != nil {
+		t.Fatalf("query during a batch: %v", err)
+	}
+	// At most one frame ahead of it plus its own.
+	if elapsed := time.Since(start); elapsed > 3*frame {
+		t.Fatalf("query waited %s behind the batch", elapsed)
+	}
+	select {
+	case err := <-docsDone:
+		t.Fatalf("the batch (%d frames) finished before the query: %v", len(texts), err)
+	default:
+	}
+	if err := <-docsDone; err != nil {
+		t.Fatal(err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A caller that gives up while queued leaves the queue at once — it
+// does not park on the slot until the request in flight ends.
+func TestWorkerEmbedder_SlotWaitHonorsCtx(t *testing.T) {
+	h := &helperSpawner{modes: []string{"hang"}}
+	w := newTestWorker(t, h, 0)
+	w.reqTimeout = time.Hour
+	go func() { _, _ = w.EmbedDocs(context.Background(), []string{"wedged"}) }()
+	waitLive(t, w)
+	time.Sleep(50 * time.Millisecond) // let the frame reach the child
+
+	for _, call := range []struct {
+		name string
+		fn   func(context.Context) error
+	}{
+		{"docs", func(ctx context.Context) error { _, err := w.EmbedDocs(ctx, []string{"second"}); return err }},
+		{"query", func(ctx context.Context) error { _, err := w.EmbedQuery(ctx, "q"); return err }},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		start := time.Now()
+		err := call.fn(ctx)
+		cancel()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s: err = %v, want DeadlineExceeded", call.name, err)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Fatalf("%s: queued caller took %s to give up", call.name, elapsed)
+		}
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+	if st := h.cmds[0].ProcessState; st != nil {
+		t.Fatal("an abandoned wait must not kill the child")
+	}
+	w.slot.mu.Lock()
+	urgent := w.slot.urgent
+	w.slot.mu.Unlock()
+	if urgent != 0 {
+		t.Fatalf("urgent count %d after the query left, want 0", urgent)
 	}
 }
 
@@ -175,15 +341,15 @@ func TestWorkerEmbedder_CrashDemotesToCPU(t *testing.T) {
 	if !errors.Is(err, ErrEmbedderUnavailable) {
 		t.Fatalf("err = %v, want ErrEmbedderUnavailable", err)
 	}
-	if !w.gpuDisabled {
+	if !gpuDisabled(w) {
 		t.Fatal("crash with GPU offload active did not demote to CPU")
 	}
 	clearBackoff(w)
 	if _, err := w.EmbedDocs(context.Background(), []string{"again"}); err != nil {
 		t.Fatalf("respawn failed: %v", err)
 	}
-	if len(h.specs) != 2 {
-		t.Fatalf("spawned %d children, want 2", len(h.specs))
+	if h.spawns() != 2 {
+		t.Fatalf("spawned %d children, want 2", h.spawns())
 	}
 	if h.specs[0].gpuLayers != -1 {
 		t.Fatalf("first spawn gpuLayers = %d, want -1 (llama default)", h.specs[0].gpuLayers)
@@ -199,7 +365,7 @@ func TestWorkerEmbedder_CrashWithGPUOffKeepsSpec(t *testing.T) {
 	if _, err := w.EmbedDocs(context.Background(), []string{"boom"}); err == nil {
 		t.Fatal("want error")
 	}
-	if w.gpuDisabled {
+	if gpuDisabled(w) {
 		t.Fatal("demoted a child that was already CPU-only")
 	}
 	clearBackoff(w)
@@ -228,7 +394,7 @@ func TestWorkerEmbedder_RequestTimeout(t *testing.T) {
 	if st := h.cmds[0].ProcessState; st == nil {
 		t.Fatal("hung child was not reaped")
 	}
-	if !w.gpuDisabled {
+	if !gpuDisabled(w) {
 		t.Fatal("a killed child with GPU offload active should demote to CPU")
 	}
 	clearBackoff(w)
@@ -237,34 +403,89 @@ func TestWorkerEmbedder_RequestTimeout(t *testing.T) {
 	}
 }
 
-// A cancelled caller must not pin the mutex for the whole request
-// timeout, and must not be mistaken for a fault: no backoff, no GPU
-// demotion, just a retired child.
-func TestWorkerEmbedder_ContextCancelAborts(t *testing.T) {
-	h := &helperSpawner{modes: []string{"hang", "ok"}}
+// A caller that gives up mid-frame returns at once, and the child is
+// kept: the frame it owes is read out by the detached round trip, and
+// the next request reuses it. Not a fault — no backoff, no GPU
+// demotion.
+func TestWorkerEmbedder_AbandonedRequestKeepsChild(t *testing.T) {
+	const frame = 500 * time.Millisecond
+	h := &helperSpawner{modes: []string{"slow"}, env: delayEnv(frame)}
 	w := newTestWorker(t, h, -1)
-	w.reqTimeout = time.Hour
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 	start := time.Now()
-	_, err := w.EmbedDocs(ctx, []string{"slow"})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	_, err := w.EmbedQuery(ctx, "slow")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
 	}
-	if elapsed := time.Since(start); elapsed > 30*time.Second {
-		t.Fatalf("cancel took %s", elapsed)
+	if elapsed := time.Since(start); elapsed > frame {
+		t.Fatalf("abandoned caller waited %s for the frame", elapsed)
 	}
-	if w.gpuDisabled {
+	if gpuDisabled(w) {
 		t.Error("an abandoned request must not demote the GPU")
+	}
+	if _, err := w.EmbedQuery(context.Background(), "again"); err != nil {
+		t.Fatalf("next request failed: %v", err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1 (the child is kept)", h.spawns())
+	}
+	if st := h.cmds[0].ProcessState; st != nil {
+		t.Fatal("an abandoned request must not kill the child")
 	}
 	if !w.nextTry.IsZero() {
 		t.Error("an abandoned request must not impose a restart backoff")
 	}
+}
+
+// A spawn abandoned by its caller completes anyway and serves the next
+// caller — a budgeted query never restarts a cold load.
+func TestWorkerEmbedder_AbandonedSpawnCompletes(t *testing.T) {
+	h := &helperSpawner{modes: []string{"slowstart"}, env: delayEnv(time.Second)}
+	w := newTestWorker(t, h, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := w.EmbedQuery(ctx, "first"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	if _, err := w.EmbedQuery(ctx2, "second"); err != nil {
+		t.Fatalf("second query after the abandoned spawn: %v", err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
+	}
+}
+
+// A batch caller that goes away (space dropped, shutdown) returns at
+// the next frame boundary; the child stays.
+func TestWorkerEmbedder_DocsCancelBetweenFrames(t *testing.T) {
+	const frame = 200 * time.Millisecond
+	h := &helperSpawner{modes: []string{"slow"}, env: delayEnv(frame)}
+	w := newTestWorker(t, h, 0)
+	texts := make([]string, 10)
+	for i := range texts {
+		texts[i] = "doc"
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(frame + frame/2)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := w.EmbedDocs(ctx, texts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Duration(len(texts))*frame/2 {
+		t.Fatalf("cancelled batch ran on for %s", elapsed)
+	}
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
-		t.Fatalf("respawn failed: %v", err)
+		t.Fatalf("next request failed: %v", err)
+	}
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1", h.spawns())
 	}
 }
 
@@ -296,8 +517,8 @@ func TestWorkerEmbedder_ErrorFrameKeepsChild(t *testing.T) {
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err == nil {
 		t.Fatal("want error")
 	}
-	if len(h.specs) != 1 {
-		t.Fatalf("spawned %d children, want 1 (child stays usable)", len(h.specs))
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children, want 1 (child stays usable)", h.spawns())
 	}
 }
 
@@ -312,8 +533,8 @@ func TestWorkerEmbedder_SpawnBackoff(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "restarting in") {
 		t.Fatalf("err = %v, want the backoff message", err)
 	}
-	if len(h.specs) != 1 {
-		t.Fatalf("spawned %d children during the backoff, want 1", len(h.specs))
+	if h.spawns() != 1 {
+		t.Fatalf("spawned %d children during the backoff, want 1", h.spawns())
 	}
 }
 
@@ -333,13 +554,49 @@ func TestWorkerEmbedder_SetThreadsRespawns(t *testing.T) {
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(h.specs) != 2 || h.specs[1].threads != 3 {
-		t.Fatalf("spawns %d, threads %v; want a respawn with threads 3", len(h.specs), h.specs)
+	if h.spawns() != 2 || h.specs[1].threads != 3 {
+		t.Fatalf("spawns %d, threads %v; want a respawn with threads 3", h.spawns(), h.specs)
 	}
 	// Setting the same value again is a no-op.
 	w.SetThreads(3)
 	if w.child == nil {
 		t.Fatal("child retired for an unchanged thread count")
+	}
+}
+
+// A thread change must not wait out a frame in flight: the busy child
+// finishes its frame and is retired when the next request finds its
+// spec stale.
+func TestWorkerEmbedder_SetThreadsWhileBusy(t *testing.T) {
+	const frame = 500 * time.Millisecond
+	h := &helperSpawner{modes: []string{"slow"}, env: delayEnv(frame)}
+	w := newTestWorker(t, h, 0)
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := w.EmbedDocs(context.Background(), []string{"a"})
+		errCh <- err
+	}()
+	waitLive(t, w)
+	time.Sleep(50 * time.Millisecond)
+	start := time.Now()
+	w.SetThreads(3)
+	if elapsed := time.Since(start); elapsed > frame/2 {
+		t.Fatalf("SetThreads waited %s for the frame in flight", elapsed)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("the frame in flight failed: %v", err)
+	}
+	if h.spawns() != 1 {
+		t.Fatal("SetThreads disturbed a busy child")
+	}
+	if _, err := w.EmbedDocs(context.Background(), []string{"b"}); err != nil {
+		t.Fatal(err)
+	}
+	if h.spawns() != 2 || h.specs[1].threads != 3 {
+		t.Fatalf("spawns %d, specs %v; want a respawn with threads 3", h.spawns(), h.specs)
+	}
+	if st := h.cmds[0].ProcessState; st == nil || !st.Success() {
+		t.Fatalf("stale child exited %v, want a clean exit on stdin EOF", st)
 	}
 }
 
@@ -393,10 +650,7 @@ func TestWorkerEmbedder_CloseInterruptsRequest(t *testing.T) {
 		errCh <- err
 	}()
 	// Let the request reach the child before closing.
-	deadline := time.Now().Add(10 * time.Second)
-	for w.live.Load() == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitLive(t, w)
 	start := time.Now()
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
@@ -414,6 +668,61 @@ func TestWorkerEmbedder_CloseInterruptsRequest(t *testing.T) {
 	}
 	if st := h.cmds[0].ProcessState; st == nil {
 		t.Fatal("child not reaped")
+	}
+}
+
+// Same, with the caller already gone: the frame runs detached, and a
+// child killed by shutdown is not a fault (no GPU demotion).
+func TestWorkerEmbedder_CloseWithDetachedRoundTrip(t *testing.T) {
+	h := &helperSpawner{modes: []string{"hang"}}
+	w := newTestWorker(t, h, -1)
+	w.reqTimeout = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := w.EmbedDocs(ctx, []string{"wedged"})
+		errCh <- err
+	}()
+	waitLive(t, w)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := <-errCh; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	start := time.Now()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("Close waited %s for the detached frame", elapsed)
+	}
+	if st := h.cmds[0].ProcessState; st == nil {
+		t.Fatal("child not reaped")
+	}
+	if gpuDisabled(w) {
+		t.Fatal("a child killed by Close must not demote the GPU")
+	}
+}
+
+// Shutdown during a cold spawn kills the spawn instead of waiting out
+// the model load.
+func TestWorkerEmbedder_CloseDuringSpawn(t *testing.T) {
+	h := &helperSpawner{modes: []string{"slowstart"}, env: delayEnv(5 * time.Second)}
+	w := newTestWorker(t, h, 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := w.EmbedDocs(ctx, []string{"x"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
+	}
+	start := time.Now()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("Close waited %s for the spawn", elapsed)
+	}
+	if st := h.cmds[0].ProcessState; st == nil {
+		t.Fatal("spawning child not reaped")
 	}
 }
 

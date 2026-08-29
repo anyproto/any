@@ -27,9 +27,10 @@ const (
 	// workerStartTimeout bounds spawn -> `ready` (loading a ~640 MB GGUF
 	// from cold storage).
 	workerStartTimeout = 2 * time.Minute
-	// workerDefaultRequestTimeout bounds one embed round-trip. Generous:
-	// a 64-doc batch of long editor windows measures ~32 s on CPU. Its
-	// job is to unwedge a hung GPU, which no longer returns at all.
+	// workerDefaultRequestTimeout bounds one frame — one decode group of
+	// up to batchDocs texts, seconds even for long editor windows on
+	// CPU. Generous on purpose: its job is to unwedge a hung GPU, which
+	// stops answering rather than failing, not to police slow hardware.
 	workerDefaultRequestTimeout = 3 * time.Minute
 	// workerStopGrace is how long a child gets to exit on stdin EOF
 	// before it is killed.
@@ -54,8 +55,10 @@ const (
 // has for an unreachable embedder.
 //
 // One child, spawned lazily on the first request and shared by every
-// space worker; requests serialize on mu, exactly as they did on the
-// in-process model's mutex.
+// space worker. The stream carries one request at a time, owned through
+// slot: EmbedDocs sends one decode group per frame and takes the slot
+// per frame, and a query takes it ahead of waiting doc frames, so a
+// search waits for at most the decode in flight — never for a batch.
 type workerEmbedder struct {
 	dl           *modelDownload
 	lg           logger.CtxLogger
@@ -67,26 +70,33 @@ type workerEmbedder struct {
 	now    func() time.Time
 
 	// live is the running child's process and closing the shutdown
-	// flag — both read without mu so Close can kill a child while a
-	// request holds the mutex.
-	live    atomic.Pointer[os.Process]
-	closing atomic.Bool
+	// flag — both read without a lock so Close can kill a child while a
+	// request holds the slot.
+	live      atomic.Pointer[os.Process]
+	closing   atomic.Bool
+	closeOnce sync.Once
 
-	mu sync.Mutex
+	// slot is ownership of the child's stream. Its holder alone touches
+	// child, backoff and nextTry.
+	slot *childSlot
+	// Slot-guarded.
+	child   *embedChild
+	backoff time.Duration
+	nextTry time.Time
+
+	mu sync.Mutex // guards spec, gpuDisabled, hw, closed — nothing else
 	// spec holds the parameters every spawn is rendered from. Two
-	// writers: the GPU demotion below, and SetThreads.
-	spec  localSpec
-	child *embedChild
+	// writers: the GPU demotion below, and SetThreads. A child whose
+	// spec no longer matches is retired on its next use.
+	spec localSpec
 	// gpuDisabled is set when a child dies abnormally while GPU offload
 	// was active. In-memory by design: every `any run` starts on the GPU
 	// again, so a driver or hardware fix recovers on its own.
 	gpuDisabled bool
 	// hw is what the last started child reported about this machine —
 	// kept for logging now, for hardware/error/speed statistics later.
-	hw      Hardware
-	backoff time.Duration
-	nextTry time.Time
-	closed  bool
+	hw     Hardware
+	closed bool
 }
 
 func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string, onProcess func(ProcessUpdate)) (*workerEmbedder, error) {
@@ -105,15 +115,23 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 		}
 		reqTimeout = d
 	}
+	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
+	w.dl = dl
+	return w, nil
+}
+
+// newWorkerEmbedderFromSpec wires the supervisor around a resolved spec
+// (tests build one around a helper process).
+func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *workerEmbedder {
 	return &workerEmbedder{
 		spec:         spec,
-		dl:           dl,
 		lg:           logger.NewNamed("indexer.embedder"),
 		reqTimeout:   reqTimeout,
 		startTimeout: workerStartTimeout,
 		newCmd:       embedderCmd,
 		now:          time.Now,
-	}, nil
+		slot:         newChildSlot(),
+	}
 }
 
 // embedderCmd re-execs this binary as the hidden `any run embedder`
@@ -154,18 +172,29 @@ func embedderCmd(s localSpec) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// EmbedDocs sends the batch one decode group per frame — batchDocs
+// texts, exactly one llama_decode in the child — and re-takes the slot
+// for every frame, which is where a waiting query gets in. A failure
+// mid-batch fails the whole call: the docs stay pending and the next
+// round redoes them, same as a failed batch did.
 func (w *workerEmbedder) EmbedDocs(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.embed(ctx, workerRoleDoc, texts)
+	group := max(w.childSpec().batchDocs, 1)
+	out := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += group {
+		end := min(start+group, len(texts))
+		vecs, err := w.embed(ctx, workerRoleDoc, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, vecs...)
+	}
+	return out, nil
 }
 
 func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	// The child prefixes: its Local carries the resolved queryPrefix.
 	vecs, err := w.embed(ctx, workerRoleQuery, []string{text})
 	if err != nil {
@@ -178,37 +207,34 @@ func (w *workerEmbedder) EmbedQuery(ctx context.Context, text string) ([]float32
 // shortcut the in-process embedder takes); a custom model is only known
 // once loaded, so it comes from the child's handshake.
 func (w *workerEmbedder) Dim(ctx context.Context) (int, error) {
-	if w.spec.defaultModel {
-		return min(orDefault(w.spec.outDim, localDefaultDim), localDefaultDim), nil
+	spec := w.childSpec()
+	if spec.defaultModel {
+		return min(orDefault(spec.outDim, localDefaultDim), localDefaultDim), nil
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	if err := w.ensureChild(); err != nil {
-		return 0, err
-	}
-	return w.child.dim, nil
+	r := w.run(ctx, workerReq{Op: workerOpDim})
+	return r.dim, r.err
 }
 
-// SetThreads changes the CPU budget the child decodes with. It takes
-// effect on the next spawn: an idle child is retired here, and a
-// request in flight is undisturbed (it holds mu). 0 restores the
-// default of NumCPU()-1.
+// SetThreads changes the CPU budget the child decodes with. An idle
+// child is retired here so the next request comes up with the new
+// count; a busy one is undisturbed and retired when its frame ends
+// (ensureChild compares the running spec). 0 restores the default of
+// NumCPU()-1.
 func (w *workerEmbedder) SetThreads(n int) {
 	if n < 0 {
 		n = 0
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if n == w.spec.threads {
+		w.mu.Unlock()
 		return
 	}
 	w.spec.threads = n
+	w.mu.Unlock()
 	w.lg.Info("local embedder thread count changed", zap.Int("threads", n))
-	if w.child != nil {
+	if w.slot.tryAcquire() {
 		w.stopChild(true)
+		w.slot.release(false)
 	}
 }
 
@@ -223,72 +249,129 @@ func (w *workerEmbedder) Hardware() Hardware {
 
 // Close retires the child and stops any background model download. An
 // idle child exits gracefully on stdin EOF; a busy one is KILLED before
-// the mutex is taken, because a request in flight holds it for as long
+// the slot is taken, because a request in flight holds it for as long
 // as requestTimeout (a wedged GPU does exactly that) and shutdown must
-// not wait that out. The interrupted round fails and its docs stay
+// not wait that out. The interrupted frame fails and its docs stay
 // pending, which is the normal outage path.
 func (w *workerEmbedder) Close() error {
 	w.closing.Store(true)
-	if !w.mu.TryLock() {
-		if p := w.live.Load(); p != nil {
-			_ = p.Kill()
+	w.closeOnce.Do(func() {
+		if !w.slot.tryAcquire() {
+			if p := w.live.Load(); p != nil {
+				_ = p.Kill()
+			}
+			_ = w.slot.acquire(context.Background(), false)
 		}
+		w.stopChild(true)
 		w.mu.Lock()
-	}
-	defer w.mu.Unlock()
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	w.stopChild(true)
-	if w.dl != nil {
-		w.dl.Close()
-	}
+		w.closed = true
+		w.mu.Unlock()
+		w.slot.release(false)
+		if w.dl != nil {
+			w.dl.Close()
+		}
+	})
 	return nil
 }
 
-// embed runs one round-trip. Caller holds mu.
+// childSpec is what a child spawned now would run with: the configured
+// spec, on CPU once GPU offload has been demoted.
+func (w *workerEmbedder) childSpec() localSpec {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	s := w.spec
+	if w.gpuDisabled {
+		s.gpuLayers = 0
+	}
+	return s
+}
+
+// embed runs one frame of texts in the given role.
 func (w *workerEmbedder) embed(ctx context.Context, role string, texts []string) ([][]float32, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: role, Texts: texts})
+	return r.vecs, r.err
+}
+
+// frameResult is one frame's outcome: vectors for an embed, the
+// handshake dimension for a dim request.
+type frameResult struct {
+	vecs [][]float32
+	dim  int
+	err  error
+}
+
+// run performs one frame on the child, taking the slot for the
+// request's class (queries jump the queue). It abandons the wait, not
+// the work: a caller whose ctx ends leaves at once — from the slot
+// queue, or mid-frame — while the frame completes on its own goroutine
+// and releases the slot when it is done. Once a request is on the wire
+// its answer must be read for the stream to stay usable, so the child
+// is neither interrupted nor retired for a caller that went away; an
+// abandoned spawn likewise finishes and leaves a ready child for the
+// next caller. The frame stays bounded by reqTimeout and by Close.
+func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
+	if w.closing.Load() {
+		return frameResult{err: errWorkerClosed}
 	}
+	urgent := req.Role == workerRoleQuery
+	if err := w.slot.acquire(ctx, urgent); err != nil {
+		return frameResult{err: err}
+	}
+	res := make(chan frameResult, 1)
+	go func() {
+		r := w.serve(ctx, req)
+		w.slot.release(urgent) // before the send: a caller that returns finds the slot free
+		res <- r
+	}()
+	select {
+	case r := <-res:
+		return r
+	case <-ctx.Done():
+		return frameResult{err: ctx.Err()}
+	}
+}
+
+var errWorkerClosed = errors.New("indexer: local embedder: closed")
+
+// serve runs one frame. Caller holds the slot. The caller's ctx is
+// consulted only before the request is written — after that the
+// round trip runs to its own timeout.
+func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 	if err := w.ensureChild(); err != nil {
-		return nil, err
+		return frameResult{err: err}
 	}
-	hdr, bin, err := w.roundTrip(ctx, workerReq{Op: workerOpEmbed, Role: role, Texts: texts})
+	if req.Op == workerOpDim {
+		return frameResult{dim: w.child.dim}
+	}
+	if err := ctx.Err(); err != nil {
+		return frameResult{err: err} // caller gone before the write: nothing owed
+	}
+	hdr, bin, err := w.roundTrip(req)
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			// The caller went away. The child owes us a response we will
-			// never read, so it cannot be reused — but nothing is wrong
-			// with it, so no backoff and no GPU demotion.
-			w.abortChild()
-			return nil, ctxErr
-		}
 		w.failChild(err)
-		return nil, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
+		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	if hdr.Op == workerOpError {
 		// The child reported a failure and is still healthy: keep it.
-		return nil, fmt.Errorf("indexer: local embedder: %s", hdr.Error)
+		return frameResult{err: fmt.Errorf("indexer: local embedder: %s", hdr.Error)}
 	}
 	vecs, err := decodeVectors(bin, hdr.N, hdr.Dim)
-	if err == nil && len(vecs) != len(texts) {
-		err = fmt.Errorf("indexer: embed worker: got %d vectors for %d texts", len(vecs), len(texts))
+	if err == nil && len(vecs) != len(req.Texts) {
+		err = fmt.Errorf("indexer: embed worker: got %d vectors for %d texts", len(vecs), len(req.Texts))
 	}
 	if err != nil {
 		w.failChild(err)
-		return nil, fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
+		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	w.backoff = 0
-	return vecs, nil
+	return frameResult{vecs: vecs}
 }
 
 // roundTrip writes one request and waits for its response. Every
 // non-nil error leaves the stream unusable — a dead child, a timeout
-// (the wedged-GPU case), a desynchronized frame, or an abandoned
-// request whose answer nobody will read — so the caller retires the
-// child rather than reusing it. Caller holds mu.
-func (w *workerEmbedder) roundTrip(ctx context.Context, req workerReq) (workerResp, []byte, error) {
+// (the wedged-GPU case) or a desynchronized frame — so the caller
+// retires the child rather than reusing it. Caller holds the slot.
+func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
 		return workerResp{}, nil, fmt.Errorf("write to embedder child: %w", err)
@@ -306,48 +389,39 @@ func (w *workerEmbedder) roundTrip(ctx context.Context, req workerReq) (workerRe
 		return m.hdr, m.bin, nil
 	case <-timer.C:
 		return workerResp{}, nil, fmt.Errorf("embedder child did not answer in %s", w.reqTimeout)
-	case <-ctx.Done():
-		return workerResp{}, nil, ctx.Err()
 	}
-}
-
-// abortChild retires a child whose in-flight response is abandoned. Not
-// a fault: no backoff, no GPU demotion, no warning. Caller holds mu.
-func (w *workerEmbedder) abortChild() {
-	if w.child == nil {
-		return
-	}
-	w.lg.Debug("embedder child retired: request abandoned")
-	w.stopChild(false)
 }
 
 // ensureChild spawns the child if needed, honoring the restart backoff.
-// Caller holds mu.
+// A running child whose spec has moved on (threads changed, GPU
+// demoted while it was busy) is retired first. Caller holds the slot.
 func (w *workerEmbedder) ensureChild() error {
-	if w.closed || w.closing.Load() {
-		return errors.New("indexer: local embedder: closed")
+	if w.closing.Load() {
+		return errWorkerClosed
 	}
+	spec := w.childSpec()
 	if w.child != nil {
-		return nil
+		if w.child.spec == spec {
+			return nil
+		}
+		w.stopChild(true)
 	}
 	if w.dl != nil {
 		if st := w.dl.Status(); st != nil {
 			return fmt.Errorf("indexer: local embedder: model not ready: %w", st)
 		}
 	}
-	if _, err := os.Stat(w.spec.modelPath); err != nil {
-		return fmt.Errorf("indexer: local embedder: model not found at %s", w.spec.modelPath)
+	if _, err := os.Stat(spec.modelPath); err != nil {
+		return fmt.Errorf("indexer: local embedder: model not found at %s", spec.modelPath)
 	}
 	if now := w.now(); now.Before(w.nextTry) {
 		return fmt.Errorf("%w: embedder child restarting in %s", ErrEmbedderUnavailable, w.nextTry.Sub(now).Round(time.Second))
 	}
-	spec := w.spec
-	if w.gpuDisabled {
-		spec.gpuLayers = 0
-	}
 	c, err := w.startChild(spec)
 	if err != nil {
-		w.penalize()
+		if !w.closing.Load() {
+			w.penalize()
+		}
 		return fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)
 	}
 	w.child = c
@@ -390,8 +464,13 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		return nil, fmt.Errorf("start embedder child: %w", err)
 	}
 	// Visible to Close from here on: the handshake below can take
-	// minutes on a cold model, and shutdown must be able to kill it.
+	// minutes on a cold model, and shutdown must be able to kill it. A
+	// Close that looked before the store saw nothing to kill, so look
+	// back at it here.
 	w.live.Store(cmd.Process)
+	if w.closing.Load() {
+		_ = cmd.Process.Kill()
+	}
 	c := &embedChild{
 		cmd:     cmd,
 		stdin:   stdin,
@@ -399,7 +478,7 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		resp:    make(chan workerFrame, 1),
 		stderr:  &lineTail{max: workerStderrTail},
 		errDone: make(chan struct{}),
-		gpu:     spec.gpuLayers != 0,
+		spec:    spec,
 	}
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
@@ -417,7 +496,9 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		}
 		c.dim = m.hdr.Dim
 		if m.hdr.Hardware != nil {
+			w.mu.Lock()
 			w.hw = *m.hdr.Hardware
+			w.mu.Unlock()
 		}
 	case <-timer.C:
 		waitErr := c.stop(false)
@@ -425,10 +506,11 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		return nil, fmt.Errorf("embedder child did not become ready in %s: %s", w.startTimeout,
 			firstNonEmpty(c.stderr.String(), errText(waitErr), "no output"))
 	}
+	hw := w.Hardware()
 	w.lg.Info("local embedder child started",
-		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", w.hw.Threads),
-		zap.String("hardware", w.hw.String()))
-	w.lg.Debug("local embedder system info", zap.String("systemInfo", w.hw.SystemInfo))
+		zap.Int("dim", c.dim), zap.Int("gpuLayers", spec.gpuLayers), zap.Int("threads", hw.Threads),
+		zap.String("hardware", hw.String()))
+	w.lg.Debug("local embedder system info", zap.String("systemInfo", hw.SystemInfo))
 	return c, nil
 }
 
@@ -436,11 +518,17 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // death: any abnormal exit with GPU offload active demotes this process
 // to CPU. The check is deliberately coarse. A wedged GPU stops
 // answering rather than dying, so a request timeout has to count as a
-// fault — at the price of demoting a merely slow batch. That costs one
+// fault — at the price of demoting a merely slow frame. That costs one
 // run at CPU speed (~4x slower embedding, FTS untouched) against
 // repeated multi-minute stalls, and a restart starts on the GPU again.
-// On a GPU-less machine the demotion is a no-op. Caller holds mu.
+// On a GPU-less machine the demotion is a no-op. A stream that broke
+// because Close killed the child is not a fault: retired silently.
+// Caller holds the slot.
 func (w *workerEmbedder) failChild(cause error) {
+	if w.closing.Load() {
+		w.stopChild(false)
+		return
+	}
 	c := w.child
 	if c == nil {
 		w.penalize()
@@ -448,7 +536,7 @@ func (w *workerEmbedder) failChild(cause error) {
 	}
 	w.child = nil
 	w.live.Store(nil)
-	gpu := c.gpu
+	gpu := c.spec.gpuLayers != 0
 	// stop() joins the stderr pump before returning, so the tail read
 	// after it is complete — that is where llama.cpp's abort message is.
 	waitErr := c.stop(false)
@@ -457,8 +545,13 @@ func (w *workerEmbedder) failChild(cause error) {
 	if waitErr != nil {
 		fields = append(fields, zap.String("childExit", waitErr.Error()))
 	}
-	if gpu && !w.gpuDisabled {
+	w.mu.Lock()
+	demote := gpu && !w.gpuDisabled
+	if demote {
 		w.gpuDisabled = true
+	}
+	w.mu.Unlock()
+	if demote {
 		w.lg.Warn("local embedder child died with GPU offload active; embedding on CPU for the rest of this run", fields...)
 		return
 	}
@@ -466,7 +559,7 @@ func (w *workerEmbedder) failChild(cause error) {
 }
 
 // stopChild retires the current child gracefully (stdin EOF, then kill
-// if it lingers). Caller holds mu.
+// if it lingers). Caller holds the slot.
 func (w *workerEmbedder) stopChild(graceful bool) {
 	if w.child == nil {
 		return
@@ -482,6 +575,102 @@ func (w *workerEmbedder) penalize() {
 	w.nextTry = w.now().Add(w.backoff)
 }
 
+// childSlot is a one-slot semaphore with two classes of waiters:
+// queries go ahead of doc frames. A doc caller that wins the slot while
+// a query is waiting hands it straight back and parks until every
+// waiting query has been served; doc callers hold the slot for one
+// decode group at a time, so a query's wait is bounded by the decode in
+// flight. Acquisition is context-aware — a caller that gives up leaves
+// the queue instead of parking until its turn.
+type childSlot struct {
+	slot chan struct{} // cap 1
+
+	mu     sync.Mutex
+	urgent int           // queries waiting or holding
+	idle   chan struct{} // closed and replaced when urgent drops to 0
+}
+
+func newChildSlot() *childSlot {
+	return &childSlot{slot: make(chan struct{}, 1), idle: make(chan struct{})}
+}
+
+// acquire takes the slot for a query (urgent) or a doc frame. It
+// returns ctx.Err() without the slot when the caller gives up first.
+func (s *childSlot) acquire(ctx context.Context, urgent bool) error {
+	if urgent {
+		s.addUrgent(1)
+		select {
+		case s.slot <- struct{}{}:
+		case <-ctx.Done():
+			s.addUrgent(-1)
+			return ctx.Err()
+		}
+		if err := ctx.Err(); err != nil { // select may pick the slot on a ctx already done
+			s.release(true)
+			return err
+		}
+		return nil
+	}
+	for {
+		select {
+		case s.slot <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		waiting, idle := s.urgentState()
+		if !waiting {
+			if err := ctx.Err(); err != nil {
+				s.release(false)
+				return err
+			}
+			return nil
+		}
+		// A query is waiting: hand the slot over and park until the
+		// urgent queue is empty. idle was captured before the release,
+		// so a query finishing in between still wakes us.
+		s.release(false)
+		select {
+		case <-idle:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// tryAcquire takes a free slot without waiting and without regard to
+// class — for maintenance that must not block behind a request.
+func (s *childSlot) tryAcquire() bool {
+	select {
+	case s.slot <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *childSlot) release(urgent bool) {
+	<-s.slot
+	if urgent {
+		s.addUrgent(-1)
+	}
+}
+
+func (s *childSlot) addUrgent(d int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.urgent += d
+	if s.urgent == 0 && d < 0 {
+		close(s.idle)
+		s.idle = make(chan struct{})
+	}
+}
+
+func (s *childSlot) urgentState() (waiting bool, idle <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.urgent > 0, s.idle
+}
+
 // embedChild is one live child process plus the goroutines draining its
 // pipes. The reader owns stdout and turns it into frames; stderr is
 // logged and tailed so a death can be explained.
@@ -492,7 +681,7 @@ type embedChild struct {
 	resp    chan workerFrame
 	stderr  *lineTail
 	errDone chan struct{}
-	gpu     bool
+	spec    localSpec // what it was spawned with; a drifted spec retires it
 	dim     int
 }
 
