@@ -77,7 +77,7 @@ object.deleted                   # 410 — GET …/objects/:objectId on a delete
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 
-dataset.unknown                  # no handler or runtime definition registered
+dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a dataset the object does not carry: not declared in the space, or declared but not on this object's type (details.dataset); declare it on the type or check the name. A read of an unknown dataset answers 200 {"records": []}
 dataset.validation               # schema or handler rejected ops
 dataset.name_conflict            # 409 — AddDataset name already in use in the space (built-in, handler dataset, or another runtime definition; details.name)
 dataset.decl_invalid             # 400 — malformed dataset declaration (author mutability without a creator stamp, duplicate stamp kind, required additive field, …)

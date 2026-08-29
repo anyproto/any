@@ -358,6 +358,9 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
+	if resp, done := unknownDatasetError(c, err, details); done {
+		return resp
+	}
 	// Filters are parsed at the request boundary (checkFilter), but a
 	// ParseError can still ride an SDK op for filters assembled past it
 	// — keep the mapping here as the fallback.
@@ -425,6 +428,29 @@ func filterParseError(c echo.Context, pe *query.ParseError, details map[string]a
 // (handler.ClassifyValidation), yielding the documented codes in
 // docs/06-errors.md. The status is always 400; an unclassifiable or
 // unmapped reason falls back to the generic dataset.validation.
+// unknownDatasetError maps a record write (modify / delete-records /
+// upsert) that names a dataset the target object does not carry to
+// dataset.unknown — a mistyped name or a dataset never declared on the
+// object's type, never a server fault. STOPGAP: matched on message
+// text until the SDK exports the sentinels (spaceobjects
+// "unknown dataset" — no dataset of that name in the space; crdt
+// "no handler for dataset" — declared in the space but not on this
+// object; the SDK-internal guard) — the oneToOneError pattern.
+func unknownDatasetError(c echo.Context, err error, details map[string]any) (error, bool) {
+	msg := err.Error()
+	if !strings.Contains(msg, "unknown dataset") &&
+		!strings.Contains(msg, "no handler for dataset") &&
+		!strings.Contains(msg, "SDK-internal") {
+		return nil, false
+	}
+	name, _ := details["dataset"].(string)
+	return writeError(c, http.StatusBadRequest, "dataset.unknown",
+		fmt.Sprintf("dataset %q is not declared on this object; declare it on the object's type "+
+			"(POST /v1/spaces/{spaceId}/types/{typeId}/datasets) or check the name "+
+			"(GET /v1/spaces/{spaceId}/datasets lists what the space has)", name),
+		details), true
+}
+
 func sdkValidationError(c echo.Context, err error, details map[string]any) error {
 	code := "dataset.validation"
 	if reason, ok := handler.ClassifyValidation(err); ok {
