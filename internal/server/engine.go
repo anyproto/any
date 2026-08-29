@@ -19,6 +19,7 @@ import (
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
+	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
 	"github.com/anyproto/any/internal/version"
 )
@@ -32,6 +33,10 @@ type engine struct {
 	sdk     *anysyncsdk.SDK
 	indexer *indexer.Indexer
 	push    *push.Service
+	// local is the local store over the SDK's own DB (handlers_local.go);
+	// nil when local.enabled is false. No lifecycle of its own — the
+	// SDK opens and closes the file.
+	local   *localstore.Store
 	account string
 	// derived is the derived-space registry resolved against this
 	// account (see derivedspaces.go).
@@ -158,12 +163,20 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		}()
 	}
 
+	// Local store: device-local, non-CRDT collections in the SDK's
+	// sdk.db under the "l_" tag. Borrows the SDK's handle — nothing to
+	// open, nothing to close.
+	var ls *localstore.Store
+	if cfg.Local.Enabled {
+		ls = localstore.New(sdk.Store())
+	}
+
 	derived, err := resolveDerivedSpaces(ctx, sdk)
 	if err != nil {
 		return nil, fmt.Errorf("resolve derived spaces: %w", err)
 	}
 
-	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, account: account, derived: derived}, nil
+	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, local: ls, account: account, derived: derived}, nil
 }
 
 // engineLog covers engine lifecycle noise that has no request context.
@@ -226,6 +239,7 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.sdk = eng.sdk
 	d.indexer = eng.indexer
 	d.push = eng.push
+	d.local = eng.local
 	d.account = eng.account
 	d.derived = eng.derived
 	d.ready.Store(true)
