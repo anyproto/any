@@ -1453,6 +1453,374 @@
                 },
                 "type": "object"
             },
+            "api.LocalAggregateRequest": {
+                "properties": {
+                    "accumArrayLimit": {
+                        "type": "integer"
+                    },
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "explain": {
+                        "type": "boolean"
+                    },
+                    "groupLimit": {
+                        "type": "integer"
+                    },
+                    "memoryLimitBytes": {
+                        "type": "integer"
+                    },
+                    "pipeline": {
+                        "items": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalAggregateResponse": {
+                "properties": {
+                    "plan": {
+                        "type": "string"
+                    },
+                    "records": {
+                        "items": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "written": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalCollection": {
+                "properties": {
+                    "name": {
+                        "description": "Name: ^[a-z0-9][a-z0-9_-]{0,63}$.",
+                        "type": "string"
+                    },
+                    "scope": {
+                        "description": "Scope is \"account\" or \"space\".",
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "description": "SpaceId binds a space-scoped collection; required iff scope is\n\"space\". Nothing drops the collection when the space goes away.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalCollectionInfo": {
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "indexes": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalIndex"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "description": "Name: ^[a-z0-9][a-z0-9_-]{0,63}$.",
+                        "type": "string"
+                    },
+                    "scope": {
+                        "description": "Scope is \"account\" or \"space\".",
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "description": "SpaceId binds a space-scoped collection; required iff scope is\n\"space\". Nothing drops the collection when the space goes away.",
+                        "type": "string"
+                    },
+                    "storageName": {
+                        "description": "StorageName is the collection's any-store name (the \"l_\"-tagged\nform). It is what a pipeline's $out / $merge `into` / $lookup\n`from` must name — those stages take raw collection names.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalDeleteRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "filter": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalDeleteResponse": {
+                "properties": {
+                    "deleted": {
+                        "description": "Deleted counts documents actually removed (an id that was already\ngone is not counted, not an error).",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalDocsRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "docs": {
+                        "description": "Docs are JSON objects. A missing `id` is minted server-side\n(insert and upsert alike); it must be a string when present.",
+                        "items": {
+                            "additionalProperties": {},
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalEnsureRequest": {
+                "properties": {
+                    "indexes": {
+                        "description": "Indexes to ensure on the collection (idempotent).",
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalIndex"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "description": "Name: ^[a-z0-9][a-z0-9_-]{0,63}$.",
+                        "type": "string"
+                    },
+                    "scope": {
+                        "description": "Scope is \"account\" or \"space\".",
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "description": "SpaceId binds a space-scoped collection; required iff scope is\n\"space\". Nothing drops the collection when the space goes away.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalEnsureResponse": {
+                "properties": {
+                    "collection": {
+                        "$ref": "#/components/schemas/api.LocalCollectionInfo"
+                    },
+                    "created": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalGetRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "id": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalIdsResponse": {
+                "properties": {
+                    "ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalIndex": {
+                "properties": {
+                    "fields": {
+                        "description": "Fields are field paths, \"-\" prefix for descending.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "description": "Name is derived from Fields when empty (e.g. \"kind,-at\").",
+                        "type": "string"
+                    },
+                    "sparse": {
+                        "type": "boolean"
+                    },
+                    "unique": {
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalIndexesRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "drop": {
+                        "description": "Drop names indexes to remove (a missing name is not an error).",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "ensure": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalIndex"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalIndexesResponse": {
+                "properties": {
+                    "indexes": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalIndex"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalListResponse": {
+                "properties": {
+                    "collections": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.LocalCollectionInfo"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalMetaResponse": {
+                "properties": {
+                    "accumulators": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "stages": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalQueryRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "filter": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "includeTotal": {
+                        "type": "boolean"
+                    },
+                    "limit": {
+                        "description": "Limit defaults to 100, capped at 1000.",
+                        "type": "integer"
+                    },
+                    "offset": {
+                        "type": "integer"
+                    },
+                    "sort": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalRecordResponse": {
+                "properties": {
+                    "record": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalUpdateRequest": {
+                "properties": {
+                    "coll": {
+                        "$ref": "#/components/schemas/api.LocalCollection"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "modifier": {
+                        "additionalProperties": {},
+                        "description": "Modifier is a mongo-style modifier ($set / $unset / $inc / …).",
+                        "type": "object"
+                    },
+                    "upsert": {
+                        "description": "Upsert creates the document from the modifier when the id is\nabsent instead of answering 404 local.doc_not_found.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LocalUpdateResponse": {
+                "properties": {
+                    "modified": {
+                        "description": "Modified reports whether the modifier changed the document.",
+                        "type": "boolean"
+                    },
+                    "record": {
+                        "description": "Record is the document after the update.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.MarkdownContent": {
                 "properties": {
                     "content": {
@@ -3797,6 +4165,801 @@
                 "summary": "Get a known identity by account address",
                 "tags": [
                     "identities"
+                ]
+            }
+        },
+        "/local/aggregate": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalAggregateRequest",
+                                        "summary": "body",
+                                        "description": "Collection + pipeline"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + pipeline",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalAggregateResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Run an aggregation pipeline over a local collection",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/collections": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "account | space",
+                        "in": "query",
+                        "name": "scope",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "required for scope=space",
+                        "in": "query",
+                        "name": "spaceId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "collection name",
+                        "in": "query",
+                        "name": "name",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Drop a local collection and its data",
+                "tags": [
+                    "local"
+                ]
+            },
+            "get": {
+                "parameters": [
+                    {
+                        "description": "account | space (absent = both)",
+                        "in": "query",
+                        "name": "scope",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "restrict to one space (scope=space)",
+                        "in": "query",
+                        "name": "spaceId",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "List local collections",
+                "tags": [
+                    "local"
+                ]
+            },
+            "put": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalEnsureRequest",
+                                        "summary": "body",
+                                        "description": "Collection + indexes"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + indexes",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalEnsureResponse"
+                                }
+                            }
+                        },
+                        "description": "already existed"
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalEnsureResponse"
+                                }
+                            }
+                        },
+                        "description": "created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Create a local collection (idempotent)",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/delete": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalDeleteRequest",
+                                        "summary": "body",
+                                        "description": "Collection + ids | filter"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + ids | filter",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalDeleteResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Delete local documents by ids or filter",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/get": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalGetRequest",
+                                        "summary": "body",
+                                        "description": "Collection + id"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + id",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalRecordResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Read one local document by id",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/indexes": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalIndexesRequest",
+                                        "summary": "body",
+                                        "description": "Collection + ensure/drop"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + ensure/drop",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalIndexesResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Ensure / drop indexes on a local collection",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/insert": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalDocsRequest",
+                                        "summary": "body",
+                                        "description": "Collection + docs"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + docs",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalIdsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Insert documents into a local collection",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/meta": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalMetaResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Local store aggregation grammar",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/query": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalQueryRequest",
+                                        "summary": "body",
+                                        "description": "Collection + filter/sort/limit/offset"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + filter/sort/limit/offset",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.QueryResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Query a local collection",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalUpdateRequest",
+                                        "summary": "body",
+                                        "description": "Collection + id + modifier"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + id + modifier",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalUpdateResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Apply a modifier to one local document",
+                "tags": [
+                    "local"
+                ]
+            }
+        },
+        "/local/upsert": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.LocalDocsRequest",
+                                        "summary": "body",
+                                        "description": "Collection + docs"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Collection + docs",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.LocalIdsResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    }
+                },
+                "summary": "Upsert documents into a local collection",
+                "tags": [
+                    "local"
                 ]
             }
         },

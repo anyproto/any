@@ -11,8 +11,11 @@ import (
 	"testing"
 	"time"
 
+	anystore "github.com/anyproto/any-store/v2"
+
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
 )
 
@@ -96,6 +99,19 @@ func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 		d.push = push.New(sdk, dataDir)
 		d.push.Start(shutdownCtx)
 	}
+	// Mirror bootEngine: the local store borrows the SDK's DB. Until
+	// the SDK accessor (any-sync-sdk#111) is pinned, tests use an
+	// in-memory any-store — the fence and the handlers don't care
+	// which file the collections live in.
+	var localDB anystore.DB
+	if cfg.Local.Enabled {
+		ldb, err := anystore.Open(ctx, "", &anystore.Config{InMemory: true})
+		if err != nil {
+			t.Fatalf("open local store: %v", err)
+		}
+		d.local = localstore.New(ldb)
+		localDB = ldb
+	}
 	// Hand-built deps bypass bootAccount; mark the engine live so the
 	// /v1 unauthorized guard lets requests through.
 	d.ready.Store(true)
@@ -109,6 +125,9 @@ func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 		}
 		if err := sdk.Close(); err != nil {
 			t.Logf("sdk close: %v", err)
+		}
+		if localDB != nil {
+			_ = localDB.Close()
 		}
 	}
 }
