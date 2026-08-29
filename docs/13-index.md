@@ -467,9 +467,10 @@ one request at a time, and the server shares it through a one-slot
 semaphore with two classes: `EmbedDocs` sends a batch one decode group
 per frame (`batchDocs` texts, one `llama_decode`) and re-takes the
 slot for every frame, and a search query takes the slot ahead of any
-waiting doc frame. A doc frame yields to the queries waiting at that
-moment once, then runs — so a saturating query stream lets a doc frame
-through per round instead of starving indexing. Once the child is up, a query therefore waits
+waiting doc frame. A doc frame yields to every waiting query, with one
+bound: after 8 consecutive query turns it runs anyway, so a saturating
+query stream still leaves indexing a frame per burst instead of
+starving it. Once the child is up, a query therefore waits
 for at most the decode in flight — ~1–2 s worst case for a 2048-token
 doc on CPU, well under that on a GPU — never for a 64-doc batch,
 however many spaces are backfilling. A cold spawn or a wedged child
@@ -782,6 +783,23 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `RetryBackoff` / `PendingEvery` | 5s / 1m | Failure paths only: advance retry, embed catch-up tick. |
 
 Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
+
+Query embedding while the local child is saturated (three workers
+looping 2000-rune frames — `TestWorkerEmbedder_RealChild_QueryLatency`,
+Qwen3-Embedding-0.6B Q8, 20 jittered queries): the wait is half a doc
+decode on average, never more than one.
+
+| Machine / mode | doc decode under load | query p50 / p90 / max |
+|---|---|---|
+| Ryzen 9 9950X, CPU 16 threads | 297ms (3.3 frames/s) | 214 / 318 / 352ms |
+| Ryzen 9 9950X, iGPU (RADV, Vulkan) | 755ms (0.9/s) — slower than its CPU | 710 / 825 / 836ms |
+| Ryzen 9 3900X, CPU 23 threads (default) | 383ms (1.2/s) | 345 / 496 / 600ms |
+| Ryzen 9 3900X, CPU 12 threads | 470ms (1.1/s) | 479 / 720 / 753ms |
+| GeForce GTX 1080, Vulkan | 181ms (5.6/s) | 107 / 186 / 199ms |
+
+End to end on the 9950X CPU (server + 360-chunk backlog draining, 110
+hybrid `/search` calls over HTTP): p50 212ms, p90 306ms, max 446ms,
+every reply `mode=hybrid` / `vectorStatus=used`.
 Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 (`ANY_BENCH_OLLAMA=1` adds the real-embedder run).
 

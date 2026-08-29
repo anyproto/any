@@ -579,17 +579,24 @@ func (w *workerEmbedder) penalize() {
 // queries go ahead of doc frames. A doc caller that wins the slot while
 // a query is waiting hands it straight back — the release wakes the
 // query parked ahead of it — and queues again behind the queries
-// waiting at that moment, once per frame: on its second win it keeps
-// the slot. So a query waits for at most the decode in flight (doc
-// callers hold the slot for one decode group at a time), and a
-// saturating query stream still lets a doc frame through per round
-// instead of starving indexing. Acquisition is context-aware — a
-// caller that gives up leaves the queue instead of parking until its
-// turn.
+// waiting at that moment. So a query waits for at most the decode in
+// flight (doc callers hold the slot for one decode group at a time).
+// The one exception keeps a saturating query stream from starving
+// indexing: after queryBurst consecutive query turns a doc frame runs
+// regardless, so docs always get a frame per burst. Acquisition is
+// context-aware — a caller that gives up leaves the queue instead of
+// parking until its turn.
 type childSlot struct {
 	slot   chan struct{} // cap 1
 	urgent atomic.Int32  // queries waiting or holding
+	streak atomic.Int32  // consecutive query turns; a doc turn resets it
 }
+
+// queryBurst is how many consecutive query turns a doc frame yields
+// to before it runs anyway. Human query rates never reach it; only a
+// tight query loop does, and it then still leaves docs one frame in
+// every burst.
+const queryBurst = 8
 
 func newChildSlot() *childSlot {
 	return &childSlot{slot: make(chan struct{}, 1)}
@@ -610,9 +617,9 @@ func (s *childSlot) acquire(ctx context.Context, urgent bool) error {
 			s.release(true)
 			return err
 		}
+		s.streak.Add(1)
 		return nil
 	}
-	yielded := false
 	for {
 		select {
 		case s.slot <- struct{}{}:
@@ -623,10 +630,10 @@ func (s *childSlot) acquire(ctx context.Context, urgent bool) error {
 			s.release(false)
 			return err
 		}
-		if yielded || s.urgent.Load() == 0 {
+		if s.urgent.Load() == 0 || s.streak.Load() >= queryBurst {
+			s.streak.Store(0)
 			return nil
 		}
-		yielded = true
 		s.release(false)
 	}
 }

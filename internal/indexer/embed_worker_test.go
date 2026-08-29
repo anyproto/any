@@ -52,10 +52,19 @@ func runEmbedHelper(mode string) int {
 	case "slowstart": // a cold model load
 		time.Sleep(delay)
 	case "real":
+		// CPU by default so comparisons do not depend on a GPU;
+		// ANY_EVAL_LOCAL_GPU_LAYERS=-1 takes llama.cpp's default (offload
+		// all) and ANY_EVAL_LOCAL_THREADS sets the decode threads.
+		gpu := 0
+		if v, err := strconv.Atoi(os.Getenv("ANY_EVAL_LOCAL_GPU_LAYERS")); err == nil {
+			gpu = v
+		}
+		threads, _ := strconv.Atoi(os.Getenv("ANY_EVAL_LOCAL_THREADS"))
 		cfg := EmbedWorkerConfig{
 			ModelPath: os.Getenv("ANY_EVAL_LOCAL_MODEL"),
 			LibDir:    os.Getenv("ANY_EVAL_LOCAL_LIBDIR"),
-			GpuLayers: 0, // CPU: the comparison must not depend on a GPU
+			GpuLayers: gpu,
+			Threads:   threads,
 		}
 		if err := RunEmbedWorker(context.Background(), cfg, os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
