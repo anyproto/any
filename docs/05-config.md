@@ -175,6 +175,13 @@ files:
                                       # background sweep — reclamation stays caller-driven
                                       # via /v1/files/cache/* and per-file offload
 
+# Local store (docs/26-local-store.md): device-local, non-CRDT
+# collections in the SDK's sdk.db under the "l_" tag, served at
+# /v1/local. Off = every /v1/local route answers 409 local.disabled and
+# nothing is created; existing local collections stay on disk.
+local:
+  enabled: true                       # default true
+
 # Push-notification node (docs/20-push.md). A DIRECT out-of-band peer
 # ({peerId, addrs} here, not in the nodeconf) that fans mobile push
 # notifications out by topic. Configuring the peer is the opt-in;
@@ -220,6 +227,8 @@ ANY_PUSH_ENABLED=false                # push.enabled (tristate; unset = iff peer
                                       # docs/20-push.md § Config; false opts out.
 ANY_PUSH_PEER_ID=12D3Koo...           # push.peerId (the push node)
 ANY_PUSH_ADDRS=quic://push:1234       # push.addrs (comma-separated)
+
+ANY_LOCAL_ENABLED=false               # local.enabled
 
 ANY_INDEX_ENABLED=false               # index.enabled
 ANY_INDEX_EMBEDDER=ollama             # index.embedder (local|ollama|openai|auto|none)

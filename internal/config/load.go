@@ -104,6 +104,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_PUSH_ADDRS"); v != "" {
 		cfg.Push.Addrs = splitNonEmpty(v)
 	}
+	if v := os.Getenv("ANY_LOCAL_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			cfg.Local.Enabled = b
+		}
+	}
 	if v := os.Getenv("ANY_INDEX_ENABLED"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			cfg.Index.Enabled = b

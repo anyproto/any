@@ -514,6 +514,29 @@ Registration/progress/finish are owner API calls (agents use the HTTP
 endpoints); watch the raw frames with
 `any events subscribe --type 'process.*'`.
 
+### Local store
+
+```
+any local meta                                        # GET    /v1/local/meta
+any local collections [--scope account|space] [--space ID]   # GET /v1/local/collections
+any local ensure NAME [--space ID] [--index a,-b]... [--unique-index k]...   # PUT /v1/local/collections
+any local drop NAME [--space ID] --yes                # DELETE /v1/local/collections
+any local insert NAME [--space ID] --doc JSON         # POST   /v1/local/insert   (object or array; @FILE / -)
+any local upsert NAME [--space ID] --doc JSON         # POST   /v1/local/upsert
+any local update NAME ID [--space ID] --modifier JSON [--upsert]        # POST /v1/local/update
+any local delete NAME [ID...] [--space ID] [--filter JSON] --yes        # POST /v1/local/delete
+any local get NAME ID [--space ID]                                      # POST /v1/local/get
+any local query NAME [--space ID] [--filter JSON] [--sort a,-b] [--limit N] [--offset N] [--total]   # POST /v1/local/query
+any local aggregate NAME [--space ID] --pipeline JSON [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
+any local indexes NAME [--space ID] [--ensure a,-b]... [--unique-ensure k]... [--drop NAME]...       # POST /v1/local/indexes
+```
+
+Device-local, never-synced collections (`docs/26-local-store.md`).
+NAME is always the first argument; `--space ID` binds the collection
+to a space, otherwise it is account-scoped. `drop` and `delete` refuse
+without `--yes` — local data has no backup. Pipelines name sink /
+lookup collections by their `storageName` (shown by `collections`).
+
 ### Push notifications
 
 ```

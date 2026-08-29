@@ -13,6 +13,7 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
+	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
 )
 
@@ -95,6 +96,10 @@ func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
 	if cfg.Push.Active() {
 		d.push = push.New(sdk, dataDir)
 		d.push.Start(shutdownCtx)
+	}
+	// Mirror bootEngine: the local store borrows the SDK's own DB.
+	if cfg.Local.Enabled {
+		d.local = localstore.New(sdk.Store())
 	}
 	// Hand-built deps bypass bootAccount; mark the engine live so the
 	// /v1 unauthorized guard lets requests through.

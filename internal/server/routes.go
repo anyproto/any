@@ -159,6 +159,14 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.POST("/processes/:id/finish", d.processFinish)
 	v1.POST("/processes/:id/cancel", d.processCancel)
 
+	// Local store: device-local, non-CRDT any-store collections in the
+	// SDK's sdk.db under the "l_" tag — query/aggregate power without
+	// sync. Consumer-side like /search and /events, account-scoped (a
+	// space-scoped collection is addressed in the body), so it sits
+	// outside the space group. 409 local.disabled when local.enabled is
+	// false (deps.local == nil). See docs/26-local-store.md.
+	registerLocalRoutes(v1, d)
+
 	// Account-wide push notifications: device-token registration and
 	// the server-held topic subscriptions (SYN-47). The push server
 	// identifies the caller by account on the secure channel, so the

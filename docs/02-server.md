@@ -137,7 +137,8 @@ holds no lock until it boots an account.
     ├── wallet.key               # auth.FileProvider wallet (mode 0600)
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
-    ├── sdk/                     # any-store DB(s) — owned by the SDK
+    ├── sdk/                     # any-store DB(s) — owned by the SDK; sdk.db ALSO
+    │                            #   holds the local store's l_* collections
     ├── files/                   # file content (one CARv2 per rootCid) — owned
     │                            #   by the SDK (files v2, docs/17-files.md)
     └── index/                   # local search index (index.db) — owned by the indexer
@@ -156,6 +157,11 @@ SDK derives `<account-dir>/files/` next to it for file bytes. A durable
 file's bytes are a cache (reclaimable via `/v1/files/cache/*` or
 per-file offload); a non-durable file's bytes are the ONLY copy —
 deleting `files/` by hand loses them.
+`sdk/sdk.db` is the SDK's replay cache of the DAGs **plus the local
+store** (`docs/26-local-store.md`): the `l_*` collections there are
+device-local data with no DAG behind them and no backup. The SDK's
+own re-index paths rebuild only CRDT collections and leave them alone,
+but removing `sdk/` by hand loses them.
 The search index (`docs/13-index.md`) is derived state: removing
 `<account-dir>/index/` is safe but re-indexes only content changed
 afterwards ("index from the next change"). The embedder model cache is

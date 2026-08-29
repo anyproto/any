@@ -16,6 +16,7 @@ import (
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
+	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
 	"github.com/anyproto/any/internal/version"
 )
@@ -78,6 +79,12 @@ type deps struct {
 	// no push node is configured — the /v1/push endpoints then return
 	// 409 push.disabled.
 	push *push.Service
+
+	// local is the device-local, non-CRDT collection store sharing the
+	// SDK's sdk.db under the "l_" tag (handlers_local.go). Nil when
+	// local.enabled is false — the /v1/local endpoints then return 409
+	// local.disabled; existing collections stay untouched on disk.
+	local *localstore.Store
 
 	// shutdownCtx cancels when graceful teardown begins. Streaming
 	// handlers select on Done to write their final `closed` frame and

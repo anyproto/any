@@ -23,6 +23,7 @@ type Config struct {
 	Index   Index         `yaml:"index"`
 	Files   Files         `yaml:"files"`
 	Push    Push          `yaml:"push"`
+	Local   Local         `yaml:"local"`
 	WebUI   WebUI         `yaml:"webUI"`
 	Log     logger.Config `yaml:"log"`
 }
@@ -128,6 +129,17 @@ type P2P struct {
 	// ServiceName overrides the mDNS service type (default "_any._tcp").
 	// Set it to isolate a deployment onto its own discovery namespace.
 	ServiceName string `yaml:"serviceName"`
+}
+
+// Local configures the local store — device-local, non-CRDT any-store
+// collections in the SDK's sdk.db under the "l_" tag, served at
+// /v1/local (docs/26-local-store.md).
+type Local struct {
+	// Enabled gates the /v1/local routes. Default true. When false the
+	// routes answer 409 local.disabled and no collection is created;
+	// the file is the SDK's and stays open, so existing local
+	// collections sit untouched on disk.
+	Enabled bool `yaml:"enabled"`
 }
 
 // Index configures the local search indexer (FTS + vector, see
@@ -309,6 +321,7 @@ func Defaults() Config {
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},
 		WebUI:   WebUI{Enabled: true},
+		Local:   Local{Enabled: true},
 		Index: Index{
 			Enabled:  true,
 			Embedder: "auto", // online primary + local fallback (same model)
