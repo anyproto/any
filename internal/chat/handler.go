@@ -53,7 +53,9 @@ func (messagesHandler) Indexes() []anystore.IndexInfo {
 // Allowed payload keys: text (required, non-empty, ≤ MaxTextBytes),
 // replyToMessageId (optional, non-empty, ≤ MaxReplyIdBytes),
 // agent (optional {name, debugLink?, done} group — UI hint, not
-// verified), attachments (optional). Any other key rejects:
+// verified), attachments (optional), context (optional {spaceId,
+// objectId?, view?} — the sender's view at send time). Any other key
+// rejects:
 //   - server-stamped fields (creator, createdAt, modifiedAt, _co) —
 //     defends against spoofing authorship via the create payload.
 //   - reactions — a message is always born with zero reactions; the
@@ -177,6 +179,11 @@ func validateCreatePayload(payload *anyenc.Value) error {
 			// validateAttachments rejects an empty map, so reaching here
 			// means at least one attachment.
 			hasAttachments = true
+		case FieldContext:
+			if err := validateContext(v); err != nil {
+				visitErr = err
+				return
+			}
 		default:
 			visitErr = rejectCreate("field_not_allowed: " + key)
 			return
@@ -189,6 +196,66 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	// (a photo with no caption) is ordinary; neither is an empty message.
 	if !hasText && !hasAttachments {
 		return rejectCreate("text or attachment required")
+	}
+	return nil
+}
+
+// validateContext enforces the structure of the context group — the
+// sender's view at send time:
+//
+//   - must be an object
+//   - `spaceId` — required, non-empty string, ≤ MaxContextIdBytes
+//   - `objectId` — optional, non-empty string when present, ≤ MaxContextIdBytes
+//   - `view` — optional, non-empty string when present, ≤ MaxContextViewBytes
+//     (open enum: the client's view kind)
+//   - no unknown sub-fields (bump dataVersion when adding any)
+func validateContext(v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeObject {
+		return rejectCreate("context must be an object")
+	}
+	obj, err := v.Object()
+	if err != nil || obj == nil {
+		return rejectCreate("context must be an object")
+	}
+	var (
+		visitErr   error
+		hasSpaceId bool
+	)
+	obj.Visit(func(rawKey []byte, val *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		key := string(rawKey)
+		max := MaxContextIdBytes
+		switch key {
+		case FieldContextSpaceId:
+			hasSpaceId = true
+		case FieldContextObjectId:
+		case FieldContextView:
+			max = MaxContextViewBytes
+		default:
+			visitErr = rejectCreate("context: unknown field " + key)
+			return
+		}
+		if val.Type() != anyenc.TypeString {
+			visitErr = rejectCreate("context." + key + " must be a string")
+			return
+		}
+		s := val.GetStringBytes()
+		if len(s) == 0 {
+			visitErr = rejectCreate("context." + key + " must be non-empty when present")
+			return
+		}
+		if len(s) > max {
+			visitErr = rejectCreate(fmt.Sprintf("context.%s too long (%d > %d bytes)", key, len(s), max))
+			return
+		}
+	})
+	if visitErr != nil {
+		return visitErr
+	}
+	if !hasSpaceId {
+		return rejectCreate("context.spaceId required")
 	}
 	return nil
 }

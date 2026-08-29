@@ -546,6 +546,20 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.ChatMessageContext": {
+                "properties": {
+                    "objectId": {
+                        "type": "string"
+                    },
+                    "spaceId": {
+                        "type": "string"
+                    },
+                    "view": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatSendRequest": {
                 "properties": {
                     "agent": {
@@ -556,6 +570,9 @@ const docTemplate = `{
                             "$ref": "#/components/schemas/api.ChatAttachment"
                         },
                         "type": "object"
+                    },
+                    "context": {
+                        "$ref": "#/components/schemas/api.ChatMessageContext"
                     },
                     "replyToMessageId": {
                         "type": "string"

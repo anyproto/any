@@ -134,6 +134,7 @@ const (
 	FieldReactions        = "reactions"
 	FieldAgent            = "agent"
 	FieldAttachments      = "attachments"
+	FieldContext          = "context"
 )
 
 // Agent sub-record keys.
@@ -151,11 +152,21 @@ const (
 	FieldAttachmentLink = "link"
 )
 
+// Sub-keys of the `context` group — the sender's view at send time
+// ({spaceId, objectId?, view?}; api.ChatMessageContext).
+const (
+	FieldContextSpaceId  = "spaceId"
+	FieldContextObjectId = "objectId"
+	FieldContextView     = "view"
+)
+
 // dataVersion is the on-the-wire stamp pinned to writes on this
 // dataset. Bump only when validation logic changes in a way that must
 // reject older writers. v2: `fromAgent` (string) replaced by the
-// `agent` {name, debugLink, done} group.
-const dataVersion = "chat_messages-v2"
+// `agent` {name, debugLink, done} group. v3: the create-only `context`
+// group ({spaceId, objectId?, view?}) — a v2 handler rejects a create
+// carrying it as field_not_allowed.
+const dataVersion = "chat_messages-v3"
 
 // handlerVersion is this handler's LOCAL logic version — bumped when a
 // change to the handler makes rows already materialized on disk wrong,
@@ -177,6 +188,9 @@ const (
 	MaxAttachmentIdBytes   = 64
 	MaxAttachmentTypeBytes = 64
 	MaxAttachmentLinkBytes = 2 * 1024
+
+	MaxContextIdBytes   = 256
+	MaxContextViewBytes = 64
 
 	// MaxMentions caps the derived mentions array (post-dedup,
 	// first-occurrence order wins). MaxTextBytes already bounds real
@@ -255,6 +269,7 @@ func datasetSchema() handler.Schema {
 			{Id: FieldAgent, Name: "Agent", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldContext, Name: "Context", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			// Read-tracking flags — SDK-materialized, device-local,
 			// filterable ({"unread": true}). See reading.go.
 			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},

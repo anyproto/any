@@ -43,6 +43,8 @@ type SendOpts struct {
 	ReplyToMessageId string
 	Agent            *api.ChatAgentMeta
 	Attachments      map[string]api.ChatAttachment
+	// Context is the sender's view at send time — optional, create-only.
+	Context *api.ChatMessageContext
 }
 
 // Send writes one new message and returns the raw space.ModifyResult.
@@ -80,6 +82,16 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 			}
 		}
 		payload[FieldAttachments] = atts
+	}
+	if opts.Context != nil {
+		cx := map[string]any{FieldContextSpaceId: opts.Context.SpaceId}
+		if opts.Context.ObjectId != "" {
+			cx[FieldContextObjectId] = opts.Context.ObjectId
+		}
+		if opts.Context.View != "" {
+			cx[FieldContextView] = opts.Context.View
+		}
+		payload[FieldContext] = cx
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{

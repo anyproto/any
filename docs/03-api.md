@@ -2401,6 +2401,7 @@ body is always read back through the query path.
     "a1": { "type": "link",  "link": "any://abc/def" },
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
+  "context":          { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" },
   "reactions":        { "👍": { "<id1>": {"$date": "2026-05-01T21:00:00.000Z"},
                                 "<id2>": {"$date": "2026-05-01T21:00:05.000Z"} } }
 }
@@ -2465,6 +2466,16 @@ unknown types rather than dropping the entry. `link` is ≤ 2 KiB. Up
 to 32 attachments per message. Immutable post-create — the handler
 rejects $set on the attachments path.
 
+`context` is the sender's view at send time — the page on screen when
+they hit send: `spaceId` (required), `objectId` (the open object /
+collection / record, when there is one), `view` (the client's view
+kind — an open string such as `object`, `collection`, `mail`, `files`).
+Optional, create-only, immutable. It is how an agent reading the chat
+resolves "here" / "this page"; there is no timestamp on it because the
+message's `createdAt` is when the user was there. Ids ≤ 256 bytes,
+`view` ≤ 64; an unknown sub-key or an empty `spaceId` rejects 400
+`chat.context_invalid` (HTTP) / `field_not_allowed` (handler).
+
 `reactions` ships on the wire in the same shape it has in storage:
 emoji → `{accountId: <changeTimestamp>}`, where the leaf timestamp is
 when that identity added the emoji. This is identical to what `/query`
@@ -2483,7 +2494,8 @@ See `internal/chat/handler.go`.
 
 ```json
 { "text": "hello", "replyToMessageId": "abc",
-  "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false } }
+  "agent": { "name": "bao", "debugLink": "any://sp/dbg#turn_2", "done": false },
+  "context": { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" } }
 ```
 
 `text` is required unless `attachments` is non-empty — a photo sent
