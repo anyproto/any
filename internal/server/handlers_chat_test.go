@@ -218,6 +218,63 @@ func TestServer_Chat_Validation(t *testing.T) {
 // send → list, verifying entries are returned as-stored. Also covers
 // the 400 path on a bad attachment id so the http-layer fast-path is
 // exercised.
+func TestServer_Chat_Context(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	// the sender's view rides the message and reads back as sent
+	body := `{"text":"do it here","context":{"spaceId":"sp1","objectId":"ob1","view":"object"}}`
+	rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	res := decodeModifyResult(t, rec.Body.Bytes())
+	msg := getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Context == nil || *msg.Context != (api.ChatMessageContext{SpaceId: "sp1", ObjectId: "ob1", View: "object"}) {
+		t.Fatalf("context = %+v, want {sp1 ob1 object}", msg.Context)
+	}
+
+	// optional keys stay absent; no context = no group at all
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"listing","context":{"spaceId":"sp1","view":"mail"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	msg = getChatMsg(t, e, base, decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0])
+	if msg.Context == nil || msg.Context.ObjectId != "" || msg.Context.View != "mail" {
+		t.Fatalf("context = %+v, want {sp1 _ mail}", msg.Context)
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"nowhere"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	if msg = getChatMsg(t, e, base, decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]); msg.Context != nil {
+		t.Fatalf("context = %+v, want nil", msg.Context)
+	}
+
+	// shape errors answer 400 chat.context_invalid; a stray sub-key is
+	// the strict-bind 400 like any other unknown field
+	for _, bad := range []string{
+		`{"text":"x","context":{"view":"object"}}`,
+		`{"text":"x","context":{"spaceId":""}}`,
+	} {
+		rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", bad)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s, want 400", bad, rec.Code, rec.Body.String())
+		}
+		if e := decodeErr(t, rec.Body.Bytes()); e.Code != api.ErrChatContextInvalid {
+			t.Fatalf("%s: code %q, want %q", bad, e.Code, api.ErrChatContextInvalid)
+		}
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"x","context":{"spaceId":"sp1","updatedAt":1}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("stray sub-key: %d %s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestServer_Chat_Attachments(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -486,6 +543,7 @@ type chatMsg struct {
 	Text             string
 	Mentions         []string
 	Attachments      map[string]api.ChatAttachment
+	Context          *api.ChatMessageContext
 	Reactions        map[string]map[string]int64
 }
 

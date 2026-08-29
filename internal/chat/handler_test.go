@@ -140,6 +140,73 @@ func TestBeforeCreate_AcceptsAttachmentOnlyMessage(t *testing.T) {
 	}
 }
 
+func TestBeforeCreate_AcceptsContext(t *testing.T) {
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString("do it here"))
+	cx := arena.NewObject()
+	cx.Set(FieldContextSpaceId, arena.NewString("sp1"))
+	cx.Set(FieldContextObjectId, arena.NewString("ob1"))
+	cx.Set(FieldContextView, arena.NewString("object"))
+	payload.Set(FieldContext, cx)
+	rec := setRoot(arena, payload)
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
+		t.Fatalf("BeforeCreate with context: %v", err)
+	}
+}
+
+func TestBeforeCreate_ContextRejects(t *testing.T) {
+	withContext := func(a *anyenc.Arena, build func(cx *anyenc.Value)) *handler.RecordChange {
+		p := a.NewObject()
+		p.Set(FieldText, a.NewString("x"))
+		cx := a.NewObject()
+		build(cx)
+		p.Set(FieldContext, cx)
+		return setRoot(a, p)
+	}
+	cases := []struct {
+		name   string
+		build  func(a *anyenc.Arena) *handler.RecordChange
+		wantIn string
+	}{
+		{"not an object", func(a *anyenc.Arena) *handler.RecordChange {
+			p := a.NewObject()
+			p.Set(FieldText, a.NewString("x"))
+			p.Set(FieldContext, a.NewString("sp1"))
+			return setRoot(a, p)
+		}, "context must be an object"},
+		{"missing spaceId", func(a *anyenc.Arena) *handler.RecordChange {
+			return withContext(a, func(cx *anyenc.Value) { cx.Set(FieldContextView, a.NewString("mail")) })
+		}, "context.spaceId required"},
+		{"empty spaceId", func(a *anyenc.Arena) *handler.RecordChange {
+			return withContext(a, func(cx *anyenc.Value) { cx.Set(FieldContextSpaceId, a.NewString("")) })
+		}, "context.spaceId must be non-empty"},
+		{"unknown sub-field", func(a *anyenc.Arena) *handler.RecordChange {
+			return withContext(a, func(cx *anyenc.Value) {
+				cx.Set(FieldContextSpaceId, a.NewString("sp1"))
+				cx.Set("updatedAt", a.NewNumberInt(1))
+			})
+		}, "context: unknown field updatedAt"},
+		{"non-string objectId", func(a *anyenc.Arena) *handler.RecordChange {
+			return withContext(a, func(cx *anyenc.Value) {
+				cx.Set(FieldContextSpaceId, a.NewString("sp1"))
+				cx.Set(FieldContextObjectId, a.NewNumberInt(7))
+			})
+		}, "context.objectId must be a string"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &anyenc.Arena{}
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			err := (messagesHandler{}).BeforeCreate(ctx, tc.build(a), &handler.Sink{})
+			if err == nil || !strings.Contains(err.Error(), tc.wantIn) {
+				t.Fatalf("got %v, want error containing %q", err, tc.wantIn)
+			}
+		})
+	}
+}
+
 func TestBeforeCreate_AttachmentRejects(t *testing.T) {
 	cases := []struct {
 		name   string

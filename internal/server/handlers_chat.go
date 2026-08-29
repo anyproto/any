@@ -57,12 +57,17 @@ func (d *deps) chatSend(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrChatAttachmentsInvalid,
 			err.Error(), nil)
 	}
+	if err := validateContextRequest(req.Context); err != nil {
+		return writeError(c, http.StatusBadRequest, api.ErrChatContextInvalid,
+			err.Error(), nil)
+	}
 
 	res, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
 		ReplyToMessageId: req.ReplyToMessageId,
 		Agent:            req.Agent,
 		Attachments:      req.Attachments,
+		Context:          req.Context,
 	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
@@ -207,6 +212,28 @@ func validateAgentRequest(a *api.ChatAgentMeta) error {
 	}
 	if len(a.DebugLink) > chat.MaxDebugLinkBytes {
 		return fmt.Errorf("agent.debugLink too long (%d > %d bytes)", len(a.DebugLink), chat.MaxDebugLinkBytes)
+	}
+	return nil
+}
+
+// validateContextRequest runs the HTTP-layer shape checks on the
+// sender's view group; the CRDT handler re-validates the payload
+// (chat.validateContext) so a hand-crafted change meets the same rule.
+func validateContextRequest(cx *api.ChatMessageContext) error {
+	if cx == nil {
+		return nil
+	}
+	if cx.SpaceId == "" {
+		return fmt.Errorf("context.spaceId required")
+	}
+	if len(cx.SpaceId) > chat.MaxContextIdBytes {
+		return fmt.Errorf("context.spaceId too long (%d > %d bytes)", len(cx.SpaceId), chat.MaxContextIdBytes)
+	}
+	if len(cx.ObjectId) > chat.MaxContextIdBytes {
+		return fmt.Errorf("context.objectId too long (%d > %d bytes)", len(cx.ObjectId), chat.MaxContextIdBytes)
+	}
+	if len(cx.View) > chat.MaxContextViewBytes {
+		return fmt.Errorf("context.view too long (%d > %d bytes)", len(cx.View), chat.MaxContextViewBytes)
 	}
 	return nil
 }

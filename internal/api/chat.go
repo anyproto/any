@@ -10,6 +10,20 @@ type ChatAttachment struct {
 	Link string `json:"link"`
 }
 
+// ChatMessageContext is where the sender was when they sent the
+// message — the page on screen, stamped by the client. `SpaceId` is
+// the space in view (required), `ObjectId` the open object /
+// collection / record when there is one, `View` the client's view
+// kind (an open string: "object", "collection", "mail", …). Optional
+// on send, create-only and immutable; an agent reading the chat takes
+// "here"/"this page" from it. No timestamp: the message's createdAt is
+// when the user was there.
+type ChatMessageContext struct {
+	SpaceId  string `json:"spaceId"`
+	ObjectId string `json:"objectId,omitempty"`
+	View     string `json:"view,omitempty"`
+}
+
 // Chat writes (send / edit / delete / react) return the shared
 // api.ModifyResult — {versionId, changeId, recordIds} — like every
 // other dataset write. recordIds[0] is the new message id on send
@@ -41,11 +55,15 @@ type ChatAgentMeta struct {
 //
 // `attachments` is a map keyed by short opaque ids (≤ 64 chars,
 // [A-Za-z0-9_-]+) carrying {type, link, order?}. Create-only.
+//
+// `context` is the sender's view at send time (ChatMessageContext).
+// Optional, create-only.
 type ChatSendRequest struct {
 	Text             string                    `json:"text"`
 	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
 	Agent            *ChatAgentMeta            `json:"agent,omitempty"`
 	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
+	Context          *ChatMessageContext       `json:"context,omitempty"`
 }
 
 // ChatEditRequest is the body of PATCH .../messages/:msgId. Only
@@ -68,4 +86,5 @@ const (
 	ErrChatNotFound           = "chat.not_found"
 	ErrChatRejected           = "chat.rejected"
 	ErrChatAttachmentsInvalid = "chat.attachments_invalid"
+	ErrChatContextInvalid     = "chat.context_invalid"
 )
