@@ -61,7 +61,7 @@ Panics are converted to `500 internal` with a generic message.
 | `auth.bad_mnemonic` | 400 | BIP-39 validation failed |
 | `auth.mnemonic_mismatch` | 409 | wallet on disk disagrees with the phrase/index |
 | `auth.account_not_found` | 404 | `accountId` has no local wallet |
-| `auth.account_in_use` | 409 | another process holds the account's pid lock |
+| `auth.account_in_use` | 409 | another process holds the account's instance lock |
 | `auth.passkey_required` | 400 | encrypted wallet, no passkey provided |
 | `auth.passkey_wrong` | 400 | passkey rejected |
 

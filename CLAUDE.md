@@ -430,7 +430,8 @@ Implementation slices landed:
     alpha.11's `Collection.Aggregate`.
 17. **Mnemonic authorization + per-account data dirs** — the data dir
     is now a multi-account ROOT: new accounts live at
-    `<root>/<accountId>/` (wallet.key, server.pid, sdk/, index/), a
+    `<root>/<accountId>/` (wallet.key, server.lock, server.pid, sdk/,
+    index/), a
     legacy root `wallet.key` is the DEFAULT account with its data flat
     at the root (no migration code), embedder models shared at
     `<root>/models/` (a model already in the legacy
@@ -1454,7 +1455,8 @@ Data dir layout:
 ```
 <data-dir>/
 ├── wallet.key         # auth.FileProvider wallet (0600)
-├── server.pid         # single-instance lock (stale PIDs are reclaimed)
+├── server.lock        # single-instance OS file lock (kernel-released)
+├── server.pid         # holder's pid — error messages only, never proof of life
 ├── config.yaml        # optional
 └── storage/           # any-store — owned by SDK
 ```

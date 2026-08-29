@@ -10,6 +10,8 @@ require (
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20250801122506-553f6c085a23
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.3
+	github.com/ebitengine/purego v0.10.2
+	github.com/gofrs/flock v0.13.1
 	github.com/hybridgroup/yzma v1.25.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/pb33f/libopenapi v0.38.7
@@ -48,7 +50,6 @@ require (
 	github.com/disintegration/imaging v1.6.2 // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/flopp/go-findfont v0.1.0 // indirect
 	github.com/fogleman/gg v1.3.0 // indirect
 	github.com/gammazero/chanqueue v1.1.2 // indirect

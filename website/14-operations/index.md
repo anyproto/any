@@ -11,7 +11,7 @@ order: 0
 
 ```
 any run                      foreground, 127.0.0.1:7001
-  ├── engine                 pid lock → wallet → SDK → indexer
+  ├── engine                 instance lock → wallet → SDK → indexer
   │     └── boot pass        eager space loading + offline catch-up (background)
   ├── HTTP listener          /v1/… — REST + SSE
   └── background workers     search indexer, push, file-cache GC (opt-in)
@@ -51,7 +51,7 @@ curl -s http://127.0.0.1:7001/v1/health
 
 | Concern | Page |
 |---|---|
-| start, boot pass, shutdown, pid lock, listen address | [Server](server.html) |
+| start, boot pass, shutdown, instance lock, listen address | [Server](server.html) |
 | YAML file, `ANY_*` env vars, flags, precedence, every key | [Configuration](configuration.html) |
 | accounts, wallets, `sdk/`, `files/`, `index/`, `models/`, backups | [Data directory](data-dir.html) |
 | production default, staging and local nodeconfs, LAN p2p | [Networks](networks.html) |
