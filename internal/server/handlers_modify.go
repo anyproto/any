@@ -47,7 +47,7 @@ func (d *deps) spaceModify(c echo.Context) error {
 
 	res, err := sp.Modify(c.Request().Context(), batch)
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": batch.ObjectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": batch.ObjectId, "dataset": batch.Dataset})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
@@ -93,7 +93,7 @@ func (d *deps) spaceDeleteRecords(c echo.Context) error {
 		TraceIds:  req.TraceIds,
 	})
 	if err != nil {
-		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId})
+		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": req.ObjectId, "dataset": req.Dataset})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
 }
