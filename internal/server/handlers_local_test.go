@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/anyproto/any/internal/api"
@@ -141,6 +142,13 @@ func TestServer_Local_Collections(t *testing.T) {
 		t.Fatalf("list account: %+v", list.Collections)
 	}
 	localExpectError(t, e, http.MethodGet, "/v1/local/collections?scope=device", "", http.StatusBadRequest, "local.bad_name")
+	localExpectError(t, e, http.MethodGet, "/v1/local/collections?scope=account&spaceId="+spaceId, "", http.StatusBadRequest, "local.bad_name")
+
+	// A rejected index leaves no collection behind (create + index are
+	// one transaction) and is a client error.
+	localExpectError(t, e, http.MethodPut, "/v1/local/collections",
+		`{"scope":"account","name":"badidx","indexes":[{"name":"a","fields":["x"]},{"name":"a","fields":["y"]}]}`, http.StatusBadRequest, "local.bad_index")
+	localExpectError(t, e, http.MethodPost, "/v1/local/query", `{"coll":{"scope":"account","name":"badidx"}}`, http.StatusNotFound, "local.collection_not_found")
 
 	localDo[struct{}](t, e, http.MethodDelete, "/v1/local/collections?scope=space&spaceId="+spaceId+"&name=cache", "", http.StatusNoContent)
 	localExpectError(t, e, http.MethodDelete, "/v1/local/collections?scope=space&spaceId="+spaceId+"&name=cache", "", http.StatusNotFound, "local.collection_not_found")
@@ -316,8 +324,11 @@ func TestServer_Local_Aggregate(t *testing.T) {
 		t.Errorf("limit detail: %v", err.Details)
 	}
 
-	// $out into a local collection (created implicitly): written count,
-	// then readable.
+	// $out into a local collection: the target must exist (a sink never
+	// mints a collection), then written count, then readable.
+	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
+		`{"coll":`+accColl+`,"pipeline":[{"$group":{"_id":"$kind"}},{"$out":"l_a_rollup"}]}`, http.StatusNotFound, "local.collection_not_found")
+	localEnsure(t, e, `{"scope":"account","name":"rollup"}`, http.StatusCreated)
 	agg = localDo[api.LocalAggregateResponse](t, e, http.MethodPost, "/v1/local/aggregate",
 		`{"coll":`+accColl+`,"pipeline":[{"$group":{"_id":"$kind","sum":{"$sum":"$n"}}},{"$out":"l_a_rollup"}]}`, http.StatusOK)
 	if agg.Written == nil || *agg.Written != 2 || agg.Records != nil {
@@ -351,9 +362,77 @@ func TestServer_Local_Aggregate(t *testing.T) {
 	// A tagged but unparseable target is a bad name, also fenced.
 	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
 		`{"coll":`+accColl+`,"pipeline":[{"$out":"l_x_nope"}]}`, http.StatusBadRequest, "local.bad_sink_target")
+	// A sink nested in $facet is fenced too; a $lookup from another
+	// local collection is a client error, not a 500; $project dropping
+	// id before $out is a client error.
+	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
+		`{"coll":`+accColl+`,"pipeline":[{"$facet":{"a":[{"$out":"_meta"}]}}]}`, http.StatusBadRequest, "local.bad_sink_target")
+	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
+		`{"coll":`+accColl+`,"pipeline":[{"$lookup":{"from":"l_a_rollup","localField":"kind","foreignField":"id","as":"r"}}]}`, http.StatusBadRequest, "local.bad_pipeline")
+	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
+		`{"coll":`+accColl+`,"pipeline":[{"$project":{"id":0,"n":1}},{"$out":"l_a_rollup"}]}`, http.StatusBadRequest, "local.bad_pipeline")
+	// A sink into a space-scoped target runs the space pre-flight.
+	localExpectError(t, e, http.MethodPost, "/v1/local/aggregate",
+		`{"coll":`+accColl+`,"pipeline":[{"$out":"l_s_bafyreiaybsrmdicsv7fmuupnzojtdnhpna7its6evawg7lhw67pu4yiulq.1f5isugmolo56_x"}]}`, http.StatusNotFound, "space.not_found")
 	// The meta collection was never created by any of the above.
 	list := localDo[api.LocalListResponse](t, e, http.MethodGet, "/v1/local/collections", "", http.StatusOK)
 	if len(list.Collections) != 2 {
 		t.Fatalf("collections after fence tests: %+v", list.Collections)
+	}
+}
+
+// TestServer_Local_ConcurrentBodies pins that a request's parsed body
+// is never shared with another in-flight request: N collections each
+// receive exactly their own docs under concurrent inserts, updates
+// and deletes (run with -race).
+func TestServer_Local_ConcurrentBodies(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	const workers, rounds = 8, 20
+	for w := 0; w < workers; w++ {
+		localEnsure(t, e, fmt.Sprintf(`{"scope":"account","name":"c%d"}`, w), http.StatusCreated)
+	}
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			coll := fmt.Sprintf(`{"scope":"account","name":"c%d"}`, w)
+			for r := 0; r < rounds; r++ {
+				rec := doJSON(t, e, http.MethodPost, "/v1/local/insert",
+					fmt.Sprintf(`{"coll":%s,"docs":[{"id":"r%d","w":%d},{"w":%d}]}`, coll, r, w, w))
+				if rec.Code != http.StatusOK {
+					t.Errorf("worker %d insert: %d %s", w, rec.Code, rec.Body.String())
+					return
+				}
+				rec = doJSON(t, e, http.MethodPost, "/v1/local/update",
+					fmt.Sprintf(`{"coll":%s,"id":"r%d","modifier":{"$set":{"seen":true}}}`, coll, r))
+				if rec.Code != http.StatusOK {
+					t.Errorf("worker %d update: %d %s", w, rec.Code, rec.Body.String())
+					return
+				}
+				rec = doJSON(t, e, http.MethodPost, "/v1/local/delete",
+					fmt.Sprintf(`{"coll":%s,"filter":{"w":{"$ne":%d}}}`, coll, w))
+				if rec.Code != http.StatusOK {
+					t.Errorf("worker %d delete: %d %s", w, rec.Code, rec.Body.String())
+					return
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	for w := 0; w < workers; w++ {
+		q := localDo[api.QueryResponse](t, e, http.MethodPost, "/v1/local/query",
+			fmt.Sprintf(`{"coll":{"scope":"account","name":"c%d"},"includeTotal":true,"limit":1000}`, w), http.StatusOK)
+		if *q.Total != rounds*2 {
+			t.Errorf("collection c%d: %d docs, want %d", w, *q.Total, rounds*2)
+		}
+		for _, r := range q.Records {
+			if !strings.Contains(string(r), fmt.Sprintf(`"w":%d`, w)) {
+				t.Errorf("collection c%d holds a foreign doc: %s", w, r)
+			}
+		}
 	}
 }

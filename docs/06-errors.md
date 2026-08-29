@@ -122,6 +122,7 @@ aggregate.limit_exceeded         # 400 — a blocking-stage bound blew (details.
 
 local.disabled                   # 409 — local store disabled (local.enabled: false); existing collections untouched on disk
 local.collection_not_found       # 404 — collection not ensured yet (PUT /v1/local/collections), or already dropped
+local.bad_index                  # 400 — an index in ensure/indexes was rejected (same name, different definition; invalid name); ensure leaves no collection behind
 local.bad_name                   # 400 — scope / spaceId / name failed validation (name: ^[a-z0-9][a-z0-9_-]{0,63}$)
 local.bad_sink_target            # 400 — a pipeline $out / $merge into / $lookup from names a collection outside the local store
 local.doc_not_found              # 404 — get / update (without upsert) of an unknown id
@@ -131,7 +132,7 @@ local.too_many_docs              # 400 — insert/upsert over 1000 docs in one r
 local.bad_filter                 # 400 — filter failed to parse (filter.* codes cover the boundary check; this is the store-side fallback)
 local.bad_sort                   # 400 — unparseable sort key
 local.bad_modifier               # 400 — unparseable or unknown-operator modifier
-local.bad_pipeline               # 400 — unparseable pipeline, sink into the aggregated collection, $merge result without id
+local.bad_pipeline               # 400 — unparseable pipeline, sink into the aggregated collection, sink result without id, $lookup from another collection
 local.limit_exceeded             # 400 — a blocking-stage bound blew (details.limit: group | accumArray | memory)
 
 push.disabled                    # 409 — push notifications not configured (push.enabled / push.peerId), or the SDK has no push node

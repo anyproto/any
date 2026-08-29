@@ -77,22 +77,26 @@ func localDisabled(c echo.Context) error {
 }
 
 // localBody reads and parses a required JSON object body and gates it
-// on the accepted field set.
-func localBody(c echo.Context, fields []string) (*fastjson.Value, error, bool) {
+// on the accepted field set. The returned root is owned by a pooled
+// parser: the caller MUST `defer release()` and not touch root after —
+// releasing early hands the same Value slots to the next request.
+func localBody(c echo.Context, fields []string) (root *fastjson.Value, release func(), errResp error, done bool) {
 	body, err := readBody(c)
 	if err != nil || len(body) == 0 {
-		return nil, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
+		return nil, nil, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
-	defer putFastjsonParser(parser)
-	root, err := parser.ParseBytes(body)
+	release = func() { putFastjsonParser(parser) }
+	root, err = parser.ParseBytes(body)
 	if err != nil {
-		return nil, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+		release()
+		return nil, nil, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
 	if errResp, done := checkUnknownFields(c, root, "", fields...); done {
-		return nil, errResp, true
+		release()
+		return nil, nil, errResp, true
 	}
-	return root, nil, false
+	return root, release, nil, false
 }
 
 // localRefFromValue reads a {scope, spaceId?, name} object. strict
@@ -127,28 +131,42 @@ func localRef(c echo.Context, scope, spaceId, name string) (localstore.Ref, erro
 	return ref, nil, false
 }
 
+// localReq is a resolved /v1/local request: the collection handle, its
+// ref, and the parsed body. release returns the body's parser to the
+// pool — defer it; root is invalid afterwards.
+type localReq struct {
+	coll    anystore.Collection
+	ref     localstore.Ref
+	root    *fastjson.Value
+	release func()
+}
+
 // resolveLocal is the shared prologue: disabled guard → body → coll ref
 // → space pre-flight → collection handle (404 local.collection_not_found).
-func (d *deps) resolveLocal(c echo.Context, fields []string) (anystore.Collection, localstore.Ref, *fastjson.Value, error, bool) {
+// On done=true nothing is held; otherwise the caller owns req.release.
+func (d *deps) resolveLocal(c echo.Context, fields []string) (req localReq, errResp error, done bool) {
 	if d.local == nil {
-		return nil, localstore.Ref{}, nil, localDisabled(c), true
+		return localReq{}, localDisabled(c), true
 	}
-	root, errResp, done := localBody(c, fields)
+	root, release, errResp, done := localBody(c, fields)
 	if done {
-		return nil, localstore.Ref{}, nil, errResp, true
+		return localReq{}, errResp, true
 	}
 	ref, errResp, done := localRefFromValue(c, root.Get("coll"), "coll", true)
 	if done {
-		return nil, localstore.Ref{}, nil, errResp, true
+		release()
+		return localReq{}, errResp, true
 	}
 	if errResp, done := d.localSpaceCheck(c, ref); done {
-		return nil, localstore.Ref{}, nil, errResp, true
+		release()
+		return localReq{}, errResp, true
 	}
 	coll, err := d.local.Collection(c.Request().Context(), ref)
 	if err != nil {
-		return nil, localstore.Ref{}, nil, localError(c, err, ref), true
+		release()
+		return localReq{}, localError(c, err, ref), true
 	}
-	return coll, ref, root, nil, false
+	return localReq{coll: coll, ref: ref, root: root, release: release}, nil, false
 }
 
 func (d *deps) localSpaceCheck(c echo.Context, ref localstore.Ref) (error, bool) {
@@ -198,7 +216,10 @@ func localError(c echo.Context, err error, ref localstore.Ref) error {
 		}
 		details["limit"] = limit
 		return writeError(c, http.StatusBadRequest, "local.limit_exceeded", err.Error(), details)
+	case errors.Is(err, anystore.ErrIndexMismatch), errors.Is(err, anystore.ErrInvalidIndexName):
+		return writeError(c, http.StatusBadRequest, "local.bad_index", err.Error(), details)
 	case errors.Is(err, anystore.ErrAggregateIntoSource),
+		errors.Is(err, anystore.ErrDocWithoutId),
 		errors.Is(err, anystore.ErrMergeNoId),
 		errors.Is(err, anystore.ErrMergeMatched),
 		errors.Is(err, anystore.ErrMergeNotMatched):
@@ -322,10 +343,11 @@ func (d *deps) localCollectionsEnsure(c echo.Context) error {
 	if d.local == nil {
 		return localDisabled(c)
 	}
-	root, errResp, done := localBody(c, localEnsureFields)
+	root, release, errResp, done := localBody(c, localEnsureFields)
 	if done {
 		return errResp
 	}
+	defer release()
 	ref, errResp, done := localRefFromValue(c, root, "collection", false)
 	if done {
 		return errResp
@@ -430,6 +452,11 @@ func localDocsFromValue(c echo.Context, v *fastjson.Value) ([]*anyenc.Value, []s
 	}
 	docs := make([]*anyenc.Value, 0, len(arr))
 	ids := make([]string, 0, len(arr))
+	// One arena for every minted id, held until the docs are serialised:
+	// NewString aliases the arena's buffer, and a returned arena is Reset
+	// by its next borrower.
+	arena := getFastjsonArena()
+	defer putFastjsonArena(arena)
 	for i, item := range arr {
 		if item.Type() != fastjson.TypeObject {
 			return nil, nil, writeError(c, http.StatusBadRequest, "request.schema",
@@ -440,9 +467,7 @@ func localDocsFromValue(c echo.Context, v *fastjson.Value) ([]*anyenc.Value, []s
 		switch {
 		case idv == nil || idv.Type() == fastjson.TypeNull:
 			id = localMintId()
-			arena := getFastjsonArena()
 			item.Set("id", arena.NewString(id))
-			putFastjsonArena(arena)
 		case idv.Type() == fastjson.TypeString:
 			id = string(idv.GetStringBytes())
 			if id == "" {
@@ -497,19 +522,20 @@ func localWriteChunks(c echo.Context, coll anystore.Collection, docs []*anyenc.V
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/insert [post]
 func (d *deps) localInsert(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localDocsFields)
+	req, errResp, done := d.resolveLocal(c, localDocsFields)
 	if done {
 		return errResp
 	}
-	docs, ids, errResp, done := localDocsFromValue(c, root.Get("docs"))
+	defer req.release()
+	docs, ids, errResp, done := localDocsFromValue(c, req.root.Get("docs"))
 	if done {
 		return errResp
 	}
-	err := localWriteChunks(c, coll, docs, func(c echo.Context, coll anystore.Collection, chunk []*anyenc.Value) error {
+	err := localWriteChunks(c, req.coll, docs, func(c echo.Context, coll anystore.Collection, chunk []*anyenc.Value) error {
 		return coll.Insert(c.Request().Context(), chunk...)
 	})
 	if err != nil {
-		return localError(c, err, ref)
+		return localError(c, err, req.ref)
 	}
 	return c.JSON(http.StatusOK, api.LocalIdsResponse{Ids: ids})
 }
@@ -528,15 +554,16 @@ func (d *deps) localInsert(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/upsert [post]
 func (d *deps) localUpsert(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localDocsFields)
+	req, errResp, done := d.resolveLocal(c, localDocsFields)
 	if done {
 		return errResp
 	}
-	docs, ids, errResp, done := localDocsFromValue(c, root.Get("docs"))
+	defer req.release()
+	docs, ids, errResp, done := localDocsFromValue(c, req.root.Get("docs"))
 	if done {
 		return errResp
 	}
-	err := localWriteChunks(c, coll, docs, func(c echo.Context, coll anystore.Collection, chunk []*anyenc.Value) error {
+	err := localWriteChunks(c, req.coll, docs, func(c echo.Context, coll anystore.Collection, chunk []*anyenc.Value) error {
 		tx, err := coll.WriteTx(c.Request().Context())
 		if err != nil {
 			return err
@@ -550,7 +577,7 @@ func (d *deps) localUpsert(c echo.Context) error {
 		return tx.Commit()
 	})
 	if err != nil {
-		return localError(c, err, ref)
+		return localError(c, err, req.ref)
 	}
 	return c.JSON(http.StatusOK, api.LocalIdsResponse{Ids: ids})
 }
@@ -568,41 +595,55 @@ func (d *deps) localUpsert(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/update [post]
 func (d *deps) localUpdate(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localUpdateFields)
+	req, errResp, done := d.resolveLocal(c, localUpdateFields)
 	if done {
 		return errResp
 	}
-	id := string(root.GetStringBytes("id"))
+	defer req.release()
+	id := string(req.root.GetStringBytes("id"))
 	if id == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "id required", nil)
 	}
-	modv := root.Get("modifier")
+	modv := req.root.Get("modifier")
 	if modv == nil || modv.Type() != fastjson.TypeObject {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "modifier required: a mongo-style modifier object", nil)
 	}
 	mod, err := query.ParseModifier(modv)
 	if err != nil {
-		return localError(c, err, ref)
+		return localError(c, err, req.ref)
 	}
-	ctx := c.Request().Context()
+	upsert := req.root.GetBool("upsert")
+	// Modify and read back in ONE transaction: a concurrent delete
+	// between the two would otherwise turn an applied update into a
+	// 404, and an upsert retry would resurrect the deleted document.
+	tx, err := req.coll.WriteTx(c.Request().Context())
+	if err != nil {
+		return localError(c, err, req.ref)
+	}
 	var res anystore.ModifyResult
-	if root.GetBool("upsert") {
-		res, err = coll.UpsertId(ctx, id, mod)
+	if upsert {
+		res, err = req.coll.UpsertId(tx.Context(), id, mod)
 	} else {
-		res, err = coll.UpdateId(ctx, id, mod)
+		res, err = req.coll.UpdateId(tx.Context(), id, mod)
 	}
 	if err != nil {
-		return localError(c, err, ref)
+		_ = tx.Rollback()
+		return localError(c, err, req.ref)
 	}
-	doc, err := coll.FindId(ctx, id)
+	doc, err := req.coll.FindId(tx.Context(), id)
 	if err != nil {
-		return localError(c, err, ref)
+		_ = tx.Rollback()
+		return localError(c, err, req.ref)
 	}
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
+	record := json.RawMessage(doc.Value().FastJson(fa).MarshalTo(nil))
+	if err := tx.Commit(); err != nil {
+		return localError(c, err, req.ref)
+	}
 	return c.JSON(http.StatusOK, api.LocalUpdateResponse{
 		Modified: res.Modified > 0,
-		Record:   json.RawMessage(doc.Value().FastJson(fa).MarshalTo(nil)),
+		Record:   record,
 	})
 }
 
@@ -619,10 +660,12 @@ func (d *deps) localUpdate(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/delete [post]
 func (d *deps) localDelete(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localDeleteFields)
+	req, errResp, done := d.resolveLocal(c, localDeleteFields)
 	if done {
 		return errResp
 	}
+	defer req.release()
+	coll, ref, root := req.coll, req.ref, req.root
 	ctx := c.Request().Context()
 	idsv := root.Get("ids")
 	filter := root.Get("filter")
@@ -702,10 +745,12 @@ func (d *deps) localDelete(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/get [post]
 func (d *deps) localGet(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localGetFields)
+	req, errResp, done := d.resolveLocal(c, localGetFields)
 	if done {
 		return errResp
 	}
+	defer req.release()
+	coll, ref, root := req.coll, req.ref, req.root
 	id := string(root.GetStringBytes("id"))
 	if id == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "id required", nil)
@@ -734,10 +779,12 @@ func (d *deps) localGet(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/query [post]
 func (d *deps) localQuery(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localQueryFields)
+	req, errResp, done := d.resolveLocal(c, localQueryFields)
 	if done {
 		return errResp
 	}
+	defer req.release()
+	coll, ref, root := req.coll, req.ref, req.root
 	if errResp, done := checkFilter(c, root); done {
 		return errResp
 	}
@@ -815,18 +862,20 @@ func (d *deps) localQuery(c echo.Context) error {
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/aggregate [post]
 func (d *deps) localAggregate(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localAggregateFields)
+	req, errResp, done := d.resolveLocal(c, localAggregateFields)
 	if done {
 		return errResp
 	}
+	defer req.release()
+	coll, ref, root := req.coll, req.ref, req.root
 	pipeline, errResp, done := requirePipeline(c, root)
 	if done {
 		return errResp
 	}
 	// The sink fence: every raw collection name a client put INSIDE the
-	// pipeline must be a local one. Done on the raw JSON, before
-	// any-store parses — a rejected name never reaches the store.
-	hasSink, errResp, done := localPipelineTargets(c, pipeline, ref)
+	// pipeline must be a local one that exists. Done on the raw JSON,
+	// before any-store parses — a rejected name never reaches the store.
+	hasSink, errResp, done := d.localPipelineTargets(c, pipeline, ref)
 	if done {
 		return errResp
 	}
@@ -877,20 +926,28 @@ func (d *deps) localAggregate(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.LocalAggregateResponse{Records: records})
 }
 
-// localPipelineTargets walks the raw pipeline for the stages that name
-// a collection — $out (string), $merge (string | {into}), $lookup
-// ({from}) — and passes each through localstore.SinkTarget. A
-// malformed stage shape is left for any-store's parser to reject
-// (local.bad_pipeline); only a present, string-typed name is fenced
-// here. Reports whether the pipeline ends in a write sink.
-func localPipelineTargets(c echo.Context, pipeline *fastjson.Value, ref localstore.Ref) (hasSink bool, errResp error, done bool) {
+// localPipelineTargets walks the raw pipeline (recursing into $facet
+// sub-pipelines) for the stages that name a collection — $out
+// (string), $merge (string | {into}), $lookup ({from}) — and fences
+// each: the name must be a local collection (localstore.SinkTarget),
+// its space must pass the same pre-flight as the request's own
+// collection, and it must already exist (404 local.collection_not_found
+// — a sink never mints a collection, so a typo'd target cannot become
+// a silent sibling). $lookup from must name the aggregated collection
+// itself until any-store resolves cross-collection lookups (400
+// local.bad_pipeline rather than the unmapped store error). A malformed
+// stage shape is left for any-store's parser (local.bad_pipeline);
+// only a present, string-typed name is fenced here. Reports whether
+// the pipeline ends in a write sink.
+func (d *deps) localPipelineTargets(c echo.Context, pipeline *fastjson.Value, source localstore.Ref) (hasSink bool, errResp error, done bool) {
 	for _, stage := range pipeline.GetArray() {
 		obj, err := stage.Object()
 		if err != nil {
 			continue
 		}
 		var target string
-		var found bool
+		var found, lookup bool
+		var facets []*fastjson.Value
 		obj.Visit(func(key []byte, v *fastjson.Value) {
 			switch string(key) {
 			case "$out":
@@ -910,14 +967,42 @@ func localPipelineTargets(c echo.Context, pipeline *fastjson.Value, ref localsto
 				}
 			case "$lookup":
 				if from := v.Get("from"); from != nil && from.Type() == fastjson.TypeString {
-					target, found = string(from.GetStringBytes()), true
+					target, found, lookup = string(from.GetStringBytes()), true, true
+				}
+			case "$facet":
+				if fo, err := v.Object(); err == nil {
+					fo.Visit(func(_ []byte, sub *fastjson.Value) {
+						if sub.Type() == fastjson.TypeArray {
+							facets = append(facets, sub)
+						}
+					})
 				}
 			}
 		})
+		for _, sub := range facets {
+			if _, errResp, done := d.localPipelineTargets(c, sub, source); done {
+				return hasSink, errResp, true
+			}
+		}
 		if !found {
 			continue
 		}
-		if _, err := localstore.SinkTarget(target); err != nil {
+		ref, err := localstore.SinkTarget(target)
+		if err != nil {
+			return hasSink, localError(c, err, source), true
+		}
+		if lookup {
+			if ref != source {
+				return hasSink, writeError(c, http.StatusBadRequest, "local.bad_pipeline",
+					"$lookup from must name the aggregated collection ("+source.StorageName()+"); cross-collection lookups are not supported yet",
+					localDetails(source)), true
+			}
+			continue
+		}
+		if errResp, done := d.localSpaceCheck(c, ref); done {
+			return hasSink, errResp, true
+		}
+		if _, err := d.local.Collection(c.Request().Context(), ref); err != nil {
 			return hasSink, localError(c, err, ref), true
 		}
 	}
@@ -937,10 +1022,12 @@ func localPipelineTargets(c echo.Context, pipeline *fastjson.Value, ref localsto
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Router		/local/indexes [post]
 func (d *deps) localIndexes(c echo.Context) error {
-	coll, ref, root, errResp, done := d.resolveLocal(c, localIndexesFields)
+	req, errResp, done := d.resolveLocal(c, localIndexesFields)
 	if done {
 		return errResp
 	}
+	defer req.release()
+	coll, ref, root := req.coll, req.ref, req.root
 	ctx := c.Request().Context()
 	ensure, errResp, done := localIndexesFromValue(c, root.Get("ensure"))
 	if done {

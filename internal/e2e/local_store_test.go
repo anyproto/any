@@ -48,7 +48,9 @@ func TestE2E_LocalStore(t *testing.T) {
 	mustStatus(t, http.MethodPost, base+"/v1/local/insert",
 		`{"coll":`+sp+`,"docs":[{"id":"x","objectId":"obj-1"}]}`, http.StatusOK)
 
-	// A rollup into another local collection, and the fence on an SDK one.
+	// A rollup into another (ensured) local collection, and the fence
+	// on an SDK one.
+	mustStatus(t, http.MethodPut, base+"/v1/local/collections", `{"scope":"account","name":"rollup"}`, http.StatusCreated)
 	var agg api.LocalAggregateResponse
 	mustJSON(t, http.MethodPost, base+"/v1/local/aggregate",
 		`{"coll":`+acc+`,"pipeline":[{"$group":{"_id":null,"sum":{"$sum":"$k"}}},{"$out":"l_a_rollup"}]}`,

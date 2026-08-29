@@ -244,6 +244,8 @@ func TestListFence(t *testing.T) {
 	require.ErrorIs(t, err, ErrBadName)
 	_, err = s.List(ctx, ScopeSpace, "bad_id")
 	require.ErrorIs(t, err, ErrBadName)
+	_, err = s.List(ctx, ScopeAccount, spaceA)
+	require.ErrorIs(t, err, ErrBadName)
 
 	// The other direction: enumerate the raw DB and assert the tagged
 	// set is exactly what ParseStorageName accepts.
@@ -278,4 +280,31 @@ func TestSinkTarget(t *testing.T) {
 		_, err := SinkTarget(bad)
 		require.True(t, errors.Is(err, ErrNotLocal), bad)
 	}
+}
+
+// TestEnsureAtomic: a rejected index rolls the create back — no
+// collection is left behind, and a later valid Ensure reports created.
+func TestEnsureAtomic(t *testing.T) {
+	ctx := context.Background()
+	s := New(openDB(t))
+	ref, err := ParseRef(ScopeAccount, "", "atomic")
+	require.NoError(t, err)
+
+	_, err = s.Ensure(ctx, ref, []anystore.IndexInfo{
+		{Name: "a", Fields: []string{"x"}},
+		{Name: "a", Fields: []string{"y"}},
+	})
+	require.ErrorIs(t, err, anystore.ErrIndexMismatch)
+	_, err = s.Collection(ctx, ref)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	created, err := s.Ensure(ctx, ref, []anystore.IndexInfo{{Name: "a", Fields: []string{"x"}}})
+	require.NoError(t, err)
+	require.True(t, created)
+	// An existing collection with a conflicting index: error, collection kept.
+	_, err = s.Ensure(ctx, ref, []anystore.IndexInfo{{Name: "a", Fields: []string{"y"}}})
+	require.ErrorIs(t, err, anystore.ErrIndexMismatch)
+	coll, err := s.Collection(ctx, ref)
+	require.NoError(t, err)
+	require.Len(t, coll.GetIndexes(), 1)
 }

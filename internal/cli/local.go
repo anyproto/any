@@ -260,6 +260,11 @@ func newLocalDeleteCmd() *cobra.Command {
 			if (len(ids) == 0) == (filter == "") {
 				return fmt.Errorf("pass either ids or --filter")
 			}
+			for _, id := range ids {
+				if strings.HasPrefix(id, "{") || strings.HasPrefix(id, "@") || id == "-" {
+					return fmt.Errorf("%q looks like a filter, not an id — pass it as --filter %s", id, id)
+				}
+			}
 			if !yes {
 				return fmt.Errorf("refusing to delete without --yes (local data has no backup)")
 			}

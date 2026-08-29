@@ -1260,8 +1260,9 @@ Implementation slices landed:
     collection. Not a dataset: no type/schema/handler, no `_ver`, no
     subscribe, not search-indexed; **a space-scoped collection
     outlives its space** (no cleanup hook — `drop` is the cleanup
-    path; 1-1 re-derivation inherits stale rows); `sdk.db` is
-    therefore no longer freely wipeable. Writes chunk at 256 docs per
+    path; 1-1 re-derivation inherits stale rows), so a manual wipe of
+    `sdk.db` loses local data. Sink/lookup targets inside a pipeline
+    must be existing local collections (never minted by a sink). Writes chunk at 256 docs per
     tx (single any-store writer shared with the CRDT apply path);
     delete-by-filter is not atomic per call. Config `local.enabled`
     (`ANY_LOCAL_ENABLED`, default true) → `409 local.disabled`.

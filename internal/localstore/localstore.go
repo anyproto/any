@@ -172,30 +172,38 @@ func New(db anystore.DB) *Store {
 }
 
 // Ensure creates the collection if absent and ensures the given indexes
-// on it. created reports whether this call made it.
+// on it, atomically: create and index DDL share one write transaction,
+// so a rejected index never leaves a freshly created, index-less
+// collection behind. created reports whether this call made it.
 func (s *Store) Ensure(ctx context.Context, ref Ref, indexes []anystore.IndexInfo) (created bool, err error) {
 	name := ref.StorageName()
-	coll, err := s.db.OpenCollection(ctx, name)
+	tx, err := s.db.WriteTx(ctx)
+	if err != nil {
+		return false, err
+	}
+	txCtx := tx.Context()
+	coll, err := s.db.OpenCollection(txCtx, name)
 	switch {
 	case err == nil:
 	case errors.Is(err, anystore.ErrCollectionNotFound):
-		coll, err = s.db.CreateCollection(ctx, name)
-		if errors.Is(err, anystore.ErrCollectionExists) {
-			// Lost a race with a concurrent Ensure: adopt.
-			coll, err = s.db.OpenCollection(ctx, name)
-		} else if err == nil {
-			created = true
-		}
+		coll, err = s.db.CreateCollection(txCtx, name)
 		if err != nil {
+			_ = tx.Rollback()
 			return false, err
 		}
+		created = true
 	default:
+		_ = tx.Rollback()
 		return false, err
 	}
 	if len(indexes) > 0 {
-		if err := coll.EnsureIndex(ctx, indexes...); err != nil {
-			return created, err
+		if err := coll.EnsureIndex(txCtx, indexes...); err != nil {
+			_ = tx.Rollback()
+			return false, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
 	}
 	return created, nil
 }
@@ -224,10 +232,14 @@ func (s *Store) Collection(ctx context.Context, ref Ref) (anystore.Collection, e
 // one. Untagged names are never returned. Order is the DB's (sorted by
 // storage name).
 func (s *Store) List(ctx context.Context, scope Scope, spaceId string) ([]Info, error) {
-	if scope != "" && scope != ScopeAccount && scope != ScopeSpace {
+	// The same (scope, spaceId) rules ParseRef applies, minus the name:
+	// a spaceId is only meaningful under space scope.
+	switch {
+	case scope != "" && scope != ScopeAccount && scope != ScopeSpace:
 		return nil, fmt.Errorf("%w: scope %q", ErrBadName, scope)
-	}
-	if scope == ScopeSpace && spaceId != "" && !spaceIdRe.MatchString(spaceId) {
+	case scope == ScopeAccount && spaceId != "":
+		return nil, fmt.Errorf("%w: spaceId is not allowed for account scope", ErrBadName)
+	case spaceId != "" && !spaceIdRe.MatchString(spaceId):
 		return nil, fmt.Errorf("%w: spaceId %q", ErrBadName, spaceId)
 	}
 	names, err := s.db.GetCollectionNames(ctx)

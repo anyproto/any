@@ -3036,10 +3036,15 @@ shapes `/query` and `/aggregate` take. Query `limit` defaults to 100
 **Sinks and lookups name collections by `storageName`** — `$out
 "l_a_rollup"`, `$merge {into: "l_s_<spaceId>_x"}`, `$lookup {from:
 …}` — and every such name is fenced before any-store parses: anything
-outside the local store is `400 local.bad_sink_target`. A sink
-pipeline answers `{written: n}`; its target is created if absent.
-`$out`/`$merge` into the aggregated collection itself and `$merge`
-results lacking `id` are `400 local.bad_pipeline`.
+outside the local store is `400 local.bad_sink_target`; a sink target
+must already exist and passes the space pre-flight (`404
+local.collection_not_found` / `space.*` otherwise — a sink never
+creates a collection); `$facet` sub-pipelines are walked. A sink
+pipeline answers `{written: n}`. `$out`/`$merge` into the aggregated
+collection itself, results lacking `id`, and `$lookup from` naming any
+collection but the aggregated one are `400 local.bad_pipeline`. A
+rejected index on ensure is `400 local.bad_index` and leaves no
+collection behind (create + index are one transaction).
 
 **Writes are chunked, 256 docs per transaction** (any-store has one
 writer per DB and the CRDT apply path shares it): insert/upsert take

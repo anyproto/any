@@ -52,8 +52,8 @@ and leaves everything else alone.
 
 ### What sharing the file costs
 
-- **Not rebuildable.** `sdk.db` used to be a pure replay cache of the
-  DAGs; it now also holds the only copy of local data. The SDK's own
+- **Not rebuildable.** `sdk.db` holds the SDK's replay cache of the
+  DAGs AND the only copy of local data. The SDK's own
   rebuild paths (generation bump, handler version bump) are safe —
   they touch CRDT collections only — but a manual `rm sdk/` loses
   local collections. There is no backup story.
@@ -149,12 +149,16 @@ docs/14-aggregation.md); the stage vocabulary is whatever
 ### Aggregation sinks
 
 A pipeline ending in `$out` or `$merge` answers `{written: n}` instead
-of `records`; the target is created if absent (under the tag — it is a
-normal local collection afterwards). Constraints any-store imposes: a
-sink cannot target the aggregated collection itself, and `$merge`
-needs every result document to carry `id` (both `400
-local.bad_pipeline`). `$lookup from` must also be a local collection
-and, for now, the aggregated collection itself.
+of `records`. The target must be an **existing** local collection —
+it passes the same space pre-flight as the request's own collection
+and `404 local.collection_not_found` otherwise; a sink never mints a
+collection, so a typo'd target cannot become a silent sibling. Sinks
+nested in `$facet` are fenced the same way. Constraints any-store
+imposes: a sink cannot target the aggregated collection itself, and
+`$merge`/`$out` need every result document to carry `id` (both `400
+local.bad_pipeline`). `$lookup from` must name the aggregated
+collection itself until cross-collection lookups land (`400
+local.bad_pipeline`).
 
 ## Limits
 
@@ -183,7 +187,8 @@ local collections sit untouched on disk.
 ## Errors
 
 `local.*` — docs/06-errors.md. The ones a client should branch on:
-`local.collection_not_found` (ensure first), `local.duplicate_id`,
+`local.collection_not_found` (ensure first — also a sink target),
+`local.bad_index`, `local.duplicate_id`,
 `local.doc_not_found`, `local.unique_violation`, `local.bad_sink_target`,
 `local.limit_exceeded`, `local.disabled`.
 
