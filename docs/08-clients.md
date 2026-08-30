@@ -141,10 +141,9 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   format reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
   the one key (`new Date(v.$date)`), and use the same shape in filter
   literals and writes: `{"modifiedAt": {"$gte": {"$date": "…"}}}`. A bare
-  string or number does not error — comparisons across types go by type
-  rank and instants rank above both, so `$gte` matches every row and
-  `$lt` matches none. A range filter that forgets the wrapper returns a
-  wrong answer, not an empty one.
+  string or number does not error — ordering comparisons are bracketed
+  by type, so a bare literal never compares against an instant and a
+  range filter that forgets the wrapper comes back empty.
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset

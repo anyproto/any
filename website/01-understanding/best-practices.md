@@ -23,7 +23,7 @@ An object's `any.types` decides which datasets it accepts: a `chat_messages` wri
 - **Always set `limit`.** An unbounded read is a bug: it can produce a huge snapshot or overflow a subscribe mailbox, and drift detection is off when `limit == 0`.
 - **Page on a cursor, not `offset`.** Offsets float under writes. Page with `{"_ver.id": {"$lt": "<last>"}}` and the same sort — indexed, absolute, and correct while the collection mutates.
 - **Recency is `-modifiedAt`**, creation order `-createdAt` — author's clock, display quality only.
-- **Timestamps are `{"$date": …}`** in filters too; a bare value compares by type rank and returns a wrong answer, not an empty one.
+- **Timestamps are `{"$date": …}`** in filters too; a bare value compares only within its own type bracket, so it silently returns nothing.
 - **Aggregate server-side.** Counts and top-N go through `…/aggregate`, `$match` first ([Aggregation](../database/aggregation.html)).
 
 ## 4. Chat: newest-first, subscribe first

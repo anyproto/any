@@ -236,8 +236,8 @@ a user cleared still needs a fallback (`["-modifiedAt"]`).
 
 **Dates:** filter literals are instants — `{"createdAt": {"$gte":
 {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or ISO string does
-not error, it answers wrong: cross-type comparison goes by type rank,
-so `$gte` matches everything and `$lt`/`$eq` match nothing.
+not error, it answers empty: ordering comparisons are bracketed by
+type, so a number or string literal never matches an instant.
 
 **Paging:** `limit` / `offset` for a table page. `includeTotal` is
 page-bounded — with `limit: 50` you get `total ≤ 50` — so a row count

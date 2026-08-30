@@ -44,7 +44,7 @@ Both instants are the **author's clock** and are written in the `{"$date": …}`
   "modifiedBy": "A9t…" }
 ```
 
-"Recently modified first" is `{"sort": ["-modifiedAt"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches every row (`$gte`) or none (`$lt`, `$eq`), because cross-type comparison goes by type rank. See [Data types](data-types.html).
+"Recently modified first" is `{"sort": ["-modifiedAt"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches nothing, because ordering comparisons are bracketed by type and a number never compares against an instant. See [Data types](data-types.html).
 
 **`modifiedAt` and `modifiedBy` are one pair.** Both come from a single change — the object's latest by DAG order, whatever dataset it landed on: a property write, an editor block, a chat message, a runtime-dataset record, a record delete. They carry that change's version, so they move together and never pair one change's time with another's signer. A change that arrives late regresses neither. Concurrent writers are resolved by DAG order, not by clock, so the identity that wins can be the one whose wall clock reads earlier. Deleting the object removes the row outright, stamps included.
 

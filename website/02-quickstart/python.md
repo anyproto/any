@@ -56,7 +56,7 @@ from datetime import datetime
 modified = datetime.fromisoformat(page["records"][0]["modifiedAt"]["$date"].replace("Z", "+00:00"))
 ```
 
-Filters that compare a timestamp must use the same wrapper: `{"modifiedAt": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`. A bare string does not error — it compares by type rank and matches everything or nothing ([Data types](../database/data-types.html)).
+Filters that compare a timestamp must use the same wrapper: `{"modifiedAt": {"$gte": {"$date": "2026-08-01T00:00:00Z"}}}`. A bare string does not error — it compares only within its own type bracket, so it matches nothing ([Data types](../database/data-types.html)).
 
 ## 4. Subscribe
 
