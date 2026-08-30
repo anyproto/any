@@ -242,10 +242,11 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// Pre-join message: tests that chat data laid down before headsync
 	// still converges into the joiner's local store. Read back from the
 	// owner, the record carries the StrKey-encoded `creator`
-	// (PubKey.Account()) — that's the identity the chat handler stamps
-	// and the only one we should compare against. /v1/account.id and
-	// Members.identity use the libp2p PeerId encoding of the same key —
-	// equivalent identities but different strings, do not cross-compare.
+	// (PubKey.Account()) — the same encoding /v1/account.id,
+	// Members.identity and the objects row's author / modifiedBy use,
+	// so all of them cross-compare (pinned in
+	// TestE2E_MultipeerModifiedBy). The device key's libp2p PeerId is
+	// a different key entirely and never appears on these fields.
 	m1 := sendChat(t, ownerBase, `{"text":"hello from owner"}`)
 	ownerId := m1.Creator
 	if m1.Id == "" || ownerId == "" {

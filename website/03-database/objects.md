@@ -49,11 +49,12 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   "author": "A5…", "spaceId": "bafy…",
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
   "modifiedAt": { "$date": "2026-08-05T17:00:00.000Z" },
+  "modifiedBy": "A5…",
   "_ver": { "…": "…" }
 } ] }
 ```
 
-`author`, `spaceId`, `createdAt` and `modifiedAt` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order. It is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. Full list in [System fields](system-fields.html).
+`author`, `spaceId`, `createdAt`, `modifiedAt` and `modifiedBy` are derived by the SDK and read-only; `modifiedAt` bumps on every synced write to the object and converges across peers on DAG order, and `modifiedBy` names the identity that signed that same change (`author` stays the creator). `modifiedAt` is the author's clock — good for `{"sort": ["-modifiedAt"]}`, never a fencing token. Full list in [System fields](system-fields.html).
 
 `GET /v1/spaces/:spaceId/properties/:objectId` returns the same row as `{"record": {…}}` when you already hold the id.
 

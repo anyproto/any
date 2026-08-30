@@ -1,6 +1,6 @@
 ---
 title: System fields
-description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author`, and the built-in `any.*` and `nav.*` properties.
+description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author` / `modifiedBy`, and the built-in `any.*` and `nav.*` properties.
 order: 140
 ---
 # System fields
@@ -31,7 +31,8 @@ Every row of the per-space `objects` collection carries these next to `id`, all 
 |---|---|
 | `author` | Identity that created the object (the root-change signer). |
 | `createdAt` | Creation instant — the root change's time. |
-| `modifiedAt` | Instant of the latest **synced** change that touched the row. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order). Local- and account-scope writes deliberately don't bump it. |
+| `modifiedAt` | Instant of the latest **synced** change that touched the object, whatever dataset it landed on. Any property write bumps it; peers converge on one value (last-writer-wins on DAG order). Local- and account-scope writes deliberately don't bump it. |
+| `modifiedBy` | Account identity that signed the change `modifiedAt` points at — the object's last writer. Equal to `author` on an object nobody has edited since it was created. |
 | `spaceId` | The hosting space. |
 
 Both instants are the **author's clock** and are written in the `{"$date": …}` wire shape:
@@ -39,10 +40,17 @@ Both instants are the **author's clock** and are written in the `{"$date": …}`
 ```json
 { "id": "bafy…", "author": "A5k…",
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
-  "modifiedAt": { "$date": "2026-08-20T09:12:31.000Z" } }
+  "modifiedAt": { "$date": "2026-08-20T09:12:31.000Z" },
+  "modifiedBy": "A9t…" }
 ```
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`. A filter literal must take the same shape — `{"modifiedAt": {"$gte": {"$date": "2026-01-01T00:00:00Z"}}}`. A bare number or string does not error; it silently matches every row (`$gte`) or none (`$lt`, `$eq`), because cross-type comparison goes by type rank. See [Data types](data-types.html).
+
+**`modifiedAt` and `modifiedBy` are one pair.** Both come from a single change — the object's latest by DAG order, whatever dataset it landed on: a property write, an editor block, a chat message, a runtime-dataset record, a record delete. They carry that change's version, so they move together and never pair one change's time with another's signer. A change that arrives late regresses neither. Concurrent writers are resolved by DAG order, not by clock, so the identity that wins can be the one whose wall clock reads earlier. Deleting the object removes the row outright, stamps included.
+
+`modifiedBy` is an account identity in the same encoding as `author`, as chat `creator`, as `identity` in `GET /v1/spaces/:spaceId/members`, and as `id` from `GET /v1/account` — resolve a name and icon through the members list, and through the account-global [identities directory](../auth/identities.html) (`GET /v1/identities/:identity`) for a past writer who has since left the space. `modifiedAt` is indexed and is the conventional recency ordering; `modifiedBy` is not, so a filter on it scans the collection. A row without `modifiedBy` has either not been rebuilt yet (rebuilds run on each object's first load, plus a background sweep) or its latest change has no known signer — never "nobody modified it".
+
+The `any` type's property listing (`GET …/types/any/properties`) carries the stamps as derived properties — `modifiedBy` appears there as "Modified by" — but their values sit at the row root. Filter and sort by the bare name; `any.modifiedBy` matches nothing.
 
 Runtime datasets get the same trio on demand through `stamp: creator` / `createTime` / `modifyTime` fields ([Runtime datasets](runtime-datasets.html)); chat messages carry `creator` / `createdAt` / `modifiedAt`.
 

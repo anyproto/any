@@ -1,10 +1,14 @@
-// TestE2E_ObjectsModifiedAt pins the derived `modifiedAt` stamp on
-// objects-collection rows end to end: seeded at create, bumped by a
-// property write, and usable as the `-modifiedAt` recency sort — the
-// "recently modified first" ordering clients build object lists on.
-// The stamp itself is SDK-owned (SystemPropertiesHandler); this test
-// covers the HTTP passthrough contract documented in docs/03-api.md
-// § Data plane and docs/08-clients.md § 3.
+// TestE2E_ObjectsModifiedAt pins the derived `modifiedAt` /
+// `modifiedBy` pair on objects-collection rows end to end: seeded at
+// create, bumped by a property write, and usable as the `-modifiedAt`
+// recency sort — the "recently modified first" ordering clients build
+// object lists on. `modifiedBy` names the account that signed the
+// change `modifiedAt` points at; on one peer that is always this
+// account, so the cross-peer half of the contract lives in
+// TestE2E_MultipeerModifiedBy. The stamps are SDK-owned
+// (SystemPropertiesHandler); this test covers the HTTP passthrough
+// contract documented in docs/03-api.md § Data plane and
+// docs/08-clients.md § 3.
 package e2e
 
 import (
@@ -31,6 +35,23 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 	spaceID := createSpace(t, base, "ModifiedAt", "modifiedAt e2e")
 	movieType := createType(t, base, spaceID, "Movie")
 	titleProp := addProperty(t, base, spaceID, movieType, "Title", "string")
+
+	// The identity every stamp below must name: this server's own
+	// account. /v1/account reports it in the same StrKey encoding the
+	// row stamps carry (`author`, `modifiedBy`) — clients read the two
+	// together to answer "did I write this last?".
+	account := accountId(t, base)
+
+	// rowIdentity reads a row-root identity stamp, failing when it is
+	// absent or empty — every row carries both.
+	rowIdentity := func(t *testing.T, row map[string]any, field string) string {
+		t.Helper()
+		s, _ := row[field].(string)
+		if s == "" {
+			t.Fatalf("%s = %#v, want a non-empty identity: %+v", field, row[field], row)
+		}
+		return s
+	}
 
 	queryRow := func(t *testing.T, objectID string) map[string]any {
 		t.Helper()
@@ -60,6 +81,13 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 		if modified < created {
 			t.Errorf("modifiedAt %v < createdAt %v on a fresh row", modified, created)
 		}
+		// The create is the object's latest change and its signer is
+		// the object's author, so both stamps name this account. (Who
+		// the stamp names once another account writes is pinned by
+		// TestE2E_MultipeerModifiedBy.)
+		if by, author := rowIdentity(t, row, "modifiedBy"), rowIdentity(t, row, "author"); by != account || author != account {
+			t.Errorf("modifiedBy = %q, author = %q on a fresh row, want this account %q", by, author, account)
+		}
 	})
 
 	objB := createObject(t, base, spaceID, movieType)
@@ -85,6 +113,10 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 		}
 		if modA <= createdA {
 			t.Errorf("A.modifiedAt = %v not past A.createdAt = %v after a later write", modA, createdA)
+		}
+		// The write re-stamps modifiedBy with the same account.
+		if by := rowIdentity(t, rowA, "modifiedBy"); by != account {
+			t.Errorf("A.modifiedBy = %q after the write, want this account %q", by, account)
 		}
 	})
 

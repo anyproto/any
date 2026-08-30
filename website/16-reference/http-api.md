@@ -139,7 +139,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
-Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt` (instants as `{"$date": …}`). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
+Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
 
 ### Editor (blocks and markdown)
 

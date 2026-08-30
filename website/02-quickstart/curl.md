@@ -64,6 +64,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
       "author": "A8tR…", "spaceId": "bafyreig…",
       "createdAt": { "$date": "2026-08-24T10:01:00.000Z" },
       "modifiedAt": { "$date": "2026-08-24T10:01:00.000Z" },
+      "modifiedBy": "A8tR…",
       "_ver": { "…": "…" } } ],
   "total": 1, "hasNext": false }
 ```

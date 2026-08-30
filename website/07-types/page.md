@@ -15,7 +15,7 @@ order: 30
 | Labels | the built-in `any.tags` (free-form string array) |
 | Body | the [editor](editor.html) type's `editor_blocks` dataset, attached on the first block write |
 | Position in the tree | `nav.parentId`, `nav.pos`, `nav.type` (see [objects](../database/objects.html)) |
-| Recency | the derived row-root `modifiedAt` instant (see [system fields](../database/system-fields.html)) |
+| Recency | the derived row-root `modifiedAt` instant, with `modifiedBy` naming who signed that change (see [system fields](../database/system-fields.html)) |
 
 ## Creating and listing pages
 
