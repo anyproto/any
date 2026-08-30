@@ -110,7 +110,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 | `<typeId>.<propId>` | Property values on the objects collection — both are content-addressed ids, resolved from `GET …/types/:typeId/properties`. |
 | `any.types`, `any.name`, `any.description`, `any.tags` | The universal built-in type. |
 | `nav.type`, `nav.parentId`, `nav.pos` | Tree placement. |
-| `author`, `createdAt`, `modifiedAt`, `spaceId` | Derived row-root stamps (objects collection only). |
+| `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (objects collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
 | `_ver.id` | The record's creation version id — the logical DAG order. |
 | `id` | The record id. |
 

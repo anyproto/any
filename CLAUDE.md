@@ -1300,6 +1300,28 @@ Implementation slices landed:
     Contract: docs/26-local-store.md, docs/03-api.md § Local store,
     docs/06-errors.md, docs/01-cli.md, docs/05-config.md,
     docs/02-server.md § Data dir layout.
+41. **Objects `modifiedBy`** — every per-space `objects` row carries a
+    derived row-root `modifiedBy` next to `modifiedAt`: the account
+    identity that signed the change `modifiedAt` names — the object's
+    last writer, equal to `author` until someone edits it. Same
+    StrKey encoding (`PubKey.Account()`) as `author`, chat `creator`,
+    the `identity` of `GET …/members` and the `id` of
+    `GET /v1/account` — all four cross-compare directly, no
+    re-encoding. One change stamps the pair at one VersionId, so the two
+    move together and a row never pairs one change's time with
+    another's signer; concurrent writers resolve on DAG order, not
+    clock. Absent = a row not yet rebuilt, or a latest change with no
+    known signer — never "nobody". `modifiedAt` is indexed,
+    `modifiedBy` is not (filtering on it scans). Pure passthrough — an
+    SDK bump plus docs (03-api.md § Data plane, 08-clients.md § 3,
+    09-query.md § Paths, website database/system-fields) and
+    `TestE2E_ObjectsModifiedAt` / `TestE2E_MultipeerModifiedBy`; no
+    `any` handler change. Consequence: the SDK's objects-handler
+    LocalVersion bump re-indexes every object row from the DAG
+    (lazily per object plus the background sweep, item 37), which
+    bumps the per-space `Generation` and so drops and rebuilds the
+    search index once per space. SDK prerequisite:
+    anyproto/any-sync-sdk#113.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

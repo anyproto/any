@@ -28,7 +28,7 @@ End-to-end tests boot against the **staging** network. The fixture is a `staging
 go test ./internal/e2e -run TestE2E_FullFlow -v
 ```
 
-`TestE2E_FullFlow` boots the binary and walks the endpoint catalog: health, auth, spaces (create/list/get/update/delete/derived), objects, the data plane (query, modify, subscribe), types and properties, chat, editor blocks and the markdown bridge, files, members and invites, sync status, debug — each as a subtest, so a failure names the surface. Focused single-binary tests sit beside it: chat, editor blocks, files (raw-body attach, Range downloads, pin/retry/offload), runtime dataset schemas and upsert, property PATCH and validation, derived spaces, `modifiedAt` stamps, and the desktop-shell contract (`--addr 127.0.0.1:0` printing `LISTENING <addr>` from an arbitrary working directory).
+`TestE2E_FullFlow` boots the binary and walks the endpoint catalog: health, auth, spaces (create/list/get/update/delete/derived), objects, the data plane (query, modify, subscribe), types and properties, chat, editor blocks and the markdown bridge, files, members and invites, sync status, debug — each as a subtest, so a failure names the surface. Focused single-binary tests sit beside it: chat, editor blocks, files (raw-body attach, Range downloads, pin/retry/offload), runtime dataset schemas and upsert, property PATCH and validation, derived spaces, the `modifiedAt` / `modifiedBy` stamps, and the desktop-shell contract (`--addr 127.0.0.1:0` printing `LISTENING <addr>` from an arbitrary working directory).
 
 | Env var | Effect |
 |---|---|
@@ -62,6 +62,7 @@ go test ./internal/e2e -run 'TestE2E_Multipeer' -v -timeout 30m
 | `multipeer_bundles`, `multipeer_onetoone` | the joiner adopts the owner's bundle root; both sides of a direct space install the derived chat on first attempt |
 | `multipeer_events`, `multipeer_processes` | space-scope events and process progress cross peers with the sender's verified identity |
 | `multipeer_identities` | the identities directory populates once peers share a space |
+| `multipeer_modified_by` | both peers converge on the signer of the object's latest change, whichever member wrote it |
 | `multipeer_markdown`, `multipeer_realtime` | joiner-side writes and write→visible latency without forced sync |
 | `multidevice_techspace`, `multipeer_devices` | two devices on **one** mnemonic: tech-space convergence, device registry, active-app election |
 

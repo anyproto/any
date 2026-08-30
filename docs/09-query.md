@@ -129,8 +129,10 @@ Multi-key sorts apply left-to-right: `["nav.parentId", "nav.pos"]`. A
 On the wire, property paths are `<typeId>.<propId>` — both are CID ids — plus
 the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
 `_ver.id`, and the row-root derived stamps `author`, `createdAt`,
-`modifiedAt`, `spaceId` (objects collection only — see `03-api.md`
-§ Data plane; `{"sort": ["-modifiedAt"]}` is the recency ordering).
+`modifiedAt`, `modifiedBy`, `spaceId` (objects collection only — see
+`03-api.md` § Data plane; `{"sort": ["-modifiedAt"]}` is the recency
+ordering, and `modifiedBy` — the signer of that same change — is
+unindexed, so a filter on it scans).
 
 Client helpers typically expose dotted **xKey** paths instead
 (`"recipe.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case

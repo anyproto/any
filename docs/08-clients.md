@@ -119,10 +119,22 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 - **"Recently modified" lists sort on `modifiedAt`.** Every objects-collection
   row carries the derived row-root stamps `author` / `createdAt` /
-  `modifiedAt` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the recency
-  ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
+  `modifiedAt` / `modifiedBy` / `spaceId`; `{"sort": ["-modifiedAt"]}` is the
+  recency ordering (`-createdAt` for creation order). `modifiedAt` bumps on any
   synced write to the object and converges across peers, but it's the
   author's wall clock — fine for sorting and display, never a sync fence.
+
+- **"Modified by X" comes from the same change as `modifiedAt`.** The two
+  stamps share the change's version, so render them together: a row never
+  pairs one change's time with another's signer, and the winner of a
+  concurrent edit is decided by DAG order, not by whose clock is later.
+  `modifiedBy` is an account identity in the encoding used by `author`,
+  chat `creator`, `identity` in `GET /v1/spaces/:spaceId/members` and `id`
+  from `GET /v1/account` — resolve name and icon through the members list,
+  and fall back to rendering the raw id, because a past writer may have
+  been removed from the space. Sort and page on `modifiedAt` (indexed);
+  filtering on `modifiedBy` scans. A row without it is one not yet rebuilt,
+  or a change whose signer is unknown — not "nobody modified it".
 
 - **Timestamps are instants, not numbers.** Every server-stamped time —
   the row-root stamps, chat `createdAt` / `modifiedAt`, runtime-dataset

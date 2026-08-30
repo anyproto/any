@@ -40,7 +40,8 @@ Every regular object has exactly one row here, `id` = the object id. Values sit 
   "bafy…movie":     { "Y9Hxx5xmYmF": ["personA", "personB"], "EwyHGrtTdxB": 1995 },
   "nav":            { "type": "page", "parentId": "…", "pos": "a0" },
   "createdAt":      { "$date": "2026-08-01T10:00:00.000Z" },
-  "modifiedAt":     { "$date": "2026-08-05T17:00:00.000Z" }
+  "modifiedAt":     { "$date": "2026-08-05T17:00:00.000Z" },
+  "modifiedBy":     "A9t…"
 }
 ```
 
