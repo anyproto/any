@@ -645,6 +645,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Text             string                        `json:"text"`
 		Mentions         []string                      `json:"mentions"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
+		Context          *api.ChatMessageContext       `json:"context"`
 		Reactions        map[string]map[string]extDate `json:"reactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
@@ -671,6 +672,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Text:             f.Text,
 		Mentions:         f.Mentions,
 		Attachments:      f.Attachments,
+		Context:          f.Context,
 		Reactions:        reactions,
 	}
 }
