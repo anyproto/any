@@ -47,3 +47,23 @@ func TestSdkOpErrorObjectNotFound(t *testing.T) {
 		}
 	}
 }
+
+// The history endpoints have their own mapper; an object with no tree
+// on this device answers the same 404 there, never a 500 carrying the
+// SDK's message.
+func TestHistoryErrorObjectNotFound(t *testing.T) {
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec)
+	err := fmt.Errorf("history: spaceobjects: BuildTree x: %w", space.ErrObjectNotFound)
+	if err := historyError(c, err); err != nil {
+		t.Fatalf("historyError returned %v", err)
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())
+	}
+	if rec.Code != http.StatusNotFound || env.Error.Code != "object.not_found" {
+		t.Errorf("historyError = %d %s, want 404 object.not_found", rec.Code, env.Error.Code)
+	}
+}

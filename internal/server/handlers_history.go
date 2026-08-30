@@ -291,9 +291,14 @@ func (d *deps) historyDiff(c echo.Context) error {
 // historyError maps SDK history errors onto the API error envelope:
 // unknown versions are 404s, an over-large view asks the client to
 // narrow scope (413), a truncated causal past is 404 with its own code
-// ("earlier changes not on this device" — best-effort-depth contract).
+// ("earlier changes not on this device" — best-effort-depth contract),
+// and an object with no tree here is the same 404 the data-plane
+// handlers answer.
 func historyError(c echo.Context, err error) error {
 	switch {
+	case errors.Is(err, space.ErrObjectNotFound):
+		return writeError(c, http.StatusNotFound, "object.not_found",
+			"object not found in this space (unknown or deleted)", nil)
 	case errors.Is(err, space.ErrVersionNotFound):
 		return writeError(c, http.StatusNotFound, "history.version_not_found", err.Error(), nil)
 	case errors.Is(err, space.ErrViewTooLarge):
