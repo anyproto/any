@@ -8,28 +8,26 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
-	"github.com/anyproto/any-sync/commonspace/spacestorage"
+	"github.com/anyproto/any-sync-sdk/space"
 	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestSdkOpErrorObjectNotFound pins the any-sync tree sentinel → wire
-// code map in sdkOpError: a per-object read/write naming a deleted or
-// unknown object is 404 object.not_found, never 500. Sentinels are
-// matched with errors.Is, so the wrapped forms (how the SDK's BuildTree
-// path actually returns them) must map identically.
+// TestSdkOpErrorObjectNotFound pins the SDK sentinel → wire code map in
+// sdkOpError: a per-object read/write naming a deleted or unknown
+// object is 404 object.not_found, never 500. The sentinel is matched
+// with errors.Is, so the wrapped form (how the SDK's BuildTree path
+// actually returns it) must map identically.
 func TestSdkOpErrorObjectNotFound(t *testing.T) {
 	cases := []struct {
 		err        error
 		wantStatus int
 		wantCode   string
 	}{
-		{fmt.Errorf("query: spaceobjects: BuildTree x: %w", spacestorage.ErrTreeStorageAlreadyDeleted), http.StatusNotFound, "object.not_found"},
-		{fmt.Errorf("blocks: List: query: spaceobjects: BuildTree x: %w", treestorage.ErrUnknownTreeId), http.StatusNotFound, "object.not_found"},
-		{spacestorage.ErrTreeStorageAlreadyDeleted, http.StatusNotFound, "object.not_found"},
-		{treestorage.ErrUnknownTreeId, http.StatusNotFound, "object.not_found"},
+		{fmt.Errorf("query: spaceobjects: BuildTree x: %w", space.ErrObjectNotFound), http.StatusNotFound, "object.not_found"},
+		{fmt.Errorf("blocks: List: query: spaceobjects: BuildTree x: %w", space.ErrObjectNotFound), http.StatusNotFound, "object.not_found"},
+		{space.ErrObjectNotFound, http.StatusNotFound, "object.not_found"},
 		{errors.New("something else entirely"), http.StatusInternalServerError, "internal"},
 	}
 	e := echo.New()
