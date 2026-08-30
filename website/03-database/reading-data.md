@@ -93,7 +93,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 { "modifiedAt": { "$gte": { "$date": "2026-01-01T00:00:00Z" } } }
 ```
 
-> **Note.** A bare number or string here does not error — instants rank above both, so `$gte` matches every row and `$lt` none. See [Data types](data-types.html).
+> **Note.** A bare number or string here does not error — ordering comparisons are bracketed by type, so a bare literal never matches an instant and the filter comes back empty. See [Data types](data-types.html).
 
 ### Negation matches absent fields
 

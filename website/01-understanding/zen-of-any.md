@@ -65,7 +65,7 @@ Request schemas are closed: an unknown top-level key is `400 request.unknown_fie
 
 ## 9. Timestamps are instants
 
-Every server-stamped time and every `date` / `datetime` property is `{"$date": "2026-08-05T17:00:00.000Z"}` in both directions, filters included. A bare string or number does not error — it compares by type rank and answers wrong ([Data types](../database/data-types.html)).
+Every server-stamped time and every `date` / `datetime` property is `{"$date": "2026-08-05T17:00:00.000Z"}` in both directions, filters included. A bare string or number does not error — it compares only within its own type bracket, so it silently matches nothing ([Data types](../database/data-types.html)).
 
 ## 10. Subscriptions are windows, and `closed` is terminal
 

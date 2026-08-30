@@ -35,7 +35,7 @@ Filter literals take the same shape:
 { "modifiedAt": { "$gte": { "$date": "2026-01-01T00:00:00Z" } } }
 ```
 
-> **Note.** A bare number or string in a date comparison does not error — it answers wrong. Comparisons across types are decided by type rank, and instants rank above numbers and strings, so `{"$gte": 1700000000}` matches every row, `$lt` matches none and `$eq` never matches. Always wrap the literal.
+> **Note.** A bare number or string in a date comparison does not error — it answers empty. Ordering comparisons are bracketed by type: a number literal only ever compares against numbers, so `{"$gte": 1700000000}` matches no instant, and neither does `$lt` or a bare ISO string. Always wrap the literal.
 
 Instants are what the aggregation date operators (`$year`, `$dateTrunc`, `$dateDiff`) compute on — see [Aggregation](aggregation.html). A property declared `kind: "string"` alongside a `date` / `datetime` format keeps the ISO-8601 string convention instead (`2006-01-02` for `date`, RFC 3339 for `datetime`): it sorts lexicographically, which is chronological for RFC 3339, but every date operator returns `null` for it.
 

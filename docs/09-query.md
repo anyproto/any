@@ -72,11 +72,14 @@ take the same shape:
 { "<typeId>.<propId>": { "$lt":  { "$date": "2026-08-05T00:00:00Z" } } }
 ```
 
-**A bare number or string does not error — it silently answers wrong.**
-Comparisons across types are decided by type rank, and instants rank
-above both, so `{"modifiedAt": {"$gte": 1700000000}}` matches EVERY row
-whatever the date, `$lt` matches none, and `$eq` never matches. Verified
-against a live server. Wrap the literal and the answers are real.
+**A bare number or string does not error — it silently answers empty.**
+Ordering comparisons are bracketed by type: a number literal only ever
+compares against numbers, a string literal against strings. So
+`{"modifiedAt": {"$gte": 1700000000}}` matches no instant at all, and
+neither does `$lt`, `$eq` or a bare ISO string. The bracket cuts both
+ways, which is the point — a wrapped `$date` filter no longer picks up
+a row that still holds a bare epoch number in the same field. Wrap the
+literal and the answers are real.
 
 Sorting is chronological (instants are memcmp-orderable and index-keyable),
 and `/aggregate` computes on them directly — `$year`, `$dateTrunc`,
