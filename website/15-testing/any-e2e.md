@@ -62,8 +62,8 @@ go test ./internal/e2e -run 'TestE2E_Multipeer' -v -timeout 30m
 | `multipeer_bundles`, `multipeer_onetoone` | the joiner adopts the owner's bundle root; both sides of a direct space install the derived chat on first attempt |
 | `multipeer_events`, `multipeer_processes` | space-scope events and process progress cross peers with the sender's verified identity |
 | `multipeer_identities` | the identities directory populates once peers share a space |
-| `multipeer_modified_by` | both peers converge on the signer of the object's latest change, whichever member wrote it |
 | `multipeer_markdown`, `multipeer_realtime` | joiner-side writes and write→visible latency without forced sync |
+| `multipeer_modified_by` | both peers converge on the signer of the object's latest change, whichever member wrote it |
 | `multidevice_techspace`, `multipeer_devices` | two devices on **one** mnemonic: tech-space convergence, device registry, active-app election |
 
 ## Gated tests

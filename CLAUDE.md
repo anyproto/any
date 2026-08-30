@@ -1306,7 +1306,7 @@ Implementation slices landed:
     last writer, equal to `author` until someone edits it. Same
     StrKey encoding (`PubKey.Account()`) as `author`, chat `creator`,
     the `identity` of `GET …/members` and the `id` of
-    `GET /v1/account` — all four cross-compare directly, no
+    `GET /v1/account` — all five cross-compare directly, no
     re-encoding. One change stamps the pair at one VersionId, so the two
     move together and a row never pairs one change's time with
     another's signer; concurrent writers resolve on DAG order, not
@@ -1318,10 +1318,11 @@ Implementation slices landed:
     `TestE2E_ObjectsModifiedAt` / `TestE2E_MultipeerModifiedBy`; no
     `any` handler change. Consequence: the SDK's objects-handler
     LocalVersion bump re-indexes every object row from the DAG
-    (lazily per object plus the background sweep, item 37), which
-    bumps the per-space `Generation` and so drops and rebuilds the
-    search index once per space. SDK prerequisite:
-    anyproto/any-sync-sdk#113.
+    (lazily per object plus the background sweep, item 37). applySeq
+    keeps climbing across the rebuild, so `Generation` does not rotate
+    and the search index is NOT dropped — rebuilt rows resurface on
+    the change feed and are re-indexed incrementally. SDK
+    prerequisite: anyproto/any-sync-sdk#113.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

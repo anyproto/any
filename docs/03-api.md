@@ -1478,15 +1478,22 @@ addressing them are rejected):
   `{"$date": "2026-08-05T17:00:00.000Z"}`;
 - `spaceId`;
 - `modifiedAt` — the instant of the latest synced change that touched
-  the row. Any property write bumps it; peers converge on the same
-  value (LWW on the change's DAG order). It is the **author's clock** —
-  sort/display quality, never a fencing token. Local-scope writes
-  (e.g. chat read flags) deliberately don't bump it.
+  the object, whatever dataset it landed on. Any property write bumps
+  it; peers converge on the same value (LWW on the change's DAG
+  order). It is the **author's clock** — sort/display quality, never a
+  fencing token. Local- and account-scope writes (e.g. chat read
+  flags) deliberately don't bump it.
 - `modifiedBy` — the account identity that signed that same change:
   the object's last writer, `author` on an object nobody edited since
   it was created.
 
 "Recently modified first" is `{"sort": ["-modifiedAt"]}`.
+
+All four take POST (filter/sort body doesn't fit a query string).
+Reads always go through these — the bare `…/query` returns a
+point-in-time snapshot; `…/query/subscribe` returns the same
+snapshot plus a live SSE stream of windowed transitions. See
+`04-events.md` for the subscribe contract.
 
 `modifiedAt` and `modifiedBy` are stamped from **one** change — the
 object's latest by DAG order, whatever dataset it landed on (a
@@ -1495,22 +1502,16 @@ record, a record delete). They share that change's version, so they
 move as a unit and never pair one change's time with another's
 signer; a late arrival regresses neither, and concurrent writers are
 resolved by DAG order, not by clock, so the winning identity may be
-the one whose wall clock reads earlier. Deleting the objects row
-leaves the last pair on the tombstone. `modifiedBy` is in the same
+the one whose wall clock reads earlier. Deleting the object removes
+the row outright, stamps included. `modifiedBy` is in the same
 identity encoding as `author`, as chat `creator`, as `identity` in
-`GET /v1/spaces/:spaceId/members` (where clients resolve name and
-icon — a past writer may be gone from that list) and as `id` from
-`GET /v1/account`. `modifiedAt` is indexed, `modifiedBy` is not — a
-filter on it scans the collection. A missing `modifiedBy` means the
-row has yet to be rebuilt (on first load of the object, or by the
-background sweep) or the latest change has no known signer, never
-"nobody modified it".
-
-All four take POST (filter/sort body doesn't fit a query string).
-Reads always go through these — the bare `…/query` returns a
-point-in-time snapshot; `…/query/subscribe` returns the same
-snapshot plus a live SSE stream of windowed transitions. See
-`04-events.md` for the subscribe contract.
+`GET /v1/spaces/:spaceId/members` and as `id` from `GET /v1/account`:
+clients resolve name and icon through the members list, falling back
+to `GET /v1/identities/:identity` for a writer who has since left the
+space. `modifiedAt` is indexed, `modifiedBy` is not — a filter on it
+scans the collection. A missing `modifiedBy` means the row has yet to
+be rebuilt (on first load of the object, or by the background sweep)
+or the latest change has no known signer, never "nobody modified it".
 
 A `filter` naming an operator outside the grammar is a caller fault:
 `400 filter.unknown_operator`, with the offending token in

@@ -40,13 +40,7 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 	// account. /v1/account reports it in the same StrKey encoding the
 	// row stamps carry (`author`, `modifiedBy`) — clients read the two
 	// together to answer "did I write this last?".
-	var acct struct {
-		Id string `json:"id"`
-	}
-	mustJSON(t, http.MethodGet, base+"/v1/account", "", http.StatusOK, &acct)
-	if acct.Id == "" {
-		t.Fatal("GET /v1/account returned no id")
-	}
+	account := accountId(t, base)
 
 	// rowIdentity reads a row-root identity stamp, failing when it is
 	// absent or empty — every row carries both.
@@ -87,16 +81,12 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 		if modified < created {
 			t.Errorf("modifiedAt %v < createdAt %v on a fresh row", modified, created)
 		}
-		// The create is the object's latest change, and its signer is
-		// also the object's author — so the two stamps coincide, both
-		// naming this account.
-		author := rowIdentity(t, row, "author")
-		by := rowIdentity(t, row, "modifiedBy")
-		if by != author {
-			t.Errorf("modifiedBy = %q, want author %q on a fresh row", by, author)
-		}
-		if by != acct.Id {
-			t.Errorf("modifiedBy = %q, want this account %q", by, acct.Id)
+		// The create is the object's latest change and its signer is
+		// the object's author, so both stamps name this account. (Who
+		// the stamp names once another account writes is pinned by
+		// TestE2E_MultipeerModifiedBy.)
+		if by, author := rowIdentity(t, row, "modifiedBy"), rowIdentity(t, row, "author"); by != account || author != account {
+			t.Errorf("modifiedBy = %q, author = %q on a fresh row, want this account %q", by, author, account)
 		}
 	})
 
@@ -124,13 +114,9 @@ func TestE2E_ObjectsModifiedAt(t *testing.T) {
 		if modA <= createdA {
 			t.Errorf("A.modifiedAt = %v not past A.createdAt = %v after a later write", modA, createdA)
 		}
-		// modifiedBy moves with modifiedAt, so a second write from the
-		// same peer re-stamps it with the same account — still equal to
-		// author, which never moves.
-		author := rowIdentity(t, rowA, "author")
-		by := rowIdentity(t, rowA, "modifiedBy")
-		if by != author || by != acct.Id {
-			t.Errorf("A.modifiedBy = %q after the write, want author %q == account %q", by, author, acct.Id)
+		// The write re-stamps modifiedBy with the same account.
+		if by := rowIdentity(t, rowA, "modifiedBy"); by != account {
+			t.Errorf("A.modifiedBy = %q after the write, want this account %q", by, account)
 		}
 	})
 

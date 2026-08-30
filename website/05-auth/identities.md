@@ -5,7 +5,7 @@ order: 30
 ---
 # Identities
 
-The identities directory is the account-global, device-local cache of **every account identity this account has encountered** — across spaces, one-to-one chats and inbox invites. It is where you turn an id you hold (a chat message's `creator`, a mention, a 1-1 peer) into a display name and icon.
+The identities directory is the account-global, device-local cache of **every account identity this account has encountered** — across spaces, one-to-one chats and inbox invites. It is where you turn an id you hold (a chat message's `creator`, an object row's `author` or `modifiedBy`, a mention, a 1-1 peer) into a display name and icon.
 
 ## Endpoints
 

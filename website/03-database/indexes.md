@@ -16,6 +16,10 @@ Built-in datasets declare indexes for their hot paths:
 | `editor_blocks` | `(nav.parentId, nav.pos)` | Listing a document's blocks in order; finding the tail position for appends. |
 | `chat_messages` | `(_ver.id)` | Chronological paging — `sort: ["-_ver.id"]` with a `_ver.id` cursor. |
 | `chat_messages` | `idx_mentions` (sparse, multikey) | `{"mentions": "<identity>"}` filters. |
+| `objects` | `modifiedAt` (dense) | `sort: ["-modifiedAt"]` recency lists and range filters on it. |
+| `objects` | `any.types` (sparse) | `{"any.types": "<typeId>"}` — the scope every cross-object query should carry. |
+
+The objects collection's other row-root stamps — `author`, `createdAt`, `spaceId`, `modifiedBy` — are unindexed, so a filter on one of them scans.
 
 The objects collection has **no per-property indexes**. A cross-object filter or sort on `<typeId>.<propId>` is a scan proportional to the space size. There is no create-index API for user properties; when a per-property read becomes hot, the options are an indexed built-in field, a dedicated per-object dataset, or a search over the [FTS / vector index](../search/index.html), which is maintained separately from the query engine.
 

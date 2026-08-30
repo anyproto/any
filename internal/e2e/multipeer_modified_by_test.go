@@ -41,7 +41,10 @@ func objectRowOn(t *testing.T, p *peer, spaceId, objectId string) (objectRow, bo
 	var qr struct {
 		Records []json.RawMessage `json:"records"`
 	}
-	if err := json.Unmarshal(raw, &qr); err != nil || len(qr.Records) == 0 {
+	if err := json.Unmarshal(raw, &qr); err != nil {
+		t.Fatalf("%s: decode objects query: %v (%s)", p.name, err, raw)
+	}
+	if len(qr.Records) == 0 {
 		return objectRow{}, false
 	}
 	var row objectRow
@@ -51,15 +54,14 @@ func objectRowOn(t *testing.T, p *peer, spaceId, objectId string) (objectRow, bo
 	return row, row.Id == objectId
 }
 
-// peerAccountId reads a peer's own identity off /v1/account.
-func peerAccountId(t *testing.T, p *peer) string {
+// accountId reads a server's own identity off /v1/account — the same
+// StrKey account encoding the row stamps and chat `creator` carry.
+func accountId(t *testing.T, base string) string {
 	t.Helper()
-	var acct struct {
-		Id string `json:"id"`
-	}
-	mustJSON(t, http.MethodGet, p.base+"/v1/account", "", http.StatusOK, &acct)
+	var acct api.AccountResponse
+	mustJSON(t, http.MethodGet, base+"/v1/account", "", http.StatusOK, &acct)
 	if acct.Id == "" {
-		t.Fatalf("%s: GET /v1/account returned no id", p.name)
+		t.Fatalf("GET %s/v1/account returned no id", base)
 	}
 	return acct.Id
 }
@@ -109,14 +111,14 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 	if ownerId == "" {
 		t.Fatalf("owner's message not stamped: %+v", m1)
 	}
-	if got := peerAccountId(t, owner); got != ownerId {
+	if got := accountId(t, owner.base); got != ownerId {
 		t.Errorf("owner /v1/account id = %q, want the stamped identity %q", got, ownerId)
 	}
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
-	// converge waits until both peers report the identical row and
-	// `want` holds, then returns it. Plain pollUntil, not
+	// converge waits until both peers report identical stamps and
+	// `want` holds, then returns them. Plain pollUntil, not
 	// pollUntilSynced: forcing SyncHeads stalls the shared `objects`
 	// collection (see the caveat on pollUntilSynced).
 	converge := func(what string, budget time.Duration, want func(objectRow) bool) objectRow {
@@ -131,9 +133,9 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 			got = a
 			return true
 		}) {
-			a, _ := objectRowOn(t, owner, sp.Id, obj.ObjectId)
-			b, _ := objectRowOn(t, joiner, sp.Id, obj.ObjectId)
-			t.Fatalf("%s: rows never converged; owner=%+v joiner=%+v", what, a, b)
+			a, okA := objectRowOn(t, owner, sp.Id, obj.ObjectId)
+			b, okB := objectRowOn(t, joiner, sp.Id, obj.ObjectId)
+			t.Fatalf("%s: rows never converged; owner=%+v (present=%v) joiner=%+v (present=%v)", what, a, okA, b, okB)
 		}
 		return got
 	}
@@ -157,13 +159,16 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 
 	// The write under test: a second account writes a dataset of the
 	// owner's object. modifiedBy must name that account on BOTH peers,
-	// carry the write's time, and leave `author` alone.
+	// carry the write's time, and leave `author` alone. The stamps have
+	// second resolution — keep this write in a later second than the
+	// owner's first one.
+	time.Sleep(1100 * time.Millisecond)
 	m2 := sendChat(t, joinerChat, `{"text":"from joiner"}`)
 	joinerId := m2.Creator
 	if joinerId == "" || joinerId == ownerId {
 		t.Fatalf("joiner's message not stamped by a second account: %+v", m2)
 	}
-	if got := peerAccountId(t, joiner); got != joinerId {
+	if got := accountId(t, joiner.base); got != joinerId {
 		t.Errorf("joiner /v1/account id = %q, want the stamped identity %q", got, joinerId)
 	}
 
@@ -181,15 +186,16 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 	}
 
 	// And back: the pair follows the latest change whoever signs it.
-	// The stamps have second resolution — keep the owner's write in a
-	// later second than the joiner's.
 	time.Sleep(1100 * time.Millisecond)
-	sendChat(t, ownerChat, `{"text":"from owner again"}`)
+	m3 := sendChat(t, ownerChat, `{"text":"from owner again"}`)
 	afterOwner := converge("after the owner's second write", 3*time.Minute, func(r objectRow) bool {
 		return r.ModifiedBy == ownerId
 	})
 	if afterOwner.Author != ownerId {
 		t.Errorf("author = %q, want the creator %q", afterOwner.Author, ownerId)
+	}
+	if at := afterOwner.ModifiedAt.seconds(); at < m3.CreatedAt {
+		t.Errorf("modifiedAt = %d, want the owner's second write's time %d or later", at, m3.CreatedAt)
 	}
 	if at, prev := afterOwner.ModifiedAt.seconds(), afterJoiner.ModifiedAt.seconds(); at <= prev {
 		t.Errorf("modifiedAt = %d, want past the joiner write's %d", at, prev)

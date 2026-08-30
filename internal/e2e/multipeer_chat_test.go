@@ -245,8 +245,8 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	// (PubKey.Account()) — the same encoding /v1/account.id,
 	// Members.identity and the objects row's author / modifiedBy use,
 	// so all of them cross-compare (pinned in
-	// TestE2E_MultipeerModifiedBy). The libp2p PeerId encoding of the
-	// same key is a device id, never surfaced on these fields.
+	// TestE2E_MultipeerModifiedBy). The device key's libp2p PeerId is
+	// a different key entirely and never appears on these fields.
 	m1 := sendChat(t, ownerBase, `{"text":"hello from owner"}`)
 	ownerId := m1.Creator
 	if m1.Id == "" || ownerId == "" {
