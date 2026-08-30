@@ -14,8 +14,6 @@ import (
 
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
-	"github.com/anyproto/any-sync/commonspace/object/tree/treestorage"
-	"github.com/anyproto/any-sync/commonspace/spacestorage"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 	"go.uber.org/zap"
@@ -349,9 +347,8 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	}
 	// Deleted or unknown tree on a per-object op: the caller named an
 	// object this space doesn't have (e.g. a stale search hit) — 404,
-	// not a server fault. STOPGAP: any-sync sentinels until the SDK
-	// exports space.ErrObjectNotFound (SYN-117).
-	if errors.Is(err, spacestorage.ErrTreeStorageAlreadyDeleted) || errors.Is(err, treestorage.ErrUnknownTreeId) {
+	// not a server fault.
+	if errors.Is(err, space.ErrObjectNotFound) {
 		return writeError(c, http.StatusNotFound, "object.not_found",
 			"object not found in this space (unknown or deleted)", details)
 	}

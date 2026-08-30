@@ -91,7 +91,9 @@ func (w *spaceWorker) start() {
 //
 // Best-effort: a read that fails leaves the cursor alone (freezing the
 // index over a transient error would be worse than the drift), and the
-// next boot re-checks.
+// next boot re-checks. The worker then advances with no epoch in hand —
+// Store.SetCursor merges, so the stamp on record survives and the next
+// boot can still detect a rebuild.
 func (w *spaceWorker) alignIndex(ctx context.Context) {
 	spaceId := w.sp.Id()
 	cursor, storedGen, err := w.ix.store.Cursor(ctx, spaceId)
