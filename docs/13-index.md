@@ -358,13 +358,34 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
   deployments), `hybrid` (HNSW + RAM cache), `bruteforce` (exact,
   O(N)/query, small spaces). The index is created lazily
   (`Store.EnsureVectorIndex`) so the first build sees real data.
-- A `cursors` collection holds one `{id: spaceId, seq}` row per space
-  plus a `_meta` row pinning the **schema version** (the version ↔
+- A `cursors` collection holds one `{id: spaceId, seq, gen}` row per
+  space — `gen` is the SDK's per-space `Changes().Generation()`, the
+  epoch the cursor belongs to (see Re-index triggers). Writes MERGE:
+  advancing the cursor with no epoch in hand keeps the stamped one,
+  because erasing it would disable rebuild detection silently. Plus a
+  `_meta` row pinning the **schema version** (the version ↔
   layout map lives on `indexSchemaVersion` in `internal/indexer/
   store.go`; a mismatched DB errors at boot with a remove-to-rebuild
   message, no migration — the index is derived state and re-indexes
   from the next change) and the vector dimension — changing the
   embedder dimension is the same kind of boot error.
+
+### Re-index triggers — per-space worker boot
+
+Before the loops start, `alignIndex` checks that the persisted index
+still describes the SDK store it was built from, and drops the space's
+docs + restarts at cursor 0 when it does not:
+
+- **`Generation()` changed** — the SDK store was rebuilt and the
+  applySeq axis restarted at zero.
+- **cursor > `MaxApplySeq()`** — an older `sdk.db` was restored from
+  backup under a cursor that ran ahead of it.
+
+Either way the cursor names a position the feed will never report
+again: `ChangedSince` returns nothing, forever, with no error. A failed
+read leaves the cursor alone (freezing the index over a transient error
+is worse than the drift) and re-checks on the next boot; the merge rule
+above keeps the stamp on record meanwhile.
 
 ### Advance loop (FTS path) — per-space worker
 

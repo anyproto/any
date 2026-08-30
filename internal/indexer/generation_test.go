@@ -119,6 +119,38 @@ func TestAlignIndex_EmptyGenerationKeepsStored(t *testing.T) {
 	require.Equal(t, "gen-1", gen)
 }
 
+// A worker can reach the advance loop with no epoch in hand: the
+// boot-time cursor read failed, or SyncSpace built it without
+// alignIndex. Persisting that empty value would erase the stamp on the
+// row, and the next SDK store rebuild would then pass both re-index
+// triggers unnoticed — the silent freeze the stamp exists to catch.
+func TestSetCursor_AdvanceWithoutEpochKeepsStamp(t *testing.T) {
+	ctx := context.Background()
+	w := genWorker(t, "gen-2", 1000)
+	require.NoError(t, w.ix.store.SetCursor(ctx, "sp1", 100, "gen-1"))
+
+	require.NoError(t, w.ix.store.SetCursor(ctx, "sp1", 200, ""))
+	cursor, gen := storedCursor(t, w)
+	require.EqualValues(t, 200, cursor, "the cursor still advances")
+	require.Equal(t, "gen-1", gen, "the stamp survives an advance that carries no epoch")
+
+	// So the rebuild is still caught on the next boot.
+	w.alignIndex(ctx)
+	cursor, gen = storedCursor(t, w)
+	require.Zero(t, cursor)
+	require.Equal(t, "gen-2", gen)
+}
+
+// The first cursor for a space creates the row, epoch or not.
+func TestSetCursor_InsertsRow(t *testing.T) {
+	ctx := context.Background()
+	w := genWorker(t, "gen-1", 1000)
+	require.NoError(t, w.ix.store.SetCursor(ctx, "sp1", 7, ""))
+	cursor, gen := storedCursor(t, w)
+	require.EqualValues(t, 7, cursor)
+	require.Empty(t, gen)
+}
+
 func storedCursor(t *testing.T, w *spaceWorker) (uint64, string) {
 	t.Helper()
 	cursor, gen, err := w.ix.store.Cursor(context.Background(), "sp1")

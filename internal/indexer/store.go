@@ -445,19 +445,28 @@ func (s *Store) Cursor(ctx context.Context, spaceId string) (uint64, string, err
 }
 
 // SetCursor persists the space cursor and the generation it belongs to.
+//
+// MERGES rather than replaces: an empty generation leaves a stamped one
+// in place. A caller reaches the advance loop with no generation in hand
+// whenever the boot-time read failed (alignIndex warns and returns) or
+// never ran (SyncSpace builds a worker directly) — replacing the row
+// there would erase the stamp, and a later SDK store rebuild would then
+// pass both re-index triggers unnoticed: the cursor freezes the index on
+// a renumbered applySeq axis with no error anywhere.
 func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, generation string) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
 	}
-	arena := &anyenc.Arena{}
-	doc := arena.NewObject()
-	doc.Set("id", arena.NewString(spaceId))
-	doc.Set("seq", arena.NewNumberInt(int(seq)))
-	if generation != "" {
-		doc.Set("gen", arena.NewString(generation))
-	}
-	return coll.UpsertOne(ctx, doc)
+	mod := query.ModifyFunc(func(a *anyenc.Arena, v *anyenc.Value) (*anyenc.Value, bool, error) {
+		v.Set("seq", a.NewNumberInt(int(seq)))
+		if generation != "" {
+			v.Set("gen", a.NewString(generation))
+		}
+		return v, true, nil
+	})
+	_, err = coll.UpsertId(ctx, spaceId, mod)
+	return err
 }
 
 // Apply lands one advance page in a single write transaction:
