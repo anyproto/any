@@ -130,8 +130,9 @@ index:
                                       # user's cores. Set here and restart — the runtime setter behind it
                                       # has no HTTP or CLI surface yet
                                       # (docs/13-index.md § The embedder child process)
-    requestTimeout: 3m                # bound on one embed round-trip with the child; a hung GPU stops
-                                      # answering rather than failing, and this is what unwedges it
+    requestTimeout: 3m                # bound on one frame to the child (one decode group of batchDocs
+                                      # texts); a hung GPU stops answering rather than failing, and this
+                                      # is what unwedges it
     niceness: 10                      # scheduling priority of the embedder child (0-19, higher = more
                                       # background); 0 = leave at the server's priority. Unix nices the
                                       # child, Windows drops its priority class
@@ -157,6 +158,10 @@ index:
     defaultOperator: or               # how bare FTS terms combine: or (default) | and. AND
                                       # requires ALL terms — precise, but tanks recall on
                                       # natural-language queries; use only for keyword input
+    queryEmbedTimeout: 5s             # bound on embedding one /search query (every embedder);
+                                      # past it hybrid answers lexical-only (vectorStatus
+                                      # unavailable) and mode=vector 503s — raise for a slow
+                                      # remote embedder
     minVectorSim: 0                   # cosine floor for vector hits; 0 = legacy ">0"
     bm25B: 0                          # FTS BM25 length-norm; 0 = engine default 0.75
     bm25K1: 0                         # FTS BM25 tf-saturation; 0 = engine default 1.2
@@ -250,6 +255,7 @@ ANY_INDEX_SEARCH_MIN_VECTOR_SIM=0     # index.search.minVectorSim (keep 0 for th
 ANY_INDEX_SEARCH_BM25_B=0.4           # index.search.bm25B (FTS length-norm)
 ANY_INDEX_SEARCH_BM25_K1=1.2          # index.search.bm25K1 (FTS tf-saturation)
 ANY_INDEX_SEARCH_TITLE_WEIGHT=2       # index.search.titleWeight (BM25F title boost)
+ANY_INDEX_SEARCH_QUERY_EMBED_TIMEOUT=5s # index.search.queryEmbedTimeout (query embedding budget)
 ANY_INDEX_LOCAL_MODEL_PATH=/models/q.gguf
 ANY_INDEX_LOCAL_MODEL_URL=https://...
 ANY_INDEX_LOCAL_MODEL_SHA256=06507c...
@@ -259,7 +265,7 @@ ANY_INDEX_LOCAL_QUERY_PREFIX="Instruct: ...\nQuery:"
 ANY_INDEX_LOCAL_DIM=512
 ANY_INDEX_LOCAL_THREADS=8            # 0/unset = runtime.NumCPU()-1
 ANY_INDEX_LOCAL_GPU_LAYERS=0         # 0 = force CPU-only decoding
-ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m   # bound on one embed round-trip with the child process
+ANY_INDEX_LOCAL_REQUEST_TIMEOUT=3m   # bound on one frame to the child (one decode group of batchDocs texts)
 ANY_INDEX_LOCAL_NICENESS=10          # child scheduling priority; 0 = same as the server
 ```
 

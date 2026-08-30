@@ -342,14 +342,21 @@ Implementation slices landed:
       bindings, no CGO; `embed_worker.go` supervises, `embed_local.go`
       decodes inside the child). The child is this same binary re-exec'd
       as the hidden `any run embedder` and speaks framed JSON+float32
-      over stdin/stdout; it only embeds — no store, no data dir. A
+      over stdin/stdout; it only embeds — no store, no data dir. The
+      server sends a batch one decode group per frame (`batchDocs`
+      texts) through a two-class one-slot semaphore, and a search query
+      takes the slot ahead of waiting doc frames, so `/search` waits for
+      at most the decode in flight, never a 64-doc batch; acquisition is
+      ctx-aware, and a caller that gives up (queued or mid-frame)
+      leaves at once while the frame completes detached and the child is
+      kept — no respawn (SYN-200). A
       llama.cpp abort (Vulkan device-lost throwing through the FFI
       frame, GGML_ASSERT) kills the child, not the server: the round
       fails, docs stay `pending`, and a crash with GPU
       offload active demotes the process to `--gpu-layers 0` for the
       rest of the run (in-memory — every start tries the GPU again).
-      `index.local.requestTimeout` (3m) unwedges a hung GPU, which stops
-      answering rather than failing; `index.local.threads` is the
+      `index.local.requestTimeout` (3m, per frame) unwedges a hung GPU,
+      which stops answering rather than failing; `index.local.threads` is the
       child's CPU budget and is runtime-settable via
       `Indexer.SetEmbedThreads`; `index.local.niceness` (10) runs the
       child below the server. The `ready` frame carries a `Hardware`
@@ -374,6 +381,13 @@ Implementation slices landed:
       the dim is learned from the first successful batch (or
       `index.vector.dim`) and pinned in `_meta`. `mode=vector` during
       an outage ⇒ 503 `index.embedder_unavailable`; hybrid degrades.
+      The query embedding in `Indexer.Search` is bounded
+      (`index.search.queryEmbedTimeout`, default 5s, every embedder;
+      `auto` gives the online primary half of it so the local fallback
+      still decodes): past it hybrid answers fts/`unavailable` and
+      vector 503s, so a cold load or a wedged child degrades a search
+      instead of holding it. A frame that fails mid-batch returns the
+      vectors embedded so far and the embed loop lands them.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
       `{query, scopes?, limit?, mode?, require?, exclude?, maxData?}` →
       `{hits, mode, vectorStatus}` — `require`/`exclude` bind every

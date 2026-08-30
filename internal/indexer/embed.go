@@ -25,7 +25,9 @@ var ErrEmbedderUnavailable = errors.New("indexer: embedder unavailable")
 // models distinguish the two roles (task prompts / instructions); both
 // must produce vectors of the same dimension.
 type Embedder interface {
-	// EmbedDocs embeds passages for storage, one vector per text.
+	// EmbedDocs embeds passages for storage, one vector per text. On
+	// error it may return the vectors of a leading prefix of texts
+	// alongside the error; the caller lands those and retries the rest.
 	EmbedDocs(ctx context.Context, texts []string) ([][]float32, error)
 	// EmbedQuery embeds a single search query.
 	EmbedQuery(ctx context.Context, text string) ([]float32, error)

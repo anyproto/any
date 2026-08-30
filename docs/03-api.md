@@ -806,9 +806,12 @@ Terms are matched by the index analyzer — a `"phrase"` or `prefix*`
 term behaves as it does in `query`.
 
 `mode` in the reply is the mode that actually ran: `hybrid` degrades to
-`fts` when no embedder is configured or it is unreachable; `mode:
+`fts` when no embedder is configured, it is unreachable, or the query
+embedding does not finish within the server's budget
+(`index.search.queryEmbedTimeout`, default 5 s); `mode:
 "vector"` requests get `400 index.no_embedder` (none configured) or
-`503 index.embedder_unavailable` (configured but down — retryable).
+`503 index.embedder_unavailable` (configured but down or too slow —
+retryable).
 
 `vectorStatus` tells the consumer — typically an agent deciding how
 much to trust recall — whether semantic search took part, and why not:
@@ -816,7 +819,7 @@ much to trust recall — whether semantic search took part, and why not:
 | Value | Meaning |
 |-------|---------|
 | `used` | the vector leg ran and contributed to ranking |
-| `unavailable` | embedder configured but unreachable for this query — results are lexical-only; retrying later may differ |
+| `unavailable` | embedder configured but unreachable or over budget for this query — results are lexical-only; retrying later may differ |
 | `disabled` | no embedder configured on this server — vector can never run until config changes |
 | `skipped` | the caller asked for `mode: "fts"`; vector was not attempted |
 

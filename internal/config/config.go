@@ -159,8 +159,8 @@ type Index struct {
 	// docs per EmbedDocs call (0 = default 64). EmbedConcurrency is how
 	// many batches embed in parallel (0 = default: 1 for local, a few for
 	// online openai/auto — parallel requests are the online throughput
-	// win; the local model serializes internally so concurrency is safe
-	// but pointless). See docs/13-index.md.
+	// win; the local child serves one frame at a time so concurrency is
+	// safe but pointless). See docs/13-index.md.
 	EmbedBatch       int         `yaml:"embedBatch"`
 	EmbedConcurrency int         `yaml:"embedConcurrency"`
 	Ollama           IndexOllama `yaml:"ollama"`
@@ -212,6 +212,13 @@ type IndexSearch struct {
 	// 0 = the engine default (1.0 — no boost). Read at query time, so it
 	// can change without a rebuild.
 	TitleWeight float64 `yaml:"titleWeight"`
+	// QueryEmbedTimeout bounds the query embedding of one /search (Go
+	// duration string). Past it hybrid answers lexical-only
+	// (vectorStatus=unavailable) and mode=vector fails as
+	// index.embedder_unavailable, so a cold model load, a wedged child or
+	// a slow remote API degrades a search instead of holding it. Default
+	// 5s; raise it for a remote embedder that is legitimately slower.
+	QueryEmbedTimeout string `yaml:"queryEmbedTimeout"`
 }
 
 type IndexOllama struct {
@@ -265,11 +272,12 @@ type IndexLocal struct {
 	// below-normal/idle priority class on Windows. Absent = 10; 0 keeps
 	// the server's own priority. Raising priority is not supported.
 	Niceness *int `yaml:"niceness"`
-	// RequestTimeout bounds one embed round-trip with the child process
-	// (Go duration string). Default 3m. It exists to unwedge a hung GPU:
-	// a lost device stops answering rather than failing, so without a
-	// bound the embed loop blocks forever. Generous by design — a 64-doc
-	// batch of long texts is ~30s on CPU.
+	// RequestTimeout bounds one frame to the child process — one decode
+	// group of up to BatchDocs texts (Go duration string). Default 3m.
+	// It exists to unwedge a hung GPU: a lost device stops answering
+	// rather than failing, so without a bound the embed loop blocks
+	// forever. Generous by design — it polices a wedge, not slow
+	// hardware.
 	RequestTimeout string `yaml:"requestTimeout"`
 	// GpuLayers overrides llama.cpp's n_gpu_layers. Absent keeps the
 	// llama.cpp default: offload every layer when a usable GPU backend

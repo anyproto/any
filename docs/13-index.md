@@ -430,10 +430,11 @@ Embedders (`indexer.Embedder`), selected by `index.embedder`
   immediately, vectors flow once the model lands. Air-gapped:
   set `index.local.modelPath` (no download is attempted).
   `index.local.dim` truncates output vectors (Matryoshka) to shrink
-  the IVF index. One llama context per process, mutex-serialized;
-  within an `EmbedDocs` call texts pack into multi-sequence decodes —
+  the IVF index. One llama context in the child, one request in
+  flight; the server sends a batch one decode group per frame —
   up to `index.local.batchDocs` docs (**default 1**) per `llama_decode`,
-  greedy in order under the `contextSize` token budget. **Batching costs
+  greedy in order under the `contextSize` token budget — and a search
+  query takes the next frame ahead of waiting doc groups. **Batching costs
   context**: the unified KV cache PARTITIONS `contextSize` across the
   packed sequences, so `batchDocs: N` caps each text at
   `contextSize/N` tokens (rounded up to a 256-token block). `tokenize`
@@ -461,8 +462,21 @@ this binary as `any run embedder` (a hidden subcommand — self-exec keeps
 distribution to one signed artifact) and talks to it over stdin/stdout
 with a magic-prefixed, length-delimited frame protocol; vectors come
 back as raw little-endian float32. One child, spawned lazily on the
-first embed call and shared by every space worker, requests serialized —
-the same serialization the in-process model's mutex provided.
+first embed call and shared by every space worker. The stream carries
+one request at a time, and the server shares it through a one-slot
+semaphore with two classes: `EmbedDocs` sends a batch one decode group
+per frame (`batchDocs` texts, one `llama_decode`) and re-takes the
+slot for every frame, and a search query takes the slot ahead of any
+waiting doc frame. A doc frame yields to every waiting query, with one
+bound: after 8 consecutive query turns it runs anyway, so a saturating
+query stream still leaves indexing a frame per burst instead of
+starving it. Once the child is up, a query therefore waits
+for at most the decode in flight — ~1–2 s worst case for a 2048-token
+doc on CPU, well under that on a GPU — never for a 64-doc batch,
+however many spaces are backfilling. A cold spawn or a wedged child
+holds the slot longer; that is what the query budget in § Search is
+for. Acquisition is context-aware: a caller that gives up leaves the
+queue instead of parking until its turn.
 
 **Why.** llama.cpp faults are not recoverable in Go. A Vulkan
 device-lost throws `vk::DeviceLostError` out of `vk::Queue::submit` and
@@ -480,16 +494,22 @@ the vector index all stay in the server, and so do model discovery and
 the background download (`index.model_download` reporting is unchanged).
 
 **Failure handling.** A dead child, a desynchronized stream, or a
-request that outlives `index.local.requestTimeout` (default 3m) kills
+frame that outlives `index.local.requestTimeout` (default 3m) kills
 the child and fails the round; the next round respawns behind an
 exponential backoff (1s → 1m). The timeout matters as much as the
 isolation — a wedged GPU stops answering rather than failing, so
 without a bound the embed loop waits forever. A timeout therefore counts
 as a fault and demotes the GPU, at the price of demoting a merely slow
-batch: one run at CPU speed against repeated multi-minute stalls. An
+decode: one run at CPU speed against repeated multi-minute stalls. An
 error *frame* is different — the child reporting a failed call is still
 healthy and is kept. Its stderr is logged, and the tail is quoted when it dies — that
-is where llama.cpp's abort message lands.
+is where llama.cpp's abort message lands. A caller that goes away is
+not a fault either: the server abandons the wait, not the work. Once a
+request is on the wire its answer has to be read for the stream to stay
+usable, so the frame (or a cold spawn) completes on its own, the child
+is kept, and the next caller finds it ready — a budgeted search never
+restarts a model load, and a dropped space costs one decode, not a
+respawn.
 
 **Priority.** The child runs *below* the server: `index.local.niceness`
 (default 10, 0 disables) nices it on Unix and drops it to a
@@ -655,8 +675,13 @@ require?, exclude?, maxData?}` →
 dataOffset?, dataTotal, score}], mode, vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
 embedder, hits below the similarity floor are dropped as noise), `hybrid`
 (default — both legs fused by reciprocal rank, k=60; degrades to `fts`
-when the embedder is missing or the query embedding fails — `mode` in
-the reply is the mode that actually ran). Scores are comparable only
+when the embedder is missing or the query embedding fails or exceeds
+its budget — `mode` in the reply is the mode that actually ran). The
+query embedding is bounded (`index.search.queryEmbedTimeout`, default
+5 s): a cold model load, a wedged child or a slow API degrades the
+search instead of holding it, and a caller that disconnects leaves the
+embedder's queue at once. Under `auto` the online primary gets half of
+the remaining budget so the local fallback still has time to decode. Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 [--limit N] [--mode ...] [--require T ...] [--exclude T ...]
 [--max-data N]`.
@@ -727,9 +752,9 @@ changes nothing (chunker-hybrid-search-report § 5, measured with
 
 `vectorStatus` (`used` / `unavailable` / `disabled` / `skipped`) tells
 the consumer whether semantic recall took part and why not — an agent
-can distinguish "lexical-only because the embedder is momentarily down,
-retry may differ" (`unavailable`) from "this server never runs vector
-search" (`disabled`). Value table in `docs/03-api.md` § search.
+can distinguish "lexical-only because the embedder is momentarily down
+or too slow, retry may differ" (`unavailable`) from "this server never
+runs vector search" (`disabled`). Value table in `docs/03-api.md` § search.
 
 This is the one sanctioned endpoint that does not map 1:1 onto an SDK
 method — the index is a consumer-side feature, owned by this doc.
@@ -742,7 +767,8 @@ with a different id, not a different code path.
 Errors: `index.disabled` (409, `index.enabled: false`),
 `index.no_embedder` (400, `mode=vector` with no embedder configured),
 `index.embedder_unavailable` (503, `mode=vector` while the configured
-embedder is unreachable — retryable; hybrid degrades instead),
+embedder is unreachable or did not answer within the query budget —
+retryable; hybrid degrades instead),
 `search.bad_mode` / `search.bad_scope` (400).
 
 ### Tuning (measured — `internal/indexer/bench_test.go`)
@@ -757,6 +783,23 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 | `RetryBackoff` / `PendingEvery` | 5s / 1m | Failure paths only: advance retry, embed catch-up tick. |
 
 Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
+
+Query embedding while the local child is saturated (three workers
+looping 2000-rune frames — `TestWorkerEmbedder_RealChild_QueryLatency`,
+Qwen3-Embedding-0.6B Q8, 20 jittered queries): the wait is half a doc
+decode on average, never more than one.
+
+| Machine / mode | doc decode under load | query p50 / p90 / max |
+|---|---|---|
+| Ryzen 9 9950X, CPU 16 threads | 297ms (3.3 frames/s) | 214 / 318 / 352ms |
+| Ryzen 9 9950X, iGPU (RADV, Vulkan) | 755ms (0.9/s) — slower than its CPU | 710 / 825 / 836ms |
+| Ryzen 9 3900X, CPU 23 threads (default) | 383ms (1.2/s) | 345 / 496 / 600ms |
+| Ryzen 9 3900X, CPU 12 threads | 470ms (1.1/s) | 479 / 720 / 753ms |
+| GeForce GTX 1080, Vulkan | 181ms (5.6/s) | 107 / 186 / 199ms |
+
+End to end on the 9950X CPU (server + 360-chunk backlog draining, 110
+hybrid `/search` calls over HTTP): p50 212ms, p90 306ms, max 446ms,
+every reply `mode=hybrid` / `vectorStatus=used`.
 Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 (`ANY_BENCH_OLLAMA=1` adds the real-embedder run).
 
@@ -766,7 +809,10 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   `<data-dir>/index/` does **not** re-index old content — only rows
   whose `_addSeq` moves afterwards get (re-)indexed.
 - Embedder latency only delays the vector leg: fresh writes are FTS-
-  searchable immediately and gain vector recall once embedded.
+  searchable immediately and gain vector recall once embedded. At query
+  time the local child serves a search ahead of doc frames (wait ≤ one
+  decode) and the embedding is capped (`index.search.queryEmbedTimeout`,
+  default 5 s), past which hybrid answers lexical-only.
 - **Embedder input is still clamped**, per SEQUENCE, to
   `index.local.contextSize / index.local.batchDocs` tokens (default
   2048 / 1 = 2048, EOS preserved for last-token pooling). Chunking
@@ -801,6 +847,17 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
 - `internal/indexer/embed_local_download_test.go` — download manager
   against `httptest`: happy path, sha256 mismatch, Range resume,
   progress strings.
+- `internal/indexer/embed_worker_test.go` — the child supervisor
+  against a helper process (this test binary re-exec'd, speaking the
+  frame protocol in place of a model): per-frame batching, a query
+  jumping the doc queue, abandoned callers (queue and mid-frame) keeping
+  the child, crash → CPU demotion, request timeout, spawn backoff,
+  `SetThreads` idle/busy, `Close` mid-request and mid-spawn; plus a
+  gated real-child comparison against the in-process model.
+- `internal/indexer/search_budget_test.go` — the query-embedding
+  budget in `Search`: hybrid degrades to fts/`unavailable`, vector
+  fails as embedder-unavailable, a cancelled caller gets its own
+  cancellation.
 - `internal/server/handlers_search_test.go` — in-process SDK + in-memory
   store + deterministic fake embedder: all three modes end to end,
   scope filtering, deletion purge, degraded/disabled errors, and the

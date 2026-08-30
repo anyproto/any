@@ -534,8 +534,8 @@ func (w *spaceWorker) drainPending(ctx context.Context) error {
 // drainRounds embeds and lands pending docs until the queue is empty.
 // Each round pulls up to EmbedConcurrency batches and embeds them
 // concurrently: an online embedder parallelizes across HTTP requests
-// (the throughput win), while the local model serializes internally on
-// its mutex — so concurrency is safe regardless of backend. SetVectors /
+// (the throughput win), while the local child serves one frame at a
+// time — so concurrency is safe regardless of backend. SetVectors /
 // EnsureVectorIndex stay serial. The vector index is created lazily after
 // the first batch lands. progress is called with (0, remaining) when a
 // round found work (before embedding; remaining = pending count, -1
@@ -583,32 +583,32 @@ func (w *spaceWorker) drainRounds(ctx context.Context, progress func(landed, rem
 		}
 		wg.Wait()
 
-		// First successful batch teaches the store its dimension (no
+		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
 		for _, c := range chunks {
-			if c.err == nil && len(c.vecs) > 0 && len(c.vecs[0]) > 0 {
+			if len(c.vecs) > 0 && len(c.vecs[0]) > 0 {
 				if err := w.ix.store.EnsureDim(ctx, len(c.vecs[0])); err != nil {
 					return err
 				}
 				break
 			}
 		}
-		// Land the successful chunks; a failed chunk leaves its docs
-		// pending (the ticker retries) and we surface the error after.
+		// Land what embedded — a failed chunk may still carry a leading
+		// prefix (Embedder.EmbedDocs); the rest of its docs stay pending
+		// (the ticker retries) and we surface the error after.
 		var firstErr error
 		landed := false
 		for _, c := range chunks {
-			if c.err != nil {
-				if firstErr == nil {
-					firstErr = c.err
+			if n := len(c.vecs); n > 0 {
+				if err := w.ix.store.SetVectors(ctx, spaceId, c.ids[:n], c.vecs); err != nil {
+					return err
 				}
-				continue
+				landed = true
+				progress(n, -1)
 			}
-			if err := w.ix.store.SetVectors(ctx, spaceId, c.ids, c.vecs); err != nil {
-				return err
+			if c.err != nil && firstErr == nil {
+				firstErr = c.err
 			}
-			landed = true
-			progress(len(c.ids), -1)
 		}
 		if landed {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {

@@ -72,9 +72,10 @@ type SearchHit struct {
 const (
 	// VectorStatusUsed: the vector leg ran and contributed to ranking.
 	VectorStatusUsed = "used"
-	// VectorStatusUnavailable: an embedder is configured but was not
-	// reachable for this query — retry later may differ. Hybrid
-	// degraded to FTS; mode=vector would have returned 503.
+	// VectorStatusUnavailable: an embedder is configured but did not
+	// answer for this query — unreachable, or not within the query
+	// budget — retry later may differ. Hybrid degraded to FTS;
+	// mode=vector would have returned 503.
 	VectorStatusUnavailable = "unavailable"
 	// VectorStatusDisabled: no embedder is configured on this server —
 	// vector search can never run until config changes.

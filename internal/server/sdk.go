@@ -69,7 +69,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Network: sdkconfig.Network{NodeConfYAML: nodeconfYAML},
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
-		Types: serverTypes(),
+		Types:   serverTypes(),
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
@@ -186,22 +186,31 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		stopWords = *cfg.Search.StopWords
 	}
 	// Default embed concurrency: parallelize for an online API (the
-	// throughput win), stay sequential for the local model (it serializes
-	// internally, so parallelism only adds goroutines).
+	// throughput win), stay sequential for the local child (it serves one
+	// frame at a time, so parallelism only adds goroutines).
 	embedConc := cfg.EmbedConcurrency
 	if embedConc == 0 && (cfg.Embedder == "openai" || cfg.Embedder == "auto") {
 		embedConc = 4
 	}
+	var queryEmbedTimeout time.Duration
+	if cfg.Search.QueryEmbedTimeout != "" {
+		d, err := time.ParseDuration(cfg.Search.QueryEmbedTimeout)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("index.search.queryEmbedTimeout: want a positive duration, got %q", cfg.Search.QueryEmbedTimeout)
+		}
+		queryEmbedTimeout = d
+	}
 	return indexer.New(sdk, chunkers, st, indexer.Options{
-		Embedder:         emb,
-		EmbedBatch:       cfg.EmbedBatch,
-		EmbedConcurrency: embedConc,
-		FtsWeight:        cfg.Search.FtsWeight,
-		VectorWeight:     cfg.Search.VectorWeight,
-		AdaptiveWeights:  cfg.Search.AdaptiveWeights,
-		FTSDefaultAnd:    strings.EqualFold(cfg.Search.DefaultOperator, "and"),
-		MinVectorSim:     cfg.Search.MinVectorSim,
-		StopWords:        stopWords,
-		OnProcess:        onProcess,
+		Embedder:          emb,
+		EmbedBatch:        cfg.EmbedBatch,
+		EmbedConcurrency:  embedConc,
+		QueryEmbedTimeout: queryEmbedTimeout,
+		FtsWeight:         cfg.Search.FtsWeight,
+		VectorWeight:      cfg.Search.VectorWeight,
+		AdaptiveWeights:   cfg.Search.AdaptiveWeights,
+		FTSDefaultAnd:     strings.EqualFold(cfg.Search.DefaultOperator, "and"),
+		MinVectorSim:      cfg.Search.MinVectorSim,
+		StopWords:         stopWords,
+		OnProcess:         onProcess,
 	}), nil
 }
