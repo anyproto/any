@@ -523,6 +523,10 @@ const docTemplate = `{
                     },
                     "name": {
                         "type": "string"
+                    },
+                    "outcome": {
+                        "description": "Outcome says how the run behind a done:true message ended when\nit did not end normally — ` + "`" + `interrupted` + "`" + ` (the user stopped it),\n` + "`" + `error` + "`" + ` (it died). Absent on a normal reply. Opaque to the\nserver; clients key their rendering (a stop mark, a warning) on\nit instead of parsing the text.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -560,6 +564,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.ChatMessageControl": {
+                "properties": {
+                    "hard": {
+                        "type": "boolean"
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatSendRequest": {
                 "properties": {
                     "agent": {
@@ -573,6 +588,9 @@ const docTemplate = `{
                     },
                     "context": {
                         "$ref": "#/components/schemas/api.ChatMessageContext"
+                    },
+                    "control": {
+                        "$ref": "#/components/schemas/api.ChatMessageControl"
                     },
                     "replyToMessageId": {
                         "type": "string"
