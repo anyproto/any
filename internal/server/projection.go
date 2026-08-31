@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -28,9 +29,10 @@ import (
 //     keys on.
 //   - Protocol fields (`_`-prefixed) sit outside mode inference and
 //     carry their own defaults: `_ver` is included (narrowed to the
-//     projection), `_addSeq` / `_applySeq` are dropped. Either is
-//     overridden by naming it explicitly. So `{"_ver": -1}` alone is
-//     still "every user field", not "nothing but _ver's complement".
+//     projection), `_traces` / `_deletedAt` ride along whole, and
+//     `_addSeq` / `_applySeq` are dropped. Each is overridden by naming
+//     it explicitly. So `{"_ver": -1}` alone is still "every user
+//     field", not "nothing but _ver's complement".
 //
 // Projection shapes output only: it never changes which records match
 // or the order they arrive in.
@@ -100,6 +102,15 @@ const verField = "_ver"
 // byte for byte.
 var projectionDefaultDropped = [...]string{"_addSeq", "_applySeq"}
 
+// projectionPassthrough are protocol fields that ride along an
+// include-mode record whole, unless excluded by name. `_traces` is the
+// write-correlation map an optimistic client matches its own echo on
+// (the `traceIds` it sent to /modify), and `_deletedAt` marks a
+// tombstone: dropping either because the caller listed only user
+// fields would break a client silently. `_ver` is the third, handled
+// separately because it is narrowed rather than copied.
+var projectionPassthrough = [...]string{"_traces", "_deletedAt"}
+
 // parseProjection reads the request body's `projection` object. Returns
 // (nil, nil, false) when absent — the no-projection path must stay
 // exactly as it was.
@@ -115,6 +126,12 @@ func parseProjection(c echo.Context, root *fastjson.Value) (*projection, error, 
 	if err != nil {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"projection must be a JSON object of field paths to 1 (include) or -1 (exclude)", nil), true
+	}
+	if obj.Len() == 0 {
+		// An empty object selects nothing and excludes nothing. Treat it
+		// as absent so a client that always emits the key gets the same
+		// bytes as one that omits it — including the delivery counters.
+		return nil, nil, false
 	}
 	if obj.Len() > maxProjectionEntries {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -145,6 +162,11 @@ func parseProjection(c echo.Context, root *fastjson.Value) (*projection, error, 
 // projectionMark maps an accepted projection value onto a mark. 1/true
 // include, -1/0/false exclude; anything else is rejected rather than
 // guessed at.
+//
+// Numbers go through GetFloat64, not GetInt: fastjson's GetInt parses
+// best-effort and answers 0 for any non-integer literal, so `1.0` — what
+// a Python client's json.dumps emits for a float 1 — would come back as
+// an EXCLUDE and silently invert the projection.
 func projectionMark(v *fastjson.Value) (int8, bool) {
 	switch v.Type() {
 	case fastjson.TypeTrue:
@@ -152,7 +174,7 @@ func projectionMark(v *fastjson.Value) (int8, bool) {
 	case fastjson.TypeFalse:
 		return projMarkExclude, true
 	case fastjson.TypeNumber:
-		switch n := v.GetInt(); n {
+		switch n := v.GetFloat64(); n {
 		case 1:
 			return projMarkInclude, true
 		case 0, -1:
@@ -272,6 +294,9 @@ func (p *projection) record(doc *anyenc.Value, a *fastjson.Arena) *fastjson.Valu
 	if !p.userInclude {
 		out := doc.FastJson(a)
 		carveNode(out, &p.root)
+		// The version map is carved by the same exclusions, so dropping
+		// a field drops its version with it.
+		carveVer(out.Get(verField), &p.root)
 		p.applyProtocolDefaults(out)
 		return out
 	}
@@ -309,11 +334,29 @@ func (p *projection) record(doc *anyenc.Value, a *fastjson.Arena) *fastjson.Valu
 // avoid). A node the record answers with a scalar where the projection
 // wanted to descend yields nothing — "absent stays absent" rather than
 // an empty object.
+//
+// An array is descended ELEMENT-WISE, mongo-style: `{"tags.name": 1}`
+// over an array of objects keeps each element's name. An element that
+// projects to nothing drops out of the array.
 func projectValue(v *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Value {
 	if !n.incChild {
 		out := v.FastJson(a)
 		if n.excBelow {
 			carveNode(out, n)
+		}
+		return out
+	}
+	if v.Type() == anyenc.TypeArray {
+		out := a.NewArray()
+		kept := 0
+		for _, item := range v.GetArray() {
+			if cv := projectValue(item, n, a); cv != nil {
+				out.SetArrayItem(kept, cv)
+				kept++
+			}
+		}
+		if kept == 0 {
+			return nil
 		}
 		return out
 	}
@@ -342,9 +385,16 @@ func projectValue(v *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Val
 
 // carveNode deletes every excluded path of n from an already-converted
 // value. Keys come from the projection, so no per-record string is
-// built.
+// built. Arrays are carved element-wise, matching projectValue's
+// descent.
 func carveNode(v *fastjson.Value, n *projNode) {
 	if v == nil {
+		return
+	}
+	if v.Type() == fastjson.TypeArray {
+		for _, item := range v.GetArray() {
+			carveNode(item, n)
+		}
 		return
 	}
 	for i := range n.children {
@@ -372,25 +422,55 @@ func (p *projection) applyProtocolDefaults(v *fastjson.Value) {
 
 // projectProtocolFields adds the `_`-prefixed fields to an
 // include-mode record. They sit outside mode inference: `_ver` rides
-// along narrowed unless excluded, the delivery counters stay off
-// unless named, and anything else named explicitly is passed through.
+// along narrowed, the passthrough fields ride along whole, the
+// delivery counters stay off unless named, and any other `_` field
+// named with an include is passed through.
 func (p *projection) projectProtocolFields(doc *anyenc.Value, out *fastjson.Value, a *fastjson.Arena) {
-	verNode := p.root.find(verField)
-	if verNode == nil || verNode.mark != projMarkExclude {
+	if !p.excluded(verField) {
 		if ver := doc.Get(verField); ver != nil {
 			if v := projectVer(ver, &p.root, a); v != nil {
+				carveVer(v, &p.root)
 				out.Set(verField, v)
 			}
 		}
 	}
+	for _, key := range projectionPassthrough {
+		if p.excluded(key) {
+			continue
+		}
+		if sub := doc.Get(key); sub != nil {
+			out.Set(key, sub.FastJson(a))
+		}
+	}
 	for i := range p.root.children {
 		n := &p.root.children[i]
-		if !strings.HasPrefix(n.key, "_") || n.key == verField || n.mark != projMarkInclude {
+		if !strings.HasPrefix(n.key, "_") || n.mark != projMarkInclude {
 			continue
+		}
+		if n.key == verField || slices.Contains(projectionPassthrough[:], n.key) {
+			continue // already placed
 		}
 		if sub := doc.Get(n.key); sub != nil {
 			out.Set(n.key, sub.FastJson(a))
 		}
+	}
+}
+
+// excluded reports whether a top-level field carries an explicit
+// exclude mark.
+func (p *projection) excluded(key string) bool {
+	n := p.root.find(key)
+	return n != nil && n.mark == projMarkExclude
+}
+
+// carveVer applies the projection's EXCLUSIONS to an already-narrowed
+// `_ver`, so a field the caller excluded does not leave its version
+// behind. Exclusions carve; inclusions were already applied by
+// projectVer. The `*` default is never a projection path, so it
+// survives — see projectVer for why that matters.
+func carveVer(ver *fastjson.Value, root *projNode) {
+	if root.excBelow {
+		carveNode(ver, root)
 	}
 }
 
@@ -406,11 +486,14 @@ func (p *projection) projectProtocolFields(doc *anyenc.Value, out *fastjson.Valu
 // narrowed map resolves to the same version as the full one. Lookup
 // falls back to `*` exactly where it did before, and an included
 // subtree is bit-identical. Paths the projection EXCLUDED are outside
-// the contract — they may resolve to a surviving `*` default rather
-// than their own version, which is why the narrowing follows
-// inclusions only and ignores exclusions: a nested exclusion costs a
-// few bytes of `_ver` instead of an answer that is wrong in the
-// direction that makes a client discard a live local edit.
+// the contract — carveVer removes their entries afterwards, and what
+// is left may resolve to a surviving `*` default rather than the
+// version they had.
+//
+// Subtrees are never collapsed to their maximum version. That is a
+// legal encoding and smaller, but it over-reports every leaf older
+// than the max, and a client reconciling optimistic state per field
+// would then discard a local edit that is genuinely newer.
 func projectVer(ver *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Value {
 	if ver.Type() != anyenc.TypeObject {
 		// Collapsed at this level — one string covers everything below,
@@ -470,10 +553,17 @@ func (p *projection) opVerdict(path []string) (int, *projNode) {
 			}
 			return projOpDrop, nil
 		}
-		if c.mark == projMarkExclude {
-			return projOpDrop, nil
-		}
-		if c.mark == projMarkInclude {
+		switch c.mark {
+		case projMarkExclude:
+			// Deepest mark wins here too: an exclusion only ends the
+			// walk when nothing under it was included. Otherwise it
+			// resets to "outside", and a deeper include lets us back in
+			// — so ops stay exactly as wide as the record body.
+			if !c.incBelow {
+				return projOpDrop, nil
+			}
+			inherited = false
+		case projMarkInclude:
 			inherited = true
 		}
 		node = c

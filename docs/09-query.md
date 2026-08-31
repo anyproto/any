@@ -89,7 +89,12 @@ defaults, so `{"_ver": -1}` alone still means "every user field":
 | field | default under a projection | to change it |
 |---|---|---|
 | `_ver` | included, narrowed to the projection | `{"_ver": -1}` to drop |
+| `_traces`, `_deletedAt` | included whole | `{"_traces": -1}` to drop |
 | `_addSeq`, `_applySeq` | dropped | `{"_addSeq": 1}` to keep |
+
+`_traces` is the write-correlation map an optimistic client matches its
+own echo on (the `traceIds` it sent to `/modify`), so it rides along
+rather than disappearing because you listed only user fields.
 
 The delivery counters are peer-local and SDK-internal — consumers
 reason with `versionId` — so a projecting client does not pay for them
@@ -101,8 +106,10 @@ for byte, counters included: this is opt-in.
 `_ver` mirrors the record, except that a node may be a bare version
 string (collapsed — it applies at and below that point) and an object
 node may carry `*`, the version for any sibling not enumerated there.
-Narrowing keeps `*` at every level it descends into and copies matched
-subtrees verbatim, which buys an exact contract:
+Narrowing follows your **inclusions**, keeping `*` at every level it
+descends into and copying matched subtrees verbatim, and then applies
+your **exclusions** — dropping a field drops its version with it. That
+buys an exact contract:
 
 > For every path the projection includes, the narrowed `_ver` resolves
 > to the same version as the full one.
@@ -118,7 +125,9 @@ newer.
 ### Divergences from mongo
 
 - **Include and exclude mix.** Mongo rejects a projection carrying
-  both; here they compose, deepest mark wins.
+  both; here they compose, deepest mark wins — in both directions. A
+  deeper exclude carves an included subtree, and a deeper include
+  narrows one (`{"nav":1,"nav.pos":1}` is `nav.pos`, not all of `nav`).
 - **`id` cannot be excluded** (mongo lets you drop `_id`).
 - **Protocol fields are not part of mode inference**, per the table
   above.
@@ -128,7 +137,12 @@ newer.
 
 At most 128 entries, at most 8 path segments deep. An empty path, an
 empty segment (`"nav..pos"`), the reserved `*` segment, or a value that
-is not one of the accepted marks is `400 request.invalid_field`.
+is not one of the accepted marks is `400 request.invalid_field`. An
+empty `projection` object reads as no projection at all.
+
+Arrays are descended element-wise, mongo-style: `{"tags.name": 1}` over
+an array of objects keeps each element's `name`, and an element that
+projects to nothing drops out of the array.
 
 ### CLI
 

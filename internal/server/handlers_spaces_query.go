@@ -100,22 +100,26 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 // `dataset` is an optional override defaulting to `spaces`.
 func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts, string, recordShaper, error, bool) {
 	dataset := SpaceListDataset
+	var strip []string
 	q, opts, shaper, errResp, done := buildBodyQuery(c, spaceListQueryFields, func(root *fastjson.Value) (space.Query, error, bool) {
 		if root != nil {
 			if ds := string(root.GetStringBytes("dataset")); ds != "" {
 				dataset = ds
 			}
 		}
-		if _, errResp, done := vetIndexDatasetRead(c, root, dataset, spaceListDatasetPolicy,
+		// The strip list comes from the policy table, never from a
+		// dataset comparison here — that is what keeps a policy edit
+		// from leaving this route behind (techspace.go).
+		vetted, errResp, done := vetIndexDatasetRead(c, root, dataset, spaceListDatasetPolicy,
 			" (read identities via GET /v1/identities)",
-			map[string]any{"dataset": dataset}); done {
+			map[string]any{"dataset": dataset})
+		if done {
 			return nil, errResp, true
 		}
+		strip = vetted
 		svc := d.sdk.Spaces()
 		return svc.Query(svc.SpaceIndexObjectId(), dataset), nil, false
 	})
-	if !done && dataset == SpaceListDataset {
-		shaper.strip = spaceListStrippedFields
-	}
+	shaper.strip = strip
 	return q, opts, dataset, shaper, errResp, done
 }

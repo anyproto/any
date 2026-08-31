@@ -161,9 +161,13 @@ func applyProjection(body map[string]any, spec string) error {
 	}
 	proj := map[string]int{}
 	for _, field := range splitCSV(spec) {
+		// Trim so `--projection 'any, nav'` reads the way it looks; an
+		// untrimmed " nav" is a legal path server-side that matches
+		// nothing, which would silently drop the field.
+		field = strings.TrimSpace(field)
 		mark := 1
 		if strings.HasPrefix(field, "-") {
-			field, mark = field[1:], -1
+			field, mark = strings.TrimSpace(field[1:]), -1
 		}
 		if field == "" {
 			return fmt.Errorf("--projection: empty field path")

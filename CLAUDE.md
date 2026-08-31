@@ -1343,23 +1343,35 @@ Implementation slices landed:
     `_ver` narrows automatically (never name a `_ver` path;
     `{"_ver":-1}` drops it), and a projected field the record lacks
     stays absent. `_`-prefixed fields sit OUTSIDE mode inference with
-    their own defaults — `_ver` in, `_addSeq`/`_applySeq` out — so
-    `{"_ver":-1}` alone still means "every user field". No projection
-    ⇒ byte-identical to before, counters included.
-    **The `_ver` rule**: keep `*` (the per-level default marker) at
-    every level descended into and copy matched subtrees verbatim.
-    Contract: for every INCLUDED path the narrowed map resolves to the
-    same version as the full one (lookup falls back to `*` exactly
-    where it did). Excluded paths are outside the contract. Subtrees
-    are never collapsed to their max version — that over-reports a
-    leaf and makes a client discard a live local edit.
+    their own defaults — `_ver` in (narrowed), `_traces`/`_deletedAt`
+    in (whole — `_traces` is the optimistic client's echo-correlation
+    map), `_addSeq`/`_applySeq` out — so `{"_ver":-1}` alone still
+    means "every user field". No projection (or an empty one) ⇒
+    byte-identical to before, counters included.
+    **The `_ver` rule**: follow the INCLUSIONS, keeping `*` (the
+    per-level default marker) at every level descended into and copying
+    matched subtrees verbatim, then apply the EXCLUSIONS so a dropped
+    field drops its version too. Contract: for every included path the
+    narrowed map resolves to the same version as the full one (lookup
+    falls back to `*` exactly where it did). Excluded paths are outside
+    the contract. Subtrees are never collapsed to their max version —
+    that over-reports a leaf and makes a client discard a live local
+    edit. Arrays are descended ELEMENT-WISE (`{"tags.name":1}`).
     Applies to `changes` frames too (requirement 2 of the issue): docs
     and per-field ops. Only `$set`/`$unset` reach the wire (the SDK
     normalises `$inc`/`$addToSet`/`$pull` in its `internal/subscribe`
     `projectOp`), so ops are keep / narrow-the-payload / drop; the
     multi-field form (empty path, payload keys are DOTTED PATHS) is
     classified per key — which also fixed a latent blocklist hole,
-    where the old top-level `Del` never matched `guestKey.x`.
+    where the old top-level `Del` never matched `guestKey.x`. A $set
+    whose narrowed payload holds nothing becomes a $unset, so the op
+    and the doc in the same frame agree the field is gone; `ops` can
+    come back empty under a projection (documented on
+    api.QuerySubscribeRecord). Two traps worth remembering: mark
+    parsing MUST use GetFloat64 (fastjson's GetInt answers 0 for
+    `1.0`, silently inverting include into exclude), and the op-path
+    walk has to honour deepest-wins the same way the record walk does
+    or `{"a":-1,"a.b":1}` ships the doc but no ops.
     Include mode builds the fastjson value from only the named anyenc
     subtrees, so the conversion and the marshal are O(projected) and
     allocation-free; exclude mode converts then carves (the kept keys

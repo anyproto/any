@@ -47,9 +47,9 @@ func benchRecord(tb testing.TB) *anyenc.Value {
 	return doc
 }
 
-// benchShaper parses a projection body the way a request would, without
-// an echo.Context: the parse path only needs one for its error writer,
-// and these bodies are all valid.
+// benchShaper parses a projection body the way a request would. The
+// parse path writes its 400s through the context, so it gets a real
+// one — a rejected body must reach the Fatalf below, not panic.
 func benchShaper(tb testing.TB, body string) recordShaper {
 	tb.Helper()
 	if body == "" {
@@ -60,7 +60,8 @@ func benchShaper(tb testing.TB, body string) recordShaper {
 	if err != nil {
 		tb.Fatalf("parse projection: %v", err)
 	}
-	proj, errResp, done := parseProjection(nil, v)
+	c, _ := newEchoCtx()
+	proj, errResp, done := parseProjection(c, v)
 	if done {
 		tb.Fatalf("projection rejected: %v", errResp)
 	}

@@ -158,7 +158,7 @@ func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objec
 	return spaceId, typeId, objectId
 }
 
-func doJSON(t *testing.T, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
+func doJSON(t testing.TB, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
 	if body == "" {

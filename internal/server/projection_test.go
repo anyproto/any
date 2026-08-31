@@ -192,12 +192,15 @@ func TestProjection_NestedCarve(t *testing.T) {
 	if navGroup["type"] == nil {
 		t.Errorf("nav.type should have survived: %v", navGroup)
 	}
-	// A nested exclusion does NOT narrow _ver — it keeps the version
-	// exact for every included path rather than saving a few bytes.
+	// Exclusions carve _ver too, so a field you dropped does not leave
+	// its version behind.
 	ver, _ := got["_ver"].(map[string]any)
 	navVer, _ := ver["nav"].(map[string]any)
-	if navVer["pos"] != "v1" {
-		t.Errorf("_ver.nav should stay whole under a nested exclusion: %v", navVer)
+	if _, ok := navVer["pos"]; ok {
+		t.Errorf("_ver.nav.pos should be carved with the field: %v", navVer)
+	}
+	if navVer["type"] != "v1" {
+		t.Errorf("_ver.nav.type should have survived: %v", navVer)
 	}
 }
 

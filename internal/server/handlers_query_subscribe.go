@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -211,17 +210,7 @@ func waitQueryBatch(mailbox *mb.MB[space.SubscriptionEvent], ctx context.Context
 // it). Identical shape to QueryResponse — same fields, separate type
 // to keep future extensions decoupled.
 func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
-	fa := getFastjsonArena()
-	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, len(res.Initial))
-	for _, doc := range res.Initial {
-		if doc == nil {
-			records = append(records, json.RawMessage("null"))
-			continue
-		}
-		records = append(records, json.RawMessage(shaper.record(doc, fa).MarshalTo(nil)))
-	}
-	payload := api.QuerySubscribeSnapshot{Records: records}
+	payload := api.QuerySubscribeSnapshot{Records: shapeRecords(res.Initial, shaper)}
 	if includeTotal {
 		t := res.Total
 		payload.Total = &t

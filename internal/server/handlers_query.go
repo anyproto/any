@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -270,17 +271,7 @@ func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.Q
 // happens — we surface the SDK's value verbatim). shaper carries the
 // caller's projection and the server's blocklist.
 func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
-	fa := getFastjsonArena()
-	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, len(res.Initial))
-	for _, doc := range res.Initial {
-		if doc == nil {
-			records = append(records, json.RawMessage("null"))
-			continue
-		}
-		records = append(records, json.RawMessage(shaper.record(doc, fa).MarshalTo(nil)))
-	}
-	out := api.QueryResponse{Records: records}
+	out := api.QueryResponse{Records: shapeRecords(res.Initial, shaper)}
 	if includeTotal {
 		t := res.Total
 		out.Total = &t
@@ -288,4 +279,21 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 		out.HasNext = &hm
 	}
 	return c.JSON(http.StatusOK, out)
+}
+
+// shapeRecords renders a materialised window onto the wire — the one
+// implementation shared by the HTTP reply and the SSE snapshot frame,
+// so the two cannot drift apart when the shaping rules change.
+func shapeRecords(docs []*anyenc.Value, shaper recordShaper) []json.RawMessage {
+	fa := getFastjsonArena()
+	defer putFastjsonArena(fa)
+	records := make([]json.RawMessage, 0, len(docs))
+	for _, doc := range docs {
+		if doc == nil {
+			records = append(records, json.RawMessage("null"))
+			continue
+		}
+		records = append(records, json.RawMessage(shaper.record(doc, fa).MarshalTo(nil)))
+	}
+	return records
 }

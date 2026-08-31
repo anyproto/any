@@ -86,7 +86,16 @@ func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) (api.SubscribeEven
 	}
 	out := api.SubscribeEventOp{Type: string(op.Type), Path: path}
 	if op.Payload != nil {
-		out.Payload = shapePayload(op.Payload, node, a).MarshalTo(nil)
+		shaped := shapePayload(op.Payload, node, a)
+		if shaped == nil {
+			// The new value holds none of the projected descendants, so
+			// for the client the field is now gone. Say that — a $set of
+			// an empty object would leave the mirror holding `{}` where
+			// the doc in the same frame omits the field.
+			out.Type = string(space.OpUnset)
+			return out, true
+		}
+		out.Payload = shaped.MarshalTo(nil)
 	}
 	return out, true
 }
@@ -97,17 +106,14 @@ func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) (api.SubscribeEven
 // the payload ships verbatim. Otherwise it goes through the same
 // deepest-mark-wins rule the record body uses, which is what keeps an
 // op's payload exactly as wide as the doc the client holds.
+// nil means the new value holds nothing the client can see; the caller
+// turns that into an $unset so the op and the doc in the same frame
+// agree that the field is gone.
 func shapePayload(v *anyenc.Value, node *projNode, a *fastjson.Arena) *fastjson.Value {
 	if node == nil {
 		return v.FastJson(a)
 	}
-	if out := projectValue(v, node, a); out != nil {
-		return out
-	}
-	// Every projected descendant is absent from the new value — which,
-	// for a $set that replaces the subtree, is exactly what the client
-	// must apply.
-	return a.NewObject()
+	return projectValue(v, node, a)
 }
 
 // multiFieldOp shapes the multi-field form ($set / $unset with an
@@ -131,29 +137,39 @@ func (s recordShaper) multiFieldOp(op space.EventOp, a *fastjson.Arena) (api.Sub
 			if !ok || verdict == projOpDrop {
 				return
 			}
-			out.Set(string(key), shapePayload(v, node, a))
+			shaped := shapePayload(v, node, a)
+			if shaped == nil {
+				// No per-key op type in this form, so a key that
+				// projects to nothing is simply left out; the record's
+				// doc, which ships alongside, is authoritative.
+				return
+			}
+			out.Set(string(key), shaped)
 			empty = false
 		})
 		if empty {
 			return api.SubscribeEventOp{}, false
 		}
 	} else {
-		// Carve: the dropped keys are the minority.
+		// Carve: the dropped keys are the minority. `out` is a fresh
+		// fastjson tree, not the anyenc object being visited, so
+		// deleting inline is safe.
 		out = op.Payload.FastJson(a)
-		var drop []string
 		obj.Visit(func(key []byte, v *anyenc.Value) {
 			verdict, node, ok := s.multiFieldKey(key)
 			if !ok || verdict == projOpDrop {
-				drop = append(drop, string(key))
+				out.Del(string(key))
 				return
 			}
-			if node != nil && (node.excBelow || node.incChild) {
-				out.Set(string(key), shapePayload(v, node, a))
+			if node == nil || !(node.excBelow || node.incChild) {
+				return
+			}
+			if shaped := shapePayload(v, node, a); shaped != nil {
+				out.Set(string(key), shaped)
+			} else {
+				out.Del(string(key))
 			}
 		})
-		for _, key := range drop {
-			out.Del(key)
-		}
 		if out.GetObject().Len() == 0 {
 			return api.SubscribeEventOp{}, false
 		}
@@ -207,10 +223,13 @@ func (p *projection) opVerdictBytes(key []byte) (int, *projNode) {
 			}
 			return projOpDrop, nil
 		}
-		if c.mark == projMarkExclude {
-			return projOpDrop, nil
-		}
-		if c.mark == projMarkInclude {
+		switch c.mark {
+		case projMarkExclude:
+			if !c.incBelow {
+				return projOpDrop, nil
+			}
+			inherited = false
+		case projMarkInclude:
 			inherited = true
 		}
 		node = c

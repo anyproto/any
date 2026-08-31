@@ -64,43 +64,40 @@ func BenchmarkObjectsQueryProjection(b *testing.B) {
 func benchSeedSpace(b *testing.B, e http.Handler) string {
 	b.Helper()
 
-	rec := postJSON(b, e, "/v1/spaces", `{"name":"ProjBench"}`, http.StatusCreated)
+	rec := benchPost(b, e, "/v1/spaces", `{"name":"ProjBench"}`)
 	var sp api.SpaceInfo
-	mustDecode(b, rec.Body.Bytes(), &sp)
+	benchDecode(b, rec.Body.Bytes(), &sp)
 
-	rec = postJSON(b, e, "/v1/spaces/"+sp.Id+"/types",
-		`{"name":"Note","xKey":"note"}`, http.StatusCreated)
+	rec = benchPost(b, e, "/v1/spaces/"+sp.Id+"/types", `{"name":"Note","xKey":"note"}`)
 	var tr api.TypesCreateResponse
-	mustDecode(b, rec.Body.Bytes(), &tr)
+	benchDecode(b, rec.Body.Bytes(), &tr)
 
-	rec = postJSON(b, e, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
-		`{"name":"Body","kind":"string","xKey":"body"}`, http.StatusCreated)
+	rec = benchPost(b, e, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Body","kind":"string","xKey":"body"}`)
 	var pr api.AddPropertyResponse
-	mustDecode(b, rec.Body.Bytes(), &pr)
+	benchDecode(b, rec.Body.Bytes(), &pr)
 
 	body := strings.Repeat("lorem ipsum ", 17)
 	for i := range benchSeedObjects {
 		payload := fmt.Sprintf(
 			`{"types":[%q],"initialProperties":{"any":{"name":"Note %d"},%q:{%q:%q}}}`,
 			tr.TypeId, i, tr.TypeId, pr.PropId, body)
-		postJSON(b, e, "/v1/spaces/"+sp.Id+"/objects", payload, http.StatusCreated)
+		benchPost(b, e, "/v1/spaces/"+sp.Id+"/objects", payload)
 	}
 	return sp.Id
 }
 
-func postJSON(b *testing.B, e http.Handler, path, body string, want int) *httptest.ResponseRecorder {
+// benchPost is doJSON plus the 201 assertion every seeding call makes.
+func benchPost(b *testing.B, e http.Handler, path, body string) *httptest.ResponseRecorder {
 	b.Helper()
-	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-	r.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, r)
-	if rec.Code != want {
-		b.Fatalf("POST %s → %d (want %d): %s", path, rec.Code, want, rec.Body.String())
+	rec := doJSON(b, e, http.MethodPost, path, body)
+	if rec.Code != http.StatusCreated {
+		b.Fatalf("POST %s → %d (want 201): %s", path, rec.Code, rec.Body.String())
 	}
 	return rec
 }
 
-func mustDecode(b *testing.B, data []byte, v any) {
+func benchDecode(b *testing.B, data []byte, v any) {
 	b.Helper()
 	if err := json.Unmarshal(data, v); err != nil {
 		b.Fatalf("decode: %v (%s)", err, data)
