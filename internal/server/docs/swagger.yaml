@@ -467,6 +467,13 @@ components:
         view:
           type: string
       type: object
+    api.ChatMessageControl:
+      properties:
+        hard:
+          type: boolean
+        kind:
+          type: string
+      type: object
     api.ChatSendRequest:
       properties:
         agent:
@@ -477,6 +484,8 @@ components:
           type: object
         context:
           $ref: '#/components/schemas/api.ChatMessageContext'
+        control:
+          $ref: '#/components/schemas/api.ChatMessageControl'
         replyToMessageId:
           type: string
         text:

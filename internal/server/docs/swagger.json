@@ -557,6 +557,17 @@
                 },
                 "type": "object"
             },
+            "api.ChatMessageControl": {
+                "properties": {
+                    "hard": {
+                        "type": "boolean"
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatSendRequest": {
                 "properties": {
                     "agent": {
@@ -570,6 +581,9 @@
                     },
                     "context": {
                         "$ref": "#/components/schemas/api.ChatMessageContext"
+                    },
+                    "control": {
+                        "$ref": "#/components/schemas/api.ChatMessageControl"
                     },
                     "replyToMessageId": {
                         "type": "string"

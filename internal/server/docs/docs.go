@@ -564,6 +564,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.ChatMessageControl": {
+                "properties": {
+                    "hard": {
+                        "type": "boolean"
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatSendRequest": {
                 "properties": {
                     "agent": {
@@ -577,6 +588,9 @@ const docTemplate = `{
                     },
                     "context": {
                         "$ref": "#/components/schemas/api.ChatMessageContext"
+                    },
+                    "control": {
+                        "$ref": "#/components/schemas/api.ChatMessageControl"
                     },
                     "replyToMessageId": {
                         "type": "string"

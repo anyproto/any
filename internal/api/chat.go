@@ -32,6 +32,16 @@ type ChatMessageContext struct {
 // /query/subscribe) with dataset=chat_messages; there is no curated
 // per-message wire struct. See docs/03-api.md § Chat.
 
+// ChatMessageControl is a client's signal to the agent serving the
+// chat, carried on a message of its own (text may be empty). `Kind` is
+// an open string the agent interprets — `break` asks the run in flight
+// to stop; `Hard` = now (vs. wrap up at the next turn). Create-only,
+// immutable; a client renders it as a marker, not a bubble.
+type ChatMessageControl struct {
+	Kind string `json:"kind"`
+	Hard bool   `json:"hard,omitempty"`
+}
+
 // ChatAgentMeta marks a message as agent-authored. `Name` is the
 // display label; like the old fromAgent tag it is NOT verified against
 // any identity / signature — `creator` stays the change signer.
@@ -64,12 +74,16 @@ type ChatAgentMeta struct {
 //
 // `context` is the sender's view at send time (ChatMessageContext).
 // Optional, create-only.
+//
+// `control` is a signal to the agent (ChatMessageControl) — the one
+// case where `text` may be empty. Optional, create-only.
 type ChatSendRequest struct {
 	Text             string                    `json:"text"`
 	ReplyToMessageId string                    `json:"replyToMessageId,omitempty"`
 	Agent            *ChatAgentMeta            `json:"agent,omitempty"`
 	Attachments      map[string]ChatAttachment `json:"attachments,omitempty"`
 	Context          *ChatMessageContext       `json:"context,omitempty"`
+	Control          *ChatMessageControl       `json:"control,omitempty"`
 }
 
 // ChatEditRequest is the body of PATCH .../messages/:msgId. Only
@@ -93,4 +107,5 @@ const (
 	ErrChatRejected           = "chat.rejected"
 	ErrChatAttachmentsInvalid = "chat.attachments_invalid"
 	ErrChatContextInvalid     = "chat.context_invalid"
+	ErrChatControlInvalid     = "chat.control_invalid"
 )

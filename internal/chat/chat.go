@@ -135,6 +135,7 @@ const (
 	FieldAgent            = "agent"
 	FieldAttachments      = "attachments"
 	FieldContext          = "context"
+	FieldControl          = "control"
 )
 
 // Agent sub-record keys.
@@ -153,6 +154,14 @@ const (
 	FieldAttachmentLink = "link"
 )
 
+// Sub-keys of the `control` group — a client-side signal to the agent
+// serving the chat ({kind, hard?}; api.ChatMessageControl). `break`
+// asks the run in flight to stop.
+const (
+	FieldControlKind = "kind"
+	FieldControlHard = "hard"
+)
+
 // Sub-keys of the `context` group — the sender's view at send time
 // ({spaceId, objectId?, view?}; api.ChatMessageContext).
 const (
@@ -168,8 +177,10 @@ const (
 // group ({spaceId, objectId?, view?}) — a v2 handler rejects a create
 // carrying it as field_not_allowed. v4: the optional `agent.outcome`
 // sub-field (how the run behind a done:true bubble ended when not
-// normally — `interrupted`, `error`; opaque to the server).
-const dataVersion = "chat_messages-v4"
+// normally — `interrupted`, `error`; opaque to the server). v5: the
+// create-only `control` group ({kind, hard?}) — a signal to the agent
+// (`break`), a message that needs no text.
+const dataVersion = "chat_messages-v5"
 
 // handlerVersion is this handler's LOCAL logic version — bumped when a
 // change to the handler makes rows already materialized on disk wrong,
@@ -195,6 +206,7 @@ const (
 
 	MaxContextIdBytes   = 256
 	MaxContextViewBytes = 64
+	MaxControlKindBytes = 64
 
 	// MaxMentions caps the derived mentions array (post-dedup,
 	// first-occurrence order wins). MaxTextBytes already bounds real
@@ -274,6 +286,7 @@ func datasetSchema() handler.Schema {
 			{Id: FieldReactions, Name: "Reactions", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldAttachments, Name: "Attachments", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			{Id: FieldContext, Name: "Context", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
+			{Id: FieldControl, Name: "Control", Schema: handler.Leaf(handler.PropertyKindObject), Scope: handler.ScopeSynced},
 			// Read-tracking flags — SDK-materialized, device-local,
 			// filterable ({"unread": true}). See reading.go.
 			{Id: FieldUnread, Name: "Unread", Schema: handler.Leaf(handler.PropertyKindBoolean), Scope: handler.ScopeLocal},

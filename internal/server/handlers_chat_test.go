@@ -387,6 +387,22 @@ func TestServer_Chat_Agent(t *testing.T) {
 		t.Errorf("outcome agent = %+v, want {bao run_0123abcd true interrupted}", msg.Agent)
 	}
 
+	// A break signal: control group, no text — accepted and read back.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"","control":{"kind":"break","hard":true}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send control: %d %s", rec.Code, rec.Body.String())
+	}
+	res = decodeModifyResult(t, rec.Body.Bytes())
+	msg = getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Control == nil || msg.Control.Kind != "break" || !msg.Control.Hard || msg.Agent != nil {
+		t.Errorf("control = %+v (agent %+v), want {break true}, no agent", msg.Control, msg.Agent)
+	}
+	// …but an empty kind is 400 chat.control_invalid, not a text_required
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"","control":{"kind":""}}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), api.ErrChatControlInvalid) {
+		t.Fatalf("send empty control kind: %d %s", rec.Code, rec.Body.String())
+	}
+
 	// Human message — no agent on read-back.
 	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"hi"}`)
 	if rec.Code != http.StatusCreated {
@@ -556,6 +572,7 @@ type chatMsg struct {
 	Mentions         []string
 	Attachments      map[string]api.ChatAttachment
 	Context          *api.ChatMessageContext
+	Control          *api.ChatMessageControl
 	Reactions        map[string]map[string]int64
 }
 
@@ -658,6 +675,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Mentions         []string                      `json:"mentions"`
 		Attachments      map[string]api.ChatAttachment `json:"attachments"`
 		Context          *api.ChatMessageContext       `json:"context"`
+		Control          *api.ChatMessageControl       `json:"control"`
 		Reactions        map[string]map[string]extDate `json:"reactions"`
 	}
 	if err := json.Unmarshal(raw, &f); err != nil {
@@ -685,6 +703,7 @@ func decodeChatMsg(t *testing.T, raw []byte) chatMsg {
 		Mentions:         f.Mentions,
 		Attachments:      f.Attachments,
 		Context:          f.Context,
+		Control:          f.Control,
 		Reactions:        reactions,
 	}
 }

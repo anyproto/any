@@ -2428,6 +2428,7 @@ body is always read back through the query path.
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
   "context":          { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" },
+  "control":          { "kind": "break", "hard": false },
   "reactions":        { "👍": { "<id1>": {"$date": "2026-05-01T21:00:00.000Z"},
                                 "<id2>": {"$date": "2026-05-01T21:00:05.000Z"} } }
 }
@@ -2501,6 +2502,16 @@ resolves "here" / "this page"; there is no timestamp on it because the
 message's `createdAt` is when the user was there. Ids ≤ 256 bytes,
 `view` ≤ 64; an unknown sub-key or an empty `spaceId` rejects 400
 `chat.context_invalid` (HTTP) / `field_not_allowed` (handler).
+
+`control` is a client's signal to the agent serving the chat, carried
+on a message of its own — the one case where `text` may be empty:
+`kind` (required, an open string ≤ 64 bytes the agent interprets —
+`break` asks the run in flight to stop), `hard` (optional boolean:
+stop now, vs. wrap up at the next turn). Optional, create-only,
+immutable; the server stores it opaquely. A client renders it as a
+marker in the thread, never as a bubble, and the agent never reads it
+as content. An empty `kind` or an unknown sub-key rejects 400
+`chat.control_invalid` (HTTP) / `field_not_allowed` (handler).
 
 `reactions` ships on the wire in the same shape it has in storage:
 emoji → `{accountId: <changeTimestamp>}`, where the leaf timestamp is

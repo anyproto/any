@@ -156,6 +156,73 @@ func TestBeforeCreate_AcceptsContext(t *testing.T) {
 	}
 }
 
+func TestBeforeCreate_AcceptsControl(t *testing.T) {
+	// a break needs no text — the control group is content of its own
+	arena := &anyenc.Arena{}
+	payload := arena.NewObject()
+	payload.Set(FieldText, arena.NewString(""))
+	ct := arena.NewObject()
+	ct.Set(FieldControlKind, arena.NewString("break"))
+	ct.Set(FieldControlHard, arena.NewTrue())
+	payload.Set(FieldControl, ct)
+	rec := setRoot(arena, payload)
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+	if err := (messagesHandler{}).BeforeCreate(ctx, rec, &handler.Sink{}); err != nil {
+		t.Fatalf("BeforeCreate with control: %v", err)
+	}
+}
+
+func TestBeforeCreate_ControlRejects(t *testing.T) {
+	withControl := func(a *anyenc.Arena, build func(ct *anyenc.Value)) *handler.RecordChange {
+		p := a.NewObject()
+		p.Set(FieldText, a.NewString("x"))
+		ct := a.NewObject()
+		build(ct)
+		p.Set(FieldControl, ct)
+		return setRoot(a, p)
+	}
+	cases := []struct {
+		name   string
+		build  func(a *anyenc.Arena) *handler.RecordChange
+		wantIn string
+	}{
+		{"not an object", func(a *anyenc.Arena) *handler.RecordChange {
+			p := a.NewObject()
+			p.Set(FieldText, a.NewString("x"))
+			p.Set(FieldControl, a.NewString("break"))
+			return setRoot(a, p)
+		}, "control must be an object"},
+		{"missing kind", func(a *anyenc.Arena) *handler.RecordChange {
+			return withControl(a, func(ct *anyenc.Value) { ct.Set(FieldControlHard, a.NewTrue()) })
+		}, "control.kind required"},
+		{"empty kind", func(a *anyenc.Arena) *handler.RecordChange {
+			return withControl(a, func(ct *anyenc.Value) { ct.Set(FieldControlKind, a.NewString("")) })
+		}, "control.kind required"},
+		{"non-boolean hard", func(a *anyenc.Arena) *handler.RecordChange {
+			return withControl(a, func(ct *anyenc.Value) {
+				ct.Set(FieldControlKind, a.NewString("break"))
+				ct.Set(FieldControlHard, a.NewString("yes"))
+			})
+		}, "control.hard must be a boolean"},
+		{"unknown sub-field", func(a *anyenc.Arena) *handler.RecordChange {
+			return withControl(a, func(ct *anyenc.Value) {
+				ct.Set(FieldControlKind, a.NewString("break"))
+				ct.Set("reason", a.NewString("x"))
+			})
+		}, "control: unknown field reason"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &anyenc.Arena{}
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000000)}
+			err := (messagesHandler{}).BeforeCreate(ctx, tc.build(a), &handler.Sink{})
+			if err == nil || !strings.Contains(err.Error(), tc.wantIn) {
+				t.Fatalf("err = %v, want containing %q", err, tc.wantIn)
+			}
+		})
+	}
+}
+
 func TestBeforeCreate_ContextRejects(t *testing.T) {
 	withContext := func(a *anyenc.Arena, build func(cx *anyenc.Value)) *handler.RecordChange {
 		p := a.NewObject()
