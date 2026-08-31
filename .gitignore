@@ -37,3 +37,6 @@ prompt-*.md
 /.direnv/
 /.envrc
 website/dist/
+/anydocs
+/configs/
+/datadirs/
