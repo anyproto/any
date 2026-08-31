@@ -71,6 +71,9 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 		if opts.Agent.DebugLink != "" {
 			agent[FieldAgentDebugLink] = opts.Agent.DebugLink
 		}
+		if opts.Agent.Outcome != "" {
+			agent[FieldAgentOutcome] = opts.Agent.Outcome
+		}
 		payload[FieldAgent] = agent
 	}
 	if len(opts.Attachments) > 0 {

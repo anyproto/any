@@ -437,6 +437,14 @@ components:
           type: boolean
         name:
           type: string
+        outcome:
+          description: |-
+            Outcome says how the run behind a done:true message ended when
+            it did not end normally — `interrupted` (the user stopped it),
+            `error` (it died). Absent on a normal reply. Opaque to the
+            server; clients key their rendering (a stop mark, a warning) on
+            it instead of parsing the text.
+          type: string
       type: object
     api.ChatAttachment:
       properties:

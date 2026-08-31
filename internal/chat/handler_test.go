@@ -308,6 +308,15 @@ func TestBeforeCreate_AcceptsAgent(t *testing.T) {
 				agent.Set(FieldAgentDone, a.NewFalse())
 			},
 		},
+		{
+			name: "outcome — an interrupted run's terminal bubble",
+			build: func(a *anyenc.Arena, agent *anyenc.Value) {
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set(FieldAgentOutcome, a.NewString("interrupted"))
+				agent.Set(FieldAgentDebugLink, a.NewString("run_0123abcd"))
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -455,6 +464,34 @@ func TestBeforeCreate_Rejects(t *testing.T) {
 				return setRoot(a, p)
 			},
 			wantIn: "agent.name required",
+		},
+		{
+			name: "agent outcome not a string",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set(FieldAgentOutcome, a.NewTrue())
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.outcome must be a string",
+		},
+		{
+			name: "agent outcome empty",
+			build: func(a *anyenc.Arena) *handler.RecordChange {
+				p := a.NewObject()
+				p.Set(FieldText, a.NewString("hi"))
+				agent := a.NewObject()
+				agent.Set(FieldAgentName, a.NewString("bao"))
+				agent.Set(FieldAgentDone, a.NewTrue())
+				agent.Set(FieldAgentOutcome, a.NewString(""))
+				p.Set(FieldAgent, agent)
+				return setRoot(a, p)
+			},
+			wantIn: "agent.outcome must be non-empty",
 		},
 		{
 			name: "agent name too long",

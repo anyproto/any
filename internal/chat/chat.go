@@ -142,6 +142,7 @@ const (
 	FieldAgentName      = "name"
 	FieldAgentDebugLink = "debugLink"
 	FieldAgentDone      = "done"
+	FieldAgentOutcome   = "outcome"
 )
 
 // Attachment sub-record keys. Each attachment in the attachments map
@@ -165,8 +166,10 @@ const (
 // reject older writers. v2: `fromAgent` (string) replaced by the
 // `agent` {name, debugLink, done} group. v3: the create-only `context`
 // group ({spaceId, objectId?, view?}) — a v2 handler rejects a create
-// carrying it as field_not_allowed.
-const dataVersion = "chat_messages-v3"
+// carrying it as field_not_allowed. v4: the optional `agent.outcome`
+// sub-field (how the run behind a done:true bubble ended when not
+// normally — `interrupted`, `error`; opaque to the server).
+const dataVersion = "chat_messages-v4"
 
 // handlerVersion is this handler's LOCAL logic version — bumped when a
 // change to the handler makes rows already materialized on disk wrong,
@@ -178,11 +181,12 @@ const handlerVersion = 2
 
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
-	MaxTextBytes      = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
-	MaxReplyIdBytes   = 256
-	MaxEmojiBytes     = 64
-	MaxAgentNameBytes = 256
-	MaxDebugLinkBytes = 2 * 1024
+	MaxTextBytes         = 32 * 1024 // ~heart's 8000 utf-16 cps × 4
+	MaxReplyIdBytes      = 256
+	MaxEmojiBytes        = 64
+	MaxAgentNameBytes    = 256
+	MaxDebugLinkBytes    = 2 * 1024
+	MaxAgentOutcomeBytes = 64
 
 	MaxAttachments         = 32
 	MaxAttachmentIdBytes   = 64

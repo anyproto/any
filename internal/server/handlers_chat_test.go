@@ -375,6 +375,18 @@ func TestServer_Chat_Agent(t *testing.T) {
 		t.Errorf("minimal agent = %+v, want {bao  true}", msg.Agent)
 	}
 
+	// Terminal bubble of a stopped run — outcome + debugLink round-trip.
+	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages",
+		`{"text":"Stopped.","agent":{"name":"bao","done":true,"outcome":"interrupted","debugLink":"run_0123abcd"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("send outcome: %d %s", rec.Code, rec.Body.String())
+	}
+	res = decodeModifyResult(t, rec.Body.Bytes())
+	msg = getChatMsg(t, e, base, res.RecordIds[0])
+	if msg.Agent == nil || msg.Agent.Outcome != "interrupted" || msg.Agent.DebugLink != "run_0123abcd" || !msg.Agent.Done {
+		t.Errorf("outcome agent = %+v, want {bao run_0123abcd true interrupted}", msg.Agent)
+	}
+
 	// Human message — no agent on read-back.
 	rec = doJSON(t, e, http.MethodPost, base+"/chat/messages", `{"text":"hi"}`)
 	if rec.Code != http.StatusCreated {

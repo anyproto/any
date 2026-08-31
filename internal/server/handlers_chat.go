@@ -213,6 +213,9 @@ func validateAgentRequest(a *api.ChatAgentMeta) error {
 	if len(a.DebugLink) > chat.MaxDebugLinkBytes {
 		return fmt.Errorf("agent.debugLink too long (%d > %d bytes)", len(a.DebugLink), chat.MaxDebugLinkBytes)
 	}
+	if len(a.Outcome) > chat.MaxAgentOutcomeBytes {
+		return fmt.Errorf("agent.outcome too long (%d > %d bytes)", len(a.Outcome), chat.MaxAgentOutcomeBytes)
+	}
 	return nil
 }
 

@@ -267,6 +267,9 @@ func validateContext(v *anyenc.Value) error {
 //   - `debugLink` — optional, non-empty string when present,
 //     ≤ MaxDebugLinkBytes; opaque to the server (no URL parsing)
 //   - `done` — required boolean
+//   - `outcome` — optional, non-empty string when present,
+//     ≤ MaxAgentOutcomeBytes; opaque to the server (the agent's own
+//     vocabulary — `interrupted`, `error`)
 //   - no unknown sub-fields (bump dataVersion when adding any)
 func validateAgent(v *anyenc.Value) error {
 	if v.Type() != anyenc.TypeObject {
@@ -319,6 +322,20 @@ func validateAgent(v *anyenc.Value) error {
 			hasDone = true
 			if val.Type() != anyenc.TypeTrue && val.Type() != anyenc.TypeFalse {
 				visitErr = rejectCreate("agent.done must be a boolean")
+				return
+			}
+		case FieldAgentOutcome:
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("agent.outcome must be a string")
+				return
+			}
+			o := val.GetStringBytes()
+			if len(o) == 0 {
+				visitErr = rejectCreate("agent.outcome must be non-empty when present")
+				return
+			}
+			if len(o) > MaxAgentOutcomeBytes {
+				visitErr = rejectCreate(fmt.Sprintf("agent.outcome too long (%d > %d bytes)", len(o), MaxAgentOutcomeBytes))
 				return
 			}
 		default:

@@ -44,6 +44,12 @@ type ChatAgentMeta struct {
 	Name      string `json:"name"`
 	DebugLink string `json:"debugLink,omitempty"`
 	Done      bool   `json:"done"`
+	// Outcome says how the run behind a done:true message ended when
+	// it did not end normally — `interrupted` (the user stopped it),
+	// `error` (it died). Absent on a normal reply. Opaque to the
+	// server; clients key their rendering (a stop mark, a warning) on
+	// it instead of parsing the text.
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // ChatSendRequest is the body of POST /v1/spaces/:spaceId/objects/:objectId/messages.
