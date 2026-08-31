@@ -174,6 +174,7 @@ func newSpaceQueryCmd() *cobra.Command {
 		dataset    string
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -183,7 +184,7 @@ func newSpaceQueryCmd() *cobra.Command {
 		Short: "windowed snapshot over the account's space list (filter/sort/limit)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildSpaceListQueryBody(dataset, filter, sort, limit, offset, includeTot)
+			body, err := buildSpaceListQueryBody(dataset, filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -195,7 +196,7 @@ func newSpaceQueryCmd() *cobra.Command {
 			return printJSON(out)
 		},
 	}
-	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &limit, &offset, &includeTot)
+	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
@@ -207,6 +208,7 @@ func newSpaceSubscribeCmd() *cobra.Command {
 		dataset    string
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -216,7 +218,7 @@ func newSpaceSubscribeCmd() *cobra.Command {
 		Short: "open a windowed space-list SSE stream (spaces added/changed/removed)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildSpaceListQueryBody(dataset, filter, sort, limit, offset, includeTot)
+			body, err := buildSpaceListQueryBody(dataset, filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -224,19 +226,19 @@ func newSpaceSubscribeCmd() *cobra.Command {
 			return cl.StreamSpaceListQuerySubscribe(cmd.Context(), body, jsonFrameHandler())
 		},
 	}
-	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &limit, &offset, &includeTot)
+	addSpaceListQueryFlags(cmd, &dataset, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
-func addSpaceListQueryFlags(cmd *cobra.Command, dataset, filter, sort *string, limit, offset *int, includeTot *bool) {
+func addSpaceListQueryFlags(cmd *cobra.Command, dataset, filter, sort, projection *string, limit, offset *int, includeTot *bool) {
 	cmd.Flags().StringVar(dataset, "dataset", "", "system dataset to read (default spaces; profile also available)")
-	addWindowQueryFlags(cmd, filter, sort, limit, offset, includeTot)
+	addWindowQueryFlags(cmd, filter, sort, projection, limit, offset, includeTot)
 }
 
 // buildSpaceListQueryBody assembles the request body for the space-list
 // query/subscribe endpoints. All fields optional — an empty body is a
 // full snapshot. objectId is server-fixed to the tech-space index.
-func buildSpaceListQueryBody(dataset, filter, sort string, limit, offset int, includeTotal bool) ([]byte, error) {
+func buildSpaceListQueryBody(dataset, filter, sort, projection string, limit, offset int, includeTotal bool) ([]byte, error) {
 	body := map[string]any{}
 	if dataset != "" {
 		body["dataset"] = dataset
@@ -267,6 +269,9 @@ func buildSpaceListQueryBody(dataset, filter, sort string, limit, offset int, in
 	}
 	if includeTotal {
 		body["includeTotal"] = true
+	}
+	if err := applyProjection(body, projection); err != nil {
+		return nil, err
 	}
 	return json.Marshal(body)
 }

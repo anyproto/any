@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/cheggaaa/mb/v3"
@@ -39,7 +38,7 @@ func (d *deps) spaceQueryObjectsSubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, errResp, done := buildSharedQuery(c, sp)
+	q, opts, shaper, errResp, done := buildSharedQuery(c, sp)
 	if done {
 		return errResp
 	}
@@ -47,7 +46,7 @@ func (d *deps) spaceQueryObjectsSubscribe(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
 }
 
 // spaceQuerySubscribe handles POST /v1/spaces/:spaceId/query/subscribe.
@@ -70,7 +69,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
+	q, opts, objectId, dataset, shaper, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
@@ -80,7 +79,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 		})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
 }
 
 // streamQuerySubscribe pumps a QuerySubscription's windowed events to
@@ -98,7 +97,7 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 //
 // streamsWG is bumped for the lifetime of the loop so server.Run can
 // wait for in-flight streams to drain before exiting.
-func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, includeTotal bool, strip ...string) error {
+func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
 	defer res.Sub.Close()
 
 	if d.streamsWG != nil {
@@ -118,7 +117,7 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 	if err := writeSSEEvent(w, "ready", "", api.SubscribeReady{}); err != nil {
 		return nil
 	}
-	if err := writeSnapshotFrame(w, res, includeTotal, strip...); err != nil {
+	if err := writeSnapshotFrame(w, res, includeTotal, shaper); err != nil {
 		return nil
 	}
 	w.Flush()
@@ -143,7 +142,7 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 			if len(bres.events) == 0 {
 				continue
 			}
-			if err := writeQuerySubscribeBatch(w, bres.events, strip...); err != nil {
+			if err := writeQuerySubscribeBatch(w, bres.events, shaper); err != nil {
 				return nil
 			}
 			w.Flush()
@@ -211,7 +210,7 @@ func waitQueryBatch(mailbox *mb.MB[space.SubscriptionEvent], ctx context.Context
 // carrying the materialised window (and Total if the caller asked for
 // it). Identical shape to QueryResponse — same fields, separate type
 // to keep future extensions decoupled.
-func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTotal bool, strip ...string) error {
+func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
 	records := make([]json.RawMessage, 0, len(res.Initial))
@@ -220,11 +219,7 @@ func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTo
 			records = append(records, json.RawMessage("null"))
 			continue
 		}
-		v := doc.FastJson(fa)
-		for _, key := range strip {
-			v.Del(key)
-		}
-		records = append(records, json.RawMessage(v.MarshalTo(nil)))
+		records = append(records, json.RawMessage(shaper.record(doc, fa).MarshalTo(nil)))
 	}
 	payload := api.QuerySubscribeSnapshot{Records: records}
 	if includeTotal {
@@ -240,15 +235,15 @@ func writeSnapshotFrame(w http.ResponseWriter, res *space.QueryResult, includeTo
 // the batch as a JSON array of QuerySubscribeEvent. Each event's
 // Added/Updated records ship the full post-apply doc plus per-field
 // $set/$unset ops — see api.QuerySubscribeEvent for the contract.
-func writeQuerySubscribeBatch(w http.ResponseWriter, events []space.SubscriptionEvent, strip ...string) error {
+func writeQuerySubscribeBatch(w http.ResponseWriter, events []space.SubscriptionEvent, shaper recordShaper) error {
 	payload := make([]api.QuerySubscribeEvent, len(events))
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
 	for i, ev := range events {
 		payload[i] = api.QuerySubscribeEvent{
 			VersionId: string(ev.VersionId),
-			Added:     subRecordsToAPI(ev.Added, fa, strip...),
-			Updated:   subRecordsToAPI(ev.Updated, fa, strip...),
+			Added:     subRecordsToAPI(ev.Added, fa, shaper),
+			Updated:   subRecordsToAPI(ev.Updated, fa, shaper),
 			Removed:   removedRecordsToAPI(ev.Removed),
 		}
 	}
@@ -269,13 +264,11 @@ func removedRecordsToAPI(in []space.RemovedRecord) []api.RemovedRecord {
 	return out
 }
 
-// subRecordsToAPI converts subscription records to the wire shape.
-// strip lists top-level fields withheld from both the doc and any op
-// whose path targets them (key material on tech-space rows).
-func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, strip ...string) []api.QuerySubscribeRecord {
-	stripped := func(path []string) bool {
-		return len(path) > 0 && slices.Contains(strip, path[0])
-	}
+// subRecordsToAPI converts subscription records to the wire shape. The
+// shaper governs both halves — the post-apply doc and the per-field
+// ops — so a projected subscription cannot silently widen after the
+// first update (anyproto/any#203, requirement 2).
+func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, shaper recordShaper) []api.QuerySubscribeRecord {
 	if len(in) == 0 {
 		return nil
 	}
@@ -283,38 +276,14 @@ func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, strip ...string) 
 	for i, r := range in {
 		out[i] = api.QuerySubscribeRecord{Id: r.Id}
 		if r.Doc != nil {
-			v := r.Doc.FastJson(fa)
-			for _, key := range strip {
-				v.Del(key)
-			}
-			out[i].Doc = v.MarshalTo(nil)
+			out[i].Doc = shaper.record(r.Doc, fa).MarshalTo(nil)
 		}
 		if len(r.Ops) > 0 {
 			ops := make([]api.SubscribeEventOp, 0, len(r.Ops))
 			for _, op := range r.Ops {
-				if stripped(op.Path) {
-					continue
+				if apiOp, ok := shaper.op(op, fa); ok {
+					ops = append(ops, apiOp)
 				}
-				path := op.Path
-				if path == nil {
-					path = []string{}
-				}
-				apiOp := api.SubscribeEventOp{
-					Type: string(op.Type),
-					Path: path,
-				}
-				if op.Payload != nil {
-					pv := op.Payload.FastJson(fa)
-					// A multi-field op (empty path, object payload) carries
-					// the fields inline — strip there too.
-					if len(op.Path) == 0 && pv.Type() == fastjson.TypeObject {
-						for _, key := range strip {
-							pv.Del(key)
-						}
-					}
-					apiOp.Payload = pv.MarshalTo(nil)
-				}
-				ops = append(ops, apiOp)
 			}
 			out[i].Ops = ops
 		}

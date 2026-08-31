@@ -1,0 +1,106 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/valyala/fastjson"
+
+	"github.com/anyproto/any-store/v2/anyenc"
+)
+
+// benchRecordJSON mirrors the record anyproto/any#203 measured: one
+// ~200-char string property, the built-in `any` / `nav` groups, the
+// derived stamps, and a fully-enumerated `_ver`. ~1 KB on the wire.
+const benchRecordJSON = `{
+  "id": "bafyreiahq2n522avjpw7xka2lzzjrynpjttv4ddfrpxwj26rfjzpabtrii",
+  "_ver": {
+    "id": "!!$5",
+    "any": {"types": "!!$5", "name": "!!$5"},
+    "nav": {"pos": "!!$5", "type": "!!$5", "parentId": "!!$5"},
+    "bafyreibjoqwn23nzx63cx7n7bkunvca4jueqbuhbz27rxvjbta5fxhvyoa": {"3zsJKegeZJu": "!!%>"},
+    "author": "!!$5",
+    "createdAt": "!!$5",
+    "spaceId": "!!$5",
+    "modifiedAt": "!!%>"
+  },
+  "any": {"types": ["page", "nav", "editor"], "name": "Any primitives — thoughts on UI"},
+  "nav": {"pos": "PPSl", "type": 1, "parentId": ""},
+  "bafyreibjoqwn23nzx63cx7n7bkunvca4jueqbuhbz27rxvjbta5fxhvyoa": {
+    "3zsJKegeZJu": "PLACEHOLDER"
+  },
+  "author": "A9tEho5sqy7dwJXtBANYTYPEDjTJvdKjZyvP4tfb4aaV42m4",
+  "createdAt": {"$date": "2026-08-27T11:48:34.000Z"},
+  "spaceId": "bafyreiakg5rz2azogbfrzy3mzkku2f7sgsnprwoxlfkzmosn3lzyts5ony.3krx8ztn1ul6t",
+  "modifiedAt": {"$date": "2026-08-27T11:48:39.000Z"},
+  "_addSeq": 676,
+  "_applySeq": 693
+}`
+
+func benchRecord(tb testing.TB) *anyenc.Value {
+	tb.Helper()
+	raw := strings.Replace(benchRecordJSON, "PLACEHOLDER", strings.Repeat("lorem ipsum ", 17), 1)
+	doc, err := anyenc.ParseJson(raw)
+	if err != nil {
+		tb.Fatalf("parse bench record: %v", err)
+	}
+	return doc
+}
+
+// benchShaper parses a projection body the way a request would, without
+// an echo.Context: the parse path only needs one for its error writer,
+// and these bodies are all valid.
+func benchShaper(tb testing.TB, body string) recordShaper {
+	tb.Helper()
+	if body == "" {
+		return recordShaper{}
+	}
+	var p fastjson.Parser
+	v, err := p.Parse(`{"projection":` + body + `}`)
+	if err != nil {
+		tb.Fatalf("parse projection: %v", err)
+	}
+	proj, errResp, done := parseProjection(nil, v)
+	if done {
+		tb.Fatalf("projection rejected: %v", errResp)
+	}
+	return recordShaper{proj: proj}
+}
+
+// BenchmarkShapeRecord is the before/after for anyproto/any#203: the
+// per-record cost of the serialisation boundary, which is where the
+// issue measured the time (a 5 000-row scan is 5 ms; returning those
+// rows is 60 ms).
+//
+// "none" is the historical path — the whole record converted to
+// fastjson and marshalled. The rest are the projections a client would
+// actually send.
+func BenchmarkShapeRecord(b *testing.B) {
+	doc := benchRecord(b)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"none", ""},
+		{"nav-tree", `{"any":1,"nav":1}`},
+		{"nav-tree-no-ver", `{"any":1,"nav":1,"_ver":-1}`},
+		{"exclude-ver", `{"_ver":-1}`},
+		{"exclude-ver-spaceid", `{"_ver":-1,"spaceId":-1}`},
+		{"nested", `{"any.name":1,"nav.pos":1}`},
+		{"nested-carve", `{"nav":1,"nav.pos":-1}`},
+	}
+	for _, tc := range cases {
+		shaper := benchShaper(b, tc.body)
+		b.Run(tc.name, func(b *testing.B) {
+			fa := getFastjsonArena()
+			defer putFastjsonArena(fa)
+			var out []byte
+			b.ReportAllocs()
+			for b.Loop() {
+				fa.Reset()
+				out = shaper.record(doc, fa).MarshalTo(out[:0])
+			}
+			b.ReportMetric(float64(len(out)), "wire-B")
+		})
+	}
+}

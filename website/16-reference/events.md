@@ -125,4 +125,4 @@ Every streaming subcommand prints one JSON object per frame on stdout:
 {"event": "closed",  "data": {"reason": "server_shutdown"}}
 ```
 
-> **Note.** The request body's `projection` field is accepted but not applied: every record ships its full form, including `_ver` and, when present, `_traces` / `_deletedAt`. Strip them client-side if you want a leaner local model.
+> **Note.** The request body's `projection` field shapes snapshot rows and every `added` / `updated` record in `changes`, per-field ops included. Without one, records ship their full form: `_ver` and, when present, `_traces` / `_deletedAt`.

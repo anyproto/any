@@ -51,7 +51,7 @@ var spaceListStrippedFields = []string{"guestKey", "issuedGuestKey", "issuedInvi
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/query [post]
 func (d *deps) spaceListQuery(c echo.Context) error {
-	q, opts, dataset, errResp, done := d.buildSpaceListQuery(c)
+	q, opts, dataset, shaper, errResp, done := d.buildSpaceListQuery(c)
 	if done {
 		return errResp
 	}
@@ -59,11 +59,7 @@ func (d *deps) spaceListQuery(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": dataset})
 	}
-	strip := spaceListStrippedFields
-	if dataset != SpaceListDataset {
-		strip = nil
-	}
-	return writeQueryResponse(c, res, opts.IncludeTotal, strip...)
+	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
 
 // spaceListQuerySubscribe handles POST /v1/spaces/query/subscribe.
@@ -85,7 +81,7 @@ func (d *deps) spaceListQuery(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/query/subscribe [post]
 func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
-	q, opts, dataset, errResp, done := d.buildSpaceListQuery(c)
+	q, opts, dataset, shaper, errResp, done := d.buildSpaceListQuery(c)
 	if done {
 		return errResp
 	}
@@ -93,11 +89,7 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": dataset})
 	}
-	strip := spaceListStrippedFields
-	if dataset != SpaceListDataset {
-		strip = nil
-	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
 }
 
 // buildSpaceListQuery assembles the chained Query + QueryOpts for the
@@ -106,9 +98,9 @@ func (d *deps) spaceListQuerySubscribe(c echo.Context) error {
 // includeTotal/mailboxCapacity/driftBudgetPercent fields as the
 // per-object query. objectId is fixed to the tech-space index object;
 // `dataset` is an optional override defaulting to `spaces`.
-func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts, string, error, bool) {
+func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts, string, recordShaper, error, bool) {
 	dataset := SpaceListDataset
-	q, opts, errResp, done := buildBodyQuery(c, spaceListQueryFields, func(root *fastjson.Value) (space.Query, error, bool) {
+	q, opts, shaper, errResp, done := buildBodyQuery(c, spaceListQueryFields, func(root *fastjson.Value) (space.Query, error, bool) {
 		if root != nil {
 			if ds := string(root.GetStringBytes("dataset")); ds != "" {
 				dataset = ds
@@ -122,5 +114,8 @@ func (d *deps) buildSpaceListQuery(c echo.Context) (space.Query, space.QueryOpts
 		svc := d.sdk.Spaces()
 		return svc.Query(svc.SpaceIndexObjectId(), dataset), nil, false
 	})
-	return q, opts, dataset, errResp, done
+	if !done && dataset == SpaceListDataset {
+		shaper.strip = spaceListStrippedFields
+	}
+	return q, opts, dataset, shaper, errResp, done
 }

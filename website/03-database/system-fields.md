@@ -21,7 +21,7 @@ Present on every record returned by [`/query`](reading-data.html) and in subscri
 
 Version ids are peer-local: two devices holding the same change name it by different `_ver` values. Use them for ordering and paging *on the device that produced them*, never as identifiers you exchange. The exchangeable identifier of a change is its `changeId` — see [Version history](version-history.html).
 
-> **Note.** History diffs and event frames never carry `_ver`. Snapshot rows and `added`/`updated` records do, in full anyenc form, because projection is not applied yet; strip them locally if you need a leaner shape.
+> **Note.** History diffs never carry `_ver`. Snapshot rows and `added`/`updated` records do — narrowed to your `projection` when you send one, in full otherwise. `{"projection": {"_ver": -1}}` drops it, and `_addSeq`/`_applySeq` drop by default under any projection.
 
 ## Row-root stamps on objects
 

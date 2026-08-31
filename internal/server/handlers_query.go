@@ -32,7 +32,7 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, errResp, done := buildSharedQuery(c, sp)
+	q, opts, shaper, errResp, done := buildSharedQuery(c, sp)
 	if done {
 		return errResp
 	}
@@ -40,7 +40,7 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal)
+	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
 
 // spaceQuery handles POST /v1/spaces/:spaceId/query.
@@ -60,7 +60,7 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
+	q, opts, objectId, dataset, shaper, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
@@ -70,7 +70,7 @@ func (d *deps) spaceQuery(c echo.Context) error {
 			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
 		})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal, strip...)
+	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
 
 // buildBodyQuery is the one implementation of the OPTIONAL windowed-
@@ -83,10 +83,11 @@ func (d *deps) spaceQuery(c echo.Context) error {
 // space-list dataset allowlist); it runs before checkFilter, keeping
 // each builder's historical validation order. buildPerObjectQuery
 // stays separate: its body is required, not optional.
-func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Value) (space.Query, error, bool)) (space.Query, space.QueryOpts, error, bool) {
+func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Value) (space.Query, error, bool)) (space.Query, space.QueryOpts, recordShaper, error, bool) {
+	var none recordShaper
 	body, err := readBody(c)
 	if err != nil {
-		return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
+		return nil, space.QueryOpts{}, none, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
@@ -94,21 +95,25 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if len(body) > 0 {
 		root, err = parser.ParseBytes(body)
 		if err != nil {
-			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+			return nil, space.QueryOpts{}, none, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
 	if errResp, done := checkUnknownFields(c, root, "", fields...); done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	q, errResp, done := base(root)
 	if done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
+	}
+	proj, errResp, done := parseProjection(c, root)
+	if done {
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	q, opts := applyQueryParams(root, q)
-	return q, opts, nil, false
+	return q, opts, recordShaper{proj: proj}, nil, false
 }
 
 // buildSharedQuery parses the request body for the QueryObjects (per-
@@ -117,7 +122,7 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 // validation failure; the caller returns errResp directly in that
 // case. Shared between the snapshot and subscribe handlers so the body
 // shape stays in lockstep.
-func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, error, bool) {
+func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, recordShaper, error, bool) {
 	return buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
 		return sp.QueryObjects(), nil, false
 	})
@@ -131,33 +136,34 @@ type perObjectVet func(root *fastjson.Value, objectId, dataset string) (strip []
 // buildPerObjectQuery is the per-object dataset counterpart to
 // buildSharedQuery. objectId and dataset are required body fields; a
 // missing or empty value short-circuits with 400 request.missing_field.
-func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (space.Query, space.QueryOpts, string, string, []string, error, bool) {
+func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (space.Query, space.QueryOpts, string, string, recordShaper, error, bool) {
+	var none recordShaper
 	body, err := readBody(c)
 	if err != nil || len(body) == 0 {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
+		return nil, space.QueryOpts{}, "", "", none, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
 	root, err := parser.ParseBytes(body)
 	if err != nil {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+		return nil, space.QueryOpts{}, "", "", none, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
 	if errResp, done := checkUnknownFields(c, root, "", perObjectQueryFields...); done {
-		return nil, space.QueryOpts{}, "", "", nil, errResp, true
+		return nil, space.QueryOpts{}, "", "", none, errResp, true
 	}
 	objectId := string(root.GetStringBytes("objectId"))
 	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
+		return nil, space.QueryOpts{}, "", "", none, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
 	}
 	if isSerializedNil(objectId) {
-		return nil, space.QueryOpts{}, "", "", nil, serializedNilIdError(c, "objectId", objectId), true
+		return nil, space.QueryOpts{}, "", "", none, serializedNilIdError(c, "objectId", objectId), true
 	}
 	if dataset == "" {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
+		return nil, space.QueryOpts{}, "", "", none, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
 	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, "", "", nil, errResp, true
+		return nil, space.QueryOpts{}, "", "", none, errResp, true
 	}
 	var strip []string
 	if vet != nil {
@@ -165,11 +171,15 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (spac
 		var done bool
 		strip, errResp, done = vet(root, objectId, dataset)
 		if done {
-			return nil, space.QueryOpts{}, "", "", nil, errResp, true
+			return nil, space.QueryOpts{}, "", "", none, errResp, true
 		}
 	}
+	proj, errResp, done := parseProjection(c, root)
+	if done {
+		return nil, space.QueryOpts{}, "", "", none, errResp, true
+	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
-	return q, opts, objectId, dataset, strip, nil, false
+	return q, opts, objectId, dataset, recordShaper{proj: proj, strip: strip}, nil, false
 }
 
 // The closed top-level vocabularies of the query/subscribe request
@@ -257,10 +267,9 @@ func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.Q
 // shape. includeTotal mirrors the body flag — when false, Total is
 // nil-pointer and omitted from the JSON; when true, the SDK populates
 // res.Total (-1 only if it failed to count, which currently never
-// happens — we surface the SDK's value verbatim). strip lists top-level
-// record fields withheld from the wire (key material on tech-space
-// rows — see spaceListStrippedFields).
-func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, strip ...string) error {
+// happens — we surface the SDK's value verbatim). shaper carries the
+// caller's projection and the server's blocklist.
+func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
 	fa := getFastjsonArena()
 	defer putFastjsonArena(fa)
 	records := make([]json.RawMessage, 0, len(res.Initial))
@@ -269,11 +278,7 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 			records = append(records, json.RawMessage("null"))
 			continue
 		}
-		v := doc.FastJson(fa)
-		for _, key := range strip {
-			v.Del(key)
-		}
-		records = append(records, json.RawMessage(v.MarshalTo(nil)))
+		records = append(records, json.RawMessage(shaper.record(doc, fa).MarshalTo(nil)))
 	}
 	out := api.QueryResponse{Records: records}
 	if includeTotal {

@@ -170,11 +170,18 @@ Not this repo's work; gate on the SDK:
   record-level account transport above; device tier additionally needs
   the local sidecar (a record with no DAG behind it dies on
   wipe-and-rebuild).
-- **Query `Projection`.** Accepted in the request body but mostly
-  ignored — the SDK's `Projection(opts)` no-ops `IncludeVariants` /
-  `IncludeMeta` in MVP. **`IncludeDeleted` now works** (SDK `v0.0.10` —
-  used by the index chunkers to stream tombstones); variant collapse
-  and meta-stripping still pending.
+- **Projection push-down.** The body's `projection` is honored (SYN-207
+  — field allowlist/blocklist at the serialisation boundary), but
+  any-store still decodes the whole stored document before the server
+  narrows it. Pushing the field set into the find path would cut the
+  decode too. Per anyproto/any#203's own numbers the decode is the
+  smaller half — the wire and the fastjson round-trip were the cost —
+  so this is an optimisation, not a gap. The wire contract does not
+  change when it lands.
+- **SDK `ProjectionOpts`.** `IncludeVariants` / `IncludeMeta` are still
+  no-ops in the SDK's MVP; variant collapse and meta-stripping pending.
+  **`IncludeDeleted` works** (SDK `v0.0.10` — used by the index chunkers
+  to stream tombstones).
 
 ## Index / search (phase 3+)
 
@@ -448,14 +455,11 @@ pluggable embedders, parallel batched pipelines),
   - `POST /v1/spaces/:id/query` — chains `Filter / Sort / Limit /
     Offset / All`. Body parsed once with a pooled `*fastjson.Parser`;
     `filter` is passed straight through as `*fastjson.Value`. Each
-    record rendered via `value.FastJson(arena).MarshalTo`. The
-    `projection` field is **parsed but ignored** — the SDK's
-    `Projection(opts)` is a no-op in MVP.
+    record rendered via `value.FastJson(arena).MarshalTo`.
 - **Phase 3 endpoint (cross-object query + storage shift)** —
   `POST /v1/spaces/:id/objects/query` wires `Space.QueryObjects()`
   against the per-space shared collection. Same fastjson fast-path as
-  Modify; same `{records:[...]}` response shape. `projection` parsed
-  but ignored. Storage shift on the SDK side: object property values
+  Modify; same `{records:[...]}` response shape. Storage shift on the SDK side: object property values
   are now one row per object in the shared `objects` collection
   (keyed by objectId), not in a per-object `properties` dataset.
   Type objects appear in the same collection (rows whose `any.types`

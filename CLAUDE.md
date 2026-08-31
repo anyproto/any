@@ -1325,6 +1325,54 @@ Implementation slices landed:
     and the search index is NOT dropped — rebuilt rows resurface on
     the change feed and are re-indexed incrementally. SDK
     prerequisite: anyproto/any-sync-sdk#113.
+42. **Query projection (SYN-207)** — `projection` is honored on every
+    windowed query/subscribe body (`/objects/query[/subscribe]`,
+    `/query[/subscribe]`, `/spaces/query[/subscribe]`, `/devices/…`,
+    `/objects/:o/files/query[/subscribe]` — one shared builder, so they
+    move together). Grammar is mongo's: a flat object of dotted field
+    paths to `1` / `-1`, mode inferred (`{"any":1}` include,
+    `{"_ver":-1}` exclude), deepest mark wins so `{"nav":1,"nav.pos":-1}`
+    is a subtree minus a leaf. **Zero SDK work**: any-store has no
+    find-path projection and `ProjectionOpts` is only `IncludeDeleted`,
+    so this is `any`'s serialisation boundary — `internal/server/
+    projection.go` (parse + shape) + `projection_shape.go`
+    (`recordShaper`, which generalised the old `strip ...string`
+    blocklist; the blocklist still runs LAST, so naming a withheld
+    tech-space field cannot surface it).
+    Three client-facing rules: `id` always ships (`{"id":-1}` is 400),
+    `_ver` narrows automatically (never name a `_ver` path;
+    `{"_ver":-1}` drops it), and a projected field the record lacks
+    stays absent. `_`-prefixed fields sit OUTSIDE mode inference with
+    their own defaults — `_ver` in, `_addSeq`/`_applySeq` out — so
+    `{"_ver":-1}` alone still means "every user field". No projection
+    ⇒ byte-identical to before, counters included.
+    **The `_ver` rule**: keep `*` (the per-level default marker) at
+    every level descended into and copy matched subtrees verbatim.
+    Contract: for every INCLUDED path the narrowed map resolves to the
+    same version as the full one (lookup falls back to `*` exactly
+    where it did). Excluded paths are outside the contract. Subtrees
+    are never collapsed to their max version — that over-reports a
+    leaf and makes a client discard a live local edit.
+    Applies to `changes` frames too (requirement 2 of the issue): docs
+    and per-field ops. Only `$set`/`$unset` reach the wire (the SDK
+    normalises `$inc`/`$addToSet`/`$pull` in its `internal/subscribe`
+    `projectOp`), so ops are keep / narrow-the-payload / drop; the
+    multi-field form (empty path, payload keys are DOTTED PATHS) is
+    classified per key — which also fixed a latent blocklist hole,
+    where the old top-level `Del` never matched `guestKey.x`.
+    Include mode builds the fastjson value from only the named anyenc
+    subtrees, so the conversion and the marshal are O(projected) and
+    allocation-free; exclude mode converts then carves (the kept keys
+    are the record's own `[]byte`, and re-keying them would allocate
+    per field per record). Measured (`BenchmarkShapeRecord`,
+    `BenchmarkObjectsQueryProjection`): per record 1359 ns / 1023 B /
+    2 allocs → 306 ns / 195 B / 0 allocs for `{"any":1,"nav":1,
+    "_ver":-1}`; end-to-end through the handler 2.0× faster and 5.2×
+    less wire. Exclude-only (`{"_ver":-1}`) is 1.2× — it still pays the
+    full decode, which is why the store-side push-down stays in
+    docs/07-roadmap.md. CLI: `--projection 'any,nav'` / `'-_ver'` on
+    every windowed command. Contract: docs/09-query.md § Projection,
+    docs/03-api.md, docs/04-events.md.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

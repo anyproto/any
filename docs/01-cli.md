@@ -89,7 +89,7 @@ any devices register [--name N] [--app slug[=ver]]... [--remove-app slug]...
                                                     # PUT /v1/devices/me (self-row only)
 any devices activate <app>                          # POST /v1/devices/activate — claim on THIS device
 any devices remove <peerId> --yes                   # DELETE /v1/devices/:peerId (permanent for that peer id)
-any devices query [--filter ...] [--sort ...]       # POST /v1/devices/query — raw rows
+any devices query [--filter ...] [--sort ...] [--projection ...]   # POST /v1/devices/query — raw rows
 any devices subscribe                               # POST /v1/devices/query/subscribe (SSE)
 ```
 
@@ -110,8 +110,8 @@ any space delete <spaceId> --yes                    # shipped — delete a space
 any space sync   <spaceId>                          # shipped — force a head-sync round now
 any space derived                                   # shipped — list well-known derived spaces (name, spaceId, created)
 any space derived create <name>                     # shipped — materialize one (idempotent)
-any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
-any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
+any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
+any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
 any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...]   # shipped — local search index
 ```
@@ -312,7 +312,7 @@ any file pin      <spaceId> <fileId>
 any file retry    <spaceId> <fileId>
 any file offload  <spaceId> <fileId>
 any file delete   <spaceId> <fileId> --yes
-any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total]
+any file query    <spaceId> <objectId> [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection ...]
 any file query-subscribe <spaceId> <objectId> [same flags]
 any file cache size | free <bytes> | sweep
 ```
@@ -348,6 +348,23 @@ any subscribe $SPID $OBJID --dataset objects \
 
 `--timeout` does not apply (streams are long-lived). Cancel with
 Ctrl-C. See `04-events.md` for the contract.
+
+#### `--projection`
+
+Every windowed query / subscribe command (`any query-subscribe`,
+`any space query|subscribe`, `any devices query|subscribe`,
+`any file query|query-subscribe`) takes `--projection`: a
+comma-separated list of field paths to return, `-` prefixing an
+exclusion the way `--sort` prefixes a descending key.
+
+```bash
+any query-subscribe $SPID --properties --projection 'any,nav'   # only those subtrees
+any query-subscribe $SPID --properties --projection '-_ver'     # everything but the version map
+```
+
+`id` always comes back and `_ver` narrows to match the fields you
+asked for — never name a `_ver` path. Grammar and the divergences from
+mongo: `09-query.md` § Projection.
 
 ### Types & properties
 

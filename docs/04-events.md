@@ -119,11 +119,13 @@ window: add new records, update mutated ones, drop ids in `removed`
 (only `reason:"deleted"` means the object is gone for good).
 On `closed`, reconnect with a fresh POST.
 
-> **Projection is not implemented yet.** The body's `projection`
-> field is parsed but ignored — every record ships its full anyenc
-> form including `_ver` (and `_traces` / `_deletedAt` when present).
-> Strip those fields client-side if you want a leaner local model.
-> Tracked in `docs/07-roadmap.md`.
+> **Projection applies to the whole stream.** The body's `projection`
+> field (mongo grammar — [`docs/09-query.md` § Projection](09-query.md))
+> shapes the `snapshot` frame AND every `added` / `updated` record in
+> `changes`, per-field ops included, so a projected subscription never
+> widens after the first update. `id` always ships and `_ver` narrows
+> to match; `{"_ver": -1}` drops it. Without a `projection` every
+> record ships its full anyenc form, unchanged.
 
 ### Why no buffer-then-replay step?
 

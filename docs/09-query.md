@@ -28,18 +28,117 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
   "sort":     ["nav.pos", "-_ver.id"],
   "limit":    50,
   "offset":   0,
-  "includeTotal": false       // see the caveat below
+  "includeTotal": false,      // see the caveat below
+  "projection": { "any": 1, "nav": 1 }
 }
 ```
 
 The body vocabulary is closed (these fields plus the subscribe-only
-`mailboxCapacity` / `driftBudgetPercent` and the ignored `projection`).
+`mailboxCapacity` / `driftBudgetPercent`).
 An unknown key — `"filters"`, say — is `400 request.unknown_field`
 naming the accepted set, never a silently unfiltered full-space query.
 
 Snapshot reply: `{ "records": [ ... ], "total": <int|omitted> }`. Records are the
 raw stored documents (per-object datasets) or computed property rows
 (cross-object). `/subscribe` adds the live frames documented in `docs/04-events.md`.
+
+## Projection
+
+`projection` shapes the records that come back. It is mongo's grammar:
+a flat object mapping dotted field paths to `1` (include) or `-1`
+(exclude). `true` / `false` / `0` are accepted spellings of the same
+two marks.
+
+```json
+{"projection": {"any": 1, "nav": 1}}      // nothing but those subtrees
+{"projection": {"_ver": -1}}              // every user field, no version map
+{"projection": {"nav": 1, "nav.pos": -1}} // all of nav except one leaf
+{"projection": {"any.name": 1}}           // one leaf out of a group
+```
+
+**Mode is inferred, deepest mark wins.** One or more `1` on a user
+field is *include* mode: start from nothing and add. Only exclusions is
+*exclude* mode: start from the whole record and carve. Where a path and
+one of its ancestors are both marked, the deeper mark decides — that is
+what makes "this subtree except one leaf" expressible.
+
+Projection shapes output only. It never changes which records match, or
+the order they arrive in; `filter` and `sort` still run over the whole
+stored record. And it applies to `/query/subscribe` exactly as it does
+to `/query` — snapshot frames, `changes` docs, and the per-field ops
+inside them — so a projected subscription cannot widen after the first
+update.
+
+### The three rules a client needs
+
+1. **`id` always rides along**, listed or not. It is the record
+   identity every windowed cache and every `changes` frame keys on, so
+   `{"id": -1}` is `400 request.invalid_field` rather than a footgun.
+2. **`_ver` follows the projection automatically.** Never name a `_ver`
+   path — narrow the fields you want and the version map narrows with
+   them. `{"_ver": -1}` drops it entirely, which is worth doing: even
+   narrowed it is around a third of a projected record.
+3. **A projected field the record does not have stays absent.** Nothing
+   is null-filled, so "not selected" and "not set" never collapse.
+
+### Protocol fields
+
+`_`-prefixed fields sit outside mode inference and carry their own
+defaults, so `{"_ver": -1}` alone still means "every user field":
+
+| field | default under a projection | to change it |
+|---|---|---|
+| `_ver` | included, narrowed to the projection | `{"_ver": -1}` to drop |
+| `_addSeq`, `_applySeq` | dropped | `{"_addSeq": 1}` to keep |
+
+The delivery counters are peer-local and SDK-internal — consumers
+reason with `versionId` — so a projecting client does not pay for them
+by default. **A request with no `projection` at all is unchanged**, byte
+for byte, counters included: this is opt-in.
+
+### How `_ver` narrowing stays correct
+
+`_ver` mirrors the record, except that a node may be a bare version
+string (collapsed — it applies at and below that point) and an object
+node may carry `*`, the version for any sibling not enumerated there.
+Narrowing keeps `*` at every level it descends into and copies matched
+subtrees verbatim, which buys an exact contract:
+
+> For every path the projection includes, the narrowed `_ver` resolves
+> to the same version as the full one.
+
+Paths you *excluded* are outside that contract — a version lookup there
+may land on a surviving `*` default instead of its own entry. Read
+versions for the fields you asked for, or drop `_ver` and the question
+does not arise. Subtrees are never collapsed to their maximum version:
+that would over-report a leaf's version, and a client reconciling
+optimistic state per field would discard a local edit that is still
+newer.
+
+### Divergences from mongo
+
+- **Include and exclude mix.** Mongo rejects a projection carrying
+  both; here they compose, deepest mark wins.
+- **`id` cannot be excluded** (mongo lets you drop `_id`).
+- **Protocol fields are not part of mode inference**, per the table
+  above.
+- `-1` is accepted as an exclude marker alongside `0` / `false`.
+
+### Bounds
+
+At most 128 entries, at most 8 path segments deep. An empty path, an
+empty segment (`"nav..pos"`), the reserved `*` segment, or a value that
+is not one of the accepted marks is `400 request.invalid_field`.
+
+### CLI
+
+`--projection` takes the CSV shorthand, `-` prefixing an exclusion the
+way `--sort` prefixes a descending key:
+
+```
+any query-subscribe SPACE --properties --projection 'any,nav'
+any query-subscribe SPACE --properties --projection '-_ver'
+```
 
 ## Filter operators
 

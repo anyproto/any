@@ -129,6 +129,7 @@ func newDevicesQueryCmd() *cobra.Command {
 	var (
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -138,7 +139,7 @@ func newDevicesQueryCmd() *cobra.Command {
 		Short: "windowed snapshot over the raw devices rows (filter/sort/limit)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildSpaceListQueryBody("", filter, sort, limit, offset, includeTot)
+			body, err := buildSpaceListQueryBody("", filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -150,7 +151,7 @@ func newDevicesQueryCmd() *cobra.Command {
 			return printJSON(out)
 		},
 	}
-	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
@@ -160,6 +161,7 @@ func newDevicesSubscribeCmd() *cobra.Command {
 	var (
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -169,7 +171,7 @@ func newDevicesSubscribeCmd() *cobra.Command {
 		Short: "open a windowed devices SSE stream (rows added/changed/removed)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildSpaceListQueryBody("", filter, sort, limit, offset, includeTot)
+			body, err := buildSpaceListQueryBody("", filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -177,6 +179,6 @@ func newDevicesSubscribeCmd() *cobra.Command {
 			return cl.StreamDevicesQuerySubscribe(cmd.Context(), body, jsonFrameHandler())
 		},
 	}
-	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }

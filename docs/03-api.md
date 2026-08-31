@@ -1541,7 +1541,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
-  "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
+  "projection": { "any": 1, "nav": 1, "_ver": -1 }   // field paths → 1 include / -1 exclude
 }
 ```
 
@@ -1555,14 +1555,14 @@ variable was unset. The same closed set guards the space-list and
 files query/subscribe bodies (plus their own `dataset` / `objectId`
 extras where documented).
 
-**`projection` is not implemented yet.** The field is accepted in the
-body but the server doesn't thread it to `Query.Projection`, and the
-SDK's `Projection(opts)` is itself a no-op in MVP. Every record on
-snapshot frames and every `added` / `updated` record in `changes`
-events ships its full anyenc form — `_ver` (creation marker + per-
-field high-water), and `_traces` / `_deletedAt` if present. Clients
-that need a leaner shape strip those fields locally for now. See
-`docs/07-roadmap.md` § "Query `Projection`".
+**`projection`** shapes the records that come back — mongo's grammar,
+a flat object of dotted field paths to `1` (include) or `-1`
+(exclude). Omit it and records ship their full form, byte for byte as
+before. It applies to snapshot frames AND to every `added` / `updated`
+record in `changes` events, docs and per-field ops alike, so a
+projected subscription cannot silently widen after the first update.
+Full grammar, the `_ver` rule, and the divergences from mongo:
+[`docs/09-query.md` § Projection](09-query.md).
 
 Snapshot response (bare `…/query`):
 

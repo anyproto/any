@@ -65,9 +65,16 @@ type QueryBodyParams struct {
 	// DriftBudgetPercent (subscribe only) bounds window drift before
 	// the stream closes with reason "drifted". Default 30.
 	DriftBudgetPercent int `json:"driftBudgetPercent,omitempty"`
-	// Projection is accepted but NOT IMPLEMENTED — records always ship
-	// their full form. See docs/07-roadmap.md § "Query Projection".
-	Projection map[string]any `json:"projection,omitempty"`
+	// Projection shapes the records that come back, mongo-style: a flat
+	// object of dotted field paths to 1 (include) or -1 (exclude).
+	// `{"any":1,"nav":1}` is include mode — nothing but those subtrees;
+	// `{"_ver":-1}` is exclude mode — every user field but that one.
+	// Omitted, records ship their full form. Three rules worth knowing:
+	// `id` always rides along and cannot be excluded, `_ver` is narrowed
+	// to the projection automatically (never name a `_ver` path), and
+	// `_addSeq`/`_applySeq` drop unless named. Full grammar and the
+	// divergences from mongo: docs/09-query.md § Projection.
+	Projection map[string]int `json:"projection,omitempty"`
 }
 
 // SpaceQueryObjectsRequest documents the body of

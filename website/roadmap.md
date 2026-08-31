@@ -29,7 +29,7 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 - **CLI ergonomics** — flag shapes, patch syntax, error messages; a handful of endpoints (space create/list, snapshot query, modify, delete-records, bundles) still need their `any` subcommand.
 - **Endpoint shape fixes** — anything awkward to call from a shell or a language binding, absorbed by bumping the `/v1/` path rather than breaking routes in place.
 - **Install one-liner** — a `curl … | sh` that drops the binary and wires `systemd --user` / `launchctl` to start `any run` at login.
-- **Query projection** — the `projection` body field is accepted today but not applied; records ship in full.
+- **Projection push-down** — `projection` is applied at the serialization boundary today; pushing the field set into the store's find path would cut the document decode too.
 - **Runtime type binding** — attach/detach a type on an existing object (bind at create for now).
 - **Account-scope record fields** — dataset fields declared `account` are readable but not yet writable; property values already are.
 

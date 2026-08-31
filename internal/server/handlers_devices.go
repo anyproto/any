@@ -170,7 +170,7 @@ func (d *deps) deviceDelete(c echo.Context) error {
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/devices/query [post]
 func (d *deps) devicesQuery(c echo.Context) error {
-	q, opts, errResp, done := d.buildDevicesQuery(c)
+	q, opts, shaper, errResp, done := d.buildDevicesQuery(c)
 	if done {
 		return errResp
 	}
@@ -178,7 +178,7 @@ func (d *deps) devicesQuery(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": DevicesDataset})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal)
+	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
 
 // devicesQuerySubscribe handles POST /v1/devices/query/subscribe.
@@ -199,7 +199,7 @@ func (d *deps) devicesQuery(c echo.Context) error {
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/devices/query/subscribe [post]
 func (d *deps) devicesQuerySubscribe(c echo.Context) error {
-	q, opts, errResp, done := d.buildDevicesQuery(c)
+	q, opts, shaper, errResp, done := d.buildDevicesQuery(c)
 	if done {
 		return errResp
 	}
@@ -207,7 +207,7 @@ func (d *deps) devicesQuerySubscribe(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"dataset": DevicesDataset})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal)
+	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, shaper)
 }
 
 // buildDevicesQuery assembles the chained Query + QueryOpts for the
@@ -215,7 +215,7 @@ func (d *deps) devicesQuerySubscribe(c echo.Context) error {
 // override: objectId is fixed to the tech-space index object, dataset
 // to `devices`. The body is optional (an empty body is a full
 // snapshot).
-func (d *deps) buildDevicesQuery(c echo.Context) (space.Query, space.QueryOpts, error, bool) {
+func (d *deps) buildDevicesQuery(c echo.Context) (space.Query, space.QueryOpts, recordShaper, error, bool) {
 	return buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
 		svc := d.sdk.Spaces()
 		return svc.Query(svc.SpaceIndexObjectId(), DevicesDataset), nil, false
