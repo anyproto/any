@@ -4,7 +4,7 @@ description: Documentation for any — the open source, reactive, local-first, e
 ---
 <div class="hero">
 
-# <span>any</span><em>_</em>
+# any
 
 The open source, reactive, **local-first** database. Documents live on your devices, merge as CRDTs, sync end-to-end encrypted, and answer Mongo-style queries with live subscriptions — online or not. Chat and a block editor are built in as first-class CRDT types, and **anyrt** runs sandboxed Python programs, scheduled jobs and agents next to your data instead of on someone else's server.
 
