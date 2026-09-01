@@ -325,15 +325,13 @@ const pageTpl = `<!doctype html>
 {{if .Page.Description}}<meta name="description" content="{{.Page.Description}}">{{end}}
 <link rel="stylesheet" href="{{.Root}}/assets/site.css">
 <link rel="icon" href="{{.Root}}/assets/favicon.svg">
-<script>try{var t=localStorage.getItem('any-docs-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
 <header class="top">
   <button class="menu" id="menu" aria-label="Menu">☰</button>
-  <a class="brand" href="{{.Root}}/index.html"><svg class="logo" viewBox="0 0 71 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 3h5v12H0zM2.5 0h15v3h-15zM5 9h5v3H5zM25 0h5v15h-5zM51 0h5v6h-5zM30 3h3v3h-3zM31.5 6h3v3h-3zM53.5 6h15v3h-15zM33 9h3v3h-3zM36 0h10v15H36zM61 0h10v6H61zM56 9h10v6H56zM10 3h10v12H10z"/></svg><span class="tag">docs</span></a>
-  <div class="search"><input id="q" type="search" placeholder="Search docs… ( / )" autocomplete="off"><div id="results" class="results" hidden></div></div>
+  <a class="brand" href="{{.Root}}/index.html"><span class="mark"><svg class="logo" viewBox="0 0 57 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 2.4H4.01408V12H0V2.4ZM2.00704 0H14.0493V2.4H2.00704V0ZM4.01408 7.2H8.02817V9.6H4.01408V7.2ZM20.0704 0H24.0845V12H20.0704V0ZM40.9437 0H44.9577V4.8H40.9437V0ZM24.0845 2.4H26.493V4.8H24.0845V2.4ZM25.2887 4.8H27.6972V7.2H25.2887V4.8ZM42.9507 4.8H54.993V7.2H42.9507V4.8ZM26.493 7.2H28.9014V9.6H26.493V7.2ZM28.9014 0H36.9296V12H28.9014V0ZM48.9718 0H57V4.8H48.9718V0ZM44.9577 7.2H52.9859V12H44.9577V7.2ZM8.02817 2.4H16.0563V12H8.02817V2.4Z"/></svg><i class="cursor" aria-hidden="true"></i></span><span class="tag">docs</span></a>
+  <div class="search"><svg class="search-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><div id="results" class="results" hidden></div></div>
   <nav class="links"><a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a></nav>
-  <button class="mode" id="mode" aria-label="Toggle theme"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
 </header>
 <div class="shell">
 <aside class="side" id="side">
