@@ -12,7 +12,7 @@
 @font-face{font-family:"Iosevka Comfy";src:url(comfy-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
 :root{
   --bg:#0e1012;--panel:#060708;--bg1:#191a1b;--bg2:#060708;--bg3:rgba(255,255,255,.05);
-  --surface-hover:rgba(255,255,255,.05);--line:#1b222c;--line2:#27303c;
+  --surface-hover:rgba(255,255,255,.05);--line:#26282b;--line2:#323437;
   --fg:#d6e0ed;--fg2:#8f9aa8;--fg3:#5a6573;
   /* brand accent — DS 2.0 Semantic (dark): accent/default → brand/100, hover → brand/90, subtle → brand/185 */
   --accent:#377aff;--accent-hover:#4b87ff;--accent-dim:#1e283c;
