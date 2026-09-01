@@ -78,7 +78,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .results small{display:block;color:var(--fg3);font-size:12px;line-height:18px}.results em{font-style:normal;color:var(--accent)}
 /* layout */
 .sec{margin:0 0 1px}.sec summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:4px;padding:5px 8px;
-  color:var(--fg2);font-weight:500;border-radius:6px;text-transform:lowercase;letter-spacing:.02em}
+  color:var(--fg2);font-weight:500;border-radius:6px}
 .sec summary .sec-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chev{width:16px;height:16px;flex:0 0 16px;color:var(--fg3)}
 .sec .minus{display:none}.sec[open] .plus{display:none}.sec[open] .minus{display:block}
@@ -91,6 +91,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 /* sidebar ordinals: the section is its source directory prefix (01-understanding → 01),
    the item its 1-based position. Fixed columns keep every title on one left edge. */
 .num{flex:0 0 auto;color:inherit;font-variant-numeric:tabular-nums}
+.sec summary .num{text-align:right}
 .sec summary .num{width:24px}
 .sec li a:hover{color:var(--fg);background:var(--surface-hover)}
 .sec li a.active{color:var(--fg);background:var(--bg3)}
