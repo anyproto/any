@@ -15,7 +15,7 @@ curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
 ```
 
 ```bash
-any file attach $SP $OBJ photo.jpg            # name defaults to the basename, mime to the extension
+any file attach $SP $OBJ photo.jpg            # name defaults to the basename, mime is resolved by the server
 cat photo.jpg | any file attach $SP $OBJ -    # stdin
 ```
 
@@ -23,8 +23,8 @@ Metadata rides outside the body:
 
 | Where | Stored as |
 |-------|-----------|
-| `Content-Type` header | the file's `mime` (parameters stripped; `application/octet-stream` or absent = unset) |
-| `?name=` | the user-facing `name` |
+| `Content-Type` header | the file's `mime`, taken at its word. `application/octet-stream` (the `curl -T` / typeless-`Blob` default) or absent means "not said": the server then resolves the type from the content — magic numbers for binary formats, the name's extension for text (`.md`, `.csv`, `.css`, …) |
+| `?name=` | the user-facing `name`. Binary content without an extension gains the one its mime implies (`?name=pasted` + PNG → `pasted.png`); text names come back unchanged |
 | `?variant=` + `?variantOf=` | attach as an alternate representation of an existing file on the same object (both or neither) |
 
 The reply is the file's `FileInfo`:

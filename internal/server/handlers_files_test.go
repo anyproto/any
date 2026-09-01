@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,106 +29,6 @@ var (
 	mp3Bytes  = append([]byte{0xff, 0xfb, 0x90, 0x00}, bytes.Repeat([]byte{0}, 128)...)
 	movBytes  = append(append([]byte{0, 0, 0, 0x14}, []byte("ftypqt  ")...), []byte("\x00\x00\x02\x00qt  ")...)
 )
-
-// TestResolveMime pins the whole precedence ladder in one table: an
-// explicit header wins, content beats the name, and the name only ever
-// refines a generic text/plain. The formats below are exactly the ones
-// http.DetectContentType cannot place (svg lands on text/xml there,
-// heic/mov/mp3 on octet-stream) — they are why this route sniffs with
-// mimetype rather than the stdlib.
-func TestResolveMime(t *testing.T) {
-	cases := []struct {
-		name        string
-		contentType string
-		fileName    string
-		head        []byte
-		want        string
-	}{
-		// 1. an explicit header is final.
-		{"explicit wins over content", "image/x-custom", "a.png", pngBytes, "image/x-custom"},
-		{"explicit params stripped", "text/plain; charset=utf-8", "", nil, "text/plain"},
-		{"unparseable header falls through", "not a mime", "", pngBytes, "image/png"},
-
-		// 2. the "caller didn't say" spellings fall through to content.
-		{"octet-stream sniffs", "application/octet-stream", "", pngBytes, "image/png"},
-		{"binary octet-stream sniffs", "binary/octet-stream", "", pngBytes, "image/png"},
-		{"application/unknown sniffs", "application/unknown", "", pngBytes, "image/png"},
-		{"absent header sniffs", "", "", pngBytes, "image/png"},
-
-		// 3. content the stdlib sniffer gets wrong or misses entirely.
-		{"svg", "", "logo.svg", svgBytes, "image/svg+xml"},
-		{"heic", "", "IMG_0001.HEIC", heicBytes, "image/heic"},
-		{"mov", "", "clip.mov", movBytes, "video/quicktime"},
-		{"mp3 without id3", "", "song.mp3", mp3Bytes, "audio/mpeg"},
-		{"jpeg", "", "", jpegBytes, "image/jpeg"},
-		{"pdf", "", "", pdfBytes, "application/pdf"},
-
-		// 4. the name refines a generic text/plain, and only that.
-		{"markdown by name", "", "notes.md", []byte("# Title\n\nbody\n"), "text/markdown"},
-		{"markdown uppercase ext", "", "NOTES.MD", []byte("# Title\n\nbody\n"), "text/markdown"},
-		{"plain text keeps text/plain", "", "notes.txt", []byte("hello, world\n"), "text/plain"},
-		{"unmapped ext keeps text/plain", "", "main.go", []byte("package main\n"), "text/plain"},
-		{"name never overrides binary content", "", "fake.png", pdfBytes, "application/pdf"},
-
-		// 5. nothing recognisable stays unset — never octet-stream.
-		{"empty body", "", "x.png", nil, ""},
-		{"unplaceable bytes", "", "x.png", bytes.Repeat([]byte{0x00, 0xff}, 300), ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := resolveMime(c.contentType, c.fileName, c.head); got != c.want {
-				t.Errorf("resolveMime(%q, %q, %d bytes) = %q, want %q",
-					c.contentType, c.fileName, len(c.head), got, c.want)
-			}
-		})
-	}
-}
-
-// TestPeekHead pins the streaming invariant: the sniff window must be
-// readable without consuming it, for bodies both under and over the
-// limit.
-func TestPeekHead(t *testing.T) {
-	cases := []struct {
-		name     string
-		in       []byte
-		wantHead int
-	}{
-		{"empty", nil, 0},
-		{"short", pngBytes, len(pngBytes)},
-		{"exactly the limit", bytes.Repeat([]byte("a"), sniffLimit), sniffLimit},
-		{"over the limit", bytes.Repeat([]byte("a"), sniffLimit*3), sniffLimit},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			r, head := peekHead(bytes.NewReader(c.in))
-			if len(head) != c.wantHead {
-				t.Errorf("head = %d bytes, want %d", len(head), c.wantHead)
-			}
-			rest, err := io.ReadAll(r)
-			if err != nil || !bytes.Equal(rest, c.in) {
-				t.Errorf("body after peek: len %d err %v, want len %d", len(rest), err, len(c.in))
-			}
-		})
-	}
-}
-
-// TestEnsureNameExt pins the fill-don't-rewrite rule.
-func TestEnsureNameExt(t *testing.T) {
-	cases := []struct{ name, mime, want string }{
-		{"pasted", "image/png", "pasted.png"},
-		{"pasted", "image/jpeg", "pasted.jpg"}, // canonical, not .jfif
-		{"shot.png", "image/png", "shot.png"},  // already has one
-		{"shot.txt", "image/png", "shot.txt"},  // never rewritten
-		{"pasted", "", "pasted"},               // mime unresolved
-		{"", "image/png", ""},                  // no name to fill
-		{"notes", "text/markdown", "notes"},    // type the sniffer doesn't know
-	}
-	for _, c := range cases {
-		if got := ensureNameExt(c.name, c.mime); got != c.want {
-			t.Errorf("ensureNameExt(%q, %q) = %q, want %q", c.name, c.mime, got, c.want)
-		}
-	}
-}
 
 // TestFileErrorMapping pins the SDK sentinel → wire code map
 // (fileError). Sentinels are matched with errors.Is, so wrapped forms

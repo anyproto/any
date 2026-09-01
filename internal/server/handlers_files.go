@@ -1,18 +1,14 @@
 package server
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
 	"mime"
 	"net/http"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
@@ -32,11 +28,13 @@ import (
 // fileAttach handles POST /v1/spaces/:spaceId/objects/:objectId/files.
 //
 // The raw request body is the file content, streamed into
-// Files().Attach — only the sniff window is buffered. Metadata rides
-// outside the body: the `Content-Type` header and `name` query param
-// feed resolveMime (see there for the precedence), `name` is also the
-// stored name, `variant`+`variantOf` must be set together and the
-// variant original must live on the same object.
+// Files().Attach — at most the sniff window is buffered, and only when
+// the header leaves the type open. Metadata rides outside the body:
+// the `Content-Type` header and `name` query param feed resolveMime
+// (see there for the precedence), `name` is also the stored name
+// (ensureNameExt fills a missing extension for binary content),
+// `variant`+`variantOf` must be set together and the variant original
+// must live on the same object.
 //
 //	@Summary	Attach a file to an object (raw body upload)
 //	@Tags		files
@@ -64,8 +62,12 @@ func (d *deps) fileAttach(c echo.Context) error {
 		return errResp
 	}
 	name := c.QueryParam("name")
-	body, head := peekHead(c.Request().Body)
-	mimeType := resolveMime(c.Request().Header.Get(echo.HeaderContentType), name, head)
+	var body io.Reader = c.Request().Body
+	mimeType := resolveMime(c.Request().Header.Get(echo.HeaderContentType), name, func() []byte {
+		var head []byte
+		body, head = peekHead(body)
+		return head
+	})
 	opts := space.AttachOpts{
 		Name:      ensureNameExt(name, mimeType),
 		Mime:      mimeType,
@@ -77,118 +79,6 @@ func (d *deps) fileAttach(c echo.Context) error {
 		return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusCreated, fileInfoToAPI(info))
-}
-
-// sniffLimit is the byte budget the content sniffer needs for its
-// deepest signature (mimetype's own detection limit). A smaller window
-// does not fail loudly — it silently loses every format whose magic
-// sits past it, which is most container formats.
-const sniffLimit = 3072
-
-// unsetContentTypes are the Content-Type spellings that mean "the
-// caller did not say" rather than naming a format — curl -T, fetch()
-// with a typeless Blob, and the S3-flavoured variants all land here.
-// Everything else is taken at its word.
-var unsetContentTypes = map[string]struct{}{
-	"application/octet-stream": {},
-	"binary/octet-stream":      {},
-	"application/unknown":      {},
-}
-
-// textByExt refines the sniffer's generic text/plain for the text
-// formats that carry no signature at all: markdown, CSV and friends
-// are plain UTF-8, so only the name can tell them apart from prose.
-//
-// Deliberately a fixed table rather than mime.TypeByExtension: the
-// stdlib seeds that from the host's /etc/mime.types and shared-mime
-// database at init, so the same upload resolves differently on two
-// machines (".ts" answers text/vnd.trolltech.linguist wherever Qt is
-// installed). A server has to decide identically everywhere.
-var textByExt = map[string]string{
-	".md":       "text/markdown",
-	".markdown": "text/markdown",
-	".csv":      "text/csv",
-	".tsv":      "text/tab-separated-values",
-}
-
-// resolveMime decides the mime stored with an upload from the three
-// signals attach has, strongest first:
-//
-//  1. an explicit Content-Type — a caller naming its own content is
-//     final (HTTP's own rule); only the unsetContentTypes spellings
-//     fall through,
-//  2. the content itself — magic beats a name, so a file *named*
-//     .png that *is* a PDF stores application/pdf,
-//  3. the name's extension — but only to refine a generic text/plain,
-//     because a text signature cannot distinguish markdown from prose.
-//
-// Content the sniffer cannot place leaves the mime unset ("") rather
-// than asserting application/octet-stream: "absent" and "unknown" are
-// different claims, and the download route already falls back.
-func resolveMime(contentType, name string, head []byte) string {
-	if mt := mediaType(contentType); mt != "" {
-		return mt
-	}
-	if len(head) == 0 {
-		return ""
-	}
-	mt := mediaType(mimetype.Detect(head).String())
-	if mt == "text/plain" {
-		if refined, ok := textByExt[strings.ToLower(filepath.Ext(name))]; ok {
-			return refined
-		}
-	}
-	return mt
-}
-
-// mediaType strips parameters (charset and friends) off a content type
-// and maps the "caller didn't say" spellings — plus anything
-// unparseable — to "".
-func mediaType(contentType string) string {
-	if contentType == "" {
-		return ""
-	}
-	mt, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return ""
-	}
-	if _, unset := unsetContentTypes[mt]; unset {
-		return ""
-	}
-	return mt
-}
-
-// peekHead buffers the first sniffLimit bytes of r without consuming
-// them: it returns a reader that still yields the whole body, plus the
-// window the sniffer gets to look at. Peeking is what keeps attach
-// streaming — sniffing by reading and seeking back would mean making
-// the body seekable, i.e. buffering the whole upload to memory or a
-// temp file before a single byte reaches the SDK.
-func peekHead(r io.Reader) (io.Reader, []byte) {
-	br := bufio.NewReaderSize(r, sniffLimit)
-	// A short read at EOF is the normal small-file case; a real read
-	// error resurfaces when Attach consumes the body, which is where
-	// it belongs.
-	head, _ := br.Peek(sniffLimit)
-	return br, head
-}
-
-// ensureNameExt gives an extension-less name the one its resolved mime
-// implies, so a pasted screenshot arriving as ?name=pasted downloads
-// as pasted.png instead of a file the OS opens with a shrug. An
-// extension the caller supplied is never rewritten — only an absent
-// one is filled, and only when the mime resolved to something.
-func ensureNameExt(name, mimeType string) string {
-	if name == "" || mimeType == "" || filepath.Ext(name) != "" {
-		return name
-	}
-	mt := mimetype.Lookup(mimeType)
-	if mt == nil {
-		return name
-	}
-	// Extension() is the canonical single answer (.jpg), not the list
-	// mime.ExtensionsByType sorts .jfif to the front of.
-	return name + mt.Extension()
 }
 
 // fileList handles GET /v1/spaces/:spaceId/files.
@@ -257,8 +147,8 @@ func (d *deps) fileGet(c echo.Context) error {
 // fileContent handles GET /v1/spaces/:spaceId/files/:fileId/content.
 //
 // Serves the file's verified plaintext as a regular HTTP resource:
-// Content-Type from the stored mime (octet-stream fallback — never
-// sniffed), Content-Disposition inline with the stored name, and full
+// Content-Type from the stored mime (octet-stream fallback — sniffing
+// happens at attach, never here), Content-Disposition inline with the stored name, and full
 // Range/206 support via http.ServeContent (the SDK reader is
 // seekable). Content not yet local streams in on demand; a download in
 // flight at server shutdown is cut by the drain deadline.

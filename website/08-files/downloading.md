@@ -20,7 +20,7 @@ any file download $SP $FILE -o photo.jpg     # writes the file, prints a small J
 any file download $SP $FILE --variant thumb
 ```
 
-The response carries the stored mime as `Content-Type` (octet-stream fallback — never sniffed), `Content-Disposition: inline; filename=…` from the stored name, `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. Browser tags work directly:
+The response carries the stored mime as `Content-Type` (octet-stream fallback — the type is resolved at attach, never here), `Content-Disposition: inline; filename=…` from the stored name, `Content-Length`, and full **`Range` / 206** support. The underlying reader is seekable and seeks map to DAG offsets, so scrubbing a video does not download the prefix. Browser tags work directly:
 
 ```html
 <img   src="http://127.0.0.1:7001/v1/spaces/SP/files/F1/content">

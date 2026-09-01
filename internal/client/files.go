@@ -23,7 +23,8 @@ type FileAttachOpts struct {
 	// Name is the user-facing file name (query param).
 	Name string
 	// Mime is sent as the request Content-Type; empty sends nothing
-	// (the server treats absent/octet-stream as "unset").
+	// and the server resolves the type from the content and the name
+	// (docs/03-api.md § Files, Mime precedence).
 	Mime string
 	// Variant + VariantOf attach the content as an alternate
 	// representation of an existing file on the same object. Both or
