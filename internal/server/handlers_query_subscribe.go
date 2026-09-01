@@ -256,7 +256,7 @@ func removedRecordsToAPI(in []space.RemovedRecord) []api.RemovedRecord {
 // subRecordsToAPI converts subscription records to the wire shape. The
 // shaper governs both halves — the post-apply doc and the per-field
 // ops — so a projected subscription cannot silently widen after the
-// first update (anyproto/any#203, requirement 2).
+// first update.
 func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, shaper recordShaper) []api.QuerySubscribeRecord {
 	if len(in) == 0 {
 		return nil
@@ -270,9 +270,7 @@ func subRecordsToAPI(in []space.SubRecord, fa *fastjson.Arena, shaper recordShap
 		if len(r.Ops) > 0 {
 			ops := make([]api.SubscribeEventOp, 0, len(r.Ops))
 			for _, op := range r.Ops {
-				if apiOp, ok := shaper.op(op, fa); ok {
-					ops = append(ops, apiOp)
-				}
+				ops = append(ops, shaper.op(op, fa)...)
 			}
 			out[i].Ops = ops
 		}

@@ -34,8 +34,20 @@ func mustBody(t *testing.T, body string) *fastjson.Value {
 // parseProj is the test-local parse: valid bodies only.
 func parseProj(t *testing.T, body string) *projection {
 	t.Helper()
+	return parseProjMode(t, body, false)
+}
+
+// parseProjFreeform parses a projection over plain any-store documents
+// (the local store), where there is no protocol namespace.
+func parseProjFreeform(t *testing.T, body string) *projection {
+	t.Helper()
+	return parseProjMode(t, body, true)
+}
+
+func parseProjMode(t *testing.T, body string, freeform bool) *projection {
+	t.Helper()
 	c, _ := newEchoCtx()
-	proj, errResp, done := parseProjection(c, mustBody(t, body))
+	proj, errResp, done := parseProjection(c, mustBody(t, body), freeform)
 	if done {
 		t.Fatalf("projection %s rejected: %v", body, errResp)
 	}
@@ -323,7 +335,7 @@ func TestProjection_Validation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, rec := newEchoCtx()
-			_, _, done := parseProjection(c, mustBody(t, tc.body))
+			_, _, done := parseProjection(c, mustBody(t, tc.body), false)
 			if !done {
 				t.Fatalf("projection %s should have been rejected", tc.body)
 			}
@@ -345,13 +357,13 @@ func TestProjection_Absent(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse: %v", err)
 		}
-		proj, _, done := parseProjection(c, v)
+		proj, _, done := parseProjection(c, v, false)
 		if done || proj != nil {
 			t.Errorf("body %s should leave the wire untouched, got proj=%v done=%v", body, proj, done)
 		}
 	}
 	// A nil root (empty body) is the full-snapshot path.
-	if proj, _, done := parseProjection(c, nil); done || proj != nil {
+	if proj, _, done := parseProjection(c, nil, false); done || proj != nil {
 		t.Errorf("nil body should leave the wire untouched")
 	}
 }
@@ -364,19 +376,17 @@ func opsOf(t *testing.T, s recordShaper, ops []space.EventOp) []map[string]any {
 	defer putFastjsonArena(fa)
 	var out []map[string]any
 	for _, op := range ops {
-		shaped, ok := s.op(op, fa)
-		if !ok {
-			continue
+		for _, shaped := range s.op(op, fa) {
+			blob, err := json.Marshal(shaped)
+			if err != nil {
+				t.Fatalf("marshal op: %v", err)
+			}
+			var m map[string]any
+			if err := json.Unmarshal(blob, &m); err != nil {
+				t.Fatalf("unmarshal op: %v", err)
+			}
+			out = append(out, m)
 		}
-		blob, err := json.Marshal(shaped)
-		if err != nil {
-			t.Fatalf("marshal op: %v", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(blob, &m); err != nil {
-			t.Fatalf("unmarshal op: %v", err)
-		}
-		out = append(out, m)
 	}
 	return out
 }
@@ -455,9 +465,9 @@ func TestProjection_MultiFieldOpDroppedWhenEmpty(t *testing.T) {
 	}
 }
 
-// TestProjection_MultiFieldStripDotted pins the blocklist fix the
-// projection walk brought with it: the old top-level Del never matched
-// a dotted key, so "guestKey.x" reached the wire.
+// TestProjection_MultiFieldStripDotted: a multi-field payload's keys
+// are PATHS, so the blocklist has to match on the first segment —
+// "guestKey.x" is withheld along with "guestKey".
 func TestProjection_MultiFieldStripDotted(t *testing.T) {
 	s := recordShaper{strip: spaceListStrippedFields}
 	got := opsOf(t, s, []space.EventOp{

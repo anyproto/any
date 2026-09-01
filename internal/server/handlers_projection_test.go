@@ -32,7 +32,7 @@ func decodeRecords(t *testing.T, body []byte) []map[string]any {
 }
 
 // TestServer_ObjectsQueryProjection walks the projection through the
-// real endpoint — the cross-object path anyproto/any#203 asks for.
+// real cross-object endpoint.
 func TestServer_ObjectsQueryProjection(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -124,10 +124,9 @@ func TestServer_ObjectsQueryProjection(t *testing.T) {
 	})
 }
 
-// TestServer_QuerySubscribeProjection is requirement 2 of
-// anyproto/any#203: a projected subscription must not silently widen
-// after the first update — the `changes` frames are shaped too, docs
-// and per-field ops alike.
+// TestServer_QuerySubscribeProjection: a projected subscription must
+// not silently widen after the first update — the `changes` frames are
+// shaped too, docs and per-field ops alike.
 func TestServer_QuerySubscribeProjection(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

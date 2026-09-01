@@ -108,8 +108,10 @@ string (collapsed — it applies at and below that point) and an object
 node may carry `*`, the version for any sibling not enumerated there.
 Narrowing follows your **inclusions**, keeping `*` at every level it
 descends into and copying matched subtrees verbatim, and then applies
-your **exclusions** — dropping a field drops its version with it. That
-buys an exact contract:
+your **exclusions** — dropping a field drops its version with it, where
+`_ver` enumerates it (a subtree the CRDT has collapsed to a single
+version string keeps covering what is under it). That buys an exact
+contract:
 
 > For every path the projection includes, the narrowed `_ver` resolves
 > to the same version as the full one.
@@ -141,8 +143,9 @@ is not one of the accepted marks is `400 request.invalid_field`. An
 empty `projection` object reads as no projection at all.
 
 Arrays are descended element-wise, mongo-style: `{"tags.name": 1}` over
-an array of objects keeps each element's `name`, and an element that
-projects to nothing drops out of the array.
+an array of objects keeps each element's `name`. Every element keeps
+its slot — one holding none of the projected paths comes back as `{}` —
+so a projection never changes an array's length or shifts its indices.
 
 ### CLI
 

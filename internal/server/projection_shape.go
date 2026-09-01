@@ -65,9 +65,14 @@ func (s recordShaper) stripped(path []string) bool {
 // (narrow its payload), or it is outside (drop it). A $unset that
 // straddles stays whole: the client drops the subtree it holds, which
 // is the same end state.
-func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) (api.SubscribeEventOp, bool) {
+func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) []api.SubscribeEventOp {
+	if s.proj == nil && len(s.strip) == 0 {
+		// Nothing to shape: hand the op through untouched, so a request
+		// without a projection is byte-identical to what it always was.
+		return []api.SubscribeEventOp{rawOp(op, a)}
+	}
 	if s.stripped(op.Path) {
-		return api.SubscribeEventOp{}, false
+		return nil
 	}
 	if len(op.Path) == 0 && op.Payload != nil && op.Payload.Type() == anyenc.TypeObject {
 		return s.multiFieldOp(op, a)
@@ -76,15 +81,11 @@ func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) (api.SubscribeEven
 	if s.proj != nil {
 		verdict, n := s.proj.opVerdict(op.Path)
 		if verdict == projOpDrop {
-			return api.SubscribeEventOp{}, false
+			return nil
 		}
 		node = n
 	}
-	path := op.Path
-	if path == nil {
-		path = []string{}
-	}
-	out := api.SubscribeEventOp{Type: string(op.Type), Path: path}
+	out := api.SubscribeEventOp{Type: string(op.Type), Path: opPath(op)}
 	if op.Payload != nil {
 		shaped := shapePayload(op.Payload, node, a)
 		if shaped == nil {
@@ -93,11 +94,29 @@ func (s recordShaper) op(op space.EventOp, a *fastjson.Arena) (api.SubscribeEven
 			// an empty object would leave the mirror holding `{}` where
 			// the doc in the same frame omits the field.
 			out.Type = string(space.OpUnset)
-			return out, true
+			return []api.SubscribeEventOp{out}
 		}
 		out.Payload = shaped.MarshalTo(nil)
 	}
-	return out, true
+	return []api.SubscribeEventOp{out}
+}
+
+// rawOp renders an op with no shaping applied.
+func rawOp(op space.EventOp, a *fastjson.Arena) api.SubscribeEventOp {
+	out := api.SubscribeEventOp{Type: string(op.Type), Path: opPath(op)}
+	if op.Payload != nil {
+		out.Payload = op.Payload.FastJson(a).MarshalTo(nil)
+	}
+	return out
+}
+
+// opPath renders an op's path, never nil — the wire shape has always
+// carried `[]` for the multi-field form.
+func opPath(op space.EventOp) []string {
+	if op.Path == nil {
+		return []string{}
+	}
+	return op.Path
 }
 
 // shapePayload renders a single-path op's payload against the
@@ -119,71 +138,72 @@ func shapePayload(v *anyenc.Value, node *projNode, a *fastjson.Arena) *fastjson.
 // multiFieldOp shapes the multi-field form ($set / $unset with an
 // empty path, payload an object whose KEYS ARE DOTTED PATHS applied in
 // parallel — the record-creation shape). Each key is classified on its
-// own; the op is dropped when nothing survives, since the form is a
+// own and the op is dropped when nothing survives, since the form is a
 // parallel merge and an empty one says nothing.
-func (s recordShaper) multiFieldOp(op space.EventOp, a *fastjson.Arena) (api.SubscribeEventOp, bool) {
+//
+// A $unset's payload VALUES are placeholders the CRDT ignores, so only
+// its keys are classified — narrowing a placeholder would be
+// meaningless and would drop the removal.
+//
+// A $set key whose new value narrows to nothing means the field is
+// gone for this client, which no $set can express. Those keys move to
+// a second op, a multi-field $unset, so the ops and the doc in the
+// same frame agree.
+func (s recordShaper) multiFieldOp(op space.EventOp, a *fastjson.Arena) []api.SubscribeEventOp {
 	obj, err := op.Payload.Object()
 	if err != nil {
-		return api.SubscribeEventOp{}, false
+		return nil
 	}
-	var out *fastjson.Value
-	if s.proj != nil && s.proj.userInclude {
-		// Build up: in include mode the surviving keys are the
-		// minority, so only they pay for a key string.
-		out = a.NewObject()
-		empty := true
-		obj.Visit(func(key []byte, v *anyenc.Value) {
-			verdict, node, ok := s.multiFieldKey(key)
-			if !ok || verdict == projOpDrop {
-				return
-			}
-			shaped := shapePayload(v, node, a)
-			if shaped == nil {
-				// No per-key op type in this form, so a key that
-				// projects to nothing is simply left out; the record's
-				// doc, which ships alongside, is authoritative.
-				return
-			}
-			out.Set(string(key), shaped)
-			empty = false
-		})
-		if empty {
-			return api.SubscribeEventOp{}, false
+	unsetForm := space.OpType(op.Type) == space.OpUnset
+
+	kept := a.NewObject()
+	var vanished *fastjson.Value // $set keys that narrowed away
+	keptAny, vanishedAny := false, false
+
+	obj.Visit(func(key []byte, v *anyenc.Value) {
+		verdict, node, ok := s.multiFieldKey(key)
+		if !ok || verdict == projOpDrop {
+			return
 		}
-	} else {
-		// Carve: the dropped keys are the minority. `out` is a fresh
-		// fastjson tree, not the anyenc object being visited, so
-		// deleting inline is safe.
-		out = op.Payload.FastJson(a)
-		obj.Visit(func(key []byte, v *anyenc.Value) {
-			verdict, node, ok := s.multiFieldKey(key)
-			if !ok || verdict == projOpDrop {
-				out.Del(string(key))
-				return
-			}
-			if node == nil || !(node.excBelow || node.incChild) {
-				return
-			}
-			if shaped := shapePayload(v, node, a); shaped != nil {
-				out.Set(string(key), shaped)
-			} else {
-				out.Del(string(key))
-			}
-		})
-		if out.GetObject().Len() == 0 {
-			return api.SubscribeEventOp{}, false
+		if unsetForm {
+			kept.Set(string(key), v.FastJson(a))
+			keptAny = true
+			return
 		}
+		shaped := shapePayload(v, node, a)
+		if shaped == nil {
+			if vanished == nil {
+				vanished = a.NewObject()
+			}
+			vanished.Set(string(key), a.NewTrue())
+			vanishedAny = true
+			return
+		}
+		kept.Set(string(key), shaped)
+		keptAny = true
+	})
+
+	var out []api.SubscribeEventOp
+	if keptAny {
+		out = append(out, api.SubscribeEventOp{
+			Type:    string(op.Type),
+			Path:    []string{},
+			Payload: kept.MarshalTo(nil),
+		})
 	}
-	return api.SubscribeEventOp{
-		Type:    string(op.Type),
-		Path:    []string{},
-		Payload: out.MarshalTo(nil),
-	}, true
+	if vanishedAny {
+		out = append(out, api.SubscribeEventOp{
+			Type:    string(space.OpUnset),
+			Path:    []string{},
+			Payload: vanished.MarshalTo(nil),
+		})
+	}
+	return out
 }
 
 // multiFieldKey classifies one dotted key of a multi-field payload.
-// ok=false means the key is withheld by the server blocklist — which
-// the old top-level Del missed for a dotted key like "guestKey.x".
+// ok=false means the key is withheld by the server blocklist: the key
+// is a PATH, so "guestKey.x" is withheld along with "guestKey".
 func (s recordShaper) multiFieldKey(key []byte) (int, *projNode, bool) {
 	if len(s.strip) > 0 {
 		top := key

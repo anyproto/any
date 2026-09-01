@@ -29,7 +29,7 @@ func TestProjection_NonIntegerMarks(t *testing.T) {
 	}
 	// A fractional value is still not a mark.
 	c, rec := newEchoCtx()
-	if _, _, done := parseProjection(c, mustBody(t, `{"any":0.5}`)); !done || rec.Code != http.StatusBadRequest {
+	if _, _, done := parseProjection(c, mustBody(t, `{"any":0.5}`), false); !done || rec.Code != http.StatusBadRequest {
 		t.Errorf("0.5 should be rejected, got done=%v code=%d", done, rec.Code)
 	}
 }
@@ -162,7 +162,7 @@ func TestProjection_ExcludeCarvesVer(t *testing.T) {
 // key must get the same bytes as one that omits it.
 func TestProjection_EmptyObjectIsAbsent(t *testing.T) {
 	c, _ := newEchoCtx()
-	proj, _, done := parseProjection(c, mustBody(t, `{}`))
+	proj, _, done := parseProjection(c, mustBody(t, `{}`), false)
 	if done || proj != nil {
 		t.Fatalf(`{"projection":{}} should read as absent, got proj=%v done=%v`, proj, done)
 	}

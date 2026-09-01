@@ -170,14 +170,13 @@ Not this repo's work; gate on the SDK:
   record-level account transport above; device tier additionally needs
   the local sidecar (a record with no DAG behind it dies on
   wipe-and-rebuild).
-- **Projection push-down.** The body's `projection` is honored (SYN-207
-  — field allowlist/blocklist at the serialisation boundary), but
-  any-store still decodes the whole stored document before the server
-  narrows it. Pushing the field set into the find path would cut the
-  decode too. Per anyproto/any#203's own numbers the decode is the
-  smaller half — the wire and the fastjson round-trip were the cost —
-  so this is an optimisation, not a gap. The wire contract does not
-  change when it lands.
+- **Projection push-down.** The body's `projection` is honored at the
+  serialisation boundary, but any-store still decodes the whole stored
+  document before the server narrows it. Pushing the field set into the
+  find path would cut the decode too. Measured, the decode is the
+  smaller half — the wire and the fastjson round-trip are the cost — so
+  this is an optimisation, not a gap. The wire contract does not change
+  when it lands.
 - **SDK `ProjectionOpts`.** `IncludeVariants` / `IncludeMeta` are still
   no-ops in the SDK's MVP; variant collapse and meta-stripping pending.
   **`IncludeDeleted` works** (SDK `v0.0.10` — used by the index chunkers

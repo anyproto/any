@@ -9,9 +9,9 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 )
 
-// benchRecordJSON mirrors the record anyproto/any#203 measured: one
-// ~200-char string property, the built-in `any` / `nav` groups, the
-// derived stamps, and a fully-enumerated `_ver`. ~1 KB on the wire.
+// benchRecordJSON is a representative objects row: one ~200-char
+// string property, the built-in `any` / `nav` groups, the derived
+// stamps, and a fully-enumerated `_ver`. ~1 KB on the wire.
 const benchRecordJSON = `{
   "id": "bafyreiahq2n522avjpw7xka2lzzjrynpjttv4ddfrpxwj26rfjzpabtrii",
   "_ver": {
@@ -61,17 +61,16 @@ func benchShaper(tb testing.TB, body string) recordShaper {
 		tb.Fatalf("parse projection: %v", err)
 	}
 	c, _ := newEchoCtx()
-	proj, errResp, done := parseProjection(c, v)
+	proj, errResp, done := parseProjection(c, v, false)
 	if done {
 		tb.Fatalf("projection rejected: %v", errResp)
 	}
 	return recordShaper{proj: proj}
 }
 
-// BenchmarkShapeRecord is the before/after for anyproto/any#203: the
-// per-record cost of the serialisation boundary, which is where the
-// issue measured the time (a 5 000-row scan is 5 ms; returning those
-// rows is 60 ms).
+// BenchmarkShapeRecord measures the per-record cost of the
+// serialisation boundary, which is where the time goes on a large
+// window: finding 5 000 rows costs ~5 ms, returning them ~60 ms.
 //
 // "none" is the historical path — the whole record converted to
 // fastjson and marshalled. The rest are the projections a client would

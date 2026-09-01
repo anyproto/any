@@ -45,6 +45,12 @@ type projection struct {
 	// whole record and carve", true means "start from nothing and
 	// add".
 	userInclude bool
+	// freeform marks a projection over plain any-store documents (the
+	// local store) rather than CRDT rows. Those carry no `_ver` and no
+	// delivery counters, so there is no protocol namespace: an
+	// `_`-prefixed name is the caller's own field, counts towards mode
+	// inference, and none of the protocol defaults apply.
+	freeform bool
 }
 
 // projNode is one path segment of the parsed projection tree.
@@ -114,7 +120,7 @@ var projectionPassthrough = [...]string{"_traces", "_deletedAt"}
 // parseProjection reads the request body's `projection` object. Returns
 // (nil, nil, false) when absent — the no-projection path must stay
 // exactly as it was.
-func parseProjection(c echo.Context, root *fastjson.Value) (*projection, error, bool) {
+func parseProjection(c echo.Context, root *fastjson.Value, freeform bool) (*projection, error, bool) {
 	if root == nil {
 		return nil, nil, false
 	}
@@ -137,7 +143,7 @@ func parseProjection(c echo.Context, root *fastjson.Value) (*projection, error, 
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"projection carries too many entries", map[string]any{"limit": maxProjectionEntries}), true
 	}
-	p := &projection{}
+	p := &projection{freeform: freeform}
 	var errResp error
 	var failed bool
 	obj.Visit(func(key []byte, v *fastjson.Value) {
@@ -221,16 +227,19 @@ func (p *projection) add(c echo.Context, path string, mark int8) (error, bool) {
 			break
 		}
 	}
-	if path == idField && mark == projMarkExclude {
-		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"id cannot be excluded — it is the record identity every subscription keys on", nil), true
-	}
-	node.mark = mark
 	top := path
 	if i := strings.IndexByte(top, '.'); i >= 0 {
 		top = top[:i]
 	}
-	if mark == projMarkInclude && !strings.HasPrefix(top, "_") {
+	// The whole `id` subtree, not just the bare path: `id` ships whole
+	// and unconditionally, so `{"id.x": -1}` would be accepted and then
+	// do nothing.
+	if top == idField && mark == projMarkExclude {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"id cannot be excluded — it is the record identity every subscription keys on", nil), true
+	}
+	node.mark = mark
+	if mark == projMarkInclude && (p.freeform || !strings.HasPrefix(top, "_")) {
 		p.userInclude = true
 	}
 	return nil, false
@@ -281,8 +290,7 @@ func (n *projNode) seal() {
 //
 //   - Include mode builds up from an empty object and only ever
 //     touches the named subtrees, so an unread field is never decoded
-//     into fastjson and never marshalled. That is where the win in
-//     anyproto/any#203 lives.
+//     into fastjson and never marshalled. That is where the win is.
 //   - Exclude mode converts and then carves, because the kept keys are
 //     the record's own (a []byte from anyenc) and re-keying them would
 //     allocate a string per field per record. It still skips the
@@ -294,10 +302,12 @@ func (p *projection) record(doc *anyenc.Value, a *fastjson.Arena) *fastjson.Valu
 	if !p.userInclude {
 		out := doc.FastJson(a)
 		carveNode(out, &p.root)
-		// The version map is carved by the same exclusions, so dropping
-		// a field drops its version with it.
-		carveVer(out.Get(verField), &p.root)
-		p.applyProtocolDefaults(out)
+		if !p.freeform {
+			// The version map is carved by the same exclusions, so
+			// dropping a field drops its version with it.
+			carveVer(out.Get(verField), &p.root)
+			p.applyProtocolDefaults(out)
+		}
 		return out
 	}
 
@@ -307,7 +317,7 @@ func (p *projection) record(doc *anyenc.Value, a *fastjson.Arena) *fastjson.Valu
 	}
 	for i := range p.root.children {
 		n := &p.root.children[i]
-		if n.key == idField || strings.HasPrefix(n.key, "_") {
+		if n.key == idField || (!p.freeform && strings.HasPrefix(n.key, "_")) {
 			continue // id is unconditional; protocol fields below
 		}
 		if !n.incBelow {
@@ -319,7 +329,9 @@ func (p *projection) record(doc *anyenc.Value, a *fastjson.Arena) *fastjson.Valu
 			}
 		}
 	}
-	p.projectProtocolFields(doc, out, a)
+	if !p.freeform {
+		p.projectProtocolFields(doc, out, a)
+	}
 	return out
 }
 
@@ -347,16 +359,17 @@ func projectValue(v *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Val
 		return out
 	}
 	if v.Type() == anyenc.TypeArray {
+		// Element-wise, and every element keeps its slot: an element
+		// holding none of the projected paths comes back as {} rather
+		// than vanishing, so the array's length and indices survive a
+		// projection. Mongo does the same.
 		out := a.NewArray()
-		kept := 0
-		for _, item := range v.GetArray() {
-			if cv := projectValue(item, n, a); cv != nil {
-				out.SetArrayItem(kept, cv)
-				kept++
+		for i, item := range v.GetArray() {
+			cv := projectValue(item, n, a)
+			if cv == nil {
+				cv = a.NewObject()
 			}
-		}
-		if kept == 0 {
-			return nil
+			out.SetArrayItem(i, cv)
 		}
 		return out
 	}
@@ -428,7 +441,7 @@ func (p *projection) applyProtocolDefaults(v *fastjson.Value) {
 func (p *projection) projectProtocolFields(doc *anyenc.Value, out *fastjson.Value, a *fastjson.Arena) {
 	if !p.excluded(verField) {
 		if ver := doc.Get(verField); ver != nil {
-			if v := projectVer(ver, &p.root, a); v != nil {
+			if v := projectVer(ver, &p.root, a, true); v != nil {
 				carveVer(v, &p.root)
 				out.Set(verField, v)
 			}
@@ -494,7 +507,7 @@ func carveVer(ver *fastjson.Value, root *projNode) {
 // legal encoding and smaller, but it over-reports every leaf older
 // than the max, and a client reconciling optimistic state per field
 // would then discard a local edit that is genuinely newer.
-func projectVer(ver *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Value {
+func projectVer(ver *anyenc.Value, n *projNode, a *fastjson.Arena, root bool) *fastjson.Value {
 	if ver.Type() != anyenc.TypeObject {
 		// Collapsed at this level — one string covers everything below,
 		// including whatever was projected.
@@ -507,23 +520,31 @@ func projectVer(ver *anyenc.Value, n *projNode, a *fastjson.Arena) *fastjson.Val
 	if n == nil {
 		return out
 	}
-	if id := ver.Get(idField); id != nil {
-		out.Set(idField, id.FastJson(a))
+	if root {
+		// `id` is the record's creation marker and always ships, so its
+		// version does too. Only at the root: a nested object's own
+		// `id` is an ordinary field and follows the projection.
+		if id := ver.Get(idField); id != nil {
+			out.Set(idField, id.FastJson(a))
+		}
 	}
 	for i := range n.children {
 		c := &n.children[i]
-		if c.key == idField || strings.HasPrefix(c.key, "_") || !c.incBelow {
+		if (root && c.key == idField) || strings.HasPrefix(c.key, "_") || !c.incBelow {
 			continue
 		}
 		sub := ver.Get(c.key)
 		if sub == nil {
 			continue
 		}
-		if c.mark == projMarkInclude {
+		// Deepest mark wins here as it does in the record body: a
+		// deeper include narrows this subtree rather than being
+		// subsumed by the ancestor's include.
+		if !c.incChild {
 			out.Set(c.key, sub.FastJson(a))
 			continue
 		}
-		out.Set(c.key, projectVer(sub, c, a))
+		out.Set(c.key, projectVer(sub, c, a, false))
 	}
 	return out
 }

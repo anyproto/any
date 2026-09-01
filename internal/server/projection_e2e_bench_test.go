@@ -12,8 +12,8 @@ import (
 )
 
 // benchSeedObjects is how many objects the end-to-end projection
-// benchmark seeds. anyproto/any#203 measured 5 000; seeding that many
-// through the real CRDT write path would dominate the run, and the
+// benchmark seeds. A real space runs to thousands, but seeding that
+// many through the CRDT write path would dominate the run, and the
 // shaping cost is linear in the record count, so a smaller space
 // measures the same ratio.
 const benchSeedObjects = 400

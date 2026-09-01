@@ -788,7 +788,7 @@ func (d *deps) localQuery(c echo.Context) error {
 	if errResp, done := checkFilter(c, root); done {
 		return errResp
 	}
-	proj, errResp, done := parseProjection(c, root)
+	proj, errResp, done := parseProjection(c, root, true)
 	if done {
 		return errResp
 	}

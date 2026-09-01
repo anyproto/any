@@ -1365,16 +1365,25 @@ Implementation slices landed:
     normalises `$inc`/`$addToSet`/`$pull` in its `internal/subscribe`
     `projectOp`), so ops are keep / narrow-the-payload / drop; the
     multi-field form (empty path, payload keys are DOTTED PATHS) is
-    classified per key — which also fixed a latent blocklist hole,
-    where the old top-level `Del` never matched `guestKey.x`. A $set
-    whose narrowed payload holds nothing becomes a $unset, so the op
-    and the doc in the same frame agree the field is gone; `ops` can
-    come back empty under a projection (documented on
-    api.QuerySubscribeRecord). Two traps worth remembering: mark
-    parsing MUST use GetFloat64 (fastjson's GetInt answers 0 for
-    `1.0`, silently inverting include into exclude), and the op-path
-    walk has to honour deepest-wins the same way the record walk does
-    or `{"a":-1,"a.b":1}` ships the doc but no ops.
+    classified per key — which also closed a blocklist hole, since a
+    top-level `Del` never matched `guestKey.x`. A $set whose narrowed
+    payload holds nothing becomes a $unset, so the op and the doc in
+    the same frame agree the field is gone (in the multi-field form
+    those keys split into a companion $unset op — hence `op()` returns
+    a SLICE); `ops` can come back empty under a projection (documented
+    on api.QuerySubscribeRecord). A multi-field $unset's payload VALUES
+    are placeholders the CRDT ignores, so only its KEYS may be
+    classified — narrowing a placeholder drops the removal.
+    Four traps worth remembering: mark parsing MUST use GetFloat64
+    (fastjson's GetInt answers 0 for `1.0`, silently inverting include
+    into exclude); deepest-wins has to be honoured by all THREE walkers
+    (record body, op path, `_ver`) or the halves disagree —
+    TestProjection_OpWalkersAgree drives the two op walkers off one
+    table for exactly that reason; an array element that projects to
+    nothing must stay as `{}` so length and indices survive; and the
+    local store passes `freeform`, which turns the whole `_`-prefixed
+    protocol namespace off (a local record has none, so `_x` there is
+    the caller's own field and counts towards mode inference).
     Include mode builds the fastjson value from only the named anyenc
     subtrees, so the conversion and the marshal are O(projected) and
     allocation-free; exclude mode converts then carves (the kept keys

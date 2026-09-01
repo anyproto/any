@@ -185,6 +185,12 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("sort on withheld field: %d %s", rec.Code, rec.Body.String())
 	}
+	// Projection is the third way to name a field, and answers the same
+	// refusal — not a 200 with an unexplained hole in the records.
+	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"spaces","projection":{"guestKey":1}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("projection on withheld field: %d %s", rec.Code, rec.Body.String())
+	}
 	// No generic writes to the index tree, whatever the dataset name;
 	// no aggregate on a stripped dataset; no write sinks anywhere.
 	rec = doJSON(t, e, http.MethodPost, base+"/delete-records", `{"objectId":"`+info.SpaceIndexObjectId+`","dataset":"entries","recordIds":["x"]}`)

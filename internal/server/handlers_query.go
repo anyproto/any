@@ -109,7 +109,7 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if errResp, done := checkFilter(c, root); done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
-	proj, errResp, done := parseProjection(c, root)
+	proj, errResp, done := parseProjection(c, root, false)
 	if done {
 		return nil, space.QueryOpts{}, none, errResp, true
 	}
@@ -175,7 +175,7 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (spac
 			return nil, space.QueryOpts{}, "", "", none, errResp, true
 		}
 	}
-	proj, errResp, done := parseProjection(c, root)
+	proj, errResp, done := parseProjection(c, root, false)
 	if done {
 		return nil, space.QueryOpts{}, "", "", none, errResp, true
 	}
