@@ -157,9 +157,14 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc .ascii{font-family:var(--mono);color:var(--fg2);font-size:12px;line-height:18px}
 /* pager + footer */
 .pager{display:flex;justify-content:space-between;gap:16px;margin:48px 0 16px}
-.pager a{flex:1;padding:12px 16px;border:1px solid var(--line2);border-radius:var(--r);color:var(--fg);background:var(--bg1)}
-.pager a:hover{border-color:var(--accent);box-shadow:var(--glow)}.pager a small{font-family:var(--mono);display:block;color:var(--fg3);font-size:12px;line-height:18px;letter-spacing:.08em;text-transform:uppercase}
-.pager .prev small::before{content:"← "}.pager .next{text-align:right}.pager .next small::after{content:" →"}
+.pager a{flex:1;padding:16px;border:1px solid var(--line2);border-radius:12px;color:var(--fg);background:var(--bg1)}
+.pager a:hover{border-color:var(--accent);box-shadow:var(--glow)}
+/* the label is Body/Small in fg3 with the arrow as its own item 4 away — not the
+   mono caps it used to be; the title is Body/Large + */
+.pager a small{display:flex;gap:4px;font-family:var(--sans);font-size:13px;line-height:18px;color:var(--fg3)}
+.pager a span{font-weight:500}
+.pager .prev small::before{content:"←"}
+.pager .next{text-align:right}.pager .next small{justify-content:flex-end}.pager .next small::after{content:"→"}
 @media (max-width:900px){
   .menu{display:block}
     .side.open{display:block}}
