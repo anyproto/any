@@ -353,7 +353,7 @@ const pageTpl = `<!doctype html>
 <div class="content">
 <div class="bar">
   <button class="menu" id="menu" aria-label="Menu">☰</button>
-  <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{.Page.Title}}</p>
+  <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{if .Page.IsIndex}}Overview{{else}}{{.Page.Title}}{{end}}</p>
   <div class="search" id="search"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><span class="esc" aria-hidden="true">ESC</span><div id="results" class="results" hidden></div></div>
 </div>
 <main class="main">
