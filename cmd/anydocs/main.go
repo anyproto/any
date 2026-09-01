@@ -167,6 +167,7 @@ func run(src, out string) error {
 	}
 
 	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Order < sections[j].Order })
+	home.Body = template.HTML(numberSectionCards(string(home.Body), sections))
 	var all []*page
 	all = append(all, home)
 	for _, s := range sections {
@@ -374,3 +375,25 @@ const pageTpl = `<!doctype html>
 </body>
 </html>`
 
+// cardHrefRe matches a home-page section card: <a href="<slug>/index.html"><strong>Title</strong>
+var cardHrefRe = regexp.MustCompile(`<a href="([a-z0-9-]+)/index\.html"><strong>`)
+
+// numberSectionCards prefixes each home-page section card with the same ordinal the
+// sidebar shows, looked up from the section the card links to. A card pointing at
+// something that is not a section is left alone.
+func numberSectionCards(body string, sections []*section) string {
+	num := map[string]string{}
+	for _, s := range sections {
+		if s.Num != "" {
+			num[s.Slug] = s.Num
+		}
+	}
+	return cardHrefRe.ReplaceAllStringFunc(body, func(m string) string {
+		sub := cardHrefRe.FindStringSubmatch(m)
+		n, ok := num[sub[1]]
+		if !ok {
+			return m
+		}
+		return strings.Replace(m, "<strong>", `<strong><span class="num">`+n+`.</span>`, 1)
+	})
+}
