@@ -13,12 +13,12 @@
 :root{
   --bg:#0e1012;--panel:#060708;--bg1:#191a1b;--bg2:#060708;--bg3:rgba(255,255,255,.05);
   --surface-hover:rgba(255,255,255,.05);--line:#1b222c;--line2:#27303c;
-  --fg:#d9e0e8;--fg2:#8f9aa8;--fg3:#5a6573;
+  --fg:#d6e0ed;--fg2:#8f9aa8;--fg3:#5a6573;
   /* brand accent — DS 2.0 Semantic (dark): accent/default → brand/100, hover → brand/90, subtle → brand/185 */
   --accent:#377aff;--accent-hover:#4b87ff;--accent-dim:#1e283c;
   --glow:0 0 0 1px rgba(55,122,255,.25),0 0 24px rgba(55,122,255,.08);
   /* DS 2.0 dark spectrum — color/spectrum/on-bg/*, the ramp built for coloured text on dark */
-  --cyan:#76e1ff;--amber:#ffcd6b;--magenta:#db8cf6;--red:#ff9b8c;--code-fg:#c8c8c8;--code-k:#9cb2ff;
+  --cyan:#76e1ff;--amber:#ffcd6b;--magenta:#db8cf6;--red:#ff9b8c;--code-fg:#bfc9d7;--code-k:#9cb2ff;
   --measure:800px;--side:304px;--r:6px;
   --mono:"Iosevka Comfy",ui-monospace,Menlo,Consolas,monospace;
   --sans:Inter,"Inter Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
