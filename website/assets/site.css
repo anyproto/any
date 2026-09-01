@@ -39,7 +39,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 /* shell: sidebar column + content column, both full height */
 .shell{display:grid;grid-template-columns:var(--side) minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;min-height:0;background:var(--panel);
-  font-family:var(--sans);font-size:13px;line-height:18px}
+  font-family:var(--sans);font-size:13px;line-height:18px;box-shadow:inset -1px 0 0 var(--line)}
 .side-head{flex:0 0 52px;display:flex;align-items:center;gap:8px;padding:0 8px 0 16px}
 .side-nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:12px 8px}
 .side-nav::-webkit-scrollbar{width:0;height:0}
