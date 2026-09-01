@@ -70,17 +70,24 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
+	pq, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
-	res, err := q.Subscribe(c.Request().Context(), opts)
+	if pq.includeDeleted {
+		// the live window never carries tombstones (the SDK pins the
+		// _deletedAt-missing clause on Subscribe) — refuse rather than
+		// silently stream the live view under a flag that promises more
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"includeDeleted is snapshot-only: use POST …/query", map[string]any{"field": "includeDeleted"})
+	}
+	res, err := pq.q.Subscribe(c.Request().Context(), pq.opts)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
-			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
+			"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset,
 		})
 	}
-	return d.streamQuerySubscribe(c, res, opts.IncludeTotal, strip...)
+	return d.streamQuerySubscribe(c, res, pq.opts.IncludeTotal, pq.strip...)
 }
 
 // streamQuerySubscribe pumps a QuerySubscription's windowed events to

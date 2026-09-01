@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -60,17 +61,62 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, objectId, dataset, strip, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
+	pq, errResp, done := buildPerObjectQuery(c, sp, d.techIndexVet(c, sp))
 	if done {
 		return errResp
 	}
-	res, err := q.Snapshot(c.Request().Context(), opts)
-	if err != nil {
-		return sdkOpError(c, err, map[string]any{
-			"spaceId": sp.Id(), "objectId": objectId, "dataset": dataset,
-		})
+	details := map[string]any{"spaceId": sp.Id(), "objectId": pq.objectId, "dataset": pq.dataset}
+	if pq.includeDeleted {
+		return d.spaceQueryWithDeleted(c, pq, details)
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal, strip...)
+	res, err := pq.q.Snapshot(c.Request().Context(), pq.opts)
+	if err != nil {
+		return sdkOpError(c, err, details)
+	}
+	return writeQueryResponse(c, res, pq.opts.IncludeTotal, pq.strip...)
+}
+
+// spaceQueryWithDeleted answers a per-object snapshot that includes
+// the dataset's record-level tombstones. The SDK's Snapshot pins the
+// live view — it ANDs a `_deletedAt missing` clause into every filter,
+// whatever ProjectionOpts say — so the tombstone-inclusive read goes
+// through the find path (Iter / Count honour IncludeDeleted), which
+// shares the filter / sort / limit / offset build with Snapshot. The
+// reply keeps the snapshot shape; `total` here is the full match
+// count, not the page-bounded one Snapshot reports.
+func (d *deps) spaceQueryWithDeleted(c echo.Context, pq perObjectQuery, details map[string]any) error {
+	ctx := c.Request().Context()
+	q := pq.q.Projection(space.ProjectionOpts{IncludeDeleted: true})
+	it, err := q.Iter(ctx)
+	if err != nil {
+		return sdkOpError(c, err, details)
+	}
+	defer it.Close()
+	fa := getFastjsonArena()
+	defer putFastjsonArena(fa)
+	records := make([]json.RawMessage, 0, 16)
+	for it.Next() {
+		doc, err := it.Doc()
+		if err != nil {
+			return sdkOpError(c, err, details)
+		}
+		// Doc is valid only until the next Next — render it now.
+		records = append(records, renderQueryRecord(fa, doc, pq.strip...))
+	}
+	if err := it.Err(); err != nil {
+		return sdkOpError(c, err, details)
+	}
+	out := api.QueryResponse{Records: records}
+	if pq.opts.IncludeTotal {
+		total, err := q.Count(ctx)
+		if err != nil {
+			return sdkOpError(c, err, details)
+		}
+		out.Total = &total
+		hasNext := pq.offset+len(records) < total
+		out.HasNext = &hasNext
+	}
+	return c.JSON(http.StatusOK, out)
 }
 
 // buildBodyQuery is the one implementation of the OPTIONAL windowed-
@@ -128,36 +174,55 @@ func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryO
 // non-nil strip is applied to the response rows.
 type perObjectVet func(root *fastjson.Value, objectId, dataset string) (strip []string, errResp error, done bool)
 
+// perObjectQuery is the parsed form of a per-object query body: the
+// windowed builder plus everything the handler needs after the SDK
+// call (addressing for error details, the tech-index strip list, and
+// the two body knobs the SDK's QueryOpts do not carry).
+type perObjectQuery struct {
+	q        space.Query
+	opts     space.QueryOpts
+	objectId string
+	dataset  string
+	strip    []string
+	// offset mirrors the body's offset — the find path computes
+	// hasNext itself, Snapshot does it inside the SDK.
+	offset int
+	// includeDeleted routes the snapshot through the tombstone-
+	// inclusive find path; refused on subscribe.
+	includeDeleted bool
+}
+
 // buildPerObjectQuery is the per-object dataset counterpart to
 // buildSharedQuery. objectId and dataset are required body fields; a
 // missing or empty value short-circuits with 400 request.missing_field.
-func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (space.Query, space.QueryOpts, string, string, []string, error, bool) {
+func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perObjectQuery, error, bool) {
+	var none perObjectQuery
 	body, err := readBody(c)
 	if err != nil || len(body) == 0 {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
+		return none, writeError(c, http.StatusBadRequest, "request.bad_json", "missing or unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
 	root, err := parser.ParseBytes(body)
 	if err != nil {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+		return none, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 	}
 	if errResp, done := checkUnknownFields(c, root, "", perObjectQueryFields...); done {
-		return nil, space.QueryOpts{}, "", "", nil, errResp, true
+		return none, errResp, true
 	}
 	objectId := string(root.GetStringBytes("objectId"))
 	dataset := string(root.GetStringBytes("dataset"))
 	if objectId == "" {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
+		return none, writeError(c, http.StatusBadRequest, "request.missing_field", "objectId required", nil), true
 	}
 	if isSerializedNil(objectId) {
-		return nil, space.QueryOpts{}, "", "", nil, serializedNilIdError(c, "objectId", objectId), true
+		return none, serializedNilIdError(c, "objectId", objectId), true
 	}
 	if dataset == "" {
-		return nil, space.QueryOpts{}, "", "", nil, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
+		return none, writeError(c, http.StatusBadRequest, "request.missing_field", "dataset required", nil), true
 	}
 	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, "", "", nil, errResp, true
+		return none, errResp, true
 	}
 	var strip []string
 	if vet != nil {
@@ -165,11 +230,18 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (spac
 		var done bool
 		strip, errResp, done = vet(root, objectId, dataset)
 		if done {
-			return nil, space.QueryOpts{}, "", "", nil, errResp, true
+			return none, errResp, true
 		}
 	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
-	return q, opts, objectId, dataset, strip, nil, false
+	pq := perObjectQuery{q: q, opts: opts, objectId: objectId, dataset: dataset, strip: strip}
+	if v := root.Get("offset"); v != nil && v.GetInt() > 0 {
+		pq.offset = v.GetInt()
+	}
+	if v := root.Get("includeDeleted"); v != nil && v.Type() == fastjson.TypeTrue {
+		pq.includeDeleted = true
+	}
+	return pq, nil, false
 }
 
 // The closed top-level vocabularies of the query/subscribe request
@@ -265,15 +337,7 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 	defer putFastjsonArena(fa)
 	records := make([]json.RawMessage, 0, len(res.Initial))
 	for _, doc := range res.Initial {
-		if doc == nil {
-			records = append(records, json.RawMessage("null"))
-			continue
-		}
-		v := doc.FastJson(fa)
-		for _, key := range strip {
-			v.Del(key)
-		}
-		records = append(records, json.RawMessage(v.MarshalTo(nil)))
+		records = append(records, renderQueryRecord(fa, doc, strip...))
 	}
 	out := api.QueryResponse{Records: records}
 	if includeTotal {
@@ -283,4 +347,18 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 		out.HasNext = &hm
 	}
 	return c.JSON(http.StatusOK, out)
+}
+
+// renderQueryRecord renders one stored record for the wire, dropping
+// the strip keys (the tech-index withheld fields). A nil doc renders
+// as JSON null.
+func renderQueryRecord(fa *fastjson.Arena, doc *anyenc.Value, strip ...string) json.RawMessage {
+	if doc == nil {
+		return json.RawMessage("null")
+	}
+	v := doc.FastJson(fa)
+	for _, key := range strip {
+		v.Del(key)
+	}
+	return json.RawMessage(v.MarshalTo(nil))
 }

@@ -1539,6 +1539,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "limit":      100,
   "offset":     0,
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
+  "includeDeleted":     false,        // per-object `…/query` only — tombstones too, see below
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
   "projection": { "includeVariants": false, "includeMeta": false }   // NOT IMPLEMENTED
@@ -1563,6 +1564,22 @@ events ships its full anyenc form — `_ver` (creation marker + per-
 field high-water), and `_traces` / `_deletedAt` if present. Clients
 that need a leaner shape strip those fields locally for now. See
 `docs/07-roadmap.md` § "Query `Projection`".
+
+**`includeDeleted`** (per-object `…/query` only) returns the dataset's
+**record-level tombstones** next to the live rows: a deleted record
+comes back as `{id, _deletedAt, _ver, _traces?}` with its content
+wiped — `_deletedAt` is the discriminator, and a filter on a content
+field never matches one. It exists for writers of `id: user` datasets:
+a deleted id is burned forever (`upsert.record_deleted`), so the live
+maximum is not the next free id — `{"includeDeleted": true, "sort":
+["-id"], "limit": 1}` is the probe that finds the highest id ever
+used. With it the snapshot reads through the SDK's find path rather
+than the windowed live view (same filter / sort / limit / offset;
+`total` is the full match count including tombstones). Refused on
+`…/query/subscribe` (`400 request.invalid_field` — the live window
+never carries tombstones) and unknown on `objects/query` (a deleted
+OBJECT is purged, not tombstoned — there is nothing to include; see
+`Objects.Delete` above).
 
 Snapshot response (bare `…/query`):
 
