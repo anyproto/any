@@ -96,7 +96,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .sec li a.active{color:var(--fg);background:var(--bg3)}
 /* article */
 .doc h1{font-family:var(--sans);font-weight:600;font-size:36px;line-height:42px;margin:12px 0 0;letter-spacing:-1px;color:#fff}
-.doc h2{font-family:var(--sans);font-weight:600;font-size:24px;line-height:30px;letter-spacing:-.35px;margin:48px 0 0;padding-bottom:6px;color:#fff}
+.doc h2{font-family:var(--sans);font-weight:600;font-size:26px;line-height:32px;letter-spacing:-.38px;margin:48px 0 0;padding-bottom:6px;color:#fff}
 .doc h3{font-family:var(--sans);font-weight:600;font-size:20px;line-height:26px;margin:32px 0 0;color:var(--fg)}
 .doc h4{font-family:var(--sans);font-weight:600;font-size:17px;line-height:24px;margin:24px 0 0;color:var(--fg2)}
 .doc h2 a,.doc h3 a{color:inherit;border:0}.doc h2 a:hover::after,.doc h3 a:hover::after{content:" #";color:var(--fg3)}
