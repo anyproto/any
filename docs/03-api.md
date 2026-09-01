@@ -2685,12 +2685,58 @@ fileId/objectId → `404 file.not_found`, offload of the only copy →
 The **raw request body is the file** — no JSON envelope, no multipart.
 Metadata rides outside the body:
 
-- `Content-Type` header → stored mime (parameters stripped;
-  `application/octet-stream` or absent = "unset"),
-- `?name=` → stored user-facing name,
+- `Content-Type` header + `?name=` → stored mime, resolved by the
+  **precedence below**. Attach is the only moment a type can be
+  attached, and the `curl -T` / typeless-`Blob` default would otherwise
+  pin the file to octet-stream for every downstream reader (browser
+  tags, model input),
+- `?name=` → stored user-facing name. A name without an extension
+  gains the one the resolved mime implies, **for binary content only**
+  (`?name=pasted` + PNG bytes → `pasted.png`), so a download lands on
+  disk as something the OS can open. Text keeps its name — `Makefile`,
+  `Dockerfile`, `LICENSE` come back unchanged — and an extension the
+  caller supplied is never rewritten ("has an extension" means a short
+  alphanumeric suffix with a letter in it, so `Screenshot at 10.32.11`
+  still gains `.png` and `v2.0` gains `.pdf`),
 - `?variant=` + `?variantOf=` → attach the content as an alternate
   representation (e.g. a thumbnail the client rendered) of an existing
   file **on the same object**. Both or neither.
+
+**Mime precedence** — three signals, strongest first:
+
+1. **The `Content-Type` header**, taken at its word (parameters
+   stripped; a malformed parameter does not void the type before it).
+   Only the tool defaults that cannot be a file's type —
+   `application/octet-stream`, `binary/octet-stream`,
+   `application/unknown`, `application/x-www-form-urlencoded` (what
+   `curl --data-binary` sends) — plus an absent header and an
+   unparseable type mean "the caller didn't say" and fall through.
+   `text/plain` is honoured as text but refined by the name as in
+   step 3: it is what `fetch()` sends for a string body, and it says
+   "text", not which text.
+2. **The content** — magic numbers over the first 3072 bytes. Covers
+   png/jpeg/gif/webp/heic/avif/tiff, pdf, mp4/quicktime/webm,
+   mp3/m4a/flac/ogg, zip/OOXML and more. A binary signature beats the
+   name: a file *named* `.png` whose bytes are a PDF stores
+   `application/pdf`.
+3. **The name's extension, within text.** Text formats carry no
+   signature, only conventions the sniffer guesses at (a markdown
+   README opening with a badge `<p>` matches the HTML tag list; two
+   lines with a comma each match the CSV rule), so for text the name
+   decides: `.txt .md .markdown .csv .tsv .html .htm .css .js .mjs
+   .json .xml .svg .yaml .yml` map to their types whatever the
+   sniffer's sub-verdict. Without a known extension the sniffer's
+   signature-backed text verdicts stand (json, xml, svg, shebang
+   scripts, …) and its heuristic ones (html, csv, tsv) collapse to
+   `text/plain`. Other extensions are not consulted: `main.go` is
+   `text/plain`.
+
+Content that cannot be placed leaves the mime **unset** rather than
+asserting `application/octet-stream`: absent and "unknown" are
+different claims, and the download route already falls back. The body
+still streams — at most the 3072-byte sniff window is buffered, and
+only when the header left the type open (a typed upload is never
+read before the SDK's own checks run).
 
 ```
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
@@ -2720,7 +2766,8 @@ When the broker is unreachable or refuses, attach still succeeds —
 
 `GET /v1/spaces/:spaceId/files/:fileId/content[?variant=]` serves the
 file's verified plaintext as a **regular HTTP resource**: stored mime
-as `Content-Type` (octet-stream fallback — never sniffed),
+as `Content-Type` (octet-stream fallback — sniffing happens at attach,
+never here),
 `Content-Disposition: inline; filename=…` from the stored name,
 `Content-Length`, and full **`Range` / 206** support (the underlying
 reader is seekable). Browser tags work directly:

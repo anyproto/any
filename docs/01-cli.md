@@ -318,7 +318,9 @@ any file cache size | free <bytes> | sweep
 ```
 
 `attach` streams `<path>` (or stdin with `-`) as the raw upload body;
-name defaults to the basename, mime to the extension's type. The
+name defaults to the basename and the mime is resolved by the server
+(content for binary formats, the stored name's extension for text —
+docs/03-api.md § Files; `--mime` overrides). The
 printed `FileInfo` receipt normally shows `durable: false` — backup is
 background work; watch `any file subscribe` for the `inflight →
 durable` flip. `download` writes raw bytes to stdout by default (pipe

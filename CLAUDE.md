@@ -622,8 +622,10 @@ Implementation slices landed:
     fileV2-broker backup (offline-first persistent queue; states
     durable/inflight/limited). Wire (handlers_files.go): `POST
     /v1/spaces/:s/objects/:o/files` — attach, RAW streaming body (the
-    one BodyLimit-exempt route, see routes.go Skipper; Content-Type →
-    mime, `?name=&variant=&variantOf=`); `GET …/files/:fileId/content`
+    one BodyLimit-exempt route, see routes.go Skipper; mime resolved
+    header → content → name's extension for text, `files_mime.go`,
+    03-api.md § Files; `?name=&variant=&variantOf=`, a binary
+    upload's extension-less name gains one); `GET …/files/:fileId/content`
     — download via http.ServeContent (stored mime, Content-Disposition,
     Range/206; CORS AllowHeaders gained `Range`); Get/List/Stats/
     Status + pin/retry/offload (offload of the only copy → 409

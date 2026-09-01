@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"strconv"
@@ -27,11 +28,13 @@ import (
 // fileAttach handles POST /v1/spaces/:spaceId/objects/:objectId/files.
 //
 // The raw request body is the file content, streamed into
-// Files().Attach without buffering. Metadata rides outside the body:
-// `Content-Type` header → mime (parameters stripped;
-// application/octet-stream and empty are treated as "unset"), query
-// params `name`, `variant`+`variantOf` (must be set together; the
-// variant original must live on the same object).
+// Files().Attach — at most the sniff window is buffered, and only when
+// the header leaves the type open. Metadata rides outside the body:
+// the `Content-Type` header and `name` query param feed resolveMime
+// (see there for the precedence), `name` is also the stored name
+// (ensureNameExt fills a missing extension for binary content),
+// `variant`+`variantOf` must be set together and the variant original
+// must live on the same object.
 //
 //	@Summary	Attach a file to an object (raw body upload)
 //	@Tags		files
@@ -58,31 +61,24 @@ func (d *deps) fileAttach(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	name := c.QueryParam("name")
+	var body io.Reader = c.Request().Body
+	mimeType := resolveMime(c.Request().Header.Get(echo.HeaderContentType), name, func() []byte {
+		var head []byte
+		body, head = peekHead(body)
+		return head
+	})
 	opts := space.AttachOpts{
-		Name:      c.QueryParam("name"),
-		Mime:      attachMime(c.Request().Header.Get(echo.HeaderContentType)),
+		Name:      ensureNameExt(name, mimeType),
+		Mime:      mimeType,
 		Variant:   space.Variant(variant),
 		VariantOf: variantOf,
 	}
-	info, err := sp.Files().Attach(c.Request().Context(), objectId, c.Request().Body, opts)
+	info, err := sp.Files().Attach(c.Request().Context(), objectId, body, opts)
 	if err != nil {
 		return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
 	return c.JSON(http.StatusCreated, fileInfoToAPI(info))
-}
-
-// attachMime normalises the upload Content-Type into AttachOpts.Mime:
-// parameters stripped, the octet-stream default (curl -T and fetch
-// without an explicit type) treated as "caller didn't say".
-func attachMime(contentType string) string {
-	if contentType == "" {
-		return ""
-	}
-	mt, _, err := mime.ParseMediaType(contentType)
-	if err != nil || mt == "application/octet-stream" {
-		return ""
-	}
-	return mt
 }
 
 // fileList handles GET /v1/spaces/:spaceId/files.
@@ -151,8 +147,8 @@ func (d *deps) fileGet(c echo.Context) error {
 // fileContent handles GET /v1/spaces/:spaceId/files/:fileId/content.
 //
 // Serves the file's verified plaintext as a regular HTTP resource:
-// Content-Type from the stored mime (octet-stream fallback — never
-// sniffed), Content-Disposition inline with the stored name, and full
+// Content-Type from the stored mime (octet-stream fallback — sniffing
+// happens at attach, never here), Content-Disposition inline with the stored name, and full
 // Range/206 support via http.ServeContent (the SDK reader is
 // seekable). Content not yet local streams in on demand; a download in
 // flight at server shutdown is cut by the drain deadline.

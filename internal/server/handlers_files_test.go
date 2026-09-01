@@ -16,20 +16,19 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-func TestAttachMime(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"", ""},
-		{"application/octet-stream", ""},
-		{"text/plain; charset=utf-8", "text/plain"},
-		{"image/jpeg", "image/jpeg"},
-		{"not a mime", ""},
-	}
-	for _, c := range cases {
-		if got := attachMime(c.in); got != c.want {
-			t.Errorf("attachMime(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
+// Byte prefixes long enough for the sniffer to place them. These are
+// real signatures, not plausible-looking ones — a hand-drawn header
+// that no detector recognises would make the table pass for the wrong
+// reason.
+var (
+	pngBytes  = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 64)...)
+	jpegBytes = append([]byte("\xff\xd8\xff\xe0\x00\x10JFIF\x00"), bytes.Repeat([]byte{0}, 32)...)
+	pdfBytes  = []byte("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	svgBytes  = []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`)
+	heicBytes = append(append([]byte{0, 0, 0, 0x18}, []byte("ftypheic")...), []byte("\x00\x00\x00\x00mif1heic")...)
+	mp3Bytes  = append([]byte{0xff, 0xfb, 0x90, 0x00}, bytes.Repeat([]byte{0}, 128)...)
+	movBytes  = append(append([]byte{0, 0, 0, 0x14}, []byte("ftypqt  ")...), []byte("\x00\x00\x02\x00qt  ")...)
+)
 
 // TestFileErrorMapping pins the SDK sentinel → wire code map
 // (fileError). Sentinels are matched with errors.Is, so wrapped forms
@@ -110,6 +109,41 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 		t.Errorf("inline info = %+v", inlineInfo)
 	}
 
+	// No usable Content-Type (the curl -T / fetch default): the mime is
+	// resolved from the content, so the file does not read back as
+	// octet-stream for every downstream consumer. Attached without a
+	// name extension too, so the stored name gains one.
+	attachSniffed := func(query, contentType string, body []byte) api.FileInfo {
+		t.Helper()
+		rec := doRaw(t, e, http.MethodPost, attachBase+query, contentType, body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("attach %s: %d %s", query, rec.Code, rec.Body.String())
+		}
+		var got api.FileInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return got
+	}
+	pngInfo := attachSniffed("?name=pasted", "application/octet-stream", pngBytes)
+	if pngInfo.Mime != "image/png" || pngInfo.Name != "pasted.png" || pngInfo.Size != int64(len(pngBytes)) {
+		t.Errorf("sniffed info = %+v, want image/png named pasted.png size %d", pngInfo, len(pngBytes))
+	}
+	rec = doRaw(t, e, http.MethodGet, filesBase+"/"+pngInfo.FileId+"/content", "", nil)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !bytes.Equal(rec.Body.Bytes(), pngBytes) {
+		t.Errorf("sniffed content: %d %q len %d", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
+	}
+	// SVG is the case the stdlib sniffer gets actively wrong (text/xml),
+	// which a browser <img> refuses to render — end to end here.
+	svgInfo := attachSniffed("?name=logo.svg", "", svgBytes)
+	if svgInfo.Mime != "image/svg+xml" || svgInfo.Name != "logo.svg" {
+		t.Errorf("svg info = %+v, want image/svg+xml named logo.svg", svgInfo)
+	}
+	rec = doRaw(t, e, http.MethodGet, filesBase+"/"+svgInfo.FileId+"/content", "", nil)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Errorf("svg content: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+
 	// Content-addressed attach (above the 4096 inline cutoff).
 	big := bytes.Repeat([]byte("0123456789abcdef"), 1024) // 16KB
 	rec = doRaw(t, e, http.MethodPost, attachBase+"?name=b.bin", "application/x-bin", big)
@@ -137,13 +171,13 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(list.Files) != 2 {
-		t.Errorf("list = %d files, want 2", len(list.Files))
+	if len(list.Files) != 4 {
+		t.Errorf("list = %d files, want 4", len(list.Files))
 	}
 	var stats api.FileStats
 	rec = doJSON(t, e, http.MethodGet, filesBase+"/stats", "")
-	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil || stats.Total != 2 {
-		t.Errorf("stats = %+v (err %v), want total 2", stats, err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil || stats.Total != 4 {
+		t.Errorf("stats = %+v (err %v), want total 4", stats, err)
 	}
 	var st api.FileStatus
 	rec = doJSON(t, e, http.MethodGet, filesBase+"/"+inlineInfo.FileId+"/status", "")
@@ -193,8 +227,8 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
 		t.Fatalf("decode query: %v", err)
 	}
-	if qr.Total == nil || *qr.Total != 2 {
-		t.Errorf("query total = %v, want 2", qr.Total)
+	if qr.Total == nil || *qr.Total != 4 {
+		t.Errorf("query total = %v, want 4", qr.Total)
 	}
 
 	// No staging fileV2 nodes → the big file is not durable; offload
