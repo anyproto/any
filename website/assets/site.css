@@ -115,7 +115,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc th,.doc td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
 .doc th{font-family:var(--mono);font-size:13px;line-height:20px;background:var(--bg1);color:var(--fg2);font-weight:500;text-transform:lowercase}
 .doc tr:hover td{background:rgba(255,255,255,.015)}
-.doc blockquote{margin:16px 0;padding:0 0 0 16px;border:0;border-left:4px solid var(--line2);border-radius:4px;color:var(--fg2)}
+.doc blockquote{margin:16px 0;padding:6px 0 6px 16px;border:0;border-left:2px solid var(--line2);border-radius:0;color:var(--fg2)}
 .doc blockquote p{margin:4px 0 0}.doc blockquote strong:first-child{color:var(--accent)}
 .doc hr{border:0;border-top:1px dashed var(--line2);margin:32px 0}
 .doc img{max-width:100%}
@@ -129,10 +129,8 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
   padding:4px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2);background:var(--bg1)}
 .doc .pill::before{content:"";flex:0 0 7px;width:7px;height:7px;border-radius:999px;background:var(--accent)}
 .doc .pill.cyan::before{background:var(--cyan)}.doc .pill.amber::before{background:var(--amber)}.doc .pill.magenta::before{background:var(--magenta)}
-/* the node carries exactly two shadows — the 1px accent ring and the drop.
-   --glow bundles a third soft halo, so spell the pair out here. */
-.doc .term{background:var(--bg1);border:1px solid var(--line2);padding:32px 16px 16px;
-  box-shadow:0 0 0 1px rgba(55,122,255,.25),0 20px 60px rgba(0,0,0,.5)}
+/* Home / Terminal is now the same block as Article / Code block — no border,
+   no shadow, 24/16 — so .doc pre already draws it. Only the dim output stays. */
 .doc .term .out{color:var(--fg3)}
 .doc .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:16px;margin:24px 0 0}
 /* Home / Tier and Home / Card are one card style: bg1, line border, radius 12,
@@ -142,7 +140,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc .tier::before{content:attr(data-n);font-family:var(--mono);position:absolute;right:16px;top:4px;font-size:38px;line-height:38px;color:var(--line2);font-weight:700}
 .doc .tier h3{font-family:var(--sans);margin:0;font-size:17px;line-height:24px;color:#fff}
 .doc .tier p{margin:0;color:var(--fg2);font-size:13px;line-height:18px;border:0;padding:0}
-.doc .tier a{font-size:13px;line-height:18px}.doc .tier a::after{content:" →"}
+.doc .tier a{font-size:13px;line-height:18px;color:var(--accent);border-bottom:0}.doc .tier a::after{content:" →"}
 .doc .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(15.5rem,1fr));gap:16px;margin:20px 0 0}
 .doc .cards a{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--line);border-radius:12px;
   background:var(--bg1);color:var(--fg);transition:border-color .15s,transform .15s}
