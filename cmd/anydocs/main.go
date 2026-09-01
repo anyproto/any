@@ -337,7 +337,7 @@ const pageTpl = `<!doctype html>
 {{$cur := .Page.URL}}{{$root := .Root}}
 {{range .Sections}}
   <details class="sec"{{if or (eq $cur (printf "/%s/index.html" .Slug)) (hasPrefix $cur (printf "/%s/" .Slug))}} open{{end}}>
-    <summary><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M7 12L11 8L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.67139L8 10.6714L12 6.67139" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
+    <summary><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
     <ul>
     {{range .Pages}}<li><a href="{{$root}}{{.URL}}"{{if eq .URL $cur}} class="active" aria-current="page"{{end}}>{{if .IsIndex}}Overview{{else}}{{.Title}}{{end}}</a></li>
     {{end}}</ul>
