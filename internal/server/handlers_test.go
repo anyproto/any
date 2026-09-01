@@ -27,7 +27,7 @@ const stagingPath = "../../staging.yml"
 // SDK. Skips the test if the staging nodeconf isn't checked out
 // alongside the repo. Tests that need to trip shutdown mid-handler
 // can call deps.cancelShutdown directly.
-func newTestDeps(t *testing.T) (*deps, func()) {
+func newTestDeps(t testing.TB) (*deps, func()) {
 	return newTestDepsCfg(t, nil)
 }
 
@@ -35,7 +35,7 @@ func newTestDeps(t *testing.T) (*deps, func()) {
 // SDK opens — the way tests opt into config-gated services (e.g.
 // cfg.Push). Mirrors bootEngine's wiring for the services the mutated
 // config enables.
-func newTestDepsCfg(t *testing.T, mutate func(*config.Config)) (*deps, func()) {
+func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	t.Helper()
 	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
 		t.Skipf("staging config not available: %v", err)
@@ -158,7 +158,7 @@ func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objec
 	return spaceId, typeId, objectId
 }
 
-func doJSON(t *testing.T, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
+func doJSON(t testing.TB, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
 	if body == "" {

@@ -121,6 +121,12 @@ type RemovedRecord struct {
 // shape as SubscribeEventOp on the raw stream, so callers can apply
 // atomic updates against a local mirror without re-materialising the
 // whole record.
+//
+// Under a request `projection`, both halves are shaped and Ops can
+// come back EMPTY — every op of the triggering change fell outside the
+// projection, so nothing the caller holds changed. Treat an empty Ops
+// as "no visible change", never as "re-materialise from Doc": Doc is
+// authoritative either way.
 type QuerySubscribeRecord struct {
 	Id  string             `json:"id"`
 	Doc json.RawMessage    `json:"doc"`

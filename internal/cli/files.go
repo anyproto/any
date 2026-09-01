@@ -290,6 +290,7 @@ func newFileQueryCmd() *cobra.Command {
 	var (
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -299,7 +300,7 @@ func newFileQueryCmd() *cobra.Command {
 		Short: "snapshot one object's file payload rows (cleartext fields)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildFilesQueryBody(filter, sort, limit, offset, includeTot)
+			body, err := buildFilesQueryBody(filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -311,7 +312,7 @@ func newFileQueryCmd() *cobra.Command {
 			return printJSON(out)
 		},
 	}
-	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
@@ -319,6 +320,7 @@ func newFileQuerySubscribeCmd() *cobra.Command {
 	var (
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -328,7 +330,7 @@ func newFileQuerySubscribeCmd() *cobra.Command {
 		Short: "live windowed view over one object's file payload rows (SSE)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := buildFilesQueryBody(filter, sort, limit, offset, includeTot)
+			body, err := buildFilesQueryBody(filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -336,14 +338,14 @@ func newFileQuerySubscribeCmd() *cobra.Command {
 			return cl.StreamFilesQuerySubscribe(cmd.Context(), args[0], args[1], body, jsonFrameHandler())
 		},
 	}
-	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
 // buildFilesQueryBody assembles the query body for the files query
 // endpoints — same fields as buildQueryBody minus objectId/dataset
 // (both ride the path here).
-func buildFilesQueryBody(filter, sort string, limit, offset int, includeTotal bool) ([]byte, error) {
+func buildFilesQueryBody(filter, sort, projection string, limit, offset int, includeTotal bool) ([]byte, error) {
 	body := map[string]any{}
 	if filter != "" {
 		var f any
@@ -371,6 +373,9 @@ func buildFilesQueryBody(filter, sort string, limit, offset int, includeTotal bo
 	}
 	if includeTotal {
 		body["includeTotal"] = true
+	}
+	if err := applyProjection(body, projection); err != nil {
+		return nil, err
 	}
 	if len(body) == 0 {
 		return nil, nil

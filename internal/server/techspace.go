@@ -152,7 +152,7 @@ func vetIndexDatasetRead(c echo.Context, root *fastjson.Value, dataset string, p
 	}
 	if len(stripped) > 0 && root != nil && queryTouchesFields(root, stripped) {
 		return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"filter/sort may not reference withheld fields",
+			"filter/sort/projection may not reference withheld fields",
 			map[string]any{"fields": stripped}), true
 	}
 	return stripped, nil, false
@@ -222,6 +222,22 @@ func queryTouchesFields(root *fastjson.Value, fields []string) bool {
 	}
 	for _, e := range root.GetArray("sort") {
 		if e.Type() == fastjson.TypeString && hit(string(e.GetStringBytes())) {
+			return true
+		}
+	}
+	// A projection's keys are field paths too. Naming a withheld field
+	// there would be stripped anyway; refusing keeps one answer for
+	// every way of referencing one, instead of a silent hole in the
+	// records where filter and sort would have said why.
+	if proj := root.Get("projection"); proj != nil && proj.Type() == fastjson.TypeObject {
+		obj, _ := proj.Object()
+		found := false
+		obj.Visit(func(k []byte, _ *fastjson.Value) {
+			if hit(string(k)) {
+				found = true
+			}
+		})
+		if found {
 			return true
 		}
 	}

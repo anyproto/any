@@ -1376,6 +1376,18 @@ components:
           type: integer
         offset:
           type: integer
+        projection:
+          additionalProperties:
+            type: integer
+          description: |-
+            Projection shapes the records that come back — the same
+            mongo-style grammar the dataset query endpoints take (docs/09-
+            query.md § Projection): field paths to 1 (include) or -1
+            (exclude), `id` always present. A local record carries no `_ver`
+            and no delivery counters, so the protocol-field rules there are
+            simply inert here. `$project` inside /v1/local/aggregate is the
+            equivalent for a pipeline.
+          type: object
         sort:
           items:
             type: string
@@ -2195,10 +2207,18 @@ components:
           description: Offset skips past the first N matches of the sorted result.
           type: integer
         projection:
-          additionalProperties: {}
+          additionalProperties:
+            type: integer
           description: |-
-            Projection is accepted but NOT IMPLEMENTED — records always ship
-            their full form. See docs/07-roadmap.md § "Query Projection".
+            Projection shapes the records that come back, mongo-style: a flat
+            object of dotted field paths to 1 (include) or -1 (exclude).
+            `{"any":1,"nav":1}` is include mode — nothing but those subtrees;
+            `{"_ver":-1}` is exclude mode — every user field but that one.
+            Omitted, records ship their full form. Three rules worth knowing:
+            `id` always rides along and cannot be excluded, `_ver` is narrowed
+            to the projection automatically (never name a `_ver` path), and
+            `_addSeq`/`_applySeq` drop unless named. Full grammar and the
+            divergences from mongo: docs/09-query.md § Projection.
           type: object
         sort:
           description: |-
@@ -2291,10 +2311,18 @@ components:
           description: Offset skips past the first N matches of the sorted result.
           type: integer
         projection:
-          additionalProperties: {}
+          additionalProperties:
+            type: integer
           description: |-
-            Projection is accepted but NOT IMPLEMENTED — records always ship
-            their full form. See docs/07-roadmap.md § "Query Projection".
+            Projection shapes the records that come back, mongo-style: a flat
+            object of dotted field paths to 1 (include) or -1 (exclude).
+            `{"any":1,"nav":1}` is include mode — nothing but those subtrees;
+            `{"_ver":-1}` is exclude mode — every user field but that one.
+            Omitted, records ship their full form. Three rules worth knowing:
+            `id` always rides along and cannot be excluded, `_ver` is narrowed
+            to the projection automatically (never name a `_ver` path), and
+            `_addSeq`/`_applySeq` drop unless named. Full grammar and the
+            divergences from mongo: docs/09-query.md § Projection.
           type: object
         sort:
           description: |-
@@ -2356,10 +2384,18 @@ components:
           description: Offset skips past the first N matches of the sorted result.
           type: integer
         projection:
-          additionalProperties: {}
+          additionalProperties:
+            type: integer
           description: |-
-            Projection is accepted but NOT IMPLEMENTED — records always ship
-            their full form. See docs/07-roadmap.md § "Query Projection".
+            Projection shapes the records that come back, mongo-style: a flat
+            object of dotted field paths to 1 (include) or -1 (exclude).
+            `{"any":1,"nav":1}` is include mode — nothing but those subtrees;
+            `{"_ver":-1}` is exclude mode — every user field but that one.
+            Omitted, records ship their full form. Three rules worth knowing:
+            `id` always rides along and cannot be excluded, `_ver` is narrowed
+            to the projection automatically (never name a `_ver` path), and
+            `_addSeq`/`_applySeq` drop unless named. Full grammar and the
+            divergences from mongo: docs/09-query.md § Projection.
           type: object
         sort:
           description: |-

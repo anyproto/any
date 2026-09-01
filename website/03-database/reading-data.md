@@ -52,7 +52,7 @@ Response:
   "hasNext": true }     // with includeTotal
 ```
 
-Records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present; strip what you do not need client-side. `projection` is accepted but not implemented.
+Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "nav": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it.
 
 ## Filter operators
 

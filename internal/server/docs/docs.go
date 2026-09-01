@@ -1805,6 +1805,13 @@ const docTemplate = `{
                     "offset": {
                         "type": "integer"
                     },
+                    "projection": {
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Projection shapes the records that come back — the same\nmongo-style grammar the dataset query endpoints take (docs/09-\nquery.md § Projection): field paths to 1 (include) or -1\n(exclude), ` + "`" + `id` + "`" + ` always present. A local record carries no ` + "`" + `_ver` + "`" + `\nand no delivery counters, so the protocol-field rules there are\nsimply inert here. ` + "`" + `$project` + "`" + ` inside /v1/local/aggregate is the\nequivalent for a pipeline.",
+                        "type": "object"
+                    },
                     "sort": {
                         "items": {
                             "type": "string"
@@ -2887,8 +2894,10 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "projection": {
-                        "additionalProperties": {},
-                        "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Projection shapes the records that come back, mongo-style: a flat\nobject of dotted field paths to 1 (include) or -1 (exclude).\n` + "`" + `{\"any\":1,\"nav\":1}` + "`" + ` is include mode — nothing but those subtrees;\n` + "`" + `{\"_ver\":-1}` + "`" + ` is exclude mode — every user field but that one.\nOmitted, records ship their full form. Three rules worth knowing:\n` + "`" + `id` + "`" + ` always rides along and cannot be excluded, ` + "`" + `_ver` + "`" + ` is narrowed\nto the projection automatically (never name a ` + "`" + `_ver` + "`" + ` path), and\n` + "`" + `_addSeq` + "`" + `/` + "`" + `_applySeq` + "`" + ` drop unless named. Full grammar and the\ndivergences from mongo: docs/09-query.md § Projection.",
                         "type": "object"
                     },
                     "sort": {
@@ -2997,8 +3006,10 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "projection": {
-                        "additionalProperties": {},
-                        "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Projection shapes the records that come back, mongo-style: a flat\nobject of dotted field paths to 1 (include) or -1 (exclude).\n` + "`" + `{\"any\":1,\"nav\":1}` + "`" + ` is include mode — nothing but those subtrees;\n` + "`" + `{\"_ver\":-1}` + "`" + ` is exclude mode — every user field but that one.\nOmitted, records ship their full form. Three rules worth knowing:\n` + "`" + `id` + "`" + ` always rides along and cannot be excluded, ` + "`" + `_ver` + "`" + ` is narrowed\nto the projection automatically (never name a ` + "`" + `_ver` + "`" + ` path), and\n` + "`" + `_addSeq` + "`" + `/` + "`" + `_applySeq` + "`" + ` drop unless named. Full grammar and the\ndivergences from mongo: docs/09-query.md § Projection.",
                         "type": "object"
                     },
                     "sort": {
@@ -3052,8 +3063,10 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "projection": {
-                        "additionalProperties": {},
-                        "description": "Projection is accepted but NOT IMPLEMENTED — records always ship\ntheir full form. See docs/07-roadmap.md § \"Query Projection\".",
+                        "additionalProperties": {
+                            "type": "integer"
+                        },
+                        "description": "Projection shapes the records that come back, mongo-style: a flat\nobject of dotted field paths to 1 (include) or -1 (exclude).\n` + "`" + `{\"any\":1,\"nav\":1}` + "`" + ` is include mode — nothing but those subtrees;\n` + "`" + `{\"_ver\":-1}` + "`" + ` is exclude mode — every user field but that one.\nOmitted, records ship their full form. Three rules worth knowing:\n` + "`" + `id` + "`" + ` always rides along and cannot be excluded, ` + "`" + `_ver` + "`" + ` is narrowed\nto the projection automatically (never name a ` + "`" + `_ver` + "`" + ` path), and\n` + "`" + `_addSeq` + "`" + `/` + "`" + `_applySeq` + "`" + ` drop unless named. Full grammar and the\ndivergences from mongo: docs/09-query.md § Projection.",
                         "type": "object"
                     },
                     "sort": {

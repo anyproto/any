@@ -788,6 +788,11 @@ func (d *deps) localQuery(c echo.Context) error {
 	if errResp, done := checkFilter(c, root); done {
 		return errResp
 	}
+	proj, errResp, done := parseProjection(c, root, true)
+	if done {
+		return errResp
+	}
+	shaper := recordShaper{proj: proj}
 	ctx := c.Request().Context()
 	var filter any
 	if f := root.Get("filter"); f != nil && f.Type() != fastjson.TypeNull {
@@ -831,7 +836,7 @@ func (d *deps) localQuery(c echo.Context) error {
 			_ = iter.Close()
 			return localError(c, err, ref)
 		}
-		records = append(records, json.RawMessage(doc.Value().FastJson(fa).MarshalTo(nil)))
+		records = append(records, json.RawMessage(shaper.record(doc.Value(), fa).MarshalTo(nil)))
 	}
 	if err := errors.Join(iter.Err(), iter.Close()); err != nil {
 		return localError(c, err, ref)

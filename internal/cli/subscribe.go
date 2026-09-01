@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,6 +26,7 @@ func newQuerySubscribeCmd() *cobra.Command {
 		properties bool
 		filter     string
 		sort       string
+		projection string
 		limit      int
 		offset     int
 		includeTot bool
@@ -48,7 +50,7 @@ Frames (one JSON object per line on stdout):
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spaceId := args[0]
 
-			body, err := buildQueryBody(properties, args, dataset, filter, sort, limit, offset, includeTot)
+			body, err := buildQueryBody(properties, args, dataset, filter, sort, projection, limit, offset, includeTot)
 			if err != nil {
 				return err
 			}
@@ -65,7 +67,7 @@ Frames (one JSON object per line on stdout):
 	}
 	cmd.Flags().StringVar(&dataset, "dataset", "", "dataset name (required without --properties)")
 	cmd.Flags().BoolVar(&properties, "properties", false, "subscribe to the per-space objects collection instead of a per-object dataset")
-	addWindowQueryFlags(cmd, &filter, &sort, &limit, &offset, &includeTot)
+	addWindowQueryFlags(cmd, &filter, &sort, &projection, &limit, &offset, &includeTot)
 	return cmd
 }
 
@@ -74,8 +76,10 @@ Frames (one JSON object per line on stdout):
 // the addressing fields). One definition so the flag surface and help
 // text can't drift per command; commands with extra addressing flags
 // (--dataset, --properties) declare those on top.
-func addWindowQueryFlags(cmd *cobra.Command, filter, sort *string, limit, offset *int, includeTot *bool) {
+func addWindowQueryFlags(cmd *cobra.Command, filter, sort, projection *string, limit, offset *int, includeTot *bool) {
 	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
+	cmd.Flags().StringVar(projection, "projection", "",
+		"comma-separated field paths to return, '-' prefix to exclude (e.g. 'any,nav' or '-_ver'); id always rides along and _ver follows the projection")
 	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
 	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
 	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
@@ -102,7 +106,7 @@ func jsonFrameHandler() func(client.SSEFrame) error {
 // buildQueryBody assembles the JSON request body for both query
 // endpoints. objectId / dataset are required for per-object queries;
 // --properties skips both.
-func buildQueryBody(properties bool, args []string, dataset, filter, sort string, limit, offset int, includeTotal bool) ([]byte, error) {
+func buildQueryBody(properties bool, args []string, dataset, filter, sort, projection string, limit, offset int, includeTotal bool) ([]byte, error) {
 	body := map[string]any{}
 	if !properties {
 		if len(args) != 2 {
@@ -141,7 +145,47 @@ func buildQueryBody(properties bool, args []string, dataset, filter, sort string
 	if includeTotal {
 		body["includeTotal"] = true
 	}
+	if err := applyProjection(body, projection); err != nil {
+		return nil, err
+	}
 	return json.Marshal(body)
+}
+
+// applyProjection folds the --projection CSV shorthand into an
+// untyped request body.
+func applyProjection(body map[string]any, spec string) error {
+	proj, err := parseProjectionFlag(spec)
+	if err != nil || proj == nil {
+		return err
+	}
+	body["projection"] = proj
+	return nil
+}
+
+// parseProjectionFlag turns the --projection CSV shorthand into the
+// wire map. `any,nav,-_ver` becomes {"any":1,"nav":1,"_ver":-1} — the
+// '-' prefix is the same exclude marker --sort uses for descending, so
+// the two flags read alike. Returns nil for an empty spec.
+func parseProjectionFlag(spec string) (map[string]int, error) {
+	if spec == "" {
+		return nil, nil
+	}
+	proj := map[string]int{}
+	for _, field := range splitCSV(spec) {
+		// Trim so `--projection 'any, nav'` reads the way it looks; an
+		// untrimmed " nav" is a legal path server-side that matches
+		// nothing, which would silently drop the field.
+		field = strings.TrimSpace(field)
+		mark := 1
+		if strings.HasPrefix(field, "-") {
+			field, mark = strings.TrimSpace(field[1:]), -1
+		}
+		if field == "" {
+			return nil, fmt.Errorf("--projection: empty field path")
+		}
+		proj[field] = mark
+	}
+	return proj, nil
 }
 
 func splitCSV(s string) []string {

@@ -33,7 +33,7 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	q, opts, errResp, done := buildSharedQuery(c, sp)
+	q, opts, shaper, errResp, done := buildSharedQuery(c, sp)
 	if done {
 		return errResp
 	}
@@ -41,7 +41,7 @@ func (d *deps) spaceQueryObjects(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
-	return writeQueryResponse(c, res, opts.IncludeTotal)
+	return writeQueryResponse(c, res, opts.IncludeTotal, shaper)
 }
 
 // spaceQuery handles POST /v1/spaces/:spaceId/query.
@@ -73,7 +73,7 @@ func (d *deps) spaceQuery(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, details)
 	}
-	return writeQueryResponse(c, res, pq.opts.IncludeTotal, pq.strip...)
+	return writeQueryResponse(c, res, pq.opts.IncludeTotal, pq.shaper)
 }
 
 // spaceQueryWithDeleted answers a per-object snapshot that includes
@@ -101,7 +101,7 @@ func (d *deps) spaceQueryWithDeleted(c echo.Context, pq perObjectQuery, details 
 			return sdkOpError(c, err, details)
 		}
 		// Doc is valid only until the next Next — render it now.
-		records = append(records, renderQueryRecord(fa, doc, pq.strip...))
+		records = append(records, renderQueryRecord(fa, doc, pq.shaper))
 	}
 	if err := it.Err(); err != nil {
 		return sdkOpError(c, err, details)
@@ -129,10 +129,11 @@ func (d *deps) spaceQueryWithDeleted(c echo.Context, pq perObjectQuery, details 
 // space-list dataset allowlist); it runs before checkFilter, keeping
 // each builder's historical validation order. buildPerObjectQuery
 // stays separate: its body is required, not optional.
-func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Value) (space.Query, error, bool)) (space.Query, space.QueryOpts, error, bool) {
+func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Value) (space.Query, error, bool)) (space.Query, space.QueryOpts, recordShaper, error, bool) {
+	var none recordShaper
 	body, err := readBody(c)
 	if err != nil {
-		return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
+		return nil, space.QueryOpts{}, none, writeError(c, http.StatusBadRequest, "request.bad_json", "unreadable body", nil), true
 	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
@@ -140,21 +141,25 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 	if len(body) > 0 {
 		root, err = parser.ParseBytes(body)
 		if err != nil {
-			return nil, space.QueryOpts{}, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
+			return nil, space.QueryOpts{}, none, writeError(c, http.StatusBadRequest, "request.bad_json", "invalid JSON body", nil), true
 		}
 	}
 	if errResp, done := checkUnknownFields(c, root, "", fields...); done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	q, errResp, done := base(root)
 	if done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	if errResp, done := checkFilter(c, root); done {
-		return nil, space.QueryOpts{}, errResp, true
+		return nil, space.QueryOpts{}, none, errResp, true
+	}
+	proj, errResp, done := parseProjection(c, root, false)
+	if done {
+		return nil, space.QueryOpts{}, none, errResp, true
 	}
 	q, opts := applyQueryParams(root, q)
-	return q, opts, nil, false
+	return q, opts, recordShaper{proj: proj}, nil, false
 }
 
 // buildSharedQuery parses the request body for the QueryObjects (per-
@@ -163,7 +168,7 @@ func buildBodyQuery(c echo.Context, fields []string, base func(root *fastjson.Va
 // validation failure; the caller returns errResp directly in that
 // case. Shared between the snapshot and subscribe handlers so the body
 // shape stays in lockstep.
-func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, error, bool) {
+func buildSharedQuery(c echo.Context, sp space.Space) (space.Query, space.QueryOpts, recordShaper, error, bool) {
 	return buildBodyQuery(c, queryBodyFields, func(*fastjson.Value) (space.Query, error, bool) {
 		return sp.QueryObjects(), nil, false
 	})
@@ -183,7 +188,9 @@ type perObjectQuery struct {
 	opts     space.QueryOpts
 	objectId string
 	dataset  string
-	strip    []string
+	// shaper carries the caller's projection and the tech-index
+	// blocklist; every record on this path renders through it.
+	shaper recordShaper
 	// offset mirrors the body's offset — the find path computes
 	// hasNext itself, Snapshot does it inside the SDK.
 	offset int
@@ -233,8 +240,15 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 			return none, errResp, true
 		}
 	}
+	proj, errResp, done := parseProjection(c, root, false)
+	if done {
+		return none, errResp, true
+	}
 	q, opts := applyQueryParams(root, sp.Query(objectId, dataset))
-	pq := perObjectQuery{q: q, opts: opts, objectId: objectId, dataset: dataset, strip: strip}
+	pq := perObjectQuery{
+		q: q, opts: opts, objectId: objectId, dataset: dataset,
+		shaper: recordShaper{proj: proj, strip: strip},
+	}
 	if v := root.Get("offset"); v != nil && v.GetInt() > 0 {
 		pq.offset = v.GetInt()
 	}
@@ -248,8 +262,8 @@ func buildPerObjectQuery(c echo.Context, sp space.Space, vet perObjectVet) (perO
 // bodies, derived from the api request structs so the strict
 // unknown-field gate, the swagger spec, and the error messages'
 // accepted-field enumeration are one artifact and cannot drift.
-// applyQueryParams' read set is api.QueryBodyParams (which also
-// carries the accepted-but-ignored `projection` — docs/07-roadmap.md).
+// applyQueryParams' read set is api.QueryBodyParams; `projection` is
+// read separately by parseProjection.
 var (
 	queryBodyFields      = jsonFieldNames(reflect.TypeFor[api.SpaceQueryObjectsRequest]())
 	perObjectQueryFields = jsonFieldNames(reflect.TypeFor[api.SpaceQueryRequest]())
@@ -284,8 +298,8 @@ func checkFilter(c echo.Context, root *fastjson.Value) (error, bool) {
 
 // applyQueryParams reads filter / sort / limit / offset / includeTotal
 // / mailboxCapacity / driftBudgetPercent off root and threads them
-// into the chained query builder. `projection` is accepted but
-// ignored — see docs/07-roadmap.md. MailboxCapacity /
+// into the chained query builder. `projection` is read by
+// parseProjection, not here. MailboxCapacity /
 // DriftBudgetPercent only matter on the Subscribe terminal; Snapshot
 // ignores them.
 func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.QueryOpts) {
@@ -332,14 +346,8 @@ func applyQueryParams(root *fastjson.Value, q space.Query) (space.Query, space.Q
 // happens — we surface the SDK's value verbatim). strip lists top-level
 // record fields withheld from the wire (key material on tech-space
 // rows — see spaceListStrippedFields).
-func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, strip ...string) error {
-	fa := getFastjsonArena()
-	defer putFastjsonArena(fa)
-	records := make([]json.RawMessage, 0, len(res.Initial))
-	for _, doc := range res.Initial {
-		records = append(records, renderQueryRecord(fa, doc, strip...))
-	}
-	out := api.QueryResponse{Records: records}
+func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
+	out := api.QueryResponse{Records: shapeRecords(res.Initial, shaper)}
 	if includeTotal {
 		t := res.Total
 		out.Total = &t
@@ -349,16 +357,25 @@ func writeQueryResponse(c echo.Context, res *space.QueryResult, includeTotal boo
 	return c.JSON(http.StatusOK, out)
 }
 
-// renderQueryRecord renders one stored record for the wire, dropping
-// the strip keys (the tech-index withheld fields). A nil doc renders
-// as JSON null.
-func renderQueryRecord(fa *fastjson.Arena, doc *anyenc.Value, strip ...string) json.RawMessage {
+// shapeRecords renders a materialised window onto the wire — the one
+// implementation shared by the HTTP reply and the SSE snapshot frame,
+// so the two cannot drift apart when the shaping rules change.
+func shapeRecords(docs []*anyenc.Value, shaper recordShaper) []json.RawMessage {
+	fa := getFastjsonArena()
+	defer putFastjsonArena(fa)
+	records := make([]json.RawMessage, 0, len(docs))
+	for _, doc := range docs {
+		records = append(records, renderQueryRecord(fa, doc, shaper))
+	}
+	return records
+}
+
+// renderQueryRecord renders one stored record for the wire through the
+// shaper (the caller's projection, then the tech-index withheld
+// fields). A nil doc renders as JSON null.
+func renderQueryRecord(fa *fastjson.Arena, doc *anyenc.Value, shaper recordShaper) json.RawMessage {
 	if doc == nil {
 		return json.RawMessage("null")
 	}
-	v := doc.FastJson(fa)
-	for _, key := range strip {
-		v.Del(key)
-	}
-	return json.RawMessage(v.MarshalTo(nil))
+	return json.RawMessage(shaper.record(doc, fa).MarshalTo(nil))
 }

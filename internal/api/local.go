@@ -135,6 +135,14 @@ type LocalQueryRequest struct {
 	Limit        int  `json:"limit,omitempty"`
 	Offset       int  `json:"offset,omitempty"`
 	IncludeTotal bool `json:"includeTotal,omitempty"`
+	// Projection shapes the records that come back — the same
+	// mongo-style grammar the dataset query endpoints take (docs/09-
+	// query.md § Projection): field paths to 1 (include) or -1
+	// (exclude), `id` always present. A local record carries no `_ver`
+	// and no delivery counters, so the protocol-field rules there are
+	// simply inert here. `$project` inside /v1/local/aggregate is the
+	// equivalent for a pipeline.
+	Projection map[string]int `json:"projection,omitempty"`
 }
 
 // LocalAggregateRequest is the body of POST /v1/local/aggregate. The
