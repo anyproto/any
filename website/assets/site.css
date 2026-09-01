@@ -152,7 +152,9 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc .cards a strong{display:flex;gap:4px;font-family:var(--sans);font-weight:500;font-size:15px;
   line-height:24px;color:#fff}
 .doc .cards a strong .num{flex:0 0 auto;color:inherit}
-.doc .cards a span{color:var(--fg2);font-size:13px;line-height:18px}
+/* direct child only — the ordinal is a span too, nested in <strong>, and this
+   rule was dragging it down to 13/18 while the title stayed 15/24 */
+.doc .cards a>span{color:var(--fg2);font-size:13px;line-height:18px}
 .doc .ascii{font-family:var(--mono);color:var(--fg2);font-size:12px;line-height:18px}
 /* pager + footer */
 .pager{display:flex;justify-content:space-between;gap:16px;margin:48px 0 16px}
