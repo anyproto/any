@@ -126,7 +126,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc .hero p{font-size:15px;line-height:24px;color:var(--fg2);max-width:50rem;border:0;padding:0}
 .doc .pills{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 20px}
 .doc .pill{font-family:var(--mono);display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:18px;
-  padding:4px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2);background:var(--bg1)}
+  padding:4px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2);background:none}
 .doc .pill::before{content:"";flex:0 0 7px;width:7px;height:7px;border-radius:999px;background:var(--accent)}
 .doc .pill.cyan::before{background:var(--cyan)}.doc .pill.amber::before{background:var(--amber)}.doc .pill.magenta::before{background:var(--magenta)}
 /* Home / Terminal is now the same block as Article / Code block — no border,
