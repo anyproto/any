@@ -135,7 +135,7 @@ POST   /v1/local/upsert               {coll, docs}          → {ids}
 POST   /v1/local/update               {coll, id, modifier, upsert?} → {modified, record}
 POST   /v1/local/delete               {coll, ids | filter}  → {deleted}
 POST   /v1/local/get                  {coll, id}            → {record}
-POST   /v1/local/query                {coll, filter?, sort?, limit?, offset?, includeTotal?} → {records, total?, hasNext?}
+POST   /v1/local/query                {coll, filter?, sort?, limit?, offset?, includeTotal?, projection?} → {records, total?, hasNext?}
 POST   /v1/local/aggregate            {coll, pipeline, …limits, explain?} → {records} | {plan} | {written}
 POST   /v1/local/indexes              {coll, ensure?, drop?} → {indexes}
 ```
@@ -145,6 +145,13 @@ shapes `/query` and `/aggregate` accept (docs/09-query.md,
 docs/14-aggregation.md); the stage vocabulary is whatever
 `/v1/local/meta` reports — it includes `$facet`, `$lookup`, `$merge`,
 `$out`, `$set`.
+
+`projection` is the same grammar too (docs/09-query.md § Projection):
+field paths to `1` / `-1`, `id` always present. The protocol-field
+rules there are inert here — a local record has no `_ver` and no
+delivery counters, so a projection only ever narrows the fields the
+caller stored. Use `$project` inside `/aggregate` for the pipeline
+equivalent. There is no subscribe to shape.
 
 ### Aggregation sinks
 

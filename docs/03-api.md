@@ -3058,7 +3058,7 @@ when `local.enabled: false`.
 | POST   | `/v1/local/update`       | `{coll, id, modifier, upsert?}` → `{modified, record}` — mongo-style `$set`/`$unset`/`$inc`… |
 | POST   | `/v1/local/delete`       | `{coll, ids: [..]}` or `{coll, filter}` → `{deleted}` |
 | POST   | `/v1/local/get`          | `{coll, id}` → `{record}` |
-| POST   | `/v1/local/query`        | `{coll, filter?, sort?, limit?, offset?, includeTotal?}` → `{records, total?, hasNext?}` |
+| POST   | `/v1/local/query`        | `{coll, filter?, sort?, limit?, offset?, includeTotal?, projection?}` → `{records, total?, hasNext?}` |
 | POST   | `/v1/local/aggregate`    | `{coll, pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` → `{records}` \| `{plan}` \| `{written}` |
 | POST   | `/v1/local/indexes`      | `{coll, ensure?: [{name?, fields, unique?, sparse?}], drop?: [name]}` → `{indexes}` |
 

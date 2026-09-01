@@ -311,7 +311,7 @@ func newLocalGetCmd() *cobra.Command {
 }
 
 func newLocalQueryCmd() *cobra.Command {
-	var spaceId, filter string
+	var spaceId, filter, projection string
 	var sort []string
 	var limit, offset int
 	var total bool
@@ -328,6 +328,11 @@ func newLocalQueryCmd() *cobra.Command {
 					return fmt.Errorf("--filter: %w", err)
 				}
 			}
+			proj, err := parseProjectionFlag(projection)
+			if err != nil {
+				return err
+			}
+			req.Projection = proj
 			out, err := client.New(flags.Addr, flags.Timeout).LocalQuery(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -341,6 +346,8 @@ func newLocalQueryCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "page size (server default 100, cap 1000)")
 	cmd.Flags().IntVar(&offset, "offset", 0, "skip the first N matches")
 	cmd.Flags().BoolVar(&total, "total", false, "include the unbounded match count + hasNext")
+	cmd.Flags().StringVar(&projection, "projection", "",
+		"comma-separated field paths to return, '-' prefix to exclude (e.g. 'title,at' or '-body'); id always rides along")
 	return cmd
 }
 

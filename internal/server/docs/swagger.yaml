@@ -1359,6 +1359,18 @@ components:
           type: integer
         offset:
           type: integer
+        projection:
+          additionalProperties:
+            type: integer
+          description: |-
+            Projection shapes the records that come back — the same
+            mongo-style grammar the dataset query endpoints take (docs/09-
+            query.md § Projection): field paths to 1 (include) or -1
+            (exclude), `id` always present. A local record carries no `_ver`
+            and no delivery counters, so the protocol-field rules there are
+            simply inert here. `$project` inside /v1/local/aggregate is the
+            equivalent for a pipeline.
+          type: object
         sort:
           items:
             type: string

@@ -543,7 +543,7 @@ any local upsert NAME [--space ID] --doc JSON         # POST   /v1/local/upsert
 any local update NAME ID [--space ID] --modifier JSON [--upsert]        # POST /v1/local/update
 any local delete NAME [ID...] [--space ID] [--filter JSON] --yes        # POST /v1/local/delete
 any local get NAME ID [--space ID]                                      # POST /v1/local/get
-any local query NAME [--space ID] [--filter JSON] [--sort a,-b] [--limit N] [--offset N] [--total]   # POST /v1/local/query
+any local query NAME [--space ID] [--filter JSON] [--sort a,-b] [--limit N] [--offset N] [--total] [--projection ...]   # POST /v1/local/query
 any local aggregate NAME [--space ID] --pipeline JSON [--group-limit N] [--accum-limit N] [--memory-limit N] [--explain]
 any local indexes NAME [--space ID] [--ensure a,-b]... [--unique-ensure k]... [--drop NAME]...       # POST /v1/local/indexes
 ```

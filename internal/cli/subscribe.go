@@ -151,13 +151,24 @@ func buildQueryBody(properties bool, args []string, dataset, filter, sort, proje
 	return json.Marshal(body)
 }
 
-// applyProjection folds the --projection CSV shorthand into a request
-// body. `any,nav,-_ver` becomes {"any":1,"nav":1,"_ver":-1} — the
-// '-' prefix is the same exclude marker --sort uses for descending, so
-// the two flags read alike.
+// applyProjection folds the --projection CSV shorthand into an
+// untyped request body.
 func applyProjection(body map[string]any, spec string) error {
+	proj, err := parseProjectionFlag(spec)
+	if err != nil || proj == nil {
+		return err
+	}
+	body["projection"] = proj
+	return nil
+}
+
+// parseProjectionFlag turns the --projection CSV shorthand into the
+// wire map. `any,nav,-_ver` becomes {"any":1,"nav":1,"_ver":-1} — the
+// '-' prefix is the same exclude marker --sort uses for descending, so
+// the two flags read alike. Returns nil for an empty spec.
+func parseProjectionFlag(spec string) (map[string]int, error) {
 	if spec == "" {
-		return nil
+		return nil, nil
 	}
 	proj := map[string]int{}
 	for _, field := range splitCSV(spec) {
@@ -170,12 +181,11 @@ func applyProjection(body map[string]any, spec string) error {
 			field, mark = strings.TrimSpace(field[1:]), -1
 		}
 		if field == "" {
-			return fmt.Errorf("--projection: empty field path")
+			return nil, fmt.Errorf("--projection: empty field path")
 		}
 		proj[field] = mark
 	}
-	body["projection"] = proj
-	return nil
+	return proj, nil
 }
 
 func splitCSV(s string) []string {

@@ -1329,7 +1329,10 @@ Implementation slices landed:
     windowed query/subscribe body (`/objects/query[/subscribe]`,
     `/query[/subscribe]`, `/spaces/query[/subscribe]`, `/devices/…`,
     `/objects/:o/files/query[/subscribe]` — one shared builder, so they
-    move together). Grammar is mongo's: a flat object of dotted field
+    move together, plus `/v1/local/query` for API alignment: the
+    protocol-field rules are inert there since a local record has no
+    `_ver` and no delivery counters, and `$project` inside
+    `/v1/local/aggregate` is the pipeline equivalent). Grammar is mongo's: a flat object of dotted field
     paths to `1` / `-1`, mode inferred (`{"any":1}` include,
     `{"_ver":-1}` exclude), deepest mark wins so `{"nav":1,"nav.pos":-1}`
     is a subtree minus a leaf. **Zero SDK work**: any-store has no
