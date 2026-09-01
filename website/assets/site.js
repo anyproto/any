@@ -1,4 +1,21 @@
 (function(){
+  var find=document.getElementById('find'),box=document.getElementById('search'),
+      esc=document.getElementById('esc'),q=document.getElementById('q'),res=document.getElementById('results');
+  if(!find||!box||!q)return;
+  function open(){box.hidden=false;q.focus();q.select()}
+  function close(){box.hidden=true;if(res)res.hidden=true;q.blur()}
+  find.addEventListener('click',open);
+  if(esc)esc.addEventListener('click',close);
+  document.addEventListener('keydown',function(e){
+    if(e.key==='/'&&document.activeElement!==q){e.preventDefault();open()}
+    if(e.key==='Escape'&&!box.hidden){close()}
+  });
+  document.addEventListener('click',function(e){
+    if(box.hidden)return;
+    if(!e.target.closest('#search')&&!e.target.closest('#find'))close();
+  });
+})();
+(function(){
   var btn=document.getElementById('mode');if(!btn)return;
   btn.onclick=function(){
     var cur=document.documentElement.dataset.theme;

@@ -327,35 +327,46 @@ const pageTpl = `<!doctype html>
 <link rel="icon" href="{{.Root}}/assets/favicon.svg">
 </head>
 <body>
-<header class="top">
-  <button class="menu" id="menu" aria-label="Menu">☰</button>
-  <a class="brand" href="{{.Root}}/index.html"><span class="mark"><svg class="logo" viewBox="0 0 57 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 2.4H4.01408V12H0V2.4ZM2.00704 0H14.0493V2.4H2.00704V0ZM4.01408 7.2H8.02817V9.6H4.01408V7.2ZM20.0704 0H24.0845V12H20.0704V0ZM40.9437 0H44.9577V4.8H40.9437V0ZM24.0845 2.4H26.493V4.8H24.0845V2.4ZM25.2887 4.8H27.6972V7.2H25.2887V4.8ZM42.9507 4.8H54.993V7.2H42.9507V4.8ZM26.493 7.2H28.9014V9.6H26.493V7.2ZM28.9014 0H36.9296V12H28.9014V0ZM48.9718 0H57V4.8H48.9718V0ZM44.9577 7.2H52.9859V12H44.9577V7.2ZM8.02817 2.4H16.0563V12H8.02817V2.4Z"/></svg><i class="cursor" aria-hidden="true"></i></span><span class="tag">docs</span></a>
-  <div class="search"><svg class="search-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><div id="results" class="results" hidden></div></div>
-  <nav class="links"><a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a></nav>
-</header>
 <div class="shell">
 <aside class="side" id="side">
+  <div class="side-head">
+    <a class="brand" href="{{.Root}}/index.html"><span class="mark"><svg class="logo" viewBox="0 0 57 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 2.4H4.01408V12H0V2.4ZM2.00704 0H14.0493V2.4H2.00704V0ZM4.01408 7.2H8.02817V9.6H4.01408V7.2ZM20.0704 0H24.0845V12H20.0704V0ZM40.9437 0H44.9577V4.8H40.9437V0ZM24.0845 2.4H26.493V4.8H24.0845V2.4ZM25.2887 4.8H27.6972V7.2H25.2887V4.8ZM42.9507 4.8H54.993V7.2H42.9507V4.8ZM26.493 7.2H28.9014V9.6H26.493V7.2ZM28.9014 0H36.9296V12H28.9014V0ZM48.9718 0H57V4.8H48.9718V0ZM44.9577 7.2H52.9859V12H44.9577V7.2ZM8.02817 2.4H16.0563V12H8.02817V2.4Z"/></svg><i class="cursor" aria-hidden="true"></i></span><span class="tag">docs</span></a>
+    <button class="find" id="find" aria-label="Search docs"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg></button>
+  </div>
+  <nav class="side-nav">
 {{$cur := .Page.URL}}{{$root := .Root}}
 {{range .Sections}}
   <details class="sec"{{if or (eq $cur (printf "/%s/index.html" .Slug)) (hasPrefix $cur (printf "/%s/" .Slug))}} open{{end}}>
-    <summary>{{.Title}}</summary>
+    <summary><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M7 12L11 8L7 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.67139L8 10.6714L12 6.67139" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
     <ul>
     {{range .Pages}}<li><a href="{{$root}}{{.URL}}"{{if eq .URL $cur}} class="active" aria-current="page"{{end}}>{{if .IsIndex}}Overview{{else}}{{.Title}}{{end}}</a></li>
     {{end}}</ul>
   </details>
 {{end}}
+  </nav>
+  <div class="side-foot">
+    <a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a>
+  </div>
 </aside>
+<div class="content">
+<div class="bar">
+  <button class="menu" id="menu" aria-label="Menu">☰</button>
+  <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{.Page.Title}}</p>
+  <div class="search" id="search" hidden><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><button class="esc" id="esc" aria-label="Close search">esc</button><div id="results" class="results" hidden></div></div>
+</div>
 <main class="main">
   <article class="doc">
-    {{if .Page.Section}}<p class="crumb">{{.Page.Section.Title}}</p>{{end}}
     {{.Page.Body}}
   </article>
   <nav class="pager">
     {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{else}}<span></span>{{end}}
     {{if .Page.Next}}<a class="next" href="{{.Root}}{{.Page.Next.URL}}"><small>Next</small><span>{{.Page.Next.Title}}</span></a>{{end}}
   </nav>
-  <footer class="foot"><a href="https://github.com/anyproto/any/edit/main/website/{{.Page.Src}}">Edit this page on GitHub</a> · <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></footer>
+  <footer class="foot">
+    <p class="meta"><a href="https://github.com/anyproto/any/edit/main/website/{{.Page.Src}}">Edit this page on GitHub</a> · <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></p>
+  </footer>
 </main>
+</div>
 </div>
 <script>window.__root={{.Root}};</script>
 <script src="{{.Root}}/assets/site.js"></script>
