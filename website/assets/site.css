@@ -100,9 +100,11 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc h3{font-family:var(--sans);font-weight:600;font-size:20px;line-height:26px;margin:32px 0 0;color:var(--fg)}
 .doc h4{font-family:var(--sans);font-weight:600;font-size:17px;line-height:24px;margin:24px 0 0;color:var(--fg2)}
 .doc h2 a,.doc h3 a{color:inherit;border:0}.doc h2 a:hover::after,.doc h3 a:hover::after{content:" #";color:var(--fg3)}
-.doc p,.doc ul,.doc ol{margin:16px 0 0}.doc li{margin:4px 0 0}.doc ul ul{margin:4px 0 0}
-.doc ul{padding-left:24px;list-style:none}.doc ul>li::before{content:"–";color:var(--fg3);display:inline-block;width:16px;margin-left:-16px}
-.doc ol{padding-left:24px}.doc ol li::marker{color:var(--accent)}
+.doc p,.doc ul,.doc ol{margin:16px 0 0}.doc li{margin:8px 0 0}.doc ul ul{margin:8px 0 0}
+/* the dash hangs into the body column — marker at 0, item text at 16 — so the
+   left edge of the page stays one line. 24 put it at 8, aligned to nothing. */
+.doc ul{padding-left:20px;list-style:none}.doc ul>li::before{content:"–";color:var(--fg3);display:inline-block;width:20px;margin-left:-20px}
+.doc ol{padding-left:20px}.doc ol li::marker{color:var(--accent)}
 .doc>p:first-of-type{color:var(--fg2);font-size:15px;line-height:24px}
 .doc strong{color:#fff}
 .doc code{font-family:var(--mono);font-size:13px;background:var(--bg3);padding:2px 4px;border-radius:4px;color:var(--amber);border:1px solid var(--line)}
