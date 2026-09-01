@@ -11,6 +11,7 @@ require (
 	github.com/anyproto/lexid v0.0.6
 	github.com/cheggaaa/mb/v3 v3.0.3
 	github.com/ebitengine/purego v0.10.2
+	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/gofrs/flock v0.13.1
 	github.com/hybridgroup/yzma v1.25.0
 	github.com/labstack/echo/v4 v4.13.4

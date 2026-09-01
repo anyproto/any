@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"path/filepath"
 
@@ -54,7 +53,8 @@ func newFileAttachCmd() *cobra.Command {
 		Short: "upload a file and bind it to an object (path - reads stdin)",
 		Long: `Uploads the file at <path> (or stdin with -) as the raw request body of
 POST /v1/spaces/:spaceId/objects/:objectId/files. Name defaults to the
-file's basename, mime to the extension's type; both can be overridden.
+file's basename; the mime is left to the server, which resolves it from
+the content (and the name's extension) unless --mime overrides it.
 Prints the FileInfo receipt — durable:false right after attach is
 normal, backup runs in the background (watch with 'any file subscribe').`,
 		Args: cobra.ExactArgs(3),
@@ -73,9 +73,6 @@ normal, backup runs in the background (watch with 'any file subscribe').`,
 				if name == "" {
 					name = filepath.Base(path)
 				}
-				if mimeType == "" {
-					mimeType = mime.TypeByExtension(filepath.Ext(path))
-				}
 			}
 			cl := client.New(flags.Addr, 0) // uploads must not hit the request timeout
 			out, err := cl.FileAttach(cmd.Context(), args[0], args[1], in, client.FileAttachOpts{
@@ -91,7 +88,7 @@ normal, backup runs in the background (watch with 'any file subscribe').`,
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "user-facing file name (default: basename of <path>)")
-	cmd.Flags().StringVar(&mimeType, "mime", "", "content type (default: from the file extension)")
+	cmd.Flags().StringVar(&mimeType, "mime", "", "content type (default: resolved by the server from the content)")
 	cmd.Flags().StringVar(&variant, "variant", "", "attach as this variant of an existing file (requires --variant-of)")
 	cmd.Flags().StringVar(&variantOf, "variant-of", "", "fileId of the original this variant belongs to")
 	return cmd

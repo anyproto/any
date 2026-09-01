@@ -2668,19 +2668,39 @@ fileId/objectId → `404 file.not_found`, offload of the only copy →
 The **raw request body is the file** — no JSON envelope, no multipart.
 Metadata rides outside the body:
 
-- `Content-Type` header → stored mime (parameters stripped;
-  `application/octet-stream` or absent = "unset", in which case the
-  mime is **sniffed from the first 512 bytes** via Go's
-  `http.DetectContentType` — png/jpeg/gif/webp/pdf/text/… — and an
-  unrecognised signature stays unset). The upload is the only moment a
-  type can be attached, and the `curl -T` / `fetch` default would
-  otherwise pin the file to octet-stream for every downstream reader
-  (browser tags, model input). An explicit header always wins over the
-  sniff,
-- `?name=` → stored user-facing name,
+- `Content-Type` header + `?name=` → stored mime, resolved by the
+  **precedence below**. Attach is the only moment a type can be
+  attached, and the `curl -T` / typeless-`Blob` default would otherwise
+  pin the file to octet-stream for every downstream reader (browser
+  tags, model input),
+- `?name=` → stored user-facing name. An extension-less name gains the
+  one the resolved mime implies (`?name=pasted` + PNG bytes →
+  `pasted.png`), so a download lands on disk as something the OS can
+  open. An extension the caller supplied is never rewritten,
 - `?variant=` + `?variantOf=` → attach the content as an alternate
   representation (e.g. a thumbnail the client rendered) of an existing
   file **on the same object**. Both or neither.
+
+**Mime precedence** — three signals, strongest first:
+
+1. **The `Content-Type` header**, taken at its word (parameters
+   stripped). Only `application/octet-stream`, `binary/octet-stream`,
+   `application/unknown`, an absent header and an unparseable one mean
+   "the caller didn't say" and fall through.
+2. **The content** — magic numbers over the first 3072 bytes. Covers
+   png/jpeg/gif/webp/svg/heic/avif/tiff, pdf, mp4/quicktime/webm,
+   mp3/m4a/flac/ogg, zip/OOXML, json/csv and more. Content beats the
+   name: a file *named* `.png` whose bytes are a PDF stores
+   `application/pdf`.
+3. **The name's extension**, but *only* to refine a generic
+   `text/plain` — markdown, CSV and TSV are plain UTF-8, so no
+   signature can separate them from prose. It can never override a
+   type the content established.
+
+Content that cannot be placed leaves the mime **unset** rather than
+asserting `application/octet-stream`: absent and "unknown" are
+different claims, and the download route already falls back. The body
+still streams — only the 3072-byte sniff window is buffered.
 
 ```
 curl -X POST -T photo.jpg -H 'Content-Type: image/jpeg' \
