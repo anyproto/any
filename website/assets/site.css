@@ -128,7 +128,10 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc .pill{font-family:var(--mono);display:inline-block;font-size:12px;line-height:18px;padding:2px 10px;border-radius:999px;border:1px solid var(--line2);color:var(--fg2);background:var(--bg1)}
 .doc .pill::before{content:"● ";color:var(--accent);font-size:.6rem;vertical-align:middle}
 .doc .pill.cyan::before{color:var(--cyan)}.doc .pill.amber::before{color:var(--amber)}.doc .pill.magenta::before{color:var(--magenta)}
-.doc .term{background:var(--bg1);border:1px solid var(--line2);padding:32px 16px 16px;box-shadow:var(--glow),0 20px 60px rgba(0,0,0,.5)}
+/* the node carries exactly two shadows — the 1px accent ring and the drop.
+   --glow bundles a third soft halo, so spell the pair out here. */
+.doc .term{background:var(--bg1);border:1px solid var(--line2);padding:32px 16px 16px;
+  box-shadow:0 0 0 1px rgba(55,122,255,.25),0 20px 60px rgba(0,0,0,.5)}
 .doc .term .out{color:var(--fg3)}
 .doc .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:16px;margin:24px 0 0}
 .doc .tier{padding:16px 20px;border:1px solid var(--line2);border-radius:var(--r);background:var(--bg1);position:relative;overflow:hidden}
