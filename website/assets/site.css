@@ -11,7 +11,7 @@
 @font-face{font-family:"Iosevka Comfy";src:url(comfy-bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
 @font-face{font-family:"Iosevka Comfy";src:url(comfy-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
 :root{
-  --bg:#0f0f0f;--panel:#060606;--bg1:#1a1a1a;--bg2:#060606;--bg3:rgba(255,255,255,.05);
+  --bg:#0f0f0f;--panel:#060606;--bg1:#161616;--bg2:#060606;--bg3:rgba(255,255,255,.05);
   --surface-hover:rgba(255,255,255,.05);--line:#252525;--line2:#2e2e2e;
   --fg:#e5e5e5;--fg2:#a6a6a6;--fg3:#808080;
   /* brand accent — DS 2.0 Semantic (dark): accent/default → brand/100, hover → brand/90, subtle → brand/185 */
@@ -150,7 +150,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
    in a fixed column, and lowercase. Page titles keep their capitals. */
 .doc .cards a strong{display:flex;gap:4px;font-family:var(--sans);font-weight:500;font-size:15px;
   line-height:24px;color:#fff;text-transform:lowercase}
-.doc .cards a strong .num{flex:0 0 24px;color:var(--fg3);font-variant-numeric:tabular-nums}
+.doc .cards a strong .num{flex:0 0 auto;color:inherit}
 .doc .cards a span{color:var(--fg2);font-size:13px;line-height:18px}
 .doc .ascii{font-family:var(--mono);color:var(--fg2);font-size:12px;line-height:18px}
 /* pager + footer */
