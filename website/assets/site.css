@@ -115,8 +115,8 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc th,.doc td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
 .doc th{font-family:var(--mono);font-size:13px;line-height:20px;background:var(--bg1);color:var(--fg2);font-weight:500;text-transform:lowercase}
 .doc tr:hover td{background:rgba(255,255,255,.015)}
-.doc blockquote{margin:16px 0;padding:6px 0 6px 16px;border:0;border-left:2px solid var(--line2);border-radius:0;color:var(--fg2)}
-.doc blockquote p{margin:4px 0 0}.doc blockquote strong:first-child{color:var(--accent)}
+.doc blockquote{margin:16px 0;padding:4px 0 4px 16px;border:0;border-left:2px solid var(--line2);border-radius:0;color:var(--fg2)}
+.doc blockquote p{margin:4px 0 0}.doc blockquote strong:first-child{color:var(--fg);font-weight:600}
 .doc hr{border:0;border-top:1px dashed var(--line2);margin:32px 0}
 .doc img{max-width:100%}
 .doc kbd{font-family:var(--mono);font-size:12px;line-height:18px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:1px 6px;background:var(--bg2)}
