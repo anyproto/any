@@ -19,7 +19,7 @@
   --glow:0 0 0 1px rgba(55,122,255,.25),0 0 24px rgba(55,122,255,.08);
   /* DS 2.0 dark spectrum — color/spectrum/on-bg/*, the ramp built for coloured text on dark */
   --cyan:#76e1ff;--amber:#ffcd6b;--magenta:#db8cf6;--red:#ff9b8c;--code-fg:#c8c8c8;--code-k:#9cb2ff;
-  --measure:768px;--side:304px;--r:6px;
+  --measure:752px;--side:304px;--r:6px;
   --mono:"Iosevka Comfy",ui-monospace,Menlo,Consolas,monospace;
   --sans:Inter,"Inter Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
