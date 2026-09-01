@@ -137,8 +137,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
    padding 16 — and differ only in heading and rhythm: the tier stacks three lines
    6 apart under an H4, the card two lines 2 apart under Body/Large +. */
 .doc .tier{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--line);border-radius:12px;
-  background:var(--bg1);position:relative;overflow:hidden}
-.doc .tier::before{content:attr(data-n);font-family:var(--mono);position:absolute;right:16px;top:4px;font-size:38px;line-height:38px;color:var(--line2);font-weight:700}
+  background:var(--bg1)}
 .doc .tier h3{font-family:var(--sans);margin:0;font-size:17px;line-height:24px;color:#fff}
 .doc .tier p{margin:0;color:var(--fg2);font-size:13px;line-height:18px;border:0;padding:0}
 .doc .tier a{font-size:13px;line-height:18px;color:var(--accent);border-bottom:0}.doc .tier a::after{content:" →"}

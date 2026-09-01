@@ -27,9 +27,9 @@ event: snapshot   {"records":[{"id":"…","any.name":"hello"}],"total":1}
 event: changes    …live from here, from every device you own</span></code></pre>
 
 <div class="tiers">
-<div class="tier" data-n="01"><h3>database</h3><p>Spaces of objects and datasets, typed properties, Mongo-style filters, aggregation pipelines, version history — every byte CRDT-merged and encrypted.</p><a href="database/index.html">Database</a></div>
-<div class="tier" data-n="02"><h3>sync &amp; realtime</h3><p>Windowed live queries over SSE, head-sync with peers, sync status, an ephemeral event bus, end-to-end encrypted push.</p><a href="realtime/index.html">Realtime</a></div>
-<div class="tier" data-n="03"><h3>runtime</h3><p>Python programs in a wasm cage with a recorded effect boundary; cron / once / event triggers pinned to a device; the bao agent.</p><a href="programs/index.html">Programs</a></div>
+<div class="tier"><h3>Database</h3><p>Spaces of objects and datasets, typed properties, Mongo-style filters, aggregation pipelines, version history — every byte CRDT-merged and encrypted.</p><a href="database/index.html">Learn more</a></div>
+<div class="tier"><h3>Sync &amp; realtime</h3><p>Windowed live queries over SSE, head-sync with peers, sync status, an ephemeral event bus, end-to-end encrypted push.</p><a href="realtime/index.html">Learn more</a></div>
+<div class="tier"><h3>Runtime</h3><p>Python programs in a wasm cage with a recorded effect boundary; cron / once / event triggers pinned to a device; the bao agent.</p><a href="programs/index.html">Learn more</a></div>
 </div>
 
 ## Everything
