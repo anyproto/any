@@ -147,6 +147,12 @@ is snapshot-only (`400 request.invalid_field` on `/subscribe`) and
 per-object only (`400 request.unknown_field` on `objects/query` — a
 deleted object is purged wholesale, there is no tombstone row).
 
+Live streams never carry a tombstone row: on `/subscribe` a deletion
+of either kind is `removed: [{id, reason: "deleted"}]`
+(`docs/04-events.md` § 6). Snapshot-with-tombstones and the stream's
+removal signal are the two halves of one split — the stream says
+*what just went away*, the snapshot says *which ids were ever used*.
+
 ## Sort
 
 `sort` is an array of dotted field paths; prefix with `-` for descending.
