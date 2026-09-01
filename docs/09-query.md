@@ -29,6 +29,7 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
   "limit":    50,
   "offset":   0,
   "includeTotal": false,      // see the caveat below
+  "includeDeleted": false,    // per-object snapshot only — see § Tombstones
   "projection": { "any": 1, "nav": 1 }
 }
 ```
@@ -236,6 +237,43 @@ whole supported set (`details.operator` carries the token you sent).
    so with `limit:50` you get `total ≤ 50`. For an exact total, query without a
    limit (full scan) — or omit `includeTotal` and don't rely on it. (SDK gap to
    fix.)
+
+## Tombstones
+
+A deleted record leaves a **tombstone**: the id is burned (re-upserting
+it answers `upsert.record_deleted`), the content is wiped, and the row
+keeps `id`, `_deletedAt`, `_ver`. Every read skips tombstones by
+default — `/query`, `/subscribe`, `/aggregate` alike.
+
+The per-object snapshot takes `"includeDeleted": true` to return them
+next to the live rows, `_deletedAt` telling the two apart. The use
+case is a writer that assigns its own record ids from a sequence
+(`id: user` datasets, docs/03-api.md § Runtime dataset schemas): the
+live maximum is not the next free id once anything was deleted, so
+the probe is
+
+```json
+{"objectId": "<log>", "dataset": "agent_turns",
+ "includeDeleted": true, "sort": ["-id"], "limit": 1}
+```
+
+— one primary-key read, the answer's `id` is the highest ever used.
+Sort on `id`, not on a content field: a tombstone has none. The flag
+is snapshot-only (`400 request.invalid_field` on `/subscribe`) and
+per-object only (`400 request.unknown_field` on `objects/query` — a
+deleted object is purged wholesale, there is no tombstone row).
+
+Live streams never carry a tombstone row: on `/subscribe` a deletion
+of either kind is `removed: [{id, reason: "deleted"}]`
+(`docs/04-events.md` § 6). Snapshot-with-tombstones and the stream's
+removal signal are the two halves of one split — the stream says
+*what just went away*, the snapshot says *which ids were ever used*.
+
+A `projection` shapes tombstones like any other row, and `_deletedAt`
+rides along under one (it is a protocol field, § Projection) — so a
+projected tombstone-inclusive read stays able to tell the two apart.
+There is nothing else to project from a tombstone: its content is
+already wiped.
 
 ## Sort
 

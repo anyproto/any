@@ -91,6 +91,17 @@ the SSE endpoints, not a replacement.
    `POST …/query` (or `Snapshot`) would return it — so keep it in any
    model that spans beyond the current window.
 
+   `"deleted"` is the ONE deletion signal on a stream, for both delete
+   kinds: a record delete (the CRDT tombstone lands, the row stops
+   matching the live filter) and an object delete (the row is purged
+   and the SDK emits a synthetic removal with an **empty `versionId`**
+   — act on it directly, never drop it through a version fence). The
+   tombstone row itself is never streamed — not even with
+   `includeDeleted`, which is snapshot-only and refused on
+   `/subscribe`. To read tombstones (an id allocator finding the
+   highest id ever used), take the snapshot flag: `docs/09-query.md`
+   § Tombstones.
+
 ## Wire shape recap
 
 ```

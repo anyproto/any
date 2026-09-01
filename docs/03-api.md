@@ -1539,6 +1539,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "limit":      100,
   "offset":     0,
   "includeTotal":       true,         // populate `total` + `hasNext` in the snapshot
+  "includeDeleted":     false,        // per-object `…/query` only — tombstones too, see below
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
   "projection": { "any": 1, "nav": 1, "_ver": -1 }   // field paths → 1 include / -1 exclude
@@ -1563,6 +1564,22 @@ record in `changes` events, docs and per-field ops alike, so a
 projected subscription cannot silently widen after the first update.
 Full grammar, the `_ver` rule, and the divergences from mongo:
 [`docs/09-query.md` § Projection](09-query.md).
+
+**`includeDeleted`** (per-object `…/query` only) returns the dataset's
+**record-level tombstones** next to the live rows: a deleted record
+comes back as `{id, _deletedAt, _ver, _traces?}` with its content
+wiped — `_deletedAt` is the discriminator, and a filter on a content
+field never matches one. It exists for writers of `id: user` datasets:
+a deleted id is burned forever (`upsert.record_deleted`), so the live
+maximum is not the next free id — `{"includeDeleted": true, "sort":
+["-id"], "limit": 1}` is the probe that finds the highest id ever
+used. With it the snapshot reads through the SDK's find path rather
+than the windowed live view (same filter / sort / limit / offset;
+`total` is the full match count including tombstones). Refused on
+`…/query/subscribe` (`400 request.invalid_field` — the live window
+never carries tombstones) and unknown on `objects/query` (a deleted
+OBJECT is purged, not tombstoned — there is nothing to include; see
+`Objects.Delete` above).
 
 Snapshot response (bare `…/query`):
 
@@ -2428,6 +2445,7 @@ body is always read back through the query path.
     "a2": { "type": "image", "link": "https://example.com/x.png" }
   },
   "context":          { "spaceId": "<spaceId>", "objectId": "<objectId>", "view": "object" },
+  "control":          { "kind": "break", "hard": false },
   "reactions":        { "👍": { "<id1>": {"$date": "2026-05-01T21:00:00.000Z"},
                                 "<id2>": {"$date": "2026-05-01T21:00:05.000Z"} } }
 }
@@ -2501,6 +2519,16 @@ resolves "here" / "this page"; there is no timestamp on it because the
 message's `createdAt` is when the user was there. Ids ≤ 256 bytes,
 `view` ≤ 64; an unknown sub-key or an empty `spaceId` rejects 400
 `chat.context_invalid` (HTTP) / `field_not_allowed` (handler).
+
+`control` is a client's signal to the agent serving the chat, carried
+on a message of its own — the one case where `text` may be empty:
+`kind` (required, an open string ≤ 64 bytes the agent interprets —
+`break` asks the run in flight to stop), `hard` (optional boolean:
+stop now, vs. wrap up at the next turn). Optional, create-only,
+immutable; the server stores it opaquely. A client renders it as a
+marker in the thread, never as a bubble, and the agent never reads it
+as content. An empty `kind` or an unknown sub-key rejects 400
+`chat.control_invalid` (HTTP) / `field_not_allowed` (handler).
 
 `reactions` ships on the wire in the same shape it has in storage:
 emoji → `{accountId: <changeTimestamp>}`, where the leaf timestamp is

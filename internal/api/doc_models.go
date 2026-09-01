@@ -93,6 +93,14 @@ type SpaceQueryRequest struct {
 	// Dataset names the per-object dataset (chat_messages,
 	// editor_blocks, …). Required.
 	Dataset string `json:"dataset"`
+	// IncludeDeleted (snapshot only) returns the dataset's record-level
+	// tombstones next to the live rows: `{id, _deletedAt, _ver, …}`
+	// with the content wiped. Lets a writer of an `id: user` dataset
+	// find the highest id ever used — a deleted id is burned, so the
+	// live maximum is not the next free one. Refused on `/subscribe`
+	// (400 request.invalid_field); the other query surfaces reject it
+	// as an unknown field (a deleted OBJECT is purged, not tombstoned).
+	IncludeDeleted bool `json:"includeDeleted,omitempty"`
 	QueryBodyParams
 }
 

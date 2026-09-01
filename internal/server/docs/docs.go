@@ -523,6 +523,10 @@ const docTemplate = `{
                     },
                     "name": {
                         "type": "string"
+                    },
+                    "outcome": {
+                        "description": "Outcome says how the run behind a done:true message ended when\nit did not end normally — ` + "`" + `interrupted` + "`" + ` (the user stopped it),\n` + "`" + `error` + "`" + ` (it died). Absent on a normal reply. Opaque to the\nserver; clients key their rendering (a stop mark, a warning) on\nit instead of parsing the text.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -560,6 +564,17 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.ChatMessageControl": {
+                "properties": {
+                    "hard": {
+                        "type": "boolean"
+                    },
+                    "kind": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatSendRequest": {
                 "properties": {
                     "agent": {
@@ -573,6 +588,9 @@ const docTemplate = `{
                     },
                     "context": {
                         "$ref": "#/components/schemas/api.ChatMessageContext"
+                    },
+                    "control": {
+                        "$ref": "#/components/schemas/api.ChatMessageControl"
                     },
                     "replyToMessageId": {
                         "type": "string"
@@ -3019,6 +3037,10 @@ const docTemplate = `{
                         "additionalProperties": {},
                         "description": "Filter is a mongo-style condition over record fields; omitted or\nempty matches every record. Operator grammar: docs/09-query.md\n(a bad operator answers 400 filter.unknown_operator listing the\nfull set).",
                         "type": "object"
+                    },
+                    "includeDeleted": {
+                        "description": "IncludeDeleted (snapshot only) returns the dataset's record-level\ntombstones next to the live rows: ` + "`" + `{id, _deletedAt, _ver, …}` + "`" + `\nwith the content wiped. Lets a writer of an ` + "`" + `id: user` + "`" + ` dataset\nfind the highest id ever used — a deleted id is burned, so the\nlive maximum is not the next free one. Refused on ` + "`" + `/subscribe` + "`" + `\n(400 request.invalid_field); the other query surfaces reject it\nas an unknown field (a deleted OBJECT is purged, not tombstoned).",
+                        "type": "boolean"
                     },
                     "includeTotal": {
                         "description": "IncludeTotal populates ` + "`" + `total` + "`" + ` + ` + "`" + `hasNext` + "`" + ` in the snapshot reply.\nPage-bounded in the current SDK — see docs/09-query.md caveat.",

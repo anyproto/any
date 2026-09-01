@@ -45,6 +45,8 @@ type SendOpts struct {
 	Attachments      map[string]api.ChatAttachment
 	// Context is the sender's view at send time — optional, create-only.
 	Context *api.ChatMessageContext
+	// Control is a signal to the agent — optional, create-only.
+	Control *api.ChatMessageControl
 }
 
 // Send writes one new message and returns the raw space.ModifyResult.
@@ -71,6 +73,9 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 		if opts.Agent.DebugLink != "" {
 			agent[FieldAgentDebugLink] = opts.Agent.DebugLink
 		}
+		if opts.Agent.Outcome != "" {
+			agent[FieldAgentOutcome] = opts.Agent.Outcome
+		}
 		payload[FieldAgent] = agent
 	}
 	if len(opts.Attachments) > 0 {
@@ -92,6 +97,13 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 			cx[FieldContextView] = opts.Context.View
 		}
 		payload[FieldContext] = cx
+	}
+	if opts.Control != nil {
+		ct := map[string]any{FieldControlKind: opts.Control.Kind}
+		if opts.Control.Hard {
+			ct[FieldControlHard] = true
+		}
+		payload[FieldControl] = ct
 	}
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{

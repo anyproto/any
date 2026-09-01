@@ -38,7 +38,7 @@ func (d *deps) chatSend(c echo.Context) error {
 	// no caption is an ordinary message. Only a payload with neither is
 	// empty, and stays rejected. (Edit below is deliberately stricter:
 	// it replaces text on an existing record and can't clear it.)
-	if req.Text == "" && len(req.Attachments) == 0 {
+	if req.Text == "" && len(req.Attachments) == 0 && req.Control == nil {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
 	}
 	if len(req.Text) > chat.MaxTextBytes {
@@ -61,6 +61,10 @@ func (d *deps) chatSend(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, api.ErrChatContextInvalid,
 			err.Error(), nil)
 	}
+	if err := validateControlRequest(req.Control); err != nil {
+		return writeError(c, http.StatusBadRequest, api.ErrChatControlInvalid,
+			err.Error(), nil)
+	}
 
 	res, err := chat.Send(c.Request().Context(), sp, objectId, chat.SendOpts{
 		Text:             req.Text,
@@ -68,6 +72,7 @@ func (d *deps) chatSend(c echo.Context) error {
 		Agent:            req.Agent,
 		Attachments:      req.Attachments,
 		Context:          req.Context,
+		Control:          req.Control,
 	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
@@ -213,6 +218,9 @@ func validateAgentRequest(a *api.ChatAgentMeta) error {
 	if len(a.DebugLink) > chat.MaxDebugLinkBytes {
 		return fmt.Errorf("agent.debugLink too long (%d > %d bytes)", len(a.DebugLink), chat.MaxDebugLinkBytes)
 	}
+	if len(a.Outcome) > chat.MaxAgentOutcomeBytes {
+		return fmt.Errorf("agent.outcome too long (%d > %d bytes)", len(a.Outcome), chat.MaxAgentOutcomeBytes)
+	}
 	return nil
 }
 
@@ -234,6 +242,21 @@ func validateContextRequest(cx *api.ChatMessageContext) error {
 	}
 	if len(cx.View) > chat.MaxContextViewBytes {
 		return fmt.Errorf("context.view too long (%d > %d bytes)", len(cx.View), chat.MaxContextViewBytes)
+	}
+	return nil
+}
+
+// validateControlRequest runs the HTTP-layer shape checks on the
+// control group; the CRDT handler re-validates (chat.validateControl).
+func validateControlRequest(ct *api.ChatMessageControl) error {
+	if ct == nil {
+		return nil
+	}
+	if ct.Kind == "" {
+		return fmt.Errorf("control.kind required")
+	}
+	if len(ct.Kind) > chat.MaxControlKindBytes {
+		return fmt.Errorf("control.kind too long (%d > %d bytes)", len(ct.Kind), chat.MaxControlKindBytes)
 	}
 	return nil
 }

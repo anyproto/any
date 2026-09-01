@@ -128,7 +128,7 @@ func TestDerivedAcceptedSets(t *testing.T) {
 		{"queryBodyFields", queryBodyFields,
 			[]string{"filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"perObjectQueryFields", perObjectQueryFields,
-			[]string{"objectId", "dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
+			[]string{"objectId", "dataset", "includeDeleted", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"spaceListQueryFields", spaceListQueryFields,
 			[]string{"dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"objectCreateFields", objectCreateFields,

@@ -131,6 +131,7 @@ func validateCreatePayload(payload *anyenc.Value) error {
 		visitErr       error
 		hasText        bool
 		hasAttachments bool
+		hasControl     bool
 	)
 	obj.Visit(func(rawKey []byte, v *anyenc.Value) {
 		if visitErr != nil {
@@ -184,6 +185,12 @@ func validateCreatePayload(payload *anyenc.Value) error {
 				visitErr = err
 				return
 			}
+		case FieldControl:
+			if err := validateControl(v); err != nil {
+				visitErr = err
+				return
+			}
+			hasControl = true
 		default:
 			visitErr = rejectCreate("field_not_allowed: " + key)
 			return
@@ -194,7 +201,8 @@ func validateCreatePayload(payload *anyenc.Value) error {
 	}
 	// A message needs content: text, attachments, or both. Attachment-only
 	// (a photo with no caption) is ordinary; neither is an empty message.
-	if !hasText && !hasAttachments {
+	// A control signal is content of its own — a `break` carries no text.
+	if !hasText && !hasAttachments && !hasControl {
 		return rejectCreate("text or attachment required")
 	}
 	return nil
@@ -260,6 +268,65 @@ func validateContext(v *anyenc.Value) error {
 	return nil
 }
 
+// validateControl enforces the structure of the control group — a
+// client's signal to the agent serving the chat:
+//
+//   - must be an object
+//   - `kind` — required, non-empty string, ≤ MaxControlKindBytes
+//     (open enum: `break` asks the run in flight to stop)
+//   - `hard` — optional boolean (break: now, vs. at the next turn)
+//   - no unknown sub-fields (bump dataVersion when adding any)
+func validateControl(v *anyenc.Value) error {
+	if v.Type() != anyenc.TypeObject {
+		return rejectCreate("control must be an object")
+	}
+	obj, err := v.Object()
+	if err != nil || obj == nil {
+		return rejectCreate("control must be an object")
+	}
+	var (
+		visitErr error
+		hasKind  bool
+	)
+	obj.Visit(func(rawKey []byte, val *anyenc.Value) {
+		if visitErr != nil {
+			return
+		}
+		switch key := string(rawKey); key {
+		case FieldControlKind:
+			hasKind = true
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("control.kind must be a string")
+				return
+			}
+			k := val.GetStringBytes()
+			if len(k) == 0 {
+				visitErr = rejectCreate("control.kind required")
+				return
+			}
+			if len(k) > MaxControlKindBytes {
+				visitErr = rejectCreate(fmt.Sprintf("control.kind too long (%d > %d bytes)", len(k), MaxControlKindBytes))
+				return
+			}
+		case FieldControlHard:
+			if val.Type() != anyenc.TypeTrue && val.Type() != anyenc.TypeFalse {
+				visitErr = rejectCreate("control.hard must be a boolean")
+				return
+			}
+		default:
+			visitErr = rejectCreate("control: unknown field " + key)
+			return
+		}
+	})
+	if visitErr != nil {
+		return visitErr
+	}
+	if !hasKind {
+		return rejectCreate("control.kind required")
+	}
+	return nil
+}
+
 // validateAgent enforces the structure of the agent group:
 //
 //   - must be an object
@@ -267,6 +334,9 @@ func validateContext(v *anyenc.Value) error {
 //   - `debugLink` — optional, non-empty string when present,
 //     ≤ MaxDebugLinkBytes; opaque to the server (no URL parsing)
 //   - `done` — required boolean
+//   - `outcome` — optional, non-empty string when present,
+//     ≤ MaxAgentOutcomeBytes; opaque to the server (the agent's own
+//     vocabulary — `interrupted`, `error`)
 //   - no unknown sub-fields (bump dataVersion when adding any)
 func validateAgent(v *anyenc.Value) error {
 	if v.Type() != anyenc.TypeObject {
@@ -319,6 +389,20 @@ func validateAgent(v *anyenc.Value) error {
 			hasDone = true
 			if val.Type() != anyenc.TypeTrue && val.Type() != anyenc.TypeFalse {
 				visitErr = rejectCreate("agent.done must be a boolean")
+				return
+			}
+		case FieldAgentOutcome:
+			if val.Type() != anyenc.TypeString {
+				visitErr = rejectCreate("agent.outcome must be a string")
+				return
+			}
+			o := val.GetStringBytes()
+			if len(o) == 0 {
+				visitErr = rejectCreate("agent.outcome must be non-empty when present")
+				return
+			}
+			if len(o) > MaxAgentOutcomeBytes {
+				visitErr = rejectCreate(fmt.Sprintf("agent.outcome too long (%d > %d bytes)", len(o), MaxAgentOutcomeBytes))
 				return
 			}
 		default:

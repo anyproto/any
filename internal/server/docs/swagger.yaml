@@ -437,6 +437,14 @@ components:
           type: boolean
         name:
           type: string
+        outcome:
+          description: |-
+            Outcome says how the run behind a done:true message ended when
+            it did not end normally — `interrupted` (the user stopped it),
+            `error` (it died). Absent on a normal reply. Opaque to the
+            server; clients key their rendering (a stop mark, a warning) on
+            it instead of parsing the text.
+          type: string
       type: object
     api.ChatAttachment:
       properties:
@@ -459,6 +467,13 @@ components:
         view:
           type: string
       type: object
+    api.ChatMessageControl:
+      properties:
+        hard:
+          type: boolean
+        kind:
+          type: string
+      type: object
     api.ChatSendRequest:
       properties:
         agent:
@@ -469,6 +484,8 @@ components:
           type: object
         context:
           $ref: '#/components/schemas/api.ChatMessageContext'
+        control:
+          $ref: '#/components/schemas/api.ChatMessageControl'
         replyToMessageId:
           type: string
         text:
@@ -2337,6 +2354,16 @@ components:
             (a bad operator answers 400 filter.unknown_operator listing the
             full set).
           type: object
+        includeDeleted:
+          description: |-
+            IncludeDeleted (snapshot only) returns the dataset's record-level
+            tombstones next to the live rows: `{id, _deletedAt, _ver, …}`
+            with the content wiped. Lets a writer of an `id: user` dataset
+            find the highest id ever used — a deleted id is burned, so the
+            live maximum is not the next free one. Refused on `/subscribe`
+            (400 request.invalid_field); the other query surfaces reject it
+            as an unknown field (a deleted OBJECT is purged, not tombstoned).
+          type: boolean
         includeTotal:
           description: |-
             IncludeTotal populates `total` + `hasNext` in the snapshot reply.
