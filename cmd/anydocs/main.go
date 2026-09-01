@@ -338,9 +338,9 @@ const pageTpl = `<!doctype html>
 {{$cur := .Page.URL}}{{$root := .Root}}
 {{range .Sections}}
   <details class="sec"{{if or (eq $cur (printf "/%s/index.html" .Slug)) (hasPrefix $cur (printf "/%s/" .Slug))}} open{{end}}>
-    <summary><span class="num">{{.Num}}</span><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
+    <summary><span class="num">{{if .Num}}{{.Num}}.{{end}}</span><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
     <ul>
-    {{$num := .Num}}{{range $i, $p := .Pages}}<li><a href="{{$root}}{{$p.URL}}"{{if eq $p.URL $cur}} class="active" aria-current="page"{{end}}><span class="num">{{if $num}}{{$num}}.{{inc $i}}{{end}}</span><span class="item-title">{{if $p.IsIndex}}Overview{{else}}{{$p.Title}}{{end}}</span></a></li>
+    {{range $p := .Pages}}<li><a href="{{$root}}{{$p.URL}}"{{if eq $p.URL $cur}} class="active" aria-current="page"{{end}}><span class="item-title">{{if $p.IsIndex}}Overview{{else}}{{$p.Title}}{{end}}</span></a></li>
     {{end}}</ul>
   </details>
 {{end}}
