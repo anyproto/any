@@ -34,7 +34,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .brand .mark{position:relative;display:block;width:48px;height:10px;color:#fff;flex-shrink:0}
 .brand .logo{display:block;width:48px;height:10px}
 .brand .cursor{position:absolute;left:49px;top:8.5px;width:7px;height:1.5px;background:currentColor;animation:blink 1.1s steps(1) infinite}
-.brand .tag{font-family:var(--sans);font-size:14px;line-height:18px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:var(--fg2)}
+.brand .tag{font-family:var(--sans);font-size:13px;line-height:18px;font-weight:500;letter-spacing:1px;text-transform:uppercase;color:var(--fg2)}
 .brand:hover .tag{color:var(--fg)}
 /* shell: sidebar column + content column, both full height */
 .shell{display:grid;grid-template-columns:var(--side) minmax(0,1fr);min-height:100vh}
@@ -111,7 +111,7 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 .doc strong{color:#fff}
 .doc code{font-family:var(--mono);font-size:13px;background:var(--bg3);padding:2px 4px;border-radius:4px;color:var(--amber);border:1px solid var(--line)}
 .doc a code{color:var(--cyan)}
-.doc pre{position:relative;background:var(--bg2);border:0;border-radius:12px;padding:24px 16px;overflow-x:auto;line-height:20px;margin:16px 0 0}
+.doc pre{position:relative;font-family:var(--mono);background:var(--bg2);border:0;border-radius:12px;padding:24px 16px;overflow-x:auto;line-height:20px;margin:16px 0 0}
 .doc pre::after{content:attr(data-lang);position:absolute;right:16px;top:10px;font-size:12px;line-height:18px;color:var(--fg3);letter-spacing:.08em}
 .doc pre code{background:none;border:0;padding:0;font-size:13px;line-height:20px;color:var(--code-fg)}
 .doc pre code .k{color:var(--code-k)}.doc pre code .c{color:var(--fg3);font-style:italic}.doc pre code .s{color:var(--amber)}.doc pre code .n{color:var(--magenta)}.doc pre code .p{color:var(--code-k);font-weight:600}
