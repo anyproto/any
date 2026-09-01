@@ -12,6 +12,8 @@ The open source, reactive, **local-first** database. Documents live on your devi
 
 </div>
 
+## Get started
+
 <pre class="term"><code class="language-sh">$ any init
 <span class="out">account  A9f3…c21e   (mnemonic printed once — write it down)</span>
 $ any run &
