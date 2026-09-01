@@ -47,6 +47,7 @@ type page struct {
 type section struct {
 	Dir   string // e.g. 03-database
 	Slug  string // e.g. database
+	Num   string // e.g. 03 — the directory prefix, shown in the sidebar
 	Title string
 	Order int
 	Pages []*page
@@ -75,7 +76,7 @@ func run(src, out string) error {
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(html.WithUnsafe()),
 	)
-	tpl := template.Must(template.New("page").Funcs(template.FuncMap{"hasPrefix": strings.HasPrefix}).Parse(pageTpl))
+	tpl := template.Must(template.New("page").Funcs(template.FuncMap{"hasPrefix": strings.HasPrefix, "inc": func(i int) int { return i + 1 }}).Parse(pageTpl))
 
 	var sections []*section
 	byDir := map[string]*section{}
@@ -99,6 +100,7 @@ func run(src, out string) error {
 			s := &section{Dir: rel, Slug: rel, Title: humanize(rel), Order: 1 << 20}
 			if m := prefixRe.FindStringSubmatch(rel); m != nil {
 				s.Order, _ = strconv.Atoi(m[1])
+				s.Num = strconv.Itoa(s.Order)
 				s.Slug = m[2]
 				s.Title = humanize(m[2])
 			}
@@ -331,15 +333,14 @@ const pageTpl = `<!doctype html>
 <aside class="side" id="side">
   <div class="side-head">
     <a class="brand" href="{{.Root}}/index.html"><span class="mark"><svg class="logo" viewBox="0 0 57 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 2.4H4.01408V12H0V2.4ZM2.00704 0H14.0493V2.4H2.00704V0ZM4.01408 7.2H8.02817V9.6H4.01408V7.2ZM20.0704 0H24.0845V12H20.0704V0ZM40.9437 0H44.9577V4.8H40.9437V0ZM24.0845 2.4H26.493V4.8H24.0845V2.4ZM25.2887 4.8H27.6972V7.2H25.2887V4.8ZM42.9507 4.8H54.993V7.2H42.9507V4.8ZM26.493 7.2H28.9014V9.6H26.493V7.2ZM28.9014 0H36.9296V12H28.9014V0ZM48.9718 0H57V4.8H48.9718V0ZM44.9577 7.2H52.9859V12H44.9577V7.2ZM8.02817 2.4H16.0563V12H8.02817V2.4Z"/></svg><i class="cursor" aria-hidden="true"></i></span><span class="tag">docs</span></a>
-    <button class="find" id="find" aria-label="Search docs"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg></button>
   </div>
   <nav class="side-nav">
 {{$cur := .Page.URL}}{{$root := .Root}}
 {{range .Sections}}
   <details class="sec"{{if or (eq $cur (printf "/%s/index.html" .Slug)) (hasPrefix $cur (printf "/%s/" .Slug))}} open{{end}}>
-    <summary><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
+    <summary><span class="num">{{.Num}}</span><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
     <ul>
-    {{range .Pages}}<li><a href="{{$root}}{{.URL}}"{{if eq .URL $cur}} class="active" aria-current="page"{{end}}>{{if .IsIndex}}Overview{{else}}{{.Title}}{{end}}</a></li>
+    {{$num := .Num}}{{range $i, $p := .Pages}}<li><a href="{{$root}}{{$p.URL}}"{{if eq $p.URL $cur}} class="active" aria-current="page"{{end}}><span class="num">{{if $num}}{{$num}}.{{inc $i}}{{end}}</span><span class="item-title">{{if $p.IsIndex}}Overview{{else}}{{$p.Title}}{{end}}</span></a></li>
     {{end}}</ul>
   </details>
 {{end}}
@@ -352,7 +353,7 @@ const pageTpl = `<!doctype html>
 <div class="bar">
   <button class="menu" id="menu" aria-label="Menu">☰</button>
   <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{.Page.Title}}</p>
-  <div class="search" id="search" hidden><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><button class="esc" id="esc" aria-label="Close search">esc</button><div id="results" class="results" hidden></div></div>
+  <div class="search" id="search"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><span class="esc" aria-hidden="true">ESC</span><div id="results" class="results" hidden></div></div>
 </div>
 <main class="main">
   <article class="doc">

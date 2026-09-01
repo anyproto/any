@@ -3,12 +3,13 @@
  * IBM Plex Mono (DS Mono/*) for chrome, code and the terminal furniture,
  * colours from the DS dark spectrum (color/spectrum/on-bg/*).
  * Sizes and line-heights are DS steps in px — no fractional rem values.
- * IBM Plex Mono is not self-hosted yet — the already-bundled JetBrains Mono
- * is the fallback, so the mono voice never falls back to a system default. */
+ * The mono voice is Iosevka Comfy, self-hosted beside Inter. */
 @font-face{font-family:"Inter";src:url(inter-normal.woff2) format("woff2");font-weight:400 700;font-style:normal;font-display:swap}
 @font-face{font-family:"Inter";src:url(inter-italic.woff2) format("woff2");font-weight:400 700;font-style:italic;font-display:swap}
-@font-face{font-family:"JetBrains Mono";src:url(jetbrainsmono-normal.woff2) format("woff2");font-weight:400 600;font-style:normal;font-display:swap}
-@font-face{font-family:"JetBrains Mono";src:url(jetbrainsmono-italic.woff2) format("woff2");font-weight:400 600;font-style:italic;font-display:swap}
+@font-face{font-family:"Iosevka Comfy";src:url(comfy-regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Comfy";src:url(comfy-medium.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Comfy";src:url(comfy-bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
+@font-face{font-family:"Iosevka Comfy";src:url(comfy-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
 :root{
   --bg:#0e1012;--panel:#060708;--bg1:#191a1b;--bg2:#060708;--bg3:rgba(255,255,255,.05);
   --surface-hover:rgba(255,255,255,.05);--line:#1b222c;--line2:#27303c;
@@ -18,8 +19,8 @@
   --glow:0 0 0 1px rgba(55,122,255,.25),0 0 24px rgba(55,122,255,.08);
   /* DS 2.0 dark spectrum — color/spectrum/on-bg/*, the ramp built for coloured text on dark */
   --cyan:#76e1ff;--amber:#ffcd6b;--magenta:#db8cf6;--red:#ff9b8c;--code-fg:#c8c8c8;--code-k:#9cb2ff;
-  --measure:800px;--side:320px;--r:6px;
-  --mono:"IBM Plex Mono","JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --measure:800px;--side:304px;--r:6px;
+  --mono:"Iosevka Comfy",ui-monospace,Menlo,Consolas,monospace;
   --sans:Inter,"Inter Variable",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}html{color-scheme:dark;scroll-padding-top:64px;scrollbar-gutter:stable}
@@ -48,25 +49,25 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 /* content bar: breadcrumb by default, search in its place when opened */
 .bar{position:sticky;top:0;z-index:20;flex:0 0 52px;display:flex;align-items:center;gap:12px;padding:0 20px;
   background:var(--bg)}
-.crumb{font-family:var(--mono);font-size:13px;line-height:20px;margin:0;color:var(--fg);min-width:0;
+.crumb{flex:1 1 auto;font-family:var(--sans);font-size:13px;line-height:18px;margin:0;color:var(--fg);min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .crumb .sec-name{color:var(--fg2)}.crumb .sep{color:var(--fg3);margin:0 8px}
-.find{display:flex;align-items:center;justify-content:center;width:32px;height:32px;margin-left:auto;
-  background:none;border:0;border-radius:999px;color:var(--fg3);cursor:pointer;padding:0}
-.find:hover{color:var(--fg);background:var(--surface-hover)}
-.find .ico,.search .ico{width:16px;height:16px;flex:0 0 16px}
-.search{position:absolute;inset:0;display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--bg);z-index:1;box-shadow:inset 0 -1px 0 var(--line)}
-.search[hidden]{display:none}
-.search .ico{color:var(--fg3)}
+.search .ico{width:16px;height:16px;flex:0 0 16px}
+.search{position:relative;flex:0 0 auto;display:flex;align-items:center;gap:8px;width:144px;height:36px;
+  padding:0 12px;border-radius:999px;color:var(--fg2);cursor:text;
+  transition:width 180ms cubic-bezier(.2,0,0,1),background-color 180ms cubic-bezier(.2,0,0,1),box-shadow 180ms cubic-bezier(.2,0,0,1)}
+.search:hover{background:var(--surface-hover)}
+.search:focus-within{width:400px;background:var(--bg3);box-shadow:inset 0 0 0 1px var(--line2)}
+.search .ico{color:inherit}
 .search input{flex:1;min-width:0;height:32px;border:0;background:none;color:var(--fg);
-  font:inherit;font-family:var(--mono);font-size:13px;line-height:20px;caret-color:var(--accent);outline:none}
-.search input::placeholder{color:var(--fg3)}
+  font:inherit;font-family:var(--sans);font-size:13px;line-height:18px;caret-color:var(--accent);outline:none}
+.search input::placeholder{color:var(--fg2)}
 .search input::-webkit-search-cancel-button,.search input::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
-.esc{font-family:var(--mono);font-size:12px;line-height:18px;color:var(--fg3);background:none;
-  border:1px solid var(--line2);border-radius:4px;padding:2px 6px;cursor:pointer}
-.esc:hover{color:var(--fg)}
-.results{position:absolute;top:52px;left:20px;right:20px;max-height:60vh;overflow:auto;background:var(--bg1);
-  border:1px solid var(--line2);border-radius:var(--r);box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:2}
+.esc{display:none;flex:0 0 auto;font-family:var(--mono);font-size:12px;line-height:18px;color:var(--fg3)}
+.search:focus-within .esc{display:block}
+.results{position:absolute;top:44px;right:0;width:400px;max-width:60vw;max-height:60vh;overflow:auto;
+  background:var(--bg1);border:1px solid var(--line2);border-radius:var(--r);
+  box-shadow:0 16px 48px rgba(0,0,0,.6);z-index:2}
 .main{flex:1 1 auto;padding:48px 40px 64px;min-width:0;display:flex;flex-direction:column;align-items:center}
 .doc,.pager,.foot{width:100%;max-width:var(--measure)}
 .foot{font-family:var(--mono);color:var(--fg3);font-size:12px;line-height:18px;border-top:1px solid var(--line);padding-top:16px}
@@ -88,7 +89,13 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 
 .sec[open] summary{color:var(--fg)}.sec summary:hover{color:var(--fg);background:var(--surface-hover)}
 .sec ul{list-style:none;display:flex;flex-direction:column;gap:1px;margin:1px 0 0;padding:0}
-.sec li a{display:block;padding:5px 24px;color:var(--fg2);border:0;border-radius:6px}
+.sec li a{display:flex;align-items:center;gap:8px;padding:5px 8px;color:var(--fg2);border:0;border-radius:6px}
+.sec li a .item-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* sidebar ordinals: the section is its source directory prefix (01-understanding → 01),
+   the item its 1-based position. Fixed columns keep every title on one left edge. */
+.num{flex:0 0 auto;color:inherit;font-variant-numeric:tabular-nums}
+.sec summary .num{width:20px}
+.sec li a .num{width:40px}
 .sec li a:hover{color:var(--fg);background:var(--surface-hover)}
 .sec li a.active{color:#fff;background:var(--bg1)}
 /* article */
