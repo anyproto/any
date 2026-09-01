@@ -104,7 +104,12 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 /* the dash hangs into the body column — marker at 0, item text at 16 — so the
    left edge of the page stays one line. 24 put it at 8, aligned to nothing. */
 .doc ul{padding-left:20px;list-style:none}.doc ul>li::before{content:"–";color:var(--fg3);display:inline-block;width:20px;margin-left:-20px}
-.doc ol{padding-left:20px}.doc ol li::marker{color:var(--accent)}
+/* the native ::marker takes no spacing of its own — it butts right up against
+   the text. Same hanging box as the dash list, so the gap is set, not inherited.
+   Ordered lists here run to eight items, so the number is always one digit. */
+.doc ol{padding-left:24px;list-style:none;counter-reset:ol}
+.doc ol>li{counter-increment:ol}
+.doc ol>li::before{content:counter(ol) ".";color:var(--accent);display:inline-block;width:24px;margin-left:-24px}
 .doc>p:first-of-type{color:var(--fg2);font-size:15px;line-height:24px}
 .doc strong{color:#fff}
 .doc code{font-family:var(--mono);font-size:13px;background:var(--bg3);padding:2px 4px;border-radius:4px;color:var(--amber);border:1px solid var(--line)}
