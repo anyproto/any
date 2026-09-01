@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"io"
 	"mime"
 	"net/http"
 	"strconv"
@@ -58,13 +60,18 @@ func (d *deps) fileAttach(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	var body io.Reader = c.Request().Body
+	mimeType := attachMime(c.Request().Header.Get(echo.HeaderContentType))
+	if mimeType == "" {
+		body, mimeType = sniffMime(body)
+	}
 	opts := space.AttachOpts{
 		Name:      c.QueryParam("name"),
-		Mime:      attachMime(c.Request().Header.Get(echo.HeaderContentType)),
+		Mime:      mimeType,
 		Variant:   space.Variant(variant),
 		VariantOf: variantOf,
 	}
-	info, err := sp.Files().Attach(c.Request().Context(), objectId, c.Request().Body, opts)
+	info, err := sp.Files().Attach(c.Request().Context(), objectId, body, opts)
 	if err != nil {
 		return fileError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -83,6 +90,29 @@ func attachMime(contentType string) string {
 		return ""
 	}
 	return mt
+}
+
+// sniffMaxBytes is what http.DetectContentType looks at.
+const sniffMaxBytes = 512
+
+// sniffMime fills the mime the caller left unset from the content
+// itself: it peeks the first sniffMaxBytes of r without consuming them
+// and returns a reader that still yields the whole body, plus the
+// parameter-stripped http.DetectContentType verdict. An empty body or
+// a signature the sniffer cannot place stays "" (unset) rather than
+// octet-stream, so the stored mime is either a real type or absent —
+// never the "caller didn't say" placeholder.
+func sniffMime(r io.Reader) (io.Reader, string) {
+	br := bufio.NewReaderSize(r, sniffMaxBytes)
+	head, _ := br.Peek(sniffMaxBytes) // short read at EOF is fine
+	if len(head) == 0 {
+		return br, ""
+	}
+	mt, _, err := mime.ParseMediaType(http.DetectContentType(head))
+	if err != nil || mt == "application/octet-stream" {
+		return br, ""
+	}
+	return br, mt
 }
 
 // fileList handles GET /v1/spaces/:spaceId/files.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,6 +29,39 @@ func TestAttachMime(t *testing.T) {
 		if got := attachMime(c.in); got != c.want {
 			t.Errorf("attachMime(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestSniffMime pins the content-sniff fallback: a recognised
+// signature yields its type with parameters stripped, an empty body or
+// unknown bytes stay unset, and the returned reader still yields the
+// whole body (the peek must not consume it).
+func TestSniffMime(t *testing.T) {
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 600)...)
+	cases := []struct {
+		name string
+		in   []byte
+		want string
+	}{
+		{"png", png, "image/png"},
+		{"jpeg", []byte("\xff\xd8\xff\xe0 rest"), "image/jpeg"},
+		{"gif", []byte("GIF89a...."), "image/gif"},
+		{"pdf", []byte("%PDF-1.4\n%..."), "application/pdf"},
+		{"text", []byte("hello, world\n"), "text/plain"},
+		{"empty", nil, ""},
+		{"unknown", bytes.Repeat([]byte{0x00, 0xff}, 300), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r, got := sniffMime(bytes.NewReader(c.in))
+			if got != c.want {
+				t.Errorf("mime = %q, want %q", got, c.want)
+			}
+			rest, err := io.ReadAll(r)
+			if err != nil || !bytes.Equal(rest, c.in) {
+				t.Errorf("body after sniff: len %d err %v, want len %d", len(rest), err, len(c.in))
+			}
+		})
 	}
 }
 
@@ -110,6 +144,26 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 		t.Errorf("inline info = %+v", inlineInfo)
 	}
 
+	// No usable Content-Type (the curl -T / fetch default): the mime
+	// is sniffed from the content, so the file does not read back as
+	// octet-stream for every downstream consumer.
+	pngBody := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 64)...)
+	rec = doRaw(t, e, http.MethodPost, attachBase+"?name=c.png", "application/octet-stream", pngBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("octet-stream attach: %d %s", rec.Code, rec.Body.String())
+	}
+	var pngInfo api.FileInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &pngInfo); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if pngInfo.Mime != "image/png" || pngInfo.Size != int64(len(pngBody)) {
+		t.Errorf("sniffed info = %+v, want image/png size %d", pngInfo, len(pngBody))
+	}
+	rec = doRaw(t, e, http.MethodGet, filesBase+"/"+pngInfo.FileId+"/content", "", nil)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !bytes.Equal(rec.Body.Bytes(), pngBody) {
+		t.Errorf("sniffed content: %d %q len %d", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
+	}
+
 	// Content-addressed attach (above the 4096 inline cutoff).
 	big := bytes.Repeat([]byte("0123456789abcdef"), 1024) // 16KB
 	rec = doRaw(t, e, http.MethodPost, attachBase+"?name=b.bin", "application/x-bin", big)
@@ -137,13 +191,13 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if len(list.Files) != 2 {
-		t.Errorf("list = %d files, want 2", len(list.Files))
+	if len(list.Files) != 3 {
+		t.Errorf("list = %d files, want 3", len(list.Files))
 	}
 	var stats api.FileStats
 	rec = doJSON(t, e, http.MethodGet, filesBase+"/stats", "")
-	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil || stats.Total != 2 {
-		t.Errorf("stats = %+v (err %v), want total 2", stats, err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil || stats.Total != 3 {
+		t.Errorf("stats = %+v (err %v), want total 3", stats, err)
 	}
 	var st api.FileStatus
 	rec = doJSON(t, e, http.MethodGet, filesBase+"/"+inlineInfo.FileId+"/status", "")
@@ -193,8 +247,8 @@ func TestServer_Files_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &qr); err != nil {
 		t.Fatalf("decode query: %v", err)
 	}
-	if qr.Total == nil || *qr.Total != 2 {
-		t.Errorf("query total = %v, want 2", qr.Total)
+	if qr.Total == nil || *qr.Total != 3 {
+		t.Errorf("query total = %v, want 3", qr.Total)
 	}
 
 	// No staging fileV2 nodes → the big file is not durable; offload

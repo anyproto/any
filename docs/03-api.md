@@ -2669,7 +2669,14 @@ The **raw request body is the file** — no JSON envelope, no multipart.
 Metadata rides outside the body:
 
 - `Content-Type` header → stored mime (parameters stripped;
-  `application/octet-stream` or absent = "unset"),
+  `application/octet-stream` or absent = "unset", in which case the
+  mime is **sniffed from the first 512 bytes** via Go's
+  `http.DetectContentType` — png/jpeg/gif/webp/pdf/text/… — and an
+  unrecognised signature stays unset). The upload is the only moment a
+  type can be attached, and the `curl -T` / `fetch` default would
+  otherwise pin the file to octet-stream for every downstream reader
+  (browser tags, model input). An explicit header always wins over the
+  sniff,
 - `?name=` → stored user-facing name,
 - `?variant=` + `?variantOf=` → attach the content as an alternate
   representation (e.g. a thumbnail the client rendered) of an existing
@@ -2703,7 +2710,8 @@ When the broker is unreachable or refuses, attach still succeeds —
 
 `GET /v1/spaces/:spaceId/files/:fileId/content[?variant=]` serves the
 file's verified plaintext as a **regular HTTP resource**: stored mime
-as `Content-Type` (octet-stream fallback — never sniffed),
+as `Content-Type` (octet-stream fallback — sniffing happens at attach,
+never here),
 `Content-Disposition: inline; filename=…` from the stored name,
 `Content-Length`, and full **`Range` / 206** support (the underlying
 reader is seekable). Browser tags work directly:
