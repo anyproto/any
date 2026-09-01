@@ -361,7 +361,7 @@ const pageTpl = `<!doctype html>
     {{.Page.Body}}
   </article>
   <nav class="pager">
-    {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{else}}<span></span>{{end}}
+    {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{end}}
     {{if .Page.Next}}<a class="next" href="{{.Root}}{{.Page.Next.URL}}"><small>Next</small><span>{{.Page.Next.Title}}</span></a>{{end}}
   </nav>
   <footer class="foot">
