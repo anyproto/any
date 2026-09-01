@@ -91,7 +91,6 @@ a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(118,225,2
 /* sidebar ordinals: the section is its source directory prefix (01-understanding → 01),
    the item its 1-based position. Fixed columns keep every title on one left edge. */
 .num{flex:0 0 auto;color:inherit;font-variant-numeric:tabular-nums}
-.sec summary .num{text-align:right}
 .sec summary .num{width:24px}
 .sec li a:hover{color:var(--fg);background:var(--surface-hover)}
 .sec li a.active{color:var(--fg);background:var(--bg3)}
