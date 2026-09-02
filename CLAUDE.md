@@ -1399,6 +1399,75 @@ Implementation slices landed:
     docs/07-roadmap.md. CLI: `--projection 'any,nav'` / `'-_ver'` on
     every windowed command. Contract: docs/09-query.md § Projection,
     docs/03-api.md, docs/04-events.md.
+43. **Auth ownership model (SYN-169)** — `mode` (`--mode` / `ANY_MODE` /
+    config / `embedded.Options.Mode`) declares who owns the server and
+    derives key custody, account selection, logout/switch and shutdown
+    rights from it: `standalone` (default — the user; `wallet.key` on
+    disk, account resolved from disk, logout and HTTP shutdown refused)
+    vs `managed` (the spawning host; account key supplied per boot over
+    `POST /v1/auth` and never on disk, `DELETE /v1/auth` + `replace`
+    switch + `POST /v1/shutdown` allowed behind the **control token**).
+    Mode is fixed at launch and unreachable over HTTP; `GET /v1/auth`
+    reports `mode` + `capabilities{deauthorize,switchAccount,shutdown}`
+    bits (clients branch on bits, never the string) and an empty
+    `accounts` list on managed. The token is minted per managed server
+    and printed as the second stdout handshake line (`CONTROL_TOKEN
+    <hex>` after `LISTENING`) unless the in-process host passes
+    `embedded.Options.ControlToken` (required in managed); the header is
+    `X-Any-Control-Token`, checked by `requireControl` (control.go),
+    `403 control.forbidden`. **Managed custody**: `auth.NewMnemonicProvider`
+    (SDK v0.2.8, in-memory account key) + a device key cached at
+    `<root>/<accountId>/device.key` (devicekey.go, JSON envelope v1,
+    0600, minted once) so every login keeps the peerId; `bootEngine`
+    takes a `credential` opener (`fileCredential` / `managedCredential`,
+    wallet.go + devicekey.go) and `AccountID` is widened to
+    `auth.Provider`. **Engine lifecycle**: the engine (lock, SDK,
+    indexer, push, local store, chunkers, its goroutines) is tearable
+    down in place behind an `engineGate` (gate.go) — every `/v1`
+    request and stream runs inside it; `teardownEngine` flips `ready`
+    off, cancels the engine ctx (streams emit `closed{deauthorized}`;
+    process exit keeps `server_shutdown`), drains the gate (10s),
+    joins the engine goroutines (`registerDevice`, push kick,
+    `holdProcessInterest`, `bootstrapDerivedSetups`, bundle
+    `ResolveRetry` — all via `engine.spawn`), detaches the events bridge
+    (`gen` counter refuses stragglers), resets the process view and
+    bundle observations, closes resources, clears the deps fields.
+    `deps.shutdownCtx` is the LIVE engine's ctx (nil while unauthorized);
+    `streamsWG`/`cancelShutdown` are gone. **Nothing inside the gate
+    may take `authMu`** (teardown holds it while draining) — exempt
+    routes (health, auth, shutdown) read through short gate
+    enter/leave. **`POST /v1/auth` decides on the derived account**:
+    same account → `200 {alreadyAuthorized:true}` (never tears down);
+    `{}` while authorized → 409 `auth.already_authorized`; different →
+    403 `auth.not_managed` (standalone) / 409 `auth.account_mismatch`
+    (managed, no `replace`) / `switchAccount` (managed + `replace`:
+    teardown then boot under one `authMu` hold; a failed boot leaves
+    the server unauthorized); refusals never echo the derived id;
+    `{accountId}` is 400 on managed. **Lifecycle**: `POST /v1/shutdown`
+    → 403 `shutdown.not_managed` on standalone, token-gated on managed;
+    `any stop` sends no HTTP — `server.FindRunning` probes each account
+    dir's `server.lock` with a non-blocking flock (held = running),
+    `StopRunning` SIGTERMs the holder and waits for the lock to free;
+    `server.addr` is written beside `server.pid` and the CLI's root
+    `PersistentPreRun` resolves `--addr` from it (skipping run/init/
+    stop). CLI: `--mode`, `--control-token`/`ANY_CONTROL_TOKEN`, `any
+    auth logout`, `any auth login --replace`. Mobile shims:
+    `StartWithMode` / `AnyLibStartWithMode` (existing entry points stay
+    standalone). Decided: wallet-blob credential dropped (device key is
+    server-cached, so it carried nothing the phrase does not); no
+    migration between custodies (a managed login with a legacy
+    flat-root account's phrase lands in `<root>/<id>/` fresh with a
+    new peerId). Tests: gate_test, devicekey_test, running_test,
+    `TestAuth_{StatusManaged,ManagedBoot,DecisionTable,SwitchInPlace,
+    TeardownResetsDeps}`, e2e `TestDesktopContract_*` (managed
+    handshake) + `TestE2E_ManagedLifecycle`. Contract: docs/02-server.md
+    § Modes / § Startup / § Shutdown / § Data dir layout, docs/03-api.md
+    § Meta + § Auth, docs/04-events.md (`deauthorized`), docs/05-config.md,
+    docs/06-errors.md, docs/01-cli.md, docs/08-clients.md § 14 (the
+    normative client rules). Rollout: the desktop shell must adopt
+    `--mode managed` + token + keychain restore-at-launch (it stops the
+    sidecar with an ungated `POST /v1/shutdown` today, which now 403s
+    on a standalone server); IOS-615 is unblocked.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

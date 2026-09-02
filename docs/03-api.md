@@ -122,11 +122,18 @@ live via `/query/subscribe`). One write shape across the whole API.
 
 ### Meta
 
-| Method | Path               | Purpose                                |
-|--------|--------------------|----------------------------------------|
-| GET    | `/v1/health`       | server health, version, account id     |
-| POST   | `/v1/shutdown`     | graceful shutdown                      |
-| GET    | `/v1/openapi.json` | the API's OpenAPI 3.1 spec             |
+| Method | Path               | Purpose                                                        |
+|--------|--------------------|----------------------------------------------------------------|
+| GET    | `/v1/health`       | server health, version, account id                             |
+| POST   | `/v1/shutdown`     | graceful shutdown — managed servers only, control-token gated  |
+| GET    | `/v1/openapi.json` | the API's OpenAPI 3.1 spec                                     |
+
+`POST /v1/shutdown` belongs to the server's owner (`02-server.md`
+§ Modes): a managed server stops on it with the `X-Any-Control-Token`
+header (`403 control.forbidden` without), a standalone server answers
+`403 shutdown.not_managed` — it is the user's, stopped with `any stop`
+or a signal. Outside the auth guard, so an unauthorized managed server
+is still stoppable.
 
 `/v1/openapi.json` serves the **OpenAPI 3.1** document generated from
 the handler annotations and the `internal/api` request structs — the
@@ -150,55 +157,122 @@ completes. See `02-server.md` § Startup / § Health.
 
 ### Auth
 
-| Method | Path        | Purpose                                          |
-|--------|-------------|--------------------------------------------------|
-| GET    | `/v1/auth`  | authorization state + locally available accounts |
-| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK |
+| Method | Path        | Purpose                                                                 |
+|--------|-------------|-------------------------------------------------------------------------|
+| GET    | `/v1/auth`  | authorization state, ownership mode + capabilities, local accounts      |
+| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK; `replace` switches    |
+| DELETE | `/v1/auth`  | tear the account down in place, stay up unauthorized (managed only)     |
 
-A server started without a resolvable account (fresh data dir, or
-several accounts and no selector — see `02-server.md` § Startup) is
-**unauthorized**: every `/v1` route except `/v1/health`,
+A server started without a resolvable account (fresh data dir, several
+accounts and no selector, or **any managed server** — see `02-server.md`
+§ Startup) is **unauthorized**: every `/v1` route except `/v1/health`,
 `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns
 `401 auth.required`. `POST /v1/auth` boots the account in place; no
-restart, and the server stays on that account for its lifetime
-(switching = restart, a second POST returns
-`409 auth.already_authorized`).
+restart.
+
+**Ownership gates the verbs.** On a managed server (`02-server.md`
+§ Modes) every `POST` and `DELETE /v1/auth` requires the
+`X-Any-Control-Token` header — `403 control.forbidden` without it —
+so no other local process can log the server into an account or sign
+it out. A standalone server needs no token and refuses the operations
+a managed one allows.
 
 ```json
 // GET /v1/auth
-{ "authorized": false,
-  "accounts": [
-    {"id":"A8tR…","default":true},   // legacy root wallet.key
-    {"id":"A8g1…"} ] }               // <root>/<id>/ dirs
+{ "authorized": true, "accountId": "A8g1…",
+  "mode": "standalone",                       // or "managed" — informative only
+  "capabilities": {                           // branch on THESE, never on mode
+    "deauthorize":   false,                   // DELETE /v1/auth accepted
+    "switchAccount": false,                   // POST /v1/auth {…, replace:true} accepted
+    "shutdown":      false },                 // POST /v1/shutdown accepted
+  "accounts": [                               // wallets on disk — standalone only,
+    {"id":"A8tR…","default":true},            //   legacy root wallet.key
+    {"id":"A8g1…"} ] }                        //   <root>/<id>/ dirs; [] on managed
+```
 
+A managed server reports every capability `true` and an empty
+`accounts` list: it holds no keys, so the client owns the account list
+(build the picker from its keystore). Clients read this before rendering
+any sign-out / switch / quit affordance and show each only where its bit
+is true, so a future third mode does not break them.
+
+```json
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
 {}                                    // generate a fresh account (index 1)
 { "mnemonic":"w1 … w12" }             // restore at the default index (1):
-                                      // same phrase ⇒ same account, device
-                                      // key freshly generated
+                                      // same phrase ⇒ same account
 { "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
+                                      //   (standalone only — 400 on managed)
+{ "mnemonic":"w1 … w12",
+  "replace": true }                   // managed: switch to this account in place
 
 // → 200
 { "accountId":"A8g1…",
-  "created": true,        // a new wallet file was written
+  "created": true,        // no local state for this account before the call
   "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
+
+// → 200, the server already runs THIS account (nothing booted)
+{ "accountId":"A8g1…", "created": false, "alreadyAuthorized": true }
 ```
+
+**The target account is derived from the request before anything is
+decided**, so the reply while an account is running follows one table:
+
+|                          | `{}`                           | same account                      | different account                                                |
+|--------------------------|--------------------------------|-----------------------------------|------------------------------------------------------------------|
+| standalone, authorized   | `409 auth.already_authorized`  | `200 {alreadyAuthorized: true}`   | `403 auth.not_managed`                                           |
+| managed, authorized      | `409 auth.already_authorized`  | `200 {alreadyAuthorized: true}`   | `409 auth.account_mismatch`; with `replace: true` → switch, 200  |
+
+- **Same account never tears down.** A retry, reconnect or duplicate
+  mount is a no-op — and `alreadyAuthorized` is how a client confirms a
+  phrase it holds belongs to the running account, so it is safe to
+  persist afterwards.
+- **Refusals never echo the derived id** — otherwise the endpoint would
+  be a phrase-to-account oracle.
+- **Switching is opt-in.** `replace` tears the running engine down
+  (every stream ends with `closed{reason: deauthorized}`, see
+  `04-events.md`) and boots the target; a boot failure after the
+  teardown leaves the server **unauthorized** and returns the boot
+  error — re-read `GET /v1/auth`. `replace` is meaningless outside
+  managed (the 403 stands), and `replace` with `{}` is
+  `400 request.invalid_field`: a fresh account is never a replacement.
+- `{}` while authorized is always refused, `replace` or not: minting an
+  account must never be a side effect of a stale request.
+
+Custody by mode: **standalone** writes / reads `wallet.key` (restore
+mints a fresh device key on this machine); **managed** keeps the
+account key in memory for this boot and caches the device key at
+`<root>/<accountId>/device.key`, so every later login keeps the same
+peerId (`02-server.md` § Modes). In managed mode `created` reports the
+first login on this install.
 
 `index` is the account-derivation index and is valid **only with
 `mnemonic`** (a selected account's index is baked into its wallet; a
 generated one is always the `any` default, 1). Omitted means 1; index
 0 is anytype's, passed explicitly to restore an anytype-derived
 account. Any `index` without `mnemonic` — including an explicit 0 —
-is `400 request.invalid_field`. If the engine fails to boot after a fresh
-wallet was created this call (e.g. SDK init error), the half-created
-per-account dir is removed, so a retry — or `generate` getting a new
-phrase — starts clean rather than auto-selecting an un-backed account.
+is `400 request.invalid_field`. If the engine fails to boot after this
+call created the account dir (e.g. SDK init error), the half-created
+dir is removed, so a retry — or `generate` getting a new phrase —
+starts clean rather than auto-selecting an un-backed account.
+
+**`DELETE /v1/auth`** (managed, control token) tears the engine down —
+streams end with `closed{reason: deauthorized}`, in-flight requests
+drain — and leaves the listener up in the unauthorized state; `204`,
+idempotent. A client must then delete its stored credential, or the
+account is not actually signed out on that device. A standalone server
+answers `403 auth.not_managed`: sign out by stopping it.
 
 Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
-`400 request.invalid_field` (mnemonic+accountId together, or index
-without mnemonic), `404 auth.account_not_found` (accountId without a
-local wallet), `409 auth.account_in_use` (another process holds that
+`400 request.invalid_field` (mnemonic+accountId together, index
+without mnemonic, `replace` without a credential, `accountId` on a
+managed server), `403 control.forbidden` (managed, token missing or
+wrong), `403 auth.not_managed` (standalone: a different account, or
+DELETE), `409 auth.account_mismatch` (managed: a different account
+without `replace`), `409 auth.already_authorized` (`{}` while
+authorized), `404 auth.account_not_found` (accountId without a local
+wallet), `409 auth.account_in_use` (another process holds that
 account's single-instance lock; `details.pid` names the holder when
 known), `409 auth.mnemonic_mismatch` (existing wallet file
 disagrees with the supplied phrase/index), `400 auth.passkey_required`

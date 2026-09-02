@@ -26,11 +26,13 @@
 ```
 any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
                                  # create data dir + account wallet, exit
-any run [--config PATH] [--account ID]   # start the server (foreground)
-any auth login [--mnemonic ...|--mnemonic-stdin|--account ID]  # POST /v1/auth
+any run [--config PATH] [--mode standalone|managed] [--account ID]
+                                 # start the server (foreground)
+any auth login [--mnemonic ...|--mnemonic-stdin|--account ID] [--replace]  # POST /v1/auth
+any auth logout                  # DELETE /v1/auth (managed servers)
 any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
-any stop                         # POST /v1/shutdown
+any stop [--data-dir DIR] [--account ID]  # signal the server serving the data dir's account
 any version                      # print binary + server versions
 ```
 
@@ -55,8 +57,26 @@ root, or several accounts and no `--account`/`ANY_ACCOUNT` selector)
 the server starts unauthorized and waits; `any auth login` (or any
 client POSTing `/v1/auth`) generates (`no flags`), restores
 (`--mnemonic*`) or selects (`--account`) the account and boots the SDK
-in place. `any auth status` shows the authorization state plus every
-account found in the data dir.
+in place. `any auth status` shows the authorization state, the
+ownership mode with its capability bits, and every account found in
+the data dir.
+
+`--mode managed` starts a host-owned server (`02-server.md` § Modes):
+it never resolves an account from disk, keeps no wallet (the phrase
+arrives over `POST /v1/auth` on every boot, the device key is cached
+per account), and prints its control token as the second stdout line
+(`CONTROL_TOKEN <hex>`). Driving one from the CLI needs that token —
+`--control-token` / `ANY_CONTROL_TOKEN` — on `auth login`, `auth
+logout` and `auth login --replace` (switch to another account in
+place). A standalone server refuses all three operations.
+
+`any stop` sends no HTTP: it finds the server serving the data dir's
+account by its held instance lock, sends it `SIGTERM` and waits for the
+lock to be released — so it works against a wedged server, one on an
+ephemeral port, and a managed one alike. With several accounts running
+under one root pick one with `--account`; an unauthorized standalone
+server holds no account lock — stop it with Ctrl-C. `POST /v1/shutdown`
+is the managed host's path, refused on a standalone server.
 
 ### Account
 
@@ -592,7 +612,11 @@ every change, so don't poll it in a tight loop.
 ## Global flags
 
 ```
---addr <host:port>     # default 127.0.0.1:7001 — where the server is
+--addr <host:port>     # where the server is; default: the address the running
+                       # server recorded (<account-dir>/server.addr, resolved
+                       # like `any run` resolves the account), else 127.0.0.1:7001
+--control-token <hex>  # managed server's control token (or ANY_CONTROL_TOKEN);
+                       # sent as X-Any-Control-Token on every request
 --timeout <duration>   # request timeout; default 30s
 --verbose              # log HTTP request/response to stderr
 ```

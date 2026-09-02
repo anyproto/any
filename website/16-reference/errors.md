@@ -57,13 +57,16 @@ Panics are converted to `500 internal` with a generic message.
 | `request.unknown_field` | 400 | a top-level key outside the accepted set (`details.fields`, `details.accepted`) |
 | `request.invalid_field` | 400 | a field value the endpoint refuses (bad identity, dataset outside an allowlist, …) |
 | `auth.required` | 401 | server unauthorized — `POST /v1/auth` first |
-| `auth.already_authorized` | 409 | engine already booted; restart to switch accounts |
+| `auth.already_authorized` | 409 | `{}` while an account runs — a fresh account is never minted in place |
+| `auth.not_managed` | 403 | standalone server: a different account on `POST`, or `DELETE` — switching means a restart |
+| `auth.account_mismatch` | 409 | managed server runs another account; pass `replace: true` to switch |
 | `auth.bad_mnemonic` | 400 | BIP-39 validation failed |
 | `auth.mnemonic_mismatch` | 409 | wallet on disk disagrees with the phrase/index |
 | `auth.account_not_found` | 404 | `accountId` has no local wallet |
 | `auth.account_in_use` | 409 | another process holds the account's instance lock |
-| `auth.passkey_required` | 400 | encrypted wallet, no passkey provided |
-| `auth.passkey_wrong` | 400 | passkey rejected |
+| `auth.passkey_required` | 400 | encrypted wallet; no or wrong passkey in the configured env var |
+| `control.forbidden` | 403 | managed server: control token (`X-Any-Control-Token`) missing or wrong |
+| `shutdown.not_managed` | 403 | standalone server refuses `POST /v1/shutdown`; use `any stop` or a signal |
 
 ### Spaces, invites, objects
 

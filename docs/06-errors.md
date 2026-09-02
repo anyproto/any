@@ -34,8 +34,12 @@ Every error response — regardless of status code — has the same body:
 
 No caller authentication in v1 (loopback is the trust boundary). The
 single 401 is `auth.required` — the server itself has no account
-booted yet (see `03-api.md` § Auth); 403 appears only for author-only
-data rules (`chat.not_author`).
+booted yet (see `03-api.md` § Auth). 403 covers author-only data rules
+(`chat.not_author`) and the **ownership gates** of `02-server.md`
+§ Modes: an operation the server's mode refuses (`auth.not_managed`,
+`shutdown.not_managed`) or a managed control operation without the
+host's token (`control.forbidden`). Those express ownership, not
+authentication.
 
 5xx responses log at `error` level on the server with the full stack.
 Clients receive the sanitized body only.
@@ -52,13 +56,16 @@ request.missing_field            # required field absent
 request.unknown_field            # 400 — a top-level body key outside the endpoint's accepted set (details.fields, details.accepted); message enumerates the accepted fields and, where one exists, the right home for the value (e.g. object properties → initialProperties, type properties → POST …/types/:typeId/properties). The strict endpoints are the ones whose request schemas carry additionalProperties: false in /v1/openapi.json.
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
-auth.already_authorized          # 409 — engine already booted; restart to switch
+auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place
+auth.not_managed                 # 403 — standalone server: a different account on POST, or DELETE (switching = restart)
+auth.account_mismatch            # 409 — managed server runs another account; pass replace:true to switch
 auth.bad_mnemonic                # 400 — BIP-39 validation failed
 auth.mnemonic_mismatch           # 409 — wallet on disk disagrees with the phrase/index
 auth.account_not_found           # 404 — accountId has no local wallet
 auth.account_in_use              # 409 — another process holds the account's instance lock
-auth.passkey_required            # wallet encrypted, no passkey provided
-auth.passkey_wrong
+auth.passkey_required            # 400 — wallet encrypted; no or wrong passkey in the configured env
+control.forbidden                # 403 — managed server: control token (X-Any-Control-Token) missing or wrong
+shutdown.not_managed             # 403 — standalone server refuses POST /v1/shutdown; use `any stop` or a signal
 
 space.not_found
 space.exists                     # create conflict

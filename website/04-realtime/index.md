@@ -25,6 +25,7 @@ Every stream opens with `event: ready`, emits `: keepalive` comments every ~25 s
 | Reason | Meaning |
 |---|---|
 | `server_shutdown` | the server is exiting (signal or `POST /v1/shutdown`) |
+| `deauthorized` | the account was torn down in place (`DELETE /v1/auth` or an account switch); the server stays up — re-read `GET /v1/auth` first |
 | `sdk_closed` | the underlying subscription was released (space or engine closed) |
 | `overflow` | the subscriber fell behind and its mailbox filled |
 | `drifted` | too much of the held window left without replacement (query/subscribe only) |
