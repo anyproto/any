@@ -37,7 +37,7 @@ func (g genChanges) Subscribe(func(space.ObjectChange)) func()   { return func()
 func genWorker(t *testing.T, gen string, max uint64) *spaceWorker {
 	t.Helper()
 	ctx := context.Background()
-	st, err := OpenStoreInMemory(ctx, 0, false)
+	st, err := OpenStoreInMemory(ctx, 0, false, 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close() })
 	ix := New(nil, index.NewRegistry(), st, Options{})

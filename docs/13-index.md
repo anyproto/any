@@ -374,8 +374,11 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
   layout map lives on `indexSchemaVersion` in `internal/indexer/
   store.go`; a mismatched DB errors at boot with a remove-to-rebuild
   message, no migration — the index is derived state and re-indexes
-  from the next change) and the vector dimension — changing the
-  embedder dimension is the same kind of boot error.
+  from the next change), the vector dimension — changing the
+  embedder dimension is the same kind of boot error — and the **chunk
+  target** the docs were written with, since it decides every doc id and
+  every doc's text (a DB written before the pin carries none and is
+  adopted).
 
 ### Re-index triggers — per-space worker boot
 

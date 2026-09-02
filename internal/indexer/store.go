@@ -70,6 +70,14 @@ type Store struct {
 	// field (editor heading / method sig / memory context) over `data`.
 	ftsB, ftsK1, titleWeight float64
 
+	// chunkRunes is the split target the docs in this DB were written
+	// with (chunk.go). Pinned in `_meta`: it decides every doc id and
+	// every doc's text, so changing it silently would leave existing
+	// records on their old boundaries — same text ranking differently by
+	// when it was last written, with stale trailing chunks under the old
+	// scheme.
+	chunkRunes int
+
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
@@ -122,10 +130,12 @@ type DocUpsert struct {
 
 // OpenStore opens (or creates) the index DB at path. dim is the
 // configured vector dimension; 0 means "unknown — learn it from the
-// first successful embedding" (EnsureDim). embedderConfigured turns on
+// first successful embedding" (EnsureDim). chunkRunes is the chunk
+// target the docs will be written with (0 = DefaultChunkRunes), pinned
+// in `_meta` like dim. embedderConfigured turns on
 // pending-marking even before the dimension is known. A dim change
 // against an existing DB is a hard error — the index must be rebuilt.
-func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool) (*Store, error) {
+func OpenStore(ctx context.Context, path string, dim int, embedderConfigured bool, chunkRunes int) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("indexer: create index dir: %w", err)
 	}
@@ -133,7 +143,7 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 	if err != nil {
 		return nil, fmt.Errorf("indexer: open index db: %w", err)
 	}
-	s := newStore(db, path, dim, embedderConfigured)
+	s := newStore(db, path, dim, embedderConfigured, chunkRunes)
 	if err := s.checkMeta(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -142,12 +152,12 @@ func OpenStore(ctx context.Context, path string, dim int, embedderConfigured boo
 }
 
 // OpenStoreInMemory opens a throwaway in-memory store (tests).
-func OpenStoreInMemory(ctx context.Context, dim int, embedderConfigured bool) (*Store, error) {
+func OpenStoreInMemory(ctx context.Context, dim int, embedderConfigured bool, chunkRunes int) (*Store, error) {
 	db, err := anystore.Open(ctx, "", &anystore.Config{InMemory: true})
 	if err != nil {
 		return nil, err
 	}
-	s := newStore(db, "", dim, embedderConfigured)
+	s := newStore(db, "", dim, embedderConfigured, chunkRunes)
 	if err := s.checkMeta(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -155,11 +165,15 @@ func OpenStoreInMemory(ctx context.Context, dim int, embedderConfigured bool) (*
 	return s, nil
 }
 
-func newStore(db anystore.DB, path string, dim int, embedderConfigured bool) *Store {
+func newStore(db anystore.DB, path string, dim int, embedderConfigured bool, chunkRunes int) *Store {
+	if chunkRunes <= 0 {
+		chunkRunes = DefaultChunkRunes
+	}
 	return &Store{
-		db:   db,
-		path: path,
-		dim:  dim,
+		db:         db,
+		path:       path,
+		dim:        dim,
+		chunkRunes: chunkRunes,
 		// capVector gates the whole vector pipeline at build time: without
 		// it, nothing is ever marked pending so the embed loop and vector
 		// index stay dormant even if a dim is configured.
@@ -195,13 +209,19 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	}
 	doc, err := coll.FindId(ctx, metaDocId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
-		return s.writeMetaDim(ctx, s.dim)
+		return s.writeMeta(ctx, s.dim)
 	}
 	if err != nil {
 		return err
 	}
 	if got := doc.Value().GetInt("schema"); got != indexSchemaVersion {
 		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, got, indexSchemaVersion, filepath.Dir(s.path))
+	}
+	// 0 = written before the chunk target was pinned; the docs are on
+	// whatever the build of the day used, so adopt rather than refuse and
+	// let the next write record it.
+	if got := doc.Value().GetInt("chunkRunes"); got != 0 && got != s.chunkRunes {
+		return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.chunkRunes, filepath.Dir(s.path))
 	}
 	got := doc.Value().GetInt("dim")
 	switch {
@@ -211,13 +231,13 @@ func (s *Store) checkMeta(ctx context.Context) error {
 		s.dim = got // adopt the dimension this DB was built with
 		return nil
 	case got == 0:
-		return s.writeMetaDim(ctx, s.dim) // first run with a known dim
+		return s.writeMeta(ctx, s.dim) // first run with a known dim
 	default:
 		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
 	}
 }
 
-func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
+func (s *Store) writeMeta(ctx context.Context, dim int) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
@@ -227,6 +247,7 @@ func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
 	meta.Set("id", arena.NewString(metaDocId))
 	meta.Set("schema", arena.NewNumberInt(indexSchemaVersion))
 	meta.Set("dim", arena.NewNumberInt(dim))
+	meta.Set("chunkRunes", arena.NewNumberInt(s.chunkRunes))
 	return coll.UpsertOne(ctx, meta)
 }
 
@@ -250,7 +271,7 @@ func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	case s.dim != 0:
 		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
 	}
-	if err := s.writeMetaDim(ctx, dim); err != nil {
+	if err := s.writeMeta(ctx, dim); err != nil {
 		return err
 	}
 	s.dim = dim

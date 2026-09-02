@@ -17,7 +17,7 @@ func entry(scope, objectId, dataset, recordId, data string, seq uint64) index.In
 
 func mustStore(t *testing.T, dim int) *Store {
 	t.Helper()
-	s, err := OpenStoreInMemory(context.Background(), dim, dim > 0)
+	s, err := OpenStoreInMemory(context.Background(), dim, dim > 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestStore_LazyDim(t *testing.T) {
 	ctx := context.Background()
 	// Unknown dim + embedder configured: pending is marked, vector
 	// search degrades to empty instead of erroring.
-	s, err := OpenStoreInMemory(ctx, 0, true)
+	s, err := OpenStoreInMemory(ctx, 0, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +460,7 @@ func TestStore_SchemaVersionMismatch(t *testing.T) {
 	s := mustStore(t, 0)
 	// Rewrite _meta as an older schema, then re-run the open check —
 	// the store must refuse with an actionable message.
-	if err := s.writeMetaDim(ctx, 0); err != nil {
+	if err := s.writeMeta(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	coll, err := s.db.Collection(ctx, cursorsCollection)

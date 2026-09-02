@@ -172,7 +172,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil, 0)
 	if err != nil {
 		return nil, err
 	}

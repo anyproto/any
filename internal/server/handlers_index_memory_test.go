@@ -66,7 +66,7 @@ func TestIndexer_ParallelEmbed(t *testing.T) {
 	ctx := context.Background()
 
 	emb := &concEmbedder{fakeEmbedder: fakeEmbedder{dim: 16}}
-	st, err := indexer.OpenStoreInMemory(ctx, emb.dim, true)
+	st, err := indexer.OpenStoreInMemory(ctx, emb.dim, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

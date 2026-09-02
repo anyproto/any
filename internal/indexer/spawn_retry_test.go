@@ -57,7 +57,7 @@ func (stubChanges) Generation(context.Context) (string, error) { return "gen-1",
 
 func newRetryTestIndexer(t *testing.T, fs *fakeSpaces) *Indexer {
 	t.Helper()
-	st, err := OpenStoreInMemory(context.Background(), 0, false)
+	st, err := OpenStoreInMemory(context.Background(), 0, false, 0)
 	require.NoError(t, err)
 	ix := New(nil, index.NewRegistry(), st, Options{})
 	ix.spacesAPI = fs

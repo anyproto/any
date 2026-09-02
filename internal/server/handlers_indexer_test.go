@@ -111,7 +111,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	}
 
 	// First indexer life: index the head, then shut down.
-	st1, err := indexer.OpenStore(ctx, dbPath, 0, false)
+	st1, err := indexer.OpenStore(ctx, dbPath, 0, false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 		`{"text":"tail message during downtime"}`, http.StatusCreated)
 
 	// Second life over the same DB.
-	st2, err := indexer.OpenStore(ctx, dbPath, 0, false)
+	st2, err := indexer.OpenStore(ctx, dbPath, 0, false, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestIndexer_EditorReconcileEmbedReuse(t *testing.T) {
 	ctx := context.Background()
 
 	emb := &countingEmbedder{fakeEmbedder: fakeEmbedder{dim: 16}}
-	st, err := indexer.OpenStoreInMemory(ctx, emb.dim, true)
+	st, err := indexer.OpenStoreInMemory(ctx, emb.dim, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestIndexer_EmbedderOutage(t *testing.T) {
 	emb := &flakyEmbedder{fakeEmbedder: fakeEmbedder{dim: 16}}
 	emb.down.Store(true) // down from the very start — boot must not care
 
-	st, err := indexer.OpenStoreInMemory(ctx, 0, true)
+	st, err := indexer.OpenStoreInMemory(ctx, 0, true, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
