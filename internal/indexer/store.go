@@ -218,23 +218,27 @@ func (s *Store) checkMeta(ctx context.Context) error {
 		return fmt.Errorf("%w: index db schema v%d, this build needs v%d — remove %s to rebuild (re-indexes on next change, see docs/13-index.md)", ErrIndexRebuildRequired, got, indexSchemaVersion, filepath.Dir(s.path))
 	}
 	// 0 = written before the chunk target was pinned; the docs are on
-	// whatever the build of the day used, so adopt rather than refuse and
-	// let the next write record it.
-	if got := doc.Value().GetInt("chunkRunes"); got != 0 && got != s.chunkRunes {
-		return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.chunkRunes, filepath.Dir(s.path))
+	// whatever the build of the day used, so adopt rather than refuse.
+	storedChunk := doc.Value().GetInt("chunkRunes")
+	if storedChunk != 0 && storedChunk != s.chunkRunes {
+		return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, storedChunk, s.chunkRunes, filepath.Dir(s.path))
 	}
 	got := doc.Value().GetInt("dim")
 	switch {
-	case got == s.dim:
-		return nil
+	case got == s.dim, got == 0:
+		// Same dim, or a db with none yet — the write below records both.
 	case s.dim == 0:
 		s.dim = got // adopt the dimension this DB was built with
-		return nil
-	case got == 0:
-		return s.writeMeta(ctx, s.dim) // first run with a known dim
 	default:
 		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
 	}
+	if storedChunk == 0 || got != s.dim {
+		// Pin what this db is actually on. An adopted db must be written
+		// too, or its unpinned chunk target would keep the check disabled
+		// forever — nothing else writes this row.
+		return s.writeMeta(ctx, s.dim)
+	}
+	return nil
 }
 
 func (s *Store) writeMeta(ctx context.Context, dim int) error {
@@ -545,11 +549,12 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 
+	gone := newRemovals(dels, prefixDels)
 	arena := &anyenc.Arena{}
 	for _, up := range ups {
 		e := up.Entry
 		id := chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)
-		if removed(id, dels, prefixDels) {
+		if gone.covers(id) {
 			continue
 		}
 		doc := arena.NewObject()
@@ -582,23 +587,67 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 	return tx.Commit()
 }
 
-// removed reports whether a doc id falls inside one of the page's
-// removals: a structural prefix (whole object, or one of its datasets) or
-// a record range — the base doc plus its chunk suffixes, the same span
-// the delete loop above covers. Both lists hold a handful of entries per
-// page, so a linear scan beats building a set.
-func removed(id string, dels, prefixDels []string) bool {
-	for _, p := range prefixDels {
-		if strings.HasPrefix(id, p) {
-			return true
+// removals indexes one page's deletions so an upsert can be tested in
+// constant time. A page carries thousands of each on the cold path — the
+// prop chunker yields an entry per catalog property per object, and every
+// valueless one is a record delete — so a scan per upsert would be
+// quadratic.
+type removals struct {
+	records  map[string]struct{} // base (or chunk) ids; a base covers its chunks
+	prefixes map[string]struct{} // structural prefixes, ':'-terminated
+}
+
+func newRemovals(dels, prefixDels []string) removals {
+	r := removals{}
+	if len(dels) > 0 {
+		r.records = make(map[string]struct{}, len(dels))
+		for _, d := range dels {
+			r.records[d] = struct{}{}
 		}
 	}
-	for _, d := range dels {
-		if id == d || strings.HasPrefix(id, d+chunkSep) {
-			return true
+	if len(prefixDels) > 0 {
+		r.prefixes = make(map[string]struct{}, len(prefixDels))
+		for _, p := range prefixDels {
+			r.prefixes[p] = struct{}{}
 		}
 	}
-	return false
+	return r
+}
+
+// covers reports whether the page removes the doc with this id: a record
+// range (the base doc plus its chunk suffixes) or a structural prefix.
+// collectObject only ever queues prefixes of two shapes — the whole
+// object (`obj:`) or one of its datasets (`obj:dataset:`) — so both
+// candidates are derived from the id instead of scanned for. A doc id is
+// `objectId:dataset:recordId`, and only the recordId tail may itself
+// contain ':'.
+func (r removals) covers(id string) bool {
+	if len(r.records) > 0 {
+		if _, ok := r.records[id]; ok {
+			return true
+		}
+		if base := recordBase(id); base != id {
+			if _, ok := r.records[base]; ok {
+				return true
+			}
+		}
+	}
+	if len(r.prefixes) == 0 {
+		return false
+	}
+	obj := strings.IndexByte(id, ':')
+	if obj < 0 {
+		return false
+	}
+	if _, ok := r.prefixes[id[:obj+1]]; ok {
+		return true
+	}
+	ds := strings.IndexByte(id[obj+1:], ':')
+	if ds < 0 {
+		return false
+	}
+	_, ok := r.prefixes[id[:obj+1+ds+1]]
+	return ok
 }
 
 // minPropEmbedBytes gates the vector leg for prop-dataset docs: entries

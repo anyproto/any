@@ -172,7 +172,11 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil, 0)
+	// One chunk target for the store's `_meta` pin and the chunker, so the
+	// pin describes the boundaries the docs are actually written on. 0 =
+	// the build default; a config knob assigns this once and both follow.
+	chunkRunes := 0
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil, chunkRunes)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +206,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	}
 	return indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
+		ChunkRunes:        chunkRunes,
 		EmbedBatch:        cfg.EmbedBatch,
 		EmbedConcurrency:  embedConc,
 		QueryEmbedTimeout: queryEmbedTimeout,

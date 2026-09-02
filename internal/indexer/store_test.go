@@ -104,16 +104,38 @@ func TestStore_RemovalWinsOverUpsertInSamePage(t *testing.T) {
 		t.Fatalf("hits = %+v, want only obj2 (obj1 upserts must not survive its eviction)", hits)
 	}
 
-	// A record-level delete covers the base doc and its chunk suffixes.
+	// A dataset-level prefix (type detach) covers that dataset only.
 	err = s.Apply(ctx, sp, []DocUpsert{
-		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha golf", 4)},
-		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha hotel", 4), Chunk: 2},
-	}, []string{"obj2:chat_messages:m3"}, nil)
+		{Entry: entry("chat", "obj2", "chat_messages", "m4", "alpha india", 4)},
+		{Entry: entry("basic", "obj2", "editor_blocks", "b9", "alpha juliett", 4)},
+	}, nil, []string{"obj2:chat_messages:"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10); err != nil || len(hits) != 0 {
-		t.Fatalf("after record delete, hits = %+v, %v — want none", hits, err)
+	// The prefix takes the stored m3 with it, and m4's upsert never lands;
+	// the other dataset's upsert in the same page is untouched.
+	hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "b9" {
+		t.Fatalf("hits = %+v, want only b9 (obj2's chat dataset evicted)", hits)
+	}
+
+	// A record-level delete covers the base doc and its chunk suffixes.
+	err = s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj2", "chat_messages", "m5", "alpha golf", 5)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m5", "alpha hotel", 5), Chunk: 2},
+	}, []string{"obj2:chat_messages:m5"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "b9" {
+		t.Fatalf("after record delete, hits = %+v, want only b9", hits)
 	}
 }
 

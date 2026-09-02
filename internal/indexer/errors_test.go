@@ -108,19 +108,32 @@ func TestOpenStore_ChunkRunesMismatchIsRebuildRequired(t *testing.T) {
 
 // A db from before the pin carries no chunkRunes; it is adopted rather
 // than refused — the docs are on whatever the build of the day used, and
-// refusing would be a rebuild nobody asked for.
-func TestOpenStore_UnpinnedChunkRunesIsAdopted(t *testing.T) {
+// refusing would be a rebuild nobody asked for. Adoption must WRITE the
+// pin: nothing else writes that row, so leaving it unpinned would keep
+// the check disabled for that db forever.
+func TestOpenStore_UnpinnedChunkRunesIsAdoptedAndPinned(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "index.db")
 
 	seedSchema(t, ctx, path, indexSchemaVersion)
 
-	st, err := OpenStore(ctx, path, 0, false, 0)
+	st, err := OpenStore(ctx, path, 0, false, 1500)
 	if err != nil {
 		t.Fatalf("OpenStore on a db with no pinned chunk target: %v", err)
 	}
 	if err := st.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+
+	// The adopted target is now on record, so a later build that chunks
+	// differently is refused instead of silently mixing boundaries.
+	st, err = OpenStore(ctx, path, 0, false, 900)
+	if err == nil {
+		st.Close()
+		t.Fatal("adoption left the chunk target unpinned — a differing target was accepted")
+	}
+	if !errors.Is(err, ErrIndexRebuildRequired) {
+		t.Fatalf("OpenStore err = %v, want it to wrap ErrIndexRebuildRequired", err)
 	}
 }
 

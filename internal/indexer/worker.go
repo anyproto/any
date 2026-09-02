@@ -492,7 +492,11 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	}
 	bases := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.Data != "" {
+		// Same id guard planDocs applies: a record id carrying the chunk
+		// separator produces a base byte-identical to a legitimate
+		// record's chunk doc, which would pull that doc into `stored` and
+		// get it deleted as vanished (planDocs never re-lists it).
+		if e.Data != "" && indexableRecordId(e.RecordId) {
 			bases = append(bases, docId(e.ObjectId, e.Dataset, e.RecordId))
 		}
 	}
