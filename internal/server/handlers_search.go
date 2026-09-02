@@ -79,6 +79,10 @@ func (d *deps) search(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "index.no_embedder",
 			"vector search needs an embedder configured (index.embedder)", nil)
 	}
+	if fts, _ := indexer.CompiledCaps(); termFilterUnsupported(fts, req) {
+		return writeError(c, http.StatusConflict, "index.terms_unsupported",
+			"this build has no full-text index, so require/exclude cannot be enforced", nil)
+	}
 
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -94,4 +98,15 @@ func (d *deps) search(c echo.Context) error {
 		return writeError(c, http.StatusInternalServerError, "internal", "search failed", nil)
 	}
 	return c.JSON(http.StatusOK, res)
+}
+
+// termFilterUnsupported reports whether the request carries term
+// constraints this build cannot enforce. `require` / `exclude` bind every
+// hit in every mode, and both legs enforce them through the FTS index —
+// the lexical leg as query clauses, the vector leg as a post-filter
+// (Store.FilterTerms). Without that index the post-filter passes hits
+// through unchanged, so a vector-only build would answer with the
+// constraint silently ignored; refusing is the honest answer.
+func termFilterUnsupported(ftsCompiled bool, req *api.SearchRequest) bool {
+	return !ftsCompiled && (len(req.Require) > 0 || len(req.Exclude) > 0)
 }

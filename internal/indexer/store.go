@@ -877,8 +877,10 @@ func (c *ftsCursor) Close() error {
 // cheaper (any-store v2.0.1 — before it, the $text predicate always
 // drove and this cost the term's whole posting list). The analyzer
 // decides "contains", so a phrase or prefix term behaves exactly as it
-// does in the lexical leg. Nothing to enforce (no terms, no hits, FTS
-// compiled out) returns hits unchanged.
+// does in the lexical leg. Nothing to enforce (no terms, no hits)
+// returns hits unchanged, and so does a build with no FTS index — which
+// is why callers must refuse a request carrying terms in that build
+// (handlers_search.go), never treat the pass-through as enforcement.
 //
 // Negated clauses only tombstone docs a positive clause already scored,
 // so an exclude-only filter is run inverted: match the excluded terms as
