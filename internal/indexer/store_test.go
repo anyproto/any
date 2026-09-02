@@ -77,6 +77,46 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 	}
 }
 
+// A removal and an upsert of the same doc can meet in one page when
+// collectObject finds an object tombstoned after earlier chunkers already
+// queued its entries (SYN-198). The removal wins — otherwise the upsert
+// resurrects docs of an object nothing will ever re-stream.
+func TestStore_RemovalWinsOverUpsertInSamePage(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 0)
+	const sp = "space1"
+
+	// obj1 is evicted in the same page that upserts two of its datasets;
+	// obj2's upsert is untouched by the unrelated prefix.
+	err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj1", "chat_messages", "m1", "alpha bravo", 1)},
+		{Entry: entry("basic", "obj1", "editor_blocks", "b1", "alpha echo", 2)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha delta", 3)},
+	}, nil, []string{"obj1:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].ObjectId != "obj2" {
+		t.Fatalf("hits = %+v, want only obj2 (obj1 upserts must not survive its eviction)", hits)
+	}
+
+	// A record-level delete covers the base doc and its chunk suffixes.
+	err = s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha golf", 4)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha hotel", 4), Chunk: 2},
+	}, []string{"obj2:chat_messages:m3"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10); err != nil || len(hits) != 0 {
+		t.Fatalf("after record delete, hits = %+v, %v — want none", hits, err)
+	}
+}
+
 func TestStore_PrefixDeleteAndDropSpace(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 0)

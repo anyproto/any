@@ -406,7 +406,10 @@ The single operation is `advance`: page through
    `ChunksSince(cursor)` — `Data == ""` → delete the doc, else upsert.
 3. **One write transaction per page** (prefix deletes → record deletes
    → upserts), then persist the cursor (the page's max `AddSeq`) and
-   loop. Eviction rides the same addSeq window as content — no
+   loop. A removal wins over an upsert of the same doc in one page: an
+   object found tombstoned mid-collect evicts entries earlier chunkers
+   already queued, which would otherwise resurrect docs nothing
+   re-streams. Eviction rides the same addSeq window as content — no
    out-of-band purge can race the cursor. Crash-safe: re-applying a
    page is idempotent. Text-bearing upserts land marked `pending` —
    **FTS is searchable immediately**, never waiting on the embedder.

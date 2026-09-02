@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -477,6 +478,12 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 // exactly it; missing ids are a no-op) — then upserts (full-doc replace
 // — a re-written doc goes back to pending until re-embedded). Atomic
 // with the page, so eviction can never race the cursor.
+//
+// A removal WINS over an upsert of the same doc in one page: collectObject
+// appends an object-wide prefix delete mid-loop when it finds the object
+// tombstoned, by which point earlier chunkers have already queued upserts
+// for it. Writing those would resurrect docs of an object nothing will
+// ever re-stream, so they are dropped rather than ordered around.
 func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
 		return nil
@@ -504,11 +511,25 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 
+	for _, id := range dels {
+		idRange := query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
+		}
+		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
+			return err
+		}
+	}
+
 	arena := &anyenc.Arena{}
 	for _, up := range ups {
 		e := up.Entry
+		id := chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)
+		if removed(id, dels, prefixDels) {
+			continue
+		}
 		doc := arena.NewObject()
-		doc.Set("id", arena.NewString(chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)))
+		doc.Set("id", arena.NewString(id))
 		doc.Set("scope", arena.NewString(e.Scope))
 		doc.Set("objectId", arena.NewString(e.ObjectId))
 		doc.Set("dataset", arena.NewString(e.Dataset))
@@ -534,16 +555,26 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 			return err
 		}
 	}
-	for _, id := range dels {
-		idRange := query.And{
-			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
-			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
-		}
-		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
-			return err
+	return tx.Commit()
+}
+
+// removed reports whether a doc id falls inside one of the page's
+// removals: a structural prefix (whole object, or one of its datasets) or
+// a record range — the base doc plus its chunk suffixes, the same span
+// the delete loop above covers. Both lists hold a handful of entries per
+// page, so a linear scan beats building a set.
+func removed(id string, dels, prefixDels []string) bool {
+	for _, p := range prefixDels {
+		if strings.HasPrefix(id, p) {
+			return true
 		}
 	}
-	return tx.Commit()
+	for _, d := range dels {
+		if id == d || strings.HasPrefix(id, d+chunkSep) {
+			return true
+		}
+	}
+	return false
 }
 
 // minPropEmbedBytes gates the vector leg for prop-dataset docs: entries
