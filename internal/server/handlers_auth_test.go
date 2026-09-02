@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -237,6 +239,73 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 	}
 	if env.Error.Code != "auth.already_authorized" {
 		t.Fatalf("second POST code = %q", env.Error.Code)
+	}
+}
+
+// TestAuth_ManagedBoot covers host-owned custody end to end: generate
+// leaves no wallet on disk and a 0600 device.key beside the SDK data,
+// the status lists no accounts, and a later login with the phrase
+// lands on the same account AND the same peerId (the cached device
+// key, not a fresh one). Selecting by id has nothing to select.
+func TestAuth_ManagedBoot(t *testing.T) {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	d := newUnauthorizedDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{"accountId":"Azz"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("managed select: want 400, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/auth", `{}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("managed generate: %d %s", rec.Code, rec.Body.String())
+	}
+	var first api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.AccountId == "" || !first.Created || first.Mnemonic == "" {
+		t.Fatalf("generate reply: %+v", first)
+	}
+	peer := d.sdk.PeerId()
+
+	dir := config.AccountDir(d.root, first.AccountId)
+	if _, err := os.Stat(config.WalletPath(config.Config{}, dir)); !os.IsNotExist(err) {
+		t.Fatalf("managed boot must not write a wallet file (stat err %v)", err)
+	}
+	if _, err := os.Stat(deviceKeyPath(dir)); err != nil {
+		t.Fatalf("managed boot must cache the device key: %v", err)
+	}
+
+	rec = doJSON(t, e, http.MethodGet, "/v1/auth", "")
+	var st api.AuthStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if !st.Authorized || st.AccountId != first.AccountId || len(st.Accounts) != 0 {
+		t.Fatalf("managed status after boot: %+v", st)
+	}
+
+	d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedDeauthorized)
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(first.Mnemonic)+`}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("managed restore: %d %s", rec.Code, rec.Body.String())
+	}
+	var second api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	if second.AccountId != first.AccountId || second.Created || second.Mnemonic != "" {
+		t.Fatalf("restore reply: %+v", second)
+	}
+	if got := d.sdk.PeerId(); got != peer {
+		t.Fatalf("peerId changed across logins: %s → %s (device key re-minted)", peer, got)
 	}
 }
 

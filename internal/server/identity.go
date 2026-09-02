@@ -16,9 +16,11 @@ type Identity struct {
 	// learned by opening the wallet (root wallet / explicit override);
 	// when non-empty the caller verifies the derived id against it.
 	Account string
-	// Dir holds this account's server.pid, sdk/ and index/.
+	// Dir holds this account's server.pid, sdk/ and index/ — and, under
+	// managed custody, the cached device.key.
 	Dir string
-	// WalletPath is the wallet file to open.
+	// WalletPath is the wallet file to open. Empty under managed
+	// custody, where the account key never touches disk.
 	WalletPath string
 }
 

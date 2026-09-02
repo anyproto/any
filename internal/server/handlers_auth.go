@@ -118,6 +118,12 @@ func (d *deps) authorize(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"index applies only to mnemonic", nil)
 	}
+	if d.cfg.Managed() && req.AccountId != "" {
+		// A managed server holds no wallets, so there is nothing to
+		// select by id — the host supplies the phrase on every boot.
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"managed server keeps no local wallets — supply the mnemonic", nil)
+	}
 	if d.ready.Load() {
 		return writeError(c, http.StatusConflict, "auth.already_authorized",
 			"server already runs account "+d.accountID(), nil)
@@ -125,8 +131,9 @@ func (d *deps) authorize(c echo.Context) error {
 
 	var (
 		identity  *Identity
-		seed      walletSeed // mnemonic + index passed through to wallet creation
-		generated string     // fresh mnemonic to return once
+		open      credential
+		created   bool   // no local state for this account before the call
+		generated string // fresh mnemonic to return once
 	)
 	switch {
 	case req.Mnemonic != "":
@@ -138,7 +145,7 @@ func (d *deps) authorize(c echo.Context) error {
 		if err != nil {
 			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
 		}
-		identity, seed = d.identityForAccount(c, id), walletSeed{mnemonic: req.Mnemonic, index: idx}
+		identity, open, created = d.credentialFor(c, id, req.Mnemonic, idx)
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -146,6 +153,7 @@ func (d *deps) authorize(c echo.Context) error {
 			return writeError(c, http.StatusNotFound, "auth.account_not_found",
 				"no local wallet for account "+req.AccountId, nil)
 		}
+		open = fileCredential(d.cfg, identity.WalletPath, walletSeed{})
 
 	default:
 		m, err := auth.GenerateMnemonic()
@@ -158,15 +166,11 @@ func (d *deps) authorize(c echo.Context) error {
 			authLog.Error("derive account id", zap.Error(err))
 			return writeError(c, http.StatusInternalServerError, "internal", "derive account id", nil)
 		}
-		dir := config.AccountDir(d.root, id)
-		identity = &Identity{Account: id, Dir: dir, WalletPath: config.WalletPath(config.Config{}, dir)}
-		seed, generated = walletSeed{mnemonic: m, index: auth.DefaultAccountIndex}, m
+		identity, open, created = d.credentialFor(c, id, m, auth.DefaultAccountIndex)
+		generated = m
 	}
 
-	_, statErr := os.Stat(identity.WalletPath)
-	created := os.IsNotExist(statErr)
-
-	eng, err := d.bootAccount(identity, fileCredential(d.cfg, identity.WalletPath, seed))
+	eng, err := d.bootAccount(identity, open)
 	if err != nil {
 		return d.authBootError(c, err)
 	}
@@ -175,6 +179,22 @@ func (d *deps) authorize(c echo.Context) error {
 		Created:   created,
 		Mnemonic:  generated,
 	})
+}
+
+// credentialFor resolves where an account derived from a phrase lives
+// and how its keys open, by mode. Managed: <root>/<id>/ with the
+// account key held in memory for this boot and the device key cached
+// in the dir (created = no cache yet, i.e. first login on this
+// install). Standalone: the wallet file (created = none on disk yet).
+func (d *deps) credentialFor(c echo.Context, id, mnemonic string, index uint32) (*Identity, credential, bool) {
+	if d.cfg.Managed() {
+		dir := config.AccountDir(d.root, id)
+		_, err := os.Stat(deviceKeyPath(dir))
+		return &Identity{Account: id, Dir: dir}, managedCredential(dir, mnemonic, index), os.IsNotExist(err)
+	}
+	identity := d.identityForAccount(c, id)
+	_, err := os.Stat(identity.WalletPath)
+	return identity, fileCredential(d.cfg, identity.WalletPath, walletSeed{mnemonic: mnemonic, index: index}), os.IsNotExist(err)
 }
 
 // identityForAccount places an account id in the root: its per-account
