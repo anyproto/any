@@ -809,7 +809,8 @@ into the chunk's indexed text and `dataTotal` that text's rune length
 — `data` is the whole chunk iff `dataOffset` is 0 and its rune length
 equals `dataTotal`. `maxData: -1` returns the whole chunk; `maxData <
 -1` is `400 request.invalid_field`. A reply is bounded by `limit ×
-(1 + passages) × maxData` runes of text. The full record is one
+(1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
+place of `maxData` when it is -1). The full record is one
 dataset query away (`docs/08-clients.md` § 6).
 
 `require` / `exclude` are a contract on every returned hit, whatever

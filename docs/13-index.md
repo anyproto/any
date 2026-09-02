@@ -706,7 +706,7 @@ embedder's queue at once. Under `auto` the online primary gets half of
 the remaining budget so the local fallback still has time to decode. Scores are comparable only
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 [--limit N] [--mode ...] [--require T ...] [--exclude T ...]
-[--max-data N]`.
+[--max-data N] [--passages N]`.
 
 **`limit` counts records.** A hit is one `(objectId, dataset,
 recordId)`, shown through its best-ranked chunk; the other chunks of
@@ -719,12 +719,17 @@ Each leg reads a window that is at least `fetch = clamp(3·limit, 30,
 opened without `Limit` and pulled to that rule (`Store.openFTS` /
 `Indexer.ftsLeg`): any-store ranks every match before the first row
 whatever the `Limit`, and only materializes what is pulled, so the
-deeper read costs ~1 µs per row and an early `Close` is free (§ Tuning).
+deeper read costs ~1 µs per row and an early `Close` is free
+(§ Tuning).
 The vector leg has no cursor — `$knn` computes its `K` nearest up
 front — so it re-queries with `K` ×4 until covered, or until the index
 reports fewer than `K` candidates: an IVF search reaches only the
 probed cells (~4√N docs at nprobe 16), and past that no `K` or `ef`
-finds more. Fusion stays per chunk (`fuseRRF`, keyed by chunk doc id,
+finds more. Under a scope filter any-store sizes its candidate beam
+from `K` (a residual thins the beam before the cut to `K`), so a short
+round only ends the leg once a wider `K` stopped adding rows
+(`vectorStop`); rows dropped by the similarity floor end it at once,
+everything farther being noise too. Fusion stays per chunk (`fuseRRF`, keyed by chunk doc id,
 so a long record never gains rank mass from chunk count) and
 `groupHits` then collapses chunks into records scored by their best
 chunk — max, never sum. Two consequences to design against: the fused
@@ -732,7 +737,8 @@ order is reciprocal rank over those bounded windows (a record deep in
 both legs can outrank one shallow in one leg — as before), and when one
 record dominates a whole window the reply can hold fewer than `limit`
 records although the index has more. The reply is bounded by `limit ×
-(1 + passages) × maxData` runes of text. Work order in
+(1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
+place of `maxData` when it is -1). Work order in
 `Indexer.Search`: query embedding, then the vector leg, then the
 lexical cursor — no read transaction is held across the embed wait or
 another store call (an open cursor pins a reader slot, a page cache and
@@ -837,33 +843,41 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
 
 Reading past a fixed `Limit` (`BenchmarkCutoff`, file-backed, dim 256,
-one term matching ~half the corpus, Ryzen 9 9950X; `rows` = rows pulled
-before `Close`):
+one term matching ~half the corpus; medians of `-count 3 -benchtime
+100x` on an idle Ryzen 9 9950X, run-to-run spread 1–2%; `rows` = rows
+pulled before `Close`):
 
 | leg | 10k docs | 100k docs |
 |---|---|---|
-| `$text` `Limit(30)`, drained | 1.03 ms | 13.4 ms |
-| `$text` no `Limit`, closed after 30 rows | 0.99 ms | 13.3 ms |
-| `$text` no `Limit`, closed after 1000 rows | 1.73 ms | 14.7 ms |
-| `$text` no `Limit`, drained (5k / 50k rows) | 9.6 ms | 109 ms |
-| `$knn` K=30 / 120 / 480 / 1000 | 0.10 / 0.15 / 0.40 / 0.48 ms (600 rows) | 0.19 / 0.25 / 0.58 / 1.10 ms |
-| `$knn` K=1000 with a scope residual | 0.52 ms (316 rows) | 1.38 ms (633 rows) |
-| `$knn` K=1000, closed after 30 rows | 0.22 ms | 0.53 ms |
+| `$text` `Limit(30)`, drained | 1.01 ms | 13.7 ms |
+| `$text` no `Limit`, closed after 30 rows | 1.01 ms | 13.5 ms |
+| `$text` no `Limit`, closed after 300 rows | 1.26 ms | 13.9 ms |
+| `$text` no `Limit`, closed after 1000 rows | 1.79 ms | 14.8 ms |
+| `$text` no `Limit`, drained (5077 / 49835 rows) | 9.7 ms | 105 ms |
+| `$knn` K=30 / 120 / 480 / 1000 | 0.09 / 0.13 / 0.43 / 0.52 ms (600 rows at K=1000) | 0.17 / 0.22 / 0.59 / 1.15 ms |
+| `$knn` K=1000 with a scope residual | 0.53 ms (316 rows) | 1.43 ms (633 rows) |
+| `$knn` K=1000, closed after 30 rows | 0.24 ms | 0.55 ms |
 
 So a `Limit` buys nothing on the lexical leg — the BM25 accumulation
-and full sort are paid before the first row either way (7.8 MB/op at
-100k, with or without `Limit`) — and every extra row pulled costs
-~1 µs; the vector leg's reach is the probed IVF cells (K=1000 returns
-600 rows at 10k), an explicit `ef` (10000) changes nothing, and an early
-`Close` saves only the per-row fetch. An open iterator pins ~0.7 MiB
-(`$text`) / 0.2 MiB (`$knn`) and releases it all on `Close`
-(`TestIteratorEarlyCloseNoLeak`). End to end on the same corpus plus
-five 17-chunk records and one short record sharing a rare term,
-`limit 10`: fts went from 10 hits of ONE record in 0.12 ms to the six
-matching records in 0.19 ms, hybrid from 6 records in 0.23 ms to 10 in
-0.38 ms — the deeper pull is sub-millisecond. Re-measure with
+and full sort are paid before the first row either way (the same
+7.5 MB/op at 100k with or without `Limit`), and `Limit(30)` vs
+no-`Limit`-closed-at-30 are equal within the spread; each extra row
+pulled costs ~1 µs over the first thousand and ~2 µs deep into a drain
+(the page cache stops helping); the vector leg's reach is the probed
+IVF cells (K=1000 returns 600 rows at 10k docs), an explicit `ef` of
+10000 changes nothing, and an early `Close` saves only the per-row
+fetch. An open iterator pins ~0.7 MiB (`$text`) / 0.2 MiB (`$knn`) and
+releases it all on `Close` (`TestIteratorEarlyCloseNoLeak`). End to end
+on the same corpus plus five 17-chunk records and one short record
+sharing a rare term, `limit 10`: fts answered 10 hits of ONE record
+before this change and answers the six matching records now in 0.19 ms;
+hybrid answered six records before and ten now in 0.42 ms (10k) /
+0.51 ms (100k) — the deeper pull stays well inside one millisecond.
+Timings drift 2–3× when the box is busy (a local LLM server, the
+indexer's own embedder), so re-measure idle, with
 `ANY_CUTOFF_BENCH_SIZES=10000,100000 go test -tags 'fts vector' -run '^$'
--bench BenchmarkCutoff -benchmem -benchtime 20x ./internal/indexer`.
+-bench BenchmarkCutoff -benchmem -benchtime 100x -count 3
+./internal/indexer`.
 
 Query embedding while the local child is saturated (three workers
 looping 2000-rune frames — `TestWorkerEmbedder_RealChild_QueryLatency`,

@@ -1961,8 +1961,9 @@ components:
           type: string
         passages:
           description: |-
-            Passages are the record's next best matching chunks, present only
-            when the request asked for them (SearchRequest.Passages).
+            Passages are the record's next best matching chunks. Absent when
+            the request did not ask (SearchRequest.Passages) and when the
+            record has no other matching chunk in the search window.
           items:
             $ref: '#/components/schemas/api.SearchPassage'
           type: array

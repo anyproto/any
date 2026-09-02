@@ -738,10 +738,12 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 }
 
 // ftsCursor streams the BM25(F) leg's hits in rank order. any-store
-// ranks every match before the first Next (a Limit never reaches the
-// search) and materializes rows only as they are pulled, so a caller
-// reads exactly as deep as it needs and Close is O(1) at any point
-// (BenchmarkCutoff, TestIteratorEarlyCloseNoLeak). The cursor holds a
+// accumulates and sorts every match before the first Next whatever the
+// Limit — a Limit only wraps a LimitIter, and on this collection cannot
+// change the plan (no bounded secondary index, no pk bounds) — and
+// materializes rows only as they are pulled, so a caller reads exactly
+// as deep as it needs and Close is O(1) at any point (BenchmarkCutoff,
+// TestIteratorEarlyCloseNoLeak). The cursor holds a
 // read tx — a reader slot, a page cache, a WAL read-mark — until Close:
 // pull, then close; never park one across another store call. A nil
 // iter is the FTS-compiled-out cursor: no fulltext index exists, so it
@@ -900,25 +902,26 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 	return hits, err
 }
 
-// searchVector is SearchVector plus exhausted: true when the index
-// returned fewer than limit candidates — the ANN's reach (the probed
-// IVF cells, ~4√N docs at nprobe 16) has nothing further, so a caller
-// widening K can stop. Judged on the index's own count, before the
-// similarity floor, which only trims the far tail.
-func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) (hits []Hit, exhausted bool, err error) {
+// searchVector is SearchVector plus n, the number of rows the index
+// returned BEFORE the similarity floor: n < limit means the ANN's reach
+// is spent — the probed IVF cells (~4√N docs at nprobe 16), or under a
+// scope residual the beam any-store sizes from K — and len(hits) < n
+// means the floor trimmed the far tail. A caller widening K reads both
+// (vectorStop).
+func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) (hits []Hit, n int, err error) {
 	if !capVector || s.Dim() == 0 {
-		return nil, true, nil
+		return nil, 0, nil
 	}
 	ok, err := s.EnsureVectorIndex(ctx, spaceId)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	if !ok {
-		return nil, true, nil
+		return nil, 0, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	// $k bounds the result set; the scope filter is applied before the
 	// cut-to-k, so every returned hit is in scope.
@@ -928,14 +931,14 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 	}
 	iter, err := coll.Find(filter).Iter(ctx)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	defer iter.Close()
 	hits, err = collectHits(iter, func(it anystore.Iterator) float64 { return 1 - float64(it.Distance()) })
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
-	exhausted = len(hits) < limit
+	n = len(hits)
 	// Noise floor: ANN always returns the k nearest, however far. Drop
 	// non-positive similarity (cosine distance >= 1 — orthogonal or
 	// worse): such hits carry no signal and only pollute fusion when
@@ -948,7 +951,7 @@ func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32,
 			out = append(out, h)
 		}
 	}
-	return out, exhausted, nil
+	return out, n, nil
 }
 
 func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) ([]Hit, error) {

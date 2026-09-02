@@ -24,7 +24,7 @@ import (
 // past a fixed Limit: an FTS query opened without Limit and closed
 // after N rows, and a $knn at growing K (the vector leg has no cursor —
 // "more" is a re-query). The numbers size the per-leg ceiling and the
-// scope-residual ef choice in Indexer.Search (SYN-193); results in
+// scope-residual ef choice in Indexer.Search; results in
 // docs/13-index.md § Tuning.
 //
 // Corpus: n short chat docs over the 18-word benchWords vocabulary (a
@@ -254,8 +254,10 @@ func benchCutoffKnn(b *testing.B, st *Store, rng *rand.Rand) {
 // benchCutoffSearch: the endpoint end to end (limit 10) on the rare
 // term only the long records and the needle carry — the ticket's
 // collapse (records/op < 6 before the record-counting limit) and its
-// before/after cost. axisEmbedder makes the vector leg rank every doc
-// equally, so fusion has the full corpus to chew on.
+// before/after cost. The corpus vectors are random and the query is an
+// axis vector, so the vector leg contributes a random window; the
+// hybrid line measures fusion + grouping over both windows, not the
+// vector leg's ranking.
 func benchCutoffSearch(b *testing.B, st *Store) {
 	ctx := context.Background()
 	ix := &Indexer{

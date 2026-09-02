@@ -2603,7 +2603,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "passages": {
-                        "description": "Passages are the record's next best matching chunks, present only\nwhen the request asked for them (SearchRequest.Passages).",
+                        "description": "Passages are the record's next best matching chunks. Absent when\nthe request did not ask (SearchRequest.Passages) and when the\nrecord has no other matching chunk in the search window.",
                         "items": {
                             "$ref": "#/components/schemas/api.SearchPassage"
                         },

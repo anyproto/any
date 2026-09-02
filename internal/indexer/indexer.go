@@ -492,9 +492,12 @@ func (c legCover) covered(hits []Hit) bool {
 
 // maxLegFetch bounds how deep either leg reads. Past it a query that
 // matches only one enormous record answers with what it has. Measured
-// (BenchmarkCutoff): the lexical leg pays ~1 µs per row read past the
-// first, so 1000 costs ~1 ms; the ANN leg's reach is the probed IVF
-// cells (~4√N docs), which is about this many at 60k docs.
+// (BenchmarkCutoff, docs/13-index.md § Tuning): the lexical leg pays
+// ~1 µs per row read past the first, so 1000 rows cost ~1 ms; the ANN
+// leg's reach is the probed IVF cells (~4√N docs),
+// about this many at 60k docs. Both legs at the ceiling hold up to
+// 2000 chunk texts (~16 MB) for the duration of one search — the
+// price of the pathological corpus only.
 const maxLegFetch = 1000
 
 // vectorLeg runs the ANN leg and enforces require / exclude on it:
@@ -502,12 +505,12 @@ const maxLegFetch = 1000
 // post-filtered against the FTS index and fusion can't re-admit a doc
 // the lexical leg would have refused (SYN-187). any-store won't take
 // $knn and $text in one query, and $knn has no cursor past K, so the
-// leg re-queries with K ×4 (up to maxLegFetch) until the window is
-// covered or the index reports nothing further.
+// leg re-queries with K ×4 (up to maxLegFetch) until vectorStop says
+// the window is covered or nothing further is reachable.
 func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover) ([]Hit, error) {
-	k := cover.fetch
+	k, prevN := cover.fetch, -1
 	for {
-		raw, exhausted, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
+		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
 		if err != nil {
 			return nil, err
 		}
@@ -517,10 +520,31 @@ func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, 
 				return nil, err
 			}
 		}
-		if cover.covered(kept) || exhausted || k >= maxLegFetch {
+		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0) {
 			return kept, nil
 		}
-		k = min(k*4, maxLegFetch)
+		k, prevN = min(k*4, maxLegFetch), n
+	}
+}
+
+// vectorStop decides whether the widening loop ends after a round that
+// asked the index for k rows and got n back before the similarity
+// floor (prevN: the previous round's n, -1 on the first). Stop when the
+// window is covered; when the floor dropped rows, since rows past the
+// floor are farther still; when the index came up short — under a
+// scope residual only once a wider K stopped adding rows, because
+// any-store sizes the candidate beam from K when a residual is present,
+// so a short round may still grow; or at the ceiling.
+func vectorStop(cover legCover, kept []Hit, n, k, prevN int, floorDropped, scoped bool) bool {
+	switch {
+	case cover.covered(kept):
+		return true
+	case floorDropped:
+		return true
+	case n < k:
+		return !scoped || n <= prevN
+	default:
+		return k >= maxLegFetch
 	}
 }
 
@@ -572,7 +596,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	fetch := min(max(limit*3, 30), 100)
 	// The lexical leg covers twice the records for the price of a few
 	// µs per row; the ANN leg re-pays its search per widening round.
-	ftsCover := legCover{fetch: fetch, groups: min(2*limit, maxLegFetch)}
+	ftsCover := legCover{fetch: fetch, groups: 2 * limit}
 	vecCover := legCover{fetch: fetch, groups: limit}
 
 	mode := req.Mode
@@ -661,7 +685,11 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 	case api.SearchModeHybrid:
 		ftsW := ix.opts.FtsWeight
 		if ix.opts.AdaptiveWeights {
-			ftsW *= legConfidence(ftsHits) // down-weight a flat/weak BM25 leg
+			// Down-weight a flat/weak BM25 leg. Judged on the fixed
+			// over-fetch window, not the whole pull: the pull's depth
+			// follows how records are chunked, and a deeper tail only
+			// ever raises the confidence.
+			ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
 		}
 		fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
 	case api.SearchModeFTS:

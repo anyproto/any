@@ -113,7 +113,7 @@ any space derived create <name>                     # shipped — materialize on
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list snapshot
 any space subscribe  [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--dataset spaces|profile]   # shipped — windowed space-list SSE
 any datasets [<spaceId>]                            # shipped — dataset schemas (JSON Schema + x-scope)
-any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...]   # shipped — local search index
+any search <spaceId> <query> [--scopes basic,chat,props] [--limit N] [--mode hybrid|fts|vector] [--require T ...] [--exclude T ...] [--max-data N] [--passages N]   # shipped — local search index
 ```
 
 `any search` wraps `POST /v1/spaces/:spaceId/search` — the server's
@@ -123,7 +123,9 @@ embedder configured on the server it degrades to FTS (the reply's
 `mode` says which ran). The `query` accepts `"quoted phrases"` and
 `prefix*` on the lexical leg; `--require` / `--exclude` (repeatable) add
 must / must-not terms; `--max-data N` bounds each hit's `data` window
-(default 512 runes, `-1` = the whole chunk).
+(default 512 runes, `-1` = the whole chunk). `--limit N` counts
+records (one hit per record, default 10, max 100); `--passages N`
+(max 10) adds a record's next best matching chunks to its hit.
 
 `any space query` / `any space subscribe` wrap `POST /v1/spaces/query`
 and `/query/subscribe` (`Service.Query` over the tech-space `spaces`

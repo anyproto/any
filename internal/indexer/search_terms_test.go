@@ -4,6 +4,7 @@ package indexer
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -179,7 +180,7 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 	}
 }
 
-// limit counts records (SYN-193): one 17-chunk record whose every
+// limit counts records: one 17-chunk record whose every
 // chunk outranks a short exact match must not fill the reply. The
 // short record's single chunk is one BM25 hit against seventeen
 // stronger ones, and the axis embedder ranks every chunk equally on the
@@ -241,5 +242,79 @@ func TestIndexer_SearchLimitCountsRecords(t *testing.T) {
 	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: api.SearchModeFTS, Limit: 1})
 	if err != nil || len(res.Hits) != 1 {
 		t.Fatalf("limit 1: %v %+v", err, res.Hits)
+	}
+}
+
+// The cover rule reads past the fixed over-fetch: sixty chunks of one
+// record outrank forty short records on BM25, so the first thirty rows
+// are all one record and the leg must keep pulling to cover limit
+// records. The ceiling case is one record of over a thousand chunks —
+// the leg stops at maxLegFetch and answers with that one record.
+func TestIndexer_SearchLegCoverRule(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	ix := &Indexer{store: st, opts: Options{Embedder: axisEmbedder{dim: 4}, ChunkRunes: 300, AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+
+	var ups []DocUpsert
+	long := entry("chat", "o-long", "chat_messages", "long", strings.Repeat("kestrelith kestrelith kestrelith notes. ", 60*300/40), 1)
+	ups = append(ups, expandEntry(long, ix.opts.ChunkRunes)...)
+	if len(ups) < 60 {
+		t.Fatalf("long chunks = %d, want >= 60", len(ups))
+	}
+	for i := 0; i < 40; i++ {
+		ups = append(ups, DocUpsert{Entry: entry("chat", "o-short", "chat_messages", "short"+strconv.Itoa(i), "the kestrelith item", uint64(2+i))})
+	}
+	for i := range ups {
+		ups[i].Vector = []float32{1, 0, 0, 0}
+	}
+	if err := st.Apply(ctx, sp, ups, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.EnsureVectorIndex(ctx, sp); err != nil || !ok {
+		t.Fatalf("ensure vector index: %v (ok=%v)", err, ok)
+	}
+	// The premise: with the old fixed window the first 30 rows are all
+	// the long record.
+	first30, err := st.SearchFTS(ctx, sp, "kestrelith", nil, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countGroups(first30); n != 1 {
+		t.Fatalf("first 30 fts rows cover %d records, the premise needs 1", n)
+	}
+	for _, mode := range []string{api.SearchModeFTS, api.SearchModeHybrid, api.SearchModeVector} {
+		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "kestrelith", Mode: mode, Limit: 10})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		seen := map[string]bool{}
+		for _, h := range res.Hits {
+			seen[h.RecordId] = true
+		}
+		if len(res.Hits) != 10 || len(seen) != 10 {
+			t.Fatalf("%s: %d hits over %d records, want 10 distinct", mode, len(res.Hits), len(seen))
+		}
+	}
+
+	// Ceiling: one record past maxLegFetch chunks, nothing else matches.
+	st2 := mustStore(t, 0)
+	ix2 := &Indexer{store: st2, opts: Options{ChunkRunes: 300, AnnounceAfter: -1}.withDefaults()}
+	huge := entry("chat", "o-huge", "chat_messages", "huge", strings.Repeat("ospreyoid ospreyoid text. ", (maxLegFetch+100)*300/26), 1)
+	hugeUps := expandEntry(huge, ix2.opts.ChunkRunes)
+	if len(hugeUps) <= maxLegFetch {
+		t.Fatalf("huge chunks = %d, want > %d", len(hugeUps), maxLegFetch)
+	}
+	for off := 0; off < len(hugeUps); off += 256 {
+		if err := st2.Apply(ctx, sp, hugeUps[off:min(off+256, len(hugeUps))], nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := ix2.Search(ctx, sp, api.SearchRequest{Query: "ospreyoid", Mode: api.SearchModeFTS, Limit: 10, Passages: api.MaxSearchPassages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != "huge" || len(res.Hits[0].Passages) != api.MaxSearchPassages {
+		t.Fatalf("ceiling: %+v", res.Hits)
 	}
 }

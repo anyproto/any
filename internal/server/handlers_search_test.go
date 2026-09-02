@@ -192,6 +192,48 @@ func TestSearch_FullFlow(t *testing.T) {
 		t.Fatalf("scoped search leaked: %+v", res.Hits)
 	}
 
+	// --- limit counts records; passages on request ---
+	// A chunked message: several index docs, one hit.
+	long := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
+		`{"text":"`+strings.Repeat("zeppelin lore chapter. ", 260)+`"}`, http.StatusCreated)
+	longId := long.RecordIds[0]
+	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
+		t.Fatal(err)
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin", Mode: api.SearchModeFTS, Limit: 1}, http.StatusOK)
+	if len(res.Hits) != 1 {
+		t.Fatalf("limit 1: hits = %v, want one record", hitRecordIds(res))
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin", Mode: api.SearchModeFTS, Limit: 10}, http.StatusOK)
+	if ids := hitRecordIds(res); len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("limit 10: hits = %v, want the two records once each", ids)
+	}
+	rawRec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/search", `{"query":"zeppelin","mode":"fts","limit":10}`)
+	if strings.Contains(rawRec.Body.String(), `"passages"`) {
+		t.Fatalf("passages must be absent unless asked: %s", rawRec.Body.String())
+	}
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin", Mode: api.SearchModeFTS, Limit: 10, Passages: 3, MaxData: 30}, http.StatusOK)
+	var longHit *api.SearchHit
+	for i := range res.Hits {
+		if res.Hits[i].RecordId == longId {
+			longHit = &res.Hits[i]
+		}
+	}
+	if longHit == nil || len(longHit.Passages) < 1 || len(longHit.Passages) > 3 {
+		t.Fatalf("passages 3: %+v", res.Hits)
+	}
+	chunks := map[int]bool{longHit.Chunk: true}
+	for _, p := range longHit.Passages {
+		if chunks[p.Chunk] || p.Data == "" || p.DataTotal == 0 {
+			t.Fatalf("bad passage %+v (hit chunk %d)", p, longHit.Chunk)
+		}
+		chunks[p.Chunk] = true
+	}
+	rawRec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/search", `{"query":"zeppelin","passages":11}`)
+	if rawRec.Code != http.StatusBadRequest || !strings.Contains(rawRec.Body.String(), `"request.invalid_field"`) || !strings.Contains(rawRec.Body.String(), `"passages"`) {
+		t.Fatalf("passages 11: %d %s", rawRec.Code, rawRec.Body.String())
+	}
+
 	// --- Object deletion purges its docs ---
 	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+chatObj, http.StatusNoContent)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {

@@ -139,14 +139,6 @@ func groupHits(hits []Hit, limit, passages int) []Group {
 	}
 	out := make([]Group, 0, len(byKey))
 	for _, g := range byKey {
-		if passages <= 0 {
-			g.Passages = nil
-		} else {
-			slices.SortFunc(g.Passages, func(a, b Hit) int { return hitCmp(a, b) })
-			if len(g.Passages) > passages {
-				g.Passages = g.Passages[:passages]
-			}
-		}
 		out = append(out, *g)
 	}
 	slices.SortFunc(out, func(a, b Group) int {
@@ -157,6 +149,18 @@ func groupHits(hits []Hit, limit, passages int) []Group {
 	})
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
+	}
+	// Passages only for the groups that survive the cut.
+	for i := range out {
+		g := &out[i]
+		if passages <= 0 {
+			g.Passages = nil
+			continue
+		}
+		slices.SortFunc(g.Passages, hitCmp)
+		if len(g.Passages) > passages {
+			g.Passages = g.Passages[:passages]
+		}
 	}
 	return out
 }

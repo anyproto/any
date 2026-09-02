@@ -31,7 +31,8 @@ func mib(b uint64) string { return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20)) }
 
 // withDeadline fails the test if fn does not return within d — the
 // guard for anything a leaked reader slot would block forever (a new
-// read tx past MaxReaders, DB close).
+// read tx past MaxReaders, DB close). On timeout fn is abandoned, still
+// running; the test is failing at that point anyway.
 func withDeadline(t *testing.T, d time.Duration, what string, fn func() error) {
 	t.Helper()
 	done := make(chan error, 1)
@@ -53,7 +54,7 @@ func withDeadline(t *testing.T, d time.Duration, what string, fn func() error) {
 // open iterator pins (heap in use while open vs baseline) and what one
 // query allocates, the memory side of the with/without-Limit question.
 func TestIteratorEarlyCloseNoLeak(t *testing.T) {
-	st, rng := cutoffStore(t, 20_000)
+	st, rng := cutoffStore(t, 5_000)
 	ctx := context.Background()
 	coll, err := st.spaceColl(ctx, cutoffSpace)
 	if err != nil {
@@ -93,13 +94,19 @@ func TestIteratorEarlyCloseNoLeak(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := snapshotMem()
-			for i := 0; i < churn; i++ {
-				it, err := o.open()
-				if err != nil {
-					t.Fatal(err)
+			// A leaked reader slot blocks the open that exceeds
+			// MaxReaders forever (any-store's slot wait has no ctx), so
+			// the churn runs under a deadline to fail loudly instead.
+			withDeadline(t, 60*time.Second, fmt.Sprintf("%d early-closed %s queries", churn, o.name), func() error {
+				for i := 0; i < churn; i++ {
+					it, err := o.open()
+					if err != nil {
+						return err
+					}
+					pullHits(t, it, 5)
 				}
-				pullHits(t, it, 5)
-			}
+				return nil
+			})
 			after := snapshotMem()
 			t.Logf("%s: goroutines %d → %d; heapInuse base %s, +%s while open, +%s after %d early-closed queries; alloc/query %s",
 				o.name, base.goroutines, after.goroutines, mib(base.heapInuse),

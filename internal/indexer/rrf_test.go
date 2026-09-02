@@ -176,3 +176,35 @@ func TestGroupHits_OrderLimitPassages(t *testing.T) {
 		t.Fatalf("empty = %+v", out)
 	}
 }
+
+func TestVectorStop(t *testing.T) {
+	cover := legCover{fetch: 30, groups: 10}
+	rec := func(n int) []Hit {
+		out := make([]Hit, n)
+		for i := range out {
+			out[i] = Hit{ObjectId: "o", Dataset: "d", RecordId: "r" + string(rune('a'+i))}
+		}
+		return out
+	}
+	cases := []struct {
+		name         string
+		kept         []Hit
+		n, k, prevN  int
+		dropped      bool
+		scoped, stop bool
+	}{
+		{"covered", rec(30), 30, 30, -1, false, false, true},
+		{"groups short of the cover keeps widening", rec(5), 30, 30, -1, false, false, false},
+		{"floor dropped rows: nothing farther is useful", rec(5), 30, 30, -1, true, false, true},
+		{"index short, no residual: reach is spent", rec(5), 5, 30, -1, false, false, true},
+		{"index short under a residual, first round: widen", rec(5), 5, 30, -1, false, true, false},
+		{"residual, wider K added rows: widen again", rec(8), 8, 120, 5, false, true, false},
+		{"residual, wider K added nothing: stop", rec(8), 8, 480, 8, false, true, true},
+		{"ceiling", rec(5), 1000, 1000, 480, false, false, true},
+	}
+	for _, c := range cases {
+		if got := vectorStop(cover, c.kept, c.n, c.k, c.prevN, c.dropped, c.scoped); got != c.stop {
+			t.Errorf("%s: stop = %v, want %v", c.name, got, c.stop)
+		}
+	}
+}

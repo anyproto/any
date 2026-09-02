@@ -73,8 +73,9 @@ type SearchHit struct {
 	DataOffset int     `json:"dataOffset,omitempty"`
 	DataTotal  int     `json:"dataTotal"`
 	Score      float64 `json:"score"`
-	// Passages are the record's next best matching chunks, present only
-	// when the request asked for them (SearchRequest.Passages).
+	// Passages are the record's next best matching chunks. Absent when
+	// the request did not ask (SearchRequest.Passages) and when the
+	// record has no other matching chunk in the search window.
 	Passages []SearchPassage `json:"passages,omitempty"`
 }
 
