@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/anyproto/any/internal/client"
 )
 
 // globalFlags is the flat bag of flags shared across subcommands.
@@ -16,10 +18,15 @@ type globalFlags struct {
 	Addr    string
 	Timeout time.Duration
 	Verbose bool
+	// ControlToken is the managed-mode control token (--control-token
+	// / ANY_CONTROL_TOKEN), sent on every request; a standalone server
+	// ignores it.
+	ControlToken string
 
 	// Server (used by `run` and `init`)
 	ConfigPath   string
 	DataDir      string
+	Mode         string
 	Account      string
 	WalletPath   string
 	LogLevel     string
@@ -27,6 +34,14 @@ type globalFlags struct {
 }
 
 var flags globalFlags
+
+// newClient builds the HTTP client for a CLI call from the global
+// flags. Every command goes through here so the control token rides
+// each request; timeout 0 disables the request deadline (streams,
+// uploads, downloads).
+func newClient(timeout time.Duration) *client.Client {
+	return client.New(flags.Addr, timeout).WithControlToken(flags.ControlToken)
+}
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -42,6 +57,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 	root.PersistentFlags().StringVar(&flags.Addr, "addr", "", "server address (bind addr for `run`, connect addr otherwise)")
 	root.PersistentFlags().DurationVar(&flags.Timeout, "timeout", 30*time.Second, "request timeout for CLI calls")
 	root.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "log HTTP request/response to stderr")
+	root.PersistentFlags().StringVar(&flags.ControlToken, "control-token", os.Getenv("ANY_CONTROL_TOKEN"), "managed-mode control token (default $ANY_CONTROL_TOKEN); gates auth and shutdown on a managed server")
 
 	root.AddCommand(
 		newRunCmd(),

@@ -74,7 +74,7 @@ normal, backup runs in the background (watch with 'any file subscribe').`,
 					name = filepath.Base(path)
 				}
 			}
-			cl := client.New(flags.Addr, 0) // uploads must not hit the request timeout
+			cl := newClient(0) // uploads must not hit the request timeout
 			out, err := cl.FileAttach(cmd.Context(), args[0], args[1], in, client.FileAttachOpts{
 				Name:      name,
 				Mime:      mimeType,
@@ -104,7 +104,7 @@ func newFileListCmd() *cobra.Command {
 		Short: "list the space's files (typed member view)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.FileList(cmd.Context(), args[0], objectId, limit)
 			if err != nil {
 				return err
@@ -123,7 +123,7 @@ func newFileGetCmd() *cobra.Command {
 		Short: "print one file's info",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.FileGet(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -147,7 +147,7 @@ PATH (PATH - is stdout too) and a small JSON receipt is printed.
 Content not yet local streams in from the network on demand.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, 0) // downloads must not hit the request timeout
+			cl := newClient(0) // downloads must not hit the request timeout
 			res, err := cl.FileDownload(cmd.Context(), args[0], args[1], variant)
 			if err != nil {
 				return err
@@ -188,7 +188,7 @@ func newFileStatusCmd() *cobra.Command {
 		Short: "print one file's durability status",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.FileStatus(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -204,7 +204,7 @@ func newFileStatsCmd() *cobra.Command {
 		Short: "print the space's aggregate file durability counts",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.FileStats(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -220,7 +220,7 @@ func newFileSubscribeCmd() *cobra.Command {
 		Short: "stream file durability transitions (SSE; one JSON frame per line)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamFileStatusSubscribe(cmd.Context(), args[0], jsonFrameHandler())
 		},
 	}
@@ -234,7 +234,7 @@ func newFilePinCmd() *cobra.Command {
 		Short: "schedule a full background fetch into the local cache",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.FilePin(cmd.Context(), args[0], args[1])
 		},
 	}
@@ -246,7 +246,7 @@ func newFileRetryCmd() *cobra.Command {
 		Short: "make the file's pending background work due immediately",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.FileRetry(cmd.Context(), args[0], args[1])
 		},
 	}
@@ -258,7 +258,7 @@ func newFileOffloadCmd() *cobra.Command {
 		Short: "drop the file's local bytes (refused while they are the only copy)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.FileOffload(cmd.Context(), args[0], args[1])
 		},
 	}
@@ -278,7 +278,7 @@ func newFileDeleteCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible and syncs to every member)", args[1])
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.FileDelete(cmd.Context(), args[0], args[1])
 		},
 	}
@@ -304,7 +304,7 @@ func newFileQueryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.FilesQuery(cmd.Context(), args[0], args[1], body)
 			if err != nil {
 				return err
@@ -334,7 +334,7 @@ func newFileQuerySubscribeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamFilesQuerySubscribe(cmd.Context(), args[0], args[1], body, jsonFrameHandler())
 		},
 	}
@@ -395,7 +395,7 @@ func newFileCacheCmd() *cobra.Command {
 			Short: "print the local bytes held by file content",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.FileCacheSize(cmd.Context())
 				if err != nil {
 					return err
@@ -412,7 +412,7 @@ func newFileCacheCmd() *cobra.Command {
 				if _, err := fmt.Sscan(args[0], &n); err != nil || n <= 0 {
 					return fmt.Errorf("bytes must be a positive integer")
 				}
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.FileCacheFree(cmd.Context(), n)
 				if err != nil {
 					return err
@@ -425,7 +425,7 @@ func newFileCacheCmd() *cobra.Command {
 			Short: "run one file-cache safety pass",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.FileCacheSweep(cmd.Context())
 			},
 		},

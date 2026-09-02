@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any account ...` — account-level operations that aren't scoped to
@@ -20,7 +19,7 @@ func newAccountCmd() *cobra.Command {
 		Use:   "set-metadata",
 		Short: "publish profile (name / description / iconCid) across every space",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.AccountUpdateMetadata(cmd.Context(), api.AccountMetadata{
 				Name:        name,
 				Description: desc,

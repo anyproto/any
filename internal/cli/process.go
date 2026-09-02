@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newProcessCmd: `any process ...` — the live process view over the
@@ -26,7 +25,7 @@ func newProcessListCmd() *cobra.Command {
 		Short: "list live processes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ProcessesList(cmd.Context())
 			if err != nil {
 				return err
@@ -48,7 +47,7 @@ publishers run the same id, pass --identity to pick the owner.
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ProcessCancel(cmd.Context(), args[0], api.ProcessCancelRequest{Identity: identity})
 			if err != nil {
 				return err

@@ -233,10 +233,28 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AuthCapabilities": {
+                "description": "Capabilities lists which lifecycle operations this server\naccepts; every bit is false on a standalone server.",
+                "properties": {
+                    "deauthorize": {
+                        "description": "Deauthorize: DELETE /v1/auth tears the account down in place.",
+                        "type": "boolean"
+                    },
+                    "shutdown": {
+                        "description": "Shutdown: POST /v1/shutdown stops the server.",
+                        "type": "boolean"
+                    },
+                    "switchAccount": {
+                        "description": "SwitchAccount: POST /v1/auth with replace:true switches accounts\nin place.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.AuthRequest": {
                 "properties": {
                     "accountId": {
-                        "description": "AccountId selects an account that already has a local wallet.",
+                        "description": "AccountId selects an account that already has a local wallet\n(standalone only).",
                         "type": "string"
                     },
                     "index": {
@@ -244,8 +262,12 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "mnemonic": {
-                        "description": "Mnemonic restores (or first-creates) the account derived from\nthis BIP-39 phrase. The device key is always freshly generated.",
+                        "description": "Mnemonic restores (or first-creates) the account derived from\nthis BIP-39 phrase.",
                         "type": "string"
+                    },
+                    "replace": {
+                        "description": "Replace switches a managed server from its current account to\nthe one this request names, tearing the current engine down\nfirst. Without it a different account is refused. Never implied.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -255,8 +277,12 @@ const docTemplate = `{
                     "accountId": {
                         "type": "string"
                     },
+                    "alreadyAuthorized": {
+                        "description": "AlreadyAuthorized reports that the request named the account the\nserver already runs: nothing was booted, and the credential is\nconfirmed to belong to it.",
+                        "type": "boolean"
+                    },
                     "created": {
-                        "description": "Created is true when a new wallet file was written (fresh\ngeneration or first restore on this machine).",
+                        "description": "Created is true when this account had no local state before this\ncall (fresh generation or first restore on this device).",
                         "type": "boolean"
                     },
                     "mnemonic": {
@@ -272,6 +298,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "accounts": {
+                        "description": "Accounts are the wallets on disk (standalone only — a managed\nserver holds no keys and reports an empty list; the client owns\nthe account list there).",
                         "items": {
                             "$ref": "#/components/schemas/api.AuthAccount"
                         },
@@ -280,6 +307,17 @@ const docTemplate = `{
                     },
                     "authorized": {
                         "type": "boolean"
+                    },
+                    "capabilities": {
+                        "$ref": "#/components/schemas/api.AuthCapabilities"
+                    },
+                    "mode": {
+                        "description": "Mode is the server's ownership mode, fixed at launch.",
+                        "enum": [
+                            "standalone",
+                            "managed"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"

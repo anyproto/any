@@ -2,8 +2,6 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any identities ...` — the account-global identities directory
@@ -32,7 +30,7 @@ func newIdentitiesListCmd() *cobra.Command {
 		Short: "list every known identity",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.IdentitiesList(cmd.Context())
 			if err != nil {
 				return err
@@ -48,7 +46,7 @@ func newIdentityGetCmd() *cobra.Command {
 		Short: "get one known identity by account address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.IdentityGet(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -67,7 +65,7 @@ func newIdentitiesSubscribeCmd() *cobra.Command {
 		Short: "SSE stream of directory changes (added / updated / removed)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamIdentities(cmd.Context(), jsonFrameHandler())
 		},
 	}

@@ -32,9 +32,18 @@ func registerAuthRoutes(g *echo.Group, d *deps) {
 //	@Router		/auth [get]
 func (d *deps) authStatus(c echo.Context) error {
 	resp := api.AuthStatusResponse{
-		Authorized: d.ready.Load(),
-		AccountId:  d.accountID(),
-		Accounts:   []api.AuthAccount{},
+		Authorized:   d.ready.Load(),
+		AccountId:    d.accountID(),
+		Mode:         d.cfg.Mode,
+		Capabilities: d.capabilities(),
+		Accounts:     []api.AuthAccount{},
+	}
+	if d.cfg.Managed() {
+		// A managed server holds no keys, so it cannot enumerate
+		// accounts — the client owns the list. Wallets a standalone
+		// server left under the same root are deliberately not shown:
+		// managed never boots from one.
+		return c.JSON(http.StatusOK, resp)
 	}
 
 	ids, err := config.ListAccounts(d.root)

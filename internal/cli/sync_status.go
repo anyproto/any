@@ -2,8 +2,6 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any sync-status ...` — production-shape sync state from the SDK.
@@ -29,7 +27,7 @@ func newSyncStatusSpaceCmd() *cobra.Command {
 		Short: "rolled-up sync state for one space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SyncStatusSpace(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -45,7 +43,7 @@ func newSyncStatusObjectCmd() *cobra.Command {
 		Short: "sync state for one object (unknown ids return state=unknown)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SyncStatusObject(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -66,7 +64,7 @@ func newSyncStatusSubscribeCmd() *cobra.Command {
 		Short: "SSE stream of sync-state transitions (no args: account-wide; two args: per-object)",
 		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			handle := jsonFrameHandler()
 
 			ctx := cmd.Context()

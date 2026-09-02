@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any space ...` — space-level operations that don't fit chat /
@@ -39,7 +38,7 @@ func newSpaceDerivedCmd() *cobra.Command {
 		Short: "well-known derived spaces (list; `create <name>` materializes)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceDerivedList(cmd.Context())
 			if err != nil {
 				return err
@@ -52,7 +51,7 @@ func newSpaceDerivedCmd() *cobra.Command {
 		Short: "materialize a well-known derived space by registry name",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceDerivedCreate(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -86,7 +85,7 @@ func newSpaceSettingsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceSettingsPatch(cmd.Context(), args[0], req)
 		},
 	}
@@ -157,7 +156,7 @@ func newSpaceDeleteCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("refusing to delete %s without --yes (this is irreversible)", args[0])
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceDelete(cmd.Context(), args[0])
 		},
 	}
@@ -188,7 +187,7 @@ func newSpaceQueryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceListQuery(cmd.Context(), body)
 			if err != nil {
 				return err
@@ -222,7 +221,7 @@ func newSpaceSubscribeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamSpaceListQuerySubscribe(cmd.Context(), body, jsonFrameHandler())
 		},
 	}
@@ -285,7 +284,7 @@ func newSpaceSyncCmd() *cobra.Command {
 		Short: "force an immediate head-sync round (sync now)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceSync(cmd.Context(), args[0])
 		},
 	}
@@ -297,7 +296,7 @@ func newSpaceGetCmd() *cobra.Command {
 		Short: "fetch one space's metadata (includes spaceIndexObjectId)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceGet(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -327,7 +326,7 @@ func newSpaceUpdateCmd() *cobra.Command {
 			if cmd.Flags().Changed("icon-cid") {
 				req.IconCID = &iconCID
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceUpdate(cmd.Context(), args[0], req)
 		},
 	}

@@ -107,6 +107,10 @@ func TestAuth_StatusAndValidation(t *testing.T) {
 	if st.Authorized || st.AccountId != "" || len(st.Accounts) != 0 {
 		t.Fatalf("fresh root status: %+v", st)
 	}
+	// Standalone: the mode is reported and every capability bit is off.
+	if st.Mode != config.ModeStandalone || st.Capabilities != (api.AuthCapabilities{}) {
+		t.Fatalf("standalone status mode/capabilities: %+v", st)
+	}
 
 	for _, tc := range []struct {
 		body, code string
@@ -133,6 +137,36 @@ func TestAuth_StatusAndValidation(t *testing.T) {
 		if env.Error.Code != tc.code {
 			t.Errorf("POST %s: code = %q want %q", tc.body, env.Error.Code, tc.code)
 		}
+	}
+}
+
+// TestAuth_StatusManaged pins the managed-mode status shape: the mode
+// string, every capability bit on, and an EMPTY accounts list even when
+// a standalone wallet sits under the same root — a managed server never
+// boots from one, so it must not advertise it.
+func TestAuth_StatusManaged(t *testing.T) {
+	d := newUnauthorizedDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	touchWallet(t, config.AccountDir(d.root, "Aleftover"))
+	e := buildEcho(d)
+
+	rec := doJSON(t, e, http.MethodGet, "/v1/auth", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/auth: %d %s", rec.Code, rec.Body.String())
+	}
+	var st api.AuthStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Authorized || st.Mode != config.ModeManaged {
+		t.Fatalf("managed status: %+v", st)
+	}
+	if st.Capabilities != (api.AuthCapabilities{Deauthorize: true, SwitchAccount: true, Shutdown: true}) {
+		t.Fatalf("managed capabilities: %+v", st.Capabilities)
+	}
+	if len(st.Accounts) != 0 {
+		t.Fatalf("managed status must not list on-disk wallets: %+v", st.Accounts)
 	}
 }
 

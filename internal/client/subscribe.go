@@ -59,7 +59,7 @@ func (c *Client) streamSSE(ctx context.Context, method, path string, body []byte
 	if len(body) > 0 {
 		reqBody = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reqBody)
+	req, err := c.newRequest(ctx, method, path, reqBody)
 	if err != nil {
 		return err
 	}

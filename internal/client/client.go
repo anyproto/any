@@ -17,6 +17,9 @@ const DefaultAddr = "127.0.0.1:7001"
 type Client struct {
 	base string
 	http *http.Client
+	// controlToken, when set, rides every request as the managed-mode
+	// control header. A standalone server ignores it.
+	controlToken string
 }
 
 func New(addr string, timeout time.Duration) *Client {
@@ -30,6 +33,27 @@ func New(addr string, timeout time.Duration) *Client {
 		base: "http://" + addr,
 		http: &http.Client{Timeout: timeout},
 	}
+}
+
+// WithControlToken attaches the managed-mode control token to every
+// request the client makes. Returns the client for chaining.
+func (c *Client) WithControlToken(token string) *Client {
+	c.controlToken = token
+	return c
+}
+
+// newRequest builds a request against the server, stamping the
+// control token when one is configured. Every request path goes
+// through here so the header can never be forgotten on a new one.
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if c.controlToken != "" {
+		req.Header.Set(api.ControlTokenHeader, c.controlToken)
+	}
+	return req, nil
 }
 
 func (c *Client) Health(ctx context.Context) (*api.HealthResponse, error) {
@@ -54,7 +78,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		rdr = bytes.NewReader(buf)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rdr)
+	req, err := c.newRequest(ctx, method, path, rdr)
 	if err != nil {
 		return err
 	}

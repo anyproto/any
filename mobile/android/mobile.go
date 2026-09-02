@@ -47,6 +47,17 @@ func Start(dataDir, listenAddr, nodeconfYAML string) error {
 // when both are non-empty; pass empty strings for the exact Start
 // behavior (every /v1/push endpoint returns 409 push.disabled).
 func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) error {
+	return StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, "", "")
+}
+
+// StartWithMode is StartWithPush plus the ownership mode. mode is
+// "standalone" (or "" — the Start behavior: the account resolves from
+// the wallet on disk) or "managed": the host states the account over
+// POST /v1/auth on every launch, keys never touch disk, and
+// DELETE /v1/auth, account switch and POST /v1/shutdown are accepted
+// only with controlToken (X-Any-Control-Token). A managed start without
+// a token is an error (embedded.ErrBadOptions).
+func StartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) error {
 	// The FTS index rides the compiled `fts` cap alone (the bind builds with
 	// it); it is not a bind parameter.
 	_, err := embedded.Start(embedded.Options{
@@ -55,6 +66,8 @@ func StartWithPush(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs stri
 		NodeconfYAML: nodeconfYAML,
 		PushPeerId:   pushPeerId,
 		PushAddrs:    pushAddrs,
+		Mode:         mode,
+		ControlToken: controlToken,
 	})
 	return err
 }

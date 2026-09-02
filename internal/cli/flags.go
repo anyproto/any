@@ -12,7 +12,8 @@ import (
 func addServerFlags(c *cobra.Command) {
 	c.Flags().StringVar(&flags.ConfigPath, "config", "", "path to config.yaml")
 	c.Flags().StringVar(&flags.DataDir, "data-dir", "", "override data directory root (default ~/.any)")
-	c.Flags().StringVar(&flags.Account, "account", "", "account id to use when the data dir holds several")
+	c.Flags().StringVar(&flags.Mode, "mode", "", "server ownership mode: standalone (default) or managed (host-owned: keys per boot, logout/switch/shutdown behind the control token)")
+	c.Flags().StringVar(&flags.Account, "account", "", "account id to use when the data dir holds several (standalone only)")
 	c.Flags().StringVar(&flags.WalletPath, "wallet", "", "override wallet file path")
 	c.Flags().StringVar(&flags.LogLevel, "log-level", "", "override default log level")
 	c.Flags().BoolVar(&flags.PasskeyStdin, "passkey-stdin", false, "read wallet passkey from stdin")
@@ -22,6 +23,7 @@ func configFlags() config.Flags {
 	return config.Flags{
 		ConfigPath: flags.ConfigPath,
 		DataDir:    flags.DataDir,
+		Mode:       flags.Mode,
 		Account:    flags.Account,
 		Addr:       flags.Addr,
 		WalletPath: flags.WalletPath,

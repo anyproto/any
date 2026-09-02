@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newTypeCmd is the root for `any type <subcommand>` — mirrors the HTTP
@@ -34,7 +33,7 @@ func newTypeCreateCmd() *cobra.Command {
 		Short: "create a user-defined type",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypesCreate(cmd.Context(), args[0], api.TypesCreateRequest{
 				Name: name, Description: desc, IconCID: iconCID, XKey: xkey,
 			})
@@ -57,7 +56,7 @@ func newTypeListCmd() *cobra.Command {
 		Short: "list types in a space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypesList(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -92,7 +91,7 @@ func newTypePropertyListCmd() *cobra.Command {
 		Short: "list a type's property definitions",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypeListProperties(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -113,7 +112,7 @@ func newTypePropertyAddCmd() *cobra.Command {
 			if formatType != "" {
 				req.Format = &api.PropertyFormat{Type: formatType, UI: formatUI}
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypeAddProperty(cmd.Context(), args[0], args[1], req)
 			if err != nil {
 				return err
@@ -163,7 +162,7 @@ Examples:
 			if len(unsetRaw) > 0 {
 				req.Unset = unsetRaw
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypePatchProperty(cmd.Context(), args[0], args[1], args[2], req)
 		},
 	}
@@ -179,7 +178,7 @@ func newTypePropertyRemoveCmd() *cobra.Command {
 		Short:   "remove a property definition (values are not cleaned up)",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypeRemoveProperty(cmd.Context(), args[0], args[1], args[2])
 		},
 	}
@@ -230,7 +229,7 @@ func newTypePropertyOptionSetCmd() *cobra.Command {
 			if len(set) == 0 {
 				return fmt.Errorf("at least one of --name/--color/--pos is required")
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypePatchProperty(cmd.Context(), args[0], args[1], args[2], api.PropertyPatchRequest{Set: set})
 		},
 	}
@@ -266,7 +265,7 @@ func newTypeDatasetListCmd() *cobra.Command {
 		Short: "list a type's runtime dataset definitions",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypeDatasets(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err
@@ -302,7 +301,7 @@ here — fields added later cannot be required.`,
 			if err := readJSONBody(draft, &req); err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypeAddDataset(cmd.Context(), args[0], args[1], req)
 			if err != nil {
 				return err
@@ -339,7 +338,7 @@ Examples:
 				}
 			}
 			req.Unset = unsetRaw
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypePatchDataset(cmd.Context(), args[0], args[1], args[2], req)
 		},
 	}
@@ -355,7 +354,7 @@ func newTypeDatasetRemoveCmd() *cobra.Command {
 		Short:   "remove a dataset definition (record data is not cleaned up)",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypeRemoveDataset(cmd.Context(), args[0], args[1], args[2])
 		},
 	}
@@ -384,7 +383,7 @@ Additive fields cannot be required.`,
 			if err := readJSONBody(field, &req); err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.TypeAddDatasetField(cmd.Context(), args[0], args[1], args[2], req)
 			if err != nil {
 				return err
@@ -403,7 +402,7 @@ func newTypeDatasetFieldRemoveCmd() *cobra.Command {
 		Short:   "remove a field definition (values stay stored)",
 		Args:    cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypeRemoveDatasetField(cmd.Context(), args[0], args[1], args[2], args[3])
 		},
 	}
@@ -416,7 +415,7 @@ func newTypePropertyOptionDeleteCmd() *cobra.Command {
 		Short:   "delete an option (unset format.options.<key>)",
 		Args:    cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.TypePatchProperty(cmd.Context(), args[0], args[1], args[2], api.PropertyPatchRequest{
 				Unset: []string{fmt.Sprintf("format.options.%s", args[3])},
 			})

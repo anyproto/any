@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newChatCmd is the root for `any chat <subcommand>`. The five
@@ -57,7 +56,7 @@ func newChatSendCmd() *cobra.Command {
 			} else if agentDebugLink != "" || cmd.Flags().Changed("agent-done") {
 				return fmt.Errorf("--agent-debug-link / --agent-done require --agent-name")
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ChatSend(cmd.Context(), args[0], args[1], api.ChatSendRequest{
 				Text:             body,
 				ReplyToMessageId: replyTo,
@@ -92,7 +91,7 @@ func newChatEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ChatEdit(cmd.Context(), args[0], args[1], args[2], api.ChatEditRequest{Text: body})
 			if err != nil {
 				return err
@@ -111,7 +110,7 @@ func newChatDeleteCmd() *cobra.Command {
 		Short: "DELETE one of your own messages",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ChatDelete(cmd.Context(), args[0], args[1], args[2])
 			if err != nil {
 				return err
@@ -127,7 +126,7 @@ func newChatReactCmd() *cobra.Command {
 		Short: "toggle your reaction (add if absent, remove if present)",
 		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.ChatReact(cmd.Context(), args[0], args[1], args[2], args[3])
 			if err != nil {
 				return err

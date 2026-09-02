@@ -14,6 +14,7 @@ import (
 type Flags struct {
 	ConfigPath string
 	DataDir    string
+	Mode       string
 	Account    string
 	Addr       string
 	WalletPath string
@@ -65,12 +66,22 @@ func Load(flags Flags) (Config, error) {
 	//    network, so it can only be decided once the network is final.
 	ApplyPushDefaults(&cfg)
 
+	// 5. Mode is validated against the fully layered result: a managed
+	//    server refuses the standalone-only selectors wherever they came
+	//    from.
+	if err := validateMode(&cfg); err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
 }
 
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("ANY_DATA_DIR"); v != "" {
 		cfg.DataDir = v
+	}
+	if v := os.Getenv("ANY_MODE"); v != "" {
+		cfg.Mode = v
 	}
 	if v := os.Getenv("ANY_ACCOUNT"); v != "" {
 		cfg.Account = v
@@ -262,6 +273,9 @@ func splitNonEmpty(v string) []string {
 func applyFlags(cfg *Config, f Flags) {
 	if f.DataDir != "" {
 		cfg.DataDir = f.DataDir
+	}
+	if f.Mode != "" {
+		cfg.Mode = f.Mode
 	}
 	if f.Account != "" {
 		cfg.Account = f.Account

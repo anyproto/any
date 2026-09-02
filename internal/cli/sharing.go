@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any members ...` — read-side surface over the members collection.
@@ -22,7 +21,7 @@ func newMembersCmd() *cobra.Command {
 			Short: "SSE stream of membership changes (added/changed/removed)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, 0)
+				cl := newClient(0)
 				return cl.StreamSubscribeMembers(cmd.Context(), args[0], jsonFrameHandler())
 			},
 		},
@@ -31,7 +30,7 @@ func newMembersCmd() *cobra.Command {
 			Short: "list every member visible in the ACL (includes tombstones and pending requests)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.MembersList(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -44,7 +43,7 @@ func newMembersCmd() *cobra.Command {
 			Short: "the caller's own member entry",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.MembersMe(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -57,7 +56,7 @@ func newMembersCmd() *cobra.Command {
 			Short: "one member by identity",
 			Args:  cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.MembersGet(cmd.Context(), args[0], args[1])
 				if err != nil {
 					return err
@@ -70,7 +69,7 @@ func newMembersCmd() *cobra.Command {
 			Short: "pending join requests awaiting accept/decline",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.JoinRequests(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -99,7 +98,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "mint a fresh invite (replaces any prior one)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.InviteCreate(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -112,7 +111,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "every active invite record on the ACL",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.InvitesList(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -125,7 +124,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "one invite record; includes inviteToken on the minting account's devices",
 			Args:  cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.InviteGet(cmd.Context(), args[0], args[1])
 				if err != nil {
 					return err
@@ -138,7 +137,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "revoke one invite by record id",
 			Args:  cobra.ExactArgs(2),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.InviteRevoke(cmd.Context(), args[0], args[1])
 			},
 		},
@@ -147,7 +146,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "revoke every active invite in one batch",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.InvitesRevokeAll(cmd.Context(), args[0])
 			},
 		},
@@ -156,7 +155,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "mint (or return) the space's public read-only guest key token",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.GuestKeyCreate(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -169,7 +168,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "revoke the guest key (rotates the read key; old tokens die)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.GuestKeyRevoke(cmd.Context(), args[0])
 			},
 		},
@@ -178,7 +177,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "list direct-add invites awaiting approval",
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.SpaceList(cmd.Context(), api.SpaceStatusInvitePending)
 				if err != nil {
 					return err
@@ -191,7 +190,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "accept a direct-add invite (loads the space)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				out, err := cl.SpaceInviteAccept(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -204,7 +203,7 @@ func newInviteCmd() *cobra.Command {
 			Short: "decline a direct-add invite (sticky; accept later overrides)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.SpaceInviteDecline(cmd.Context(), args[0])
 			},
 		},
@@ -225,7 +224,7 @@ func newJoinCmd() *cobra.Command {
 		Short: "join a space via an invite token (--token)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceJoin(cmd.Context(), api.SpaceJoinRequest{
 				InviteToken: token,
 				Metadata:    api.AccountMetadata{Name: name, Description: desc, IconCID: iconCID},
@@ -259,7 +258,7 @@ func newACLCmd() *cobra.Command {
 			Short: "approve a pending join request and grant a permission",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.ACLAccept(cmd.Context(), args[0], api.ACLAcceptRequest{
 					RequestRecordId: record,
 					Permission:      perm,
@@ -280,7 +279,7 @@ func newACLCmd() *cobra.Command {
 			Short: "decline a pending join request",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.ACLDecline(cmd.Context(), args[0], api.ACLDeclineRequest{Identity: ident})
 			},
 		}
@@ -295,7 +294,7 @@ func newACLCmd() *cobra.Command {
 		Short: "set a single member's permission",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.ACLChangePermissions(cmd.Context(), args[0], api.ACLChangePermissionsRequest{
 				Changes: []api.ACLPermissionChange{{Identity: args[1], Permission: args[2]}},
 			})
@@ -308,7 +307,7 @@ func newACLCmd() *cobra.Command {
 		Short: "remove members and rotate the read key",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.ACLRemove(cmd.Context(), args[0], api.ACLRemoveRequest{Identities: args[1:]})
 		},
 	})
@@ -344,7 +343,7 @@ func newACLCmd() *cobra.Command {
 				if len(accounts) > 1 && (name != "" || desc != "") {
 					return fmt.Errorf("--name/--description apply to a single identity; drop them for a batch add")
 				}
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.ACLAdd(cmd.Context(), args[0], api.ACLAddRequest{Accounts: accounts})
 			},
 		}
@@ -361,7 +360,7 @@ func newACLCmd() *cobra.Command {
 			Short: "transfer ownership; old owner becomes --old-owner-perm",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				cl := client.New(flags.Addr, flags.Timeout)
+				cl := newClient(flags.Timeout)
 				return cl.ACLOwnership(cmd.Context(), args[0], api.ACLOwnershipRequest{
 					NewOwner:     newOwner,
 					OldOwnerPerm: oldPerm,
@@ -379,7 +378,7 @@ func newACLCmd() *cobra.Command {
 		Short: "ask to be removed from a space (non-owner only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.ACLSelfRemove(cmd.Context(), args[0])
 		},
 	})
@@ -388,7 +387,7 @@ func newACLCmd() *cobra.Command {
 		Short: "withdraw your pending join request on this space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.ACLCancelJoin(cmd.Context(), args[0])
 		},
 	})
@@ -397,7 +396,7 @@ func newACLCmd() *cobra.Command {
 		Short: "drop every non-owner member, revoke every invite, rotate the read key",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.ACLStopSharing(cmd.Context(), args[0])
 		},
 	})

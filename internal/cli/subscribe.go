@@ -55,7 +55,7 @@ Frames (one JSON object per line on stdout):
 				return err
 			}
 
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			handle := jsonFrameHandler()
 
 			ctx := cmd.Context()

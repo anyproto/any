@@ -2,8 +2,6 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any debug ...` — diagnostic snapshots from the SDK's Space.Debug()
@@ -25,7 +23,7 @@ func newDebugP2PCmd() *cobra.Command {
 		Short: "local-network layer snapshot: listener, discovery state, discovered LAN peers",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.DebugP2P(cmd.Context())
 			if err != nil {
 				return err
@@ -41,7 +39,7 @@ func newDebugSpaceCmd() *cobra.Command {
 		Short: "per-peer headsync counters for the space (in-memory; resets on restart)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.DebugSpace(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -57,7 +55,7 @@ func newDebugObjectCmd() *cobra.Command {
 		Short: "per-object tree + sync snapshot (triggers a tree walk; not for high-frequency polling)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.DebugObject(cmd.Context(), args[0], args[1])
 			if err != nil {
 				return err

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 	"github.com/anyproto/any/internal/server"
 )
 
@@ -40,7 +39,7 @@ func newAuthCmd() *cobra.Command {
 					return fmt.Errorf("read mnemonic: %w", err)
 				}
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			req := api.AuthRequest{
 				Mnemonic:  mnemonic,
 				AccountId: account,
@@ -74,7 +73,7 @@ func newAuthCmd() *cobra.Command {
 		Short: "GET /v1/auth — authorization state + locally available accounts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			resp, err := cl.AuthStatus(cmd.Context())
 			if err != nil {
 				return err
@@ -86,4 +85,3 @@ func newAuthCmd() *cobra.Command {
 	cmd.AddCommand(login, status)
 	return cmd
 }
-

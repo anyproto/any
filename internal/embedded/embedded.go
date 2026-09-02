@@ -63,6 +63,9 @@ var (
 	// ErrBadDataDir: the data directory argument is empty, or could not be
 	// resolved / created (bad path, unwritable parent).
 	ErrBadDataDir = errors.New("embedded: bad data directory")
+	// ErrBadOptions: an Options field the host controls is invalid — an
+	// unknown Mode, or managed mode without a ControlToken.
+	ErrBadOptions = errors.New("embedded: bad options")
 )
 
 // BootError wraps a failure that occurred while bringing the server up
@@ -142,6 +145,32 @@ type Options struct {
 	// "quic://host:port" or "host:port,host2:port2". Push activates only
 	// when both PushPeerId and PushAddrs are non-empty.
 	PushAddrs string
+	// Mode is the server ownership mode: "" / "standalone" (the account
+	// resolves from the wallet on disk) or "managed" (the host states
+	// the account over POST /v1/auth on every boot, keys never touch
+	// disk, and logout / switch / shutdown are allowed behind
+	// ControlToken). Fixed for the server's lifetime.
+	Mode string
+	// ControlToken gates the managed control operations (POST/DELETE
+	// /v1/auth, POST /v1/shutdown). Required when Mode is "managed":
+	// an in-process host has no stdout handshake to receive a minted
+	// one, and without a token any other process on the device could
+	// switch the account. Ignored in standalone.
+	ControlToken string
+}
+
+// validateOptions checks the host-controlled fields that have no
+// filesystem side to fail on. Split from assembleConfig so the
+// assembly stays infallible.
+func validateOptions(opts Options) error {
+	mode, err := config.ParseMode(opts.Mode)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadOptions, err)
+	}
+	if mode == config.ModeManaged && strings.TrimSpace(opts.ControlToken) == "" {
+		return fmt.Errorf("%w: managed mode requires ControlToken", ErrBadOptions)
+	}
+	return nil
 }
 
 // assembleConfig builds the embedded boot config from validated Options.
@@ -151,6 +180,8 @@ func assembleConfig(opts Options) config.Config {
 	cfg := config.Defaults()
 	cfg.DataDir = opts.DataDir
 	cfg.Listen.Addr = opts.ListenAddr
+	// Already validated by Start; "" normalizes to standalone.
+	cfg.Mode, _ = config.ParseMode(opts.Mode)
 	// Trimmed so a whitespace-only string counts as "not supplied" and
 	// falls through to config's embedded production default, rather than
 	// reaching any-sync as an unparseable conf.
@@ -228,6 +259,9 @@ func Start(opts Options) (string, error) {
 	if opts.DataDir == "" {
 		return "", ErrBadDataDir
 	}
+	if err := validateOptions(opts); err != nil {
+		return "", err
+	}
 	if _, err := config.EnsureDataDir(opts.DataDir); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrBadDataDir, err)
 	}
@@ -242,7 +276,8 @@ func Start(opts Options) (string, error) {
 	go func() {
 		defer close(done)
 		err := server.RunWith(ctx, cfg, server.RunOptions{
-			Ready: func(addr string) { ready <- addr },
+			Ready:        func(addr string) { ready <- addr },
+			ControlToken: strings.TrimSpace(opts.ControlToken),
 		})
 		runErr <- err
 	}()

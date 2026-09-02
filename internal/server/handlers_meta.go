@@ -118,6 +118,11 @@ type deps struct {
 	root   string
 	cfg    config.Config
 	runCtx context.Context
+
+	// controlToken gates the managed-mode control operations (auth
+	// verbs + shutdown); empty on a standalone server, where those
+	// operations are refused by mode instead. See control.go.
+	controlToken string
 }
 
 // accountID returns the booted account id, or "" while unauthorized.

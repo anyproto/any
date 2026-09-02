@@ -67,7 +67,7 @@ func cleanupEngine(t *testing.T) {
 // start boots with push off — the arguments every lifecycle test shares.
 func start(t *testing.T, dataDir string) startResult {
 	t.Helper()
-	return startEngine(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "")
+	return startEngine(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "", "", "")
 }
 
 // dialAddr asserts the address is bound and reachable: a TCP dial

@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/anyproto/any/internal/client"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -15,7 +13,7 @@ func newStatusCmd() *cobra.Command {
 		Short: "GET /v1/health on the running server",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			h, err := cl.Health(cmd.Context())
 			if err != nil {
 				return err
