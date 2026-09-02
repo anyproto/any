@@ -90,6 +90,15 @@ func newProcessRegistry() *processRegistry {
 	return &processRegistry{entries: make(map[processKey]*processEntry), now: time.Now}
 }
 
+// reset forgets every process: the account whose identity keys the
+// rows is being torn down, and nothing recorded applies to the next
+// one. The registry itself (and its hub tap) lives on.
+func (r *processRegistry) reset() {
+	r.mu.Lock()
+	r.entries = make(map[processKey]*processEntry)
+	r.mu.Unlock()
+}
+
 // apply folds one bus event into the view. Non-process types,
 // process.cancel (a directive, not a state change), events without a
 // sender and events without a target (the process id) are ignored.

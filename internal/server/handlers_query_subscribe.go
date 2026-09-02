@@ -99,17 +99,13 @@ func (d *deps) spaceQuerySubscribe(c echo.Context) error {
 //	changes  — JSON array of QuerySubscribeEvent batches; Mailbox.Wait
 //	           coalesces concurrent events for free.
 //	closed   — terminal, with a reason mapped from Sub.Err() (overflow,
-//	           drifted, sdk_closed) or shutdownCtx (server_shutdown).
+//	           drifted, sdk_closed) or the engine's teardown
+//	           (server_shutdown, deauthorized).
 //
-// streamsWG is bumped for the lifetime of the loop so server.Run can
-// wait for in-flight streams to drain before exiting.
+// The stream runs inside the engine gate (routes.go), so a teardown
+// waits for it to unwind — which it does as soon as shutdownCtx fires.
 func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, includeTotal bool, shaper recordShaper) error {
 	defer res.Sub.Close()
-
-	if d.streamsWG != nil {
-		d.streamsWG.Add(1)
-		defer d.streamsWG.Done()
-	}
 
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -142,7 +138,7 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 		select {
 		case bres := <-batchCh:
 			if bres.err != nil {
-				return d.streamQuerySubscribeFinish(w, res.Sub, bres.err)
+				return d.streamQuerySubscribeFinish(w, res.Sub, bres.err, c.Request().Context().Err() != nil)
 			}
 			batchCh = waitQueryBatch(mailbox, waitCtx)
 			if len(bres.events) == 0 {
@@ -162,36 +158,52 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 }
 
 // streamQuerySubscribeFinish renders the terminal frame and returns
-// when the mailbox closes. Resolution order:
+// when the wait ends. Resolution order:
 //
 //   - mb.ErrClosed + Sub.Err()==ErrSubscriptionOverflow → closed{overflow}
 //   - mb.ErrClosed + Sub.Err()==ErrSubscriptionDrifted  → closed{drifted}
-//   - mb.ErrClosed + Sub.Err()==nil + shutdownCtx tripped → closed{server_shutdown}
+//   - mb.ErrClosed + Sub.Err()==nil + engine teardown   → closed{server_shutdown | deauthorized}
 //   - mb.ErrClosed + Sub.Err()==nil + nothing else      → closed{sdk_closed}
-//   - context error (client gone)                       → nothing
+//   - context error + engine teardown, client present  → closed{server_shutdown | deauthorized}
+//   - context error, client gone                        → nothing
 //
 // Sub.Err() returning nil on a closed mailbox covers both deliberate
 // caller close and SDK-driven teardown; we lean on shutdownCtx to
-// disambiguate the latter.
-func (d *deps) streamQuerySubscribeFinish(w http.ResponseWriter, sub space.QuerySubscription, err error) error {
-	if !errors.Is(err, mb.ErrClosed) {
-		// context error — the client hung up. Nothing to send.
-		return nil
-	}
+// disambiguate the latter. The wait itself returns a context error
+// when shutdownCtx fires before the SDK closes the mailbox — the
+// normal teardown ordering — so that path emits the frame too.
+func (d *deps) streamQuerySubscribeFinish(w http.ResponseWriter, sub space.QuerySubscription, err error, clientGone bool) error {
+	teardown := d.shutdownCtx != nil && d.shutdownCtx.Err() != nil
 	reason := ""
 	switch {
+	case !errors.Is(err, mb.ErrClosed):
+		if clientGone || !teardown {
+			// The client hung up. Nothing to send.
+			return nil
+		}
+		reason = d.engineCloseReason()
 	case errors.Is(sub.Err(), space.ErrSubscriptionOverflow):
 		reason = api.SubscribeClosedOverflow
 	case errors.Is(sub.Err(), space.ErrSubscriptionDrifted):
 		reason = api.SubscribeClosedDrifted
-	case d.shutdownCtx != nil && d.shutdownCtx.Err() != nil:
-		reason = api.SubscribeClosedServerShutdown
+	case teardown:
+		reason = d.engineCloseReason()
 	default:
 		reason = api.SubscribeClosedSDKClosed
 	}
 	_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: reason})
 	flush(w)
 	return nil
+}
+
+// engineCloseReason is the terminal reason a stream reports once the
+// engine's ctx is cancelled. Read inside the gate, where d.eng is
+// stable; server_shutdown without an engine (hand-built test deps).
+func (d *deps) engineCloseReason() string {
+	if d.eng != nil {
+		return d.eng.getCloseReason()
+	}
+	return api.SubscribeClosedServerShutdown
 }
 
 type queryBatchResult struct {

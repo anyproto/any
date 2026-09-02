@@ -40,6 +40,13 @@ const (
 	// POST /v1/shutdown). Reconnect when the server is back up.
 	SubscribeClosedServerShutdown = "server_shutdown"
 
+	// SubscribeClosedDeauthorized — the account behind the stream was
+	// torn down in place (DELETE /v1/auth, or a POST /v1/auth switch to
+	// another account) while the server stays up. Re-read GET /v1/auth
+	// before resubscribing: the server is unauthorized or serving a
+	// different account.
+	SubscribeClosedDeauthorized = "deauthorized"
+
 	// SubscribeClosedSDKClosed — the SDK released the underlying
 	// subscription channel (typically because the space or SDK closed).
 	// Reconnect after re-resolving the space.

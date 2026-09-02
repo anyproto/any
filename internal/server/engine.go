@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
@@ -25,9 +27,11 @@ import (
 )
 
 // engine bundles everything that exists only while an account is
-// booted: the per-account instance lock, the SDK, the indexer and the push
-// service. One per process; built either directly by server.Run (an
-// identity resolved at boot) or later by POST /v1/auth.
+// booted: the per-account instance lock, the SDK, the indexer, the push
+// service, and every goroutine and stream working against them. One at
+// a time per process; built by server.Run (an identity resolved at
+// boot) or by POST /v1/auth, torn down by shutdown, DELETE /v1/auth or
+// an account switch — the listener outlives it.
 type engine struct {
 	lock    *Lock
 	sdk     *anysyncsdk.SDK
@@ -41,9 +45,110 @@ type engine struct {
 	// derived is the derived-space registry resolved against this
 	// account (see derivedspaces.go).
 	derived []resolvedDerivedSpace
+	// chunkers is the index chunker registry driven by this engine's
+	// indexer. Per engine: the schema chunker keeps per-space catalog
+	// state that must not carry over to the next account.
+	chunkers *index.Registry
+
+	// ctx bounds every goroutine and SSE stream that belongs to this
+	// engine; cancelling it is the first step of teardown. Streams
+	// select on it and emit their terminal frame with closeReason.
+	ctx    context.Context
+	cancel context.CancelFunc
+	// wg tracks the engine's own goroutines (registerDevice, the push
+	// kick, the standing process interest, the derived-setup pass,
+	// bundle loser retries) so teardown can join them before closing
+	// the SDK they read.
+	wg sync.WaitGroup
+
+	mu sync.Mutex
+	// closeReason is the `closed{reason}` streams emit once ctx is
+	// cancelled: server_shutdown for process exit, deauthorized for an
+	// in-place logout or switch. Written before cancel.
+	closeReason string
 	// procRelease drops the standing account-scope pub/sub interest
-	// for process.* broadcasts (acquired in bootAccount, best-effort).
+	// for process.* broadcasts (acquired by holdProcessInterest).
 	procRelease func()
+	// done flips once the engine's resources are closed; late indexer
+	// frames from a torn-down engine are dropped past it.
+	done atomic.Bool
+}
+
+// newEngine allocates an engine with its lifecycle context; the
+// resources are filled in by bootEngine.
+func newEngine() *engine {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &engine{ctx: ctx, cancel: cancel, closeReason: api.SubscribeClosedServerShutdown}
+}
+
+// spawn runs fn as one of the engine's goroutines, bounded by its ctx
+// and joined at teardown.
+func (e *engine) spawn(fn func(ctx context.Context)) {
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		fn(e.ctx)
+	}()
+}
+
+func (e *engine) setCloseReason(reason string) {
+	e.mu.Lock()
+	e.closeReason = reason
+	e.mu.Unlock()
+}
+
+func (e *engine) getCloseReason() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.closeReason
+}
+
+// closeResources releases everything the engine holds, in dependency
+// order: cancel first so goroutines and streams unwind, join the
+// goroutines, then indexer and push (their workers read the SDK), the
+// SDK, and finally the instance lock. Nil-tolerant for a partially
+// built engine (boot failure, hand-built test fixtures).
+func (e *engine) closeResources(lg logger.CtxLogger) {
+	e.cancel()
+	if !waitWG(&e.wg, gracefulShutdownDeadline) {
+		lg.Warn("engine goroutines did not finish in time")
+	}
+	e.mu.Lock()
+	release := e.procRelease
+	e.procRelease = nil
+	e.mu.Unlock()
+	if release != nil {
+		release()
+	}
+	if e.indexer != nil {
+		if err := e.indexer.Close(); err != nil {
+			lg.Warn("indexer close", zap.Error(err))
+		}
+	}
+	if e.push != nil {
+		if err := e.push.Close(); err != nil {
+			lg.Warn("push close", zap.Error(err))
+		}
+	}
+	if e.sdk != nil {
+		if err := e.sdk.Close(); err != nil {
+			lg.Warn("sdk close", zap.Error(err))
+		}
+	}
+	if err := e.lock.Release(); err != nil {
+		lg.Warn("release instance lock", zap.Error(err))
+	}
+	e.done.Store(true)
+}
+
+// waitWG waits for the group with a deadline; false on timeout.
+func waitWG(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return waitClosed(done, d)
 }
 
 // errAlreadyAuthorized guards double-boot via POST /v1/auth.
@@ -62,20 +167,26 @@ type walletSeed struct {
 	index    uint32
 }
 
-// bootEngine opens the identity's wallet and brings up the SDK and the
-// indexer for it. A non-zero seed.mnemonic seeds wallet creation
-// (restore path) at seed.index. On any failure everything already
-// opened is torn back down; if THIS call freshly created a per-account
-// wallet, the orphaned account dir is removed too — otherwise a
-// half-initialized account (especially a generated one whose phrase
-// was never surfaced to the caller) would linger and be auto-selected
-// on the next start.
-func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, seed walletSeed, streamsCtx context.Context, chunkers *index.Registry, onProcess func(indexer.ProcessUpdate)) (eng *engine, err error) {
+// processHook builds the indexer's process-update sink for an engine;
+// nil disables process reporting (tests).
+type processHook func(*engine) func(indexer.ProcessUpdate)
+
+// bootEngine opens the identity's keys through open and brings up the
+// SDK and the indexer for it. On any failure everything already
+// opened is torn back down; if THIS call freshly created the account
+// dir, the orphan is removed too — otherwise a half-initialized
+// account (especially a generated one whose phrase was never surfaced
+// to the caller) would linger and be auto-selected on the next start.
+// A pre-existing dir (an account reached under the other custody, or
+// one holding data from an earlier boot) is left untouched.
+func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identity, open credential, onProcess processHook) (_ *engine, err error) {
+	_, statErr := os.Stat(id.Dir)
+	dirExisted := statErr == nil
 	if err := os.MkdirAll(id.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create account dir %s: %w", id.Dir, err)
 	}
 	// A held lock means another process owns this account dir — bail
-	// before touching the wallet, and never clean up on this path. Goes
+	// before touching the keys, and never clean up on this path. Goes
 	// through acquirePIDLock so the mobile build (one in-process instance)
 	// can no-op it at both bootAccount sites; see pidlock_acquire*.go.
 	lock, err := acquirePIDLock(id.Dir)
@@ -83,26 +194,24 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, err
 	}
 
-	passkey, err := config.ResolvePasskey(cfg, false)
+	provider, createdKeys, err := open(ctx)
 	if err != nil {
 		_ = lock.Release()
 		return nil, err
 	}
-	provider, createdWallet, err := OpenWallet(id.WalletPath, passkey, seed.mnemonic, seed.index)
-	if err != nil {
-		_ = lock.Release()
-		return nil, err
-	}
-	// Hold the lock from here. On failure release it, and if we just
-	// created a per-account wallet, remove the orphan dir. Registered
-	// before the sdk-close defer so (LIFO) sdk.Close runs first, then
-	// release, then the dir removal — the lock file is closed cleanly
-	// before RemoveAll. Scoped to per-account dirs: never the legacy
+
+	eng := newEngine()
+	eng.lock = lock
+	eng.chunkers = NewIndexRegistry()
+	// Everything opened from here belongs to the engine: on failure
+	// closeResources releases it in order (goroutines, indexer, push,
+	// SDK, lock), and a dir this call created for freshly minted keys
+	// leaves with it. Scoped to per-account dirs: never the legacy
 	// flat root or an explicit --wallet path.
 	defer func() {
 		if err != nil {
-			_ = lock.Release()
-			if createdWallet && id.Dir != root {
+			eng.closeResources(engineLog)
+			if createdKeys && !dirExisted && id.Dir != root {
 				_ = os.RemoveAll(id.Dir)
 			}
 		}
@@ -113,18 +222,15 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, fmt.Errorf("derive account id: %w", err)
 	}
 	if id.Account != "" && id.Account != account {
-		return nil, fmt.Errorf("wallet at %s is account %s, not %s", id.WalletPath, account, id.Account)
+		return nil, fmt.Errorf("keys under %s are account %s, not %s", id.Dir, account, id.Account)
 	}
+	eng.account = account
 
 	sdk, err := OpenSDK(ctx, cfg, id.Dir, provider)
 	if err != nil {
 		return nil, fmt.Errorf("open sdk: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = sdk.Close()
-		}
-	}()
+	eng.sdk = sdk
 
 	// Refresh this device's registry row (SYN-165): os/version are
 	// server-stamped so every boot keeps them current; the display name
@@ -132,51 +238,58 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	// user-set name is never clobbered. Best-effort — the registry is
 	// convenience metadata and must never block boot — and deferred
 	// until the SDK's bootstrap pass completes (see registerDevice).
-	go registerDevice(streamsCtx, sdk)
+	eng.spawn(func(ctx context.Context) { registerDevice(ctx, sdk) })
 
-	var ix *indexer.Indexer
 	if cfg.Index.Enabled {
-		ix, err = OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, chunkers, onProcess)
+		var hook func(indexer.ProcessUpdate)
+		if onProcess != nil {
+			hook = onProcess(eng)
+		}
+		ix, err := OpenIndexer(ctx, cfg.Index, id.Dir, config.ModelsDir(root), sdk, eng.chunkers, hook)
 		if err != nil {
 			return nil, fmt.Errorf("open indexer: %w", err)
 		}
-		ix.Start(streamsCtx)
+		eng.indexer = ix
+		ix.Start(eng.ctx)
 	}
 
 	// Push notifications: only when config names a push node (the SDK
 	// side was threaded by OpenSDK under the same gate). Token file
 	// lives in the per-account dir; Start never fails boot — a
 	// persisted token re-registers in the background.
-	var ps *push.Service
 	if cfg.Push.Active() {
-		ps = push.New(sdk, id.Dir)
-		ps.Start(streamsCtx)
+		ps := push.New(sdk, id.Dir)
+		eng.push = ps
+		ps.Start(eng.ctx)
 		// The first subscription sync can run before the SDK's background
 		// boot pass materializes offline-created chats; kick a re-sync once
 		// the pass completes so healing doesn't wait for the periodic tick.
-		go func() {
+		// sdk.Close also closes BootstrapDone, so re-check the ctx after
+		// waking: a teardown must not kick a closing service.
+		eng.spawn(func(ctx context.Context) {
 			select {
 			case <-sdk.BootstrapDone():
-				ps.Kick()
-			case <-streamsCtx.Done():
+				if ctx.Err() == nil {
+					ps.Kick()
+				}
+			case <-ctx.Done():
 			}
-		}()
+		})
 	}
 
 	// Local store: device-local, non-CRDT collections in the SDK's
 	// sdk.db under the "l_" tag. Borrows the SDK's handle — nothing to
 	// open, nothing to close.
-	var ls *localstore.Store
 	if cfg.Local.Enabled {
-		ls = localstore.New(sdk.Store())
+		eng.local = localstore.New(sdk.Store())
 	}
 
 	derived, err := resolveDerivedSpaces(ctx, sdk)
 	if err != nil {
 		return nil, fmt.Errorf("resolve derived spaces: %w", err)
 	}
-
-	return &engine{lock: lock, sdk: sdk, indexer: ix, push: ps, local: ls, account: account, derived: derived}, nil
+	eng.derived = derived
+	return eng, nil
 }
 
 // engineLog covers engine lifecycle noise that has no request context.
@@ -195,6 +308,9 @@ func registerDevice(ctx context.Context, sdk *anysyncsdk.SDK) {
 	select {
 	case <-sdk.BootstrapDone():
 	case <-ctx.Done():
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	up := space.DeviceUpsert{OS: runtime.GOOS, Version: version.Version}
@@ -224,17 +340,32 @@ func registerDevice(ctx context.Context, sdk *anysyncsdk.SDK) {
 }
 
 // bootAccount boots an engine and publishes it on d. Serialized by
-// authMu; exactly one engine per process lifetime.
-func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
+// authMu; at most one engine live at a time.
+func (d *deps) bootAccount(id *Identity, open credential) (*engine, error) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
-	if d.ready.Load() {
+	return d.bootAccountLocked(id, open)
+}
+
+// bootAccountLocked is bootAccount with authMu held by the caller — the
+// switch path tears the previous engine down and boots the next one
+// under a single hold.
+func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error) {
+	if d.eng != nil {
 		return nil, errAlreadyAuthorized
 	}
-	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, seed, d.shutdownCtx, d.chunkers, d.indexerProcess)
+	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor)
 	if err != nil {
 		return nil, err
 	}
+	d.publishEngine(eng)
+	return eng, nil
+}
+
+// publishEngine installs a booted engine on d and opens the gate. The
+// field stores happen before ready flips; the guard's atomic load is
+// the acquire edge that makes them visible to handlers.
+func (d *deps) publishEngine(eng *engine) {
 	d.eng = eng
 	d.sdk = eng.sdk
 	d.indexer = eng.indexer
@@ -242,13 +373,68 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 	d.local = eng.local
 	d.account = eng.account
 	d.derived = eng.derived
+	d.shutdownCtx = eng.ctx
+	d.gate.reset()
 	d.ready.Store(true)
-	go d.holdProcessInterest()
+	eng.spawn(func(context.Context) { d.holdProcessInterest(eng) })
 	// Restore side of the setup split: adopt the installs of the
 	// well-known derived spaces this account already has
 	// (derivedsetup.go). Never creates a space; never blocks serving.
-	go d.bootstrapDerivedSetups(d.shutdownCtx)
-	return eng, nil
+	eng.spawn(func(ctx context.Context) { d.bootstrapDerivedSetups(ctx, eng) })
+}
+
+// teardownEngine tears the live engine down in place and returns d to
+// the unauthorized state, keeping the listener up. reason is the
+// terminal `closed{reason}` every open stream receives. No-op without
+// an engine.
+func (d *deps) teardownEngine(lg logger.CtxLogger, reason string) {
+	d.authMu.Lock()
+	defer d.authMu.Unlock()
+	d.teardownEngineLocked(lg, reason)
+}
+
+// teardownEngineLocked is teardownEngine with authMu held. Order:
+//
+//  1. ready off — the guard refuses new requests with 401;
+//  2. cancel the engine ctx — streams write their terminal frame and
+//     unwind, engine goroutines return;
+//  3. drain the gate — every in-flight handler and stream leaves
+//     (bounded; a wedged one is abandoned, never waited forever);
+//  4. drop the account-bound in-memory state — pub/sub interests,
+//     the process view, bundle observations;
+//  5. close the engine's resources (goroutines joined, indexer, push,
+//     SDK, lock);
+//  6. clear the engine fields and reopen the gate for the next boot.
+//
+// Nothing here takes the gate or blocks on a handler that holds it, so
+// a handler must never take authMu — see the guard in routes.go.
+func (d *deps) teardownEngineLocked(lg logger.CtxLogger, reason string) {
+	eng := d.eng
+	if eng == nil {
+		return
+	}
+	d.ready.Store(false)
+	eng.setCloseReason(reason)
+	eng.cancel()
+	if !waitClosed(d.gate.close(), gracefulShutdownDeadline) {
+		lg.Warn("engine teardown: in-flight requests did not finish in time")
+	}
+	d.eventsNet().detach()
+	d.processes().reset()
+	d.bundleResolver().Reset()
+	eng.closeResources(lg)
+	// Cleared unconditionally — even after a timed-out drain — so a
+	// second teardown (server.Run's deferred one) never closes the SDK
+	// twice.
+	d.eng = nil
+	d.sdk = nil
+	d.indexer = nil
+	d.push = nil
+	d.local = nil
+	d.account = ""
+	d.derived = nil
+	d.shutdownCtx = nil
+	d.gate.reset()
 }
 
 // holdProcessInterest acquires the standing account-scope interest for
@@ -256,35 +442,33 @@ func (d *deps) bootAccount(id *Identity, seed walletSeed) (*engine, error) {
 // devices' processes materialize in the view with no local SSE
 // subscriber. Space-scope coverage stays subscriber-driven
 // (docs/22-processes.md § Remote visibility). Retries with backoff
-// until acquired or shutdown — unlike an SSE client, this interest
-// has no reconnect path, so a one-shot attempt could silently cost
-// remote visibility for the whole process lifetime.
-func (d *deps) holdProcessInterest() {
-	ctx := d.runCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	var done <-chan struct{}
-	if d.shutdownCtx != nil {
-		done = d.shutdownCtx.Done()
-	}
+// until acquired or the engine goes away — unlike an SSE client, this
+// interest has no reconnect path, so a one-shot attempt could silently
+// cost remote visibility for the engine's lifetime.
+//
+// Runs as an engine goroutine and must not take authMu: teardown joins
+// it while holding that lock.
+func (d *deps) holdProcessInterest(eng *engine) {
 	backoff := 2 * time.Second
 	for {
-		release, err := d.eventsNet().acquire(ctx, true, nil, []string{eventTopicPrefix + "process/>"})
+		release, err := d.eventsNet().acquire(eng.ctx, true, nil, []string{eventTopicPrefix + "process/>"})
 		if err == nil {
-			d.authMu.Lock()
-			if d.eng != nil {
-				d.eng.procRelease = release
-				d.authMu.Unlock()
+			eng.mu.Lock()
+			if eng.ctx.Err() != nil {
+				eng.mu.Unlock()
+				release() // engine already tearing down
 				return
 			}
-			d.authMu.Unlock()
-			release() // engine already torn down
+			eng.procRelease = release
+			eng.mu.Unlock()
+			return
+		}
+		if eng.ctx.Err() != nil {
 			return
 		}
 		handlerLog.Warn("process event interest not acquired; retrying", zap.Error(err))
 		select {
-		case <-done:
+		case <-eng.ctx.Done():
 			return
 		case <-time.After(backoff):
 		}
@@ -292,103 +476,86 @@ func (d *deps) holdProcessInterest() {
 	}
 }
 
-// indexerProcess bridges indexer lifecycle updates onto the process
-// view as device-scope processes — each device indexes its own copy,
-// other devices don't care. Kinds: index.fts.<spaceId> (chunk/advance
-// backlog), index.embed.<spaceId> (vector drain, total from the
-// pending count), index.model_download (embedding-model fetch,
-// done/total bytes, target = model file name). Updates arriving
-// before the engine is published (the boot pass can start work first)
-// are dropped — every frame carries the full descriptor, so the view
-// recovers from any later one. Cancel requests are ignored by these
-// producers; work stopped mid-pass (space dropped, shutdown) reports
-// cancelled. Failure messages are deliberately generic — indexer
-// errors carry filesystem paths and upstream response bodies, which
-// never go on the wire; the detail is in the server log.
-func (d *deps) indexerProcess(u indexer.ProcessUpdate) {
-	if !d.ready.Load() {
-		return
+// indexerProcessFor bridges the engine's indexer lifecycle updates onto
+// the process view as device-scope processes — each device indexes its
+// own copy, other devices don't care. Kinds: index.fts.<spaceId>
+// (chunk/advance backlog), index.embed.<spaceId> (vector drain, total
+// from the pending count), index.model_download (embedding-model
+// fetch, done/total bytes, target = model file name). Frames are
+// stamped with the engine's own account, and dropped once its
+// resources are closed — a straggling download goroutine from a
+// torn-down engine must not report under the next account. Cancel
+// requests are ignored by these producers; work stopped mid-pass
+// (space dropped, teardown) reports cancelled. Failure messages are
+// deliberately generic — indexer errors carry filesystem paths and
+// upstream response bodies, which never go on the wire; the detail is
+// in the server log.
+func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
+	return func(u indexer.ProcessUpdate) {
+		if eng.done.Load() {
+			return
+		}
+		var id string
+		var data processEventData
+		switch u.Kind {
+		case indexer.ProcessKindFTS:
+			id = "index.fts." + u.SpaceId
+			data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
+		case indexer.ProcessKindEmbed:
+			id = "index.embed." + u.SpaceId
+			data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
+		case indexer.ProcessKindModelDownload:
+			id = "index.model_download"
+			data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
+		default:
+			return
+		}
+		data.Done, data.Total = u.Done, u.Total
+		// Non-failed messages are producer-authored status lines (e.g. the
+		// download's generic "retrying" note) and safe to relay; a failed
+		// frame's message is the raw error — paths and response bodies —
+		// and is replaced by the generic Error below.
+		data.Message = u.Message
+		var typ string
+		switch u.Phase {
+		case indexer.ProcessStarted:
+			typ = api.EventProcessStarted
+		case indexer.ProcessProgress:
+			typ = api.EventProcessProgress
+		case indexer.ProcessDone:
+			typ = api.EventProcessDone
+		case indexer.ProcessCancelled:
+			typ = api.EventProcessCancelled
+		case indexer.ProcessFailed:
+			typ = api.EventProcessFailed
+			data.Message = ""
+			data.Error = &api.ProcessError{Code: data.Kind + "_failed",
+				Message: "failed; retrying — see server log"}
+		default:
+			return
+		}
+		payload, err := json.Marshal(data)
+		if err != nil {
+			return
+		}
+		d.eventsHub().publish(api.Event{
+			Type:   typ,
+			Scope:  api.EventScopeDevice,
+			Target: id,
+			Data:   payload,
+			Sender: &api.EventSender{Identity: eng.account, Self: true},
+		})
 	}
-	var id string
-	var data processEventData
-	switch u.Kind {
-	case indexer.ProcessKindFTS:
-		id = "index.fts." + u.SpaceId
-		data = processEventData{Kind: "index.fts", Title: "Indexing for search", Target: u.SpaceId}
-	case indexer.ProcessKindEmbed:
-		id = "index.embed." + u.SpaceId
-		data = processEventData{Kind: "index.embed", Title: "Embedding search index", Target: u.SpaceId}
-	case indexer.ProcessKindModelDownload:
-		id = "index.model_download"
-		data = processEventData{Kind: "index.model_download", Title: "Downloading embedding model", Target: u.Name}
-	default:
-		return
-	}
-	data.Done, data.Total = u.Done, u.Total
-	// Non-failed messages are producer-authored status lines (e.g. the
-	// download's generic "retrying" note) and safe to relay; a failed
-	// frame's message is the raw error — paths and response bodies —
-	// and is replaced by the generic Error below.
-	data.Message = u.Message
-	var typ string
-	switch u.Phase {
-	case indexer.ProcessStarted:
-		typ = api.EventProcessStarted
-	case indexer.ProcessProgress:
-		typ = api.EventProcessProgress
-	case indexer.ProcessDone:
-		typ = api.EventProcessDone
-	case indexer.ProcessCancelled:
-		typ = api.EventProcessCancelled
-	case indexer.ProcessFailed:
-		typ = api.EventProcessFailed
-		data.Message = ""
-		data.Error = &api.ProcessError{Code: data.Kind + "_failed",
-			Message: "failed; retrying — see server log"}
-	default:
-		return
-	}
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return
-	}
-	d.eventsHub().publish(api.Event{
-		Type:   typ,
-		Scope:  api.EventScopeDevice,
-		Target: id,
-		Data:   payload,
-		Sender: &api.EventSender{Identity: d.account, Self: true},
-	})
 }
 
-// closeEngine tears down the live engine, if any: indexer and push
-// first so their workers stop reading from the SDK, then the SDK,
-// then the single-instance lock.
-func (d *deps) closeEngine(lg logger.CtxLogger) {
-	d.authMu.Lock()
-	defer d.authMu.Unlock()
-	eng := d.eng
-	if eng == nil {
+// spawnEngine runs fn as a goroutine of the live engine (joined at
+// teardown, bounded by its ctx). Callers hold the gate, so d.eng is
+// stable; without an engine (hand-built test deps) fn runs detached
+// on the background context.
+func (d *deps) spawnEngine(fn func(ctx context.Context)) {
+	if d.eng != nil {
+		d.eng.spawn(fn)
 		return
 	}
-	if eng.procRelease != nil {
-		eng.procRelease()
-	}
-	if eng.indexer != nil {
-		if err := eng.indexer.Close(); err != nil {
-			lg.Warn("indexer close", zap.Error(err))
-		}
-	}
-	if eng.push != nil {
-		if err := eng.push.Close(); err != nil {
-			lg.Warn("push close", zap.Error(err))
-		}
-	}
-	if err := eng.sdk.Close(); err != nil {
-		lg.Warn("sdk close", zap.Error(err))
-	}
-	if err := eng.lock.Release(); err != nil {
-		lg.Warn("release instance lock", zap.Error(err))
-	}
-	d.eng = nil
+	go fn(d.backgroundCtx())
 }

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/indexer"
 )
@@ -110,29 +110,26 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	}
 
 	shutdown := make(chan struct{}, 1)
-	streamsCtx, cancelStreams := context.WithCancel(context.Background())
-	defer cancelStreams()
 
 	deps := &deps{
-		startedAt:      time.Now().UTC(),
-		shutdown:       shutdown,
-		chunkers:       NewIndexRegistry(),
-		shutdownCtx:    streamsCtx,
-		cancelShutdown: cancelStreams,
-		streamsWG:      &sync.WaitGroup{},
-		root:           root,
-		cfg:            cfg,
-		runCtx:         ctx,
-		controlToken:   controlToken,
+		startedAt:    time.Now().UTC(),
+		shutdown:     shutdown,
+		root:         root,
+		cfg:          cfg,
+		runCtx:       ctx,
+		controlToken: controlToken,
 	}
-	defer deps.closeEngine(lg)
+	// Covers every early return past a successful boot (a bind
+	// failure, for one): the engine's goroutines are joined and its
+	// resources released. A no-op after the explicit teardown below.
+	defer deps.teardownEngine(lg, api.SubscribeClosedServerShutdown)
 
 	switch {
 	case identity != nil:
 		// Existing wallets ignore the seed entirely; the index matters
 		// only for the wallet-override path, where a missing file is
 		// freshly generated — at the any default, consistent with init.
-		if _, err := deps.bootAccount(identity, walletSeed{index: auth.DefaultAccountIndex}); err != nil {
+		if _, err := deps.bootAccount(identity, fileCredential(cfg, identity.WalletPath, walletSeed{index: auth.DefaultAccountIndex})); err != nil {
 			return err
 		}
 	case cfg.Managed():
@@ -190,15 +187,12 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	// Signal SSE/streaming handlers to wrap up so their final `closed`
-	// frame lands before the listener tears the socket down. Then bound
-	// the rest of the shutdown by gracefulShutdownDeadline; e.Shutdown
-	// stops accepting new connections and waits for in-flight handlers
-	// to return.
-	deps.cancelShutdown()
-	if !waitTimeout(deps.streamsWG, gracefulShutdownDeadline) {
-		lg.Warn("graceful shutdown: streaming handlers did not finish in time")
-	}
+	// Tear the engine down first so streaming handlers write their
+	// final `closed` frame and every in-flight request drains before
+	// the listener tears the socket down (bounded by
+	// gracefulShutdownDeadline inside). Then e.Shutdown stops accepting
+	// new connections and waits for whatever is left.
+	deps.teardownEngine(lg, api.SubscribeClosedServerShutdown)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulShutdownDeadline)
 	defer cancel()
@@ -206,25 +200,4 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		lg.Warn("graceful shutdown", zap.Error(err))
 	}
 	return nil
-}
-
-// waitTimeout returns true if wg drains within d, false otherwise.
-// The streaming-handler drain races the overall shutdown deadline —
-// if a handler is wedged on a slow client write it gets cut off
-// rather than blocking the shutdown indefinitely.
-func waitTimeout(wg *sync.WaitGroup, d time.Duration) bool {
-	if wg == nil {
-		return true
-	}
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return true
-	case <-time.After(d):
-		return false
-	}
 }

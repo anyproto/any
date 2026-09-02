@@ -14,7 +14,6 @@ import (
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
@@ -40,10 +39,6 @@ type deps struct {
 	// derived is the derived-space registry resolved against the booted
 	// account (derivedspaces.go) — set with sdk, published by ready.
 	derived []resolvedDerivedSpace
-
-	// chunkers is the index chunker registry, built once at boot via
-	// NewIndexRegistry and driven by the indexer.
-	chunkers *index.Registry
 
 	// installs drives the per-space bundle installs and carries their
 	// loser verdicts across requests (derivedsetup.go). Created lazily
@@ -86,28 +81,33 @@ type deps struct {
 	// local.disabled; existing collections stay untouched on disk.
 	local *localstore.Store
 
-	// shutdownCtx cancels when graceful teardown begins. Streaming
-	// handlers select on Done to write their final `closed` frame and
-	// exit. Nil-tolerant: tests that don't go through server.Run leave
-	// it unset and SSE handlers fall back to never-cancel context.
-	// cancelShutdown is the matching CancelFunc; server.Run trips it
-	// before draining streamsWG so handlers wake up and emit their
-	// terminal frame inside the shutdown deadline.
-	shutdownCtx    context.Context
-	cancelShutdown context.CancelFunc
-	streamsWG      *sync.WaitGroup
+	// shutdownCtx is the LIVE ENGINE's context: it cancels when that
+	// engine's teardown begins (process exit, logout, account switch).
+	// Streaming handlers select on Done to write their final `closed`
+	// frame and exit; engine goroutines return on it. Nil while
+	// unauthorized and in tests that never boot — SSE handlers fall
+	// back to a never-cancel context. Swapped only between gate
+	// drains, so a handler inside the gate sees one value.
+	shutdownCtx context.Context
 
 	// ready flips to true once an engine (wallet + SDK + indexer) is
-	// live. Until then the /v1 guard middleware rejects every route
-	// except health/shutdown/auth with 401 auth.required, so handlers
-	// never observe a nil sdk. The store happens after the engine
-	// fields above are populated; the middleware's atomic load is the
-	// acquire edge that makes them visible. Tests building deps by
-	// hand must set it (newTestDeps does).
+	// live and false as the first step of its teardown. Until then the
+	// /v1 guard middleware rejects every route except
+	// health/shutdown/auth with 401 auth.required, so handlers never
+	// observe a nil sdk. The store happens after the engine fields
+	// above are populated; the middleware's atomic load is the acquire
+	// edge that makes them visible. Tests building deps by hand must
+	// set it (newTestDeps does).
 	ready atomic.Bool
+	// gate counts the requests and streams executing against the live
+	// engine; teardown closes and drains it before touching the
+	// fields above (gate.go). Zero value = open.
+	gate engineGate
 
-	// authMu serializes engine boot (POST /v1/auth vs. server.Run vs.
-	// shutdown). eng tracks the live engine for teardown.
+	// authMu serializes engine lifecycle: boot (POST /v1/auth vs.
+	// server.Run), teardown (shutdown, DELETE /v1/auth) and the switch
+	// that chains the two. Never taken by a request handler — teardown
+	// holds it while draining the gate. eng is the live engine.
 	authMu sync.Mutex
 	eng    *engine
 
@@ -126,21 +126,26 @@ type deps struct {
 }
 
 // accountID returns the booted account id, or "" while unauthorized.
-// The ready gate doubles as the memory barrier for the plain field
-// read (health runs outside the guard middleware).
+// Health and auth status run outside the guard middleware, so the read
+// takes the gate itself: a teardown in progress answers "".
 func (d *deps) accountID() string {
-	if !d.ready.Load() {
+	if !d.ready.Load() || !d.gate.enter() {
 		return ""
 	}
+	defer d.gate.leave()
 	return d.account
 }
 
 // bootstrapping reports whether the booted SDK's background boot pass
 // (eager space loading + offline catch-up) is still running. False
-// while unauthorized and once the pass completes. The ready gate is
-// the memory barrier for the sdk field read (see accountID).
+// while unauthorized and once the pass completes. Gate-scoped like
+// accountID: the sdk field is stable for the duration of the read.
 func (d *deps) bootstrapping() bool {
-	if !d.ready.Load() || d.sdk == nil {
+	if !d.ready.Load() || !d.gate.enter() {
+		return false
+	}
+	defer d.gate.leave()
+	if d.sdk == nil {
 		return false
 	}
 	select {

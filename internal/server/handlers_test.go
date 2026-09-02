@@ -7,9 +7,10 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -22,11 +23,11 @@ import (
 // checked in — copy your own staging.yml there to run these tests.
 const stagingPath = "../../staging.yml"
 
-// newTestDeps boots the server's deps in-process: wallet, SDK, fake
-// shutdown channel + shutdownCtx. Returns a teardown that closes the
-// SDK. Skips the test if the staging nodeconf isn't checked out
-// alongside the repo. Tests that need to trip shutdown mid-handler
-// can call deps.cancelShutdown directly.
+// newTestDeps boots the server's deps in-process: wallet, SDK and a
+// hand-built engine. Returns a teardown that tears the engine down
+// (production path). Skips the test if the staging nodeconf isn't
+// checked out alongside the repo. Tests that need to trip the engine
+// ctx mid-handler can call deps.cancelEngine directly.
 func newTestDeps(t testing.TB) (*deps, func()) {
 	return newTestDepsCfg(t, nil)
 }
@@ -69,53 +70,59 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 		t.Fatalf("AccountID: %v", err)
 	}
 
-	shutdownCtx, cancelShutdown := context.WithCancel(context.Background())
-	d := &deps{
-		account:        account,
-		startedAt:      time.Now().UTC(),
-		shutdown:       make(chan struct{}, 1),
-		sdk:            sdk,
-		chunkers:       NewIndexRegistry(),
-		shutdownCtx:    shutdownCtx,
-		cancelShutdown: cancelShutdown,
-		streamsWG:      &sync.WaitGroup{},
-		root:           dataDir,
-		cfg:            cfg,
-		runCtx:         context.Background(),
-	}
+	// A real engine (no instance lock, no indexer) so the lifecycle
+	// paths — gate, per-engine ctx, teardown — run the production
+	// code; only the boot itself is hand-built.
+	eng := newEngine()
+	eng.sdk = sdk
+	eng.account = account
+	eng.chunkers = NewIndexRegistry()
 	// Mirror bootEngine: resolve the derived-space registry against
 	// the account so the /spaces/derived routes resolve. Pure
 	// computation over the account keys — nothing is created.
 	if derived, err := resolveDerivedSpaces(ctx, sdk); err == nil {
-		d.derived = derived
+		eng.derived = derived
 	} else {
 		t.Logf("resolve derived spaces: %v", err)
 	}
 	// Mirror bootEngine: the push service exists only when config
 	// names a push node.
 	if cfg.Push.Active() {
-		d.push = push.New(sdk, dataDir)
-		d.push.Start(shutdownCtx)
+		eng.push = push.New(sdk, dataDir)
+		eng.push.Start(eng.ctx)
 	}
 	// Mirror bootEngine: the local store borrows the SDK's own DB.
 	if cfg.Local.Enabled {
-		d.local = localstore.New(sdk.Store())
+		eng.local = localstore.New(sdk.Store())
 	}
-	// Hand-built deps bypass bootAccount; mark the engine live so the
-	// /v1 unauthorized guard lets requests through.
+	d := &deps{
+		startedAt: time.Now().UTC(),
+		shutdown:  make(chan struct{}, 1),
+		root:      dataDir,
+		cfg:       cfg,
+		runCtx:    context.Background(),
+	}
+	// Publish without the engine goroutines bootAccount spawns (the
+	// process interest and the derived-setup pass) — they reach the
+	// network and are not what handler tests exercise.
+	d.eng = eng
+	d.sdk = eng.sdk
+	d.push = eng.push
+	d.local = eng.local
+	d.account = eng.account
+	d.derived = eng.derived
+	d.shutdownCtx = eng.ctx
 	d.ready.Store(true)
 	return d, func() {
-		cancelShutdown()
-		d.streamsWG.Wait()
-		if d.push != nil {
-			if err := d.push.Close(); err != nil {
-				t.Logf("push close: %v", err)
-			}
-		}
-		if err := sdk.Close(); err != nil {
-			t.Logf("sdk close: %v", err)
-		}
+		d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
 	}
+}
+
+// cancelEngine trips the live engine's context without tearing it
+// down — the way tests observe a stream's terminal frame while the
+// fixture is still up.
+func (d *deps) cancelEngine() {
+	d.eng.cancel()
 }
 
 // setupSubscribeFixture creates a space + type + object, returning

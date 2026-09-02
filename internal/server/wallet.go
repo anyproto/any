@@ -6,6 +6,8 @@ import (
 
 	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/util/crypto"
+
+	"github.com/anyproto/any/internal/config"
 )
 
 // OpenWallet loads or creates the file-backed wallet at path. A
@@ -25,7 +27,7 @@ func OpenWallet(path, passkey, mnemonic string, index uint32) (provider *auth.Fi
 
 // AccountID returns the anytype account identifier derived from the
 // provider's account key — the string health exposes as "account".
-func AccountID(ctx context.Context, p *auth.FileProvider) (string, error) {
+func AccountID(ctx context.Context, p auth.Provider) (string, error) {
 	raw, err := p.AccountKey(ctx)
 	if err != nil {
 		return "", err
@@ -35,4 +37,23 @@ func AccountID(ctx context.Context, p *auth.FileProvider) (string, error) {
 		return "", fmt.Errorf("unmarshal account key: %w", err)
 	}
 	return priv.GetPublic().Account(), nil
+}
+
+// credential opens the keys an engine boots with: the provider the
+// SDK signs with, and whether this call minted local state (a wallet
+// file or a device key) that a failed boot must remove again. Invoked
+// by bootEngine after the account dir's instance lock is held.
+type credential func(ctx context.Context) (provider auth.Provider, created bool, err error)
+
+// fileCredential is the standalone custody: the wallet file at path
+// (created from seed when absent), unlocked with the configured
+// passkey. Both keys live in the file.
+func fileCredential(cfg config.Config, path string, seed walletSeed) credential {
+	return func(context.Context) (auth.Provider, bool, error) {
+		passkey, err := config.ResolvePasskey(cfg, false)
+		if err != nil {
+			return nil, false, err
+		}
+		return OpenWallet(path, passkey, seed.mnemonic, seed.index)
+	}
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/auth"
 
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/index"
 )
 
 // TestOpenWallet_HonorsIndex is the F1 regression: the account-derivation
@@ -81,7 +80,8 @@ func TestBootEngine_CleansOrphanOnFailure(t *testing.T) {
 	identity := &Identity{Account: id, Dir: dir, WalletPath: config.WalletPath(config.Config{}, dir)}
 
 	ctx := context.Background()
-	_, err = bootEngine(ctx, bogusTopologyConfig(root), root, identity, walletSeed{mnemonic: m}, ctx, index.NewRegistry(), nil)
+	cfg := bogusTopologyConfig(root)
+	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{mnemonic: m}), nil)
 	if err == nil {
 		t.Fatal("expected boot failure on bogus topology")
 	}
@@ -111,7 +111,8 @@ func TestBootEngine_KeepsExistingWalletOnFailure(t *testing.T) {
 
 	identity := &Identity{Account: id, Dir: dir, WalletPath: walletPath}
 	ctx := context.Background()
-	_, err = bootEngine(ctx, bogusTopologyConfig(root), root, identity, walletSeed{}, ctx, index.NewRegistry(), nil)
+	cfg := bogusTopologyConfig(root)
+	_, err = bootEngine(ctx, cfg, root, identity, fileCredential(cfg, identity.WalletPath, walletSeed{}), nil)
 	if err == nil {
 		t.Fatal("expected boot failure on bogus topology")
 	}

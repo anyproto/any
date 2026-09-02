@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sync"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/anyproto/any-sync/app/logger"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/client"
 	"github.com/anyproto/any/internal/config"
 )
 
@@ -23,19 +25,15 @@ func newUnauthorizedDeps(t *testing.T) *deps {
 	cfg.DataDir = t.TempDir()
 	cfg.Index.Enabled = false // never spawn embedder/model downloads in tests
 	cfg.Network.NodeconfPath = stagingPath
-	shutdownCtx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	d := &deps{
-		startedAt:      time.Now().UTC(),
-		shutdown:       make(chan struct{}, 1),
-		chunkers:       NewIndexRegistry(),
-		shutdownCtx:    shutdownCtx,
-		cancelShutdown: cancel,
-		streamsWG:      &sync.WaitGroup{},
-		root:           cfg.DataDir,
-		cfg:            cfg,
-		runCtx:         context.Background(),
+		startedAt: time.Now().UTC(),
+		shutdown:  make(chan struct{}, 1),
+		root:      cfg.DataDir,
+		cfg:       cfg,
+		runCtx:    context.Background(),
 	}
+	// Whatever a test boots is torn down with it.
+	t.Cleanup(func() { d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown) })
 	return d
 }
 
@@ -180,11 +178,6 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 
 	d := newUnauthorizedDeps(t)
 	e := buildEcho(d)
-	defer func() {
-		d.cancelShutdown()
-		d.streamsWG.Wait()
-		d.closeEngine(logger.NewNamed("test"))
-	}()
 
 	rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{}`)
 	if rec.Code != http.StatusOK {
@@ -244,6 +237,117 @@ func TestAuth_BootViaHTTP(t *testing.T) {
 	}
 	if env.Error.Code != "auth.already_authorized" {
 		t.Fatalf("second POST code = %q", env.Error.Code)
+	}
+}
+
+// TestAuth_TeardownResetsDeps drives an in-place teardown against a
+// live engine: both stream families receive closed{deauthorized}, the
+// guard answers 401, the engine fields are cleared, GET /v1/auth keeps
+// answering while the drain runs, and the same process boots again.
+func TestAuth_TeardownResetsDeps(t *testing.T) {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	d := newUnauthorizedDeps(t)
+	e := buildEcho(d)
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	cl := client.New(strings.TrimPrefix(srv.URL, "http://"), 0)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	first, err := cl.Authorize(ctx, api.AuthRequest{})
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+
+	// One stream per family: the callback-fed status driver and the
+	// mailbox-fed query driver end through different code paths.
+	pump := func(ch chan client.SSEFrame) func(client.SSEFrame) error {
+		return func(f client.SSEFrame) error {
+			select {
+			case ch <- f:
+			case <-ctx.Done():
+			}
+			return nil
+		}
+	}
+	statusFrames := make(chan client.SSEFrame, 16)
+	go func() { _ = cl.StreamSyncStatusAccount(ctx, pump(statusFrames)) }()
+	queryFrames := make(chan client.SSEFrame, 16)
+	go func() { _ = cl.StreamSpaceListQuerySubscribe(ctx, []byte(`{}`), pump(queryFrames)) }()
+	if got := waitFrame(t, statusFrames, 10*time.Second); got.Event != "ready" {
+		t.Fatalf("status stream first frame = %q", got.Event)
+	}
+	if got := waitFrame(t, queryFrames, 10*time.Second); got.Event != "ready" {
+		t.Fatalf("query stream first frame = %q", got.Event)
+	}
+	if got := waitFrame(t, queryFrames, 10*time.Second); got.Event != "snapshot" {
+		t.Fatalf("query stream second frame = %q", got.Event)
+	}
+
+	torn := make(chan struct{})
+	go func() {
+		d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedDeauthorized)
+		close(torn)
+	}()
+	// The exempt status route must keep answering while the drain
+	// runs — it reads through the gate, never through authMu.
+	statusDone := make(chan error, 1)
+	go func() {
+		_, err := cl.AuthStatus(ctx)
+		statusDone <- err
+	}()
+	select {
+	case err := <-statusDone:
+		if err != nil {
+			t.Fatalf("auth status during teardown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("GET /v1/auth blocked behind the teardown")
+	}
+	select {
+	case <-torn:
+	case <-time.After(30 * time.Second):
+		t.Fatal("teardown did not complete")
+	}
+
+	for name, ch := range map[string]chan client.SSEFrame{"status": statusFrames, "query": queryFrames} {
+		got := waitFrame(t, ch, 10*time.Second)
+		if got.Event != "closed" {
+			t.Fatalf("%s stream terminal frame = %q (data=%s)", name, got.Event, got.Data)
+		}
+		var closed api.SubscribeClosed
+		if err := json.Unmarshal(got.Data, &closed); err != nil {
+			t.Fatalf("%s decode closed: %v", name, err)
+		}
+		if closed.Reason != api.SubscribeClosedDeauthorized {
+			t.Fatalf("%s closed reason = %q, want deauthorized", name, closed.Reason)
+		}
+	}
+
+	if d.ready.Load() || d.eng != nil || d.sdk != nil || d.shutdownCtx != nil || d.account != "" {
+		t.Fatalf("deps not reset after teardown: ready=%v eng=%v sdk=%v", d.ready.Load(), d.eng, d.sdk)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after teardown GET /v1/spaces: %d %s", rec.Code, rec.Body.String())
+	}
+	st, err := cl.AuthStatus(ctx)
+	if err != nil || st.Authorized || st.AccountId != "" {
+		t.Fatalf("status after teardown: %+v err=%v", st, err)
+	}
+
+	// The same process boots again — the fresh gate, ctx and engine
+	// are what the switch path relies on.
+	second, err := cl.Authorize(ctx, api.AuthRequest{Mnemonic: first.Mnemonic})
+	if err != nil {
+		t.Fatalf("re-authorize: %v", err)
+	}
+	if second.AccountId != first.AccountId || second.Created {
+		t.Fatalf("re-authorize reply: %+v (first %+v)", second, first)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/account", ""); rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/account after re-boot: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

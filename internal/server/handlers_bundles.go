@@ -432,10 +432,13 @@ func (d *deps) bundleResolve(c echo.Context) error {
 		// missing, so keep trying without the client having to. Armed
 		// ONLY for the timing refusal: a verdict retrying cannot change
 		// must not leave a loop that outlives the client's intent. Runs
-		// on the background context, which outlives the response; the
-		// resolver dedups so a polling client cannot stack loops.
+		// as an engine goroutine, which outlives the response but not
+		// the account (it holds a space handle); the resolver dedups so
+		// a polling client cannot stack loops.
 		if errors.Is(err, bundles.ErrLoserNotReady) {
-			go d.bundleResolver().ResolveRetry(d.backgroundCtx(), sp, bundleId, req.LoserRootId)
+			d.spawnEngine(func(ctx context.Context) {
+				d.bundleResolver().ResolveRetry(ctx, sp, bundleId, req.LoserRootId)
+			})
 		}
 		return bundleError(c, err, sp.Id(), bundleId)
 	}

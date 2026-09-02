@@ -64,11 +64,13 @@ func (d *deps) authStatus(c echo.Context) error {
 // wallet — which fails silently (empty id) for an encrypted wallet
 // without a passkey.
 func (d *deps) rootWalletID(c echo.Context) string {
-	if d.ready.Load() && d.eng != nil && d.cfg.Auth.WalletPath == "" {
+	// Gate-scoped read (accountID), never authMu: this runs on the
+	// exempt /v1/auth path while a teardown may hold that lock.
+	if account := d.accountID(); account != "" && d.cfg.Auth.WalletPath == "" {
 		// The engine booted from the root exactly when no per-account
 		// dir matches its account id.
-		if _, err := os.Stat(config.WalletPath(d.cfg, config.AccountDir(d.root, d.account))); err != nil {
-			return d.account
+		if _, err := os.Stat(config.WalletPath(d.cfg, config.AccountDir(d.root, account))); err != nil {
+			return account
 		}
 	}
 	passkey, err := config.ResolvePasskey(d.cfg, false)
@@ -164,7 +166,7 @@ func (d *deps) authorize(c echo.Context) error {
 	_, statErr := os.Stat(identity.WalletPath)
 	created := os.IsNotExist(statErr)
 
-	eng, err := d.bootAccount(identity, seed)
+	eng, err := d.bootAccount(identity, fileCredential(d.cfg, identity.WalletPath, seed))
 	if err != nil {
 		return d.authBootError(c, err)
 	}

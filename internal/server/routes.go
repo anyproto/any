@@ -66,16 +66,20 @@ func buildEcho(d *deps) *echo.Echo {
 	e.Use(httpLogMiddleware())
 
 	v1 := e.Group("/v1")
-	// Unauthorized guard: until an engine is live (deps.ready) every
-	// /v1 route except the meta set and /v1/auth itself rejects with
-	// 401 auth.required, so SDK-backed handlers never observe a nil
-	// sdk. Group middleware applies to routes registered after Use —
-	// keep this above the route registrations.
+	// Unauthorized guard + engine gate: while an engine is live
+	// (deps.ready) every request runs inside the gate, so a teardown
+	// (shutdown, logout, account switch) drains it before the engine
+	// fields change — SDK-backed handlers see one engine for their
+	// whole lifetime and never a nil sdk. Without one, every /v1 route
+	// except the meta set and /v1/auth itself rejects with 401
+	// auth.required. Group middleware applies to routes registered
+	// after Use — keep this above the route registrations.
+	//
+	// The exempt routes run OUTSIDE the gate on purpose: /v1/auth and
+	// /v1/shutdown are the ones that initiate a teardown, and a
+	// teardown waits for the gate to drain.
 	v1.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			if d.ready.Load() {
-				return next(c)
-			}
 			switch c.Path() {
 			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth":
 				return next(c)
@@ -85,6 +89,10 @@ func buildEcho(d *deps) *echo.Echo {
 				// unknown paths as auth.required.
 				return next(c)
 			}
+			if d.ready.Load() && d.gate.enter() {
+				defer d.gate.leave()
+				return next(c)
+			}
 			return writeError(c, http.StatusUnauthorized, "auth.required",
 				"no account authorized — POST /v1/auth first", nil)
 		}
@@ -92,10 +100,12 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.GET("/health", d.health)
 	v1.POST("/shutdown", d.shutdownHandler)
 	v1.GET("/openapi.json", serveOpenAPI)
+	// Registered before the tech-space guard: the auth routes take no
+	// spaceId, and the guard's engine read belongs inside the gate.
+	registerAuthRoutes(v1, d)
 
 	v1.Use(d.techSpaceRouteGuard)
 
-	registerAuthRoutes(v1, d)
 	registerAccountRoutes(v1, d)
 	registerSpaceRoutes(v1, d)
 	// Per-space bundles registry (handlers_bundles.go) — what clients
