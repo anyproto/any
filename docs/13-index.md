@@ -347,9 +347,13 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
   base doc plus every chunk suffix; a chunk id passed the same way
   removes exactly that chunk) — and keeps ids unique even though
   recordIds repeat across objects (propIds do). The chunk separator is
-  a control byte no SDK id pattern admits (auto ids are CIDs, user ids
-  default to `[A-Za-z0-9._:-]+`), so every byte a real id can continue
-  `base` with sorts at or above `0x20` and the record range is exact.
+  a control byte (auto ids are CIDs, user ids default to
+  `[A-Za-z0-9._:-]+`), so every byte a real id can continue `base` with
+  sorts at or above `0x20` and the record range is exact. A runtime
+  dataset's `IdPattern` is client-supplied and checked only for
+  compilation, so the indexer ENFORCES this rather than assuming it: a
+  record id carrying a byte below `0x20` is skipped with a warning
+  instead of colliding with a neighbour's chunk docs.
   Prefix ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1)
   and drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.

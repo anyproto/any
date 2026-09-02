@@ -397,7 +397,7 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 	if err != nil {
 		return err
 	}
-	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
+	w.plan(entries, stored, objectId, rc.Dataset(), page)
 	return nil
 }
 
@@ -410,10 +410,14 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 // entry with empty Data — is deleted. Base ids of empty-Data entries
 // are always deleted (the store's range delete covers chunks that
 // stored may not list).
-func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) {
+func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) (unindexable []string) {
 	seen := make(map[string]bool, len(entries))
 	var gone map[string]bool // bases whose range delete already covers their chunks
 	for _, e := range entries {
+		if !indexableRecordId(e.RecordId) {
+			unindexable = append(unindexable, e.RecordId)
+			continue
+		}
 		base := docId(e.ObjectId, e.Dataset, e.RecordId)
 		if e.Data == "" {
 			page.dels = append(page.dels, base)
@@ -438,6 +442,35 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 		}
 		page.dels = append(page.dels, id) // vanished
 	}
+	return unindexable
+}
+
+// indexableRecordId rejects a record id carrying a control byte. Chunk
+// ids are the base id plus U+001F and a number, and a record's docs are
+// the range [base, base+U+0020) — an id containing either byte would
+// collide with a neighbour's chunk docs and make a record-level delete
+// reach into it. Auto ids are CIDs and the default user-id pattern
+// admits nothing below 0x20, but a runtime dataset's IdPattern is
+// client-supplied and validated only for compilation, so the invariant
+// is enforced here rather than assumed.
+func indexableRecordId(id string) bool {
+	for i := 0; i < len(id); i++ {
+		if id[i] < 0x20 {
+			return false
+		}
+	}
+	return true
+}
+
+// plan runs planDocs and reports ids it had to skip. One line per
+// (object, dataset) page — the condition is a client-supplied id pattern
+// that admits control bytes, so it persists until the pattern changes.
+func (w *spaceWorker) plan(entries []index.IndexEntry, stored map[string]string, objectId, dataset string, page *pageOps) {
+	if skipped := planDocs(entries, stored, w.ix.opts.ChunkRunes, page); len(skipped) > 0 {
+		w.ix.lg.Warn("skipping records whose id carries a control byte",
+			zap.String("spaceId", w.sp.Id()), zap.String("objectId", objectId),
+			zap.String("dataset", dataset), zap.Int("count", len(skipped)))
+	}
 }
 
 // streamChunks runs a per-record chunker. On the cold cursor (0) nothing
@@ -454,7 +487,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 		return err
 	}
 	if cursor == 0 {
-		planDocs(entries, nil, w.ix.opts.ChunkRunes, page)
+		w.plan(entries, nil, objectId, ch.Dataset(), page)
 		return nil
 	}
 	bases := make([]string, 0, len(entries))
@@ -469,7 +502,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	if err != nil {
 		return err
 	}
-	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
+	w.plan(entries, stored, objectId, ch.Dataset(), page)
 	return nil
 }
 

@@ -142,6 +142,33 @@ func TestPlanDocs(t *testing.T) {
 	}
 }
 
+// A runtime dataset's IdPattern is client-supplied and checked only for
+// compilation, so an id carrying the chunk separator can reach the
+// indexer. Indexing it would collide its chunk docs with a neighbour's
+// and let a record-level delete reach into that neighbour — it is
+// skipped instead.
+func TestPlanDocs_SkipsControlByteRecordIds(t *testing.T) {
+	base := index.IndexEntry{ObjectId: "o", Dataset: "d", Data: "some text"}
+	good := base
+	good.RecordId = "rec1"
+	sep := base
+	sep.RecordId = "rec1" + chunkSep + "9" // collides with rec1's chunk 9
+	nul := base
+	nul.RecordId = "rec\x002"
+
+	var page pageOps
+	skipped := planDocs([]index.IndexEntry{good, sep, nul}, nil, 200, &page)
+	if len(skipped) != 2 {
+		t.Fatalf("skipped = %v, want the two control-byte ids", skipped)
+	}
+	if len(page.ups) != 1 || page.ups[0].Entry.RecordId != "rec1" {
+		t.Fatalf("ups = %+v, want only the well-formed record", page.ups)
+	}
+	if len(page.dels) != 0 {
+		t.Fatalf("dels = %v, want none", page.dels)
+	}
+}
+
 // A title-only edit rewrites the re-prefixed chunks past the first; chunk
 // 0's Data is untouched, so a hash over Data alone would leave it serving
 // the old title in its BM25F field.
