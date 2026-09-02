@@ -362,6 +362,30 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 	return eng, nil
 }
 
+// switchAccount replaces the live engine with one for id under a single
+// authMu hold: teardown (streams end with deauthorized) then boot. A
+// same-account race — the target already came up meanwhile — is a
+// no-op returning that engine. A boot failure after the teardown
+// leaves the server unauthorized; the caller reports the boot error
+// and clients re-read GET /v1/auth.
+func (d *deps) switchAccount(id *Identity, open credential) (*engine, error) {
+	d.authMu.Lock()
+	defer d.authMu.Unlock()
+	if d.eng != nil {
+		if d.eng.account == id.Account {
+			return d.eng, nil
+		}
+		engineLog.Info("switching account", zap.String("to", id.Account))
+		d.teardownEngineLocked(engineLog, api.SubscribeClosedDeauthorized)
+	}
+	eng, err := d.bootAccountLocked(id, open)
+	if err != nil {
+		engineLog.Error("account switch: boot failed — server is unauthorized", zap.Error(err))
+		return nil, err
+	}
+	return eng, nil
+}
+
 // publishEngine installs a booted engine on d and opens the gate. The
 // field stores happen before ready flips; the guard's atomic load is
 // the acquire edge that makes them visible to handlers.

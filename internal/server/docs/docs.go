@@ -3444,6 +3444,37 @@ const docTemplate = `{
             }
         },
         "/auth": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "summary": "Deauthorize: tear the account down in place (managed servers)",
+                "tags": [
+                    "auth"
+                ]
+            },
             "get": {
                 "responses": {
                     "200": {
@@ -3457,12 +3488,22 @@ const docTemplate = `{
                         "description": "OK"
                     }
                 },
-                "summary": "Authorization state + locally available accounts",
+                "summary": "Authorization state, ownership mode, capabilities and locally available accounts",
                 "tags": [
                     "auth"
                 ]
             },
             "post": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3474,13 +3515,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/api.AuthRequest",
                                         "summary": "body",
-                                        "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
+                                        "description": "Auth mode: empty body generates, mnemonic restores, accountId selects; replace switches on a managed server"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
+                    "description": "Auth mode: empty body generates, mnemonic restores, accountId selects; replace switches on a managed server"
                 },
                 "responses": {
                     "200": {
@@ -3503,6 +3544,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
                     "404": {
                         "content": {
                             "application/json": {
@@ -3524,7 +3575,7 @@ const docTemplate = `{
                         "description": "Conflict"
                     }
                 },
-                "summary": "Authorize: generate, restore (mnemonic) or select an account",
+                "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
                 "tags": [
                     "auth"
                 ]

@@ -255,13 +255,22 @@ func TestAuth_ManagedBoot(t *testing.T) {
 	d.cfg.Mode = config.ModeManaged
 	d.controlToken = "tok"
 	e := buildEcho(d)
+	tok := map[string]string{api.ControlTokenHeader: "tok"}
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{"accountId":"Azz"}`)
+	rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{"accountId":"Azz"}`, tok)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("managed select: want 400, got %d %s", rec.Code, rec.Body.String())
 	}
+	// Every managed auth verb needs the control token; validation
+	// still runs first so a malformed body is reported as such.
+	for _, h := range []map[string]string{nil, {api.ControlTokenHeader: "wrong"}} {
+		rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, h)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "control.forbidden") {
+			t.Fatalf("POST without the token: want 403 control.forbidden, got %d %s", rec.Code, rec.Body.String())
+		}
+	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/auth", `{}`)
+	rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, tok)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("managed generate: %d %s", rec.Code, rec.Body.String())
 	}
@@ -293,7 +302,7 @@ func TestAuth_ManagedBoot(t *testing.T) {
 
 	d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedDeauthorized)
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(first.Mnemonic)+`}`)
+	rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(first.Mnemonic)+`}`, tok)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("managed restore: %d %s", rec.Code, rec.Body.String())
 	}
@@ -306,6 +315,204 @@ func TestAuth_ManagedBoot(t *testing.T) {
 	}
 	if got := d.sdk.PeerId(); got != peer {
 		t.Fatalf("peerId changed across logins: %s → %s (device key re-minted)", peer, got)
+	}
+}
+
+// expectAuthError asserts a POST /v1/auth refusal: status, code, and —
+// the no-oracle rule — that the body never carries the id a rejected
+// credential derives to.
+func expectAuthError(t *testing.T, rec *httptest.ResponseRecorder, status int, code, hiddenId string) {
+	t.Helper()
+	if rec.Code != status {
+		t.Fatalf("want %d %s, got %d %s", status, code, rec.Code, rec.Body.String())
+	}
+	var env api.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Error.Code != code {
+		t.Fatalf("code = %q, want %q (%s)", env.Error.Code, code, rec.Body.String())
+	}
+	if hiddenId != "" && strings.Contains(rec.Body.String(), hiddenId) {
+		t.Fatalf("refusal echoes the derived account id: %s", rec.Body.String())
+	}
+}
+
+// otherMnemonic returns a fresh phrase and the account it derives to.
+func otherMnemonic(t *testing.T) (string, string) {
+	t.Helper()
+	m, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := auth.AccountId(m, auth.DefaultAccountIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m, id
+}
+
+// TestAuth_DecisionTable pins POST /v1/auth against a live engine in
+// both modes: the same account is a 200 no-op, `{}` is always refused,
+// a different account is 403 auth.not_managed (standalone) or 409
+// auth.account_mismatch (managed without replace) — never echoing the
+// derived id — and DELETE is refused on a standalone server.
+func TestAuth_DecisionTable(t *testing.T) {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+
+	t.Run("standalone", func(t *testing.T) {
+		d := newUnauthorizedDeps(t)
+		e := buildEcho(d)
+		rec := doJSON(t, e, http.MethodPost, "/v1/auth", `{}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("generate: %d %s", rec.Code, rec.Body.String())
+		}
+		var boot api.AuthResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &boot); err != nil {
+			t.Fatal(err)
+		}
+		other, otherId := otherMnemonic(t)
+
+		expectAuthError(t, doJSON(t, e, http.MethodPost, "/v1/auth", `{}`), http.StatusConflict, "auth.already_authorized", "")
+		for _, body := range []string{
+			`{"mnemonic":` + strconv.Quote(boot.Mnemonic) + `}`,
+			`{"accountId":` + strconv.Quote(boot.AccountId) + `}`,
+		} {
+			rec := doJSON(t, e, http.MethodPost, "/v1/auth", body)
+			var resp api.AuthResponse
+			if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &resp) != nil || !resp.AlreadyAuthorized || resp.AccountId != boot.AccountId || resp.Created {
+				t.Fatalf("same account %s: %d %s", body, rec.Code, rec.Body.String())
+			}
+		}
+		expectAuthError(t, doJSON(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(other)+`}`),
+			http.StatusForbidden, "auth.not_managed", otherId)
+		// replace is meaningless outside managed — the refusal stands.
+		expectAuthError(t, doJSON(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(other)+`,"replace":true}`),
+			http.StatusForbidden, "auth.not_managed", otherId)
+		expectAuthError(t, doJSON(t, e, http.MethodPost, "/v1/auth", `{"accountId":"Aother"}`),
+			http.StatusForbidden, "auth.not_managed", "")
+		expectAuthError(t, doJSON(t, e, http.MethodDelete, "/v1/auth", ""), http.StatusForbidden, "auth.not_managed", "")
+		if !d.ready.Load() || d.accountID() != boot.AccountId {
+			t.Fatal("refusals must leave the running account untouched")
+		}
+	})
+
+	t.Run("managed", func(t *testing.T) {
+		d := newUnauthorizedDeps(t)
+		d.cfg.Mode = config.ModeManaged
+		d.controlToken = "tok"
+		e := buildEcho(d)
+		tok := map[string]string{api.ControlTokenHeader: "tok"}
+		rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, tok)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("generate: %d %s", rec.Code, rec.Body.String())
+		}
+		var boot api.AuthResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &boot); err != nil {
+			t.Fatal(err)
+		}
+		other, otherId := otherMnemonic(t)
+
+		expectAuthError(t, doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, tok), http.StatusConflict, "auth.already_authorized", "")
+		expectAuthError(t, doJSONH(t, e, http.MethodPost, "/v1/auth", `{"replace":true}`, tok), http.StatusBadRequest, "request.invalid_field", "")
+		rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(boot.Mnemonic)+`,"replace":true}`, tok)
+		var resp api.AuthResponse
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &resp) != nil || !resp.AlreadyAuthorized {
+			t.Fatalf("same account with replace must be a no-op: %d %s", rec.Code, rec.Body.String())
+		}
+		expectAuthError(t, doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(other)+`}`, tok),
+			http.StatusConflict, "auth.account_mismatch", otherId)
+		if !d.ready.Load() || d.accountID() != boot.AccountId {
+			t.Fatal("a mismatch refusal must leave the running account untouched")
+		}
+	})
+}
+
+// TestAuth_SwitchInPlace drives a managed account switch and logout:
+// replace tears account A down (its stream ends with deauthorized) and
+// boots B in the same process; DELETE returns the server to
+// unauthorized; A logs in again afterwards on its cached device key.
+func TestAuth_SwitchInPlace(t *testing.T) {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	d := newUnauthorizedDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	e := buildEcho(d)
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	cl := client.New(strings.TrimPrefix(srv.URL, "http://"), 0).WithControlToken("tok")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	a, err := cl.Authorize(ctx, api.AuthRequest{})
+	if err != nil {
+		t.Fatalf("boot A: %v", err)
+	}
+	peerA := d.sdk.PeerId()
+
+	frames := make(chan client.SSEFrame, 16)
+	go func() {
+		_ = cl.StreamSyncStatusAccount(ctx, func(f client.SSEFrame) error {
+			select {
+			case frames <- f:
+			case <-ctx.Done():
+			}
+			return nil
+		})
+	}()
+	if got := waitFrame(t, frames, 10*time.Second); got.Event != "ready" {
+		t.Fatalf("stream first frame = %q", got.Event)
+	}
+
+	bPhrase, bId := otherMnemonic(t)
+	b, err := cl.Authorize(ctx, api.AuthRequest{Mnemonic: bPhrase, Replace: true})
+	if err != nil {
+		t.Fatalf("switch to B: %v", err)
+	}
+	if b.AccountId != bId || !b.Created || b.AlreadyAuthorized {
+		t.Fatalf("switch reply: %+v", b)
+	}
+	got := waitFrame(t, frames, 10*time.Second)
+	var closed api.SubscribeClosed
+	if got.Event != "closed" || json.Unmarshal(got.Data, &closed) != nil || closed.Reason != api.SubscribeClosedDeauthorized {
+		t.Fatalf("A's stream terminal frame = %q %s, want closed{deauthorized}", got.Event, got.Data)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/account", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), bId) {
+		t.Fatalf("GET /v1/account after switch: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Logout: token-gated, idempotent, leaves the listener up.
+	if rec := doJSON(t, e, http.MethodDelete, "/v1/auth", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("DELETE without the token: want 403, got %d %s", rec.Code, rec.Body.String())
+	}
+	if err := cl.Deauthorize(ctx); err != nil {
+		t.Fatalf("deauthorize: %v", err)
+	}
+	if err := cl.Deauthorize(ctx); err != nil {
+		t.Fatalf("second deauthorize must be a no-op: %v", err)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("after logout GET /v1/spaces: %d", rec.Code)
+	}
+	st, err := cl.AuthStatus(ctx)
+	if err != nil || st.Authorized {
+		t.Fatalf("status after logout: %+v err=%v", st, err)
+	}
+
+	// A comes back on its cached device key.
+	again, err := cl.Authorize(ctx, api.AuthRequest{Mnemonic: a.Mnemonic})
+	if err != nil {
+		t.Fatalf("re-login A: %v", err)
+	}
+	if again.AccountId != a.AccountId || again.Created || again.AlreadyAuthorized {
+		t.Fatalf("re-login reply: %+v", again)
+	}
+	if d.sdk.PeerId() != peerA {
+		t.Fatal("A's peerId changed across the switch")
 	}
 }
 

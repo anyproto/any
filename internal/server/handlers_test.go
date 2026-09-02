@@ -167,12 +167,22 @@ func setupSubscribeFixture(t *testing.T, e http.Handler) (spaceId, typeId, objec
 
 func doJSON(t testing.TB, e http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return doJSONH(t, e, method, path, body, nil)
+}
+
+// doJSONH is doJSON with extra request headers (the managed-mode
+// control token, for one).
+func doJSONH(t testing.TB, e http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	var r *http.Request
 	if body == "" {
 		r = httptest.NewRequest(method, path, nil)
 	} else {
 		r = httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		r.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, r)

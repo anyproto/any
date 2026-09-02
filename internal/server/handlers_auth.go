@@ -21,11 +21,12 @@ var authLog = logger.NewNamed("auth")
 func registerAuthRoutes(g *echo.Group, d *deps) {
 	g.GET("/auth", d.authStatus)
 	g.POST("/auth", d.authorize)
+	g.DELETE("/auth", d.deauthorize)
 }
 
 // authStatus handles GET /v1/auth.
 //
-//	@Summary	Authorization state + locally available accounts
+//	@Summary	Authorization state, ownership mode, capabilities and locally available accounts
 //	@Tags		auth
 //	@Produce	json
 //	@Success	200	{object}	api.AuthStatusResponse
@@ -89,20 +90,33 @@ func (d *deps) rootWalletID(c echo.Context) string {
 }
 
 // authorize handles POST /v1/auth — create, restore or select an
-// account and boot the engine for it.
+// account and boot the engine for it; on a managed server, also switch
+// to another account in place.
 //
-//	@Summary	Authorize: generate, restore (mnemonic) or select an account
+// The target account is derived from the request BEFORE anything is
+// decided, so the same account is always a no-op (200
+// alreadyAuthorized — a retry or a duplicate mount never drops every
+// stream), and a different one is refused without touching disk:
+// 403 auth.not_managed on a standalone server, 409
+// auth.account_mismatch on a managed one unless replace is set. A
+// refusal never echoes the derived id — that would make the endpoint
+// a phrase-to-account oracle. `{}` while authorized is always refused:
+// minting an account must never be a side effect of a stale request.
+//
+//	@Summary	Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)
 //	@Tags		auth
 //	@Accept		json
 //	@Produce	json
-//	@Param		body	body		api.AuthRequest	false	"Auth mode: empty body generates, mnemonic restores, accountId selects"
+//	@Param		X-Any-Control-Token	header		string			false	"managed servers: the control token"
+//	@Param		body				body		api.AuthRequest	false	"Auth mode: empty body generates, mnemonic restores, accountId selects; replace switches on a managed server"
 //	@Success	200	{object}	api.AuthResponse
 //	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	403	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	409	{object}	api.ErrorEnvelope
 //	@Router		/auth [post]
 func (d *deps) authorize(c echo.Context) error {
-	req, ok := bindBodyStrict[api.AuthRequest](c, "modes: {} generates a new account, {\"mnemonic\": …[, \"index\": N]} restores, {\"accountId\": …} selects a local wallet")
+	req, ok := bindBodyStrict[api.AuthRequest](c, "modes: {} generates a new account, {\"mnemonic\": …[, \"index\": N]} restores, {\"accountId\": …} selects a local wallet; \"replace\": true switches a managed server to the named account")
 	if !ok {
 		return nil
 	}
@@ -118,15 +132,51 @@ func (d *deps) authorize(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"index applies only to mnemonic", nil)
 	}
+	if req.Replace && req.Mnemonic == "" && req.AccountId == "" {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"replace needs a credential — a fresh account is never a replacement", nil)
+	}
 	if d.cfg.Managed() && req.AccountId != "" {
 		// A managed server holds no wallets, so there is nothing to
 		// select by id — the host supplies the phrase on every boot.
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"managed server keeps no local wallets — supply the mnemonic", nil)
 	}
-	if d.ready.Load() {
-		return writeError(c, http.StatusConflict, "auth.already_authorized",
-			"server already runs account "+d.accountID(), nil)
+	if !d.requireControl(c) {
+		return nil
+	}
+
+	// Derive the target first (cheap for every form) so the decision
+	// below never has to read a wallet or boot anything.
+	idx := auth.DefaultAccountIndex
+	if req.Index != nil {
+		idx = *req.Index
+	}
+	target := req.AccountId
+	if req.Mnemonic != "" {
+		id, err := auth.AccountId(req.Mnemonic, idx)
+		if err != nil {
+			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
+		}
+		target = id
+	}
+
+	if current := d.accountID(); current != "" {
+		switch {
+		case target == "":
+			return writeError(c, http.StatusConflict, "auth.already_authorized",
+				"server already runs an account — a new one cannot be generated in place", nil)
+		case target == current:
+			return c.JSON(http.StatusOK, api.AuthResponse{AccountId: current, AlreadyAuthorized: true})
+		case !d.cfg.Managed():
+			return writeError(c, http.StatusForbidden, "auth.not_managed",
+				"server already runs another account; switching needs a managed server (restart with --account to change it)", nil)
+		case !req.Replace:
+			return writeError(c, http.StatusConflict, "auth.account_mismatch",
+				"server already runs another account; pass replace:true to switch", nil)
+		}
+		// managed + replace: the switch below tears the current engine
+		// down and boots the target.
 	}
 
 	var (
@@ -137,15 +187,7 @@ func (d *deps) authorize(c echo.Context) error {
 	)
 	switch {
 	case req.Mnemonic != "":
-		idx := auth.DefaultAccountIndex
-		if req.Index != nil {
-			idx = *req.Index
-		}
-		id, err := auth.AccountId(req.Mnemonic, idx)
-		if err != nil {
-			return writeError(c, http.StatusBadRequest, "auth.bad_mnemonic", "invalid mnemonic", nil)
-		}
-		identity, open, created = d.credentialFor(c, id, req.Mnemonic, idx)
+		identity, open, created = d.credentialFor(c, target, req.Mnemonic, idx)
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -170,7 +212,15 @@ func (d *deps) authorize(c echo.Context) error {
 		generated = m
 	}
 
-	eng, err := d.bootAccount(identity, open)
+	var (
+		eng *engine
+		err error
+	)
+	if req.Replace && d.cfg.Managed() {
+		eng, err = d.switchAccount(identity, open)
+	} else {
+		eng, err = d.bootAccount(identity, open)
+	}
 	if err != nil {
 		return d.authBootError(c, err)
 	}
@@ -179,6 +229,28 @@ func (d *deps) authorize(c echo.Context) error {
 		Created:   created,
 		Mnemonic:  generated,
 	})
+}
+
+// deauthorize handles DELETE /v1/auth — tear the account down in place
+// and stay up unauthorized (managed only; a standalone server signs
+// out by stopping). Idempotent: nothing to tear down is 204 too.
+//
+//	@Summary	Deauthorize: tear the account down in place (managed servers)
+//	@Tags		auth
+//	@Param		X-Any-Control-Token	header	string	false	"managed servers: the control token"
+//	@Success	204
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Router		/auth [delete]
+func (d *deps) deauthorize(c echo.Context) error {
+	if !d.cfg.Managed() {
+		return writeError(c, http.StatusForbidden, "auth.not_managed",
+			"standalone server: sign out by stopping it", nil)
+	}
+	if !d.requireControl(c) {
+		return nil
+	}
+	d.teardownEngine(authLog, api.SubscribeClosedDeauthorized)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // credentialFor resolves where an account derived from a phrase lives
