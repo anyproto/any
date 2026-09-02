@@ -58,7 +58,8 @@ func absStagingPath(t *testing.T) string {
 }
 
 // TestE2E_FullFlow boots the binary, drives every implemented endpoint
-// plus a representative 501, and shuts down via POST /v1/shutdown.
+// plus a representative 501, and shuts down via `any stop` (a standalone
+// server refuses POST /v1/shutdown).
 func TestE2E_FullFlow(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -524,8 +525,11 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("POST /v1/shutdown", func(t *testing.T) {
-		mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusNoContent)
+	t.Run("shutdown: refused over HTTP on a standalone server, `any stop` signals it", func(t *testing.T) {
+		mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusForbidden)
+		if out, err := exec.Command(bin, "stop", "--data-dir", dataDir).CombinedOutput(); err != nil {
+			t.Fatalf("any stop: %v\n%s", err, out)
+		}
 	})
 
 	if err := srv.waitExit(15 * time.Second); err != nil {
