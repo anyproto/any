@@ -123,6 +123,10 @@ type deps struct {
 	// verbs + shutdown); empty on a standalone server, where those
 	// operations are refused by mode instead. See control.go.
 	controlToken string
+	// boundAddr is the listener's resolved address, set before serving
+	// starts; an engine booted afterwards records it beside its pid
+	// file (server.addr) for the CLI.
+	boundAddr string
 }
 
 // accountID returns the booted account id, or "" while unauthorized.
@@ -171,11 +175,26 @@ func (d *deps) health(c echo.Context) error {
 	})
 }
 
-// @Summary	Graceful shutdown
-// @Tags		system
-// @Success	204
-// @Router		/shutdown [post]
+// shutdownHandler handles POST /v1/shutdown. Lifetime belongs to the
+// server's owner: a managed host stops it here with the control token;
+// a standalone server is the user's, stopped with `any stop` or a
+// signal, and refuses. Stays outside the auth guard so an unauthorized
+// managed server is still stoppable.
+//
+//	@Summary	Graceful shutdown (managed servers; needs the control token)
+//	@Tags		system
+//	@Param		X-Any-Control-Token	header	string	false	"managed servers: the control token"
+//	@Success	204
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Router		/shutdown [post]
 func (d *deps) shutdownHandler(c echo.Context) error {
+	if !d.cfg.Managed() {
+		return writeError(c, http.StatusForbidden, "shutdown.not_managed",
+			"standalone server: stop it with `any stop` or a signal", nil)
+	}
+	if !d.requireControl(c) {
+		return nil
+	}
 	select {
 	case d.shutdown <- struct{}{}:
 	default:

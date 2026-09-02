@@ -42,6 +42,8 @@ type engine struct {
 	// SDK opens and closes the file.
 	local   *localstore.Store
 	account string
+	// dir is the account dir the lock, pid and addr files live in.
+	dir string
 	// derived is the derived-space registry resolved against this
 	// account (see derivedspaces.go).
 	derived []resolvedDerivedSpace
@@ -202,6 +204,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 
 	eng := newEngine()
 	eng.lock = lock
+	eng.dir = id.Dir
 	eng.chunkers = NewIndexRegistry()
 	// Everything opened from here belongs to the engine: on failure
 	// closeResources releases it in order (goroutines, indexer, push,
@@ -400,6 +403,9 @@ func (d *deps) publishEngine(eng *engine) {
 	d.shutdownCtx = eng.ctx
 	d.gate.reset()
 	d.ready.Store(true)
+	if d.boundAddr != "" && eng.lock != nil {
+		writeAddrFile(eng.dir, d.boundAddr)
+	}
 	eng.spawn(func(context.Context) { d.holdProcessInterest(eng) })
 	// Restore side of the setup split: adopt the installs of the
 	// well-known derived spaces this account already has

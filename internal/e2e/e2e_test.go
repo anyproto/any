@@ -568,7 +568,7 @@ func TestE2E_AnyStatus(t *testing.T) {
 	}
 
 	// And `any stop` triggers shutdown.
-	stopOut, err := exec.Command(bin, "--addr", addr, "stop").CombinedOutput()
+	stopOut, err := exec.Command(bin, "stop", "--data-dir", dataDir).CombinedOutput()
 	if err != nil {
 		t.Fatalf("any stop: %v\n%s", err, stopOut)
 	}
@@ -717,7 +717,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 
 	// Restart: the created identity is the sole account and is
 	// auto-selected — server boots authorized.
-	stopOut, err := exec.Command(bin, "--addr", addr, "stop").CombinedOutput()
+	stopOut, err := exec.Command(bin, "stop", "--data-dir", dataDir).CombinedOutput()
 	if err != nil {
 		t.Fatalf("any stop: %v\n%s", err, stopOut)
 	}

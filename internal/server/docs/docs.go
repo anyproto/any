@@ -5556,12 +5556,32 @@ const docTemplate = `{
         },
         "/shutdown": {
             "post": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
                     }
                 },
-                "summary": "Graceful shutdown",
+                "summary": "Graceful shutdown (managed servers; needs the control token)",
                 "tags": [
                     "system"
                 ]

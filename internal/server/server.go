@@ -150,6 +150,13 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	}
 	e.Listener = ln
 	boundAddr := ln.Addr().String()
+	// Record the address for the CLI: now for an engine booted before
+	// the bind, and in publishEngine for every later boot (the field is
+	// set before serving starts, so handlers observe it).
+	deps.boundAddr = boundAddr
+	if deps.eng != nil {
+		writeAddrFile(deps.eng.dir, boundAddr)
+	}
 	if opts.Ready != nil {
 		opts.Ready(boundAddr)
 	}

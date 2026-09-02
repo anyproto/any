@@ -65,6 +65,14 @@ func LockPath(dataDir string) string {
 	return filepath.Join(dataDir, "server.lock")
 }
 
+// AddrPath returns <dataDir>/server.addr — the bound listen address of
+// the process holding the lock, written once the listener is up.
+// Advisory like server.pid: it lets the CLI find a server started on
+// an ephemeral port, it never proves one is running.
+func AddrPath(dataDir string) string {
+	return filepath.Join(dataDir, "server.addr")
+}
+
 // AccountDir returns the per-account data dir <root>/<accountId>.
 func AccountDir(root, accountId string) string {
 	return filepath.Join(root, accountId)
