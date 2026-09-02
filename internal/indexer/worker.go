@@ -426,7 +426,7 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 		for _, up := range expandEntry(e, chunkRunes) {
 			id := chunkDocId(base, up.Chunk)
 			seen[id] = true
-			if h, ok := stored[id]; ok && h == docHash(up.Entry.Data) {
+			if h, ok := stored[id]; ok && h == docHash(up.Entry.Data, up.Entry.Title) {
 				continue // unchanged — keep the stored doc and its vector
 			}
 			page.ups = append(page.ups, up)

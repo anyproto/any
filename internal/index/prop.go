@@ -229,11 +229,15 @@ func (c *PropChunker) ChunksSince(ctx context.Context, sp space.Space, objectId 
 			if attached[p.typeId] {
 				// Entry text is self-describing — "<prop name>: <value>"
 				// — so property-NAME search works and bare numbers get
-				// context. Valueless rows stay empty (a removal signal):
-				// the prefix alone would index the name on every object
-				// of the type.
+				// context. The name also rides Title, which carries it
+				// onto chunks past the first (a long value keeps its
+				// property name throughout) and gives name matches their
+				// BM25F weight. Valueless rows stay empty (a removal
+				// signal): the prefix alone would index the name on every
+				// object of the type.
 				if v := renderPropValue(rec.Get(p.typeId, p.propId), p.kind); v != "" && p.name != "" {
 					e.Data = p.name + ": " + v
+					e.Title = p.name
 				} else {
 					e.Data = v
 				}

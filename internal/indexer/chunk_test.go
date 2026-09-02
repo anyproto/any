@@ -109,7 +109,7 @@ func TestPlanDocs(t *testing.T) {
 	}
 	stored := map[string]string{}
 	for _, up := range cold.ups {
-		stored[chunkDocId(base, up.Chunk)] = docHash(up.Entry.Data)
+		stored[chunkDocId(base, up.Chunk)] = docHash(up.Entry.Data, up.Entry.Title)
 	}
 
 	// Same text again → nothing to do.
@@ -139,5 +139,34 @@ func TestPlanDocs(t *testing.T) {
 	planDocs([]index.IndexEntry{gone}, stored, 200, &del)
 	if len(del.ups) != 0 || len(del.dels) != 1 || del.dels[0] != base {
 		t.Fatalf("tombstone = ups %d dels %v", len(del.ups), del.dels)
+	}
+}
+
+// A title-only edit rewrites the re-prefixed chunks past the first; chunk
+// 0's Data is untouched, so a hash over Data alone would leave it serving
+// the old title in its BM25F field.
+func TestPlanDocs_TitleOnlyChangeRefreshesChunkZero(t *testing.T) {
+	long := strings.Repeat("word ", 100)
+	e := index.IndexEntry{ObjectId: "o", Dataset: "d", RecordId: "r", Data: long, Title: "Notes"}
+	base := docId("o", "d", "r")
+
+	var cold pageOps
+	planDocs([]index.IndexEntry{e}, nil, 200, &cold)
+	stored := map[string]string{}
+	for _, up := range cold.ups {
+		stored[chunkDocId(base, up.Chunk)] = docHash(up.Entry.Data, up.Entry.Title)
+	}
+
+	renamed := e
+	renamed.Title = "Remarks"
+	var page pageOps
+	planDocs([]index.IndexEntry{renamed}, stored, 200, &page)
+	if len(page.ups) != len(cold.ups) {
+		t.Fatalf("renamed = %d ups, want all %d chunks refreshed", len(page.ups), len(cold.ups))
+	}
+	for _, up := range page.ups {
+		if up.Chunk == 0 && up.Entry.Title != "Remarks" {
+			t.Errorf("chunk 0 kept the old title: %+v", up.Entry)
+		}
 	}
 }

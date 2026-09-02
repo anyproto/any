@@ -114,7 +114,10 @@ id `objectId:prop:<propId>`:
   (property definitions are indexed nowhere else) and bare numbers get
   context. The name is the definition's display `name`, falling back
   to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
-  a bare name prefix.
+  a bare name prefix. The name also rides `IndexEntry.Title`, so a
+  value long enough to split keeps its property name on every chunk
+  (§ Chunking long records) and name matches carry BM25F weight.
+  Built-ins carry no title — they are indexed raw.
 - **Kinds**: string; array (newline join of string and number
   elements); number (canonical JSON rendering — integers without a
   decimal point; distinctive numerals like 85600 are real discovery
@@ -231,9 +234,12 @@ what this is for.
 
 ### Content hashes (incremental embedding)
 
-Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`,
-hex-encoded (`docHash` in `store.go`). The indexer uses it to avoid
-re-embedding unchanged content:
+Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`
+and `Title`, hex-encoded (`docHash` in `store.go`). Both, because a
+title-only edit changes the text of chunks past the first (they carry the
+re-prefixed title) but not of chunk 0: hashing `Data` alone would refresh
+the tail and leave chunk 0 serving the old title in its BM25F field. The
+indexer uses it to avoid re-embedding unchanged content:
 
 - **Reconcile diff (editor).** `worker.reconcile` reads the object's
   stored `(id, hash)` for `objectId:dataset:` (`Store.DocHashes`), diffs

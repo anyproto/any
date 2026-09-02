@@ -36,10 +36,13 @@ const (
 	// short prop docs no longer embedded (rebuild purges stale
 	// type-name docs and name vectors); v6 = long records split into
 	// chunk docs (`base<U+001F>n` ids + `chunk` field — rebuild replaces
-	// whole-record docs with chunked ones). Mismatch = boot error advising
+	// whole-record docs with chunked ones); v7 = property entries carry
+	// the property name as Title, and the doc hash covers it (rebuild
+	// backfills the name onto chunks past the first, which were indexed
+	// as bare value text). Mismatch = boot error advising
 	// removal; no migration — the index is derived state (re-indexes on
 	// the next change).
-	indexSchemaVersion = 6
+	indexSchemaVersion = 7
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -539,7 +542,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 		doc.Set("data", arena.NewString(e.Data))
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
-		doc.Set("hash", arena.NewString(docHash(e.Data)))
+		doc.Set("hash", arena.NewString(docHash(e.Data, e.Title)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {
 		case up.Vector != nil:
@@ -608,9 +611,17 @@ func shouldEmbed(e index.IndexEntry) bool {
 // (e.g. a memory item whose accessCount bumped, a chat message that got a
 // reaction). 64-bit FNV-1a, hex-encoded so it round-trips through
 // any-store as an exact string (no float-precision risk of a numeric).
-func docHash(data string) string {
+//
+// It covers Title as well as Data: a title-only edit changes the text of
+// chunks past the first (they carry the re-prefixed title) but not of
+// chunk 0, so hashing Data alone would refresh the tail and leave chunk 0
+// serving the old title in its BM25F field — one record indexed under two
+// titles.
+func docHash(data, title string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(data))
+	_, _ = h.Write([]byte{0x1f})
+	_, _ = h.Write([]byte(title))
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
