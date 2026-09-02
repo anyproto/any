@@ -2583,7 +2583,7 @@ const docTemplate = `{
             "api.SearchHit": {
                 "properties": {
                     "chunk": {
-                        "description": "Chunk is the 0-based chunk of the record this hit is: long records\nare indexed as several docs, each a separate hit — dedupe on\n(objectId, dataset, recordId) when a record should count once.",
+                        "description": "Chunk is the 0-based chunk of the record this hit shows: long\nrecords are indexed as several docs, and the hit is the record's\nbest-ranked one. One hit per record — no client-side dedupe.",
                         "type": "integer"
                     },
                     "data": {
@@ -2602,11 +2602,39 @@ const docTemplate = `{
                     "objectId": {
                         "type": "string"
                     },
+                    "passages": {
+                        "description": "Passages are the record's next best matching chunks, present only\nwhen the request asked for them (SearchRequest.Passages).",
+                        "items": {
+                            "$ref": "#/components/schemas/api.SearchPassage"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "recordId": {
                         "type": "string"
                     },
                     "scope": {
                         "type": "string"
+                    },
+                    "score": {
+                        "type": "number"
+                    }
+                },
+                "type": "object"
+            },
+            "api.SearchPassage": {
+                "properties": {
+                    "chunk": {
+                        "type": "integer"
+                    },
+                    "data": {
+                        "type": "string"
+                    },
+                    "dataOffset": {
+                        "type": "integer"
+                    },
+                    "dataTotal": {
+                        "type": "integer"
                     },
                     "score": {
                         "type": "number"
@@ -2624,7 +2652,7 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "limit": {
-                        "description": "Limit caps returned hits. Default 10, max 100.",
+                        "description": "Limit caps returned records — every hit is a distinct\n(objectId, dataset, recordId). Default 10, max 100.",
                         "type": "integer"
                     },
                     "maxData": {
@@ -2634,6 +2662,10 @@ const docTemplate = `{
                     "mode": {
                         "description": "Mode is hybrid (default), fts, or vector. Vector requires an\nembedder configured on the server.",
                         "type": "string"
+                    },
+                    "passages": {
+                        "description": "Passages asks for up to this many further matching chunks per\nrecord, best first, on hit.passages (0 = none, max 10). They are\nthe record's other chunks that ranked within the search window,\nnot every chunk of the record.",
+                        "type": "integer"
                     },
                     "query": {
                         "description": "Query is the search text. Required.",

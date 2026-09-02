@@ -51,7 +51,7 @@ any search $SPACE "zeppelin disaster" --limit 5
 }
 ```
 
-Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row. `data` is a window of at most `maxData` runes (default 512, `-1` for the whole chunk) around the first matching term; `dataOffset` and `dataTotal` locate it in the indexed text. Long records are indexed in chunks of roughly 2000 runes, and each chunk is a separate hit carrying its `chunk` number — dedupe on `(objectId, dataset, recordId)` when a record should count once.
+Hits carry identity, not full records — hydrate them with a [dataset query](../database/reading-data.html) when you need the whole row. `data` is a window of at most `maxData` runes (default 512, `-1` for the whole chunk) around the first matching term; `dataOffset` and `dataTotal` locate it in the indexed text. Long records are indexed in chunks of roughly 2000 runes; the hit is the record's best-ranked chunk (`chunk` says which), one hit per record, and `limit` counts records. Ask for `passages: N` (max 10) to get a record's next best matching chunks on `hit.passages`.
 
 ## What is indexed
 

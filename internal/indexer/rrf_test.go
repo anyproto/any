@@ -127,3 +127,52 @@ func TestFuseRRF_ChunksStayDistinct(t *testing.T) {
 		t.Fatalf("scores differ %v / %v — one chunk absorbed the other's mass", out[0].Score, out[1].Score)
 	}
 }
+
+func TestGroupHits_MaxNotSum(t *testing.T) {
+	// Two chunks of one record fuse to ONE group scored by its best
+	// chunk; the best chunk is the representative, the other a passage.
+	c0 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 0, Score: 0.2}
+	c1 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 1, Score: 0.5}
+	out := groupHits([]Hit{c0, c1}, 10, 3)
+	if len(out) != 1 {
+		t.Fatalf("groups = %+v, want one record", out)
+	}
+	if g := out[0]; g.Hit.Chunk != 1 || g.Hit.Score != 0.5 || len(g.Passages) != 1 || g.Passages[0].Chunk != 0 {
+		t.Fatalf("group = %+v, want chunk 1 on top, chunk 0 as passage", g)
+	}
+	if out := groupHits([]Hit{c0, c1}, 10, 0); out[0].Passages != nil {
+		t.Fatalf("passages 0 must carry none: %+v", out)
+	}
+}
+
+func TestGroupHits_CrossObjectSameRecordId(t *testing.T) {
+	// recordIds repeat across objects (propIds do): two groups.
+	o1 := Hit{ObjectId: "obj1", Dataset: "prop", RecordId: "name", Score: 1}
+	o2 := Hit{ObjectId: "obj2", Dataset: "prop", RecordId: "name", Score: 1}
+	if out := groupHits([]Hit{o1, o2}, 10, 0); len(out) != 2 {
+		t.Fatalf("groups = %+v, want 2", out)
+	}
+}
+
+func TestGroupHits_OrderLimitPassages(t *testing.T) {
+	mk := func(rec string, chunk int, score float64) Hit {
+		return Hit{ObjectId: "o", Dataset: "d", RecordId: rec, Chunk: chunk, Score: score}
+	}
+	hits := []Hit{
+		mk("a", 0, 0.3), mk("b", 2, 0.9), mk("b", 0, 0.4), mk("b", 1, 0.6), mk("b", 3, 0.5),
+		mk("c", 0, 0.9), // ties b on score: key order decides, deterministically
+	}
+	out := groupHits(hits, 0, 2)
+	if len(out) != 3 || out[0].Hit.RecordId != "b" || out[1].Hit.RecordId != "c" || out[2].Hit.RecordId != "a" {
+		t.Fatalf("order = %+v", out)
+	}
+	if p := out[0].Passages; len(p) != 2 || p[0].Chunk != 1 || p[1].Chunk != 3 {
+		t.Fatalf("b passages = %+v, want chunks 1 (0.6) then 3 (0.5)", p)
+	}
+	if out := groupHits(hits, 2, 0); len(out) != 2 || out[1].Hit.RecordId != "c" {
+		t.Fatalf("limit 2 = %+v", out)
+	}
+	if out := groupHits(nil, 5, 5); len(out) != 0 {
+		t.Fatalf("empty = %+v", out)
+	}
+}

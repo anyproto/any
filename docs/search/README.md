@@ -66,6 +66,11 @@ All gated/opt-in tests in `internal/indexer` (build tags `fts vector`):
   **real** index (on-topic vs off-topic vs nonsense) to evaluate the
   vector-similarity floor.
 - **`append_scaling_test.go`** — reconcile read-cost scaling (append path).
+- **`cutoff_bench_test.go`** / **`cutoff_leak_test.go`** — what any-store
+  charges for reading past a `Limit` (`$text` cursor closed early, `$knn`
+  at growing K, the endpoint end to end on a corpus with 17-chunk
+  records) and that an early-closed iterator leaks nothing; the numbers
+  behind `limit` counting records (`13-index.md` § Tuning).
 
 ### Reproduce
 
@@ -353,6 +358,13 @@ mechanisms address this (`docs/05-config.md`):
 | `embedder` | **auto** (default) | online primary (DeepInfra Qwen3-0.6B, baked dev key) + local fallback, same model — fast zero-config embedding, degrades to local on outage |
 
 ## Open items / follow-ups
+
+- ~~One long record fills the result window~~ **DONE (SYN-193)** —
+  `limit` counts records: the legs read until their window covers
+  enough distinct records, fusion stays per chunk, records are scored by
+  their best chunk, `passages` carries the rest. BEIR / eval numbers
+  measured before this change scored `limit: k` over ≤ k chunks; a
+  re-run yields k records per query and moves recall@k upward.
 
 - ~~Vector under-performs the model card~~ **EXPLAINED** — it was the
   IVF-SQ approximation (−3–4 recall@10), not the model. Default briefly

@@ -1939,9 +1939,9 @@ components:
       properties:
         chunk:
           description: |-
-            Chunk is the 0-based chunk of the record this hit is: long records
-            are indexed as several docs, each a separate hit — dedupe on
-            (objectId, dataset, recordId) when a record should count once.
+            Chunk is the 0-based chunk of the record this hit shows: long
+            records are indexed as several docs, and the hit is the record's
+            best-ranked one. One hit per record — no client-side dedupe.
           type: integer
         data:
           description: |-
@@ -1959,10 +1959,31 @@ components:
           type: string
         objectId:
           type: string
+        passages:
+          description: |-
+            Passages are the record's next best matching chunks, present only
+            when the request asked for them (SearchRequest.Passages).
+          items:
+            $ref: '#/components/schemas/api.SearchPassage'
+          type: array
+          uniqueItems: false
         recordId:
           type: string
         scope:
           type: string
+        score:
+          type: number
+      type: object
+    api.SearchPassage:
+      properties:
+        chunk:
+          type: integer
+        data:
+          type: string
+        dataOffset:
+          type: integer
+        dataTotal:
+          type: integer
         score:
           type: number
       type: object
@@ -1974,7 +1995,9 @@ components:
           type: array
           uniqueItems: false
         limit:
-          description: Limit caps returned hits. Default 10, max 100.
+          description: |-
+            Limit caps returned records — every hit is a distinct
+            (objectId, dataset, recordId). Default 10, max 100.
           type: integer
         maxData:
           description: |-
@@ -1988,6 +2011,13 @@ components:
             Mode is hybrid (default), fts, or vector. Vector requires an
             embedder configured on the server.
           type: string
+        passages:
+          description: |-
+            Passages asks for up to this many further matching chunks per
+            record, best first, on hit.passages (0 = none, max 10). They are
+            the record's other chunks that ranked within the search window,
+            not every chunk of the record.
+          type: integer
         query:
           description: Query is the search text. Required.
           type: string

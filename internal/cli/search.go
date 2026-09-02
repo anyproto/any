@@ -15,12 +15,13 @@ import (
 // answers FTS-only.
 func newSearchCmd() *cobra.Command {
 	var (
-		scopes  string
-		limit   int
-		mode    string
-		require []string
-		exclude []string
-		maxData int
+		scopes   string
+		limit    int
+		mode     string
+		require  []string
+		exclude  []string
+		maxData  int
+		passages int
 	)
 	cmd := &cobra.Command{
 		Use:   "search <spaceId> <query>",
@@ -29,12 +30,13 @@ func newSearchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := client.New(flags.Addr, flags.Timeout)
 			req := api.SearchRequest{
-				Query:   args[1],
-				Limit:   limit,
-				Mode:    mode,
-				Require: require,
-				Exclude: exclude,
-				MaxData: maxData,
+				Query:    args[1],
+				Limit:    limit,
+				Mode:     mode,
+				Require:  require,
+				Exclude:  exclude,
+				MaxData:  maxData,
+				Passages: passages,
 			}
 			if scopes != "" {
 				req.Scopes = strings.Split(scopes, ",")
@@ -47,10 +49,11 @@ func newSearchCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&scopes, "scopes", "", "comma-separated scope filter (basic,chat,agent)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "max hits (default 10, max 100)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max records (default 10, max 100)")
 	cmd.Flags().StringVar(&mode, "mode", "", "hybrid (default), fts, or vector")
 	cmd.Flags().StringArrayVar(&require, "require", nil, "must-have term, enforced in every mode (repeatable; phrase/prefix ok)")
 	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "must-not term, enforced in every mode (repeatable; phrase/prefix ok)")
 	cmd.Flags().IntVar(&maxData, "max-data", 0, "max runes of data per hit around the first match (default 512; -1 = whole chunk)")
+	cmd.Flags().IntVar(&passages, "passages", 0, "extra matching chunks per record, best first (default 0, max 10)")
 	return cmd
 }

@@ -715,12 +715,47 @@ type FTSQuery struct {
 	Exclude    []string
 }
 
-// SearchFTSQuery runs the BM25(F) leg with full operator support.
+// SearchFTSQuery runs the BM25(F) leg with full operator support and
+// returns the first limit hits in rank order (0 = every match).
 func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, limit int) ([]Hit, error) {
+	cur, err := s.openFTS(ctx, spaceId, fq, scopes)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close()
+	var out []Hit
+	for limit <= 0 || len(out) < limit {
+		h, ok, err := cur.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
+// ftsCursor streams the BM25(F) leg's hits in rank order. any-store
+// ranks every match before the first Next (a Limit never reaches the
+// search) and materializes rows only as they are pulled, so a caller
+// reads exactly as deep as it needs and Close is O(1) at any point
+// (BenchmarkCutoff, TestIteratorEarlyCloseNoLeak). The cursor holds a
+// read tx — a reader slot, a page cache, a WAL read-mark — until Close:
+// pull, then close; never park one across another store call. A nil
+// iter is the FTS-compiled-out cursor: no fulltext index exists, so it
+// yields nothing rather than erroring against a missing index.
+type ftsCursor struct {
+	iter anystore.Iterator
+}
+
+// openFTS starts the lexical leg: the shoulds parsed from Query plus
+// the required / excluded terms (each parsed so phrases / prefixes
+// work), optionally restricted to scopes.
+func (s *Store) openFTS(ctx context.Context, spaceId string, fq FTSQuery, scopes []string) (*ftsCursor, error) {
 	if !capFTS {
-		// FTS compiled out (no fulltext index exists) — no hits rather
-		// than a query error against a missing index.
-		return nil, nil
+		return &ftsCursor{}, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
@@ -728,8 +763,6 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 	}
 	text := query.Text{Search: fq.Query, DefaultAnd: fq.DefaultAnd}
 	if len(fq.Require) > 0 || len(fq.Exclude) > 0 {
-		// Build explicit clauses: the shoulds parsed from Query, plus the
-		// required / excluded terms (each parsed so phrases/prefixes work).
 		clauses := query.ParseTextSearch(fq.Query)
 		clauses = appendClauses(clauses, fq.Require, query.TextMust)
 		clauses = appendClauses(clauses, fq.Exclude, query.TextMustNot)
@@ -739,12 +772,35 @@ func (s *Store) SearchFTSQuery(ctx context.Context, spaceId string, fq FTSQuery,
 	if sk := scopeKey(scopes); sk != nil {
 		filter = query.And{filter, sk}
 	}
-	iter, err := coll.Find(filter).Limit(uint(limit)).Iter(ctx)
+	iter, err := coll.Find(filter).Iter(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer iter.Close()
-	return collectHits(iter, func(it anystore.Iterator) float64 { return it.Score() })
+	return &ftsCursor{iter: iter}, nil
+}
+
+// Next yields the next hit in rank order; ok is false once the leg is
+// exhausted.
+func (c *ftsCursor) Next() (Hit, bool, error) {
+	if c.iter == nil {
+		return Hit{}, false, nil
+	}
+	if !c.iter.Next() {
+		return Hit{}, false, c.iter.Err()
+	}
+	doc, err := c.iter.Doc()
+	if err != nil {
+		return Hit{}, false, err
+	}
+	return hitFromDoc(doc.Value(), c.iter.Score()), true, nil
+}
+
+// Close releases the read tx. A no-op on the compiled-out cursor.
+func (c *ftsCursor) Close() error {
+	if c.iter == nil {
+		return nil
+	}
+	return c.iter.Close()
 }
 
 // FilterTerms keeps only the hits that satisfy the Require / Exclude
@@ -840,19 +896,29 @@ func appendClauses(dst []query.TextClause, terms []string, op query.TextOp) []qu
 // The effective floor is max(minSim, smallest-positive) — a similarity
 // must always be > 0 (cosine distance < 1) to carry any signal.
 func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) ([]Hit, error) {
+	hits, _, err := s.searchVector(ctx, spaceId, vec, scopes, limit, minSim)
+	return hits, err
+}
+
+// searchVector is SearchVector plus exhausted: true when the index
+// returned fewer than limit candidates — the ANN's reach (the probed
+// IVF cells, ~4√N docs at nprobe 16) has nothing further, so a caller
+// widening K can stop. Judged on the index's own count, before the
+// similarity floor, which only trims the far tail.
+func (s *Store) searchVector(ctx context.Context, spaceId string, vec []float32, scopes []string, limit int, minSim float64) (hits []Hit, exhausted bool, err error) {
 	if !capVector || s.Dim() == 0 {
-		return nil, nil
+		return nil, true, nil
 	}
 	ok, err := s.EnsureVectorIndex(ctx, spaceId)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !ok {
-		return nil, nil
+		return nil, true, nil
 	}
 	coll, err := s.spaceColl(ctx, spaceId)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// $k bounds the result set; the scope filter is applied before the
 	// cut-to-k, so every returned hit is in scope.
@@ -862,13 +928,14 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 	}
 	iter, err := coll.Find(filter).Iter(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer iter.Close()
-	hits, err := collectHits(iter, func(it anystore.Iterator) float64 { return 1 - float64(it.Distance()) })
+	hits, err = collectHits(iter, func(it anystore.Iterator) float64 { return 1 - float64(it.Distance()) })
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	exhausted = len(hits) < limit
 	// Noise floor: ANN always returns the k nearest, however far. Drop
 	// non-positive similarity (cosine distance >= 1 — orthogonal or
 	// worse): such hits carry no signal and only pollute fusion when
@@ -881,7 +948,7 @@ func (s *Store) SearchVector(ctx context.Context, spaceId string, vec []float32,
 			out = append(out, h)
 		}
 	}
-	return out, nil
+	return out, exhausted, nil
 }
 
 func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) ([]Hit, error) {
@@ -891,18 +958,22 @@ func collectHits(iter anystore.Iterator, score func(anystore.Iterator) float64) 
 		if err != nil {
 			return nil, err
 		}
-		v := doc.Value()
-		out = append(out, Hit{
-			Scope:    string(v.GetStringBytes("scope")),
-			ObjectId: string(v.GetStringBytes("objectId")),
-			Dataset:  string(v.GetStringBytes("dataset")),
-			RecordId: string(v.GetStringBytes("recordId")),
-			Chunk:    v.GetInt("chunk"),
-			Data:     string(v.GetStringBytes("data")),
-			Score:    score(iter),
-		})
+		out = append(out, hitFromDoc(doc.Value(), score(iter)))
 	}
 	return out, iter.Err()
+}
+
+// hitFromDoc copies a row's fields out of the iterator-owned value.
+func hitFromDoc(v *anyenc.Value, score float64) Hit {
+	return Hit{
+		Scope:    string(v.GetStringBytes("scope")),
+		ObjectId: string(v.GetStringBytes("objectId")),
+		Dataset:  string(v.GetStringBytes("dataset")),
+		RecordId: string(v.GetStringBytes("recordId")),
+		Chunk:    v.GetInt("chunk"),
+		Data:     string(v.GetStringBytes("data")),
+		Score:    score,
+	}
 }
 
 // Pending returns up to limit docs awaiting embedding (only docs with

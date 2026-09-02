@@ -222,11 +222,12 @@ keeps its subject for BM25F and the embedder. Each chunk embeds whole
 (the target sits well inside the local embedder's 2048-token clamp),
 so vector recall covers the entire record, not just its head; and a
 hit's `data` is the matching passage, not the whole record. The hit's
-`recordId` is the record's; `chunk` says which piece — chunks of one
-record are separate hits, so consumers counting records dedupe on
-`(objectId, dataset, recordId)`. Editor windows and chat messages are
-below the bound by construction; runtime-dataset records (mail bodies)
-and long property values are what this is for.
+`recordId` is the record's; `chunk` says which piece — the record's
+best-ranked one, since `/search` returns one hit per record and folds
+the other matching chunks into `passages` on request (§ Search).
+Editor windows and chat messages are below the bound by construction;
+runtime-dataset records (mail bodies) and long property values are
+what this is for.
 
 ### Content hashes (incremental embedding)
 
@@ -691,9 +692,9 @@ is a derived cache, so deleting it is always the whole fix.
 ### Search
 
 `POST /v1/spaces/:spaceId/search` `{query, scopes?, limit?, mode?,
-require?, exclude?, maxData?}` →
+require?, exclude?, maxData?, passages?}` →
 `{hits: [{scope, objectId, dataset, recordId, chunk?, data,
-dataOffset?, dataTotal, score}], mode, vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
+dataOffset?, dataTotal, score, passages?}], mode, vectorStatus}`. Modes: `fts` (BM25), `vector` (cosine ANN; requires an
 embedder, hits below the similarity floor are dropped as noise), `hybrid`
 (default — both legs fused by reciprocal rank, k=60; degrades to `fts`
 when the embedder is missing or the query embedding fails or exceeds
@@ -706,6 +707,36 @@ the remaining budget so the local fallback still has time to decode. Scores are 
 within one response. CLI: `any search <spaceId> <query> [--scopes ...]
 [--limit N] [--mode ...] [--require T ...] [--exclude T ...]
 [--max-data N]`.
+
+**`limit` counts records.** A hit is one `(objectId, dataset,
+recordId)`, shown through its best-ranked chunk; the other chunks of
+the record that ranked within the search window come back as
+`passages` (`passages: N`, max 10, best first, same window fields).
+Each leg reads a window that is at least `fetch = clamp(3·limit, 30,
+100)` chunks and continues until it covers enough distinct records —
+`2·limit` for the lexical leg, `limit` for the vector leg — capped at
+1000 chunks (`maxLegFetch`). The lexical leg is one any-store cursor
+opened without `Limit` and pulled to that rule (`Store.openFTS` /
+`Indexer.ftsLeg`): any-store ranks every match before the first row
+whatever the `Limit`, and only materializes what is pulled, so the
+deeper read costs ~1 µs per row and an early `Close` is free (§ Tuning).
+The vector leg has no cursor — `$knn` computes its `K` nearest up
+front — so it re-queries with `K` ×4 until covered, or until the index
+reports fewer than `K` candidates: an IVF search reaches only the
+probed cells (~4√N docs at nprobe 16), and past that no `K` or `ef`
+finds more. Fusion stays per chunk (`fuseRRF`, keyed by chunk doc id,
+so a long record never gains rank mass from chunk count) and
+`groupHits` then collapses chunks into records scored by their best
+chunk — max, never sum. Two consequences to design against: the fused
+order is reciprocal rank over those bounded windows (a record deep in
+both legs can outrank one shallow in one leg — as before), and when one
+record dominates a whole window the reply can hold fewer than `limit`
+records although the index has more. The reply is bounded by `limit ×
+(1 + passages) × maxData` runes of text. Work order in
+`Indexer.Search`: query embedding, then the vector leg, then the
+lexical cursor — no read transaction is held across the embed wait or
+another store call (an open cursor pins a reader slot, a page cache and
+a WAL read-mark until `Close`).
 
 **Hit `data` is a window, not the record.** Each hit's `data` is at
 most `maxData` runes (default 512; `-1` = the whole chunk text) cut
@@ -805,6 +836,35 @@ Defaults in `indexer.Options`, picked from file-backed benchmarks:
 
 Search at 10k docs (dim 768): FTS ≈ 1.9ms, vector ≈ 1.0ms per query.
 
+Reading past a fixed `Limit` (`BenchmarkCutoff`, file-backed, dim 256,
+one term matching ~half the corpus, Ryzen 9 9950X; `rows` = rows pulled
+before `Close`):
+
+| leg | 10k docs | 100k docs |
+|---|---|---|
+| `$text` `Limit(30)`, drained | 1.03 ms | 13.4 ms |
+| `$text` no `Limit`, closed after 30 rows | 0.99 ms | 13.3 ms |
+| `$text` no `Limit`, closed after 1000 rows | 1.73 ms | 14.7 ms |
+| `$text` no `Limit`, drained (5k / 50k rows) | 9.6 ms | 109 ms |
+| `$knn` K=30 / 120 / 480 / 1000 | 0.10 / 0.15 / 0.40 / 0.48 ms (600 rows) | 0.19 / 0.25 / 0.58 / 1.10 ms |
+| `$knn` K=1000 with a scope residual | 0.52 ms (316 rows) | 1.38 ms (633 rows) |
+| `$knn` K=1000, closed after 30 rows | 0.22 ms | 0.53 ms |
+
+So a `Limit` buys nothing on the lexical leg — the BM25 accumulation
+and full sort are paid before the first row either way (7.8 MB/op at
+100k, with or without `Limit`) — and every extra row pulled costs
+~1 µs; the vector leg's reach is the probed IVF cells (K=1000 returns
+600 rows at 10k), an explicit `ef` (10000) changes nothing, and an early
+`Close` saves only the per-row fetch. An open iterator pins ~0.7 MiB
+(`$text`) / 0.2 MiB (`$knn`) and releases it all on `Close`
+(`TestIteratorEarlyCloseNoLeak`). End to end on the same corpus plus
+five 17-chunk records and one short record sharing a rare term,
+`limit 10`: fts went from 10 hits of ONE record in 0.12 ms to the six
+matching records in 0.19 ms, hybrid from 6 records in 0.23 ms to 10 in
+0.38 ms — the deeper pull is sub-millisecond. Re-measure with
+`ANY_CUTOFF_BENCH_SIZES=10000,100000 go test -tags 'fts vector' -run '^$'
+-bench BenchmarkCutoff -benchmem -benchtime 20x ./internal/indexer`.
+
 Query embedding while the local child is saturated (three workers
 looping 2000-rune frames — `TestWorkerEmbedder_RealChild_QueryLatency`,
 Qwen3-Embedding-0.6B Q8, 20 jittered queries): the wait is half a doc
@@ -843,7 +903,12 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   `batchDocs` lowers this bound proportionally.
 - **`require` / `exclude` bind the hit, i.e. the chunk**: a term that
   appears only in another chunk of the same record does not satisfy a
-  `require` for this one.
+  `require` for this one — and a passage is only ever a chunk that
+  satisfied them itself.
+- **Passages are the window's, not the record's.** `passages` lists a
+  record's other chunks that ranked within the legs' windows (≤ 1000
+  chunks deep); a record whose chunks all match still shows only the
+  ones the legs reached.
 
 ## Tests
 
@@ -856,8 +921,18 @@ Re-measure with `go test ./internal/indexer -bench . -benchtime 30x`
   in-process SDK end to end: creation, cursor advance, deletions
   (tombstones), and the non-memory tombstone case.
 - `internal/indexer` unit tests — store round-trips (FTS + vector +
-  pending lifecycle + purge/drop, in-memory any-store), RRF fusion,
-  the HTTP embedder clients against `httptest` servers.
+  pending lifecycle + purge/drop, in-memory any-store), RRF fusion
+  and record grouping (`rrf_test.go`), the HTTP embedder clients
+  against `httptest` servers.
+- `internal/indexer/search_terms_test.go` — `require`/`exclude` in every
+  mode, chunk windows + `maxData`, and
+  `TestIndexer_SearchLimitCountsRecords`: a 17-chunk record whose every
+  chunk outranks a short exact match, `limit 10` in fts / hybrid /
+  vector → both records, passages on the long one.
+- `internal/indexer/cutoff_leak_test.go` — an any-store `$text` (with
+  and without `Limit`) and `$knn` iterator closed after a few rows, 500
+  times: no goroutine, no retained heap, reader slots released, a write
+  and the DB close go through afterwards.
 - `internal/indexer/embed_local_test.go` — local embedder factory and
   pre-ready errors (no libs/model needed), `truncateTokens` (EOS
   preservation), `l2Normalize`, Matryoshka dim; plus a gated

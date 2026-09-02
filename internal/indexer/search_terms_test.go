@@ -125,23 +125,49 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 		t.Fatalf("data window = %q", h.Data)
 	}
 
-	// "filler" is in every chunk: one hit per chunk, all r1, distinct chunks.
+	// "filler" is in every chunk: the record is ONE hit (its best chunk),
+	// and the other chunks come back as passages when asked for —
+	// distinct, windowed like the hit, capped at the request.
 	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seen := map[int]bool{}
-	for _, h := range res.Hits {
-		if h.RecordId != "r1" || seen[h.Chunk] {
-			t.Fatalf("hits = %+v", res.Hits)
+	if len(res.Hits) != 1 || res.Hits[0].RecordId != "r1" || res.Hits[0].Passages != nil {
+		t.Fatalf("filler hits = %+v, want one r1 hit without passages", res.Hits)
+	}
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, MaxData: 40, Passages: api.MaxSearchPassages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 {
+		t.Fatalf("filler hits = %+v, want one", res.Hits)
+	}
+	h = res.Hits[0]
+	seen := map[int]bool{h.Chunk: true}
+	if n := utf8.RuneCountInString(h.Data); n > 40 || h.DataTotal < n {
+		t.Fatalf("maxData 40: data %d runes, total %d", n, h.DataTotal)
+	}
+	for i, p := range h.Passages {
+		if seen[p.Chunk] {
+			t.Fatalf("passage %d repeats chunk %d: %+v", i, p.Chunk, h.Passages)
 		}
-		seen[h.Chunk] = true
-		if n := utf8.RuneCountInString(h.Data); n > 40 || h.DataTotal < n {
-			t.Fatalf("maxData 40: data %d runes, total %d", n, h.DataTotal)
+		seen[p.Chunk] = true
+		if i > 0 && p.Score > h.Passages[i-1].Score {
+			t.Fatalf("passages not best-first: %+v", h.Passages)
+		}
+		if n := utf8.RuneCountInString(p.Data); n > 40 || p.DataTotal < n {
+			t.Fatalf("passage maxData 40: data %d runes, total %d", n, p.DataTotal)
 		}
 	}
 	if len(seen) != len(page.ups) {
-		t.Fatalf("filler hits cover %d chunks, want %d", len(seen), len(page.ups))
+		t.Fatalf("hit + passages cover %d chunks, want %d", len(seen), len(page.ups))
+	}
+	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "filler", Mode: api.SearchModeFTS, Limit: 10, Passages: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Hits) != 1 || len(res.Hits[0].Passages) != 2 {
+		t.Fatalf("passages: 2 → %+v", res.Hits)
 	}
 
 	res, err = ix.Search(ctx, sp, api.SearchRequest{Query: "needle", Mode: api.SearchModeFTS, Limit: 10, MaxData: -1})
@@ -150,5 +176,70 @@ func TestIndexer_SearchChunksAndMaxData(t *testing.T) {
 	}
 	if h := res.Hits[0]; h.DataOffset != 0 || utf8.RuneCountInString(h.Data) != h.DataTotal {
 		t.Fatalf("maxData -1 must return the whole chunk: off %d len %d total %d", h.DataOffset, utf8.RuneCountInString(h.Data), h.DataTotal)
+	}
+}
+
+// limit counts records (SYN-193): one 17-chunk record whose every
+// chunk outranks a short exact match must not fill the reply. The
+// short record's single chunk is one BM25 hit against seventeen
+// stronger ones, and the axis embedder ranks every chunk equally on the
+// vector side, so both legs — and hybrid — need the deeper pull.
+func TestIndexer_SearchLimitCountsRecords(t *testing.T) {
+	ctx := context.Background()
+	st := mustStore(t, 4)
+	ix := &Indexer{store: st, opts: Options{Embedder: axisEmbedder{dim: 4}, AnnounceAfter: -1}.withDefaults()}
+	const sp = "sp1"
+
+	long := entry("chat", "o1", "chat_messages", "long", strings.Repeat("reranker notes and more reranker notes. ", 17*DefaultChunkRunes/40), 1)
+	ups := expandEntry(long, DefaultChunkRunes)
+	if len(ups) < 17 {
+		t.Fatalf("chunks = %d, want >= 17", len(ups))
+	}
+	ups = append(ups, DocUpsert{Entry: entry("chat", "o2", "chat_messages", "short", "the reranker", 2)})
+	for i := range ups {
+		ups[i].Vector = []float32{1, 0, 0, 0}
+	}
+	if err := st.Apply(ctx, sp, ups, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := st.EnsureVectorIndex(ctx, sp); err != nil || !ok {
+		t.Fatalf("ensure vector index: %v (ok=%v)", err, ok)
+	}
+
+	for _, mode := range []string{api.SearchModeFTS, api.SearchModeHybrid, api.SearchModeVector} {
+		res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: mode, Limit: 10, Passages: 3})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if res.Mode != mode {
+			t.Fatalf("%s ran as %s (vector %s)", mode, res.Mode, res.VectorStatus)
+		}
+		if len(res.Hits) != 2 {
+			t.Fatalf("%s: hits = %d, want both records: %+v", mode, len(res.Hits), res.Hits)
+		}
+		byRec := map[string]api.SearchHit{}
+		for _, h := range res.Hits {
+			byRec[h.RecordId] = h
+		}
+		if _, ok := byRec["short"]; !ok {
+			t.Fatalf("%s: the short exact match is missing: %+v", mode, res.Hits)
+		}
+		lh := byRec["long"]
+		if len(lh.Passages) != 3 {
+			t.Fatalf("%s: long record passages = %+v, want 3", mode, lh.Passages)
+		}
+		for _, p := range lh.Passages {
+			if p.Chunk == lh.Chunk || p.Score > lh.Score {
+				t.Fatalf("%s: passage %+v vs hit chunk %d score %v", mode, p, lh.Chunk, lh.Score)
+			}
+		}
+		if len(byRec["short"].Passages) != 0 {
+			t.Fatalf("%s: single-chunk record carries passages: %+v", mode, byRec["short"])
+		}
+	}
+	// limit 1 returns one record, not one chunk of each.
+	res, err := ix.Search(ctx, sp, api.SearchRequest{Query: "reranker", Mode: api.SearchModeFTS, Limit: 1})
+	if err != nil || len(res.Hits) != 1 {
+		t.Fatalf("limit 1: %v %+v", err, res.Hits)
 	}
 }
