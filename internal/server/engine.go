@@ -153,8 +153,14 @@ func waitWG(wg *sync.WaitGroup, d time.Duration) bool {
 	return waitClosed(done, d)
 }
 
-// errAlreadyAuthorized guards double-boot via POST /v1/auth.
-var errAlreadyAuthorized = errors.New("already authorized")
+// Boot verdicts decided under authMu — the authoritative ones, since
+// the handler's pre-check reads the account outside the lock:
+// errAlreadyAuthorized means the engine already serves the requested
+// account, errAccountMismatch that it serves another one.
+var (
+	errAlreadyAuthorized = errors.New("already authorized")
+	errAccountMismatch   = errors.New("another account is running")
+)
 
 // walletSeed carries the inputs for CREATING a wallet: the BIP-39
 // mnemonic and its account-derivation index. Both zero for the
@@ -199,6 +205,9 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	provider, createdKeys, err := open(ctx)
 	if err != nil {
 		_ = lock.Release()
+		if createdKeys && !dirExisted && id.Dir != root {
+			_ = os.RemoveAll(id.Dir)
+		}
 		return nil, err
 	}
 
@@ -352,10 +361,17 @@ func (d *deps) bootAccount(id *Identity, open credential) (*engine, error) {
 
 // bootAccountLocked is bootAccount with authMu held by the caller — the
 // switch path tears the previous engine down and boots the next one
-// under a single hold.
+// under a single hold. With an engine already live it decides by
+// account: the same one is errAlreadyAuthorized (returned with that
+// engine — a no-op for the caller), any other errAccountMismatch. An
+// id with no known account (the legacy root wallet before it is
+// opened) never matches a live engine.
 func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error) {
 	if d.eng != nil {
-		return nil, errAlreadyAuthorized
+		if id.Account != "" && d.eng.account == id.Account {
+			return d.eng, errAlreadyAuthorized
+		}
+		return nil, errAccountMismatch
 	}
 	eng, err := bootEngine(d.runCtx, d.cfg, d.root, id, open, d.indexerProcessFor)
 	if err != nil {
@@ -367,26 +383,22 @@ func (d *deps) bootAccountLocked(id *Identity, open credential) (*engine, error)
 
 // switchAccount replaces the live engine with one for id under a single
 // authMu hold: teardown (streams end with deauthorized) then boot. A
-// same-account race — the target already came up meanwhile — is a
-// no-op returning that engine. A boot failure after the teardown
-// leaves the server unauthorized; the caller reports the boot error
-// and clients re-read GET /v1/auth.
+// same-account race — the target already came up meanwhile — reports
+// errAlreadyAuthorized with that engine, like bootAccountLocked. A
+// boot failure after the teardown leaves the server unauthorized; the
+// caller reports the boot error and clients re-read GET /v1/auth.
 func (d *deps) switchAccount(id *Identity, open credential) (*engine, error) {
 	d.authMu.Lock()
 	defer d.authMu.Unlock()
-	if d.eng != nil {
-		if d.eng.account == id.Account {
-			return d.eng, nil
-		}
+	if d.eng != nil && d.eng.account != id.Account {
 		engineLog.Info("switching account", zap.String("to", id.Account))
 		d.teardownEngineLocked(engineLog, api.SubscribeClosedDeauthorized)
 	}
 	eng, err := d.bootAccountLocked(id, open)
-	if err != nil {
+	if err != nil && !errors.Is(err, errAlreadyAuthorized) {
 		engineLog.Error("account switch: boot failed — server is unauthorized", zap.Error(err))
-		return nil, err
 	}
-	return eng, nil
+	return eng, err
 }
 
 // publishEngine installs a booted engine on d and opens the gate. The
@@ -425,16 +437,24 @@ func (d *deps) teardownEngine(lg logger.CtxLogger, reason string) {
 
 // teardownEngineLocked is teardownEngine with authMu held. Order:
 //
-//  1. ready off — the guard refuses new requests with 401;
+//  1. ready off — the guard refuses new requests with 401 — and the
+//     engine stops reporting (late indexer frames are dropped);
 //  2. cancel the engine ctx — streams write their terminal frame and
-//     unwind, engine goroutines return;
+//     unwind, engine goroutines return, and every gated request's
+//     context is cancelled with it (routes.go), so SDK calls in flight
+//     return instead of holding the drain;
 //  3. drain the gate — every in-flight handler and stream leaves
-//     (bounded; a wedged one is abandoned, never waited forever);
-//  4. drop the account-bound in-memory state — pub/sub interests,
-//     the process view, bundle observations;
+//     (bounded: a handler wedged past the deadline is abandoned, and
+//     the resources are released only once it leaves — never closed
+//     underneath it);
+//  4. detach the pub/sub interests — the next engine builds its own;
 //  5. close the engine's resources (goroutines joined, indexer, push,
-//     SDK, lock);
-//  6. clear the engine fields and reopen the gate for the next boot.
+//     SDK, lock), THEN drop the process view and bundle observations,
+//     so nothing the joined goroutines emitted survives;
+//  6. clear the engine fields. The gate stays closed until the next
+//     publishEngine reopens it behind the fresh fields — a request that
+//     read ready=true just before step 1 is refused at the gate rather
+//     than admitted against cleared fields.
 //
 // Nothing here takes the gate or blocks on a handler that holds it, so
 // a handler must never take authMu — see the guard in routes.go.
@@ -444,27 +464,41 @@ func (d *deps) teardownEngineLocked(lg logger.CtxLogger, reason string) {
 		return
 	}
 	d.ready.Store(false)
+	eng.done.Store(true)
 	eng.setCloseReason(reason)
 	eng.cancel()
-	if !waitClosed(d.gate.close(), gracefulShutdownDeadline) {
-		lg.Warn("engine teardown: in-flight requests did not finish in time")
-	}
+	drained := d.gate.close()
+	ok := waitClosed(drained, gracefulShutdownDeadline)
 	d.eventsNet().detach()
-	d.processes().reset()
-	d.bundleResolver().Reset()
-	eng.closeResources(lg)
-	// Cleared unconditionally — even after a timed-out drain — so a
-	// second teardown (server.Run's deferred one) never closes the SDK
-	// twice.
+	if ok {
+		eng.closeResources(lg)
+		d.processes().reset()
+		d.bundleResolver().Reset()
+		d.sdk = nil
+		d.indexer = nil
+		d.push = nil
+		d.local = nil
+		d.account = ""
+		d.derived = nil
+	} else {
+		// A straggler still executes against this engine. Its fields
+		// stay in place (the next publishEngine overwrites them) and
+		// the resources — including the instance lock — are released
+		// once it leaves; a boot of the same account before that is
+		// refused as account_in_use, which is the truth.
+		lg.Error("engine teardown: in-flight requests did not finish in time; resources are released once they leave")
+		d.processes().reset()
+		d.bundleResolver().Reset()
+		go func() {
+			<-drained
+			eng.closeResources(lg)
+		}()
+	}
+	// Cleared unconditionally so a second teardown (server.Run's
+	// deferred one) never closes the SDK twice, and spawnEngine stops
+	// attaching work to a torn-down engine.
 	d.eng = nil
-	d.sdk = nil
-	d.indexer = nil
-	d.push = nil
-	d.local = nil
-	d.account = ""
-	d.derived = nil
 	d.shutdownCtx = nil
-	d.gate.reset()
 }
 
 // holdProcessInterest acquires the standing account-scope interest for
@@ -481,7 +515,7 @@ func (d *deps) teardownEngineLocked(lg logger.CtxLogger, reason string) {
 func (d *deps) holdProcessInterest(eng *engine) {
 	backoff := 2 * time.Second
 	for {
-		release, err := d.eventsNet().acquire(eng.ctx, true, nil, []string{eventTopicPrefix + "process/>"})
+		release, err := d.eventsNet().acquire(eng.ctx, eng.sdk, true, nil, []string{eventTopicPrefix + "process/>"})
 		if err == nil {
 			eng.mu.Lock()
 			if eng.ctx.Err() != nil {
@@ -580,12 +614,10 @@ func (d *deps) indexerProcessFor(eng *engine) func(indexer.ProcessUpdate) {
 
 // spawnEngine runs fn as a goroutine of the live engine (joined at
 // teardown, bounded by its ctx). Callers hold the gate, so d.eng is
-// stable; without an engine (hand-built test deps) fn runs detached
-// on the background context.
+// stable; a caller that outlived a timed-out drain finds no engine and
+// its work is dropped — nothing may attach to a torn-down engine.
 func (d *deps) spawnEngine(fn func(ctx context.Context)) {
-	if d.eng != nil {
-		d.eng.spawn(fn)
-		return
+	if eng := d.eng; eng != nil {
+		eng.spawn(fn)
 	}
-	go fn(d.backgroundCtx())
 }

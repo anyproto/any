@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	_ "net/http/pprof"
 
@@ -9,6 +10,8 @@ import (
 
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
+
+	"github.com/anyproto/any/internal/api"
 )
 
 // recoverLog surfaces recovered panics (which otherwise render as a bare
@@ -51,8 +54,10 @@ func buildEcho(d *deps) *echo.Echo {
 			"http://127.0.0.1:5173",
 		},
 		// Range lets the webview issue ranged file-content downloads
-		// (GET /v1/spaces/:spaceId/files/:fileId/content).
-		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range"},
+		// (GET /v1/spaces/:spaceId/files/:fileId/content); the control
+		// token is what the shell's webview logs a managed server in
+		// with (docs/08-clients.md § 14).
+		AllowHeaders: []string{echo.HeaderContentType, echo.HeaderAccept, "Range", api.ControlTokenHeader},
 	}))
 	// Global body cap for the JSON API. The one exemption is the file
 	// attach route — its raw body IS the file, streamed straight into
@@ -91,6 +96,17 @@ func buildEcho(d *deps) *echo.Echo {
 			}
 			if d.ready.Load() && d.gate.enter() {
 				defer d.gate.leave()
+				// Bind the request to the engine: teardown cancels the
+				// engine ctx, and every SDK call takes the request ctx,
+				// so in-flight work unwinds instead of holding the
+				// drain open. shutdownCtx is stable inside the gate.
+				if engCtx := d.shutdownCtx; engCtx != nil {
+					ctx, cancel := context.WithCancel(c.Request().Context())
+					stop := context.AfterFunc(engCtx, cancel)
+					defer stop()
+					defer cancel()
+					c.SetRequest(c.Request().WithContext(ctx))
+				}
 				return next(c)
 			}
 			return writeError(c, http.StatusUnauthorized, "auth.required",

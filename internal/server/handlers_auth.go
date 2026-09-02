@@ -32,9 +32,12 @@ func registerAuthRoutes(g *echo.Group, d *deps) {
 //	@Success	200	{object}	api.AuthStatusResponse
 //	@Router		/auth [get]
 func (d *deps) authStatus(c echo.Context) error {
+	// One gated read decides both fields, so a teardown racing this
+	// call never yields authorized:true with an empty account.
+	account := d.accountID()
 	resp := api.AuthStatusResponse{
-		Authorized:   d.ready.Load(),
-		AccountId:    d.accountID(),
+		Authorized:   account != "",
+		AccountId:    account,
 		Mode:         d.cfg.Mode,
 		Capabilities: d.capabilities(),
 		Accounts:     []api.AuthAccount{},
@@ -116,6 +119,11 @@ func (d *deps) rootWalletID(c echo.Context) string {
 //	@Failure	409	{object}	api.ErrorEnvelope
 //	@Router		/auth [post]
 func (d *deps) authorize(c echo.Context) error {
+	// Token first: an untokened caller on a managed server learns
+	// nothing about the body vocabulary or the mode's refusals.
+	if !d.requireControl(c) {
+		return nil
+	}
 	req, ok := bindBodyStrict[api.AuthRequest](c, "modes: {} generates a new account, {\"mnemonic\": …[, \"index\": N]} restores, {\"accountId\": …} selects a local wallet; \"replace\": true switches a managed server to the named account")
 	if !ok {
 		return nil
@@ -142,9 +150,6 @@ func (d *deps) authorize(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"managed server keeps no local wallets — supply the mnemonic", nil)
 	}
-	if !d.requireControl(c) {
-		return nil
-	}
 
 	// Derive the target first (cheap for every form) so the decision
 	// below never has to read a wallet or boot anything.
@@ -161,19 +166,15 @@ func (d *deps) authorize(c echo.Context) error {
 		target = id
 	}
 
+	// Pre-check outside authMu: the cheap, common answers. The boot
+	// below re-decides under the lock, so a race with another boot or
+	// teardown lands on the same table (see authBootError).
 	if current := d.accountID(); current != "" {
-		switch {
-		case target == "":
-			return writeError(c, http.StatusConflict, "auth.already_authorized",
-				"server already runs an account — a new one cannot be generated in place", nil)
-		case target == current:
+		if target == current {
 			return c.JSON(http.StatusOK, api.AuthResponse{AccountId: current, AlreadyAuthorized: true})
-		case !d.cfg.Managed():
-			return writeError(c, http.StatusForbidden, "auth.not_managed",
-				"server already runs another account; switching needs a managed server (restart with --account to change it)", nil)
-		case !req.Replace:
-			return writeError(c, http.StatusConflict, "auth.account_mismatch",
-				"server already runs another account; pass replace:true to switch", nil)
+		}
+		if !(d.cfg.Managed() && req.Replace && target != "") {
+			return d.refuseOtherAccount(c, target, req.Replace)
 		}
 		// managed + replace: the switch below tears the current engine
 		// down and boots the target.
@@ -221,7 +222,14 @@ func (d *deps) authorize(c echo.Context) error {
 	} else {
 		eng, err = d.bootAccount(identity, open)
 	}
-	if err != nil {
+	switch {
+	case errors.Is(err, errAlreadyAuthorized):
+		// The account came up between the pre-check and the lock
+		// (or a same-account replace raced another): a no-op.
+		return c.JSON(http.StatusOK, api.AuthResponse{AccountId: eng.account, AlreadyAuthorized: true})
+	case errors.Is(err, errAccountMismatch):
+		return d.refuseOtherAccount(c, target, req.Replace)
+	case err != nil:
 		return d.authBootError(c, err)
 	}
 	return c.JSON(http.StatusOK, api.AuthResponse{
@@ -229,6 +237,29 @@ func (d *deps) authorize(c echo.Context) error {
 		Created:   created,
 		Mnemonic:  generated,
 	})
+}
+
+// refuseOtherAccount answers a request naming an account other than
+// the running one (target "" = a fresh account was asked for). Never
+// echoes an account id: the running one is public on GET /v1/auth,
+// the derived one would make this endpoint a phrase oracle.
+func (d *deps) refuseOtherAccount(c echo.Context, target string, replace bool) error {
+	switch {
+	case target == "":
+		return writeError(c, http.StatusConflict, "auth.already_authorized",
+			"server already runs an account — a new one cannot be generated in place", nil)
+	case !d.cfg.Managed():
+		return writeError(c, http.StatusForbidden, "auth.not_managed",
+			"server already runs another account; switching needs a managed server (restart with --account to change it)", nil)
+	case !replace:
+		return writeError(c, http.StatusConflict, "auth.account_mismatch",
+			"server already runs another account; pass replace:true to switch", nil)
+	}
+	// A replace whose target changed underneath it — the engine that
+	// won the race serves yet another account. Retry against the
+	// current state.
+	return writeError(c, http.StatusConflict, "auth.account_mismatch",
+		"server switched to another account meanwhile; re-read GET /v1/auth and retry", nil)
 }
 
 // deauthorize handles DELETE /v1/auth — tear the account down in place
@@ -288,9 +319,9 @@ func (d *deps) identityForAccount(c echo.Context, id string) *Identity {
 func (d *deps) authBootError(c echo.Context, err error) error {
 	var locked *ErrLocked
 	switch {
-	case errors.Is(err, errAlreadyAuthorized):
-		return writeError(c, http.StatusConflict, "auth.already_authorized",
-			"server already runs account "+d.accountID(), nil)
+	case errors.Is(err, errDeviceKeyCorrupt):
+		return writeError(c, http.StatusInternalServerError, "auth.device_key_corrupt",
+			"this account's cached device key is unreadable — remove device.key from its account dir to mint a new device identity (this device then registers as a new peer)", nil)
 	case errors.As(err, &locked):
 		return writeError(c, http.StatusConflict, "auth.account_in_use",
 			"account is already served by another process", map[string]any{"pid": locked.PID})

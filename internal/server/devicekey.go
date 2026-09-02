@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,11 @@ type deviceKeyEnvelope struct {
 	Version   int    `json:"version"`
 	DeviceKey string `json:"deviceKey"` // base64, raw Ed25519 private key
 }
+
+// errDeviceKeyCorrupt: the cache exists but cannot be used. Deliberately
+// not re-minted — that would fork this install's peerId — so the
+// operator decides (POST /v1/auth answers auth.device_key_corrupt).
+var errDeviceKeyCorrupt = errors.New("device key cache unreadable")
 
 // deviceKeyPath is the cache location for an account dir.
 func deviceKeyPath(dir string) string { return filepath.Join(dir, deviceKeyFile) }
@@ -62,14 +68,14 @@ func loadOrCreateDeviceKey(ctx context.Context, dir string) (key []byte, created
 	case err == nil:
 		var env deviceKeyEnvelope
 		if err := json.Unmarshal(raw, &env); err != nil {
-			return nil, false, fmt.Errorf("parse %s: %w", path, err)
+			return nil, false, fmt.Errorf("%w: parse %s: %v", errDeviceKeyCorrupt, path, err)
 		}
 		if env.Version != deviceKeyVersion {
-			return nil, false, fmt.Errorf("%s: unsupported version %d", path, env.Version)
+			return nil, false, fmt.Errorf("%w: %s: unsupported version %d", errDeviceKeyCorrupt, path, env.Version)
 		}
 		key, err := base64.StdEncoding.DecodeString(env.DeviceKey)
-		if err != nil || len(key) == 0 {
-			return nil, false, fmt.Errorf("%s: malformed device key", path)
+		if err != nil || len(key) != ed25519.PrivateKeySize {
+			return nil, false, fmt.Errorf("%w: %s: malformed device key", errDeviceKeyCorrupt, path)
 		}
 		return key, false, nil
 	case errors.Is(err, os.ErrNotExist):
@@ -88,8 +94,42 @@ func loadOrCreateDeviceKey(ctx context.Context, dir string) (key []byte, created
 	if err != nil {
 		return nil, false, err
 	}
-	if err := os.WriteFile(path, body, 0o600); err != nil {
+	// Written whole or not at all: a crash mid-write must not leave a
+	// truncated cache that locks the account out of this install.
+	if err := writeFileAtomic(path, body, 0o600); err != nil {
 		return nil, false, fmt.Errorf("write %s: %w", path, err)
 	}
 	return key, true, nil
+}
+
+// writeFileAtomic writes body to a temp file beside path, syncs it and
+// renames it into place.
+func writeFileAtomic(path string, body []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpPath) }
+	if err := tmp.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(body); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }

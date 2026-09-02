@@ -49,6 +49,7 @@ import (
 //	ErrBadDataDir                   -> 2
 //	a boot failure                  -> 3 (see BootError)
 //	indexer.ErrIndexRebuildRequired -> 4 (inside a BootError; checked first)
+//	ErrBadOptions                   -> 5 (a host programming error, never retryable)
 //
 // The Android gomobile shim (mobile/android) surfaces the error string
 // and no code today; converging it is Android-owned work.

@@ -52,7 +52,7 @@ func topLevelName(cmd *cobra.Command) string {
 // then falls back to the default. Every failure is silent: discovery
 // is a convenience, not a gate.
 func discoverAddr() string {
-	cfg, err := config.Load(config.Flags{})
+	cfg, err := config.LoadClient(config.Flags{})
 	if err != nil {
 		return ""
 	}
@@ -68,7 +68,17 @@ func discoverAddr() string {
 // each request; timeout 0 disables the request deadline (streams,
 // uploads, downloads).
 func newClient(timeout time.Duration) *client.Client {
-	return client.New(flags.Addr, timeout).WithControlToken(flags.ControlToken)
+	return client.New(flags.Addr, timeout).WithControlToken(controlToken())
+}
+
+// controlToken resolves the managed-mode control token: the flag, else
+// the environment. Read here rather than as the flag's default so the
+// token never appears in `--help` output.
+func controlToken() string {
+	if flags.ControlToken != "" {
+		return flags.ControlToken
+	}
+	return os.Getenv("ANY_CONTROL_TOKEN")
 }
 
 func newRootCmd() *cobra.Command {
@@ -102,7 +112,7 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 	root.PersistentFlags().StringVar(&flags.Addr, "addr", "", "server address (bind addr for `run`, connect addr otherwise)")
 	root.PersistentFlags().DurationVar(&flags.Timeout, "timeout", 30*time.Second, "request timeout for CLI calls")
 	root.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "log HTTP request/response to stderr")
-	root.PersistentFlags().StringVar(&flags.ControlToken, "control-token", os.Getenv("ANY_CONTROL_TOKEN"), "managed-mode control token (default $ANY_CONTROL_TOKEN); gates auth and shutdown on a managed server")
+	root.PersistentFlags().StringVar(&flags.ControlToken, "control-token", "", "managed-mode control token; prefer ANY_CONTROL_TOKEN (a flag value is visible in the process list). Gates auth and shutdown on a managed server")
 
 	root.AddCommand(
 		newRunCmd(),

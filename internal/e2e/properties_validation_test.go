@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +154,7 @@ func TestE2E_PropertyValidation(t *testing.T) {
 
 	// A standalone server refuses HTTP shutdown; `any stop` signals it.
 	mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusForbidden)
-	if out, err := exec.Command(bin, "stop", "--data-dir", dataDir).CombinedOutput(); err != nil {
+	if out, err := anyStop(t, bin, dataDir); err != nil {
 		t.Fatalf("any stop: %v\n%s", err, out)
 	}
 	if err := srv.waitExit(15 * time.Second); err != nil {

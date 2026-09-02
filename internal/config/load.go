@@ -24,6 +24,18 @@ type Flags struct {
 // Load resolves the effective config by layering defaults → config file →
 // environment variables → flags. A missing config file is not an error.
 func Load(flags Flags) (Config, error) {
+	return load(flags, true)
+}
+
+// LoadClient is Load for the client side of the CLI (`any stop`,
+// address discovery): the same layering, without the server-only mode
+// validation — a managed host's environment (ANY_MODE=managed) must
+// not stop `--account` from naming the server to reach.
+func LoadClient(flags Flags) (Config, error) {
+	return load(flags, false)
+}
+
+func load(flags Flags, validate bool) (Config, error) {
 	cfg := Defaults()
 
 	// 1. File. Use explicit --config if given, otherwise probe search
@@ -69,8 +81,10 @@ func Load(flags Flags) (Config, error) {
 	// 5. Mode is validated against the fully layered result: a managed
 	//    server refuses the standalone-only selectors wherever they came
 	//    from.
-	if err := validateMode(&cfg); err != nil {
-		return Config{}, err
+	if validate {
+		if err := validateMode(&cfg); err != nil {
+			return Config{}, err
+		}
 	}
 
 	return cfg, nil

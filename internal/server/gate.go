@@ -65,7 +65,9 @@ func (g *engineGate) close() <-chan struct{} {
 }
 
 // reset reopens the gate for the next engine. A holder that outlived a
-// timed-out drain simply leaves later; it never blocks the next close.
+// timed-out drain stays counted: it never blocks entries, but every
+// later close waits for it (up to the deadline) until it leaves —
+// the honest reading of a request that is still executing.
 func (g *engineGate) reset() {
 	g.mu.Lock()
 	defer g.mu.Unlock()

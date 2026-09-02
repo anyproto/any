@@ -33,7 +33,7 @@ This drops a `any` binary into `$(go env GOBIN)` (or `$GOPATH/bin`).
 any init      # creates ~/.any/, writes wallet.key, prints mnemonic to stderr
 any run       # foreground HTTP server on 127.0.0.1:7001
 any status    # in another shell — GET /v1/health
-any stop      # POST /v1/shutdown
+any stop      # signal the server holding the account lock
 ```
 
 `any init` is optional — `any run` will create the wallet on first

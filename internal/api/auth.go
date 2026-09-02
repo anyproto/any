@@ -73,7 +73,8 @@ type AuthResponse struct {
 	// must surface it to the user for backup.
 	Mnemonic string `json:"mnemonic,omitempty"`
 	// AlreadyAuthorized reports that the request named the account the
-	// server already runs: nothing was booted, and the credential is
-	// confirmed to belong to it.
+	// server already runs: nothing was booted. With a mnemonic this
+	// confirms the phrase derives to the running account; with an
+	// accountId it confirms only that the id matches.
 	AlreadyAuthorized bool `json:"alreadyAuthorized,omitempty"`
 }

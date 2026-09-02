@@ -147,6 +147,21 @@ func TestLoad_Mode(t *testing.T) {
 	}
 }
 
+// TestLoadClient_SkipsModeValidation: the CLI's client side (`any
+// stop`, address discovery) must reach a server by account even when
+// the environment carries a managed host's ANY_MODE.
+func TestLoadClient_SkipsModeValidation(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("ANY_MODE", "managed")
+	if _, err := Load(Flags{Account: "Azz"}); err == nil {
+		t.Fatal("Load must reject managed + account")
+	}
+	cfg, err := LoadClient(Flags{Account: "Azz"})
+	if err != nil || cfg.Account != "Azz" {
+		t.Fatalf("LoadClient: cfg.Account=%q err=%v", cfg.Account, err)
+	}
+}
+
 func TestLoad_EnvLogLevel(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("ANY_LOG_LEVEL", "debug")

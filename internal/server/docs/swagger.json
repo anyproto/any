@@ -271,7 +271,7 @@
                         "type": "string"
                     },
                     "alreadyAuthorized": {
-                        "description": "AlreadyAuthorized reports that the request named the account the\nserver already runs: nothing was booted, and the credential is\nconfirmed to belong to it.",
+                        "description": "AlreadyAuthorized reports that the request named the account the\nserver already runs: nothing was booted. With a mnemonic this\nconfirms the phrase derives to the running account; with an\naccountId it confirms only that the id matches.",
                         "type": "boolean"
                     },
                     "created": {

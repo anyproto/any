@@ -116,6 +116,37 @@ func TestStartEngine_SuccessFillsAddress(t *testing.T) {
 	}
 }
 
+// TestStartEngine_BadOptions asserts the host-error code: a managed
+// start without a control token, or an unknown mode, is refused as
+// codeBadOptions with an explanation — before any data dir work, so
+// nothing is left running.
+func TestStartEngine_BadOptions(t *testing.T) {
+	cleanupEngine(t)
+
+	for name, in := range map[string][2]string{
+		"managed without token": {"managed", ""},
+		"unknown mode":          {"hosted", "tok"},
+	} {
+		res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", in[0], in[1])
+		if res.code != codeBadOptions {
+			t.Fatalf("%s: code %d (%q), want codeBadOptions (%d)", name, res.code, res.message, codeBadOptions)
+		}
+		if res.message == "" || res.address != "" {
+			t.Fatalf("%s: message %q address %q", name, res.message, res.address)
+		}
+		if addr := embedded.Address(); addr != "" {
+			t.Fatalf("%s: engine left running at %s", name, addr)
+		}
+	}
+
+	// A managed start with a token boots (unauthorized, as managed does).
+	res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", "managed", "tok")
+	if res.code != codeOK {
+		t.Fatalf("managed with token: code %d (%q)", res.code, res.message)
+	}
+	stopEngine(true)
+}
+
 // TestStartEngine_FailureFillsMessage asserts the mirror of the success
 // case, and the reason this whole interface exists: a failure carries a
 // non-empty explanation and no address. Driven through the bad-data-dir

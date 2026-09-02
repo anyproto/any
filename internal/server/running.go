@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -30,12 +31,19 @@ type Running struct {
 	Addr string
 }
 
+// DefaultAccountSelector names the legacy flat-root account to
+// FindRunning's filter, which otherwise matches account dirs by id.
+const DefaultAccountSelector = "default"
+
 // FindRunning lists the servers currently serving accounts under root:
 // the root itself (legacy layout) and every account dir, filtered to
-// account when non-empty. Neither a wallet nor a device key is
-// consulted — only a held server.lock counts — so it finds standalone
-// and managed servers alike, and never an unauthorized one (an engine
-// that has not booted holds no lock).
+// account when non-empty (DefaultAccountSelector picks the root).
+// Neither a wallet nor a device key is consulted — only a held
+// server.lock counts — so it finds standalone and managed servers
+// alike, and never an unauthorized one (an engine that has not booted
+// holds no lock). The probe takes and releases each lock for
+// microseconds; Acquire retries briefly so a booting server never
+// mistakes a probe for a holder.
 func FindRunning(root, account string) ([]Running, error) {
 	var dirs []string
 	if _, err := os.Stat(config.LockPath(root)); err == nil {
@@ -64,8 +72,16 @@ func FindRunning(root, account string) ([]Running, error) {
 		if dir != root {
 			acct = filepath.Base(dir)
 		}
-		if account != "" && acct != account {
-			continue
+		switch account {
+		case "":
+		case DefaultAccountSelector:
+			if acct != "" {
+				continue
+			}
+		default:
+			if acct != account {
+				continue
+			}
 		}
 		held, err := lockHeld(dir)
 		if err != nil {
@@ -102,10 +118,13 @@ func lockHeld(dir string) (bool, error) {
 
 // StopRunning asks the holder to exit (SIGTERM — the same graceful
 // path Ctrl-C takes) and waits for its lock to be released. Windows has
-// no signal to send; stopping there is the host's job.
+// no signal to send; stopping there is the user's job.
 func StopRunning(r Running, wait time.Duration) error {
 	if r.PID <= 0 {
 		return fmt.Errorf("server holding %s has no readable pid", config.LockPath(r.Dir))
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("stopping by signal is not available on Windows — stop the server (pid %d) with Ctrl-C in its terminal or from Task Manager", r.PID)
 	}
 	proc, err := os.FindProcess(r.PID)
 	if err != nil {

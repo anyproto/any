@@ -225,9 +225,11 @@ decided**, so the reply while an account is running follows one table:
 | managed, authorized      | `409 auth.already_authorized`  | `200 {alreadyAuthorized: true}`   | `409 auth.account_mismatch`; with `replace: true` → switch, 200  |
 
 - **Same account never tears down.** A retry, reconnect or duplicate
-  mount is a no-op — and `alreadyAuthorized` is how a client confirms a
-  phrase it holds belongs to the running account, so it is safe to
-  persist afterwards.
+  mount is a no-op — and `alreadyAuthorized` on a **mnemonic** request
+  is how a client confirms a phrase it holds belongs to the running
+  account, so it is safe to persist afterwards (an `accountId` request
+  confirms only that the id matches, which `GET /v1/auth` already
+  tells).
 - **Refusals never echo the derived id** — otherwise the endpoint would
   be a phrase-to-account oracle.
 - **Switching is opt-in.** `replace` tears the running engine down
@@ -277,7 +279,10 @@ account's single-instance lock; `details.pid` names the holder when
 known), `409 auth.mnemonic_mismatch` (existing wallet file
 disagrees with the supplied phrase/index), `400 auth.passkey_required`
 (encrypted wallet — the passkey still comes from the configured env
-var, never the request body).
+var, never the request body), `500 auth.device_key_corrupt` (managed:
+the account's cached `device.key` is unreadable; it is never re-minted
+silently — remove the file to mint a new device identity, which
+registers this install as a new peer).
 
 ### Account
 
@@ -1756,6 +1761,9 @@ data: {"reason": "overflow"}
   idle middlebox timeouts.
 - **`closed`** — terminal frame. Reasons:
   - `server_shutdown` — server got a signal or `POST /v1/shutdown`.
+  - `deauthorized` — the account was torn down in place
+    (`DELETE /v1/auth`, or a `replace` switch) while the server stays
+    up; re-read `GET /v1/auth` before resubscribing.
   - `sdk_closed` — the SDK released the subscription channel (space
     or SDK closed).
   - `overflow` — the per-subscriber mailbox filled before the consumer
@@ -1765,7 +1773,7 @@ data: {"reason": "overflow"}
     without replacements, and the engine refuses to re-query on the
     hot path. Resubscribe.
 
-  All four reasons mean "the stream is over; if you want live state,
+  Every reason means "the stream is over; if you want live state,
   open a new POST." Recovery is identical for `overflow` and `drifted`
   — the reason is split only so clients can log/backoff sensibly.
 
@@ -3447,7 +3455,7 @@ Minimal in v1:
 No rate limiting in v1, and no caller authentication (loopback is the
 trust boundary). The only auth-shaped middleware is the unauthorized
 guard (§ Auth): `401 auth.required` on SDK-backed routes until an
-account is booted — it gates server STATE, not the caller. CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`); requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
+account is booted — it gates server STATE, not the caller — and the ownership gates of `02-server.md` § Modes (`X-Any-Control-Token` on a managed server's auth and shutdown verbs). CORS: one named exception — a fixed allowlist for the desktop-shell webview origins (`tauri://localhost`, `http://tauri.localhost`, the Vite dev origins; see `internal/server/routes.go`), with `X-Any-Control-Token` among the allowed headers so the webview can log a managed server in; requests without an Origin header are untouched, and the loopback-only listen stays the trust boundary.
 
 ## Pagination
 

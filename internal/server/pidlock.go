@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/gofrs/flock"
@@ -37,15 +38,33 @@ type Lock struct {
 	fl *flock.Flock
 }
 
+// acquireProbeRetries × acquireProbeDelay bounds how long Acquire keeps
+// retrying a refused lock before reporting ErrLocked. A CLI probe
+// (FindRunning) holds the lock for microseconds; a real holder keeps
+// it for the process lifetime, so a few short retries tell the two
+// apart without ever waiting on a genuinely held lock for long.
+const (
+	acquireProbeRetries = 5
+	acquireProbeDelay   = 20 * time.Millisecond
+)
+
 // Acquire takes the single-instance lock for an account dir. Returns
 // ErrLocked when another process holds it.
 func Acquire(dir string) (*Lock, error) {
 	lockPath, pidPath := config.LockPath(dir), config.PIDPath(dir)
 
 	fl := flock.New(lockPath)
-	ok, err := fl.TryLock()
-	if err != nil {
-		return nil, fmt.Errorf("lock %s: %w", lockPath, err)
+	var ok bool
+	for attempt := 0; ; attempt++ {
+		var err error
+		ok, err = fl.TryLock()
+		if err != nil {
+			return nil, fmt.Errorf("lock %s: %w", lockPath, err)
+		}
+		if ok || attempt == acquireProbeRetries {
+			break
+		}
+		time.Sleep(acquireProbeDelay)
 	}
 	if !ok {
 		return nil, &ErrLocked{PID: readHolderPID(pidPath), Path: lockPath}

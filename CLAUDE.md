@@ -1511,7 +1511,9 @@ go vet ./...
 ANY_DATA_DIR=/tmp/any-e2e ./any init              # first-run wallet + mnemonic
 ANY_DATA_DIR=/tmp/any-e2e ./any run               # foreground server
 ./any status                                      # GET /v1/health
-./any stop                                        # POST /v1/shutdown
+ANY_DATA_DIR=/tmp/any-e2e ./any stop              # signal the server holding the
+                                                  # account lock (no HTTP — a standalone
+                                                  # server refuses POST /v1/shutdown)
 ```
 
 CI: one reusable workflow (`.github/workflows/_build-any.yml`, called by
@@ -1667,18 +1669,25 @@ These cut across files and are easy to violate accidentally:
 Precedence: config file → env vars (`ANY_*`) → flags. See `docs/05-config.md`.
 Defaults: `~/.any/` data dir, `127.0.0.1:7001` listen.
 
-Data dir layout:
+Data dir layout (a ROOT; each account under `<root>/<accountId>/`, the legacy
+flat root is the default account — docs/02-server.md § Data dir layout):
 ```
-<data-dir>/
-├── wallet.key         # auth.FileProvider wallet (0600)
-├── server.lock        # single-instance OS file lock (kernel-released)
-├── server.pid         # holder's pid — error messages only, never proof of life
+<root>/
 ├── config.yaml        # optional
-└── storage/           # any-store — owned by SDK
+├── models/            # shared embedder model cache
+└── <accountId>/
+    ├── wallet.key     # standalone: auth.FileProvider wallet (0600)
+    ├── device.key     # managed: cached device key (0600, minted once, never portable)
+    ├── server.lock    # single-instance OS file lock (kernel-released)
+    ├── server.pid     # holder's pid — error messages only, never proof of life
+    ├── server.addr    # holder's bound address — CLI convenience only
+    ├── sdk/  files/  index/
 ```
 
-Shutdown paths: `SIGINT`/`SIGTERM` or `POST /v1/shutdown`. Both drain in-flight with
-a 10s deadline, close the SDK, exit 0.
+Shutdown paths: `SIGINT`/`SIGTERM` (what `any stop` sends, after finding the holder
+by its held lock) on every server; `POST /v1/shutdown` only on a managed server,
+with the control token (a standalone server answers 403). Both tear the engine
+down with a 10s drain, close the SDK, exit 0.
 
 ## CLI exit codes
 

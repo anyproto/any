@@ -64,6 +64,7 @@ auth.mnemonic_mismatch           # 409 — wallet on disk disagrees with the phr
 auth.account_not_found           # 404 — accountId has no local wallet
 auth.account_in_use              # 409 — another process holds the account's instance lock
 auth.passkey_required            # 400 — wallet encrypted; no or wrong passkey in the configured env
+auth.device_key_corrupt          # 500 — managed: the account's cached device.key is unreadable; never re-minted silently — remove it to mint a new device identity
 control.forbidden                # 403 — managed server: control token (X-Any-Control-Token) missing or wrong
 shutdown.not_managed             # 403 — standalone server refuses POST /v1/shutdown; use `any stop` or a signal
 

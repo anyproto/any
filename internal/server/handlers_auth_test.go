@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -454,18 +455,26 @@ func TestAuth_SwitchInPlace(t *testing.T) {
 	}
 	peerA := d.sdk.PeerId()
 
-	frames := make(chan client.SSEFrame, 16)
-	go func() {
-		_ = cl.StreamSyncStatusAccount(ctx, func(f client.SSEFrame) error {
+	pump := func(ch chan client.SSEFrame) func(client.SSEFrame) error {
+		return func(f client.SSEFrame) error {
 			select {
-			case frames <- f:
+			case ch <- f:
 			case <-ctx.Done():
 			}
 			return nil
-		})
-	}()
+		}
+	}
+	frames := make(chan client.SSEFrame, 16)
+	go func() { _ = cl.StreamSyncStatusAccount(ctx, pump(frames)) }()
+	// An account-scope event stream holds a pub/sub interest through the
+	// bridge — the switch must detach it and end the stream too.
+	eventFrames := make(chan client.SSEFrame, 16)
+	go func() { _ = cl.StreamEvents(ctx, url.Values{"scope": {api.EventScopeAccount}}, pump(eventFrames)) }()
 	if got := waitFrame(t, frames, 10*time.Second); got.Event != "ready" {
-		t.Fatalf("stream first frame = %q", got.Event)
+		t.Fatalf("status stream first frame = %q", got.Event)
+	}
+	if got := waitFrame(t, eventFrames, 10*time.Second); got.Event != "ready" {
+		t.Fatalf("events stream first frame = %q (%s)", got.Event, got.Data)
 	}
 
 	bPhrase, bId := otherMnemonic(t)
@@ -476,10 +485,12 @@ func TestAuth_SwitchInPlace(t *testing.T) {
 	if b.AccountId != bId || !b.Created || b.AlreadyAuthorized {
 		t.Fatalf("switch reply: %+v", b)
 	}
-	got := waitFrame(t, frames, 10*time.Second)
-	var closed api.SubscribeClosed
-	if got.Event != "closed" || json.Unmarshal(got.Data, &closed) != nil || closed.Reason != api.SubscribeClosedDeauthorized {
-		t.Fatalf("A's stream terminal frame = %q %s, want closed{deauthorized}", got.Event, got.Data)
+	for name, ch := range map[string]chan client.SSEFrame{"status": frames, "events": eventFrames} {
+		got := waitFrame(t, ch, 10*time.Second)
+		var closed api.SubscribeClosed
+		if got.Event != "closed" || json.Unmarshal(got.Data, &closed) != nil || closed.Reason != api.SubscribeClosedDeauthorized {
+			t.Fatalf("A's %s stream terminal frame = %q %s, want closed{deauthorized}", name, got.Event, got.Data)
+		}
 	}
 	if rec := doJSON(t, e, http.MethodGet, "/v1/account", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), bId) {
 		t.Fatalf("GET /v1/account after switch: %d %s", rec.Code, rec.Body.String())
@@ -513,6 +524,106 @@ func TestAuth_SwitchInPlace(t *testing.T) {
 	}
 	if d.sdk.PeerId() != peerA {
 		t.Fatal("A's peerId changed across the switch")
+	}
+}
+
+// TestAuth_SwitchBootFailureLeavesUnauthorized pins the switch's
+// failure mode: when the target cannot boot (its account dir is held
+// by another process), the old engine is already gone, the server
+// reports the boot error and stays up UNAUTHORIZED — never half-torn
+// — and the previous account logs in again afterwards.
+func TestAuth_SwitchBootFailureLeavesUnauthorized(t *testing.T) {
+	if _, err := config.LoadNodeconf(config.Network{NodeconfPath: stagingPath}); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	d := newUnauthorizedDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	e := buildEcho(d)
+	tok := map[string]string{api.ControlTokenHeader: "tok"}
+
+	rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("boot A: %d %s", rec.Code, rec.Body.String())
+	}
+	var a api.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another process "owns" B's account dir.
+	bPhrase, bId := otherMnemonic(t)
+	bDir := config.AccountDir(d.root, bId)
+	if err := os.MkdirAll(bDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, err := Acquire(bDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(bPhrase)+`,"replace":true}`, tok)
+	expectAuthError(t, rec, http.StatusConflict, "auth.account_in_use", bId)
+	if d.ready.Load() || d.eng != nil || d.sdk != nil {
+		t.Fatal("a failed switch must leave the server unauthorized, not half-torn")
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/spaces after failed switch: %d", rec.Code)
+	}
+	rec = doJSON(t, e, http.MethodGet, "/v1/auth", "")
+	var st api.AuthStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Authorized || st.AccountId != "" {
+		t.Fatalf("status after failed switch: %+v", st)
+	}
+
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(a.Mnemonic)+`}`, tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-login A after failed switch: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestShutdownHandler_OwnershipGate pins POST /v1/shutdown at the
+// handler level: a standalone server refuses (nothing is signalled), a
+// managed one refuses without the token and signals with it.
+func TestShutdownHandler_OwnershipGate(t *testing.T) {
+	standalone := newUnauthorizedDeps(t)
+	shutdownCh := make(chan struct{}, 1)
+	standalone.shutdown = shutdownCh
+	e := buildEcho(standalone)
+	rec := doJSON(t, e, http.MethodPost, "/v1/shutdown", "")
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "shutdown.not_managed") {
+		t.Fatalf("standalone shutdown: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-shutdownCh:
+		t.Fatal("standalone server must not be signalled over HTTP")
+	default:
+	}
+
+	managed := newUnauthorizedDeps(t)
+	managed.cfg.Mode = config.ModeManaged
+	managed.controlToken = "tok"
+	shutdownCh = make(chan struct{}, 1)
+	managed.shutdown = shutdownCh
+	e = buildEcho(managed)
+	rec = doJSON(t, e, http.MethodPost, "/v1/shutdown", "")
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "control.forbidden") {
+		t.Fatalf("managed shutdown without token: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSONH(t, e, http.MethodPost, "/v1/shutdown", "", map[string]string{api.ControlTokenHeader: "tok"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("managed shutdown with token: %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-shutdownCh:
+	default:
+		t.Fatal("managed shutdown with the token must signal the run loop")
 	}
 }
 

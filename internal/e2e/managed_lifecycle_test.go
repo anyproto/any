@@ -112,7 +112,7 @@ func TestE2E_ManagedLifecycle(t *testing.T) {
 	}
 
 	// `any stop` resolves the account by its held lock and signals it.
-	stopOut, err := exec.Command(bin, "stop", "--data-dir", dataDir).CombinedOutput()
+	stopOut, err := anyStop(t, bin, dataDir)
 	if err != nil {
 		t.Fatalf("any stop: %v\n%s", err, stopOut)
 	}

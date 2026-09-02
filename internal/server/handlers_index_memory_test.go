@@ -70,7 +70,7 @@ func TestIndexer_ParallelEmbed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{Embedder: emb, EmbedBatch: 8, EmbedConcurrency: 4})
+	ix := indexer.New(d.sdk, d.eng.chunkers, st, indexer.Options{Embedder: emb, EmbedBatch: 8, EmbedConcurrency: 4})
 	d.indexer = ix
 	defer func() { _ = ix.Close() }()
 

@@ -19,11 +19,12 @@ Unzip and add `any.xcframework` to your target as an embedded binary. The archiv
 
 ## The surface
 
-The header exposes four functions. Strings are C strings:
+The header exposes five functions. Strings are C strings:
 
 | Function | Purpose |
 |----------|---------|
-| `AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs) -> AnyLibStartResult` | Boot the engine. Blocks until the listener is up. |
+| `AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs) -> AnyLibStartResult` | Boot the engine (standalone mode). Blocks until the listener is up. |
+| `AnyLibStartWithMode(…, mode, controlToken) -> AnyLibStartResult` | `AnyLibStart` plus the ownership mode: `"managed"` makes the app the owner — the account arrives over `POST /v1/auth` on every launch and sign-out / switch / shutdown need `controlToken` (`X-Any-Control-Token`). Code 5 = bad options. |
 | `AnyLibStop()` | Graceful shutdown; waits for the engine to exit. Safe when not running. |
 | `AnyLibStopNow()` | Hard stop, returns promptly — for `applicationWillTerminate` or an expiring background task. |
 | `AnyLibVersion() -> char *` | The linked archive's version string. Valid for the process lifetime; do **not** free it. |

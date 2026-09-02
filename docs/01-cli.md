@@ -74,9 +74,17 @@ place). A standalone server refuses all three operations.
 account by its held instance lock, sends it `SIGTERM` and waits for the
 lock to be released — so it works against a wedged server, one on an
 ephemeral port, and a managed one alike. With several accounts running
-under one root pick one with `--account`; an unauthorized standalone
-server holds no account lock — stop it with Ctrl-C. `POST /v1/shutdown`
-is the managed host's path, refused on a standalone server.
+under one root pick one with `--account` (`--account default` names
+the legacy flat-root account); an unauthorized standalone server holds
+no account lock — stop it with Ctrl-C. `--addr` is refused on `stop`
+(it resolves by data dir, not address). Not available on Windows,
+which has no signal to send: stop the server with Ctrl-C in its
+terminal. `POST /v1/shutdown` is the managed host's path, refused on a
+standalone server.
+
+Prefer `ANY_CONTROL_TOKEN` over `--control-token`: a flag value is
+visible in the process list, and it never appears in `--help` output
+either way.
 
 ### Account
 
@@ -612,9 +620,12 @@ every change, so don't poll it in a tight loop.
 ## Global flags
 
 ```
---addr <host:port>     # where the server is; default: the address the running
-                       # server recorded (<account-dir>/server.addr, resolved
-                       # like `any run` resolves the account), else 127.0.0.1:7001
+--addr <host:port>     # where the server is; default: the address the ONE
+                       # running server under the data dir recorded
+                       # (<account-dir>/server.addr; --account / ANY_ACCOUNT
+                       # picks among several), else 127.0.0.1:7001. An
+                       # unauthorized server holds no account lock and is not
+                       # discovered — pass --addr to reach it on a non-default port
 --control-token <hex>  # managed server's control token (or ANY_CONTROL_TOKEN);
                        # sent as X-Any-Control-Token on every request
 --timeout <duration>   # request timeout; default 30s

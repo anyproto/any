@@ -25,10 +25,11 @@ import (
 // handle once the SDK slice landed. It is built once in server.Run and
 // shared across all routes via closures registered on echo.
 //
-// The shutdownCtx / streamsWG pair coordinates graceful teardown for
-// long-running streaming handlers (SSE subscribe). server.Run cancels
-// shutdownCtx when teardown begins; handlers select on it and exit;
-// streamsWG lets Run wait for them to finish before returning.
+// The engine gate + shutdownCtx pair coordinates engine teardown
+// (process exit, DELETE /v1/auth, an account switch): every request
+// and stream runs inside the gate, teardown cancels shutdownCtx so
+// they unwind — streams emit their terminal frame — and drains the
+// gate before the engine's resources are released (engine.go).
 type deps struct {
 	account   string
 	startedAt time.Time

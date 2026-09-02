@@ -170,7 +170,7 @@ frame, in-flight requests drain, 10s bound), close the listener, exit
 |------------------------------|----------------------------------|----------------------------------|
 | `SIGINT` / `SIGTERM`         | yes                              | yes                              |
 | `POST /v1/shutdown`          | `403 shutdown.not_managed`       | yes, needs the control token     |
-| `embedded.Stop` / `StopNow`  | n/a                              | yes — the in-process host's path |
+| `embedded.Stop` / `StopNow`  | yes — the in-process host owns the process in both modes | yes                |
 
 `any stop` sends no HTTP: it finds the server serving the data dir's
 account by its **held** instance lock (`FindRunning` — proof of life,

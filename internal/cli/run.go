@@ -26,6 +26,7 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 	addServerFlags(c)
+	c.Flags().StringVar(&flags.Mode, "mode", "", "server ownership mode: standalone (default) or managed (host-owned: keys per boot, logout/switch/shutdown behind the control token)")
 	// `any run embedder` — the server's own embedding child process,
 	// hidden and only in builds carrying the vector leg.
 	c.AddCommand(embedderCmds()...)

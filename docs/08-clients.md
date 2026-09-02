@@ -760,8 +760,9 @@ auth UI may offer. These rules are normative for every client:
    delete is incomplete.
 5. **Never write key material to a log, breadcrumb or crash report.**
 6. **Treat `200 {alreadyAuthorized: true}` as success**, not an error
-   path. It is also how you confirm a phrase you hold belongs to the
-   running account, so it is safe to persist afterwards.
+   path. On a **mnemonic** request it is also how you confirm a phrase
+   you hold belongs to the running account, so it is safe to persist
+   afterwards; an `accountId` request confirms only the id.
 7. **Pass `replace: true` only on a deliberate user-initiated switch.**
    It invalidates every subscription held against the old account
    (`closed{reason: deauthorized}`).

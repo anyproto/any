@@ -71,7 +71,7 @@ func newTestIndexer(t *testing.T, d *deps, emb indexer.Embedder) *indexer.Indexe
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{
+	ix := indexer.New(d.sdk, d.eng.chunkers, st, indexer.Options{
 		Embedder: emb,
 		Debounce: 10 * time.Millisecond,
 	})

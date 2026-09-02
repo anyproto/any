@@ -11,7 +11,7 @@ There are two boundaries. The HTTP socket is **localhost-only with no authentica
 
 - The server binds `127.0.0.1` (or another loopback address) and refuses anything else with a clear error. There is no TLS, no auth token, no rate limiting on the API.
 - The trust model is the operating-system user: a local process that can open a TCP connection to the port has the same power as the CLI. That is the same trust a local database socket or a browser's local profile directory has.
-- Lifecycle is gated by **ownership, not authentication**: a standalone server refuses `POST /v1/shutdown`, `DELETE /v1/auth` and account switches outright (`403`), and a managed server accepts them only with the control token its host holds — so another local process cannot stop it or log it into a different account. Everything else on the socket stays open to any local process.
+- Lifecycle is gated by **ownership, not authentication**: a standalone server refuses `POST /v1/shutdown`, `DELETE /v1/auth` and account switches outright (`403`), and a managed server accepts them only with the control token its host holds — so another local process cannot log it into a different account or sign it out over HTTP. Lifetime stays uid-bounded: any same-user process can still `any stop` or `kill` a server, token or not. Everything else on the socket stays open to any local process.
 
 > **Why it matters.** Because the server never listens off-host, the whole remote attack surface is the any-sync protocol, which carries ciphertext and signed ACL records. A remote-access story — TCP auth, TLS — is deferred until it exists as a designed feature rather than a bolt-on.
 

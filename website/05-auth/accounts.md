@@ -91,7 +91,7 @@ While an account is running, the reply follows the account the request derives t
 | standalone | `409 auth.already_authorized` | `200 {"alreadyAuthorized": true}` | `403 auth.not_managed` |
 | managed | `409 auth.already_authorized` | `200 {"alreadyAuthorized": true}` | `409 auth.account_mismatch`, or a switch with `"replace": true` |
 
-The same account is always a no-op — a retry never drops your streams, and `alreadyAuthorized` confirms a phrase you hold belongs to the running account. A refusal never echoes the account a rejected phrase derives to. A switch ends every open stream with `closed{"reason": "deauthorized"}`; if the new account fails to boot after the teardown the server is left unauthorized — re-read `GET /v1/auth`.
+The same account is always a no-op — a retry never drops your streams, and `alreadyAuthorized` on a mnemonic request confirms the phrase you hold belongs to the running account (an `accountId` request confirms only the id). A refusal never echoes the account a rejected phrase derives to. A switch ends every open stream with `closed{"reason": "deauthorized"}`; if the new account fails to boot after the teardown the server is left unauthorized — re-read `GET /v1/auth`.
 
 `DELETE /v1/auth` (managed, control token) signs out in place: the engine is torn down, streams end with `deauthorized`, and the server stays up unauthorized. Delete the stored phrase too, or the account is not actually signed out on that device.
 
@@ -101,10 +101,12 @@ CLI equivalents:
 any auth login                            # generate
 any auth login --mnemonic-stdin           # restore
 any auth login --account A8g1…            # select (standalone)
-any auth login --mnemonic-stdin --replace --control-token $TOKEN   # switch (managed)
-any auth logout --control-token $TOKEN    # DELETE /v1/auth (managed)
+ANY_CONTROL_TOKEN=… any auth login --mnemonic-stdin --replace   # switch (managed)
+ANY_CONTROL_TOKEN=… any auth logout       # DELETE /v1/auth (managed)
 any auth status                           # GET /v1/auth
 ```
+
+Pass the control token through `ANY_CONTROL_TOKEN`; `--control-token` exists too, but a flag value is visible in the process list.
 
 If the engine fails to boot after this call created the account dir, the half-created dir is removed so a retry starts clean instead of auto-selecting an un-backed account.
 
@@ -120,6 +122,7 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 409 | `auth.mnemonic_mismatch` | the wallet on disk disagrees with the supplied phrase / index |
 | 409 | `auth.already_authorized` | `{}` while an account runs — a fresh account is never minted in place |
 | 400 | `auth.passkey_required` | encrypted wallet; the passkey comes from the configured env var, never the body |
+| 500 | `auth.device_key_corrupt` | managed: the cached `device.key` is unreadable; remove it to mint a new device identity (this install then registers as a new peer) |
 
 ## One server, one account
 

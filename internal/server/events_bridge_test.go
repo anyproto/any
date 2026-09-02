@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
 )
 
@@ -72,7 +73,7 @@ func (f *fakePubSub) dispatch(msg space.PubSubMessage) {
 
 func testBridge(d *deps, fakes map[string]*fakePubSub) *eventsBridge {
 	b := newEventsBridge(d)
-	b.resolve = func(_ context.Context, key string) (space.PubSubAPI, error) {
+	b.resolve = func(_ context.Context, _ *anysyncsdk.SDK, key string) (space.PubSubAPI, error) {
 		if ps, ok := fakes[key]; ok {
 			return ps, nil
 		}
@@ -88,11 +89,11 @@ func TestEventsBridgeRefcount(t *testing.T) {
 	ctx := context.Background()
 
 	// Two subscribers sharing a pattern → one SDK subscription.
-	rel1, err := b.acquire(ctx, true, nil, []string{"ev/process/>"})
+	rel1, err := b.acquire(ctx, nil, true, nil, []string{"ev/process/>"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rel2, err := b.acquire(ctx, true, nil, []string{"ev/process/>"})
+	rel2, err := b.acquire(ctx, nil, true, nil, []string{"ev/process/>"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestEventsBridgeRefcount(t *testing.T) {
 	}
 
 	// A narrower pattern subsumed by the active one adds nothing.
-	rel3, err := b.acquire(ctx, true, nil, []string{"ev/process/progress/*"})
+	rel3, err := b.acquire(ctx, nil, true, nil, []string{"ev/process/progress/*"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,11 +140,11 @@ func TestEventsBridgeResyncRetry(t *testing.T) {
 	b := testBridge(d, map[string]*fakePubSub{"": acc})
 	ctx := context.Background()
 
-	relStanding, err := b.acquire(ctx, true, nil, []string{"ev/process/>"})
+	relStanding, err := b.acquire(ctx, nil, true, nil, []string{"ev/process/>"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	relBroad, err := b.acquire(ctx, true, nil, []string{"ev/>"})
+	relBroad, err := b.acquire(ctx, nil, true, nil, []string{"ev/>"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestEventsBridgeAcquireRollback(t *testing.T) {
 	b := testBridge(d, map[string]*fakePubSub{"": acc}) // no "sp1" → resolve fails
 	ctx := context.Background()
 
-	if _, err := b.acquire(ctx, true, []string{"sp1"}, []string{"ev/>"}); err == nil {
+	if _, err := b.acquire(ctx, nil, true, []string{"sp1"}, []string{"ev/>"}); err == nil {
 		t.Fatal("acquire succeeded, want resolve error for sp1")
 	}
 	if got := acc.activePatterns(); got != nil {
@@ -202,7 +203,7 @@ func TestEventsBridgeDeliver(t *testing.T) {
 	b := testBridge(d, map[string]*fakePubSub{"": acc, "sp1": sp})
 	ctx := context.Background()
 
-	rel, err := b.acquire(ctx, true, []string{"sp1"}, []string{"ev/>", "acc/ev/>"})
+	rel, err := b.acquire(ctx, nil, true, []string{"sp1"}, []string{"ev/>", "acc/ev/>"})
 	if err != nil {
 		t.Fatal(err)
 	}

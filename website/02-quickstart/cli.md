@@ -29,7 +29,7 @@ any init                       # create the account (prints the mnemonic once)
 any run                        # start the server in this terminal
 any status                     # GET /v1/health
 any auth status                # authorization state + local accounts
-any stop                       # POST /v1/shutdown
+any stop                       # signal the server holding the account lock
 any version                    # binary + server versions
 ```
 
