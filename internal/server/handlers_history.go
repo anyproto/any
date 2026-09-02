@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-sync-sdk/space"
@@ -293,7 +294,11 @@ func (d *deps) historyDiff(c echo.Context) error {
 // narrow scope (413), a truncated causal past is 404 with its own code
 // ("earlier changes not on this device" — best-effort-depth contract),
 // and an object with no tree here is the same 404 the data-plane
-// handlers answer.
+// handlers answer. Anything unclassified is a fixed "internal error"
+// logged server-side, like sdkOpError — an SDK message on the wire would
+// leak internal types and paths (docs/06-errors.md). The one deliberate
+// pass-through is history.version_not_found, whose message names the
+// version the caller asked for.
 func historyError(c echo.Context, err error) error {
 	switch {
 	case errors.Is(err, space.ErrObjectNotFound):
@@ -308,7 +313,8 @@ func historyError(c echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "history.truncated",
 			"earlier changes are not available on this device", nil)
 	default:
-		return writeError(c, http.StatusInternalServerError, "internal", err.Error(), nil)
+		handlerLog.Error("unclassified history error", zap.Error(err))
+		return writeError(c, http.StatusInternalServerError, "internal", "internal error", nil)
 	}
 }
 
