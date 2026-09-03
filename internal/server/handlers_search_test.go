@@ -67,7 +67,7 @@ func newTestIndexer(t *testing.T, d *deps, emb indexer.Embedder) *indexer.Indexe
 			t.Fatal(err)
 		}
 	}
-	st, err := indexer.OpenStoreInMemory(context.Background(), dim, emb != nil, 0)
+	st, err := indexer.OpenStoreInMemory(context.Background(), dim, emb != nil)
 	if err != nil {
 		t.Fatal(err)
 	}

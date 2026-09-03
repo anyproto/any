@@ -67,7 +67,7 @@ const (
 // random vector; the IVF index trains on the full set.
 func cutoffStore(tb testing.TB, n int) (*Store, *rand.Rand) {
 	tb.Helper()
-	st, err := OpenStore(context.Background(), filepath.Join(tb.TempDir(), "index.db"), cutoffDim, true, 0)
+	st, err := OpenStore(context.Background(), filepath.Join(tb.TempDir(), "index.db"), cutoffDim, true)
 	if err != nil {
 		tb.Fatal(err)
 	}

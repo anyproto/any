@@ -311,7 +311,7 @@ func newEvalIndexer(t *testing.T, emb Embedder, opts Options) *Indexer {
 	if err != nil {
 		t.Fatalf("embedder dim: %v", err)
 	}
-	store, err := OpenStoreInMemory(context.Background(), dim, true, 0)
+	store, err := OpenStoreInMemory(context.Background(), dim, true)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

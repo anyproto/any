@@ -209,8 +209,10 @@ type IndexSearch struct {
 	Bm25K1 float64 `yaml:"bm25K1"`
 	// TitleWeight is the BM25F boost for the per-doc `title` field over
 	// `body` (editor heading / program method signature / memory context).
-	// 0 = the engine default (1.0 — no boost). Read at query time, so it
-	// can change without a rebuild.
+	// 0 = no boost AND no title field in the index: the field set is
+	// decided when the index is created, so going 0 → non-zero needs a
+	// rebuild (remove <data-dir>/index). Changing between non-zero values
+	// is read at query time and takes effect immediately.
 	TitleWeight float64 `yaml:"titleWeight"`
 	// QueryEmbedTimeout bounds the query embedding of one /search (Go
 	// duration string). Past it hybrid answers lexical-only

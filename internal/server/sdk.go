@@ -172,11 +172,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 	if err != nil {
 		return nil, err
 	}
-	// One chunk target for the store's `_meta` pin and the chunker, so the
-	// pin describes the boundaries the docs are actually written on. 0 =
-	// the build default; a config knob assigns this once and both follow.
-	chunkRunes := 0
-	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil, chunkRunes)
+	st, err := indexer.OpenStore(ctx, filepath.Join(dataDir, "index", "index.db"), cfg.Vector.Dim, emb != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -204,9 +200,8 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		}
 		queryEmbedTimeout = d
 	}
-	return indexer.New(sdk, chunkers, st, indexer.Options{
+	ix := indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
-		ChunkRunes:        chunkRunes,
 		EmbedBatch:        cfg.EmbedBatch,
 		EmbedConcurrency:  embedConc,
 		QueryEmbedTimeout: queryEmbedTimeout,
@@ -217,5 +212,12 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		MinVectorSim:      cfg.Search.MinVectorSim,
 		StopWords:         stopWords,
 		OnProcess:         onProcess,
-	}), nil
+	})
+	// The chunk target comes back from the indexer that resolved it, so
+	// the db's pin can never describe boundaries the chunker isn't using.
+	// A db built on a different one is refused here (rebuild required).
+	if err := st.PinChunkRunes(ctx, ix.ChunkRunes()); err != nil {
+		return nil, err
+	}
+	return ix, nil
 }

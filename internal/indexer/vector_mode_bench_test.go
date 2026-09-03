@@ -86,7 +86,7 @@ func TestVectorModeIngestProfile(t *testing.T) {
 		vecs := randUnitVecs(rng, n, dim)
 		for _, mode := range []string{"ivfsq", "btree"} {
 			// BULK: insert all, build once.
-			sb, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true, 0)
+			sb, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestVectorModeIngestProfile(t *testing.T) {
 			_ = sb.Close()
 
 			// INCREMENTAL: seed + build, then upsert the rest into the index.
-			si, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true, 0)
+			si, err := OpenStore(ctx, t.TempDir()+"/i.db", dim, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -212,7 +212,7 @@ func TestVectorModeProfile(t *testing.T) {
 
 		for _, mode := range modes {
 			dir := t.TempDir()
-			s, err := OpenStore(ctx, dir+"/index.db", dim, true, 0)
+			s, err := OpenStore(ctx, dir+"/index.db", dim, true)
 			if err != nil {
 				t.Fatal(err)
 			}

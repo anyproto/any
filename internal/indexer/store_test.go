@@ -17,7 +17,7 @@ func entry(scope, objectId, dataset, recordId, data string, seq uint64) index.In
 
 func mustStore(t *testing.T, dim int) *Store {
 	t.Helper()
-	s, err := OpenStoreInMemory(context.Background(), dim, dim > 0, 0)
+	s, err := OpenStoreInMemory(context.Background(), dim, dim > 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 
 // A removal and an upsert of the same doc can meet in one page when
 // collectObject finds an object tombstoned after earlier chunkers already
-// queued its entries (SYN-198). The removal wins — otherwise the upsert
-// resurrects docs of an object nothing will ever re-stream.
+// queued its entries. The removal wins — otherwise the upsert resurrects
+// docs of an object nothing will ever re-stream.
 func TestStore_RemovalWinsOverUpsertInSamePage(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 0)
@@ -434,7 +434,7 @@ func TestStore_LazyDim(t *testing.T) {
 	ctx := context.Background()
 	// Unknown dim + embedder configured: pending is marked, vector
 	// search degrades to empty instead of erroring.
-	s, err := OpenStoreInMemory(ctx, 0, true, 0)
+	s, err := OpenStoreInMemory(ctx, 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}

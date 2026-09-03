@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -414,8 +415,8 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 	seen := make(map[string]bool, len(entries))
 	var gone map[string]bool // bases whose range delete already covers their chunks
 	for _, e := range entries {
-		if !indexableRecordId(e.RecordId) {
-			unindexable = append(unindexable, e.RecordId)
+		if !indexableId(e.RecordId) || !indexableId(e.Dataset) {
+			unindexable = append(unindexable, e.Dataset+":"+e.RecordId)
 			continue
 		}
 		base := docId(e.ObjectId, e.Dataset, e.RecordId)
@@ -445,31 +446,40 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 	return unindexable
 }
 
-// indexableRecordId rejects a record id carrying a control byte. Chunk
+// indexableId rejects a doc-id component carrying a control byte. Chunk
 // ids are the base id plus U+001F and a number, and a record's docs are
-// the range [base, base+U+0020) — an id containing either byte would
-// collide with a neighbour's chunk docs and make a record-level delete
-// reach into it. Auto ids are CIDs and the default user-id pattern
-// admits nothing below 0x20, but a runtime dataset's IdPattern is
-// client-supplied and validated only for compilation, so the invariant
-// is enforced here rather than assumed.
-func indexableRecordId(id string) bool {
-	for i := 0; i < len(id); i++ {
-		if id[i] < 0x20 {
+// the range [base, base+U+0020) — a component containing either byte
+// would collide with a neighbour's chunk docs and make a record-level
+// delete reach into it.
+//
+// It guards the DATASET as well as the record id: a name is only checked
+// against a small deny-set (empty, `_` prefix, `.`/`/`/`:`, reserved
+// names), so `a<U+001F>b` is a legal runtime dataset name and puts the
+// separator one component earlier — same collision, same consequence.
+// Record ids are auto CIDs or match a pattern that is client-supplied
+// and validated only for compilation. Neither is checked for this, so
+// the invariant is enforced here rather than assumed.
+func indexableId(part string) bool {
+	for i := 0; i < len(part); i++ {
+		if part[i] < 0x20 {
 			return false
 		}
 	}
 	return true
 }
 
-// plan runs planDocs and reports ids it had to skip. One line per
-// (object, dataset) page — the condition is a client-supplied id pattern
-// that admits control bytes, so it persists until the pattern changes.
+// plan runs planDocs and reports what it had to skip, naming the first
+// offender (quoted, so the control byte is visible) — a count alone
+// leaves an operator with nothing to search for. One line per (object,
+// dataset) page, and it repeats: the cause is a declared id pattern or
+// dataset name that admits control bytes, so it persists until the
+// declaration changes.
 func (w *spaceWorker) plan(entries []index.IndexEntry, stored map[string]string, objectId, dataset string, page *pageOps) {
 	if skipped := planDocs(entries, stored, w.ix.opts.ChunkRunes, page); len(skipped) > 0 {
-		w.ix.lg.Warn("skipping records whose id carries a control byte",
+		w.ix.lg.Warn("skipping records whose dataset or id carries a control byte",
 			zap.String("spaceId", w.sp.Id()), zap.String("objectId", objectId),
-			zap.String("dataset", dataset), zap.Int("count", len(skipped)))
+			zap.String("dataset", dataset), zap.Int("count", len(skipped)),
+			zap.String("first", strconv.Quote(skipped[0])))
 	}
 }
 
@@ -496,7 +506,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 		// separator produces a base byte-identical to a legitimate
 		// record's chunk doc, which would pull that doc into `stored` and
 		// get it deleted as vanished (planDocs never re-lists it).
-		if e.Data != "" && indexableRecordId(e.RecordId) {
+		if e.Data != "" && indexableId(e.RecordId) && indexableId(e.Dataset) {
 			bases = append(bases, docId(e.ObjectId, e.Dataset, e.RecordId))
 		}
 	}

@@ -71,7 +71,7 @@ func openStoreErrText(t *testing.T, ctx context.Context, schema int) string {
 	path := filepath.Join(t.TempDir(), "index.db")
 	seedSchema(t, ctx, path, schema)
 
-	st, err := OpenStore(ctx, path, 0, false, 0)
+	st, err := OpenStore(ctx, path, 0, false)
 	if err == nil {
 		st.Close()
 		t.Fatal("OpenStore on a foreign schema succeeded")
@@ -83,7 +83,7 @@ func dimMismatchErrText(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "index.db")
-	st, err := OpenStore(ctx, path, 768, true, 0)
+	st, err := OpenStore(ctx, path, 768, true)
 	if err != nil {
 		t.Fatalf("OpenStore (first, dim 768): %v", err)
 	}
@@ -91,7 +91,7 @@ func dimMismatchErrText(t *testing.T, ctx context.Context) string {
 		t.Fatalf("Close: %v", err)
 	}
 
-	st, err = OpenStore(ctx, path, 1024, true, 0)
+	st, err = OpenStore(ctx, path, 1024, true)
 	if err == nil {
 		st.Close()
 		t.Fatal("OpenStore with a contradicting dim succeeded")
@@ -102,7 +102,7 @@ func dimMismatchErrText(t *testing.T, ctx context.Context) string {
 func ensureDimErrText(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
-	st, err := OpenStoreInMemory(ctx, 768, true, 0)
+	st, err := OpenStoreInMemory(ctx, 768, true)
 	if err != nil {
 		t.Fatalf("OpenStoreInMemory: %v", err)
 	}

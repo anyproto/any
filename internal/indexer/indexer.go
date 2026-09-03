@@ -261,6 +261,11 @@ func New(sdk *anysyncsdk.SDK, reg *index.Registry, store *Store, opts Options) *
 // HasEmbedder reports whether the vector pipeline is active.
 func (ix *Indexer) HasEmbedder() bool { return ix.opts.Embedder != nil }
 
+// ChunkRunes is the resolved split target the workers write docs on —
+// the authority for Store.PinChunkRunes, so the pin always describes the
+// boundaries the chunker is actually using.
+func (ix *Indexer) ChunkRunes() int { return ix.opts.ChunkRunes }
+
 // EmbedHardware reports what the local embedder runs on — backends,
 // devices and lib version as llama.cpp reports them — or false for an
 // embedder that does not decode on this machine. Logged at child start;

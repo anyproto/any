@@ -114,10 +114,13 @@ id `objectId:prop:<propId>`:
   (property definitions are indexed nowhere else) and bare numbers get
   context. The name is the definition's display `name`, falling back
   to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
-  a bare name prefix. The name also rides `IndexEntry.Title`, so a
-  value long enough to split keeps its property name on every chunk
-  (§ Chunking long records) and name matches carry BM25F weight.
-  Built-ins carry no title — they are indexed raw.
+  a bare name prefix. The name also rides `IndexEntry.Title`, which is
+  re-prefixed onto the TEXT of chunks past the first, so a value long
+  enough to split keeps its property name on every chunk (§ Chunking
+  long records). That re-prefix is what makes the name searchable
+  throughout; the `title` field only joins the BM25F index when
+  `index.search.titleWeight` is set. Built-ins carry no title — they
+  are indexed raw.
 - **Kinds**: string; array (newline join of string and number
   elements); number (canonical JSON rendering — integers without a
   decimal point; distinctive numerals like 85600 are real discovery

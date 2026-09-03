@@ -41,7 +41,7 @@ func TestLiveVectorScoreProbe(t *testing.T) {
 		t.Fatalf("local embedder: %v", err)
 	}
 
-	st, err := OpenStore(ctx, idxPath, 0, true, 0)
+	st, err := OpenStore(ctx, idxPath, 0, true)
 	if err != nil {
 		t.Fatalf("open live index: %v", err)
 	}

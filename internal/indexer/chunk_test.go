@@ -147,7 +147,7 @@ func TestPlanDocs(t *testing.T) {
 // indexer. Indexing it would collide its chunk docs with a neighbour's
 // and let a record-level delete reach into that neighbour — it is
 // skipped instead.
-func TestPlanDocs_SkipsControlByteRecordIds(t *testing.T) {
+func TestPlanDocs_SkipsControlByteIds(t *testing.T) {
 	base := index.IndexEntry{ObjectId: "o", Dataset: "d", Data: "some text"}
 	good := base
 	good.RecordId = "rec1"
@@ -155,11 +155,15 @@ func TestPlanDocs_SkipsControlByteRecordIds(t *testing.T) {
 	sep.RecordId = "rec1" + chunkSep + "9" // collides with rec1's chunk 9
 	nul := base
 	nul.RecordId = "rec\x002"
+	// Same hole one component earlier: a dataset name is checked against a
+	// small deny-set that does not exclude control bytes.
+	ds := base
+	ds.RecordId, ds.Dataset = "rec2", "d"+chunkSep+"x"
 
 	var page pageOps
-	skipped := planDocs([]index.IndexEntry{good, sep, nul}, nil, 200, &page)
-	if len(skipped) != 2 {
-		t.Fatalf("skipped = %v, want the two control-byte ids", skipped)
+	skipped := planDocs([]index.IndexEntry{good, sep, nul, ds}, nil, 200, &page)
+	if len(skipped) != 3 {
+		t.Fatalf("skipped = %v, want the three control-byte components", skipped)
 	}
 	if len(page.ups) != 1 || page.ups[0].Entry.RecordId != "rec1" {
 		t.Fatalf("ups = %+v, want only the well-formed record", page.ups)

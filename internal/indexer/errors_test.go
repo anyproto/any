@@ -31,7 +31,7 @@ func TestOpenStore_SchemaMismatchIsRebuildRequired(t *testing.T) {
 
 	seedSchema(t, ctx, path, indexSchemaVersion+1)
 
-	st, err := OpenStore(ctx, path, 0, false, 0)
+	st, err := OpenStore(ctx, path, 0, false)
 	if err == nil {
 		st.Close()
 		t.Fatal("OpenStore on a foreign schema succeeded, want ErrIndexRebuildRequired")
@@ -50,7 +50,7 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
 
 	// A db that knows its own dim.
-	st, err := OpenStore(ctx, path, 768, true, 0)
+	st, err := OpenStore(ctx, path, 768, true)
 	if err != nil {
 		t.Fatalf("OpenStore (first, dim 768): %v", err)
 	}
@@ -59,7 +59,7 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	}
 
 	// Reopened with a different configured dim.
-	st, err = OpenStore(ctx, path, 1024, true, 0)
+	st, err = OpenStore(ctx, path, 1024, true)
 	if err == nil {
 		st.Close()
 		t.Fatal("OpenStore with a contradicting dim succeeded, want ErrIndexRebuildRequired")
@@ -69,72 +69,51 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	}
 }
 
-// TestOpenStore_ChunkRunesMismatchIsRebuildRequired covers the chunk
-// target: it decides every doc id and every doc's text, so a db written
-// under a different one holds records on stale boundaries. A db written
-// before the pin existed (0) is adopted, not refused.
-func TestOpenStore_ChunkRunesMismatchIsRebuildRequired(t *testing.T) {
+// TestPinChunkRunes covers the chunk target: it decides every doc id and
+// every doc's text, so a db written under a different one holds records
+// on stale boundaries. 0 resolves to the build default, and a db written
+// before the pin existed is adopted — then pinned, since nothing else
+// writes that row.
+func TestPinChunkRunes(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "index.db")
 
-	st, err := OpenStore(ctx, path, 0, false, 2000)
-	if err != nil {
-		t.Fatalf("OpenStore (first, 2000 runes): %v", err)
-	}
-	if err := st.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	st, err = OpenStore(ctx, path, 0, false, 1000)
-	if err == nil {
-		st.Close()
-		t.Fatal("OpenStore with a contradicting chunk target succeeded, want ErrIndexRebuildRequired")
-	}
-	if !errors.Is(err, ErrIndexRebuildRequired) {
-		t.Fatalf("OpenStore err = %v, want it to wrap ErrIndexRebuildRequired", err)
-	}
-
-	// Same target, and the unpinned default, both open.
-	for _, n := range []int{2000, 0} {
-		st, err = OpenStore(ctx, path, 0, false, n)
+	pin := func(t *testing.T, path string, n int) error {
+		t.Helper()
+		st, err := OpenStore(ctx, path, 0, false)
 		if err != nil {
-			t.Fatalf("OpenStore(chunkRunes %d) on a 2000-rune db: %v", n, err)
+			t.Fatalf("OpenStore: %v", err)
 		}
-		if err := st.Close(); err != nil {
-			t.Fatalf("Close: %v", err)
+		defer st.Close()
+		return st.PinChunkRunes(ctx, n)
+	}
+
+	t.Run("mismatch is rebuild required", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "index.db")
+		if err := pin(t, path, 2000); err != nil {
+			t.Fatalf("first pin: %v", err)
 		}
-	}
-}
+		if err := pin(t, path, 1000); !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Fatalf("pin(1000) on a 2000-rune db = %v, want it to wrap ErrIndexRebuildRequired", err)
+		}
+		// The same target, and 0 — which resolves to that same default.
+		for _, n := range []int{2000, 0} {
+			if err := pin(t, path, n); err != nil {
+				t.Errorf("pin(%d) on a 2000-rune db: %v", n, err)
+			}
+		}
+	})
 
-// A db from before the pin carries no chunkRunes; it is adopted rather
-// than refused — the docs are on whatever the build of the day used, and
-// refusing would be a rebuild nobody asked for. Adoption must WRITE the
-// pin: nothing else writes that row, so leaving it unpinned would keep
-// the check disabled for that db forever.
-func TestOpenStore_UnpinnedChunkRunesIsAdoptedAndPinned(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "index.db")
+	t.Run("unpinned db is adopted and pinned", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "index.db")
+		seedSchema(t, ctx, path, indexSchemaVersion)
 
-	seedSchema(t, ctx, path, indexSchemaVersion)
-
-	st, err := OpenStore(ctx, path, 0, false, 1500)
-	if err != nil {
-		t.Fatalf("OpenStore on a db with no pinned chunk target: %v", err)
-	}
-	if err := st.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// The adopted target is now on record, so a later build that chunks
-	// differently is refused instead of silently mixing boundaries.
-	st, err = OpenStore(ctx, path, 0, false, 900)
-	if err == nil {
-		st.Close()
-		t.Fatal("adoption left the chunk target unpinned — a differing target was accepted")
-	}
-	if !errors.Is(err, ErrIndexRebuildRequired) {
-		t.Fatalf("OpenStore err = %v, want it to wrap ErrIndexRebuildRequired", err)
-	}
+		if err := pin(t, path, 1500); err != nil {
+			t.Fatalf("pin on a db with no pinned chunk target: %v", err)
+		}
+		if err := pin(t, path, 900); !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Fatalf("adoption left the target unpinned — pin(900) = %v", err)
+		}
+	})
 }
 
 // TestEnsureDim_ModelChangedIsRebuildRequired covers the third site: an
@@ -142,7 +121,7 @@ func TestOpenStore_UnpinnedChunkRunesIsAdoptedAndPinned(t *testing.T) {
 func TestEnsureDim_ModelChangedIsRebuildRequired(t *testing.T) {
 	ctx := context.Background()
 
-	st, err := OpenStoreInMemory(ctx, 768, true, 0)
+	st, err := OpenStoreInMemory(ctx, 768, true)
 	if err != nil {
 		t.Fatalf("OpenStoreInMemory: %v", err)
 	}
