@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	anystore "github.com/anyproto/any-store/v2"
@@ -35,10 +36,13 @@ const (
 	// short prop docs no longer embedded (rebuild purges stale
 	// type-name docs and name vectors); v6 = long records split into
 	// chunk docs (`base<U+001F>n` ids + `chunk` field — rebuild replaces
-	// whole-record docs with chunked ones). Mismatch = boot error advising
+	// whole-record docs with chunked ones); v7 = property entries carry
+	// the property name as Title, and the doc hash covers it (rebuild
+	// backfills the name onto chunks past the first, which were indexed
+	// as bare value text). Mismatch = boot error advising
 	// removal; no migration — the index is derived state (re-indexes on
 	// the next change).
-	indexSchemaVersion = 6
+	indexSchemaVersion = 7
 )
 
 // Store is the indexer-owned any-store database: one collection per
@@ -66,6 +70,14 @@ type Store struct {
 	// field (editor heading / method sig / memory context) over `data`.
 	ftsB, ftsK1, titleWeight float64
 
+	// chunkRunes is the split target the docs in this DB were written
+	// with (chunk.go). Pinned in `_meta`: it decides every doc id and
+	// every doc's text, so changing it silently would leave existing
+	// records on their old boundaries — same text ranking differently by
+	// when it was last written, with stale trailing chunks under the old
+	// scheme.
+	chunkRunes int
+
 	mu     sync.Mutex
 	dim    int // 0 = unknown yet; learned lazily via EnsureDim
 	colls  map[string]anystore.Collection
@@ -76,8 +88,11 @@ type Store struct {
 // call (existing indexes keep their mode until rebuilt). Empty = default.
 func (s *Store) SetVectorMode(mode string) { s.vectorMode = mode }
 
-// SetFTSParams sets the BM25 tuning for FTS indexes created after the call
-// (b/k1 are index-creation params; titleWeight is read at query time).
+// SetFTSParams sets the BM25 tuning for FTS indexes created after the
+// call. All three are index-creation params: b/k1 are baked in, and
+// whether titleWeight is zero decides the index's FIELD SET (`data`
+// alone, or `data`+`title`), so turning a title boost on for an existing
+// index needs a rebuild. Its value is then read at query time.
 func (s *Store) SetFTSParams(b, k1, titleWeight float64) {
 	s.ftsB, s.ftsK1, s.titleWeight = b, k1, titleWeight
 }
@@ -191,7 +206,7 @@ func (s *Store) checkMeta(ctx context.Context) error {
 	}
 	doc, err := coll.FindId(ctx, metaDocId)
 	if errors.Is(err, anystore.ErrDocNotFound) {
-		return s.writeMetaDim(ctx, s.dim)
+		return s.writeMeta(ctx, s.dim)
 	}
 	if err != nil {
 		return err
@@ -207,13 +222,49 @@ func (s *Store) checkMeta(ctx context.Context) error {
 		s.dim = got // adopt the dimension this DB was built with
 		return nil
 	case got == 0:
-		return s.writeMetaDim(ctx, s.dim) // first run with a known dim
+		return s.writeMeta(ctx, s.dim) // first run with a known dim
 	default:
 		return fmt.Errorf("%w: index db was built with vector dim %d, configured %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, s.dim, filepath.Dir(s.path))
 	}
 }
 
-func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
+// PinChunkRunes records the chunk target this index's docs are written
+// on, and refuses a db written on a different one — it decides every doc
+// id and every doc's text, so mixing boundaries leaves the same text
+// ranking differently by when it was last written, with stale trailing
+// chunks under the old scheme.
+//
+// Separate from OpenStore because the authority is the indexer's
+// resolved Options.ChunkRunes, which the caller only has after the store
+// exists: taking it here means the pin can never describe a boundary the
+// chunker isn't using (OpenIndexer passes Indexer.ChunkRunes()). A db
+// written before the pin existed carries none and is adopted — and
+// pinned on the spot, since nothing else writes that row.
+func (s *Store) PinChunkRunes(ctx context.Context, n int) error {
+	if n <= 0 {
+		n = DefaultChunkRunes
+	}
+	s.chunkRunes = n
+	coll, err := s.db.Collection(ctx, cursorsCollection)
+	if err != nil {
+		return err
+	}
+	doc, err := coll.FindId(ctx, metaDocId)
+	if err != nil && !errors.Is(err, anystore.ErrDocNotFound) {
+		return err
+	}
+	if err == nil {
+		if got := doc.Value().GetInt("chunkRunes"); got != 0 && got != n {
+			return fmt.Errorf("%w: index db was built with chunk target %d runes, this build uses %d — remove %s to rebuild from scratch", ErrIndexRebuildRequired, got, n, filepath.Dir(s.path))
+		}
+	}
+	return s.writeMeta(ctx, s.dim)
+}
+
+// writeMeta records what this db is built on: schema version, vector
+// dimension, and the chunk target once PinChunkRunes has supplied it (0
+// until then — an unpinned db is adopted, never refused).
+func (s *Store) writeMeta(ctx context.Context, dim int) error {
 	coll, err := s.db.Collection(ctx, cursorsCollection)
 	if err != nil {
 		return err
@@ -223,6 +274,7 @@ func (s *Store) writeMetaDim(ctx context.Context, dim int) error {
 	meta.Set("id", arena.NewString(metaDocId))
 	meta.Set("schema", arena.NewNumberInt(indexSchemaVersion))
 	meta.Set("dim", arena.NewNumberInt(dim))
+	meta.Set("chunkRunes", arena.NewNumberInt(s.chunkRunes))
 	return coll.UpsertOne(ctx, meta)
 }
 
@@ -246,7 +298,7 @@ func (s *Store) EnsureDim(ctx context.Context, dim int) error {
 	case s.dim != 0:
 		return fmt.Errorf("%w: embedder returned dim %d but the index db was built with %d — fix the model or remove %s to rebuild", ErrIndexRebuildRequired, dim, s.dim, filepath.Dir(s.path))
 	}
-	if err := s.writeMetaDim(ctx, dim); err != nil {
+	if err := s.writeMeta(ctx, dim); err != nil {
 		return err
 	}
 	s.dim = dim
@@ -477,6 +529,12 @@ func (s *Store) SetCursor(ctx context.Context, spaceId string, seq uint64, gener
 // exactly it; missing ids are a no-op) — then upserts (full-doc replace
 // — a re-written doc goes back to pending until re-embedded). Atomic
 // with the page, so eviction can never race the cursor.
+//
+// A removal WINS over an upsert of the same doc in one page: collectObject
+// appends an object-wide prefix delete mid-loop when it finds the object
+// tombstoned, by which point earlier chunkers have already queued upserts
+// for it. Writing those would resurrect docs of an object nothing will
+// ever re-stream, so they are dropped rather than ordered around.
 func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels []string, prefixDels []string) error {
 	if len(ups) == 0 && len(dels) == 0 && len(prefixDels) == 0 {
 		return nil
@@ -504,11 +562,26 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 	}
 
+	for _, id := range dels {
+		idRange := query.And{
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
+			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
+		}
+		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
+			return err
+		}
+	}
+
+	gone := newRemovals(dels, prefixDels)
 	arena := &anyenc.Arena{}
 	for _, up := range ups {
 		e := up.Entry
+		id := chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)
+		if gone.covers(id) {
+			continue
+		}
 		doc := arena.NewObject()
-		doc.Set("id", arena.NewString(chunkDocId(docId(e.ObjectId, e.Dataset, e.RecordId), up.Chunk)))
+		doc.Set("id", arena.NewString(id))
 		doc.Set("scope", arena.NewString(e.Scope))
 		doc.Set("objectId", arena.NewString(e.ObjectId))
 		doc.Set("dataset", arena.NewString(e.Dataset))
@@ -518,7 +591,7 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 		}
 		doc.Set("data", arena.NewString(e.Data))
 		doc.Set("title", arena.NewString(e.Title)) // BM25F boosted field (may be "")
-		doc.Set("hash", arena.NewString(docHash(e.Data)))
+		doc.Set("hash", arena.NewString(docHash(e.Data, e.Title)))
 		doc.Set("applySeq", arena.NewNumberInt(int(e.ApplySeq)))
 		switch {
 		case up.Vector != nil:
@@ -534,16 +607,70 @@ func (s *Store) Apply(ctx context.Context, spaceId string, ups []DocUpsert, dels
 			return err
 		}
 	}
-	for _, id := range dels {
-		idRange := query.And{
-			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpGte, id)},
-			query.Key{Path: idPath, Filter: query.NewComp(query.CompOpLt, recordUpper(id))},
-		}
-		if _, err := coll.Find(idRange).Delete(tx.Context()); err != nil {
-			return err
+	return tx.Commit()
+}
+
+// removals indexes one page's deletions so an upsert can be tested in
+// constant time. A page carries thousands of each on the cold path — the
+// prop chunker yields an entry per catalog property per object, and every
+// valueless one is a record delete — so a scan per upsert would be
+// quadratic.
+type removals struct {
+	records  map[string]struct{} // base (or chunk) ids; a base covers its chunks
+	prefixes map[string]struct{} // structural prefixes, ':'-terminated
+}
+
+func newRemovals(dels, prefixDels []string) removals {
+	r := removals{}
+	if len(dels) > 0 {
+		r.records = make(map[string]struct{}, len(dels))
+		for _, d := range dels {
+			r.records[d] = struct{}{}
 		}
 	}
-	return tx.Commit()
+	if len(prefixDels) > 0 {
+		r.prefixes = make(map[string]struct{}, len(prefixDels))
+		for _, p := range prefixDels {
+			r.prefixes[p] = struct{}{}
+		}
+	}
+	return r
+}
+
+// covers reports whether the page removes the doc with this id: a record
+// range (the base doc plus its chunk suffixes) or a structural prefix.
+// collectObject only ever queues prefixes of two shapes — the whole
+// object (`obj:`) or one of its datasets (`obj:dataset:`) — so both
+// candidates are derived from the id instead of scanned for. A doc id is
+// `objectId:dataset:recordId`, and only the recordId tail may itself
+// contain ':'.
+func (r removals) covers(id string) bool {
+	if len(r.records) > 0 {
+		if _, ok := r.records[id]; ok {
+			return true
+		}
+		if base := recordBase(id); base != id {
+			if _, ok := r.records[base]; ok {
+				return true
+			}
+		}
+	}
+	if len(r.prefixes) == 0 {
+		return false
+	}
+	obj := strings.IndexByte(id, ':')
+	if obj < 0 {
+		return false
+	}
+	if _, ok := r.prefixes[id[:obj+1]]; ok {
+		return true
+	}
+	ds := strings.IndexByte(id[obj+1:], ':')
+	if ds < 0 {
+		return false
+	}
+	_, ok := r.prefixes[id[:obj+1+ds+1]]
+	return ok
 }
 
 // minPropEmbedBytes gates the vector leg for prop-dataset docs: entries
@@ -577,9 +704,17 @@ func shouldEmbed(e index.IndexEntry) bool {
 // (e.g. a memory item whose accessCount bumped, a chat message that got a
 // reaction). 64-bit FNV-1a, hex-encoded so it round-trips through
 // any-store as an exact string (no float-precision risk of a numeric).
-func docHash(data string) string {
+//
+// It covers Title as well as Data: a title-only edit changes the text of
+// chunks past the first (they carry the re-prefixed title) but not of
+// chunk 0, so hashing Data alone would refresh the tail and leave chunk 0
+// serving the old title in its BM25F field — one record indexed under two
+// titles.
+func docHash(data, title string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(data))
+	_, _ = h.Write([]byte{0x1f})
+	_, _ = h.Write([]byte(title))
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
@@ -814,8 +949,10 @@ func (c *ftsCursor) Close() error {
 // cheaper (any-store v2.0.1 — before it, the $text predicate always
 // drove and this cost the term's whole posting list). The analyzer
 // decides "contains", so a phrase or prefix term behaves exactly as it
-// does in the lexical leg. Nothing to enforce (no terms, no hits, FTS
-// compiled out) returns hits unchanged.
+// does in the lexical leg. Nothing to enforce (no terms, no hits)
+// returns hits unchanged, and so does a build with no FTS index — which
+// is why callers must refuse a request carrying terms in that build
+// (handlers_search.go), never treat the pass-through as enforcement.
 //
 // Negated clauses only tombstone docs a positive clause already scored,
 // so an exclude-only filter is run inverted: match the excluded terms as

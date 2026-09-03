@@ -165,7 +165,8 @@ index:
     minVectorSim: 0                   # cosine floor for vector hits; 0 = legacy ">0"
     bm25B: 0                          # FTS BM25 length-norm; 0 = engine default 0.75
     bm25K1: 0                         # FTS BM25 tf-saturation; 0 = engine default 1.2
-    titleWeight: 0                    # BM25F boost for the title field; 0 = default 1.0
+    titleWeight: 0                    # BM25F boost for the title field; 0 = no boost and no
+                                      # title field in the index (0 -> non-zero needs a rebuild)
 
 # Files byte layer (files v2, docs/17-files.md). All optional — an
 # absent block changes nothing.

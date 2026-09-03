@@ -192,23 +192,26 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	if _, ok := byRecord[propId["secret"]]; ok {
 		t.Errorf("meta.index=none prop leaked into the catalog: %+v", byRecord[propId["secret"]])
 	}
-	if en := byRecord[index.NamePropRecordId]; en.Scope != index.ScopeBasic || en.Data != "My Memory" {
+	// The built-ins are indexed raw — no name prefix, so no Title either.
+	if en := byRecord[index.NamePropRecordId]; en.Scope != index.ScopeBasic || en.Data != "My Memory" || en.Title != "" {
 		t.Errorf("name entry wrong: %+v", en)
 	}
-	if en := byRecord[index.DescriptionPropRecordId]; en.Scope != index.ScopeBasic || en.Data != "" {
+	if en := byRecord[index.DescriptionPropRecordId]; en.Scope != index.ScopeBasic || en.Data != "" || en.Title != "" {
 		t.Errorf("description entry wrong (unset ⇒ removal): %+v", en)
 	}
-	wantProps := map[string]struct{ scope, data string }{
-		propId["context"]:  {"agent", "context: ctx body"},
-		propId["keywords"]: {"agent", "keywords: kw1 kw2"},
-		propId["entities"]: {"agent", "entities: Alice Bob"},
-		propId["author"]:   {index.ScopeProps, "Author: Frank Herbert"},
-		propId["score"]:    {index.ScopeProps, "Score: 85600"},
+	// A valued property carries its name in Title as well as inline, so
+	// chunks past the first keep it (expandEntry re-prefixes Title).
+	wantProps := map[string]struct{ scope, data, title string }{
+		propId["context"]:  {"agent", "context: ctx body", "context"},
+		propId["keywords"]: {"agent", "keywords: kw1 kw2", "keywords"},
+		propId["entities"]: {"agent", "entities: Alice Bob", "entities"},
+		propId["author"]:   {index.ScopeProps, "Author: Frank Herbert", "Author"},
+		propId["score"]:    {index.ScopeProps, "Score: 85600", "Score"},
 	}
 	for pid, want := range wantProps {
 		en, ok := byRecord[pid]
-		if !ok || en.Scope != want.scope || en.Data != want.data {
-			t.Errorf("prop %s entry = %+v, want Data %q scope %q", pid, en, want.data, want.scope)
+		if !ok || en.Scope != want.scope || en.Data != want.data || en.Title != want.title {
+			t.Errorf("prop %s entry = %+v, want Data %q Title %q scope %q", pid, en, want.data, want.title, want.scope)
 		}
 	}
 

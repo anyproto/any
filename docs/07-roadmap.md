@@ -210,10 +210,12 @@ pluggable embedders, parallel batched pipelines),
   page can still take several slots. A per-dataset or request-level
   `groupBy: record | object` would collapse those — wrong for chat
   (a message is the result), so it needs the dataset's say.
-- **Record ids with control bytes.** The chunk id scheme assumes no
-  record id byte below 0x20 (true for auto ids and the SDK's default
-  `idPattern`); a runtime dataset declaring a permissive pattern is not
-  rejected anywhere yet.
+- **Control bytes in dataset names and record ids.** The indexer now
+  skips what it cannot address safely (docs/13-index.md § Store layout),
+  so the id scheme is sound — but the declaration side still accepts it:
+  a runtime dataset may declare a permissive `idPattern`, or a name
+  carrying a control byte, and only finds out its records go unindexed.
+  Rejecting at the creation API is the remaining half.
 - **Local embedder follow-ups.** Multi-sequence batched decode (texts
   currently embed sequentially under one mutex); a packaged
   distribution story for the llama.cpp libs (today: `make llamacpp`

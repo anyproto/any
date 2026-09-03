@@ -333,9 +333,9 @@ Implementation slices landed:
       created lazily** (`EnsureVectorIndex`) once ≥1 embedded doc
       exists — IVF trains from existing docs and cannot be created
       empty. Vector hits with similarity ≤ 0 are dropped (noise floor).
-      `cursors` collection: per-space cursor + `_meta` schema-version
-      (v2) & dim pin (mismatch = boot error advising
-      `rm <data-dir>/index`).
+      `cursors` collection: per-space cursor + `_meta` pinning the
+      schema version, the vector dim and the chunk target (mismatch =
+      boot error advising `rm <data-dir>/index`).
     - Embedders: `indexer.Embedder` (`EmbedDocs`/`EmbedQuery`/`Dim`) —
       `ollama` (local `/api/embed`, default `embeddinggemma`, task
       prompts), `openai` (OpenAI-compatible `/embeddings`), and

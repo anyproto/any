@@ -77,6 +77,68 @@ func TestStore_UpsertDeleteSearchFTS(t *testing.T) {
 	}
 }
 
+// A removal and an upsert of the same doc can meet in one page when
+// collectObject finds an object tombstoned after earlier chunkers already
+// queued its entries. The removal wins — otherwise the upsert resurrects
+// docs of an object nothing will ever re-stream.
+func TestStore_RemovalWinsOverUpsertInSamePage(t *testing.T) {
+	ctx := context.Background()
+	s := mustStore(t, 0)
+	const sp = "space1"
+
+	// obj1 is evicted in the same page that upserts two of its datasets;
+	// obj2's upsert is untouched by the unrelated prefix.
+	err := s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj1", "chat_messages", "m1", "alpha bravo", 1)},
+		{Entry: entry("basic", "obj1", "editor_blocks", "b1", "alpha echo", 2)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m3", "alpha delta", 3)},
+	}, nil, []string{"obj1:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].ObjectId != "obj2" {
+		t.Fatalf("hits = %+v, want only obj2 (obj1 upserts must not survive its eviction)", hits)
+	}
+
+	// A dataset-level prefix (type detach) covers that dataset only.
+	err = s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj2", "chat_messages", "m4", "alpha india", 4)},
+		{Entry: entry("basic", "obj2", "editor_blocks", "b9", "alpha juliett", 4)},
+	}, nil, []string{"obj2:chat_messages:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The prefix takes the stored m3 with it, and m4's upsert never lands;
+	// the other dataset's upsert in the same page is untouched.
+	hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "b9" {
+		t.Fatalf("hits = %+v, want only b9 (obj2's chat dataset evicted)", hits)
+	}
+
+	// A record-level delete covers the base doc and its chunk suffixes.
+	err = s.Apply(ctx, sp, []DocUpsert{
+		{Entry: entry("chat", "obj2", "chat_messages", "m5", "alpha golf", 5)},
+		{Entry: entry("chat", "obj2", "chat_messages", "m5", "alpha hotel", 5), Chunk: 2},
+	}, []string{"obj2:chat_messages:m5"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err = s.SearchFTS(ctx, sp, "alpha", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].RecordId != "b9" {
+		t.Fatalf("after record delete, hits = %+v, want only b9", hits)
+	}
+}
+
 func TestStore_PrefixDeleteAndDropSpace(t *testing.T) {
 	ctx := context.Background()
 	s := mustStore(t, 0)
@@ -420,7 +482,7 @@ func TestStore_SchemaVersionMismatch(t *testing.T) {
 	s := mustStore(t, 0)
 	// Rewrite _meta as an older schema, then re-run the open check —
 	// the store must refuse with an actionable message.
-	if err := s.writeMetaDim(ctx, 0); err != nil {
+	if err := s.writeMeta(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	coll, err := s.db.Collection(ctx, cursorsCollection)

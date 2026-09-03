@@ -200,7 +200,7 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		}
 		queryEmbedTimeout = d
 	}
-	return indexer.New(sdk, chunkers, st, indexer.Options{
+	ix := indexer.New(sdk, chunkers, st, indexer.Options{
 		Embedder:          emb,
 		EmbedBatch:        cfg.EmbedBatch,
 		EmbedConcurrency:  embedConc,
@@ -212,5 +212,12 @@ func OpenIndexer(ctx context.Context, cfg config.Index, dataDir, modelsDir strin
 		MinVectorSim:      cfg.Search.MinVectorSim,
 		StopWords:         stopWords,
 		OnProcess:         onProcess,
-	}), nil
+	})
+	// The chunk target comes back from the indexer that resolved it, so
+	// the db's pin can never describe boundaries the chunker isn't using.
+	// A db built on a different one is refused here (rebuild required).
+	if err := st.PinChunkRunes(ctx, ix.ChunkRunes()); err != nil {
+		return nil, err
+	}
+	return ix, nil
 }

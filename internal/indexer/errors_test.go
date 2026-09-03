@@ -69,6 +69,53 @@ func TestOpenStore_DimMismatchIsRebuildRequired(t *testing.T) {
 	}
 }
 
+// TestPinChunkRunes covers the chunk target: it decides every doc id and
+// every doc's text, so a db written under a different one holds records
+// on stale boundaries. 0 resolves to the build default, and a db written
+// before the pin existed is adopted — then pinned, since nothing else
+// writes that row.
+func TestPinChunkRunes(t *testing.T) {
+	ctx := context.Background()
+
+	pin := func(t *testing.T, path string, n int) error {
+		t.Helper()
+		st, err := OpenStore(ctx, path, 0, false)
+		if err != nil {
+			t.Fatalf("OpenStore: %v", err)
+		}
+		defer st.Close()
+		return st.PinChunkRunes(ctx, n)
+	}
+
+	t.Run("mismatch is rebuild required", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "index.db")
+		if err := pin(t, path, 2000); err != nil {
+			t.Fatalf("first pin: %v", err)
+		}
+		if err := pin(t, path, 1000); !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Fatalf("pin(1000) on a 2000-rune db = %v, want it to wrap ErrIndexRebuildRequired", err)
+		}
+		// The same target, and 0 — which resolves to that same default.
+		for _, n := range []int{2000, 0} {
+			if err := pin(t, path, n); err != nil {
+				t.Errorf("pin(%d) on a 2000-rune db: %v", n, err)
+			}
+		}
+	})
+
+	t.Run("unpinned db is adopted and pinned", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "index.db")
+		seedSchema(t, ctx, path, indexSchemaVersion)
+
+		if err := pin(t, path, 1500); err != nil {
+			t.Fatalf("pin on a db with no pinned chunk target: %v", err)
+		}
+		if err := pin(t, path, 900); !errors.Is(err, ErrIndexRebuildRequired) {
+			t.Fatalf("adoption left the target unpinned — pin(900) = %v", err)
+		}
+	})
+}
+
 // TestEnsureDim_ModelChangedIsRebuildRequired covers the third site: an
 // embedder that returns a dimension the populated db can't hold.
 func TestEnsureDim_ModelChangedIsRebuildRequired(t *testing.T) {

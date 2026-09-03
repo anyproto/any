@@ -2,12 +2,65 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// An unclassified SDK error must not reach the client: its text can name
+// internal types and filesystem paths (docs/06-errors.md). Only
+// version_not_found passes an SDK message through, and it names the
+// version the caller asked for.
+func TestHistoryErrorHidesSdkText(t *testing.T) {
+	const secret = "boltdb: /home/someone/.any/sdk.db bucket \"tree\""
+	e := echo.New()
+
+	newCtx := func() (echo.Context, *httptest.ResponseRecorder) {
+		rec := httptest.NewRecorder()
+		return e.NewContext(httptest.NewRequest(http.MethodGet, "/", nil), rec), rec
+	}
+	decode := func(t *testing.T, rec *httptest.ResponseRecorder) api.ErrorEnvelope {
+		t.Helper()
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode envelope: %v (%s)", err, rec.Body.String())
+		}
+		return env
+	}
+
+	c, rec := newCtx()
+	if err := historyError(c, errors.New(secret)); err != nil {
+		t.Fatalf("historyError returned %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	env := decode(t, rec)
+	if env.Error.Code != "internal" || env.Error.Message != "internal error" {
+		t.Errorf("envelope = %+v, want the fixed internal error", env.Error)
+	}
+	if strings.Contains(rec.Body.String(), "boltdb") || strings.Contains(rec.Body.String(), "/home/") {
+		t.Errorf("SDK text reached the client: %s", rec.Body.String())
+	}
+
+	// The deliberate pass-through still carries its message.
+	c, rec = newCtx()
+	if err := historyError(c, fmt.Errorf("version bafy…: %w", space.ErrVersionNotFound)); err != nil {
+		t.Fatalf("historyError returned %v", err)
+	}
+	if env = decode(t, rec); env.Error.Code != "history.version_not_found" || env.Error.Message == "" {
+		t.Errorf("version_not_found envelope = %+v, want the SDK message", env.Error)
+	}
+}
 
 // TestServer_History drives the version-history surface through echo
 // against a real SDK, using the built-in editor dataset as the

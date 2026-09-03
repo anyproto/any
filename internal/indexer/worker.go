@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -397,7 +398,7 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 	if err != nil {
 		return err
 	}
-	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
+	w.plan(entries, stored, objectId, rc.Dataset(), page)
 	return nil
 }
 
@@ -410,10 +411,14 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 // entry with empty Data — is deleted. Base ids of empty-Data entries
 // are always deleted (the store's range delete covers chunks that
 // stored may not list).
-func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) {
+func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes int, page *pageOps) (unindexable []string) {
 	seen := make(map[string]bool, len(entries))
 	var gone map[string]bool // bases whose range delete already covers their chunks
 	for _, e := range entries {
+		if !indexableId(e.RecordId) || !indexableId(e.Dataset) {
+			unindexable = append(unindexable, e.Dataset+":"+e.RecordId)
+			continue
+		}
 		base := docId(e.ObjectId, e.Dataset, e.RecordId)
 		if e.Data == "" {
 			page.dels = append(page.dels, base)
@@ -426,7 +431,7 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 		for _, up := range expandEntry(e, chunkRunes) {
 			id := chunkDocId(base, up.Chunk)
 			seen[id] = true
-			if h, ok := stored[id]; ok && h == docHash(up.Entry.Data) {
+			if h, ok := stored[id]; ok && h == docHash(up.Entry.Data, up.Entry.Title) {
 				continue // unchanged — keep the stored doc and its vector
 			}
 			page.ups = append(page.ups, up)
@@ -437,6 +442,44 @@ func planDocs(entries []index.IndexEntry, stored map[string]string, chunkRunes i
 			continue
 		}
 		page.dels = append(page.dels, id) // vanished
+	}
+	return unindexable
+}
+
+// indexableId rejects a doc-id component carrying a control byte. Chunk
+// ids are the base id plus U+001F and a number, and a record's docs are
+// the range [base, base+U+0020) — a component containing either byte
+// would collide with a neighbour's chunk docs and make a record-level
+// delete reach into it.
+//
+// It guards the DATASET as well as the record id: a name is only checked
+// against a small deny-set (empty, `_` prefix, `.`/`/`/`:`, reserved
+// names), so `a<U+001F>b` is a legal runtime dataset name and puts the
+// separator one component earlier — same collision, same consequence.
+// Record ids are auto CIDs or match a pattern that is client-supplied
+// and validated only for compilation. Neither is checked for this, so
+// the invariant is enforced here rather than assumed.
+func indexableId(part string) bool {
+	for i := 0; i < len(part); i++ {
+		if part[i] < 0x20 {
+			return false
+		}
+	}
+	return true
+}
+
+// plan runs planDocs and reports what it had to skip, naming the first
+// offender (quoted, so the control byte is visible) — a count alone
+// leaves an operator with nothing to search for. One line per (object,
+// dataset) page, and it repeats: the cause is a declared id pattern or
+// dataset name that admits control bytes, so it persists until the
+// declaration changes.
+func (w *spaceWorker) plan(entries []index.IndexEntry, stored map[string]string, objectId, dataset string, page *pageOps) {
+	if skipped := planDocs(entries, stored, w.ix.opts.ChunkRunes, page); len(skipped) > 0 {
+		w.ix.lg.Warn("skipping records whose dataset or id carries a control byte",
+			zap.String("spaceId", w.sp.Id()), zap.String("objectId", objectId),
+			zap.String("dataset", dataset), zap.Int("count", len(skipped)),
+			zap.String("first", strconv.Quote(skipped[0])))
 	}
 }
 
@@ -454,12 +497,16 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 		return err
 	}
 	if cursor == 0 {
-		planDocs(entries, nil, w.ix.opts.ChunkRunes, page)
+		w.plan(entries, nil, objectId, ch.Dataset(), page)
 		return nil
 	}
 	bases := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.Data != "" {
+		// Same id guard planDocs applies: a record id carrying the chunk
+		// separator produces a base byte-identical to a legitimate
+		// record's chunk doc, which would pull that doc into `stored` and
+		// get it deleted as vanished (planDocs never re-lists it).
+		if e.Data != "" && indexableId(e.RecordId) && indexableId(e.Dataset) {
 			bases = append(bases, docId(e.ObjectId, e.Dataset, e.RecordId))
 		}
 	}
@@ -469,7 +516,7 @@ func (w *spaceWorker) streamChunks(ctx context.Context, ch index.Chunker, object
 	if err != nil {
 		return err
 	}
-	planDocs(entries, stored, w.ix.opts.ChunkRunes, page)
+	w.plan(entries, stored, objectId, ch.Dataset(), page)
 	return nil
 }
 

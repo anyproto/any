@@ -114,7 +114,13 @@ id `objectId:prop:<propId>`:
   (property definitions are indexed nowhere else) and bare numbers get
   context. The name is the definition's display `name`, falling back
   to `xKey`. Valueless rows stay `Data ""` (a removal signal) — never
-  a bare name prefix.
+  a bare name prefix. The name also rides `IndexEntry.Title`, which is
+  re-prefixed onto the TEXT of chunks past the first, so a value long
+  enough to split keeps its property name on every chunk (§ Chunking
+  long records). That re-prefix is what makes the name searchable
+  throughout; the `title` field only joins the BM25F index when
+  `index.search.titleWeight` is set. Built-ins carry no title — they
+  are indexed raw.
 - **Kinds**: string; array (newline join of string and number
   elements); number (canonical JSON rendering — integers without a
   decimal point; distinctive numerals like 85600 are real discovery
@@ -231,9 +237,12 @@ what this is for.
 
 ### Content hashes (incremental embedding)
 
-Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`,
-hex-encoded (`docHash` in `store.go`). The indexer uses it to avoid
-re-embedding unchanged content:
+Every index doc stores a `hash` field — a 64-bit FNV-1a of its `Data`
+and `Title`, hex-encoded (`docHash` in `store.go`). Both, because a
+title-only edit changes the text of chunks past the first (they carry the
+re-prefixed title) but not of chunk 0: hashing `Data` alone would refresh
+the tail and leave chunk 0 serving the old title in its BM25F field. The
+indexer uses it to avoid re-embedding unchanged content:
 
 - **Reconcile diff (editor).** `worker.reconcile` reads the object's
   stored `(id, hash)` for `objectId:dataset:` (`Store.DocHashes`), diffs
@@ -341,9 +350,13 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
   base doc plus every chunk suffix; a chunk id passed the same way
   removes exactly that chunk) — and keeps ids unique even though
   recordIds repeat across objects (propIds do). The chunk separator is
-  a control byte no SDK id pattern admits (auto ids are CIDs, user ids
-  default to `[A-Za-z0-9._:-]+`), so every byte a real id can continue
-  `base` with sorts at or above `0x20` and the record range is exact.
+  a control byte (auto ids are CIDs, user ids default to
+  `[A-Za-z0-9._:-]+`), so every byte a real id can continue `base` with
+  sorts at or above `0x20` and the record range is exact. A runtime
+  dataset's `IdPattern` is client-supplied and checked only for
+  compilation, so the indexer ENFORCES this rather than assuming it: a
+  record id carrying a byte below `0x20` is skipped with a warning
+  instead of colliding with a neighbour's chunk docs.
   Prefix ranges use bytewise bounds `[P, P[:len-1]+";")` (`;` = `:`+1)
   and drive the primary btree directly; per-doc deletion cleans FTS and
   vector entries in the same transaction.
@@ -368,8 +381,11 @@ backlog), `index.embed.<spaceId>` (vector drain, done/total docs) and
   layout map lives on `indexSchemaVersion` in `internal/indexer/
   store.go`; a mismatched DB errors at boot with a remove-to-rebuild
   message, no migration — the index is derived state and re-indexes
-  from the next change) and the vector dimension — changing the
-  embedder dimension is the same kind of boot error.
+  from the next change), the vector dimension — changing the
+  embedder dimension is the same kind of boot error — and the **chunk
+  target** the docs were written with, since it decides every doc id and
+  every doc's text (a DB written before the pin carries none and is
+  adopted).
 
 ### Re-index triggers — per-space worker boot
 
@@ -406,7 +422,10 @@ The single operation is `advance`: page through
    `ChunksSince(cursor)` — `Data == ""` → delete the doc, else upsert.
 3. **One write transaction per page** (prefix deletes → record deletes
    → upserts), then persist the cursor (the page's max `AddSeq`) and
-   loop. Eviction rides the same addSeq window as content — no
+   loop. A removal wins over an upsert of the same doc in one page: an
+   object found tombstoned mid-collect evicts entries earlier chunkers
+   already queued, which would otherwise resurrect docs nothing
+   re-streams. Eviction rides the same addSeq window as content — no
    out-of-band purge can race the cursor. Crash-safe: re-applying a
    page is idempotent. Text-bearing upserts land marked `pending` —
    **FTS is searchable immediately**, never waiting on the embedder.
