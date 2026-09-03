@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newEditorCmd is the root for `any editor <subcommand>`. It mirrors
@@ -69,7 +68,7 @@ Examples:
 			default:
 				return fmt.Errorf("supply --old TEXT (with --new) or --edits JSON")
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.MarkdownEdit(cmd.Context(), args[0], args[1], req)
 			if err != nil {
 				return err
@@ -130,7 +129,7 @@ func newBlocksCreateCmd() *cobra.Command {
 			if parentId != "" || pos != "" {
 				req.Nav = &api.BlockNav{ParentId: parentId, Pos: pos}
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.BlocksCreate(cmd.Context(), args[0], args[1], req)
 			if err != nil {
 				return err
@@ -167,7 +166,7 @@ func newBlocksPatchCmd() *cobra.Command {
 			if len(unsetRaw) > 0 {
 				req.Unset = unsetRaw
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.BlocksPatch(cmd.Context(), args[0], args[1], args[2], req)
 			if err != nil {
 				return err
@@ -186,7 +185,7 @@ func newBlocksDeleteCmd() *cobra.Command {
 		Short: "DELETE one block (sticky tombstone; children NOT cascaded)",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.BlocksDelete(cmd.Context(), args[0], args[1], args[2])
 			if err != nil {
 				return err

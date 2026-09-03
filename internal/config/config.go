@@ -10,9 +10,14 @@ type Config struct {
 	// the root. config.yaml and the shared models/ cache stay at the
 	// root.
 	DataDir string `yaml:"dataDir"`
+	// Mode declares who owns this server: "standalone" (default — the
+	// user; keys on disk, account resolved from disk) or "managed" (a
+	// spawning host; account key supplied per boot, never on disk).
+	// See mode.go.
+	Mode string `yaml:"mode"`
 	// Account selects which account to boot when the root holds more
 	// than one. Empty = the default (root wallet.key, or the sole
-	// per-account dir).
+	// per-account dir). Standalone only.
 	Account string        `yaml:"account"`
 	Listen  Listen        `yaml:"listen"`
 	Auth    Auth          `yaml:"auth"`
@@ -327,6 +332,7 @@ const (
 func Defaults() Config {
 	return Config{
 		DataDir: "~/.any",
+		Mode:    ModeStandalone,
 		Listen:  Listen{Addr: "127.0.0.1:7001"},
 		Auth:    Auth{PasskeyEnv: "ANY_WALLET_PASSKEY"},
 		Storage: Storage{Topology: "shared"},

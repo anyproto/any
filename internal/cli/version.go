@@ -20,7 +20,7 @@ func newVersionCmd() *cobra.Command {
 
 			// Best-effort probe of the server; don't fail the command if
 			// the server isn't up.
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			h, err := cl.Health(cmd.Context())
 			if err != nil {
 				var te *client.TransportError

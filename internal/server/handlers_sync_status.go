@@ -104,11 +104,6 @@ func (d *deps) syncStatusObjectSubscribe(c echo.Context) error {
 // closure. pump is responsible for selecting on ctx.Done and
 // returning when it fires.
 func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func(ctx context.Context, emit func(string, any) error) error) error {
-	if d.streamsWG != nil {
-		d.streamsWG.Add(1)
-		defer d.streamsWG.Done()
-	}
-
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -178,11 +173,12 @@ func (d *deps) streamStatusSSE(c echo.Context, dropped *atomic.Uint64, pump func
 	_ = pump(waitCtx, emit)
 
 	// Terminal frame mirrors /subscribe — share the same reason set
-	// so clients can switch on it identically. Client-disconnect
-	// case writes nothing (peer is gone).
+	// so clients can switch on it identically (server_shutdown on
+	// process exit, deauthorized on logout / account switch).
+	// Client-disconnect case writes nothing (peer is gone).
 	if d.shutdownCtx != nil && d.shutdownCtx.Err() != nil {
 		writeMu.Lock()
-		_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: api.SubscribeClosedServerShutdown})
+		_ = writeSSEEvent(w, "closed", "", api.SubscribeClosed{Reason: d.engineCloseReason()})
 		flush(w)
 		writeMu.Unlock()
 	}

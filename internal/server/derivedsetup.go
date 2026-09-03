@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/bundles"
@@ -64,43 +65,48 @@ func (d *deps) bundleResolver() *bundles.Resolver {
 // (POST /v1/spaces/derived/:name), and a boot pass that created them
 // would hand every account a space it never asked for.
 //
-// Runs in the background off bootAccount — failures are logged, never
-// fatal, and nothing here blocks serving.
-func (d *deps) bootstrapDerivedSetups(ctx context.Context) {
+// Runs as an engine goroutine off bootAccount — bounded by the
+// engine's ctx and reading the engine it was started for (never the
+// live deps fields, which a switch replaces underneath it). Failures
+// are logged, never fatal, and nothing here blocks serving.
+func (d *deps) bootstrapDerivedSetups(ctx context.Context, eng *engine) {
 	select {
-	case <-d.sdk.BootstrapDone():
+	case <-eng.sdk.BootstrapDone():
 	case <-ctx.Done():
 		return
 	}
-	for _, def := range d.derived {
-		d.adoptDerivedSetup(ctx, def)
+	for _, def := range eng.derived {
+		if ctx.Err() != nil {
+			return
+		}
+		d.adoptDerivedSetup(ctx, eng.sdk, def)
 	}
 }
 
 // adoptDerivedSetup runs the restore gates for one entry and surfaces
 // what the converged registry carries.
-func (d *deps) adoptDerivedSetup(ctx context.Context, def resolvedDerivedSpace) {
+func (d *deps) adoptDerivedSetup(ctx context.Context, sdk *anysyncsdk.SDK, def resolvedDerivedSpace) {
 	// Local state first — offline-first: a space this device already
 	// carries answers the "does it exist" question with no network at
 	// all, and its registry is readable immediately.
-	if !d.derivedSpaceListed(ctx, def.SpaceId) {
+	if !derivedSpaceListed(ctx, sdk, def.SpaceId) {
 		// Unknown locally: the account may still have it on another
 		// device, so converge the space list before concluding
 		// anything.
 		waitCtx, cancel := context.WithTimeout(ctx, derivedListSyncWait)
-		err := d.sdk.Spaces().WaitListSynced(waitCtx)
+		err := sdk.Spaces().WaitListSynced(waitCtx)
 		cancel()
 		if err != nil {
 			engineLog.Warn("derived space list wait",
 				zap.String("name", def.Name), zap.Error(err))
 			return
 		}
-		if !d.derivedSpaceListed(ctx, def.SpaceId) {
+		if !derivedSpaceListed(ctx, sdk, def.SpaceId) {
 			return
 		}
 	}
 
-	sp, err := d.sdk.Spaces().Get(ctx, def.SpaceId)
+	sp, err := sdk.Spaces().Get(ctx, def.SpaceId)
 	if err != nil {
 		engineLog.Warn("derived space open",
 			zap.String("name", def.Name), zap.Error(err))
@@ -139,8 +145,8 @@ func (d *deps) adoptDerivedSetup(ctx context.Context, def resolvedDerivedSpace) 
 
 // derivedSpaceListed reports whether the account's space list carries a
 // usable row for the id (a tombstoned row is not one).
-func (d *deps) derivedSpaceListed(ctx context.Context, spaceId string) bool {
-	rows, err := d.sdk.Spaces().List(ctx)
+func derivedSpaceListed(ctx context.Context, sdk *anysyncsdk.SDK, spaceId string) bool {
+	rows, err := sdk.Spaces().List(ctx)
 	if err != nil {
 		return false
 	}

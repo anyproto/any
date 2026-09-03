@@ -115,7 +115,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix1 := indexer.New(d.sdk, d.chunkers, st1, indexer.Options{})
+	ix1 := indexer.New(d.sdk, d.eng.chunkers, st1, indexer.Options{})
 	d.indexer = ix1
 	if err := ix1.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix2 := indexer.New(d.sdk, d.chunkers, st2, indexer.Options{})
+	ix2 := indexer.New(d.sdk, d.eng.chunkers, st2, indexer.Options{})
 	d.indexer = ix2
 	defer func() { _ = ix2.Close() }()
 
@@ -302,7 +302,7 @@ func TestIndexer_EditorReconcileEmbedReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{Embedder: emb})
+	ix := indexer.New(d.sdk, d.eng.chunkers, st, indexer.Options{Embedder: emb})
 	d.indexer = ix
 	defer func() { _ = ix.Close() }()
 
@@ -387,7 +387,7 @@ func TestIndexer_EmbedderOutage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ix := indexer.New(d.sdk, d.chunkers, st, indexer.Options{Embedder: emb})
+	ix := indexer.New(d.sdk, d.eng.chunkers, st, indexer.Options{Embedder: emb})
 	d.indexer = ix
 	defer func() { _ = ix.Close() }()
 

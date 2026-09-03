@@ -10,7 +10,9 @@ order: 20
 ## Global flags and exit codes
 
 ```
---addr <host:port>     # default 127.0.0.1:7001 (bind address for `run`, connect address otherwise)
+--addr <host:port>     # bind address for `run`; connect address otherwise — default: the address
+                       # the running server recorded (<account-dir>/server.addr), else 127.0.0.1:7001
+--control-token <hex>  # managed server's control token; prefer ANY_CONTROL_TOKEN (a flag is visible in ps)
 --timeout <duration>   # request timeout, default 30s (does not apply to streams)
 --verbose              # log the HTTP request/response to stderr
 ```
@@ -30,14 +32,18 @@ Input conventions: `--file FILE` takes a JSON body (`-` = stdin); `--filter` is 
 
 ```
 any init [--mnemonic "w1 … w12"] [--mnemonic-stdin] [--index N] [--new]
-any run  [--config PATH] [--data-dir PATH] [--account ID] [--addr host:port]
-         [--wallet PATH] [--passkey-stdin] [--log-level debug|info|warn|error]
-any auth login [--mnemonic …|--mnemonic-stdin|--account ID]     # POST /v1/auth
+any run  [--config PATH] [--data-dir PATH] [--mode standalone|managed] [--account ID]
+         [--addr host:port] [--wallet PATH] [--passkey-stdin]
+         [--log-level debug|info|warn|error]
+any auth login [--mnemonic …|--mnemonic-stdin|--account ID] [--replace]   # POST /v1/auth
+any auth logout                                                   # DELETE /v1/auth (managed)
 any auth status                                                   # GET /v1/auth
 any status                                                        # GET /v1/health
-any stop                                                          # POST /v1/shutdown
+any stop [--data-dir PATH] [--account ID]                         # signal the server holding the account lock
 any version
 ```
+
+`--mode managed` starts a host-owned server: it never resolves an account from disk, the phrase arrives over `POST /v1/auth` on every launch, and it prints its control token as the second stdout line (`CONTROL_TOKEN <hex>`). `auth login --replace` (switch in place) and `auth logout` are managed-only and need that token (`ANY_CONTROL_TOKEN`). `any stop` sends no HTTP: it finds the server by its held account lock and signals it — so it works against a wedged server and one on an ephemeral port; a standalone server refuses `POST /v1/shutdown`. Not available on Windows (no signal to send — stop the server with Ctrl-C).
 
 `any init` creates the data dir and an account wallet, printing the BIP-39 mnemonic to stderr once. With `--mnemonic` / `--mnemonic-stdin` it restores an existing account (same phrase, same account id, a fresh device key) — prefer stdin so the phrase stays out of shell history. `--index` defaults to 1 (the any derivation index; 0 restores an anytype-derived account); `--new` forces an additional account. `any run` never creates wallets: with no resolvable account it starts unauthorized and waits for `any auth login`. See [Accounts](../auth/accounts.html).
 

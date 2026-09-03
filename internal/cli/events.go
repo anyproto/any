@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newEventsCmd: `any events ...` — the account-wide ephemeral event
@@ -58,7 +57,7 @@ JSON — inline, @FILE, or - for stdin.
 				}
 				req.Data = raw
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.EventsPublish(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -106,7 +105,7 @@ filter flags are repeatable and AND across dimensions, OR within one;
 			for _, v := range targets {
 				filter.Add("target", v)
 			}
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamEvents(cmd.Context(), filter, jsonFrameHandler())
 		},
 	}

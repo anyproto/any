@@ -260,7 +260,7 @@ func TestServer_Events_RoundTrip(t *testing.T) {
 		t.Errorf("non-matching subscribers = %d, want 0", pub.Subscribers)
 	}
 
-	d.cancelShutdown()
+	d.cancelEngine()
 	got = waitFrame(t, frames, 5*time.Second)
 	if got.Event != "closed" {
 		t.Fatalf("post-shutdown frame = %q, want closed (data=%s)", got.Event, got.Data)

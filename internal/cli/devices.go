@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any devices ...` — the account's device registry: one tech-space
@@ -36,7 +35,7 @@ func newDevicesListCmd() *cobra.Command {
 		Short: "list every device plus the per-app active winners",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.DevicesList(cmd.Context())
 			if err != nil {
 				return err
@@ -81,7 +80,7 @@ func newDevicesRegisterCmd() *cobra.Command {
 				}
 				req.Apps[slug] = nil // null on the wire = uninstall
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.DeviceUpdateMe(cmd.Context(), req)
 		},
 	}
@@ -97,7 +96,7 @@ func newDevicesActivateCmd() *cobra.Command {
 		Short: "claim the active role for an app on THIS device",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.DeviceActivate(cmd.Context(), args[0])
 		},
 	}
@@ -117,7 +116,7 @@ func newDevicesRemoveCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("removal is permanent for this peer id (sticky tombstone) — re-run with --yes")
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.DeviceDelete(cmd.Context(), args[0])
 		},
 	}
@@ -143,7 +142,7 @@ func newDevicesQueryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.DevicesQuery(cmd.Context(), body)
 			if err != nil {
 				return err
@@ -175,7 +174,7 @@ func newDevicesSubscribeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, 0) // timeout doesn't apply to streams
+			cl := newClient(0) // timeout doesn't apply to streams
 			return cl.StreamDevicesQuerySubscribe(cmd.Context(), body, jsonFrameHandler())
 		},
 	}

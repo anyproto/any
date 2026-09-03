@@ -52,7 +52,7 @@ func (c *Client) FileAttach(ctx context.Context, spaceId, objectId string, r io.
 		path += "?" + enc
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, r)
+	req, err := c.newRequest(ctx, http.MethodPost, path, r)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (c *Client) FileDownload(ctx context.Context, spaceId, fileId, variant stri
 	if variant != "" {
 		path += "?variant=" + url.QueryEscape(variant)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}

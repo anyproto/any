@@ -33,6 +33,7 @@ Rules that hold for every stream:
 | Reason | Meaning | Emitted by |
 |---|---|---|
 | `server_shutdown` | the server is exiting (signal or `POST /v1/shutdown`); in-flight streams get up to 10 s to emit it | every stream |
+| `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a `POST /v1/auth` switch) while the server stays up; re-read `GET /v1/auth` before resubscribing | every stream |
 | `sdk_closed` | the engine released the underlying subscription (space or SDK closed) | query/subscribe |
 | `overflow` | the subscriber's mailbox filled before it drained (query/subscribe: capacity `mailboxCapacity`, default 256, min 16; event bus: 16-deep buffer) | query/subscribe, event bus |
 | `drifted` | more than `driftBudgetPercent` (default 30) of the held window left without replacement; the engine refuses to re-query on the hot path | query/subscribe |

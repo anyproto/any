@@ -314,7 +314,7 @@ func (d *deps) eventsSubscribe(c echo.Context) error {
 		netSpaceIds = f.spaceIds
 	}
 	if wantAccount || len(netSpaceIds) > 0 {
-		release, err := d.eventsNet().acquire(c.Request().Context(), wantAccount, netSpaceIds, filterPatterns(&f))
+		release, err := d.eventsNet().acquire(c.Request().Context(), d.sdk, wantAccount, netSpaceIds, filterPatterns(&f))
 		if err != nil {
 			if len(netSpaceIds) > 0 && !errorsIsPubSub(err) {
 				return spaceError(c, err, "")

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/anyproto/any-sync-sdk/auth"
 	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/indexer"
 )
@@ -29,6 +29,10 @@ type RunOptions struct {
 	// caller. The hook runs on the goroutine that called Run, so keep it
 	// quick — long work blocks server startup.
 	Ready func(addr string)
+	// ControlToken is the managed-mode control token an in-process host
+	// supplies. Empty on a managed server means "mint one and announce
+	// it on stdout" (the CLI / sidecar path). Ignored in standalone.
+	ControlToken string
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled or
@@ -72,39 +76,65 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		return err
 	}
 
-	identity, err := ResolveIdentity(cfg, root)
-	var noIdentity *ErrNoIdentity
-	if errors.As(err, &noIdentity) {
-		identity = nil
-	} else if err != nil {
+	// The embedded path assembles its config directly (no config.Load),
+	// so normalize the mode here as well.
+	if cfg.Mode, err = config.ParseMode(cfg.Mode); err != nil {
 		return err
+	}
+	// A managed server never resolves an account from disk: the host
+	// states it on POST /v1/auth every boot. A minted control token is
+	// announced after LISTENING so only the spawning parent can read it.
+	var (
+		controlToken string
+		mintedToken  bool
+	)
+	if cfg.Managed() {
+		controlToken = opts.ControlToken
+		if controlToken == "" {
+			if controlToken, err = mintControlToken(); err != nil {
+				return fmt.Errorf("mint control token: %w", err)
+			}
+			mintedToken = true
+		}
+	}
+
+	var identity *Identity
+	var noIdentity *ErrNoIdentity
+	if !cfg.Managed() {
+		identity, err = ResolveIdentity(cfg, root)
+		if errors.As(err, &noIdentity) {
+			identity = nil
+		} else if err != nil {
+			return err
+		}
 	}
 
 	shutdown := make(chan struct{}, 1)
-	streamsCtx, cancelStreams := context.WithCancel(context.Background())
-	defer cancelStreams()
 
 	deps := &deps{
-		startedAt:      time.Now().UTC(),
-		shutdown:       shutdown,
-		chunkers:       NewIndexRegistry(),
-		shutdownCtx:    streamsCtx,
-		cancelShutdown: cancelStreams,
-		streamsWG:      &sync.WaitGroup{},
-		root:           root,
-		cfg:            cfg,
-		runCtx:         ctx,
+		startedAt:    time.Now().UTC(),
+		shutdown:     shutdown,
+		root:         root,
+		cfg:          cfg,
+		runCtx:       ctx,
+		controlToken: controlToken,
 	}
-	defer deps.closeEngine(lg)
+	// Covers every early return past a successful boot (a bind
+	// failure, for one): the engine's goroutines are joined and its
+	// resources released. A no-op after the explicit teardown below.
+	defer deps.teardownEngine(lg, api.SubscribeClosedServerShutdown)
 
-	if identity != nil {
+	switch {
+	case identity != nil:
 		// Existing wallets ignore the seed entirely; the index matters
 		// only for the wallet-override path, where a missing file is
 		// freshly generated — at the any default, consistent with init.
-		if _, err := deps.bootAccount(identity, walletSeed{index: auth.DefaultAccountIndex}); err != nil {
+		if _, err := deps.bootAccount(identity, fileCredential(cfg, identity.WalletPath, walletSeed{index: auth.DefaultAccountIndex})); err != nil {
 			return err
 		}
-	} else {
+	case cfg.Managed():
+		lg.Info("managed mode — starting unauthorized, waiting for the host's POST /v1/auth")
+	default:
 		lg.Info("no account selected — starting unauthorized, waiting for POST /v1/auth",
 			zap.Strings("available", noIdentity.Accounts))
 	}
@@ -120,6 +150,13 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	}
 	e.Listener = ln
 	boundAddr := ln.Addr().String()
+	// Record the address for the CLI: now for an engine booted before
+	// the bind, and in publishEngine for every later boot (the field is
+	// set before serving starts, so handlers observe it).
+	deps.boundAddr = boundAddr
+	if deps.eng != nil {
+		writeAddrFile(deps.eng.dir, boundAddr)
+	}
 	if opts.Ready != nil {
 		opts.Ready(boundAddr)
 	}
@@ -135,7 +172,12 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 	// Do not change this line: the desktop shell (any-ui PR-095 / PR #162)
 	// parses it as its port handshake + readiness gate.
 	fmt.Printf("LISTENING %s\n", boundAddr)
-	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()))
+	if mintedToken {
+		// Second line of the same handshake: the parent owns the pipe,
+		// so nobody else can read the token. Never logged.
+		fmt.Printf("CONTROL_TOKEN %s\n", controlToken)
+	}
+	lg.Info("listening", zap.String("addr", boundAddr), zap.String("account", deps.accountID()), zap.String("mode", cfg.Mode))
 	// Gated by the same flag as the /ui route mount (routes.go), so the
 	// advertised URL never outlives the handler. Silent on headless
 	// (app-embedded) boots — IOS-116.
@@ -152,15 +194,12 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	// Signal SSE/streaming handlers to wrap up so their final `closed`
-	// frame lands before the listener tears the socket down. Then bound
-	// the rest of the shutdown by gracefulShutdownDeadline; e.Shutdown
-	// stops accepting new connections and waits for in-flight handlers
-	// to return.
-	deps.cancelShutdown()
-	if !waitTimeout(deps.streamsWG, gracefulShutdownDeadline) {
-		lg.Warn("graceful shutdown: streaming handlers did not finish in time")
-	}
+	// Tear the engine down first so streaming handlers write their
+	// final `closed` frame and every in-flight request drains before
+	// the listener tears the socket down (bounded by
+	// gracefulShutdownDeadline inside). Then e.Shutdown stops accepting
+	// new connections and waits for whatever is left.
+	deps.teardownEngine(lg, api.SubscribeClosedServerShutdown)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracefulShutdownDeadline)
 	defer cancel()
@@ -168,25 +207,4 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		lg.Warn("graceful shutdown", zap.Error(err))
 	}
 	return nil
-}
-
-// waitTimeout returns true if wg drains within d, false otherwise.
-// The streaming-handler drain races the overall shutdown deadline —
-// if a handler is wedged on a slow client write it gets cut off
-// rather than blocking the shutdown indefinitely.
-func waitTimeout(wg *sync.WaitGroup, d time.Duration) bool {
-	if wg == nil {
-		return true
-	}
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return true
-	case <-time.After(d):
-		return false
-	}
 }

@@ -58,7 +58,6 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 - **Default port.** `7001` was chosen arbitrarily; it changes before first packaged release if it collides with anything common.
 - **Config file location on macOS.** `$XDG_CONFIG_HOME/any/config.yaml` is what Linux users expect; macOS users may prefer `~/Library/Application Support/any/` — revisited during packaging.
 - **Passkey UX.** The wallet passkey arrives by environment variable or stdin. Whether an installer pipes it in or integrates with OS keychains is decided with the install script.
-- **Switching accounts on a running server.** One engine per process today — switching means restarting with `--account`. A logout/switch endpoint is plausible once every stream tolerates the engine going away mid-flight.
 - **Strict request bodies.** `/modify` and `/aggregate` hand their op and stage vocabularies straight to the engine and drop unknown keys silently; a strict gate waits for the engine to export that grammar.
 - **One macOS build.** The App-Sandbox-safe `-sandbox` variant is the strictly more conservative one; the end state is a single darwin build using it once the oldest supported macOS is verified.
 

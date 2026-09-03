@@ -14,7 +14,6 @@ import (
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/bundles"
 	"github.com/anyproto/any/internal/config"
-	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/localstore"
 	"github.com/anyproto/any/internal/push"
@@ -26,10 +25,11 @@ import (
 // handle once the SDK slice landed. It is built once in server.Run and
 // shared across all routes via closures registered on echo.
 //
-// The shutdownCtx / streamsWG pair coordinates graceful teardown for
-// long-running streaming handlers (SSE subscribe). server.Run cancels
-// shutdownCtx when teardown begins; handlers select on it and exit;
-// streamsWG lets Run wait for them to finish before returning.
+// The engine gate + shutdownCtx pair coordinates engine teardown
+// (process exit, DELETE /v1/auth, an account switch): every request
+// and stream runs inside the gate, teardown cancels shutdownCtx so
+// they unwind — streams emit their terminal frame — and drains the
+// gate before the engine's resources are released (engine.go).
 type deps struct {
 	account   string
 	startedAt time.Time
@@ -40,10 +40,6 @@ type deps struct {
 	// derived is the derived-space registry resolved against the booted
 	// account (derivedspaces.go) — set with sdk, published by ready.
 	derived []resolvedDerivedSpace
-
-	// chunkers is the index chunker registry, built once at boot via
-	// NewIndexRegistry and driven by the indexer.
-	chunkers *index.Registry
 
 	// installs drives the per-space bundle installs and carries their
 	// loser verdicts across requests (derivedsetup.go). Created lazily
@@ -86,28 +82,33 @@ type deps struct {
 	// local.disabled; existing collections stay untouched on disk.
 	local *localstore.Store
 
-	// shutdownCtx cancels when graceful teardown begins. Streaming
-	// handlers select on Done to write their final `closed` frame and
-	// exit. Nil-tolerant: tests that don't go through server.Run leave
-	// it unset and SSE handlers fall back to never-cancel context.
-	// cancelShutdown is the matching CancelFunc; server.Run trips it
-	// before draining streamsWG so handlers wake up and emit their
-	// terminal frame inside the shutdown deadline.
-	shutdownCtx    context.Context
-	cancelShutdown context.CancelFunc
-	streamsWG      *sync.WaitGroup
+	// shutdownCtx is the LIVE ENGINE's context: it cancels when that
+	// engine's teardown begins (process exit, logout, account switch).
+	// Streaming handlers select on Done to write their final `closed`
+	// frame and exit; engine goroutines return on it. Nil while
+	// unauthorized and in tests that never boot — SSE handlers fall
+	// back to a never-cancel context. Swapped only between gate
+	// drains, so a handler inside the gate sees one value.
+	shutdownCtx context.Context
 
 	// ready flips to true once an engine (wallet + SDK + indexer) is
-	// live. Until then the /v1 guard middleware rejects every route
-	// except health/shutdown/auth with 401 auth.required, so handlers
-	// never observe a nil sdk. The store happens after the engine
-	// fields above are populated; the middleware's atomic load is the
-	// acquire edge that makes them visible. Tests building deps by
-	// hand must set it (newTestDeps does).
+	// live and false as the first step of its teardown. Until then the
+	// /v1 guard middleware rejects every route except
+	// health/shutdown/auth with 401 auth.required, so handlers never
+	// observe a nil sdk. The store happens after the engine fields
+	// above are populated; the middleware's atomic load is the acquire
+	// edge that makes them visible. Tests building deps by hand must
+	// set it (newTestDeps does).
 	ready atomic.Bool
+	// gate counts the requests and streams executing against the live
+	// engine; teardown closes and drains it before touching the
+	// fields above (gate.go). Zero value = open.
+	gate engineGate
 
-	// authMu serializes engine boot (POST /v1/auth vs. server.Run vs.
-	// shutdown). eng tracks the live engine for teardown.
+	// authMu serializes engine lifecycle: boot (POST /v1/auth vs.
+	// server.Run), teardown (shutdown, DELETE /v1/auth) and the switch
+	// that chains the two. Never taken by a request handler — teardown
+	// holds it while draining the gate. eng is the live engine.
 	authMu sync.Mutex
 	eng    *engine
 
@@ -118,24 +119,38 @@ type deps struct {
 	root   string
 	cfg    config.Config
 	runCtx context.Context
+
+	// controlToken gates the managed-mode control operations (auth
+	// verbs + shutdown); empty on a standalone server, where those
+	// operations are refused by mode instead. See control.go.
+	controlToken string
+	// boundAddr is the listener's resolved address, set before serving
+	// starts; an engine booted afterwards records it beside its pid
+	// file (server.addr) for the CLI.
+	boundAddr string
 }
 
 // accountID returns the booted account id, or "" while unauthorized.
-// The ready gate doubles as the memory barrier for the plain field
-// read (health runs outside the guard middleware).
+// Health and auth status run outside the guard middleware, so the read
+// takes the gate itself: a teardown in progress answers "".
 func (d *deps) accountID() string {
-	if !d.ready.Load() {
+	if !d.ready.Load() || !d.gate.enter() {
 		return ""
 	}
+	defer d.gate.leave()
 	return d.account
 }
 
 // bootstrapping reports whether the booted SDK's background boot pass
 // (eager space loading + offline catch-up) is still running. False
-// while unauthorized and once the pass completes. The ready gate is
-// the memory barrier for the sdk field read (see accountID).
+// while unauthorized and once the pass completes. Gate-scoped like
+// accountID: the sdk field is stable for the duration of the read.
 func (d *deps) bootstrapping() bool {
-	if !d.ready.Load() || d.sdk == nil {
+	if !d.ready.Load() || !d.gate.enter() {
+		return false
+	}
+	defer d.gate.leave()
+	if d.sdk == nil {
 		return false
 	}
 	select {
@@ -161,11 +176,26 @@ func (d *deps) health(c echo.Context) error {
 	})
 }
 
-// @Summary	Graceful shutdown
-// @Tags		system
-// @Success	204
-// @Router		/shutdown [post]
+// shutdownHandler handles POST /v1/shutdown. Lifetime belongs to the
+// server's owner: a managed host stops it here with the control token;
+// a standalone server is the user's, stopped with `any stop` or a
+// signal, and refuses. Stays outside the auth guard so an unauthorized
+// managed server is still stoppable.
+//
+//	@Summary	Graceful shutdown (managed servers; needs the control token)
+//	@Tags		system
+//	@Param		X-Any-Control-Token	header	string	false	"managed servers: the control token"
+//	@Success	204
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Router		/shutdown [post]
 func (d *deps) shutdownHandler(c echo.Context) error {
+	if !d.cfg.Managed() {
+		return writeError(c, http.StatusForbidden, "shutdown.not_managed",
+			"standalone server: stop it with `any stop` or a signal", nil)
+	}
+	if !d.requireControl(c) {
+		return nil
+	}
 	select {
 	case d.shutdown <- struct{}{}:
 	default:

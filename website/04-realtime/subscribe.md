@@ -85,11 +85,12 @@ Only `deleted` means the object is gone. For the other two, a fresh snapshot wou
 | Reason | Cause |
 |---|---|
 | `server_shutdown` | the server received a signal or `POST /v1/shutdown`; in-flight streams emit this frame before the listener goes down (10 s deadline) |
+| `deauthorized` | the account behind the stream was torn down in place (`DELETE /v1/auth`, or a switch to another account) while the server stays up — re-read `GET /v1/auth` before resubscribing |
 | `sdk_closed` | the space or the engine was closed |
 | `overflow` | events arrived faster than the client drained them and the mailbox (`mailboxCapacity`) filled; the engine closes the stream rather than drop events |
 | `drifted` | more than `driftBudgetPercent` of the window left without replacements; the engine refuses to re-query on the hot path |
 
-Recovery is the same for all four: **open a new POST and take the fresh snapshot.** There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
+Recovery is the same for all of them: **open a new POST and take the fresh snapshot** — after `deauthorized`, once `GET /v1/auth` shows the account you expect. There is no replay across reconnects and no resume cursor — the new snapshot already reflects current state, which is strictly cheaper than reconstructing it from a backlog. `overflow` and `drifted` are split only so you can log and back off sensibly; a burst of `overflow` on a hot collection is the hint to raise `mailboxCapacity`, a stream of `drifted` on a churny list is the hint to raise `driftBudgetPercent` or widen `limit`.
 
 > **Note.** Drift detection needs a window to measure against: with `limit: 0` there is no window auto-shift and no drift safety net. Always subscribe with a limit.
 

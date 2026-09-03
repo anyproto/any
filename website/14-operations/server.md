@@ -5,7 +5,9 @@ order: 10
 ---
 # Server
 
-`any run` is a plain foreground process: it loads config, boots the selected account's engine, binds a loopback listener and serves until it receives SIGINT/SIGTERM or `POST /v1/shutdown`. No daemonization — run it under a terminal, `tmux`, `systemd --user` or whatever supervisor you prefer.
+`any run` is a plain foreground process: it loads config, boots the selected account's engine, binds a loopback listener and serves until it receives SIGINT/SIGTERM (which `any stop` sends) or — on a managed server — its host's `POST /v1/shutdown`. No daemonization — run it under a terminal, `tmux`, `systemd --user` or whatever supervisor you prefer.
+
+`--mode` declares who owns the process: `standalone` (default) is the user's server — keys on disk, account resolved from the data dir, logout and HTTP shutdown refused; `managed` is a host's — the account arrives over `POST /v1/auth` on every launch and sign-out, account switching and `POST /v1/shutdown` are accepted behind a control token the host holds ([Accounts](../auth/accounts.html)).
 
 ## Startup
 
@@ -51,17 +53,16 @@ The SDK returns from `Open` after local wiring only. Eager space loading and off
 
 ## Shutdown
 
-Two triggers, one path:
+Two triggers, one path, gated by ownership:
 
-1. `SIGINT` / `SIGTERM`
-2. `POST /v1/shutdown` (`any stop`)
+1. `SIGINT` / `SIGTERM` — every server. `any stop` sends it: it finds the server serving the data dir's account by its held instance lock (proof of life), signals it and waits for the lock to be released — so it works against a wedged server and one on an ephemeral port. An unauthorized standalone server holds no account lock yet; stop it with Ctrl-C.
+2. `POST /v1/shutdown` — managed servers only, with the `X-Any-Control-Token` header. A standalone server answers `403 shutdown.not_managed`.
 
-The server stops accepting new requests, drains in-flight ones with a 10-second deadline, lets open SSE streams emit their terminal `closed{reason: "server_shutdown"}` frame, closes the SDK and exits 0. After the deadline, remaining requests are aborted and the process still exits 0.
+The server tears the engine down — open SSE streams emit their terminal `closed{reason: "server_shutdown"}` frame, in-flight requests drain with a 10-second deadline — closes the listener and exits 0. After the deadline, remaining requests are aborted and the process still exits 0.
 
 ```bash
-any stop
-# or
-curl -s -X POST http://127.0.0.1:7001/v1/shutdown
+any stop                                   # standalone (or managed) — signal
+curl -s -X POST -H "X-Any-Control-Token: $TOKEN" http://127.0.0.1:7001/v1/shutdown   # managed host
 ```
 
 ## Single-instance lock

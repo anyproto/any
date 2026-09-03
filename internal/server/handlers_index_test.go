@@ -299,7 +299,7 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 
 func mustOneChunker(t *testing.T, d *deps, dataset string) index.Chunker {
 	t.Helper()
-	chs := d.chunkers.ForDataset(dataset)
+	chs := d.eng.chunkers.ForDataset(dataset)
 	if len(chs) != 1 {
 		t.Fatalf("registry ForDataset(%q) = %d chunkers, want 1", dataset, len(chs))
 	}

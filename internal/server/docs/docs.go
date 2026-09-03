@@ -233,10 +233,28 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.AuthCapabilities": {
+                "description": "Capabilities lists which lifecycle operations this server\naccepts; every bit is false on a standalone server.",
+                "properties": {
+                    "deauthorize": {
+                        "description": "Deauthorize: DELETE /v1/auth tears the account down in place.",
+                        "type": "boolean"
+                    },
+                    "shutdown": {
+                        "description": "Shutdown: POST /v1/shutdown stops the server.",
+                        "type": "boolean"
+                    },
+                    "switchAccount": {
+                        "description": "SwitchAccount: POST /v1/auth with replace:true switches accounts\nin place.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
             "api.AuthRequest": {
                 "properties": {
                     "accountId": {
-                        "description": "AccountId selects an account that already has a local wallet.",
+                        "description": "AccountId selects an account that already has a local wallet\n(standalone only).",
                         "type": "string"
                     },
                     "index": {
@@ -244,8 +262,12 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "mnemonic": {
-                        "description": "Mnemonic restores (or first-creates) the account derived from\nthis BIP-39 phrase. The device key is always freshly generated.",
+                        "description": "Mnemonic restores (or first-creates) the account derived from\nthis BIP-39 phrase.",
                         "type": "string"
+                    },
+                    "replace": {
+                        "description": "Replace switches a managed server from its current account to\nthe one this request names, tearing the current engine down\nfirst. Without it a different account is refused. Never implied.",
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -255,8 +277,12 @@ const docTemplate = `{
                     "accountId": {
                         "type": "string"
                     },
+                    "alreadyAuthorized": {
+                        "description": "AlreadyAuthorized reports that the request named the account the\nserver already runs: nothing was booted. With a mnemonic this\nconfirms the phrase derives to the running account; with an\naccountId it confirms only that the id matches.",
+                        "type": "boolean"
+                    },
                     "created": {
-                        "description": "Created is true when a new wallet file was written (fresh\ngeneration or first restore on this machine).",
+                        "description": "Created is true when this account had no local state before this\ncall (fresh generation or first restore on this device).",
                         "type": "boolean"
                     },
                     "mnemonic": {
@@ -272,6 +298,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "accounts": {
+                        "description": "Accounts are the wallets on disk (standalone only — a managed\nserver holds no keys and reports an empty list; the client owns\nthe account list there).",
                         "items": {
                             "$ref": "#/components/schemas/api.AuthAccount"
                         },
@@ -280,6 +307,17 @@ const docTemplate = `{
                     },
                     "authorized": {
                         "type": "boolean"
+                    },
+                    "capabilities": {
+                        "$ref": "#/components/schemas/api.AuthCapabilities"
+                    },
+                    "mode": {
+                        "description": "Mode is the server's ownership mode, fixed at launch.",
+                        "enum": [
+                            "standalone",
+                            "managed"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3438,6 +3476,37 @@ const docTemplate = `{
             }
         },
         "/auth": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    }
+                },
+                "summary": "Deauthorize: tear the account down in place (managed servers)",
+                "tags": [
+                    "auth"
+                ]
+            },
             "get": {
                 "responses": {
                     "200": {
@@ -3451,12 +3520,22 @@ const docTemplate = `{
                         "description": "OK"
                     }
                 },
-                "summary": "Authorization state + locally available accounts",
+                "summary": "Authorization state, ownership mode, capabilities and locally available accounts",
                 "tags": [
                     "auth"
                 ]
             },
             "post": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -3468,13 +3547,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/api.AuthRequest",
                                         "summary": "body",
-                                        "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
+                                        "description": "Auth mode: empty body generates, mnemonic restores, accountId selects; replace switches on a managed server"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "Auth mode: empty body generates, mnemonic restores, accountId selects"
+                    "description": "Auth mode: empty body generates, mnemonic restores, accountId selects; replace switches on a managed server"
                 },
                 "responses": {
                     "200": {
@@ -3497,6 +3576,16 @@ const docTemplate = `{
                         },
                         "description": "Bad Request"
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
                     "404": {
                         "content": {
                             "application/json": {
@@ -3518,7 +3607,7 @@ const docTemplate = `{
                         "description": "Conflict"
                     }
                 },
-                "summary": "Authorize: generate, restore (mnemonic) or select an account",
+                "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
                 "tags": [
                     "auth"
                 ]
@@ -5499,12 +5588,32 @@ const docTemplate = `{
         },
         "/shutdown": {
             "post": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
                     }
                 },
-                "summary": "Graceful shutdown",
+                "summary": "Graceful shutdown (managed servers; needs the control token)",
                 "tags": [
                     "system"
                 ]

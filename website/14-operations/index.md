@@ -27,7 +27,7 @@ any run                      foreground, 127.0.0.1:7001
 any init                     # create an account, print the mnemonic once (back it up)
 any run                      # serve in the foreground
 any status                   # GET /v1/health
-any stop                     # POST /v1/shutdown — graceful
+any stop                     # SIGTERM the server holding the account lock — graceful
 any version
 ```
 

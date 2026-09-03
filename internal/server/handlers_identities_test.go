@@ -98,7 +98,7 @@ func TestServer_Identities_StreamLifecycle(t *testing.T) {
 		t.Fatalf("first frame = %q, want ready (data=%s)", got.Event, got.Data)
 	}
 
-	d.cancelShutdown()
+	d.cancelEngine()
 
 	got := waitFrame(t, frames, 5*time.Second)
 	if got.Event != "closed" {

@@ -152,7 +152,11 @@ func TestE2E_PropertyValidation(t *testing.T) {
 		}
 	})
 
-	mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusNoContent)
+	// A standalone server refuses HTTP shutdown; `any stop` signals it.
+	mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusForbidden)
+	if out, err := anyStop(t, bin, dataDir); err != nil {
+		t.Fatalf("any stop: %v\n%s", err, out)
+	}
 	if err := srv.waitExit(15 * time.Second); err != nil {
 		t.Fatalf("server didn't exit cleanly: %v\n%s", err, srv.output())
 	}

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -10,19 +11,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
 )
 
-// Desktop-shell contract (docs/plans/20260611-desktop-shell-server-contract.md):
-// `--addr 127.0.0.1:0` with no nodeconf FILE must boot from an arbitrary
+// Desktop-shell contract (docs/plans/20260611-desktop-shell-server-contract.md,
+// docs/02-server.md § Modes): the shell spawns `run --mode managed --addr
+// 127.0.0.1:0` with no nodeconf FILE, which must boot from an arbitrary
 // working directory — the old CWD-relative ../test-etc/staging.yml read is
 // gone — and announce the KERNEL-RESOLVED address as a plain
-// `LISTENING <addr>` STDOUT line. That line is the
-// any-ui desktop shell's port handshake + readiness gate; POST /v1/shutdown
-// is its graceful-quit path. This test is the server-side mirror of that
-// exact lifecycle. Stdout and stderr are captured separately on purpose:
-// the shell reads stdout only, so the announce migrating to stderr (e.g.
-// into the zap logger) must fail here.
+// `LISTENING <addr>` STDOUT line followed by `CONTROL_TOKEN <hex>`. The
+// first line is the shell's port handshake + readiness gate, the second
+// the token that gates its auth and graceful-quit calls (POST /v1/auth,
+// POST /v1/shutdown). This test is the server-side mirror of that exact
+// lifecycle. Stdout and stderr are captured separately on purpose: the
+// shell reads stdout only, so an announce migrating to stderr (e.g. into
+// the zap logger) must fail here.
 func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	bin := buildBinary(t)
 	dataDir := t.TempDir()
@@ -40,26 +44,19 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	}
 	defer stderrFile.Close()
 
-	// The nodeconf regression only triggers when the SDK boots, which needs
-	// an account — init one (no nodeconf required for init).
-	//
 	// The network comes from the sanitized placeholder, not the embedded
 	// default: that default is the production network, and the contract
 	// under test is the boot/announce/shutdown lifecycle, not which peers
 	// the server dials. ANY_NETWORK_NODECONF_PATH is the same override a
 	// packaged install would use; the CWD still has no ../test-etc sibling,
-	// so the old relative-path regression stays covered.
+	// so the old relative-path regression stays covered — it triggers
+	// when the SDK boots, which the token-gated POST /v1/auth below does.
 	nodeconfPath := filepath.Join(captureDir, "nodeconf.yml")
 	if err := os.WriteFile(nodeconfPath, config.NodeconfPlaceholder(), 0o600); err != nil {
 		t.Fatalf("write nodeconf placeholder: %v", err)
 	}
-	initCmd := exec.Command(bin, "init", "--data-dir", dataDir)
-	initCmd.Env = append(os.Environ(), "ANY_DATA_DIR="+dataDir)
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("any init: %v\n%s", err, out)
-	}
 
-	cmd := exec.Command(bin, "run", "--addr", "127.0.0.1:0", "--data-dir", dataDir)
+	cmd := exec.Command(bin, "run", "--mode", "managed", "--addr", "127.0.0.1:0", "--data-dir", dataDir)
 	// A CWD that has no ../test-etc sibling — this is what a packaged
 	// install looks like, and what used to fail before the embed.
 	cmd.Dir = t.TempDir()
@@ -77,43 +74,28 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
-	// Poll the captured STDOUT (only) for the announce line.
-	var addr string
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) && addr == "" {
-		raw, _ := os.ReadFile(stdoutPath)
-		for line := range strings.SplitSeq(string(raw), "\n") {
-			if rest, ok := strings.CutPrefix(line, "LISTENING "); ok {
-				addr = strings.TrimSpace(rest)
-				break
-			}
-		}
-		if addr != "" {
-			break
-		}
-		select {
-		case err := <-exited:
-			t.Fatalf("server exited before announcing: %v\n%s", err, dumpCaptures(stdoutPath, stderrPath))
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	if addr == "" {
-		t.Fatalf("no LISTENING line on stdout within 30s\n%s", dumpCaptures(stdoutPath, stderrPath))
-	}
+	// Poll the captured STDOUT (only) for the handshake lines.
+	addr, token := readHandshake(t, stdoutPath, stderrPath, exited)
 	if strings.HasSuffix(addr, ":0") {
 		t.Fatalf("announce carries the CONFIG addr, not the resolved one: %q", addr)
 	}
 
 	waitForReady(t, addr, 10*time.Second)
 
-	// The shell's graceful-quit path: POST /v1/shutdown → clean exit.
-	resp, err := http.Post("http://"+addr+"/v1/shutdown", "", nil)
-	if err != nil {
-		t.Fatalf("POST /v1/shutdown: %v", err)
+	// A managed server boots nothing on its own — the shell posts the
+	// credential with the token. This is also the SDK boot the nodeconf
+	// regression needs.
+	if code, body := controlPost(t, addr, "/v1/auth", `{}`, token); code != http.StatusOK {
+		t.Fatalf("POST /v1/auth with the token: %d %s", code, body)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("shutdown status = %d, want 204", resp.StatusCode)
+
+	// The shell's graceful-quit path: token-gated POST /v1/shutdown →
+	// clean exit. Without the token nothing happens.
+	if code, body := controlPost(t, addr, "/v1/shutdown", "", ""); code != http.StatusForbidden {
+		t.Fatalf("POST /v1/shutdown without the token: %d %s, want 403", code, body)
+	}
+	if code, body := controlPost(t, addr, "/v1/shutdown", "", token); code != http.StatusNoContent {
+		t.Fatalf("POST /v1/shutdown with the token: %d %s, want 204", code, body)
 	}
 	select {
 	case err := <-exited:
@@ -123,6 +105,58 @@ func TestDesktopContract_AnnounceEmbeddedNodeconfShutdown(t *testing.T) {
 	case <-time.After(25 * time.Second):
 		t.Fatal("server did not exit within 25s of POST /v1/shutdown")
 	}
+}
+
+// readHandshake polls the captured stdout for the `LISTENING <addr>`
+// and `CONTROL_TOKEN <hex>` lines a managed server prints, failing
+// fast if the process exits first.
+func readHandshake(t *testing.T, stdoutPath, stderrPath string, exited <-chan error) (addr, token string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, _ := os.ReadFile(stdoutPath)
+		for line := range strings.SplitSeq(string(raw), "\n") {
+			if rest, ok := strings.CutPrefix(line, "LISTENING "); ok {
+				addr = strings.TrimSpace(rest)
+			}
+			if rest, ok := strings.CutPrefix(line, "CONTROL_TOKEN "); ok {
+				token = strings.TrimSpace(rest)
+			}
+		}
+		if addr != "" && token != "" {
+			return addr, token
+		}
+		select {
+		case err := <-exited:
+			t.Fatalf("server exited before announcing: %v\n%s", err, dumpCaptures(stdoutPath, stderrPath))
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	t.Fatalf("no LISTENING + CONTROL_TOKEN lines on stdout within 30s\n%s", dumpCaptures(stdoutPath, stderrPath))
+	return "", ""
+}
+
+// controlPost issues a POST with an optional JSON body and control
+// token, returning the status and body.
+func controlPost(t *testing.T, addr, path, body, token string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set(api.ControlTokenHeader, token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
 }
 
 // dumpCaptures renders both capture files for a failure message; a read

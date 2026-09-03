@@ -740,6 +740,51 @@ the local settings you already have, and treat the server as
 authoritative from then on — keeping the local copy as a fallback
 re-creates the divergence views exist to remove.
 
+## 14. Auth: read the capability bits, hold the phrase, log in every launch
+
+The server's ownership mode (`02-server.md` § Modes) decides what an
+auth UI may offer. These rules are normative for every client:
+
+1. **Read `GET /v1/auth` before rendering any auth affordance.** Show
+   sign-out, account switching and quit only where the matching
+   `capabilities` bit is true. Never infer a capability from the `mode`
+   string — a future mode must not break you.
+2. **On a managed server the client owns the account list.** The server
+   cannot enumerate keys it never stored; `accounts` is empty. Build the
+   picker from your keystore.
+3. **Store the recovery phrase.** It is the portable identity
+   credential: it restores the account on any device and it is what
+   the user backs up. Show it once at generation. It carries no device
+   identity — the server caches the device key per account, so
+   replaying the phrase keeps the same peerId.
+4. **Delete the stored credential on sign-out**, or the account is not
+   actually signed out on that device. A keystore wrapper without a
+   delete is incomplete.
+5. **Never write key material to a log, breadcrumb or crash report.**
+6. **Treat `200 {alreadyAuthorized: true}` as success**, not an error
+   path. On a **mnemonic** request it is also how you confirm a phrase
+   you hold belongs to the running account, so it is safe to persist
+   afterwards; an `accountId` request confirms only the id.
+7. **Pass `replace: true` only on a deliberate user-initiated switch.**
+   It invalidates every subscription held against the old account
+   (`closed{reason: deauthorized}`).
+8. **Handle `401 auth.required` at the transport layer**, not only at
+   boot. A managed server can return to unauthorized mid-session; route
+   back to the auth gate.
+9. **Re-read the bound address after any lifecycle transition.** A
+   `:0` server gets a different port on respawn.
+10. **Never treat loopback as authenticated.** Any same-user process can
+    reach the API; the mode gates express ownership, not
+    authentication. A managed host keeps its control token to itself.
+11. **A second engine for the same account on one device needs its own
+    root.** Device identity is cached per `(root, account)`; sharing a
+    root means sharing a datastore.
+
+Managed hosts, per launch: spawn `run --mode managed --addr
+127.0.0.1:0`, read `LISTENING` and `CONTROL_TOKEN` from stdout (or pass
+`embedded.Options.Mode` + `ControlToken` in-process), `POST /v1/auth
+{mnemonic}` with the token, and stop with `POST /v1/shutdown` + token.
+
 ## See also
 
 - `03-api.md` — endpoint catalog and request/response bodies.

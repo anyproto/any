@@ -100,6 +100,68 @@ func TestLoad_AccountPrecedence(t *testing.T) {
 	}
 }
 
+// TestLoad_Mode pins the ownership-mode knob: standalone by default,
+// file → env → flag precedence, unknown values rejected, and the
+// standalone-only selectors refused under managed regardless of the
+// layer they came from.
+func TestLoad_Mode(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := Load(Flags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != ModeStandalone || cfg.Managed() {
+		t.Fatalf("default mode = %q, want standalone", cfg.Mode)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("mode: managed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = Load(Flags{ConfigPath: path}); err != nil || !cfg.Managed() {
+		t.Fatalf("file mode: cfg=%+v err=%v", cfg.Mode, err)
+	}
+	t.Setenv("ANY_MODE", "standalone")
+	if cfg, err = Load(Flags{ConfigPath: path}); err != nil || cfg.Managed() {
+		t.Fatalf("env should win over file: mode=%q err=%v", cfg.Mode, err)
+	}
+	if cfg, err = Load(Flags{ConfigPath: path, Mode: "managed"}); err != nil || !cfg.Managed() {
+		t.Fatalf("flag should win over env: mode=%q err=%v", cfg.Mode, err)
+	}
+
+	if _, err = Load(Flags{Mode: "hosted"}); err == nil {
+		t.Error("unknown mode must be rejected")
+	}
+	// Managed + a standalone-only selector is contradictory.
+	if _, err = Load(Flags{Mode: "managed", Account: "Azz"}); err == nil {
+		t.Error("managed + account selector must be rejected")
+	}
+	t.Setenv("ANY_ACCOUNT", "Azz")
+	if _, err = Load(Flags{Mode: "managed"}); err == nil {
+		t.Error("managed + ANY_ACCOUNT must be rejected")
+	}
+	os.Unsetenv("ANY_ACCOUNT")
+	if _, err = Load(Flags{Mode: "managed", WalletPath: "/w.key"}); err == nil {
+		t.Error("managed + wallet path must be rejected")
+	}
+}
+
+// TestLoadClient_SkipsModeValidation: the CLI's client side (`any
+// stop`, address discovery) must reach a server by account even when
+// the environment carries a managed host's ANY_MODE.
+func TestLoadClient_SkipsModeValidation(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("ANY_MODE", "managed")
+	if _, err := Load(Flags{Account: "Azz"}); err == nil {
+		t.Fatal("Load must reject managed + account")
+	}
+	cfg, err := LoadClient(Flags{Account: "Azz"})
+	if err != nil || cfg.Account != "Azz" {
+		t.Fatalf("LoadClient: cfg.Account=%q err=%v", cfg.Account, err)
+	}
+}
+
 func TestLoad_EnvLogLevel(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("ANY_LOG_LEVEL", "debug")
@@ -324,7 +386,7 @@ push:
 func isolateEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
-		"ANY_DATA_DIR", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
+		"ANY_DATA_DIR", "ANY_MODE", "ANY_ACCOUNT", "ANY_LISTEN_ADDR", "ANY_WALLET_PATH", "ANY_LOG_LEVEL",
 		"ANY_WALLET_PASSKEY", "XDG_CONFIG_HOME", "ANY_NETWORK_NODECONF_PATH",
 		"ANY_PUSH_ENABLED", "ANY_PUSH_PEER_ID", "ANY_PUSH_ADDRS",
 		"ANY_INDEX_ENABLED", "ANY_INDEX_EMBEDDER",

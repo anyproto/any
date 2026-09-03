@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -58,7 +59,8 @@ func absStagingPath(t *testing.T) string {
 }
 
 // TestE2E_FullFlow boots the binary, drives every implemented endpoint
-// plus a representative 501, and shuts down via POST /v1/shutdown.
+// plus a representative 501, and shuts down via `any stop` (a standalone
+// server refuses POST /v1/shutdown).
 func TestE2E_FullFlow(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -524,8 +526,11 @@ func TestE2E_FullFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("POST /v1/shutdown", func(t *testing.T) {
-		mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusNoContent)
+	t.Run("shutdown: refused over HTTP on a standalone server, `any stop` signals it", func(t *testing.T) {
+		mustStatus(t, http.MethodPost, base+"/v1/shutdown", "", http.StatusForbidden)
+		if out, err := anyStop(t, bin, dataDir); err != nil {
+			t.Fatalf("any stop: %v\n%s", err, out)
+		}
 	})
 
 	if err := srv.waitExit(15 * time.Second); err != nil {
@@ -568,7 +573,7 @@ func TestE2E_AnyStatus(t *testing.T) {
 	}
 
 	// And `any stop` triggers shutdown.
-	stopOut, err := exec.Command(bin, "--addr", addr, "stop").CombinedOutput()
+	stopOut, err := anyStop(t, bin, dataDir)
 	if err != nil {
 		t.Fatalf("any stop: %v\n%s", err, stopOut)
 	}
@@ -717,7 +722,7 @@ func TestE2E_AuthFlow(t *testing.T) {
 
 	// Restart: the created identity is the sole account and is
 	// auto-selected — server boots authorized.
-	stopOut, err := exec.Command(bin, "--addr", addr, "stop").CombinedOutput()
+	stopOut, err := anyStop(t, bin, dataDir)
 	if err != nil {
 		t.Fatalf("any stop: %v\n%s", err, stopOut)
 	}
@@ -844,6 +849,23 @@ func (s *runningServer) stop(t *testing.T) {
 	if t.Failed() || os.Getenv("ANY_E2E_DUMP") != "" {
 		t.Logf("server output:\n%s", s.out.String())
 	}
+}
+
+// anyStop runs `any stop` against a test data dir with the ambient
+// account/mode environment scrubbed, so a developer's exported
+// ANY_ACCOUNT or ANY_MODE cannot redirect or refuse the stop.
+func anyStop(t *testing.T, bin, dataDir string) ([]byte, error) {
+	t.Helper()
+	cmd := exec.Command(bin, "stop", "--data-dir", dataDir)
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ANY_ACCOUNT=") || strings.HasPrefix(kv, "ANY_MODE=") || strings.HasPrefix(kv, "ANY_DATA_DIR=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "ANY_DATA_DIR="+dataDir)
+	return cmd.CombinedOutput()
 }
 
 func (s *runningServer) waitExit(d time.Duration) error {

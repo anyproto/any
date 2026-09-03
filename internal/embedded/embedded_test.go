@@ -228,6 +228,43 @@ func TestMemoryLimitApplied(t *testing.T) {
 	}
 }
 
+// TestAssembleConfigMode pins the ownership-mode bridge: "" and
+// "standalone" both land on standalone, "managed" lands on managed, an
+// unknown mode or a managed boot without a control token is refused
+// as ErrBadOptions before any filesystem work.
+func TestAssembleConfigMode(t *testing.T) {
+	base := Options{DataDir: "/d", ListenAddr: loopbackEphemeral, NodeconfYAML: "nc"}
+
+	for _, in := range []string{"", "standalone"} {
+		opts := base
+		opts.Mode = in
+		if err := validateOptions(opts); err != nil {
+			t.Fatalf("Mode %q: validate err %v", in, err)
+		}
+		if cfg := assembleConfig(opts); cfg.Managed() || cfg.Mode != config.ModeStandalone {
+			t.Fatalf("Mode %q assembled as %q, want standalone", in, cfg.Mode)
+		}
+	}
+
+	opts := base
+	opts.Mode = "managed"
+	if err := validateOptions(opts); !errors.Is(err, ErrBadOptions) {
+		t.Fatalf("managed without ControlToken: err %v, want ErrBadOptions", err)
+	}
+	opts.ControlToken = "tok"
+	if err := validateOptions(opts); err != nil {
+		t.Fatalf("managed with ControlToken: validate err %v", err)
+	}
+	if cfg := assembleConfig(opts); !cfg.Managed() {
+		t.Fatalf("managed assembled as %q", cfg.Mode)
+	}
+
+	opts.Mode = "hosted"
+	if err := validateOptions(opts); !errors.Is(err, ErrBadOptions) {
+		t.Fatalf("unknown mode: err %v, want ErrBadOptions", err)
+	}
+}
+
 // TestAssembleConfigPush pins the SYN-83 push-node bridge: Options
 // push inputs land on cfg.Push and the config tristate alone decides
 // activation — both fields non-empty ⇒ Active, anything less ⇒ off.

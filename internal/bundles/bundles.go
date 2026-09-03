@@ -165,6 +165,17 @@ func NewResolver(grace time.Duration) *Resolver {
 	}
 }
 
+// Reset forgets every loser observation and in-flight retry claim: the
+// account behind the spaces is going away, so nothing recorded here
+// applies to what boots next. Callers join the retry goroutines
+// first; a straggler's release only deletes an absent key.
+func (r *Resolver) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.firstSeen = map[string]time.Time{}
+	r.retrying = map[string]struct{}{}
+}
+
 // Ensure adopts the space's existing install or creates one, reporting
 // which happened.
 //

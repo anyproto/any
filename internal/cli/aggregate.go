@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/anyproto/any/internal/client"
 )
 
 // newAggregateCmd surfaces both aggregation endpoints behind one
@@ -77,7 +75,7 @@ and the MongoDB divergences.
 				return err
 			}
 
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			ctx := cmd.Context()
 			if properties {
 				out, err := cl.AggregateObjects(ctx, spaceId, raw)

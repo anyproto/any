@@ -67,7 +67,7 @@ func cleanupEngine(t *testing.T) {
 // start boots with push off — the arguments every lifecycle test shares.
 func start(t *testing.T, dataDir string) startResult {
 	t.Helper()
-	return startEngine(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "")
+	return startEngine(dataDir, loopbackEphemeral, nodeconfFixture(t), "", "", "", "")
 }
 
 // dialAddr asserts the address is bound and reachable: a TCP dial
@@ -114,6 +114,37 @@ func TestStartEngine_SuccessFillsAddress(t *testing.T) {
 	if addr := embedded.Address(); addr != "" {
 		t.Fatalf("after stop: Address()=%q, want empty", addr)
 	}
+}
+
+// TestStartEngine_BadOptions asserts the host-error code: a managed
+// start without a control token, or an unknown mode, is refused as
+// codeBadOptions with an explanation — before any data dir work, so
+// nothing is left running.
+func TestStartEngine_BadOptions(t *testing.T) {
+	cleanupEngine(t)
+
+	for name, in := range map[string][2]string{
+		"managed without token": {"managed", ""},
+		"unknown mode":          {"hosted", "tok"},
+	} {
+		res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", in[0], in[1])
+		if res.code != codeBadOptions {
+			t.Fatalf("%s: code %d (%q), want codeBadOptions (%d)", name, res.code, res.message, codeBadOptions)
+		}
+		if res.message == "" || res.address != "" {
+			t.Fatalf("%s: message %q address %q", name, res.message, res.address)
+		}
+		if addr := embedded.Address(); addr != "" {
+			t.Fatalf("%s: engine left running at %s", name, addr)
+		}
+	}
+
+	// A managed start with a token boots (unauthorized, as managed does).
+	res := startEngine(t.TempDir(), loopbackEphemeral, nodeconfFixture(t), "", "", "managed", "tok")
+	if res.code != codeOK {
+		t.Fatalf("managed with token: code %d (%q)", res.code, res.message)
+	}
+	stopEngine(true)
 }
 
 // TestStartEngine_FailureFillsMessage asserts the mirror of the success

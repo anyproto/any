@@ -32,7 +32,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | GET | `/v1/health` | — | `{status, version, account, bootstrapping}` | works unauthorized (`account: ""`); `bootstrapping` is true while the background catch-up pass runs |
-| POST | `/v1/shutdown` | — | 204 | graceful; drains in-flight streams for up to 10 s |
+| POST | `/v1/shutdown` | header `X-Any-Control-Token` | 204 | managed servers only (`403 shutdown.not_managed` on standalone; `403 control.forbidden` without the token); drains in-flight streams for up to 10 s |
 | GET | `/v1/openapi.json` | — | OpenAPI 3.1 document | 404 on the mobile build |
 
 ```bash
@@ -43,10 +43,11 @@ curl http://127.0.0.1:7001/v1/health        # any status
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/auth` | — | `{authorized, accounts: [{id, default?}]}` | lists wallets found in the data dir |
-| POST | `/v1/auth` | `{}` \| `{mnemonic, index?}` \| `{accountId}` | `{accountId, created, mnemonic?}` | generates / restores / selects an account and boots the engine in place; `mnemonic` returned once, only when generated |
+| GET | `/v1/auth` | — | `{authorized, accountId?, mode, capabilities: {deauthorize, switchAccount, shutdown}, accounts: [{id, default?}]}` | `mode` is `standalone` or `managed`; clients branch on the capability bits; `accounts` lists wallets on disk (standalone only, `[]` on managed) |
+| POST | `/v1/auth` | `{}` \| `{mnemonic, index?, replace?}` \| `{accountId}` (+ header `X-Any-Control-Token` on managed) | `{accountId, created, mnemonic?, alreadyAuthorized?}` | generates / restores / selects an account and boots the engine in place; the running account answers `200 {alreadyAuthorized: true}`; `replace: true` switches a managed server in place; `mnemonic` returned once, only when generated |
+| DELETE | `/v1/auth` | header `X-Any-Control-Token` | 204 | managed only: tears the account down in place, the server stays up unauthorized (`403 auth.not_managed` on standalone) |
 
-Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, or `index` without `mnemonic`), `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`.
+Errors: `400 auth.bad_mnemonic`, `400 request.invalid_field` (mnemonic + accountId together, `index` without `mnemonic`, `replace` without a credential, `accountId` on a managed server), `403 control.forbidden`, `403 auth.not_managed`, `404 auth.account_not_found`, `409 auth.account_in_use`, `409 auth.account_mismatch`, `409 auth.mnemonic_mismatch`, `409 auth.already_authorized`, `400 auth.passkey_required`, `500 auth.device_key_corrupt`. Details and the decision table: [Accounts](../auth/accounts.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login

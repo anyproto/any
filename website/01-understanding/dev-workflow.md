@@ -34,7 +34,8 @@ any run --account <id>                      # pick one when the data dir holds s
 Stop it with Ctrl-C or:
 
 ```bash
-any stop                                    # POST /v1/shutdown — drains in-flight, 10 s deadline
+any stop                                    # finds the server by its account lock, SIGTERM —
+                                            # drains in-flight, 10 s deadline
 ```
 
 ## 3. Check health

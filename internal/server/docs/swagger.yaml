@@ -169,10 +169,29 @@ components:
             root wallet whose id can't be derived without a passkey.
           type: string
       type: object
+    api.AuthCapabilities:
+      description: |-
+        Capabilities lists which lifecycle operations this server
+        accepts; every bit is false on a standalone server.
+      properties:
+        deauthorize:
+          description: 'Deauthorize: DELETE /v1/auth tears the account down in place.'
+          type: boolean
+        shutdown:
+          description: 'Shutdown: POST /v1/shutdown stops the server.'
+          type: boolean
+        switchAccount:
+          description: |-
+            SwitchAccount: POST /v1/auth with replace:true switches accounts
+            in place.
+          type: boolean
+      type: object
     api.AuthRequest:
       properties:
         accountId:
-          description: AccountId selects an account that already has a local wallet.
+          description: |-
+            AccountId selects an account that already has a local wallet
+            (standalone only).
           type: string
         index:
           description: |-
@@ -183,17 +202,30 @@ components:
         mnemonic:
           description: |-
             Mnemonic restores (or first-creates) the account derived from
-            this BIP-39 phrase. The device key is always freshly generated.
+            this BIP-39 phrase.
           type: string
+        replace:
+          description: |-
+            Replace switches a managed server from its current account to
+            the one this request names, tearing the current engine down
+            first. Without it a different account is refused. Never implied.
+          type: boolean
       type: object
     api.AuthResponse:
       properties:
         accountId:
           type: string
+        alreadyAuthorized:
+          description: |-
+            AlreadyAuthorized reports that the request named the account the
+            server already runs: nothing was booted. With a mnemonic this
+            confirms the phrase derives to the running account; with an
+            accountId it confirms only that the id matches.
+          type: boolean
         created:
           description: |-
-            Created is true when a new wallet file was written (fresh
-            generation or first restore on this machine).
+            Created is true when this account had no local state before this
+            call (fresh generation or first restore on this device).
           type: boolean
         mnemonic:
           description: |-
@@ -207,12 +239,24 @@ components:
         accountId:
           type: string
         accounts:
+          description: |-
+            Accounts are the wallets on disk (standalone only — a managed
+            server holds no keys and reports an empty list; the client owns
+            the account list there).
           items:
             $ref: '#/components/schemas/api.AuthAccount'
           type: array
           uniqueItems: false
         authorized:
           type: boolean
+        capabilities:
+          $ref: '#/components/schemas/api.AuthCapabilities'
+        mode:
+          description: Mode is the server's ownership mode, fixed at launch.
+          enum:
+          - standalone
+          - managed
+          type: string
       type: object
     api.Backlink:
       properties:
@@ -2661,6 +2705,25 @@ paths:
       tags:
       - account
   /auth:
+    delete:
+      parameters:
+      - description: 'managed servers: the control token'
+        in: header
+        name: X-Any-Control-Token
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Forbidden
+      summary: 'Deauthorize: tear the account down in place (managed servers)'
+      tags:
+      - auth
     get:
       responses:
         "200":
@@ -2669,10 +2732,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.AuthStatusResponse'
           description: OK
-      summary: Authorization state + locally available accounts
+      summary: Authorization state, ownership mode, capabilities and locally available
+        accounts
       tags:
       - auth
     post:
+      parameters:
+      - description: 'managed servers: the control token'
+        in: header
+        name: X-Any-Control-Token
+        schema:
+          type: string
       requestBody:
         content:
           application/json:
@@ -2681,10 +2751,10 @@ paths:
               - type: object
               - $ref: '#/components/schemas/api.AuthRequest'
                 description: 'Auth mode: empty body generates, mnemonic restores,
-                  accountId selects'
+                  accountId selects; replace switches on a managed server'
                 summary: body
         description: 'Auth mode: empty body generates, mnemonic restores, accountId
-          selects'
+          selects; replace switches on a managed server'
       responses:
         "200":
           content:
@@ -2698,6 +2768,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Forbidden
         "404":
           content:
             application/json:
@@ -2710,7 +2786,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Conflict
-      summary: 'Authorize: generate, restore (mnemonic) or select an account'
+      summary: 'Authorize: generate, restore (mnemonic) or select an account; replace
+        switches (managed)'
       tags:
       - auth
   /datasets:
@@ -3884,10 +3961,22 @@ paths:
       - push
   /shutdown:
     post:
+      parameters:
+      - description: 'managed servers: the control token'
+        in: header
+        name: X-Any-Control-Token
+        schema:
+          type: string
       responses:
         "204":
           description: No Content
-      summary: Graceful shutdown
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Forbidden
+      summary: Graceful shutdown (managed servers; needs the control token)
       tags:
       - system
   /spaces:

@@ -52,6 +52,11 @@ the SSE endpoints, not a replacement.
    reconnects — opening a new POST gives you a fresh snapshot frame.
 2. **`closed` is terminal.** Reconnect after `closed`. Reasons:
    - `server_shutdown` — server is exiting (signal or `POST /v1/shutdown`).
+   - `deauthorized` — the account behind the stream was torn down in
+     place (`DELETE /v1/auth`, or a `POST /v1/auth` switch to another
+     account) while the server stays up. Re-read `GET /v1/auth`
+     before resubscribing: the server is unauthorized or serving a
+     different account (`03-api.md` § Auth).
    - `sdk_closed` — SDK released the underlying subscription (space
      or SDK closed).
    - `overflow` — per-sub mailbox filled before the consumer could
@@ -203,13 +208,16 @@ current state of the web UI as an example.**
 
 ## Lifecycle / shutdown
 
-The server cancels a per-process `shutdownCtx` on graceful teardown
-(SIGINT/SIGTERM or `POST /v1/shutdown`); streaming handlers select on
-it, emit `event: closed{server_shutdown}`, and drop a `streamsWG`
-counter. `server.Run` waits up to `gracefulShutdownDeadline` (10s) for
-that counter to drain before calling `e.Shutdown`. A handler wedged on
-a slow client write past the deadline gets cut off with the rest of
-the listener.
+Every stream runs inside the live engine's gate and selects on that
+engine's context. An engine teardown — process exit (SIGINT/SIGTERM or
+`POST /v1/shutdown`), `DELETE /v1/auth`, or a `replace` switch —
+cancels the context first; streaming handlers emit their terminal
+frame (`closed{server_shutdown}` on exit, `closed{deauthorized}` on a
+logout / switch) and leave the gate. The teardown waits up to
+`gracefulShutdownDeadline` (10s) for the gate to drain before closing
+the SDK; on process exit `e.Shutdown` follows. A handler wedged on a
+slow client write past the deadline gets cut off with the rest
+(`02-server.md` § Startup, § Shutdown).
 
 ## Capacity
 

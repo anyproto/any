@@ -20,10 +20,20 @@ A missing config file is not an error: defaults are used.
 # Layout details: 02-server.md § Data dir layout.
 dataDir: ~/.any
 
-# Account to boot when the root holds more than one. Empty = the
-# default (root wallet.key, or the sole per-account dir); with several
-# accounts and no selector the server starts unauthorized and waits
-# for POST /v1/auth.
+# Who owns this server (02-server.md § Modes). standalone (default):
+# the user — keys in wallet.key, account resolved from disk, logout and
+# HTTP shutdown refused. managed: the spawning host — the account key
+# arrives over POST /v1/auth on every boot and never touches disk,
+# DELETE /v1/auth / account switch / POST /v1/shutdown are allowed
+# behind the control token the host holds (printed as the second stdout
+# handshake line, or supplied in-process). Fixed at launch, unreachable
+# over HTTP. A managed server refuses `account` and `auth.walletPath`.
+mode: standalone
+
+# Account to boot when the root holds more than one (standalone only).
+# Empty = the default (root wallet.key, or the sole per-account dir);
+# with several accounts and no selector the server starts unauthorized
+# and waits for POST /v1/auth.
 account: ""
 
 # HTTP server listen address. Loopback only in v1.
@@ -214,7 +224,11 @@ Prefix `ANY_`, underscores map to nested fields. Examples:
 
 ```
 ANY_DATA_DIR=/var/lib/any
-ANY_ACCOUNT=A8tR...                   # account selector (config: account)
+ANY_MODE=managed                      # ownership mode (config: mode)
+ANY_ACCOUNT=A8tR...                   # account selector (config: account; standalone only)
+ANY_CONTROL_TOKEN=...                 # CLI only — the managed server's control
+                                      # token, sent as X-Any-Control-Token on every
+                                      # request (same as --control-token)
 ANY_LISTEN_ADDR=127.0.0.1:7002
 ANY_WALLET_PATH=/var/lib/any/wallet.key  # overrides auth.walletPath
 ANY_WALLET_PASSKEY=...                # read directly

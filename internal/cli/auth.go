@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 	"github.com/anyproto/any/internal/server"
 )
 
@@ -25,10 +24,11 @@ func newAuthCmd() *cobra.Command {
 		mnemonicStdin bool
 		account       string
 		index         uint32
+		replace       bool
 	)
 	login := &cobra.Command{
 		Use:   "login",
-		Short: "POST /v1/auth — generate a fresh account, restore one from a mnemonic, or select a local one",
+		Short: "POST /v1/auth — generate a fresh account, restore one from a mnemonic, or select a local one (--replace switches a managed server)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if mnemonicStdin {
@@ -40,10 +40,11 @@ func newAuthCmd() *cobra.Command {
 					return fmt.Errorf("read mnemonic: %w", err)
 				}
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			req := api.AuthRequest{
 				Mnemonic:  mnemonic,
 				AccountId: account,
+				Replace:   replace,
 			}
 			// Only an explicit --index goes on the wire — the server
 			// applies the any default (1) to a restore without one, and
@@ -68,13 +69,23 @@ func newAuthCmd() *cobra.Command {
 	login.Flags().BoolVar(&mnemonicStdin, "mnemonic-stdin", false, "read the BIP-39 phrase from stdin")
 	login.Flags().StringVar(&account, "account", "", "select an account that already has a local wallet")
 	login.Flags().Uint32Var(&index, "index", 1, "account derivation index for --mnemonic (1 = any default; 0 = anytype-derived accounts)")
+	login.Flags().BoolVar(&replace, "replace", false, "switch a managed server to this account in place (tears the current one down; needs --control-token)")
+
+	logout := &cobra.Command{
+		Use:   "logout",
+		Short: "DELETE /v1/auth — tear the account down in place; the managed server stays up unauthorized",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return newClient(flags.Timeout).Deauthorize(cmd.Context())
+		},
+	}
 
 	status := &cobra.Command{
 		Use:   "status",
 		Short: "GET /v1/auth — authorization state + locally available accounts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			resp, err := cl.AuthStatus(cmd.Context())
 			if err != nil {
 				return err
@@ -83,7 +94,6 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(login, status)
+	cmd.AddCommand(login, logout, status)
 	return cmd
 }
-

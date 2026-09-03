@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // `any one-to-one ...` — 1-1 (direct) spaces: a space shared by exactly
@@ -44,7 +43,7 @@ func newOneToOneStartCmd() *cobra.Command {
 		Short: "open a 1-1 space with a peer account identity",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceOneToOne(cmd.Context(), api.SpaceOneToOneRequest{OtherIdentity: args[0]})
 			if err != nil {
 				return err
@@ -63,7 +62,7 @@ func newOneToOneAcceptCmd() *cobra.Command {
 		Short: "accept an incoming pending 1-1 space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceOneToOneAccept(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -82,7 +81,7 @@ func newOneToOneDeclineCmd() *cobra.Command {
 		Short: "decline an incoming pending 1-1 space (sticky)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceOneToOneDecline(cmd.Context(), args[0])
 		},
 	}
@@ -99,7 +98,7 @@ func newOneToOneRegisterCmd() *cobra.Command {
 		Short: "register an out-of-band incoming 1-1 request as pending",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.SpaceRegisterIncoming(cmd.Context(), api.SpaceRegisterIncomingRequest{
 				PeerIdentity: args[0],
 				DisplayHint:  api.AccountMetadata{Name: name, Description: desc, IconCID: iconCID},
@@ -121,7 +120,7 @@ func newOneToOnePendingCmd() *cobra.Command {
 		Short: "list incoming pending 1-1 requests to approve",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.SpaceList(cmd.Context(), api.SpaceStatusOneToOnePending)
 			if err != nil {
 				return err

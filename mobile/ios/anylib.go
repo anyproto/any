@@ -1,9 +1,9 @@
 // Package main is the C-archive surface that embeds the `any` engine in
 // an iOS app. Built with `-tags 'mobile fts' -buildmode=c-archive` it
 // links the full embedded dependency graph (any-sync + libp2p + QUIC +
-// the modernc SQLite shim) and exposes four C entry points the Swift
-// side calls over its lifecycle: AnyLibStart, AnyLibStop, AnyLibStopNow
-// and AnyLibVersion.
+// the modernc SQLite shim) and exposes five C entry points the Swift
+// side calls over its lifecycle: AnyLibStart, AnyLibStartWithMode,
+// AnyLibStop, AnyLibStopNow and AnyLibVersion.
 //
 // It lives under mobile/ rather than cmd/ because cmd/ is Go's convention
 // for runnable binaries and a c-archive is not one — the Android gomobile
@@ -40,6 +40,7 @@ package main
 //   2  bad data directory (empty, or not creatable)
 //   3  boot failed
 //   4  the on-disk search index must be deleted and rebuilt
+//   5  bad options (unknown mode, or managed without a control token)
 typedef struct {
     int32_t code;
     char    address[64];  // "127.0.0.1:53421" when code == 0, empty otherwise
@@ -89,6 +90,11 @@ const (
 	// indexer.ErrIndexRebuildRequired, which arrives wrapped in a
 	// *embedded.BootError — hence the ordering in errCode.
 	codeIndexRebuildRequired = 4
+	// codeBadOptions: an argument the host controls is invalid — an
+	// unknown mode, or "managed" without a control token. A programming
+	// error on the host side, never retryable and never a "reset local
+	// data" case. Maps from embedded.ErrBadOptions.
+	codeBadOptions = 5
 )
 
 // startResult is the Go-side mirror of C.AnyLibStartResult. Keeping the
@@ -109,14 +115,17 @@ type startResult struct {
 // The search index is not a host parameter: it rides the compiled `fts`
 // cap alone, same as the Android bind. pushPeerId/pushAddrs configure the
 // push node (addrs comma-separated, see embedded.Options) — empty strings
-// keep push off.
-func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs string) startResult {
+// keep push off. mode/controlToken select the ownership mode ("" =
+// standalone; "managed" needs a non-empty controlToken).
+func startEngine(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken string) startResult {
 	addr, err := embedded.Start(embedded.Options{
 		DataDir:      dataDir,
 		ListenAddr:   listenAddr,
 		NodeconfYAML: nodeconfYAML,
 		PushPeerId:   pushPeerId,
 		PushAddrs:    pushAddrs,
+		Mode:         mode,
+		ControlToken: controlToken,
 	})
 	if err != nil {
 		return startResult{code: errCode(err), message: err.Error()}
@@ -140,6 +149,8 @@ func errCode(err error) int32 {
 		return codeAlreadyRunning
 	case errors.Is(err, embedded.ErrBadDataDir):
 		return codeBadDataDir
+	case errors.Is(err, embedded.ErrBadOptions):
+		return codeBadOptions
 	default:
 		// *embedded.BootError (and any unforeseen error) are all
 		// boot-class config/boot failures.
@@ -221,12 +232,28 @@ var versionString = C.CString(embedded.Version())
 //
 //export AnyLibStart
 func AnyLibStart(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs *C.char) C.AnyLibStartResult {
+	return AnyLibStartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, nil, nil)
+}
+
+// AnyLibStartWithMode is AnyLibStart plus the ownership mode. mode is
+// "standalone" (or NULL/empty — the AnyLibStart behavior: the account
+// resolves from the wallet on disk) or "managed": the host states the
+// account over POST /v1/auth on every launch, keys never touch disk,
+// and DELETE /v1/auth, account switch and POST /v1/shutdown are
+// accepted only with controlToken (X-Any-Control-Token). A managed
+// start without a token, or an unknown mode, fails with code 5 (see
+// embedded.ErrBadOptions) before anything touches the data dir.
+//
+//export AnyLibStartWithMode
+func AnyLibStartWithMode(dataDir, listenAddr, nodeconfYAML, pushPeerId, pushAddrs, mode, controlToken *C.char) C.AnyLibStartResult {
 	res := startEngine(
 		C.GoString(dataDir),
 		C.GoString(listenAddr),
 		C.GoString(nodeconfYAML),
 		C.GoString(pushPeerId),
 		C.GoString(pushAddrs),
+		C.GoString(mode),
+		C.GoString(controlToken),
 	)
 	var out C.AnyLibStartResult
 	out.code = C.int32_t(res.code)

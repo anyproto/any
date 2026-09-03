@@ -82,12 +82,12 @@ becomes useful. Needs:
    data is harness-owned userspace runtime datasets
    (`docs/11-agent-memory.md`), so its recall belongs to the anybao
    harness.
-10. **Account switching on a running server.** `POST /v1/auth` boots
-    exactly one engine per process lifetime; switching accounts means
-    restarting with `--account <id>`. A logout/switch endpoint (tear
-    the engine down, return to the unauthorized state) is plausible
-    but needs every handler and SSE stream to tolerate the SDK going
-    away mid-flight — not worth it until a real client asks.
+10. ~~**Account switching on a running server.**~~ Resolved (SYN-169):
+    the engine is tearable down in place behind an engine gate, and a
+    managed server's host switches with `POST /v1/auth {…, replace:
+    true}` or signs out with `DELETE /v1/auth` (`02-server.md`
+    § Modes). Standalone still switches by restart — by design, not
+    by limitation.
 11. **Strict-bind gaps (deliberate, revisit with the v2 boundary).**
     Three known soft edges in the request-boundary contract:
     - `/modify` and `/aggregate` bodies drop unknown top-level keys

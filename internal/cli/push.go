@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newPushCmd: `any push ...` — this device's push-notification
@@ -41,7 +40,7 @@ func newPushTokenSetCmd() *cobra.Command {
 		Short: "register this device's push token",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.PushTokenSet(cmd.Context(), api.PushTokenSetRequest{
 				Platform: platform,
 				Token:    token,
@@ -64,7 +63,7 @@ func newPushTokenRevokeCmd() *cobra.Command {
 		Short: "revoke this device's push token",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			return cl.PushTokenRevoke(cmd.Context())
 		},
 	}
@@ -78,7 +77,7 @@ func newPushTokenStatusCmd() *cobra.Command {
 		Short: "this device's push-token registration state (local)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.PushTokenStatus(cmd.Context())
 			if err != nil {
 				return err
@@ -98,7 +97,7 @@ func newPushSubscriptionsCmd() *cobra.Command {
 		Short: "list the account's push topic subscriptions (server-held)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.PushSubscriptions(cmd.Context())
 			if err != nil {
 				return err

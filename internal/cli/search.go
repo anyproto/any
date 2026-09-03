@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newSearchCmd: `any search <spaceId> <query>` — search the server's
@@ -28,7 +27,7 @@ func newSearchCmd() *cobra.Command {
 		Short: "search the space's local index (FTS/vector hybrid)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			req := api.SearchRequest{
 				Query:    args[1],
 				Limit:    limit,

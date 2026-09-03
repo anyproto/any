@@ -107,7 +107,7 @@ func newLocalMetaCmd() *cobra.Command {
 		Short: "the aggregation stage and accumulator vocabulary",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := client.New(flags.Addr, flags.Timeout).LocalMeta(cmd.Context())
+			out, err := newClient(flags.Timeout).LocalMeta(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -123,7 +123,7 @@ func newLocalCollectionsCmd() *cobra.Command {
 		Short: "list local collections (count, indexes, storage name)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := client.New(flags.Addr, flags.Timeout).LocalCollections(cmd.Context(), scope, spaceId)
+			out, err := newClient(flags.Timeout).LocalCollections(cmd.Context(), scope, spaceId)
 			if err != nil {
 				return err
 			}
@@ -143,7 +143,7 @@ func newLocalEnsureCmd() *cobra.Command {
 		Short: "create a collection if absent (idempotent) and ensure its indexes",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := client.New(flags.Addr, flags.Timeout).LocalEnsure(cmd.Context(), api.LocalEnsureRequest{
+			out, err := newClient(flags.Timeout).LocalEnsure(cmd.Context(), api.LocalEnsureRequest{
 				LocalCollection: localColl(args[0], spaceId),
 				Indexes:         localIndexFlags(indexes, unique),
 			})
@@ -170,7 +170,7 @@ func newLocalDropCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("refusing to drop %s without --yes (local data has no backup)", args[0])
 			}
-			return client.New(flags.Addr, flags.Timeout).LocalDrop(cmd.Context(), localColl(args[0], spaceId))
+			return newClient(flags.Timeout).LocalDrop(cmd.Context(), localColl(args[0], spaceId))
 		},
 	}
 	cmd.Flags().StringVar(&spaceId, "space", "", "the collection's space")
@@ -189,7 +189,7 @@ func newLocalDocsCmd(use, short string, call func(*client.Client, *cobra.Command
 			if err != nil {
 				return fmt.Errorf("--doc: %w", err)
 			}
-			out, err := call(client.New(flags.Addr, flags.Timeout), cmd, api.LocalDocsRequest{
+			out, err := call(newClient(flags.Timeout), cmd, api.LocalDocsRequest{
 				Coll: localColl(args[0], spaceId),
 				Docs: docs,
 			})
@@ -230,7 +230,7 @@ func newLocalUpdateCmd() *cobra.Command {
 			if err := readJSONBody(modifier, &mod); err != nil {
 				return fmt.Errorf("--modifier: %w", err)
 			}
-			out, err := client.New(flags.Addr, flags.Timeout).LocalUpdate(cmd.Context(), api.LocalUpdateRequest{
+			out, err := newClient(flags.Timeout).LocalUpdate(cmd.Context(), api.LocalUpdateRequest{
 				Coll:     localColl(args[0], spaceId),
 				Id:       args[1],
 				Modifier: mod,
@@ -277,7 +277,7 @@ func newLocalDeleteCmd() *cobra.Command {
 					req.Filter = map[string]any{}
 				}
 			}
-			out, err := client.New(flags.Addr, flags.Timeout).LocalDelete(cmd.Context(), req)
+			out, err := newClient(flags.Timeout).LocalDelete(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -297,7 +297,7 @@ func newLocalGetCmd() *cobra.Command {
 		Short: "read one document by id",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := client.New(flags.Addr, flags.Timeout).LocalGet(cmd.Context(), api.LocalGetRequest{
+			out, err := newClient(flags.Timeout).LocalGet(cmd.Context(), api.LocalGetRequest{
 				Coll: localColl(args[0], spaceId), Id: args[1],
 			})
 			if err != nil {
@@ -333,7 +333,7 @@ func newLocalQueryCmd() *cobra.Command {
 				return err
 			}
 			req.Projection = proj
-			out, err := client.New(flags.Addr, flags.Timeout).LocalQuery(cmd.Context(), req)
+			out, err := newClient(flags.Timeout).LocalQuery(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -373,7 +373,7 @@ func newLocalAggregateCmd() *cobra.Command {
 			if cmd.Flags().Changed("memory-limit") {
 				req.MemoryLimitBytes = &memLimit
 			}
-			out, err := client.New(flags.Addr, flags.Timeout).LocalAggregate(cmd.Context(), req)
+			out, err := newClient(flags.Timeout).LocalAggregate(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -397,7 +397,7 @@ func newLocalIndexesCmd() *cobra.Command {
 		Short: "ensure / drop indexes and list the result",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := client.New(flags.Addr, flags.Timeout).LocalIndexes(cmd.Context(), api.LocalIndexesRequest{
+			out, err := newClient(flags.Timeout).LocalIndexes(cmd.Context(), api.LocalIndexesRequest{
 				Coll:   localColl(args[0], spaceId),
 				Ensure: localIndexFlags(ensure, unique),
 				Drop:   drop,

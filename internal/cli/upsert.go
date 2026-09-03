@@ -4,7 +4,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/client"
 )
 
 // newUpsertCmd is `any upsert` — POST /v1/spaces/:spaceId/upsert,
@@ -33,7 +32,7 @@ fields, identical ones are skipped — re-running a batch is a no-op.
 			if err := readJSONBody(records, &recs); err != nil {
 				return err
 			}
-			cl := client.New(flags.Addr, flags.Timeout)
+			cl := newClient(flags.Timeout)
 			out, err := cl.Upsert(cmd.Context(), args[0], api.UpsertRequest{
 				ObjectId: args[1],
 				Dataset:  dataset,
