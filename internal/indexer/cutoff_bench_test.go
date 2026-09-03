@@ -131,14 +131,28 @@ func cutoffStore(tb testing.TB, n int) (*Store, *rand.Rand) {
 // pullHits materializes up to n rows from iter the way collectHits does
 // (every field copied out), then closes it — the leg's real per-row
 // cost, not a bare Next loop.
+//
+// It fails the test on error, so it belongs on the test goroutine only:
+// tb.Fatal off it merely Goexits that goroutine, which turns a real
+// error into whatever the caller does when it never hears back. Use
+// pullHitsErr from a spawned goroutine.
 func pullHits(tb testing.TB, iter anystore.Iterator, n int) int {
 	tb.Helper()
+	got, err := pullHitsErr(iter, n)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return got
+}
+
+// pullHitsErr is pullHits with the error returned instead of fatal.
+func pullHitsErr(iter anystore.Iterator, n int) (int, error) {
 	defer iter.Close()
 	got := 0
 	for (n <= 0 || got < n) && iter.Next() {
 		doc, err := iter.Doc()
 		if err != nil {
-			tb.Fatal(err)
+			return got, err
 		}
 		v := doc.Value()
 		_ = Hit{
@@ -151,10 +165,7 @@ func pullHits(tb testing.TB, iter anystore.Iterator, n int) int {
 		}
 		got++
 	}
-	if err := iter.Err(); err != nil {
-		tb.Fatal(err)
-	}
-	return got
+	return got, iter.Err()
 }
 
 // benchCutoffFTS: one high-df term. limit=30/drain is today's leg;

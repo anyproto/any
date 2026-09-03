@@ -33,6 +33,10 @@ func mib(b uint64) string { return fmt.Sprintf("%.2f MiB", float64(b)/(1<<20)) }
 // guard for anything a leaked reader slot would block forever (a new
 // read tx past MaxReaders, DB close). On timeout fn is abandoned, still
 // running; the test is failing at that point anyway.
+//
+// fn runs on its own goroutine, so it must REPORT errors by returning
+// them: t.Fatal there only Goexits fn, and the deadline then reports a
+// timeout instead of the error that actually happened.
 func withDeadline(t *testing.T, d time.Duration, what string, fn func() error) {
 	t.Helper()
 	done := make(chan error, 1)
@@ -103,7 +107,12 @@ func TestIteratorEarlyCloseNoLeak(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					pullHits(t, it, 5)
+					// pullHitsErr, not pullHits: this runs off the test
+					// goroutine, where a Fatal would strand the deadline
+					// and report a timeout instead of the real error.
+					if _, err := pullHitsErr(it, 5); err != nil {
+						return err
+					}
 				}
 				return nil
 			})
