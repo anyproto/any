@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -64,6 +65,10 @@ func (d *deps) search(c echo.Context) error {
 	}
 	if req.MaxData < -1 {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field", "maxData must be >= -1 (-1 = unbounded)", map[string]any{"field": "maxData"})
+	}
+	if req.Passages < 0 || req.Passages > api.MaxSearchPassages {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			fmt.Sprintf("passages must be in [0, %d]", api.MaxSearchPassages), map[string]any{"field": "passages"})
 	}
 
 	if d.indexer == nil {

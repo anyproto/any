@@ -127,3 +127,84 @@ func TestFuseRRF_ChunksStayDistinct(t *testing.T) {
 		t.Fatalf("scores differ %v / %v — one chunk absorbed the other's mass", out[0].Score, out[1].Score)
 	}
 }
+
+func TestGroupHits_MaxNotSum(t *testing.T) {
+	// Two chunks of one record fuse to ONE group scored by its best
+	// chunk; the best chunk is the representative, the other a passage.
+	c0 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 0, Score: 0.2}
+	c1 := Hit{ObjectId: "o", Dataset: "d", RecordId: "r", Chunk: 1, Score: 0.5}
+	out := groupHits([]Hit{c0, c1}, 10, 3)
+	if len(out) != 1 {
+		t.Fatalf("groups = %+v, want one record", out)
+	}
+	if g := out[0]; g.Hit.Chunk != 1 || g.Hit.Score != 0.5 || len(g.Passages) != 1 || g.Passages[0].Chunk != 0 {
+		t.Fatalf("group = %+v, want chunk 1 on top, chunk 0 as passage", g)
+	}
+	if out := groupHits([]Hit{c0, c1}, 10, 0); out[0].Passages != nil {
+		t.Fatalf("passages 0 must carry none: %+v", out)
+	}
+}
+
+func TestGroupHits_CrossObjectSameRecordId(t *testing.T) {
+	// recordIds repeat across objects (propIds do): two groups.
+	o1 := Hit{ObjectId: "obj1", Dataset: "prop", RecordId: "name", Score: 1}
+	o2 := Hit{ObjectId: "obj2", Dataset: "prop", RecordId: "name", Score: 1}
+	if out := groupHits([]Hit{o1, o2}, 10, 0); len(out) != 2 {
+		t.Fatalf("groups = %+v, want 2", out)
+	}
+}
+
+func TestGroupHits_OrderLimitPassages(t *testing.T) {
+	mk := func(rec string, chunk int, score float64) Hit {
+		return Hit{ObjectId: "o", Dataset: "d", RecordId: rec, Chunk: chunk, Score: score}
+	}
+	hits := []Hit{
+		mk("a", 0, 0.3), mk("b", 2, 0.9), mk("b", 0, 0.4), mk("b", 1, 0.6), mk("b", 3, 0.5),
+		mk("c", 0, 0.9), // ties b on score: key order decides, deterministically
+	}
+	out := groupHits(hits, 0, 2)
+	if len(out) != 3 || out[0].Hit.RecordId != "b" || out[1].Hit.RecordId != "c" || out[2].Hit.RecordId != "a" {
+		t.Fatalf("order = %+v", out)
+	}
+	if p := out[0].Passages; len(p) != 2 || p[0].Chunk != 1 || p[1].Chunk != 3 {
+		t.Fatalf("b passages = %+v, want chunks 1 (0.6) then 3 (0.5)", p)
+	}
+	if out := groupHits(hits, 2, 0); len(out) != 2 || out[1].Hit.RecordId != "c" {
+		t.Fatalf("limit 2 = %+v", out)
+	}
+	if out := groupHits(nil, 5, 5); len(out) != 0 {
+		t.Fatalf("empty = %+v", out)
+	}
+}
+
+func TestVectorStop(t *testing.T) {
+	cover := legCover{fetch: 30, groups: 10}
+	rec := func(n int) []Hit {
+		out := make([]Hit, n)
+		for i := range out {
+			out[i] = Hit{ObjectId: "o", Dataset: "d", RecordId: "r" + string(rune('a'+i))}
+		}
+		return out
+	}
+	cases := []struct {
+		name         string
+		kept         []Hit
+		n, k, prevN  int
+		dropped      bool
+		scoped, stop bool
+	}{
+		{"covered", rec(30), 30, 30, -1, false, false, true},
+		{"groups short of the cover keeps widening", rec(5), 30, 30, -1, false, false, false},
+		{"floor dropped rows: nothing farther is useful", rec(5), 30, 30, -1, true, false, true},
+		{"index short, no residual: reach is spent", rec(5), 5, 30, -1, false, false, true},
+		{"index short under a residual, first round: widen", rec(5), 5, 30, -1, false, true, false},
+		{"residual, wider K added rows: widen again", rec(8), 8, 120, 5, false, true, false},
+		{"residual, wider K added nothing: stop", rec(8), 8, 480, 8, false, true, true},
+		{"ceiling", rec(5), 1000, 1000, 480, false, false, true},
+	}
+	for _, c := range cases {
+		if got := vectorStop(cover, c.kept, c.n, c.k, c.prevN, c.dropped, c.scoped); got != c.stop {
+			t.Errorf("%s: stop = %v, want %v", c.name, got, c.stop)
+		}
+	}
+}

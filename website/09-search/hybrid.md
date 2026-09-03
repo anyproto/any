@@ -32,7 +32,7 @@ any search $SPACE "what did we decide about the reranker?" --scopes chat,basic -
 }
 ```
 
-`limit` defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response.
+`limit` counts records (one hit per record), defaults to 10 and caps at 100. `score` is the fused RRF score — small numbers, comparable only within this one response.
 
 ## Reciprocal-rank fusion
 

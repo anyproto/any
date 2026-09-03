@@ -754,11 +754,12 @@ Body:
 {
   "query":   "zeppelin disaster",     // required; supports "phrases" and prefix* on the FTS leg
   "scopes":  ["chat", "basic"],       // optional scope slugs (open set — see docs/13-index.md); empty = all
-  "limit":   10,                      // optional: default 10, max 100
+  "limit":   10,                      // optional: max records (default 10, max 100)
   "mode":    "hybrid",                // optional: hybrid (default) | fts | vector
   "require": ["1937"],                // optional must-have terms (phrase/prefix ok); enforced in every mode
   "exclude": ["fiction"],             // optional must-not terms
-  "maxData": 512                      // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
+  "maxData": 512,                     // optional: runes of `data` per hit around the first match (default 512; -1 = whole chunk)
+  "passages": 3                       // optional: further matching chunks per record on hit.passages (default 0, max 10)
 }
 ```
 
@@ -785,18 +786,32 @@ Reply:
 }
 ```
 
-**`data` is a bounded window, not the record.** Long records are
+**One hit per record; `limit` counts records.** Long records are
 indexed as several chunks (~2000 runes each, `docs/13-index.md`
-§ Chunking long records) and every chunk is its own hit — `chunk`
-(omitted when 0) says which; dedupe on `(objectId, dataset, recordId)`
-to count records. Within a hit, `data` is at most `maxData` runes
-(default 512) cut around the first query / `require` term, the head
-when nothing matches literally; `dataOffset` (omitted when 0) is the
-window's rune offset into the chunk's indexed text and `dataTotal`
-that text's rune length — `data` is the whole chunk iff `dataOffset`
-is 0 and its rune length equals `dataTotal`. `maxData: -1` returns the
-whole chunk; `maxData < -1` is `400 request.invalid_field`. The full record is
-one dataset query away (`docs/08-clients.md` § 6).
+§ Chunking long records); the hit shows the record's best-ranked chunk
+— `chunk` (omitted when 0) says which — and `limit` distinct
+`(objectId, dataset, recordId)` come back whenever the index holds
+that many matches, however many chunks one record contributes. The
+other matching chunks of a record are available on request:
+`passages: N` (max 10, `400 request.invalid_field` above) adds up to N
+further chunks per hit as `passages: [{chunk, data, dataOffset,
+dataTotal, score}]`, best first — the chunks that ranked within the
+search window, not every chunk of the record. Each leg reads until its
+window covers enough records (at most 1000 chunks deep), so the reply
+can still hold fewer than `limit` records when one record dominates
+that whole window (`docs/13-index.md` § Search).
+
+**`data` is a bounded window, not the record.** Within a hit (and each
+passage), `data` is at most `maxData` runes (default 512) cut around
+the first query / `require` term, the head when nothing matches
+literally; `dataOffset` (omitted when 0) is the window's rune offset
+into the chunk's indexed text and `dataTotal` that text's rune length
+— `data` is the whole chunk iff `dataOffset` is 0 and its rune length
+equals `dataTotal`. `maxData: -1` returns the whole chunk; `maxData <
+-1` is `400 request.invalid_field`. A reply is bounded by `limit ×
+(1 + passages) × maxData` runes of text (chunk size, ~2000 runes, in
+place of `maxData` when it is -1). The full record is one
+dataset query away (`docs/08-clients.md` § 6).
 
 `require` / `exclude` are a contract on every returned hit, whatever
 the mode: the FTS leg matches on them, and vector hits (hybrid and pure

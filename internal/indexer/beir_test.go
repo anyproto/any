@@ -91,14 +91,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 			if err != nil {
 				t.Fatalf("search %q: %v", qq.id, err)
 			}
-			var ranked []string
-			seen := map[string]bool{}
-			for _, h := range resp.Hits {
-				if !seen[h.RecordId] {
-					seen[h.RecordId] = true
-					ranked = append(ranked, h.RecordId)
-				}
-			}
+			ranked := distinctRecordIds(t, resp.Hits)
 			m := evalOne(ranked, qq.rel, k)
 			sum.recallAtK += m.recallAtK
 			sum.mrr += m.mrr
@@ -144,14 +137,7 @@ func TestSearchEvalBEIR(t *testing.T) {
 			if err != nil {
 				t.Fatalf("fts %q: %v", qq.id, err)
 			}
-			var ftsIDs []string
-			seen := map[string]bool{}
-			for _, h := range ftsResp.Hits {
-				if !seen[h.RecordId] {
-					seen[h.RecordId] = true
-					ftsIDs = append(ftsIDs, h.RecordId)
-				}
-			}
+			ftsIDs := distinctRecordIds(t, ftsResp.Hits)
 			fused := fuseRRF([][]Hit{beirHits(ftsIDs), beirHits(exact)}, nil, k)
 			var hIDs []string
 			for _, h := range fused {
@@ -501,6 +487,23 @@ func capBEIRCorpus(corpus []beirDoc, qrels map[string]map[string]bool, max int) 
 		if !rel[d.id] {
 			out = append(out, d)
 		}
+	}
+	return out
+}
+
+// distinctRecordIds returns the hits' record ids in order and fails if
+// one repeats: the endpoint returns one hit per record, so a repeat is
+// a regression to per-chunk hits — not something to dedupe over.
+func distinctRecordIds(t *testing.T, hits []api.SearchHit) []string {
+	t.Helper()
+	out := make([]string, 0, len(hits))
+	seen := map[string]bool{}
+	for _, h := range hits {
+		if seen[h.RecordId] {
+			t.Fatalf("record %s returned twice — hits must be one per record", h.RecordId)
+		}
+		seen[h.RecordId] = true
+		out = append(out, h.RecordId)
 	}
 	return out
 }

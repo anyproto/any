@@ -205,6 +205,11 @@ pluggable embedders, parallel batched pipelines),
 - **Chunk-level `require` / `exclude`.** Terms bind the hit's chunk,
   not the record (docs/13-index.md § Known limits); record-level
   semantics would need a per-record verdict over sibling chunks.
+- **Object-level search grouping.** `limit` counts records
+  (SYN-193); an editor page is several window records, so a long
+  page can still take several slots. A per-dataset or request-level
+  `groupBy: record | object` would collapse those — wrong for chat
+  (a message is the result), so it needs the dataset's say.
 - **Record ids with control bytes.** The chunk id scheme assumes no
   record id byte below 0x20 (true for auto ids and the SDK's default
   `idPattern`); a runtime dataset declaring a permissive pattern is not
@@ -278,6 +283,14 @@ pluggable embedders, parallel batched pipelines),
 - **`require` / `exclude` in every mode (SYN-187)** — vector hits are
   post-filtered against the FTS index (`Store.FilterTerms`, K widened
   up to 1000 when terms thin the leg) before fusion.
+- **`limit` counts records (SYN-193)** — each leg reads until its
+  window covers enough distinct records (lexical: one lazy cursor
+  pulled past the fixed over-fetch; vector: K widened ×4), fusion stays
+  per chunk, and `groupHits` collapses chunks into records scored by
+  their best chunk; `passages: N` returns a record's next best chunks.
+  Measured first (`BenchmarkCutoff`, `TestIteratorEarlyCloseNoLeak`):
+  an any-store `$text` query costs the same with or without `Limit`
+  and an early Close is free and leak-free. docs/13-index.md § Search.
 - **Derived spaces registry (SYN-164)** — well-known per-account
   spaces (`bao`) derived from a compiled-in registry
   (`internal/server/derivedspaces.go`, seed convention

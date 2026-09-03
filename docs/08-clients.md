@@ -285,7 +285,7 @@ object properties — pipeline in `13-index.md`, wire shape in
 POST /v1/spaces/:spaceId/search
 { "query": "what did we decide about the reranker?",
   "scopes": ["chat", "agent"],     // optional scope slugs (open set)
-  "limit": 10,                     // default 10, max 100
+  "limit": 10,                     // records; default 10, max 100
   "mode": "hybrid" }               // default; or "fts" / "vector"
 ```
 
@@ -310,9 +310,11 @@ Call patterns:
   `data` is a ≤ `maxData`-rune window (default 512) of the indexed
   text around the first matching term; `dataOffset` / `dataTotal`
   locate it in the chunk's full text, and `maxData: -1` asks for the
-  whole chunk. Long records index as several chunks, each a separate
-  hit with its `chunk` number — dedupe on `(objectId, dataset,
-  recordId)` when a record should count once. To hydrate the full record,
+  whole chunk. Long records index as several chunks; the hit is the
+  record's best-ranked one (`chunk` says which), one hit per record,
+  and `limit` counts records — no client-side dedupe. Ask for
+  `passages: N` (max 10) to get the record's next best matching chunks
+  on `hit.passages`, same window fields. To hydrate the full record,
   query the dataset: `POST /query` with `dataset = chat_messages /
   editor_blocks` filtered by `id == recordId`. For `dataset == "prop"`
   hits (property values), `recordId` is the propId — or the reserved

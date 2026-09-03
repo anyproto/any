@@ -323,8 +323,9 @@ Implementation slices landed:
       collection per space; doc id **`objectId:dataset:recordId`** for a
       record's first chunk, `+ U+001F + n` for chunk n — the worker
       splits any chunker entry over `Options.ChunkRunes` (2000 runes)
-      into chunk docs (`chunk.go`; hits carry `chunk`, consumers dedupe
-      on record) and `planDocs` hash-diffs a re-streamed record's chunk
+      into chunk docs (`chunk.go`; a hit is a record shown through its
+      best chunk, `limit` counts records — SYN-193) and `planDocs`
+      hash-diffs a re-streamed record's chunk
       set. Every removal is a primary-key range op (structural prefixes
       with bytewise upper bound `prefix[:len-1]+";"`; a record's docs
       are `[base, base+" ")`); BM25 FTS on `data` + sparse
@@ -389,8 +390,20 @@ Implementation slices landed:
       instead of holding it. A frame that fails mid-batch returns the
       vectors embedded so far and the embed loop lands them.
     - Surface: `POST /v1/spaces/:spaceId/search` (`handlers_search.go`)
-      `{query, scopes?, limit?, mode?, require?, exclude?, maxData?}` →
-      `{hits, mode, vectorStatus}` — `require`/`exclude` bind every
+      `{query, scopes?, limit?, mode?, require?, exclude?, maxData?,
+      passages?}` → `{hits, mode, vectorStatus}` — `limit` counts
+      RECORDS: each leg reads until its window covers enough distinct
+      records (lexical: one lazy `Store.openFTS` cursor pulled past the
+      3×limit over-fetch, ≤1000 chunks; vector: K widened ×4 until the
+      IVF pool is exhausted), fusion stays per chunk, `groupHits`
+      collapses chunks into records scored by their best chunk, and
+      `passages: N` (≤10) returns a record's next best chunks on the
+      hit. Query embedding runs BEFORE any store read and the FTS
+      cursor is closed inside the leg — never hold an any-store
+      iterator across another store call (reader slots deadlock).
+      `BenchmarkCutoff` / `TestIteratorEarlyCloseNoLeak` pin the
+      any-store facts (a `$text` Limit changes nothing, early Close is
+      free and leak-free). `require`/`exclude` bind every
       hit in every mode (vector leg post-filtered via
       `Store.FilterTerms`), hit `data` is a `maxData`-rune window
       (default 512) with `dataOffset`/`dataTotal`;

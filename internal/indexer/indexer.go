@@ -1,12 +1,10 @@
 package indexer
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -479,58 +477,127 @@ func (ix *Indexer) SyncSpace(ctx context.Context, sp space.Space) error {
 	return nil
 }
 
+// legCover is how deep a leg reads: at least fetch chunks (fusion
+// material), and on past that until the window covers groups distinct
+// records — so a long record's chunks cannot crowd every other record
+// out of the reply — never more than maxLegFetch.
+type legCover struct {
+	fetch, groups int
+}
+
+// covered reports whether hits satisfies the cover.
+func (c legCover) covered(hits []Hit) bool {
+	return len(hits) >= c.fetch && countGroups(hits) >= c.groups
+}
+
+// maxLegFetch bounds how deep either leg reads. Past it a query that
+// matches only one enormous record answers with what it has. Measured
+// (BenchmarkCutoff, docs/13-index.md § Tuning): the lexical leg pays
+// ~1 µs per row read past the first, so 1000 rows cost ~1 ms; the ANN
+// leg's reach is the probed IVF cells (~4√N docs),
+// about this many at 60k docs. Both legs at the ceiling hold up to
+// 2000 chunk texts (~16 MB) for the duration of one search — the
+// price of the pathological corpus only.
+const maxLegFetch = 1000
+
 // vectorLeg runs the ANN leg and enforces require / exclude on it:
 // they are a contract on the hit, not on the leg, so vector hits are
 // post-filtered against the FTS index and fusion can't re-admit a doc
 // the lexical leg would have refused (SYN-187). any-store won't take
-// $knn and $text in one query, so a selective term thins a fixed K —
-// the leg widens K (×4, up to maxVectorFetch) until fetch survivors
-// remain or the space runs out; past that the leg is genuinely
-// starved.
-func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, fetch int) ([]Hit, error) {
-	k := fetch
+// $knn and $text in one query, and $knn has no cursor past K, so the
+// leg re-queries with K ×4 (up to maxLegFetch) until vectorStop says
+// the window is covered or nothing further is reachable.
+func (ix *Indexer) vectorLeg(ctx context.Context, spaceId string, qv []float32, req api.SearchRequest, cover legCover) ([]Hit, error) {
+	k, prevN := cover.fetch, -1
 	for {
-		raw, err := ix.store.SearchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
+		raw, n, err := ix.store.searchVector(ctx, spaceId, qv, req.Scopes, k, ix.opts.MinVectorSim)
 		if err != nil {
 			return nil, err
 		}
-		if len(req.Require) == 0 && len(req.Exclude) == 0 {
-			return raw, nil
-		}
-		kept, err := ix.store.FilterTerms(ctx, spaceId, raw, req.Require, req.Exclude)
-		if err != nil {
-			return nil, err
-		}
-		if len(kept) >= fetch || len(raw) < k || k >= maxVectorFetch {
-			if len(kept) > fetch {
-				kept = kept[:fetch]
+		kept := raw
+		if len(req.Require) > 0 || len(req.Exclude) > 0 {
+			if kept, err = ix.store.FilterTerms(ctx, spaceId, raw, req.Require, req.Exclude); err != nil {
+				return nil, err
 			}
+		}
+		if vectorStop(cover, kept, n, k, prevN, len(raw) < n, len(req.Scopes) > 0) {
 			return kept, nil
 		}
-		k = min(k*4, maxVectorFetch)
+		k, prevN = min(k*4, maxLegFetch), n
 	}
 }
 
-// maxVectorFetch bounds the ANN over-fetch when require / exclude thin
-// the vector leg.
-const maxVectorFetch = 1000
+// vectorStop decides whether the widening loop ends after a round that
+// asked the index for k rows and got n back before the similarity
+// floor (prevN: the previous round's n, -1 on the first). Stop when the
+// window is covered; when the floor dropped rows, since rows past the
+// floor are farther still; when the index came up short — under a
+// scope residual only once a wider K stopped adding rows, because
+// any-store sizes the candidate beam from K when a residual is present,
+// so a short round may still grow; or at the ceiling.
+func vectorStop(cover legCover, kept []Hit, n, k, prevN int, floorDropped, scoped bool) bool {
+	switch {
+	case cover.covered(kept):
+		return true
+	case floorDropped:
+		return true
+	case n < k:
+		return !scoped || n <= prevN
+	default:
+		return k >= maxLegFetch
+	}
+}
+
+// ftsLeg runs the lexical leg: one cursor, pulled until the window is
+// covered or the leg is exhausted, closed before returning. any-store
+// does not check ctx between rows, so the loop does.
+func (ix *Indexer) ftsLeg(ctx context.Context, spaceId string, fq FTSQuery, scopes []string, cover legCover) ([]Hit, error) {
+	cur, err := ix.store.openFTS(ctx, spaceId, fq, scopes)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close()
+	var hits []Hit
+	seen := map[string]struct{}{}
+	for len(hits) < maxLegFetch && !(len(hits) >= cover.fetch && len(seen) >= cover.groups) {
+		if len(hits)%64 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		h, ok, err := cur.Next()
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			break
+		}
+		hits = append(hits, h)
+		seen[groupKey(h)] = struct{}{}
+	}
+	return hits, nil
+}
 
 // Search runs the requested mode over the space's local index. The
-// caller validates mode/scopes; this layer only degrades hybrid→fts
-// when the embedder is missing or the query embedding fails.
+// caller validates mode / scopes / limit / passages; this layer only
+// degrades hybrid→fts when the embedder is missing or the query
+// embedding fails. limit counts records: each leg reads until its
+// window covers enough distinct records (legCover), the legs fuse per
+// chunk, and groupHits collapses chunks into records. Order of work:
+// query embedding, then the vector leg (eager, may re-query), then the
+// lexical cursor — so no read tx is ever held across the embed wait or
+// another store call.
 func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchRequest) (api.SearchResponse, error) {
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
 	}
 	// Per-leg over-fetch so fusion has material to work with.
-	fetch := limit * 3
-	if fetch < 30 {
-		fetch = 30
-	}
-	if fetch > 100 {
-		fetch = 100
-	}
+	fetch := min(max(limit*3, 30), 100)
+	// The lexical leg covers twice the records for the price of a few
+	// µs per row; the ANN leg re-pays its search per widening round.
+	ftsCover := legCover{fetch: fetch, groups: 2 * limit}
+	vecCover := legCover{fetch: fetch, groups: limit}
 
 	mode := req.Mode
 	if mode == "" {
@@ -548,29 +615,6 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 		vectorStatus = api.VectorStatusDisabled
 	}
 
-	if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
-		// Stop-word stripping is FTS-only: on a bag-of-words OR engine a
-		// common word matches a huge fraction of docs and drags BM25
-		// toward length/frequency noise. The vector leg keeps the full
-		// query (below). chunker-hybrid-search-report § 5.6 / § 6.2.
-		ftsQuery := req.Query
-		// Don't strip inside quoted phrases — dropping a stop word would
-		// break the phrase ("the big apple" → "big apple"). A query with a
-		// quote bypasses stripping entirely (phrase searches are precise
-		// already, so the stop-word noise argument doesn't apply).
-		if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
-			ftsQuery = stripStopWords(ftsQuery)
-		}
-		ftsHits, err = ix.store.SearchFTSQuery(ctx, spaceId, FTSQuery{
-			Query:      ftsQuery,
-			DefaultAnd: ix.opts.FTSDefaultAnd,
-			Require:    req.Require,
-			Exclude:    req.Exclude,
-		}, req.Scopes, fetch)
-		if err != nil {
-			return api.SearchResponse{}, err
-		}
-	}
 	if mode == api.SearchModeVector || mode == api.SearchModeHybrid {
 		if ix.opts.Embedder == nil {
 			if mode == api.SearchModeVector {
@@ -604,7 +648,7 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 				mode = api.SearchModeFTS
 				vectorStatus = api.VectorStatusUnavailable
 			} else {
-				vecHits, err = ix.vectorLeg(ctx, spaceId, qv, req, fetch)
+				vecHits, err = ix.vectorLeg(ctx, spaceId, qv, req, vecCover)
 				if err != nil {
 					return api.SearchResponse{}, err
 				}
@@ -612,47 +656,76 @@ func (ix *Indexer) Search(ctx context.Context, spaceId string, req api.SearchReq
 			}
 		}
 	}
+	if mode == api.SearchModeFTS || mode == api.SearchModeHybrid {
+		// Stop-word stripping is FTS-only: on a bag-of-words OR engine a
+		// common word matches a huge fraction of docs and drags BM25
+		// toward length/frequency noise. The vector leg keeps the full
+		// query (above). chunker-hybrid-search-report § 5.6 / § 6.2.
+		ftsQuery := req.Query
+		// Don't strip inside quoted phrases — dropping a stop word would
+		// break the phrase ("the big apple" → "big apple"). A query with a
+		// quote bypasses stripping entirely (phrase searches are precise
+		// already, so the stop-word noise argument doesn't apply).
+		if ix.opts.StopWords && !strings.Contains(ftsQuery, `"`) {
+			ftsQuery = stripStopWords(ftsQuery)
+		}
+		ftsHits, err = ix.ftsLeg(ctx, spaceId, FTSQuery{
+			Query:      ftsQuery,
+			DefaultAnd: ix.opts.FTSDefaultAnd,
+			Require:    req.Require,
+			Exclude:    req.Exclude,
+		}, req.Scopes, ftsCover)
+		if err != nil {
+			return api.SearchResponse{}, err
+		}
+	}
 
-	var hits []Hit
+	var fused []Hit
 	switch mode {
 	case api.SearchModeHybrid:
 		ftsW := ix.opts.FtsWeight
 		if ix.opts.AdaptiveWeights {
-			ftsW *= legConfidence(ftsHits) // down-weight a flat/weak BM25 leg
+			// Down-weight a flat/weak BM25 leg. Judged on the fixed
+			// over-fetch window, not the whole pull: the pull's depth
+			// follows how records are chunked, and a deeper tail only
+			// ever raises the confidence.
+			ftsW *= legConfidence(ftsHits[:min(len(ftsHits), fetch)])
 		}
-		hits = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, limit)
+		fused = fuseRRF([][]Hit{ftsHits, vecHits}, []float64{ftsW, ix.opts.VectorWeight}, 0)
 	case api.SearchModeFTS:
-		hits = ftsHits
+		fused = ftsHits
 	case api.SearchModeVector:
-		hits = vecHits
+		fused = vecHits
 	}
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
-	// Single-leg results are already ranked; make the contract explicit.
-	if mode != api.SearchModeHybrid {
-		slices.SortStableFunc(hits, func(a, b Hit) int { return cmp.Compare(b.Score, a.Score) })
-	}
+	groups := groupHits(fused, limit, req.Passages)
 
 	maxData := req.MaxData
 	if maxData == 0 {
 		maxData = api.DefaultSearchMaxData
 	}
 	terms := foldTerms(snippetTerms(req.Query, req.Require))
-	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(hits)), Mode: mode, VectorStatus: vectorStatus}
-	for _, h := range hits {
-		data, offset, total := snippet(h.Data, terms, maxData)
-		out.Hits = append(out.Hits, api.SearchHit{
-			Scope:      h.Scope,
-			ObjectId:   h.ObjectId,
-			Dataset:    h.Dataset,
-			RecordId:   h.RecordId,
-			Chunk:      h.Chunk,
+	window := func(h Hit) (string, int, int) { return snippet(h.Data, terms, maxData) }
+	out := api.SearchResponse{Hits: make([]api.SearchHit, 0, len(groups)), Mode: mode, VectorStatus: vectorStatus}
+	for _, g := range groups {
+		data, offset, total := window(g.Hit)
+		hit := api.SearchHit{
+			Scope:      g.Hit.Scope,
+			ObjectId:   g.Hit.ObjectId,
+			Dataset:    g.Hit.Dataset,
+			RecordId:   g.Hit.RecordId,
+			Chunk:      g.Hit.Chunk,
 			Data:       data,
 			DataOffset: offset,
 			DataTotal:  total,
-			Score:      h.Score,
-		})
+			Score:      g.Hit.Score,
+		}
+		for _, p := range g.Passages {
+			data, offset, total := window(p)
+			hit.Passages = append(hit.Passages, api.SearchPassage{
+				Chunk: p.Chunk, Data: data, DataOffset: offset, DataTotal: total, Score: p.Score,
+			})
+		}
+		out.Hits = append(out.Hits, hit)
 	}
 	return out, nil
 }

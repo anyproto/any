@@ -17,7 +17,8 @@ type SearchRequest struct {
 	// Scopes restricts results to the given index scopes (basic, chat,
 	// props, …). Empty = all scopes.
 	Scopes []string `json:"scopes,omitempty"`
-	// Limit caps returned hits. Default 10, max 100.
+	// Limit caps returned records — every hit is a distinct
+	// (objectId, dataset, recordId). Default 10, max 100.
 	Limit int `json:"limit,omitempty"`
 	// Mode is hybrid (default), fts, or vector. Vector requires an
 	// embedder configured on the server.
@@ -34,7 +35,15 @@ type SearchRequest struct {
 	// nothing matches). 0 = DefaultSearchMaxData; -1 = the whole indexed
 	// chunk text. DataOffset / DataTotal on the hit locate the window.
 	MaxData int `json:"maxData,omitempty"`
+	// Passages asks for up to this many further matching chunks per
+	// record, best first, on hit.passages (0 = none, max 10). They are
+	// the record's other chunks that ranked within the search window,
+	// not every chunk of the record.
+	Passages int `json:"passages,omitempty"`
 }
+
+// MaxSearchPassages caps SearchRequest.Passages.
+const MaxSearchPassages = 10
 
 // DefaultSearchMaxData is the Data window applied when a request leaves
 // MaxData unset: enough for a one-line preview or an agent to judge the
@@ -51,15 +60,29 @@ type SearchHit struct {
 	ObjectId string `json:"objectId"`
 	Dataset  string `json:"dataset"`
 	RecordId string `json:"recordId"`
-	// Chunk is the 0-based chunk of the record this hit is: long records
-	// are indexed as several docs, each a separate hit — dedupe on
-	// (objectId, dataset, recordId) when a record should count once.
+	// Chunk is the 0-based chunk of the record this hit shows: long
+	// records are indexed as several docs, and the hit is the record's
+	// best-ranked one. One hit per record — no client-side dedupe.
 	Chunk int `json:"chunk,omitempty"`
 	// Data is the hit's indexed text, windowed to MaxData runes around
 	// the first matching term. DataOffset is the window's rune offset
 	// into the chunk's full indexed text and DataTotal that text's rune
 	// length — Data is the whole text iff DataOffset == 0 and
 	// len([]rune(Data)) == DataTotal.
+	Data       string  `json:"data"`
+	DataOffset int     `json:"dataOffset,omitempty"`
+	DataTotal  int     `json:"dataTotal"`
+	Score      float64 `json:"score"`
+	// Passages are the record's next best matching chunks. Absent when
+	// the request did not ask (SearchRequest.Passages) and when the
+	// record has no other matching chunk in the search window.
+	Passages []SearchPassage `json:"passages,omitempty"`
+}
+
+// SearchPassage is one further matching chunk of a hit's record, with
+// the same Data window fields as the hit.
+type SearchPassage struct {
+	Chunk      int     `json:"chunk,omitempty"`
 	Data       string  `json:"data"`
 	DataOffset int     `json:"dataOffset,omitempty"`
 	DataTotal  int     `json:"dataTotal"`
