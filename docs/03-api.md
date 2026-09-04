@@ -2982,7 +2982,11 @@ pass it back verbatim:
 // → 201 {SpaceInfo}      (AnyoneCanJoin: deferred — never returned in v1)
 ```
 
-A malformed or unrecognized `inviteToken` returns `400 invite.invalid`.
+A malformed or unrecognized `inviteToken` returns `400 invite.invalid`. A
+token for a space this account deleted returns `409 space.deleted` before
+anything reaches the network — the tombstone is sticky. A join that merely
+ended (the owner declined, or the joiner withdrew it with `cancel-join`) is
+not a tombstone: the same call re-requests and the row returns to `joining`.
 
 In the v1 RequestToJoin flow `Service.Join` returns 202: the SDK has
 posted the join request, written a `joining` index entry, and the

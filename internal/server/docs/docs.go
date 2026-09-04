@@ -5869,7 +5869,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Guest token for a space this account already tracks / deleted"
+                        "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
                     },
                     "500": {
                         "content": {

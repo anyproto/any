@@ -274,6 +274,12 @@ func (d *deps) aclCancelJoin(c echo.Context) error {
 	}
 	details := map[string]any{"spaceId": id}
 	if err := d.sdk.Spaces().CancelJoin(c.Request().Context(), id); err != nil {
+		// A torn-down engine (logout / switch / shutdown cancels the
+		// request ctx) makes the row lookup answer "unknown" — that is
+		// unavailability, not a missing space.
+		if c.Request().Context().Err() != nil {
+			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+		}
 		if errors.Is(err, space.ErrJoinNotPending) {
 			return writeError(c, http.StatusConflict, "space.join_not_pending",
 				"no pending join request to cancel: the space is not in the joining state, or the owner already resolved the request", details)

@@ -78,7 +78,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | PATCH | `/v1/spaces/:spaceId/settings` | `{set: {k: scalar}, unset: [k]}` | 204 | account-private per-space settings; `notifyMode` = `all\|mentions\|none` |
 | POST | `/v1/spaces/:spaceId/sync` | — | 204 | forces one head-sync round; blocks until done |
 | DELETE | `/v1/spaces/:spaceId` | — | 204 | real offline-first deletion; `409 space.derived_undeletable`, `404 space.not_found` |
-| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 202 `SpaceInfo` | request-to-join (status `joining`); guest tokens auto-detected; `400 invite.invalid` |
+| POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 202 `SpaceInfo` | request-to-join (status `joining`); guest tokens auto-detected; `400 invite.invalid`; `409 space.deleted` on a space this account deleted |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
 | GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, typeId?}]}` | JSON Schema with `x-scope` per field |
@@ -290,7 +290,7 @@ See [Files](../files/index.html).
 | POST | `/v1/spaces/:spaceId/acl/add` | `{accounts: [{identity, permission, metadata?}]}` | 204 | added accounts see an `invite_pending` row |
 | POST | `/v1/spaces/:spaceId/acl/ownership` | `{newOwner, oldOwnerPerm}` | 204 | |
 | POST | `/v1/spaces/:spaceId/acl/self-remove` | — | 204 | |
-| POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | |
+| POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |
 | POST | `/v1/spaces/:spaceId/acl/stop-sharing` | — | 204 | drops everyone |
 
 Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statuses: `unknown`, `joining`, `active`, `removed`, `declined`, `removing`, `canceled`. Guests writing get `403 space.read_only`. See [Collaboration](../collaboration/index.html).

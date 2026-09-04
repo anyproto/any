@@ -48,7 +48,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/join \
 any join <invite>
 ```
 
-The join is a **request**: the SDK posts it, writes a `joining` row into the joiner's space list, and returns `202`. The joiner polls `GET /v1/spaces/:id/members/me` (or watches the [space list](../realtime/space-list.html)) for the status to flip to `active` once the owner accepts with [`POST …/acl/accept`](acl.html). `metadata` seeds the name other members see until the joiner's encrypted [profile](../auth/profile.html) resolves. A malformed or unrecognized token returns `400 invite.invalid`.
+The join is a **request**: the SDK posts it, writes a `joining` row into the joiner's space list, and returns `202`. The joiner polls `GET /v1/spaces/:id/members/me` (or watches the [space list](../realtime/space-list.html)) for the status to flip to `active` once the owner accepts with [`POST …/acl/accept`](acl.html). `metadata` seeds the name other members see until the joiner's encrypted [profile](../auth/profile.html) resolves. A malformed or unrecognized token returns `400 invite.invalid`; a token for a space this account deleted returns `409 space.deleted` (a declined or withdrawn join is not deleted in that sense — the same call re-requests).
 
 Until accepted, the joiner can withdraw with `POST /v1/spaces/:spaceId/acl/cancel-join`: the row then reads `deleted` and a later join with a valid token re-requests. Once the owner has accepted or declined, the call answers `409 space.join_not_pending` and the row settles on its own.
 
