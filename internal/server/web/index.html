@@ -665,8 +665,11 @@
   'use strict';
 
   // ---------- constants ----------
-  const MD_TYPE_ID = 'editor';
-  const CHAT_TYPE_ID = 'chat';
+  // Module collections: an object holds the editor body / the chat
+  // when one of its types declares the module in a part. The declaring
+  // types are the collection's `owners` in GET /datasets (resolved per
+  // space in refreshTypes), never a literal type id.
+  const MD_DATASET = 'editor_blocks';
   const CHAT_DATASET = 'chat_messages';
   const CHAT_QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀'];
   const NAV_TYPE_ID = 'nav';
@@ -1105,11 +1108,22 @@
     };
   }
 
+  // holdsModule reports whether an object carrying `types` holds the
+  // module collection: one of its types is among the collection's
+  // declaring owners.
+  function holdsModule(sp, collection, types) {
+    const owners = (sp && sp.moduleOwners && sp.moduleOwners[collection]) || [];
+    return (types || []).some(t => owners.includes(t));
+  }
+  const holdsEditor = (sp, types) => holdsModule(sp, MD_DATASET, types);
+  const holdsChat = (sp, types) => holdsModule(sp, CHAT_DATASET, types);
+
   function ensureSpace(id, info) {
     if (!App.spaces[id]) {
       App.spaces[id] = {
         info: info || null,
         types: {},
+        moduleOwners: {},
         objects: {},
         tree: { children: {}, expanded: new Set(), loading: new Set() },
         sync: defaultSyncState(),
@@ -1294,7 +1308,7 @@
     return r.json;
   }
   async function loadMarkdown(spaceId, objectId) {
-    const r = await api.get('/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/markdown');
+    const r = await api.get('/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/' + MD_DATASET + '/markdown');
     if (!r.ok) { toast('err', 'load markdown failed', r.body); return null; }
     const obj = App.spaces[spaceId]?.objects[objectId];
     if (obj) obj.markdownContent = (r.json && typeof r.json.content === 'string') ? r.json.content : '';
@@ -1302,7 +1316,7 @@
   }
   async function saveMarkdown(spaceId, objectId, content) {
     const r = await api.put(
-      '/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/markdown',
+      '/v1/spaces/' + spaceId + '/objects/' + encodeURIComponent(objectId) + '/editor/' + MD_DATASET + '/markdown',
       { content });
     if (!r.ok) { toast('err', 'save markdown failed', r.body); return null; }
     const j = r.json || {};
@@ -1460,6 +1474,16 @@
   async function refreshTypes(spaceId) {
     const sp = App.spaces[spaceId];
     if (!sp) return;
+    // Module owners ride the dataset discovery document: which types
+    // declare the editor body / the chat collection.
+    const dr = await api.get('/v1/spaces/' + spaceId + '/datasets');
+    if (dr.ok) {
+      const owners = {};
+      for (const ds of ((dr.json && dr.json.datasets) || [])) {
+        if (ds.module && ds.module !== 'records') owners[ds.name] = ds.owners || [];
+      }
+      sp.moduleOwners = owners;
+    }
     const r = await api.get('/v1/spaces/' + spaceId + '/types');
     if (!r.ok) { toast('err', 'list types failed', r.body); return; }
     const list = (r.json && r.json.types) || [];
@@ -1792,10 +1816,10 @@
       if (o) {
         const types = (o.lastRecord?.any?.types) || o.types || [];
         const tasks = [];
-        if (types.includes(MD_TYPE_ID) && o.markdownContent === undefined) {
+        if (holdsEditor(sp, types) && o.markdownContent === undefined) {
           tasks.push(loadMarkdown(route.spaceId, route.objectId));
         }
-        if (types.includes(CHAT_TYPE_ID) && o.chatMessages === undefined) {
+        if (holdsChat(sp, types) && o.chatMessages === undefined) {
           tasks.push(loadChatMessages(route.spaceId, route.objectId));
         }
         if (tasks.length) await Promise.all(tasks);
@@ -1814,7 +1838,7 @@
     const o = sp.objects[oid];
     if (!o) return;
     const types = (o.lastRecord?.any?.types) || o.types || [];
-    if (!types.includes(MD_TYPE_ID)) return;
+    if (!holdsEditor(sp, types)) return;
     if (o.markdownContent === undefined) return;
     if (typeof EasyMDE === 'undefined') {
       // CDN script not yet loaded — retry shortly. mountEditor is
@@ -1862,7 +1886,7 @@
     const o = sp.objects[oid];
     if (!o) return;
     const types = (o.lastRecord?.any?.types) || o.types || [];
-    if (!types.includes(CHAT_TYPE_ID)) return;
+    if (!holdsChat(sp, types)) return;
 
     const list = document.getElementById('chat-messages-' + cssEsc(oid));
     if (!list) return;
@@ -2308,8 +2332,8 @@
 
   // ---------- page: objects ----------
   function renderObjectsPage(sp, typeFilter) {
-    // SDK-registered types (markdown etc.) surface as builtIn=true
-    // but should still appear here — the exclusions are the synthetic
+    // Registered types (data_view, nav) surface as builtIn=true but
+    // should still appear here — the exclusions are the synthetic
     // types no object attaches (SYNTHETIC_TYPE_IDS).
     const filterableTypes = Object.values(sp.types).filter(t => !SYNTHETIC_TYPE_IDS.has(t.id));
     const allObjects = Object.values(sp.objects);
@@ -2986,8 +3010,8 @@
         '</div>' +
       '</details>';
 
-    const hasMd = boundIds.has(MD_TYPE_ID);
-    const hasChat = boundIds.has(CHAT_TYPE_ID);
+    const hasMd = holdsEditor(sp, Array.from(boundIds));
+    const hasChat = holdsChat(sp, Array.from(boundIds));
 
     let mdSection = '';
     if (hasMd) {
@@ -3055,8 +3079,6 @@
   }
 
   function renderObjectTypeSection(o, t, rec) {
-    if (t.id === MD_TYPE_ID) return ''; // md has no editable props in v1
-    if (t.id === CHAT_TYPE_ID) return ''; // chat is rendered as its own panel
     if (t.id === NAV_TYPE_ID) return ''; // nav is managed by the left tree
     const tnode = rec[t.id] || {};
     const seen = new Set();
@@ -3499,14 +3521,14 @@
           const ok = await bindTypes(spaceId, id, tids);
           if (!ok) break;
           await refreshTypes(spaceId);
-          if (tids.includes(MD_TYPE_ID)) {
+          if (holdsEditor(App.spaces[spaceId], tids)) {
             const sp = App.spaces[spaceId];
             const o2 = sp && sp.objects[id];
             if (o2 && o2.markdownContent === undefined) {
               await loadMarkdown(spaceId, id);
             }
           }
-          if (tids.includes(CHAT_TYPE_ID)) {
+          if (holdsChat(App.spaces[spaceId], tids)) {
             const sp = App.spaces[spaceId];
             const o2 = sp && sp.objects[id];
             if (o2 && o2.chatMessages === undefined) {

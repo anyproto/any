@@ -23,6 +23,11 @@ func (d *deps) editorCollection(c echo.Context, sp space.Space) (collection stri
 	if collection == "" {
 		return "", writeError(c, http.StatusBadRequest, "request.missing_field", "collection required", nil), true
 	}
+	// The canonical collection is registered on every controller —
+	// no catalog read on the common path.
+	if collection == editor.Dataset {
+		return collection, nil, false
+	}
 	for _, ds := range sp.Datasets() {
 		if ds.Name == collection && ds.Module == editor.Module {
 			return collection, nil, false

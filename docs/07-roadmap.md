@@ -234,7 +234,11 @@ pluggable embedders, parallel batched pipelines),
 - **Namespaced chat.** Chat is shared-only in v1 (one `chat_messages`
   per object): read tracking, push topics and the unread counters are
   keyed by object, not by collection. A `<typeId>_<key>` chat instance
-  needs per-collection read state and topic derivation first.
+  needs per-collection read state and topic derivation first — and the
+  SDK's read materializer is built only when a static (canonical)
+  registration declares flags or counters, so a module tracked on
+  namespaced instances alone would classify reads without
+  materializing them.
 - **`data_view` as a module.** Saved views stay a registered built-in
   type owning `data_views`; the same declaration could be a `views`
   module a part declares (`{"module": "views"}`), which would let a

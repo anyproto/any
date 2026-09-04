@@ -715,7 +715,7 @@ parts declare the collection: the one declaring type of a namespaced
 collection (`shared: true` — `editor_blocks`, `chat_messages`). A
 collection lives on an object only while the object carries one of its
 owners, so consumers gate indexing/eviction on that set; a canonical
-collection with no owners yet is listed with an empty `owners`, and no
+collection nothing declares yet is listed without `owners`, and no
 object can hold it until a type declares the module (§ Parts and
 modules). Each property carries an `x-scope` extension keyword
 classifying the field:
