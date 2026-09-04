@@ -405,9 +405,9 @@ any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-
 any type list   <spaceId>
 
 any type property list   <spaceId> <typeId>
-any type property add    <spaceId> <typeId> --name ... [--xkey ...]
-                         [--kind string|number|boolean|array|object|datetime]
-                         [--format-type links|date|datetime|select|multiselect] [--format-ui ...] [--scope ...]
+any type property add    <spaceId> <typeId> --name ... --kind string|number|boolean|array|object|datetime
+                         [--xkey ...] [--description ...] [--scope ...]
+                         [--x-format '<json>|@FILE|-']
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset <path> ...]
 any type property remove <spaceId> <typeId> <propId>
 
@@ -421,6 +421,7 @@ any type dataset add    <spaceId> <typeId> --draft '<json>|@FILE|-'
 any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
 any type dataset remove <spaceId> <typeId> <defId>
 any type dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
+any type dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset <path> ...]
 any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
 
 # batch ingest into an id:user dataset (the record id is the
@@ -429,16 +430,23 @@ any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
            [--page-size N] [--trace-id ...]
 ```
 
-`property patch` is the generic `{set, unset}` write covering rename and
-select/multiselect option CRUD (see `03-api.md` § Types). `--set` is a
-JSON map of dotted path → value; `--unset` is a repeatable dotted path.
+`--kind` is pinned; everything descriptive — slug, icon, order, options,
+relation targets, per-format config — is the `--x-format` descriptor
+(`27-descriptors.md`). `property patch` is the generic `{set, unset}`
+write covering rename, the handle and every descriptor path (see
+`03-api.md` § Types). `--set` is a JSON map of dotted path → value; a set
+targets a leaf, never an object; `--unset` is a repeatable dotted path.
 Examples:
 
 ```
+any type property add S T --name Stage --xkey stage --kind array \
+  --x-format '{"type":"choice","options":{"lead":{"name":"Lead","color":"grey","pos":"a0"}}}'
 any type property patch S T P --set '{"name":"Priority"}'
-any type property patch S T P --set '{"format.options.high.name":"High","format.options.high.color":"red","format.options.high.pos":"a0"}'
-any type property patch S T P --unset format.options.high
+any type property patch S T P --set '{"xFormat.options.high.name":"High","xFormat.options.high.color":"red","xFormat.options.high.pos":"a0"}'
+any type property patch S T P --set '{"xFormat.config.multiple":true}'
+any type property patch S T P --unset xFormat.options.high
 any type property option set S T P high --name High --color red --pos a0
+any type dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
 ```
 
 Property **value** read/write stays under `any properties …` (values on

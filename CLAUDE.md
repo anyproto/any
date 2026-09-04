@@ -1481,6 +1481,39 @@ Implementation slices landed:
     `--mode managed` + token + keychain restore-at-launch (it stops the
     sidecar with an ungated `POST /v1/shutdown` today, which now 403s
     on a standalone server); IOS-615 is unblocked.
+44. **Property & field descriptors (SYN-211)** — one opaque `x-format`
+    object (wire `xFormat`) describes both type properties and runtime
+    dataset fields; the SDK (v0.3.0) stores it verbatim, created whole
+    and patched per path, and enforces only `kind`. Gone, no
+    back-compat and no migration: the typed `format` object,
+    `FormatType`, `xKind`, `format.ui`, the `meta.pos` / `meta.icon`
+    conventions and kind defaulting from a format (`kind` is required
+    on create; `meta` narrows to `index`). `any` is the semantics
+    boundary (`internal/server/descriptor.go`): on create and PATCH the
+    six interpreted keys (`type`, `icon`, `pos`, `options`, `relation`,
+    `config`) are typed, the slug is checked against the pinned kind
+    for the v1 vocabulary (text/longtext/url/email/phone, choice,
+    relation, number/currency/percent/rating/duration, checkbox,
+    date/datetime, period/money/geo; `tags` reserved), `validate` /
+    `compute` are reserved, vendor keys pass verbatim; the leaf-only
+    PATCH rule is structural — a `set` never carries an object, so a
+    container can only be unset; every property write (`/set`,
+    object-create `initialProperties`, bundle `rootProperties`) is
+    validated against the CURRENT slug incl. `config.multiple` arity
+    and the three compound shapes; `xKey` is unique within the type
+    on add and rename (`409 property.xkey_conflict`); backlinks select
+    `xFormat.type == relation`. Dataset fields round-trip
+    `description` / `shape` / `xFormat` and gain
+    `PATCH …/datasets/:defId/fields/:fieldId` (`TypesAPI.PatchDatasetField`;
+    name, description, `xFormat.*`; the descriptive slice stays out of
+    the SDK's `SchemaRev`, and discovery renders `description` /
+    `x-format` per field — `handler.Field` carries them too, so
+    built-ins can declare descriptors later). CLI: `any type property
+    add --kind … --x-format '<json>'`, option sugar on
+    `xFormat.options.*`, `any type dataset field patch`. Contract:
+    docs/27-descriptors.md (client rules), docs/03-api.md § Types +
+    § Runtime dataset schemas, docs/06-errors.md; SDK
+    docs/06-data-structure.md § The `x-format` descriptor.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
@@ -1745,6 +1778,7 @@ auto-start.
 | `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
 | `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
+| `docs/27-descriptors.md` | property & field descriptors — the `xFormat` bag: guarantee boundary (`kind` vs hint), the six interpreted keys, merge model, leaf-only PATCH rule, v1 slug vocabulary + value checks, composites, client rendering/tolerance/ordering rules, what the server enforces, not-covered list |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

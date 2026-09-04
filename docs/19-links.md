@@ -221,8 +221,8 @@ any://<spaceId>/<objectId>    global object reference
 
 These are what's stored today and must keep parsing:
 
-- **Links-format property values** (`space.FormatLinks`,
-  `internal/server/propformat.go`): strictly the one-segment, fragment-less form
+- **Relation property values** (`xFormat.type: "relation"`,
+  `internal/server/descriptor.go`): strictly the one-segment, fragment-less form
   `any://<objectId>`. Value writes are validated against exactly this shape.
 - **Backlinks** (`internal/api/backlinks.go`, `handlers_backlinks.go`): reverse
   lookup keyed on that same one-segment form.

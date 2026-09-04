@@ -257,6 +257,31 @@ pluggable embedders, parallel batched pipelines),
   reserving the consumer virtual dataset names (`prop`, `schema`)
   SDK-side.
 
+## Property descriptors — follow-ups (SYN-211 shipped, see Done)
+
+- **`validate` / `compute` members.** Reserved in `xFormat` and refused
+  today. `validate` is one JSON-text leaf of declarative assertions
+  (required / unique / range on a property) enforced at the write
+  boundary only; `compute` is a read-time computed value (formula /
+  rollup / lookup — a stored derived value cannot depend on an edited
+  one, handlers read only their own object's immutable fields).
+- **File and member relations.** A file is `any://f/<spaceId>/<fileId>`
+  and a member is `any://m/<spaceId>/<identity>` — neither is an object,
+  so `relation.targetTypes` cannot name them. Each needs its own slug
+  plus a target member.
+- **Built-in field descriptors.** `handler.Field` carries
+  `Description` / `XFormat` and discovery renders them, but
+  `chat_messages`, `editor_blocks`, `data_views` and the `any.*` row
+  fields declare none — clients still hardcode that `any.icon` is an
+  icon and `chat_messages.text` is markdown.
+- **Nested descriptors.** `items` / `properties` are not settable over
+  HTTP and a `relation` slug nested in a composite is invisible to
+  backlinks. Composites are validated by the vocabulary's fixed shapes
+  (`period` / `money` / `geo`) instead.
+- **Paired / inverse relations, localisation of labels, autonumber,
+  unit properties** — no contract yet; see docs/27-descriptors.md
+  § Not covered yet.
+
 ## Done
 
 - **Cross-platform single-instance lock (SYN-168)** — one

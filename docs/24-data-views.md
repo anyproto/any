@@ -253,10 +253,10 @@ never drop it silently and never block the write. The server will not
 help here, deliberately: it treats `query` as opaque so that a deleted
 property cannot turn every subsequent write to the view into a failure.
 
-Select/multiselect values reference immutable option keys, so the same
-applies one level down: an option key missing from the property's
-current `format.options` is dangling (options are dangling-tolerant by
-design — delete is a hard `$unset` and values keep the orphan key).
+Choice values reference immutable option keys, so the same applies one
+level down: an option key missing from the property's current
+`xFormat.options` is dangling (options are dangling-tolerant by design —
+delete is a hard `$unset` and values keep the orphan key).
 
 ## Grouping
 
@@ -344,7 +344,7 @@ or opening hundreds of subscriptions.
 
 The **column set comes from the property's option catalog**
 (`GET …/types/:typeId/properties`), not from the aggregate: the catalog
-is ordered (`format.options.<key>.pos`), named and coloured, and it
+is ordered (`xFormat.options.<key>.pos`), named and coloured, and it
 gives an option with zero matches its own empty column. Order columns by
 the catalog's `pos`, not by count, or columns reshuffle under the user
 as data changes. The aggregate then supplies counts and reveals dangling

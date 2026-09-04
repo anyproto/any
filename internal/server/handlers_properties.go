@@ -95,16 +95,16 @@ func (d *deps) propertiesSet(c echo.Context) error {
 		patch[string(propId)] = v
 	})
 
-	// Format-bearing properties get their value shapes checked here —
-	// the SDK stores formats opaquely; this server is the semantics
-	// boundary (see propformat.go).
+	// Every value is checked against its property's current descriptor
+	// slug here — the SDK stores descriptors opaquely and enforces only
+	// kind; this server is the semantics boundary (see descriptor.go).
 	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
-	if v := validateFormatValues(defs, patch); v != nil {
+	if v := validateDescriptorValues(defs, patch); v != nil {
 		return writeError(c, http.StatusBadRequest, "property.format_violation",
-			"value does not match the property's declared format", v.details())
+			"value does not fit the property's descriptor", v.details())
 	}
 
 	res, err := sp.Properties().Set(c.Request().Context(), objectId, typeId, patch)

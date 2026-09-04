@@ -36,9 +36,9 @@ func TestServer_Backlinks(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
-		`{"name":"Related","xKey":"related","format":{"type":"links"}}`)
+		`{"name":"Related","xKey":"related","kind":"array","xFormat":{"type":"relation","config":{"multiple":true}}}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("create links prop: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("create relation prop: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var pr api.AddPropertyResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &pr); err != nil {

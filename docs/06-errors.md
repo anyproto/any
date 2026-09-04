@@ -90,7 +90,7 @@ dataset.unknown                  # 400 — a record write (modify / delete-recor
 dataset.validation               # schema or handler rejected ops
 dataset.name_conflict            # 409 — AddDataset name already in use in the space (built-in, handler dataset, or another runtime definition; details.name)
 dataset.decl_invalid             # 400 — malformed dataset declaration (author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
-dataset.immutable                # 400 — PATCH a pinned dataset-def path (mutable: description, displayName, search.title, search.text); details.path
+dataset.immutable                # 400 — PATCH a pinned dataset-def path (head: description, displayName, search.title/text/scope are mutable; field: name, description, xFormat.*); details.path
 
 upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRule "user"
 # per-record rejection codes inside the 200 body's rejections[] (never HTTP errors):
@@ -105,9 +105,10 @@ type.xkey_conflict               # 409 — xKey collides with an existing type's
 type.registered                  # 400 — add/patch/remove a property or dataset on a registered built-in type (declarations are static)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
-property.immutable               # 400 — PATCH a pinned path (kind/scope/items/properties, whole `format`, format.type); details.path
-property.format_invalid          # 400 — bad format leaf on create/PATCH (unknown ui, unparseable filter, format.* on a format-less property)
-property.format_violation        # 400 — a property VALUE write violated its declared format (details.propId, format, reason)
+property.xkey_conflict           # 409 — add/rename a property to an xKey another property of the type holds (details.xKey, details.existingPropId); a preflight, not a guarantee
+property.immutable               # 400 — PATCH a pinned path (kind/scope/items/properties); details.path
+property.format_invalid          # 400 — descriptor vocabulary problem on create/PATCH, property or dataset field: slug does not fit the pinned kind, reserved slug/key (tags, validate, compute), unparseable relation.filter, empty slug
+property.format_violation        # 400 — a property VALUE write does not fit its descriptor's current slug (details.propId, format = the slug, reason)
 
 device.not_found                 # 404 — unknown peer id in the devices registry (or already pruned; tombstones are sticky)
 device.self_delete               # 400 — DELETE of this server's own row refused (the sticky tombstone would lock the installation out; prune from another device)

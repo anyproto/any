@@ -108,6 +108,15 @@ func (c *Client) TypePatchDataset(ctx context.Context, spaceId, typeId, defId st
 	return c.do(ctx, http.MethodPatch, path, req, nil)
 }
 
+// TypePatchDatasetField applies a {set, unset} patch over one field
+// definition's mutable leaves (name, description, xFormat.*). Returns
+// nil on success (204).
+func (c *Client) TypePatchDatasetField(ctx context.Context, spaceId, typeId, defId, fieldId string, req api.DatasetFieldPatchRequest) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/datasets/%s/fields/%s",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(defId), url.PathEscape(fieldId))
+	return c.do(ctx, http.MethodPatch, path, req, nil)
+}
+
 // TypeRemoveDataset removes a dataset definition (record data stays).
 func (c *Client) TypeRemoveDataset(ctx context.Context, spaceId, typeId, defId string) error {
 	path := fmt.Sprintf("/v1/spaces/%s/types/%s/datasets/%s",

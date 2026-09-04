@@ -135,6 +135,11 @@ type DatasetFieldDraft struct {
 	// Stamp: "creator" | "createTime" | "modifyTime" — value derived at
 	// apply time, client writes rejected.
 	Stamp string `json:"stamp,omitempty"`
+	// XFormat is the field's descriptor — the same object a property
+	// definition carries (AddPropertyRequest.XFormat), validated the
+	// same way against the field's kind. Mutable via
+	// PATCH …/fields/:fieldId.
+	XFormat json.RawMessage `json:"xFormat,omitempty"`
 }
 
 // DatasetFieldShape is a recursive JSON-Schema-subset value shape
@@ -147,8 +152,7 @@ type DatasetFieldShape struct {
 }
 
 // DatasetDefResponse mirrors space.DatasetDef — the compiled view of
-// one runtime dataset definition. Field read-back drops description and
-// shape (leaf kind only) — the SDK's compiled view doesn't carry them.
+// one runtime dataset definition.
 type DatasetDefResponse struct {
 	Id          string               `json:"id"`
 	Name        string               `json:"name"`
@@ -173,15 +177,22 @@ type DatasetDefResponse struct {
 // DatasetFieldDef mirrors space.DatasetFieldDef.
 type DatasetFieldDef struct {
 	// Id is the field definition record's id — the identity
-	// DELETE …/fields/:fieldId targets.
-	Id        string `json:"id"`
-	Key       string `json:"key"`
-	Name      string `json:"name,omitempty"`
-	Kind      string `json:"kind"`
-	Scope     string `json:"scope"`
-	Required  bool   `json:"required,omitempty"`
-	MutableBy string `json:"mutableBy"`
-	Stamp     string `json:"stamp,omitempty"`
+	// PATCH / DELETE …/fields/:fieldId target.
+	Id          string `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind"`
+	// Shape is the full declared value shape (kind plus items /
+	// properties) when one was declared beyond the bare kind.
+	Shape     *DatasetFieldShape `json:"shape,omitempty"`
+	Scope     string             `json:"scope"`
+	Required  bool               `json:"required,omitempty"`
+	MutableBy string             `json:"mutableBy"`
+	Stamp     string             `json:"stamp,omitempty"`
+	// XFormat is the field's descriptor as stored; absent when none was
+	// declared.
+	XFormat json.RawMessage `json:"xFormat,omitempty"`
 }
 
 // TypeDatasetsListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/datasets.
@@ -197,6 +208,20 @@ type AddDatasetResponse struct {
 // AddDatasetFieldResponse is the body returned by POST …/datasets/:defId/fields.
 type AddDatasetFieldResponse struct {
 	FieldDefId string `json:"fieldDefId"`
+}
+
+// DatasetFieldPatchRequest is the body of PATCH
+// /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId —
+// a per-path patch over one field definition's mutable leaves
+// (space.TypesAPI.PatchDatasetField): name, description (strings) and
+// every path under xFormat (the property PATCH rules — a set targets a
+// leaf, a container can only be unset). The behavioral declaration
+// (key, kind, shape, scope, required, mutableBy, stamp) is pinned and
+// rejected with 400 dataset.immutable. At least one entry across
+// Set/Unset required.
+type DatasetFieldPatchRequest struct {
+	Set   map[string]json.RawMessage `json:"set,omitempty"`
+	Unset []string                   `json:"unset,omitempty"`
 }
 
 // DatasetPatchRequest is the body of PATCH

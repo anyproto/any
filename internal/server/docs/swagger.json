@@ -157,9 +157,6 @@
                     "description": {
                         "type": "string"
                     },
-                    "format": {
-                        "$ref": "#/components/schemas/api.PropertyFormat"
-                    },
                     "kind": {
                         "type": "string"
                     },
@@ -167,7 +164,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "Meta is an opaque consumer flag map, stored verbatim on the\nproperty definition. meta[\"index\"] = \"\u003cscope\u003e\" marks the property\nfor the search indexer (docs/13-index.md).",
+                        "description": "Meta holds the consumer flags the server interprets — today only\nmeta[\"index\"] = \"\u003cscope\u003e\" | \"none\" for the search indexer\n(docs/13-index.md). Any other key is rejected; descriptive\nmetadata lives under xFormat.",
                         "type": "object"
                     },
                     "name": {
@@ -177,11 +174,16 @@
                         "description": "Scope is the property's write/sync class: \"synced\" (default,\neveryone in the space), \"account\" (this account's devices only),\nor \"local\" (this device only, never synced). \"derived\" is\nreserved for built-ins and rejected. Pinned by the first write,\nlike kind — changing a property's scope means defining a new\nproperty. Property VALUE writes auto-route by the declared scope\n(POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).",
                         "type": "string"
                     },
-                    "xKey": {
-                        "type": "string"
+                    "xFormat": {
+                        "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
-                    "xKind": {
-                        "description": "XKind is a free-form classification hint, stored verbatim and\nnever interpreted by the server (space.PropertyDraft.XKind).\nIt is the field a caller uses to record a client-side kind\nmarker WITHOUT overloading XKey, which is the stable handle\ncallers address the property by. Freely mutable afterwards via\nPATCH `xKind`; settable here so a caller need not POST-then-PATCH.",
+                    "xKey": {
+                        "description": "XKey is the property's handle — an alias, not a storage key\n(values live under the content-addressed propId). Unique within\nthe type (409 property.xkey_conflict); mutable via PATCH.",
                         "type": "string"
                     }
                 },
@@ -734,8 +736,11 @@
             },
             "api.DatasetFieldDef": {
                 "properties": {
+                    "description": {
+                        "type": "string"
+                    },
                     "id": {
-                        "description": "Id is the field definition record's id — the identity\nDELETE …/fields/:fieldId targets.",
+                        "description": "Id is the field definition record's id — the identity\nPATCH / DELETE …/fields/:fieldId target.",
                         "type": "string"
                     },
                     "key": {
@@ -756,8 +761,19 @@
                     "scope": {
                         "type": "string"
                     },
+                    "shape": {
+                        "$ref": "#/components/schemas/api.DatasetFieldShape"
+                    },
                     "stamp": {
                         "type": "string"
+                    },
+                    "xFormat": {
+                        "description": "XFormat is the field's descriptor as stored; absent when none was\ndeclared.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -796,12 +812,41 @@
                     "stamp": {
                         "description": "Stamp: \"creator\" | \"createTime\" | \"modifyTime\" — value derived at\napply time, client writes rejected.",
                         "type": "string"
+                    },
+                    "xFormat": {
+                        "description": "XFormat is the field's descriptor — the same object a property\ndefinition carries (AddPropertyRequest.XFormat), validated the\nsame way against the field's kind. Mutable via\nPATCH …/fields/:fieldId.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetFieldPatchRequest": {
+                "properties": {
+                    "set": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "unset": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
             },
             "api.DatasetFieldShape": {
-                "description": "Shape optionally refines array/object values.",
+                "description": "Shape is the full declared value shape (kind plus items /\nproperties) when one was declared beyond the bare kind.",
                 "properties": {
                     "items": {
                         "$ref": "#/components/schemas/api.DatasetFieldShape"
@@ -2426,9 +2471,6 @@
                     "description": {
                         "type": "string"
                     },
-                    "format": {
-                        "$ref": "#/components/schemas/api.PropertyFormat"
-                    },
                     "id": {
                         "type": "string"
                     },
@@ -2442,7 +2484,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "Meta is the opaque consumer flag map set at AddProperty time\n(e.g. meta[\"index\"] = \"\u003cscope\u003e\" for the search indexer).",
+                        "description": "Meta is the consumer flag map (meta[\"index\"] for the search\nindexer).",
                         "type": "object"
                     },
                     "name": {
@@ -2466,66 +2508,15 @@
                         "description": "Scope is the property's write/sync class (synced / derived /\naccount / local). Definitions written before scopes existed\nread back as \"synced\".",
                         "type": "string"
                     },
-                    "xKey": {
-                        "type": "string"
-                    },
-                    "xKind": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.PropertyFormat": {
-                "description": "Format is the property's value-format annotation; absent for\nproperties that never declared one.",
-                "properties": {
-                    "filter": {
-                        "description": "Filter is a mongo-style condition object over candidate objects\n(e.g. {\"type\": {\"$in\": [\"page\"]}}); optional, links only.",
+                    "xFormat": {
+                        "description": "XFormat is the descriptor as stored — absent for a property that\nnever declared one, which renders structurally from Kind.",
                         "items": {
                             "type": "integer"
                         },
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "meta": {
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "description": "Meta is an opaque, format-level string config bag.",
-                        "type": "object"
-                    },
-                    "options": {
-                        "additionalProperties": {
-                            "$ref": "#/components/schemas/api.PropertyOption"
-                        },
-                        "description": "Options is the enumerated choice set for select / multiselect,\nkeyed by the option's stable key (which IS the stored value).\nRead back on GET; write/mutate via PATCH (format.options.\u003ckey\u003e.*\npaths), not this create body's whole-map form.",
-                        "type": "object"
-                    },
-                    "type": {
-                        "description": "Type is one of the FormatType* wire strings.",
-                        "type": "string"
-                    },
-                    "ui": {
-                        "description": "UI is one of the FormatUI* wire strings; optional. links accepts\nany UI; date/datetime accept none.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.PropertyOption": {
-                "properties": {
-                    "color": {
-                        "type": "string"
-                    },
-                    "meta": {
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "type": "object"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "pos": {
+                    "xKey": {
                         "type": "string"
                     }
                 },
@@ -9227,7 +9218,7 @@
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "List objects that reference an object (links-format property values)",
+                "summary": "List objects that reference an object (relation property values)",
                 "tags": [
                     "objects"
                 ]
@@ -12548,6 +12539,105 @@
                     }
                 },
                 "summary": "Remove a dataset field definition",
+                "tags": [
+                    "types"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Field definition ID",
+                        "in": "path",
+                        "name": "fieldId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetFieldPatchRequest",
+                                        "summary": "body",
+                                        "description": "set/unset paths"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "set/unset paths",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a dataset field's display fields and descriptor",
                 "tags": [
                     "types"
                 ]

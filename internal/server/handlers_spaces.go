@@ -141,6 +141,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typePatchDataset)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typeRemoveDataset)
 	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/fields", d.typeAddDatasetField)
+	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typePatchDatasetField)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typeRemoveDatasetField)
 
 	// Properties. Scoped properties (v0.0.11) unified the former

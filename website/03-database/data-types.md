@@ -1,11 +1,11 @@
 ---
 title: Data types
-description: Property kinds, value formats, the datetime instant on the wire, and the synced / local / account / derived scopes every field belongs to.
+description: Property kinds, the xFormat descriptor and its slug vocabulary, the datetime instant on the wire, and the synced / local / account / derived scopes every field belongs to.
 order: 40
 ---
 # Data types
 
-Every value in any has a structural **kind**, may carry a **format** that narrows the convention, and belongs to a **scope** that decides who it syncs to. This page is the vocabulary.
+Every value in any has a structural **kind**, may carry a **descriptor** (`xFormat`) that says what the value means and how it renders, and belongs to a **scope** that decides who it syncs to. This page is the vocabulary.
 
 ## Kinds
 
@@ -23,7 +23,7 @@ Kind is pinned at the property's first write. Changing it means defining a new p
 
 ## Datetime instants
 
-Every timestamp the server stores — the derived `createdAt` / `modifiedAt` on object rows, chat `createdAt` / `modifiedAt` and reaction stamps, runtime-dataset `createTime` / `modifyTime`, space rows' `createdAt`, and any property declared with a `date` or `datetime` format — is an instant. It reads back as `{"$date": "<RFC 3339>"}`, and writes accept either `{"$date": "<RFC 3339>"}` or `{"$date": <unix millis>}`.
+Every timestamp the server stores — the derived `createdAt` / `modifiedAt` on object rows, chat `createdAt` / `modifiedAt` and reaction stamps, runtime-dataset `createTime` / `modifyTime`, space rows' `createdAt`, and any `datetime`-kind property (the `date` / `datetime` slugs) — is an instant. It reads back as `{"$date": "<RFC 3339>"}`, and writes accept either `{"$date": "<RFC 3339>"}` or `{"$date": <unix millis>}`.
 
 ```json
 { "<typeId>": { "<propId>": { "$date": "2026-08-05T17:00:00.000Z" } } }
@@ -37,28 +37,49 @@ Filter literals take the same shape:
 
 > **Note.** A bare number or string in a date comparison does not error — it answers empty. Ordering comparisons are bracketed by type: a number literal only ever compares against numbers, so `{"$gte": 1700000000}` matches no instant, and neither does `$lt` or a bare ISO string. Always wrap the literal.
 
-Instants are what the aggregation date operators (`$year`, `$dateTrunc`, `$dateDiff`) compute on — see [Aggregation](aggregation.html). A property declared `kind: "string"` alongside a `date` / `datetime` format keeps the ISO-8601 string convention instead (`2006-01-02` for `date`, RFC 3339 for `datetime`): it sorts lexicographically, which is chronological for RFC 3339, but every date operator returns `null` for it.
+Instants are what the aggregation date operators (`$year`, `$dateTrunc`, `$dateDiff`) compute on — see [Aggregation](aggregation.html). A `date` is a calendar day encoded as midnight UTC — format it in UTC, never in local time.
 
-## Formats
+## The descriptor
 
-A format narrows a kind to a convention the server validates on write (`400 property.format_violation` with `details: {propId, format, reason}`; `400 property.format_invalid` for a bad definition). `format.type` implies the kind, so `kind` may be omitted.
+`kind` is the guarantee: it is pinned and every peer validates values against it. `xFormat` is a hint: one object holding everything descriptive — the semantic slug, icon, display order, option set, relation targets, per-format config — stored opaquely by the SDK and validated only by the server at its write boundary. Every path under it is mutable.
 
-| `format.type` | Implied kind | Value | Extras |
-|---------------|--------------|-------|--------|
-| `links` | `array` | Plain `any://<objectId>` URIs — no space segment, no fragment. | `format.ui` (`link` / `links` / `select` / `multiselect`), `format.filter` — a mongo-style condition over candidate objects. |
-| `date` | `datetime` | An instant that lands on midnight UTC. | No `ui`. |
-| `datetime` | `datetime` | Any instant. | No `ui`. |
-| `select` | `string` | One option key. | `format.options.<key>` = `{name, color, pos, meta?}`. |
-| `multiselect` | `array` | An array of option keys. | Same options map. |
+```json
+"xFormat": {
+  "type":     "choice",
+  "icon":     "tag",
+  "pos":      "a6",
+  "options":  { "<key>": { "name": "…", "color": "…", "pos": "…" } },
+  "relation": { "targetTypes": ["…"], "filter": "<json text>" },
+  "config":   { "multiple": true }
+}
+```
 
-`format.meta` is an opaque string map for format-level config. No object-existence or object-type checks run on `links` values, and option membership is not enforced on `select` values — both are dangling-tolerant by design. `tags` is reserved.
+Those six keys are the ones the server interprets; any other top-level key is a vendor namespace stored verbatim. `validate` and `compute` are reserved. The slug set is open — an unknown `type` renders structurally from `kind` and gets no value checks — and this is the documented vocabulary:
+
+| `type` | `kind` | Value the server accepts | Extras |
+|--------|--------|--------------------------|--------|
+| `text`, `longtext`, `phone` | `string` | Any string. | |
+| `url` | `string` | An absolute URL with a scheme. | |
+| `email` | `string` | One `local@domain`. | |
+| `choice` | `array` | Option keys — one unless `config.multiple`. | `options.<key>` = `{name, color, pos, meta?}`; the key is the stored value. |
+| `relation` | `array` | Plain `any://<objectId>` URIs — no space segment, no fragment; one unless `config.multiple`. | `relation.targetTypes` (type xKeys), `relation.filter` (a query condition as JSON text). |
+| `number`, `currency`, `percent`, `duration` | `number` | A number. | `config` display settings (`decimals`, `currency`, `unit`, …). |
+| `rating` | `number` | A number within `0..config.max`. | |
+| `checkbox` | `boolean` | A boolean. | |
+| `date` | `datetime` | An instant at midnight UTC. | |
+| `datetime` | `datetime` | Any instant. | |
+| `period` | `object` | `{from?, to?}` instants, at least one, end on or after start. | Written whole — one value. |
+| `money` | `object` | `{amount, currency}` exactly. | Written whole. |
+| `geo` | `object` | `{lat, lng}` in range exactly. | Written whole. |
+
+A value that does not fit the property's current slug is `400 property.format_violation` (`details: {propId, format, reason}`); a descriptor that does not fit the kind, a reserved key or an unparseable filter is `400 property.format_invalid`. Option membership is not enforced on `choice` values and no object-existence or object-type check runs on `relation` values — both are dangling-tolerant by design. `tags` is reserved. The full contract, including the client-side rendering and tolerance rules, is the server's `docs/27-descriptors.md`.
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Related", "xKey": "related",
-       "format": {"type": "links", "ui": "multiselect",
-                  "filter": {"any.types": "page"}}}'
+  -d '{"name": "Related", "xKey": "related", "kind": "array",
+       "xFormat": {"type": "relation", "config": {"multiple": true},
+                   "relation": {"targetTypes": ["page"]}}}'
 ```
 
 ## Scopes

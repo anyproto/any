@@ -173,6 +173,102 @@ func (d *deps) typeAddDatasetField(c echo.Context) error {
 	return c.JSON(http.StatusCreated, api.AddDatasetFieldResponse{FieldDefId: fieldId})
 }
 
+// typePatchDatasetField handles PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId.
+// Mutable paths: name, description, and every path under xFormat (the
+// property PATCH rules — a set targets a leaf, containers are
+// unset-only). The behavioral declaration is pinned → 400
+// dataset.immutable.
+//
+//	@Summary	Patch a dataset field's display fields and descriptor
+//	@Tags		types
+//	@Accept		json
+//	@Param		spaceId	path	string							true	"Space ID"
+//	@Param		typeId	path	string							true	"Type ID"
+//	@Param		defId	path	string							true	"Dataset definition ID"
+//	@Param		fieldId	path	string							true	"Field definition ID"
+//	@Param		body	body	api.DatasetFieldPatchRequest	true	"set/unset paths"
+//	@Success	204
+//	@Failure	400	{object}	api.ErrorEnvelope
+//	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/types/{typeId}/datasets/{defId}/fields/{fieldId} [patch]
+func (d *deps) typePatchDatasetField(c echo.Context) error {
+	sp, errResp, done := d.resolveSpace(c)
+	if done {
+		return errResp
+	}
+	typeId := c.Param("typeId")
+	defId := c.Param("defId")
+	fieldId := c.Param("fieldId")
+	if typeId == "" || defId == "" || fieldId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId, defId and fieldId required", nil)
+	}
+	req, ok := bindBodyStrict[api.DatasetFieldPatchRequest](c, "")
+	if !ok {
+		return nil
+	}
+	if len(req.Set) == 0 && len(req.Unset) == 0 {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"at least one of set/unset is required", nil)
+	}
+
+	patch := space.DatasetDefPatch{}
+	if len(req.Set) > 0 {
+		patch.Set = make(map[string]any, len(req.Set))
+	}
+	var newSlug string
+	for path, raw := range req.Set {
+		storagePath, code, reason := fieldPatchPathToStorage(path, true)
+		if code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+		}
+		val, vcode, reason := patchSetValue(storagePath, raw)
+		if vcode != "" {
+			return writeError(c, http.StatusBadRequest, vcode, reason, map[string]any{"path": path})
+		}
+		patch.Set[storagePath] = val
+		if storagePath == propFieldXFormat+"."+xfType {
+			newSlug, _ = val.(string)
+		}
+	}
+	for _, path := range req.Unset {
+		storagePath, code, reason := fieldPatchPathToStorage(path, false)
+		if code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
+		}
+		patch.Unset = append(patch.Unset, storagePath)
+	}
+
+	// Existence preflight — the field must belong to THIS definition
+	// (the SDK checks the type only) — and the slug ↔ kind rule when the
+	// slug moves.
+	def, errResp, done := findDatasetDef(c, d, sp, typeId, defId)
+	if done {
+		return errResp
+	}
+	var field *space.DatasetFieldDef
+	for i := range def.Fields {
+		if def.Fields[i].Id == fieldId {
+			field = &def.Fields[i]
+		}
+	}
+	if field == nil {
+		return writeError(c, http.StatusNotFound, "sdk.not_found",
+			"field definition not found on this dataset",
+			map[string]any{"typeId": typeId, "defId": defId, "fieldId": fieldId})
+	}
+	if newSlug != "" {
+		if reason := slugKindMismatch(newSlug, propertyKindToString(field.Kind)); reason != "" {
+			return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
+				map[string]any{"path": wireXFormat + "." + xfType})
+		}
+	}
+	if err := sp.Types().PatchDatasetField(c.Request().Context(), typeId, fieldId, patch); err != nil {
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId, "fieldId": fieldId})
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // datasetDefMutablePaths are the wire (== storage) paths PATCH accepts;
 // every mutable leaf is a plain string except search.text, which is
 // string-or-array (parseSearchTextLeaf). Everything else on a dataset
@@ -402,19 +498,25 @@ func requireType(c echo.Context, sp space.Space, typeId string) (errResp error, 
 // themselves (a patch no-ops, a remove mints a tombstone for the
 // garbage id). Subsumes requireType: an unknown type has no defs.
 func requireDatasetDef(c echo.Context, d *deps, sp space.Space, typeId, defId string) (errResp error, done bool) {
+	_, errResp, done = findDatasetDef(c, d, sp, typeId, defId)
+	return errResp, done
+}
+
+// findDatasetDef is requireDatasetDef returning the compiled definition.
+func findDatasetDef(c echo.Context, d *deps, sp space.Space, typeId, defId string) (def space.DatasetDef, errResp error, done bool) {
 	if errResp, done := requireType(c, sp, typeId); done {
-		return errResp, true
+		return def, errResp, true
 	}
 	defs, err := sp.Types().Datasets(c.Request().Context(), typeId)
 	if err != nil {
-		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId}), true
+		return def, d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "defId": defId}), true
 	}
 	for _, def := range defs {
 		if def.Id == defId {
-			return nil, false
+			return def, nil, false
 		}
 	}
-	return writeError(c, http.StatusNotFound, "sdk.not_found",
+	return def, writeError(c, http.StatusNotFound, "sdk.not_found",
 		"dataset definition not found on this type",
 		map[string]any{"typeId": typeId, "defId": defId}), true
 }
@@ -640,7 +742,38 @@ func datasetFieldDraftFromAPI(req api.DatasetFieldDraft) (space.DatasetFieldDraf
 	if draft.Stamp, ok = parseStamp(req.Stamp); !ok {
 		return draft, "request.invalid_field", `stamp must be "creator", "createTime" or "modifyTime"`
 	}
+	// The descriptor is validated against the field's declared kind —
+	// the wire kind, or the shape's top-level kind; a stamp-implied kind
+	// is left to the SDK (a stamped field has no slug to check).
+	kind := req.Kind
+	if kind == "" && req.Shape != nil {
+		kind = req.Shape.Kind
+	}
+	xf, code, reason := validateDescriptor(req.XFormat, kind)
+	if code != "" {
+		return draft, code, reason
+	}
+	draft.XFormat = xf
 	return draft, "", ""
+}
+
+// datasetShapeToAPI renders a declared value shape for the wire. Kind
+// enums track 1:1 across handler / space / schema.
+func datasetShapeToAPI(sh *handler.FieldShape) *api.DatasetFieldShape {
+	if sh == nil {
+		return nil
+	}
+	out := &api.DatasetFieldShape{Kind: propertyKindToString(space.PropertyKind(sh.Kind))}
+	if sh.Items != nil {
+		out.Items = datasetShapeToAPI(sh.Items)
+	}
+	if len(sh.Properties) > 0 {
+		out.Properties = make(map[string]*api.DatasetFieldShape, len(sh.Properties))
+		for k, sub := range sh.Properties {
+			out.Properties[k] = datasetShapeToAPI(sub)
+		}
+	}
+	return out
 }
 
 // datasetShapeFromAPI converts the recursive wire shape. nil is valid
@@ -700,13 +833,20 @@ func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 			scope = space.ScopeSynced
 		}
 		fd := api.DatasetFieldDef{
-			Id:        f.Id,
-			Key:       f.Key,
-			Name:      f.Name,
-			Kind:      propertyKindToString(f.Kind),
-			Scope:     scope.String(),
-			Required:  f.Required,
-			MutableBy: f.MutableBy.String(),
+			Id:          f.Id,
+			Key:         f.Key,
+			Name:        f.Name,
+			Description: f.Description,
+			Kind:        propertyKindToString(f.Kind),
+			Scope:       scope.String(),
+			Required:    f.Required,
+			MutableBy:   f.MutableBy.String(),
+			XFormat:     xformatToWire(f.XFormat),
+		}
+		// A bare kind round-trips as `kind` alone; a refined shape
+		// (items / properties) reads back whole.
+		if f.Shape != nil && (f.Shape.Items != nil || len(f.Shape.Properties) > 0) {
+			fd.Shape = datasetShapeToAPI(f.Shape)
 		}
 		if f.Stamp != space.StampNone {
 			fd.Stamp = f.Stamp.String()
