@@ -1488,21 +1488,40 @@ Implementation slices landed:
     unreachable. It now calls the SDK's `Service.CancelJoin`, which
     posts the withdrawal through any-sync's joining client (ACL chain
     served by the nodes, no local space — the same component `Join`
-    uses), stops the join waiter and stamps the row's device-local
-    `localStatus=deleted` — the end state an owner decline already
-    left, so the joiner's row reads `deleted` and re-requests via
-    `POST /v1/spaces/join` (the SDK's `Join` now revives such a row
-    instead of leaving it dead, and refuses a synced tombstone before
-    the RPC → `409 space.deleted`). Errors: `404 space.not_found`,
-    `409 space.join_not_pending` (`space.ErrJoinNotPending` — row not
-    joining, or the owner resolved the request first; consensus is
-    linear so the row settles to active/deleted on its own).
-    `space.ACL.CancelJoinRequest` stays for a loaded space. Pending
-    joins and their cancels are device-local by design (`localStatus`
-    / `aclHeadId` are ScopeLocal); the ACL is the account-wide truth.
+    uses), stops the join waiter and marks the row ended — the end
+    state an owner decline already left, so the joiner's row reads
+    `deleted` and re-requests via `POST /v1/spaces/join` (the SDK's
+    `Join` revives such a row instead of leaving it dead, and refuses a
+    synced tombstone before the RPC → `409 space.deleted`). Errors:
+    `404 space.not_found`, `409 space.join_not_pending`
+    (`space.ErrJoinNotPending` — row not joining, or the owner accepted
+    first; consensus is linear so the row settles to active on its
+    own). `space.ACL.CancelJoinRequest` stays for a loaded space.
     Tests: `TestServer_ACLCancelJoin_RowGate`,
     `TestE2E_MultipeerCancelJoin`, SDK `TestE2E_JoinCancelRejoin`.
     Contract: docs/03-api.md § ACL, docs/06-errors.md.
+45. **Join lifecycle is synced (SYN-212)** — an SDK change, passthrough
+    here. The pending join lives in the tech-space row's SYNCED
+    `remoteStatus` (`joining` / `joinEnded`) instead of the device-local
+    `localStatus`, so every device of the joiner's account lists the
+    space as `joining`, none materializes it (the old shape read
+    `active` on the other devices, which eager-loaded and SpacePulled a
+    space the account is not a member of, and this server's indexer
+    kept re-spawning against it), and the verdict observed on any device
+    converges the rest: the device whose ACL waiter sees the acceptance
+    loads and flips the row `active` for all (the others load lazily on
+    `GET`), a decline or `cancel-join` marks it `deleted` everywhere.
+    `cancel-join` works from any device of the account; a direct add
+    (`AddAccounts`) after a withdrawn join registers as `invite_pending`
+    over the ended row, closing the SYN-208 residual. A device that
+    learned of the join from the synced row resolves an ACL head from
+    the chain before it runs a waiter (the any-sync waiter is
+    decline-blind without one). No `any` handler change: `SpaceInfo.status`
+    keeps its vocabulary and `indexableStatus` already skips `joining`.
+    Legacy device-local rows stay readable; nothing writes them. SDK
+    contract: its docs/03-space.md § Join lifecycle, docs/02-tech-space.md,
+    docs/15-direct-add-invites.md; e2e `TestE2E_JoinLifecycleSynced`.
+    Here: docs/03-api.md § Spaces (join) + § ACL (`cancel-join`).
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

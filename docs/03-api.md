@@ -2993,6 +2993,16 @@ posted the join request, written a `joining` index entry, and the
 joiner now polls `GET /v1/spaces/:id/members/me` for the status flip
 to `active` after the owner accepts.
 
+The pending join is **account-wide**: the `joining` row syncs to every
+device of the joiner's account, each of them lists the space as
+`joining` and none materializes it (`GET /v1/spaces/:id` serves the
+row, `space.not_accepted` on anything that would load it). The device
+that observes the owner's verdict settles the row for all of them —
+acceptance flips it to `active` once that device has loaded the space
+(the others load lazily), a decline or a `cancel-join` moves it to
+`deleted`. Every device of the account may `cancel-join`, not only the
+one that requested.
+
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent
 collection to revoke all in one batch.
@@ -3086,17 +3096,22 @@ materialized (`Service.Get` refuses it with `space.not_accepted`), so
 the server posts the withdrawal through the SDK's account-level
 `Service.CancelJoin`: the joining client writes the cancel record
 straight to the ACL chain the nodes serve, the same way the request
-was posted. Afterwards the joiner's row reads `status: "deleted"` on
-this device — the end state an owner decline leaves — and drops out of
-the default space list; `POST /v1/spaces/join` with a valid token
-re-requests and returns the row to `joining` (a fresh ACL request,
-fresh `requestRecordId` on the owner's side). Errors: `404
+was posted — from any device of the account, the request is
+identity-based. Afterwards the joiner's row reads `status: "deleted"`
+account-wide — the end state an owner decline leaves — and drops out
+of the default space list on every device; `POST /v1/spaces/join` with
+a valid token re-requests and returns the row to `joining` (a fresh ACL
+request, fresh `requestRecordId` on the owner's side), and a direct add
+by the owner surfaces it as `invite_pending`. Errors: `404
 space.not_found` for an id this account has no row for; `409
 space.join_not_pending` when the row is not `joining`, or when the
-owner accepted or declined before the cancel landed — consensus is
-linear, so exactly one side wins, and the row settles to `active` or
-`deleted` on its own within the join controller's poll; re-read
-`GET /v1/spaces/:id` rather than retrying.
+owner accepted before the cancel landed — consensus is linear, so
+exactly one side wins, and the row settles to `active` on its own
+within the join controller's poll; re-read `GET /v1/spaces/:id` rather
+than retrying. A request that is already gone from the chain with no
+membership behind it (declined, or withdrawn from another device
+before the marker synced) is settled by the call itself: 204, row
+`deleted`.
 
 #### Permission / status strings
 
