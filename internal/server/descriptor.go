@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -149,12 +150,12 @@ func xfConfigNumber(xf map[string]any, key string) (float64, bool) {
 // validateDescriptor checks a create-time xFormat body and decodes it
 // for the SDK draft. kind is the definition's wire kind ("" = not
 // declared, skips the slug check). Returns (nil, "", "") for an absent
-// body; on failure code is request.invalid_field (not an object,
-// wrong leaf type, unknown member of an interpreted container) or
-// property.format_invalid (slug/kind mismatch, reserved slug or key,
-// unparseable filter).
+// or null body; on failure code is request.invalid_field (not an
+// object, an unaddressable key, wrong leaf type, unknown member of an
+// interpreted container) or property.format_invalid (slug/kind
+// mismatch, reserved slug or key, unparseable filter).
 func validateDescriptor(raw json.RawMessage, kind string) (xf map[string]any, code, reason string) {
-	if len(raw) == 0 {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, "", ""
 	}
 	parser := getFastjsonParser()
@@ -162,6 +163,9 @@ func validateDescriptor(raw json.RawMessage, kind string) (xf map[string]any, co
 	v, err := parser.ParseBytes(raw)
 	if err != nil || v.Type() != fastjson.TypeObject {
 		return nil, "request.invalid_field", "xFormat must be a JSON object"
+	}
+	if code, reason = checkDescriptorKeys(v, wireXFormat); code != "" {
+		return nil, code, reason
 	}
 	obj, _ := v.Object()
 	obj.Visit(func(k []byte, val *fastjson.Value) {
@@ -196,6 +200,39 @@ func validateDescriptor(raw json.RawMessage, kind string) (xf map[string]any, co
 		return nil, "request.invalid_field", "xFormat must be a JSON object"
 	}
 	return xf, "", ""
+}
+
+// checkDescriptorKeys walks every object in a descriptor value —
+// vendor subtrees and array elements included — and refuses keys the
+// surface could not address or store faithfully: empty, containing "."
+// (PATCH paths split on it, so the member could never be patched or
+// unset on its own), or starting with "$" (the extended-JSON wrapper
+// namespace — a `{"$date": …}` object converts to an instant on the way
+// in and reads back as something else).
+func checkDescriptorKeys(v *fastjson.Value, path string) (code, reason string) {
+	switch v.Type() {
+	case fastjson.TypeObject:
+		obj, _ := v.Object()
+		obj.Visit(func(k []byte, val *fastjson.Value) {
+			if code != "" {
+				return
+			}
+			key := string(k)
+			if key == "" || strings.Contains(key, ".") || strings.HasPrefix(key, "$") {
+				code, reason = "request.invalid_field",
+					fmt.Sprintf("%s: key %q — descriptor keys are non-empty, contain no '.', and do not start with '$'", path, key)
+				return
+			}
+			code, reason = checkDescriptorKeys(val, path+"."+key)
+		})
+	case fastjson.TypeArray:
+		for i, el := range v.GetArray() {
+			if code, reason = checkDescriptorKeys(el, fmt.Sprintf("%s[%d]", path, i)); code != "" {
+				return code, reason
+			}
+		}
+	}
+	return code, reason
 }
 
 // checkOptionsObject validates a whole `options` map at create: every
@@ -420,6 +457,9 @@ func splitPatchPath(path string) (segs []string, code, reason string) {
 		if s == "" {
 			return nil, invalid, fmt.Sprintf("path %q has an empty segment", path)
 		}
+		if strings.HasPrefix(s, "$") {
+			return nil, invalid, fmt.Sprintf("path %q has a segment starting with '$' (reserved)", path)
+		}
 	}
 	return segs, "", ""
 }
@@ -484,7 +524,12 @@ func xformatPatchPath(segs []string, path string, forSet bool) (string, string, 
 		}
 		return "", invalid, fmt.Sprintf("path %q: config holds scalar leaves only", path)
 	case xfValidate, xfCompute:
-		return "", "property.format_invalid", fmt.Sprintf("%s.%s is reserved for a future contract", wireXFormat, segs[1])
+		// Reserved: never written through this surface; an unset stays
+		// available as the repair path for a key that arrived another way.
+		if forSet {
+			return "", "property.format_invalid", fmt.Sprintf("%s.%s is reserved for a future contract", wireXFormat, segs[1])
+		}
+		return storage, "", ""
 	}
 	// Vendor namespace: any depth. A bare `xFormat.<vendor>` set is a
 	// leaf if its value is scalar — patchSetValue refuses objects.
@@ -492,28 +537,32 @@ func xformatPatchPath(segs []string, path string, forSet bool) (string, string, 
 }
 
 // patchSetValue decodes and validates one Set value for a stored path.
-// Outside x-format every leaf is a JSON string. Under x-format the
-// leaf-only rule is structural — an object is refused whatever the
-// path, so no set can replace a container — and the interpreted
-// leaves are typed by checkDescriptorLeaf; vendor leaves take any
-// non-object value. Returns (value, "", "") or (nil, code, reason).
+// Outside x-format every leaf is a JSON string (null included in the
+// refusal — a clear is an unset). Under x-format the leaf-only rule is
+// structural — an object is refused whatever the path, so no set can
+// replace a container — the interpreted leaves are typed by
+// checkDescriptorLeaf, and vendor leaves take any non-object value
+// whose nested keys are addressable. Returns (value, "", "") or
+// (nil, code, reason).
 func patchSetValue(storagePath string, raw json.RawMessage) (val any, code, reason string) {
 	segs := strings.Split(storagePath, ".")
-	if segs[0] != propFieldXFormat {
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, "request.invalid_field", fmt.Sprintf("path %q value must be a JSON string", storagePath)
-		}
-		return s, "", ""
-	}
 	parser := getFastjsonParser()
 	defer putFastjsonParser(parser)
 	v, err := parser.ParseBytes(raw)
 	if err != nil {
 		return nil, "request.invalid_field", fmt.Sprintf("path %q value is not valid JSON", storagePath)
 	}
+	if segs[0] != propFieldXFormat {
+		if v.Type() != fastjson.TypeString {
+			return nil, "request.invalid_field", fmt.Sprintf("path %q value must be a JSON string", storagePath)
+		}
+		return string(v.GetStringBytes()), "", ""
+	}
 	if v.Type() == fastjson.TypeObject {
 		return nil, "request.invalid_field", fmt.Sprintf("path %q: a set carries a leaf value, never an object — set its leaves, or unset the container", storagePath)
+	}
+	if c, r := checkDescriptorKeys(v, storagePath); c != "" {
+		return nil, c, r
 	}
 	if len(segs) > 1 {
 		if c, r := checkDescriptorLeaf(segs[1:], v); c != "" {
@@ -529,8 +578,6 @@ func patchSetValue(storagePath string, raw json.RawMessage) (val any, code, reas
 // ---------------------------------------------------------------------
 // Value validation against the current slug
 // ---------------------------------------------------------------------
-
-const dateLayout = "2006-01-02"
 
 // descriptorViolation describes one patch value that doesn't fit its
 // property's current slug.

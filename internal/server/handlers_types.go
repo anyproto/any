@@ -148,7 +148,11 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	// not a guarantee (two devices working apart can both land the same
 	// handle; both columns then persist — docs/27-descriptors.md).
 	if req.XKey != "" {
-		if errResp, done := d.requireXKeyFree(c, sp, typeId, req.XKey, ""); done {
+		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		}
+		if errResp, done := requireXKeyFree(c, defs, req.XKey, ""); done {
 			return errResp
 		}
 	}
@@ -173,14 +177,10 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
 }
 
-// requireXKeyFree 409s when another property of the type already
+// requireXKeyFree 409s when another of the type's definitions already
 // carries xKey (selfId excludes the property being patched). An unknown
 // type lists no properties, so the write that follows reports it.
-func (d *deps) requireXKeyFree(c echo.Context, sp space.Space, typeId, xKey, selfId string) (errResp error, done bool) {
-	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
-	if err != nil {
-		return nil, false
-	}
+func requireXKeyFree(c echo.Context, defs []space.PropertyDef, xKey, selfId string) (errResp error, done bool) {
 	for _, def := range defs {
 		if def.XKey == xKey && def.Id != selfId {
 			return writeError(c, http.StatusConflict, "property.xkey_conflict",
@@ -378,18 +378,18 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 	// unique within the type, and a slug can only move within the
 	// pinned kind. Both need the current definitions — one read, only
 	// when either leaf is touched.
-	if newXKey != "" {
-		if errResp, done := d.requireXKeyFree(c, sp, typeId, newXKey, propId); done {
-			return errResp
-		}
-	}
-	if newSlug != "" {
+	if newXKey != "" || newSlug != "" {
 		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 		if err != nil {
 			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 		}
+		if newXKey != "" {
+			if errResp, done := requireXKeyFree(c, defs, newXKey, propId); done {
+				return errResp
+			}
+		}
 		for _, def := range defs {
-			if def.Id != propId {
+			if newSlug == "" || def.Id != propId {
 				continue
 			}
 			if reason := slugKindMismatch(newSlug, propertyKindToString(def.Kind)); reason != "" {

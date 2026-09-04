@@ -76,6 +76,7 @@ var techAllowedRoutes = map[string]struct{}{
 	"PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId":                  {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId":                 {},
 	"POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields":            {},
+	"PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId":  {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId": {},
 
 	// children stay off the list (phase-2, not exposed). resolve is

@@ -1483,7 +1483,7 @@ Implementation slices landed:
     on a standalone server); IOS-615 is unblocked.
 44. **Property & field descriptors (SYN-211)** — one opaque `x-format`
     object (wire `xFormat`) describes both type properties and runtime
-    dataset fields; the SDK (v0.3.0) stores it verbatim, created whole
+    dataset fields; the SDK stores it verbatim, created whole
     and patched per path, and enforces only `kind`. Gone, no
     back-compat and no migration: the typed `format` object,
     `FormatType`, `xKind`, `format.ui`, the `meta.pos` / `meta.icon`

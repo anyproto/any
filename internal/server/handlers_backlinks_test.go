@@ -9,7 +9,7 @@ import (
 )
 
 // TestServer_Backlinks covers the reverse-reference read: objects
-// linking to a target through a links-format property show up in the
+// linking to a target through a relation property show up in the
 // target's /backlinks, with the declaring (typeId, propId) pair;
 // non-referencing objects and unknown targets yield empty lists.
 func TestServer_Backlinks(t *testing.T) {

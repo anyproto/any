@@ -649,7 +649,7 @@ No `--output` flag in v1 — pretty-printed JSON is the only format.
 - `--file FILE` takes a JSON document matching the endpoint's body. `-`
   means stdin.
 - `--patch FILE` is the JSON patch object for properties setters
-  (keyed by propId or x-key).
+  (keyed by propId — never by xKey).
 - `--filter FILE` is a mongo-style filter object.
 - Scalar flags (`--name`, `--kind`, etc.) set simple fields on the body.
 - `--property typeId.key=value` — a convenience for `object create`'s

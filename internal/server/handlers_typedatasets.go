@@ -742,12 +742,21 @@ func datasetFieldDraftFromAPI(req api.DatasetFieldDraft) (space.DatasetFieldDraf
 	if draft.Stamp, ok = parseStamp(req.Stamp); !ok {
 		return draft, "request.invalid_field", `stamp must be "creator", "createTime" or "modifyTime"`
 	}
-	// The descriptor is validated against the field's declared kind —
-	// the wire kind, or the shape's top-level kind; a stamp-implied kind
-	// is left to the SDK (a stamped field has no slug to check).
+	// The descriptor is validated against the field's kind — the wire
+	// kind, the shape's top-level kind, or the kind a stamp implies
+	// (creator ⇒ string, times ⇒ datetime; the SDK pins the same), so
+	// create and PATCH judge a slug against the same kind.
 	kind := req.Kind
 	if kind == "" && req.Shape != nil {
 		kind = req.Shape.Kind
+	}
+	if kind == "" {
+		switch req.Stamp {
+		case api.StampCreator:
+			kind = api.PropertyKindString
+		case api.StampCreateTime, api.StampModifyTime:
+			kind = api.PropertyKindDatetime
+		}
 	}
 	xf, code, reason := validateDescriptor(req.XFormat, kind)
 	if code != "" {

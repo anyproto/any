@@ -21,7 +21,7 @@
 //
 // Why no properties: the SDK freezes registered types' property
 // definitions (AddProperty / PatchProperty / RemoveProperty return
-// ErrTypeRegistered), so a built-in select/multiselect would carry a
+// ErrTypeRegistered), so a built-in choice would carry a
 // permanently empty, uneditable option set. Per-space columns stay a
 // user-type concern until the SDK grows mutable metadata for
 // registered types.

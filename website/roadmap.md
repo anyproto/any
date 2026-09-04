@@ -12,7 +12,7 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 | Area | What you can use today |
 |---|---|
 | Server and accounts | `any run` on loopback, mnemonic-restored accounts with fresh device keys, per-account data dirs, `POST /v1/auth` onboarding, the OpenAPI 3.1 document at `/v1/openapi.json` — [Accounts](auth/accounts.html) |
-| Data plane | objects, types and properties with formats and select options, Mongo-style query with windowed subscribe over SSE, aggregation pipelines, version history, runtime dataset schemas with idempotent upsert, datetime instants, derived `createdAt`/`modifiedAt`/`modifiedBy`/`author` — [Database](database/index.html) |
+| Data plane | objects, types and properties with descriptors and choice options, Mongo-style query with windowed subscribe over SSE, aggregation pipelines, version history, runtime dataset schemas with idempotent upsert, datetime instants, derived `createdAt`/`modifiedAt`/`modifiedBy`/`author` — [Database](database/index.html) |
 | Built-in types | chat with reactions, mentions, threads, attachments and private read tracking; the block editor with a lossless markdown bridge and surgical text edits; the `page` marker type; `any://` links — [Types](types/index.html) |
 | Collaboration | members, invites, guest keys, ACL operations, direct-add by identity, one-to-one spaces, well-known derived spaces, bundles with derived roots, the encrypted identities directory — [Collaboration](collaboration/index.html) |
 | Files | encrypted content-addressed files with offline-first backup, ranged download, variants, pin/offload/retry, account-wide cache control — [Files](files/index.html) |

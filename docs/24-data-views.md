@@ -288,13 +288,13 @@ groupable" even when the aggregate succeeds. The preflight is one
 snapshot request; the cost that matters is the N live windows it
 authorises.
 
-**v1 groups by `select` and `multiselect` only.** Those are the kinds
-with a bounded, named, ordered value set — the option catalog gives
-columns a name, a colour, an order, and an empty column for an option
-nothing uses yet. A free-text or number property has no catalog, so its
-"columns" would be whatever values happen to exist; offer grouping on
-those only once you have a product answer for how many columns is too
-many. Dates are out for a different reason (below).
+**v1 groups by `choice` only.** That is the slug with a bounded, named,
+ordered value set — the option catalog gives columns a name, a colour,
+an order, and an empty column for an option nothing uses yet. A
+free-text or number property has no catalog, so its "columns" would be
+whatever values happen to exist; offer grouping on those only once you
+have a product answer for how many columns is too many. Dates are out
+for a different reason (below).
 
 **1. Ask for the distinct values, with counts.** `/aggregate` is the
 only surface that answers "what values does this property take":
@@ -315,11 +315,11 @@ POST /v1/spaces/:spaceId/objects/aggregate
 rather than the whole space. Result docs come back with the group key as
 **`id`**, not `_id` (see `14-aggregation.md`).
 
-**A multiselect needs `$unwind` first.** `$group` on an array field
-groups by the **whole array**, so grouping the raw field yields one
-group per distinct *combination* — `["urgent","backend"]` and
-`["urgent"]` land in different columns and neither counts as "urgent".
-Unwind to get per-option counts:
+**Always `$unwind` first.** A `choice` value is an array even when the
+property holds one value, and `$group` on an array field groups by the
+**whole array** — grouping the raw field yields one group per distinct
+*combination*: `["urgent","backend"]` and `["urgent"]` land in different
+columns and neither counts as "urgent". Unwind to get per-option counts:
 
 ```json
 "pipeline": [
@@ -329,10 +329,10 @@ Unwind to get per-option counts:
 ]
 ```
 
-An object with two options is then counted in both groups — which is
-what a multiselect board should show, and means the group counts sum to
-more than the object count. Say so in the UI rather than letting the
-numbers look broken.
+An object with two options (`config.multiple`) is then counted in both
+groups — which is what a many-valued board should show, and means the
+group counts sum to more than the object count. Say so in the UI rather
+than letting the numbers look broken.
 
 **2. Decide whether the property is groupable at all.** Either signal —
 more distinct values than your column budget, or a
@@ -350,10 +350,9 @@ the catalog's `pos`, not by count, or columns reshuffle under the user
 as data changes. The aggregate then supplies counts and reveals dangling
 keys — values pointing at an option that was deleted.
 
-**The "no value" group is separate.** For a single-value property the
-aggregate returns it as `{"id": null, "count": N}`. For a multiselect it
-does **not** appear at all — `$unwind` drops documents whose field is
-missing — so count that group on its own:
+**The "no value" group is separate.** It never appears in the unwound
+aggregate — `$unwind` drops documents whose field is missing or empty —
+so count that group on its own:
 
 ```json
 "pipeline": [
@@ -373,7 +372,7 @@ object that simply lacks the field, including type definitions.
  "sort": ["-modifiedAt"], "limit": 50}
 ```
 
-For a multiselect the same scalar spelling is **contains**, so an object
+Against an array the scalar spelling is **contains**, so an object
 carrying that option matches — no `$unwind` on the read path, that stage
 exists only for counting. The empty group's window swaps the value
 condition for `{"$exists": false}`.
@@ -401,7 +400,7 @@ POST /v1/spaces/:spaceId/query/subscribe
 Hold that one stream while a grouped view is open and a new option — or
 a rename, a recolour, a reorder — arrives live, so a newly added option
 becomes a new empty column with no polling at all. This is the whole
-column set for select/multiselect grouping.
+column set for choice grouping.
 
 **Counts do not.** Only the aggregate knows how many rows sit in each
 group, and which option keys are dangling. Re-run the preflight:
@@ -422,7 +421,7 @@ background tab is not.
 
 Grouping on an **open value set** (not offered in v1) has no catalog to
 stream, so there the timer is the *only* way a new group is ever
-discovered — one more reason v1 stays on select/multiselect.
+discovered — one more reason v1 stays on `choice`.
 
 ### Date grouping is out of this iteration
 

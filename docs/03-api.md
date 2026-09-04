@@ -1056,8 +1056,8 @@ request.invalid_field` before the permanent root is derived;
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
 in the space (`400 type.not_found` — the create path would otherwise
-drop an unknown type and report success) and property values must match
-their declared format (`400 property.format_violation`); both are
+drop an unknown type and report success) and property values must fit
+their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
 an orphan object. Bundle records are **permanent** — the registry
 refuses record deletes, so an id is spent for the space's lifetime, and
@@ -2021,9 +2021,10 @@ pinned; nothing is defaulted from the descriptor. Body:
   vocabulary and the kind each requires, the merge model, the client
   rules — is `docs/27-descriptors.md`. On create the interpreted keys are
   typed, the slug is checked against `kind`, `tags` / `validate` /
-  `compute` are refused, vendor-namespaced keys (`acme.…`) pass verbatim:
+  `compute` are refused, vendor-namespaced keys (`acme`) pass verbatim,
+  and every key in the bag is non-empty, dot-free and not `$`-prefixed:
   `400 request.invalid_field` for a shape problem, `400
-  property.format_invalid` for a vocabulary one.
+  property.format_invalid` for a vocabulary one. `null` reads as absent.
 - **`scope`** — the property's write/sync class: `"synced"` (default —
   everyone in the space), `"account"` (this account's devices only, via
   the private tech space), or `"local"` (this device only, never synced).
@@ -2088,12 +2089,14 @@ request.invalid_field`. Interpreted leaves are typed —
 strings, `relation.targetTypes` an array of strings, `relation.filter`
 a string that parses as a query condition, `config.<k>` a scalar —
 `400 request.invalid_field` on a wrong shape, `400
-property.format_invalid` on an unparseable filter, a reserved key
-(`validate`, `compute`), or a `xFormat.type` that does not fit the
-pinned kind (a slug only moves within one kind). Vendor subtrees take
-any non-object value at any depth. Pinned paths (`kind`, `scope`,
-`items`, `properties`) → `400 property.immutable`; unknown paths
-(including the retired `format.*` and `xKind`) → `400
+property.format_invalid` on an unparseable filter, a set of a reserved
+key (`validate`, `compute` — unset stays allowed as the repair path), or
+a `xFormat.type` that does not fit the pinned kind (a slug only moves
+within one kind). Vendor subtrees take any non-object value at any
+depth, with the same key rules as create. Outside `xFormat` a set value
+is a JSON string — `null` is refused, a clear is an unset. Pinned paths
+(`kind`, `scope`, `items`, `properties`) → `400 property.immutable`;
+unknown paths (including the retired `format.*` and `xKind`) → `400
 request.invalid_field`; a `xKey` another property holds → `409
 property.xkey_conflict`. PATCH/DELETE on a registered built-in type →
 `400 type.registered`. Returns `204`; `404 sdk.not_found` for an
@@ -2181,8 +2184,9 @@ storage model, runtime registration): the SDK's
   index opened applies from the next index open — SDK limitation.)
 - per-field `description` and **`xFormat`** — the descriptive slice: the
   same descriptor a property carries (`docs/27-descriptors.md`),
-  validated the same way against the field's kind (the wire `kind` or
-  the shape's top-level kind) and stored opaquely. Neither enters the
+  validated the same way against the field's kind (the wire `kind`, the
+  shape's top-level kind, or the kind a stamp implies — creator ⇒
+  string, times ⇒ datetime) and stored opaquely. Neither enters the
   schema — a display edit never re-registers the dataset.
 
 `GET …/datasets` reads each field back whole: `{id, key, name?,
@@ -2233,10 +2237,7 @@ would silently no-op).
 undeclared on non-dynamic datasets; a removal that would invalidate
 the remaining declaration — e.g. the creator stamp of an author-gated
 dataset — is refused). The SDK keys field definitions by (typeId,
-fieldId) — `:defId` rides the URI for hierarchy only. Field records
-also carry SDK-mutable display labels (`name`/`description`), but v1
-exposes no field-scoped PATCH — the head-record patch above is the
-only definition-edit surface.
+fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
 `{datasets: [{id, name, displayName?, description?, dynamic?, idRule,

@@ -80,8 +80,8 @@ fact.
 |---|---|---|
 | `id` | pinned | content-addressed record id. Values live at `record[typeId][id]`, so this is the storage key. |
 | `xKey` | **mutable** | the handle. An alias, not a storage key — renaming rewrites no data. Unique **within one type**; see Handles below. |
-| `kind` | **pinned** | `string` · `number` · `boolean` · `array` · `object` · `datetime`. Always explicit — nothing is defaulted from the descriptor. |
-| `items` / `properties` | **pinned** | recursive sub-shape — `items` on `array`, `properties` on `object`. Declarative on properties, enforced on dataset fields. Not settable over HTTP in v1. |
+| `kind` | **pinned** | `string` · `number` · `boolean` · `array` · `object` · `datetime`. Always explicit — nothing is defaulted from the descriptor. (`null` is accepted by the SDK but has no descriptor use.) |
+| `items` / `properties` | **pinned** | recursive sub-shape — `items` on `array`, `properties` on `object`. Declarative on properties, where v1 does not expose them over HTTP; enforced on dataset fields, which declare them as `shape` (`{kind, items?, properties?}`). |
 | `scope` | **pinned** | `synced` · `account` · `local`. On dataset fields, `account` is declarable but not yet writable. |
 | `name` / `description` | mutable | display |
 | `meta` | mutable | consumer flags — `meta.index` (search scope) only. No longer an open bag; any other key is rejected. That role moved to `xFormat`. |
@@ -111,8 +111,11 @@ Identical descriptor plus the record-write rules:
 `key` is pinned and **is** the record field name — a record reads
 `{"wateredAt": …}`. Properties are content-addressed instead because
 their values share one row with every other type's values. A field's
-`shape` (`{kind, items?, properties?}`) reads back whole; `description`
-and `xFormat` mutate through `PATCH …/datasets/:defId/fields/:fieldId`.
+`shape` (`{kind, items?, properties?}`) reads back whole; `name`,
+`description` and `xFormat` mutate through
+`PATCH …/datasets/:defId/fields/:fieldId`. A stamped field's kind is
+the one the stamp implies (creator ⇒ string, times ⇒ datetime), and its
+slug is checked against that.
 
 ## `xFormat`
 
@@ -145,6 +148,12 @@ These six are the keys `any` interprets — their leaves are typed on
 write. **Any other top-level key is a vendor namespace** (`acme`),
 stored verbatim at any depth, never validated. Clients preserve keys
 they do not recognise.
+
+Two conventions hold everywhere in the bag, vendor subtrees included: a
+key is non-empty, contains no `.` (PATCH paths split on it, so a dotted
+key could never be patched or unset on its own) and does not start with
+`$` (the extended-JSON namespace — `{"$date": …}` would convert to an
+instant on the way in). `"xFormat": null` on create reads as absent.
 
 ### Where a member goes
 
@@ -180,7 +189,9 @@ That is what keeps one client from writing a string over a whole option
 map, or replacing the bag and dropping keys another client added; it
 needs no understanding of what the members mean. Unsetting the last
 option leaves an empty `options` object behind — a per-path unset never
-removes the parent.
+removes the parent. The reserved `validate` / `compute` keys refuse a
+set but accept an unset, so a key that arrived by another route can be
+repaired.
 
 ## v1 vocabulary
 

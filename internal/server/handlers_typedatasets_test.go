@@ -718,6 +718,28 @@ func TestTypeDatasets_FieldPatch(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add other dataset: %d %s", rec.Code, rec.Body.String())
 	}
+	// A field draft's descriptor is validated like a property's — against
+	// the wire kind, the shape's kind, or the kind a stamp implies.
+	for name, tc := range map[string]struct {
+		body string
+		code string
+	}{
+		"slug/kind mismatch":    {`{"name":"bad1","fields":[{"key":"x","kind":"string","xFormat":{"type":"choice"}}]}`, "property.format_invalid"},
+		"stamped field slug":    {`{"name":"bad2","fields":[{"key":"author","stamp":"creator","xFormat":{"type":"date"}}]}`, "property.format_invalid"},
+		"descriptor not object": {`{"name":"bad3","fields":[{"key":"x","kind":"string","xFormat":"email"}]}`, "request.invalid_field"},
+		"reserved key":          {`{"name":"bad4","fields":[{"key":"x","kind":"string","xFormat":{"type":"text","validate":{}}}]}`, "property.format_invalid"},
+	} {
+		rec := doJSON(t, e, http.MethodPost, base, tc.body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, tc.code)
+	}
+	// A stamped field with a slug that fits the implied kind is fine.
+	rec = doJSON(t, e, http.MethodPost, base, `{"name":"stamped","fields":[{"key":"createdAt","stamp":"createTime","xFormat":{"type":"datetime"}}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("stamped datetime slug: %d %s", rec.Code, rec.Body.String())
+	}
 	var other api.AddDatasetResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &other); err != nil {
 		t.Fatal(err)

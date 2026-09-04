@@ -55,6 +55,6 @@ A user type that claims the `page` xKey collides with the built-in id and is rej
 
 ## No properties, by design
 
-`page` declares no properties. Registered types' property definitions are frozen — they cannot be added, patched or removed (`400 type.registered`) — so a built-in `select` or `multiselect` would carry a permanently empty, uneditable option set. Per-space columns such as "status" or "priority" remain a user-type concern: attach a user type alongside `page` and put the properties there. See [types and properties](../database/types-and-properties.html).
+`page` declares no properties. Registered types' property definitions are frozen — they cannot be added, patched or removed (`400 type.registered`) — so a built-in `choice` would carry a permanently empty, uneditable option set. Per-space columns such as "status" or "priority" remain a user-type concern: attach a user type alongside `page` and put the properties there. See [types and properties](../database/types-and-properties.html).
 
 > **Note.** A page's body is not part of the `page` type. It is the `editor` type's dataset on the same object, which is why an object can be a page with no blocks yet (an empty `records` array on the `editor_blocks` query) and why the body is searchable through the editor chunker under the `basic` scope (see [search](../search/index.html)).

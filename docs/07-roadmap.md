@@ -152,8 +152,8 @@ Not this repo's work; gate on the SDK:
   (wanted for cross-device read state that survives device loss,
   though read-tracking proper syncs its frontier via tech-space KV
   instead).
-- **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
-  Still "not implemented" on the SDK side; routes 501.
+- **`Types.Delete`.** Still not exposed over HTTP (`RemoveProperty` and
+  the generic property / field PATCH shipped — status items 23 and 44).
 - **`Types.Get` for non-object ids.** The SDK only returns
   `space.ErrNotFound` when the id resolves to an existing object that
   isn't tagged as a type. Ids that aren't objects at all surface as a
@@ -221,10 +221,6 @@ pluggable embedders, parallel batched pipelines),
   distribution story for the llama.cpp libs (today: `make llamacpp`
   drops them next to the binary; go:embed + extract was considered and
   deferred — pure overhead while "distribution" means `make build`).
-- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
-  `index: "<scope>"`) are create-time-only until the SDK implements
-  property-meta updates — existing properties can't be re-flagged.
-
 ## How to update this file
 
 - Move items that ship to a "Done" section below (or remove them once
@@ -284,6 +280,12 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Property & field descriptors (SYN-211)** — one opaque `xFormat`
+  bag on property and dataset-field definitions; the typed `format`
+  object, `xKind` and the `meta.pos` / `meta.icon` conventions removed;
+  `any` validates the vocabulary, the leaf-only PATCH rule and every
+  value write against the current slug; field-level PATCH. Contract:
+  docs/27-descriptors.md.
 - **Cross-platform single-instance lock (SYN-168)** — one
   `gofrs/flock` implementation for every platform replaces the PID
   file plus `kill(pid, 0)` liveness probe, which had no Windows

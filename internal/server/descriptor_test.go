@@ -69,6 +69,7 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	done := add(`{"name":"Done","xKey":"done","kind":"boolean","xFormat":{"type":"checkbox"}}`)
 	custom := add(`{"name":"Custom","xKey":"custom","kind":"string","xFormat":{"type":"acme.widget","acme":{"anything":[1,2,{"deep":true}]}}}`)
 	bare := add(`{"name":"Title","xKey":"title","kind":"string","meta":{"index":"basic"}}`)
+	nulled := add(`{"name":"Nulled","xKey":"nulled","kind":"string","xFormat":null}`)
 
 	for name, tc := range map[string]struct {
 		body string
@@ -89,6 +90,10 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		"meta unknown key":        {`{"name":"L","xKey":"l","kind":"string","meta":{"pos":"a0"}}`, 400, "request.invalid_field"},
 		"xKey conflict":           {`{"name":"Stage 2","xKey":"stage","kind":"string"}`, 409, "property.xkey_conflict"},
 		"legacy format key":       {`{"name":"M","xKey":"m","kind":"string","format":{"type":"links"}}`, 400, "request.unknown_field"},
+		"dotted option key":       {`{"name":"N","xKey":"n","kind":"array","xFormat":{"type":"choice","options":{"a.b":{"name":"X"}}}}`, 400, "request.invalid_field"},
+		"dollar top-level key":    {`{"name":"O","xKey":"o","kind":"string","xFormat":{"$date":"2026-01-01T00:00:00Z"}}`, 400, "request.invalid_field"},
+		"dollar key in vendor":    {`{"name":"P","xKey":"p","kind":"string","xFormat":{"type":"text","acme":{"list":[{"$date":"x"}]}}}`, 400, "request.invalid_field"},
+		"empty option meta key":   {`{"name":"Q","xKey":"q","kind":"array","xFormat":{"type":"choice","options":{"a":{"meta":{"":"x"}}}}}`, 400, "request.invalid_field"},
 	} {
 		rec = doJSON(t, e, http.MethodPost, propsURL, tc.body)
 		if rec.Code != tc.want {
@@ -148,6 +153,9 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	}
 	if props[bare].XFormat != nil || props[bare].Meta["index"] != "basic" {
 		t.Errorf("bare def = %+v", props[bare])
+	}
+	if props[nulled].XFormat != nil {
+		t.Errorf("xFormat: null must read as absent: %s", props[nulled].XFormat)
 	}
 
 	// --- value validation --------------------------------------------------
@@ -278,20 +286,24 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 		want       int
 		code       string
 	}{
-		"cross-kind slug":     {stage, `{"set":{"xFormat.type":"text"}}`, 400, "property.format_invalid"},
-		"object over option":  {stage, `{"set":{"xFormat.options.lead":{"name":"X"}}}`, 400, "request.invalid_field"},
-		"object over bag":     {stage, `{"set":{"xFormat":{"type":"choice"}}}`, 400, "request.invalid_field"},
-		"reserved key":        {stage, `{"set":{"xFormat.validate.min":1}}`, 400, "property.format_invalid"},
-		"xKey conflict":       {stage, `{"set":{"xKey":"related"}}`, 409, "property.xkey_conflict"},
-		"pinned kind":         {stage, `{"set":{"kind":"string"}}`, 400, "property.immutable"},
-		"meta beyond index":   {stage, `{"set":{"meta.pos":"a0"}}`, 400, "request.invalid_field"},
-		"legacy format path":  {stage, `{"set":{"format.ui":"select"}}`, 400, "request.invalid_field"},
-		"legacy xKind path":   {stage, `{"set":{"xKind":"tags"}}`, 400, "request.invalid_field"},
-		"bad filter text":     {related, `{"set":{"xFormat.relation.filter":"{\"a\":{\"$nope\":1}}"}}`, 400, "property.format_invalid"},
-		"filter as object":    {related, `{"set":{"xFormat.relation.filter":{"a":1}}}`, 400, "request.invalid_field"},
-		"targetTypes scalar":  {related, `{"set":{"xFormat.relation.targetTypes":"doc"}}`, 400, "request.invalid_field"},
-		"config nested":       {related, `{"set":{"xFormat.config.a.b":1}}`, 400, "request.invalid_field"},
-		"unknown option leaf": {stage, `{"set":{"xFormat.options.lead.weight":1}}`, 400, "request.invalid_field"},
+		"cross-kind slug":       {stage, `{"set":{"xFormat.type":"text"}}`, 400, "property.format_invalid"},
+		"object over option":    {stage, `{"set":{"xFormat.options.lead":{"name":"X"}}}`, 400, "request.invalid_field"},
+		"object over bag":       {stage, `{"set":{"xFormat":{"type":"choice"}}}`, 400, "request.invalid_field"},
+		"reserved key":          {stage, `{"set":{"xFormat.validate.min":1}}`, 400, "property.format_invalid"},
+		"xKey conflict":         {stage, `{"set":{"xKey":"related"}}`, 409, "property.xkey_conflict"},
+		"pinned kind":           {stage, `{"set":{"kind":"string"}}`, 400, "property.immutable"},
+		"meta beyond index":     {stage, `{"set":{"meta.pos":"a0"}}`, 400, "request.invalid_field"},
+		"legacy format path":    {stage, `{"set":{"format.ui":"select"}}`, 400, "request.invalid_field"},
+		"legacy xKind path":     {stage, `{"set":{"xKind":"tags"}}`, 400, "request.invalid_field"},
+		"bad filter text":       {related, `{"set":{"xFormat.relation.filter":"{\"a\":{\"$nope\":1}}"}}`, 400, "property.format_invalid"},
+		"filter as object":      {related, `{"set":{"xFormat.relation.filter":{"a":1}}}`, 400, "request.invalid_field"},
+		"targetTypes scalar":    {related, `{"set":{"xFormat.relation.targetTypes":"doc"}}`, 400, "request.invalid_field"},
+		"config nested":         {related, `{"set":{"xFormat.config.a.b":1}}`, 400, "request.invalid_field"},
+		"unknown option leaf":   {stage, `{"set":{"xFormat.options.lead.weight":1}}`, 400, "request.invalid_field"},
+		"null on a string leaf": {stage, `{"set":{"name":null}}`, 400, "request.invalid_field"},
+		"null on xKey":          {stage, `{"set":{"xKey":null}}`, 400, "request.invalid_field"},
+		"dollar segment":        {stage, `{"set":{"xFormat.acme.$date":"x"}}`, 400, "request.invalid_field"},
+		"dotted key in value":   {stage, `{"set":{"xFormat.acme.list":[{"a.b":1}]}}`, 400, "request.invalid_field"},
 	} {
 		rec := patch(tc.prop, tc.body)
 		if rec.Code != tc.want {
@@ -312,6 +324,10 @@ func TestServer_PropertyDescriptor(t *testing.T) {
 	}
 	if rec := patch(custom, `{"unset":["xFormat"]}`); rec.Code != http.StatusNoContent {
 		t.Fatalf("unset bag: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// A reserved key refuses a set but takes an unset — the repair path.
+	if rec := patch(stage, `{"unset":["xFormat.validate","xFormat.compute.x"]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("unset reserved: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	props = byId()
 	if p := props[stage]; p.XKey != "pipeline_stage" || p.Meta["index"] != "none" || xf(p)["acme"] == nil {
@@ -378,7 +394,10 @@ func TestPatchPathToStorage(t *testing.T) {
 		{"xFormat.config.multiple", true, "x-format.config.multiple", ""},
 		{"xFormat.config.a.b", true, "", inv},
 		{"xFormat.validate", true, "", "property.format_invalid"},
-		{"xFormat.compute.x", false, "", "property.format_invalid"},
+		{"xFormat.compute.x", true, "", "property.format_invalid"},
+		{"xFormat.validate", false, "x-format.validate", ""},
+		{"xFormat.compute.x", false, "x-format.compute.x", ""},
+		{"xFormat.acme.$date", true, "", inv},
 		// Vendor namespace: any depth.
 		{"xFormat.acme", true, "x-format.acme", ""},
 		{"xFormat.acme.deep.leaf", true, "x-format.acme.deep.leaf", ""},
@@ -453,6 +472,8 @@ func TestPatchSetValue(t *testing.T) {
 	}{
 		{"name", `"Priority"`, "", "Priority"},
 		{"name", `42`, "request.invalid_field", nil},
+		{"name", `null`, "request.invalid_field", nil},
+		{"x-key", `null`, "request.invalid_field", nil},
 		{"x-format.type", `"email"`, "", "email"},
 		{"x-format.type", `3`, "request.invalid_field", nil},
 		{"x-format.type", `""`, "property.format_invalid", nil},
@@ -471,6 +492,9 @@ func TestPatchSetValue(t *testing.T) {
 		{"x-format.acme.widget", `"compact"`, "", "compact"},
 		{"x-format.acme.widget", `{"a":1}`, "request.invalid_field", nil},
 		{"x-format.acme.widget", `not json`, "request.invalid_field", nil},
+		{"x-format.acme.list", `[{"$date":"2026"}]`, "request.invalid_field", nil},
+		{"x-format.acme.list", `[{"a.b":1}]`, "request.invalid_field", nil},
+		{"x-format.acme.list", `[{"ok":1}]`, "", nil},
 	}
 	for _, tc := range cases {
 		got, code, reason := patchSetValue(tc.path, json.RawMessage(tc.raw))
@@ -478,7 +502,7 @@ func TestPatchSetValue(t *testing.T) {
 			t.Errorf("patchSetValue(%q, %s) code=%q want %q (reason=%q)", tc.path, tc.raw, code, tc.wantCode, reason)
 			continue
 		}
-		if tc.wantCode == "" && got != tc.want {
+		if tc.wantCode == "" && tc.want != nil && got != tc.want {
 			t.Errorf("patchSetValue(%q, %s) = %v (%T), want %v", tc.path, tc.raw, got, got, tc.want)
 		}
 	}

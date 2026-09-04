@@ -122,7 +122,7 @@ the field) is a UI question; the format's job is only to carry object + prop.
 Keyed by the content-addressed `propId`, never `xKey` (xKey is client-side only
 — see CLAUDE.md).
 
-> **Note on `p` vs links-format property values.** A links-format *property
+> **Note on `p` vs relation property values.** A relation *property
 > value* stores the plain legacy `any://<objectId>` form (see
 > [Back-compat](#back-compat)) — that is a value *inside* a property, and it
 > keeps its bare shape. The `p` kind is the inverse: a link that *points at* a
@@ -256,7 +256,7 @@ citations, dataset records) always use the explicit-kind form.
 |---------|----------|
 | Grammar (builders / `Parse` / `IsValid` / `IsPropertyValueRef`, kind constants) | `anyuri/` — public `github.com/anyproto/any/anyuri` |
 | Mention extraction from text (`ExtractMentions`) | `anyuri/mentions.go` — the sanctioned scanner, shared by server derivation and clients |
-| Links-format property-value validation | `internal/server/propformat.go` |
+| Relation property-value validation | `internal/server/descriptor.go` |
 | Backlinks reverse lookup | `internal/api/backlinks.go`, `internal/server/handlers_backlinks.go` |
 | Chat mentions derivation (server-parsed `mentions` field) | `internal/chat/handler.go` (`deriveMentions`) — see [docs/16-chat.md](16-chat.md) § Mentions |
 | File links | [docs/17-files.md](17-files.md) |
