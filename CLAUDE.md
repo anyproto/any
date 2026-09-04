@@ -1511,13 +1511,17 @@ Implementation slices landed:
     converges the rest: the device whose ACL waiter sees the acceptance
     loads and flips the row `active` for all (the others load lazily on
     `GET`), a decline or `cancel-join` marks it `deleted` everywhere.
-    `cancel-join` works from any device of the account; a direct add
-    (`AddAccounts`) after a withdrawn join registers as `invite_pending`
-    over the ended row, closing the SYN-208 residual. A device that
-    learned of the join from the synced row resolves an ACL head from
-    the chain before it runs a waiter (the any-sync waiter is
-    decline-blind without one). No `any` handler change: `SpaceInfo.status`
-    keeps its vocabulary and `indexableStatus` already skips `joining`.
+    `cancel-join` works from any device of the account (a request
+    already gone with no membership behind it is settled by the call:
+    204, row `deleted`); `DELETE /v1/spaces/:id` on a `joining` row is
+    a withdrawal too, never a tombstone; a direct add (`AddAccounts`)
+    after a withdrawn join registers as `invite_pending` over the ended
+    row, closing the SYN-208 residual. A device that learned of the
+    join from the synced row resolves an ACL head from the chain before
+    it runs a waiter (the any-sync waiter is decline-blind without one),
+    and every device drops the head when the row leaves joining. No
+    `any` handler change: `SpaceInfo.status` keeps its vocabulary and
+    `indexableStatus` already skips `joining`.
     Legacy device-local rows stay readable; nothing writes them. SDK
     contract: its docs/03-space.md § Join lifecycle, docs/02-tech-space.md,
     docs/15-direct-add-invites.md; e2e `TestE2E_JoinLifecycleSynced`.

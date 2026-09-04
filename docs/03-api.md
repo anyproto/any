@@ -2994,14 +2994,17 @@ joiner now polls `GET /v1/spaces/:id/members/me` for the status flip
 to `active` after the owner accepts.
 
 The pending join is **account-wide**: the `joining` row syncs to every
-device of the joiner's account, each of them lists the space as
-`joining` and none materializes it (`GET /v1/spaces/:id` serves the
-row, `space.not_accepted` on anything that would load it). The device
-that observes the owner's verdict settles the row for all of them —
-acceptance flips it to `active` once that device has loaded the space
-(the others load lazily), a decline or a `cancel-join` moves it to
-`deleted`. Every device of the account may `cancel-join`, not only the
-one that requested.
+device of the joiner's account, each of them reads the space as
+`joining` (`GET /v1/spaces?status=joining` — the default list is
+active-only; `GET /v1/spaces/:id` serves the row) and none
+materializes it (`space.not_accepted` on anything that would load it).
+The device that observes the owner's verdict settles the row for all of
+them — acceptance flips it to `active` once that device has loaded the
+space (the others load lazily), a decline or a `cancel-join` moves it
+to `deleted`. Every device of the account may `cancel-join`, not only
+the one that requested. `DELETE /v1/spaces/:id` on a `joining` row is
+a withdrawal too, never a tombstone: the row reads `deleted` and stays
+re-joinable.
 
 Listing returns one entry per active invite record — pass `recordId`
 to the DELETE path to revoke a single invite, or DELETE the parent

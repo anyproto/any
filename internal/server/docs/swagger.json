@@ -6387,7 +6387,7 @@
         },
         "/spaces/{spaceId}/acl/cancel-join": {
             "post": {
-                "description": "Withdraws this account's pending join request. The space row flips to status \"deleted\" on this device; POST /v1/spaces/join with a valid invite re-requests. 409 space.join_not_pending when the row is not joining, or when the owner accepted or declined first — the row then settles to active or deleted on its own.",
+                "description": "Withdraws this account's pending join request, from any device of the account. The space row flips to status \"deleted\" account-wide; POST /v1/spaces/join with a valid invite re-requests. A request already gone from the chain with no membership behind it (declined, or withdrawn elsewhere) is settled by the call: 204, row \"deleted\". 409 space.join_not_pending when the row is not joining, or when the owner accepted first — the row then settles to active on its own.",
                 "parameters": [
                     {
                         "description": "Space ID",
