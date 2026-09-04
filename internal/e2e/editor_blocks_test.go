@@ -1,8 +1,8 @@
 // Single-binary editor/blocks coverage. internal/server/handlers_blocks_test.go
 // already drives the same handlers in-process; what's missing is a smoke
 // test that runs the compiled `any` binary, talks JSON over a real TCP
-// socket, and walks both the atomic /editor/blocks endpoints and their
-// /editor/markdown counterpart through to convergence.
+// socket, and walks both the atomic /editor/editor_blocks/blocks endpoints and their
+// /editor/editor_blocks/markdown counterpart through to convergence.
 //
 // The two paths share the editor_blocks dataset, so the headline contract
 // is "a block API write and a markdown PUT produce equivalent end state
@@ -32,7 +32,7 @@ import (
 //  2. List on a fresh object returns records=[] (dataset empty until
 //     the first write).
 //  3. Markdown GET on an empty object returns content="".
-//  4. Create three top-level blocks via POST /editor/blocks; assert
+//  4. Create three top-level blocks via POST /editor/editor_blocks/blocks; assert
 //     server-allocated nav.pos values are strictly ascending and the
 //     auto-derived block ids are unique.
 //  5. List returns them in document order; each carries a non-empty
@@ -44,9 +44,9 @@ import (
 //  9. DELETE the first block; subsequent PATCH/DELETE on its id return
 //     404 blocks.not_found.
 //  10. Nested tree: create two children under the surviving top-level
-//      block; list returns parent-then-children in DFS order.
+//     block; list returns parent-then-children in DFS order.
 //  11. Validation envelopes: POST without `type` → 400
-//      blocks.type_required.
+//     blocks.type_required.
 func TestE2E_EditorBlocksBinary(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
 		t.Skipf("staging fixture not present at %s: %v", stagingFixture, err)
@@ -65,8 +65,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/spaces",
 		`{"name":"editor-binary"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, base, sp.Id, "editor")
 	objBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	// 2. Fresh object — empty list.
@@ -76,7 +75,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	}
 
 	// 3. Empty object → empty markdown.
-	if got := getMarkdownContent(t, objBase+"/editor/markdown"); got != "" {
+	if got := getMarkdownContent(t, objBase+"/editor/editor_blocks/markdown"); got != "" {
 		t.Errorf("empty markdown = %q, want \"\"", got)
 	}
 
@@ -120,7 +119,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 
 	// 6. Markdown GET reflects the blocks-API writes.
 	wantMd := "alpha\n\n## beta\n\ngamma"
-	if got := getMarkdownContent(t, objBase+"/editor/markdown"); got != wantMd {
+	if got := getMarkdownContent(t, objBase+"/editor/editor_blocks/markdown"); got != wantMd {
 		t.Errorf("markdown after blocks-API writes:\nwant: %q\ngot:  %q", wantMd, got)
 	}
 
@@ -152,7 +151,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 
 	// 9. Delete first; subsequent ops on its id return 404
 	// blocks.not_found.
-	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+first.Id, "",
+	mustStatus(t, http.MethodDelete, objBase+"/editor/editor_blocks/blocks/"+first.Id, "",
 		http.StatusOK)
 
 	listed = listBlocks(t, objBase)
@@ -169,12 +168,12 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	// first to keep edits author-checkable). DELETE is idempotent at
 	// the SDK layer — the second delete returns 200 with no effect.
 	var env api.ErrorEnvelope
-	mustJSON(t, http.MethodPatch, objBase+"/editor/blocks/"+first.Id,
+	mustJSON(t, http.MethodPatch, objBase+"/editor/editor_blocks/blocks/"+first.Id,
 		`{"set":{"text":"resurrect"}}`, http.StatusNotFound, &env)
 	if env.Error.Code != api.ErrBlockNotFound {
 		t.Errorf("PATCH after delete: code = %q, want %q", env.Error.Code, api.ErrBlockNotFound)
 	}
-	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+first.Id, "",
+	mustStatus(t, http.MethodDelete, objBase+"/editor/editor_blocks/blocks/"+first.Id, "",
 		http.StatusOK)
 
 	// 10. Nested tree: create two children under `second` (which
@@ -215,7 +214,7 @@ func TestE2E_EditorBlocksBinary(t *testing.T) {
 	}
 
 	// 11. Validation: POST without `type` → 400 blocks.type_required.
-	mustJSON(t, http.MethodPost, objBase+"/editor/blocks",
+	mustJSON(t, http.MethodPost, objBase+"/editor/editor_blocks/blocks",
 		`{"text":"missing type"}`, http.StatusBadRequest, &env)
 	if env.Error.Code != api.ErrBlockTypeMissing {
 		t.Errorf("missing type: code = %q, want %q", env.Error.Code, api.ErrBlockTypeMissing)
@@ -252,10 +251,9 @@ func TestE2E_EditorMarkdownRoundTrip(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/spaces",
 		`{"name":"md-roundtrip"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, base, sp.Id, "editor")
 	objBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
-	mdURL := objBase + "/editor/markdown"
+	mdURL := objBase + "/editor/editor_blocks/markdown"
 
 	// 1. Initial PUT — three top-level blocks of three different types.
 	// Use the canonical inline-only shapes the renderer emits so the
@@ -369,7 +367,7 @@ func TestE2E_EditorMarkdownRoundTrip(t *testing.T) {
 	}
 
 	patchBlock(t, objBase, suffixed, `{"set":{"text":"patched batched"}}`)
-	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+suffixed, "",
+	mustStatus(t, http.MethodDelete, objBase+"/editor/editor_blocks/blocks/"+suffixed, "",
 		http.StatusOK)
 
 	listed = listBlocks(t, objBase)
@@ -381,8 +379,8 @@ func TestE2E_EditorMarkdownRoundTrip(t *testing.T) {
 }
 
 // TestE2E_EditorBlocksMarkdownConvergence pins down the headline
-// contract: a sequence of POST /editor/blocks calls and a single PUT
-// /editor/markdown produce equivalent final state when given equivalent
+// contract: a sequence of POST /editor/editor_blocks/blocks calls and a single PUT
+// /editor/editor_blocks/markdown produce equivalent final state when given equivalent
 // inputs. Two objects in the same space, two write strategies, one
 // markdown bytes string for comparison.
 func TestE2E_EditorBlocksMarkdownConvergence(t *testing.T) {
@@ -404,10 +402,8 @@ func TestE2E_EditorBlocksMarkdownConvergence(t *testing.T) {
 		`{"name":"converge"}`, http.StatusCreated, &sp)
 
 	var viaMd, viaBlocks api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &viaMd)
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &viaBlocks)
+	viaMd.ObjectId = createModuleObject(t, base, sp.Id, "editor")
+	viaBlocks.ObjectId = createModuleObject(t, base, sp.Id, "editor")
 
 	mdObjBase := base + "/v1/spaces/" + sp.Id + "/objects/" + viaMd.ObjectId
 	blObjBase := base + "/v1/spaces/" + sp.Id + "/objects/" + viaBlocks.ObjectId
@@ -415,17 +411,17 @@ func TestE2E_EditorBlocksMarkdownConvergence(t *testing.T) {
 	doc := "# Doc\n\nfirst paragraph\n\n## Section\n\nsecond paragraph"
 
 	// Path A: PUT markdown.
-	putMarkdown(t, mdObjBase+"/editor/markdown", doc)
+	putMarkdown(t, mdObjBase+"/editor/editor_blocks/markdown", doc)
 
-	// Path B: equivalent series of POST /editor/blocks. Mirrors the
+	// Path B: equivalent series of POST /editor/editor_blocks/blocks. Mirrors the
 	// per-block shapes the markdown parser produces.
 	createBlock(t, blObjBase, `{"type":"heading","style":{"level":1},"text":"Doc"}`)
 	createBlock(t, blObjBase, `{"type":"paragraph","text":"first paragraph"}`)
 	createBlock(t, blObjBase, `{"type":"heading","style":{"level":2},"text":"Section"}`)
 	createBlock(t, blObjBase, `{"type":"paragraph","text":"second paragraph"}`)
 
-	gotMd := getMarkdownContent(t, mdObjBase+"/editor/markdown")
-	gotBl := getMarkdownContent(t, blObjBase+"/editor/markdown")
+	gotMd := getMarkdownContent(t, mdObjBase+"/editor/editor_blocks/markdown")
+	gotBl := getMarkdownContent(t, blObjBase+"/editor/editor_blocks/markdown")
 	if gotMd != gotBl {
 		t.Errorf("rendered markdown diverged across write paths\nvia markdown PUT:\n%s\nvia blocks API:\n%s",
 			gotMd, gotBl)
@@ -458,7 +454,7 @@ func TestE2E_EditorBlocksMarkdownConvergence(t *testing.T) {
 // TestE2E_EditorBlocksSSE opens an SSE stream against dataset=editor_blocks
 // and asserts a create + a markdown-PUT-driven update + a delete each
 // surface as a `changes` frame against the running binary. Confirms
-// both the atomic /editor/blocks endpoints and /editor/markdown share
+// both the atomic /editor/editor_blocks/blocks endpoints and /editor/editor_blocks/markdown share
 // the same event firehose.
 func TestE2E_EditorBlocksSSE(t *testing.T) {
 	if _, err := os.Stat(stagingFixture); err != nil {
@@ -479,8 +475,7 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/spaces",
 		`{"name":"blocks-sse"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, base, sp.Id, "editor")
 	objBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	streamCtx, streamCancel := context.WithCancel(context.Background())
@@ -510,21 +505,21 @@ func TestE2E_EditorBlocksSSE(t *testing.T) {
 		t.Fatalf("second frame = %q, want snapshot (data=%s)", snap.Event, snap.Data)
 	}
 
-	// 1. POST /editor/blocks → Added.
+	// 1. POST /editor/editor_blocks/blocks → Added.
 	created := createBlock(t, objBase, `{"type":"paragraph","text":"sse-1"}`)
 	createEvt := awaitWindowedEditorBlocksEvent(t, frames, created.Id, windowedKindAdded)
 	if createEvt.VersionId == "" {
 		t.Errorf("create event missing versionId")
 	}
 
-	// 2. PUT /editor/markdown → at least one further changes frame.
-	putMarkdown(t, objBase+"/editor/markdown", "sse-1\n\nsse-2-new")
+	// 2. PUT /editor/editor_blocks/markdown → at least one further changes frame.
+	putMarkdown(t, objBase+"/editor/editor_blocks/markdown", "sse-1\n\nsse-2-new")
 	if !awaitAnyWindowedEditorBlocksEvent(t, frames, 10*time.Second) {
 		t.Fatalf("no editor_blocks event after markdown PUT")
 	}
 
-	// 3. DELETE /editor/blocks → Removed.
-	mustStatus(t, http.MethodDelete, objBase+"/editor/blocks/"+created.Id, "",
+	// 3. DELETE /editor/editor_blocks/blocks → Removed.
+	mustStatus(t, http.MethodDelete, objBase+"/editor/editor_blocks/blocks/"+created.Id, "",
 		http.StatusOK)
 	_ = awaitWindowedEditorBlocksEvent(t, frames, created.Id, windowedKindRemoved)
 
@@ -556,7 +551,7 @@ type block struct {
 func createBlock(t *testing.T, objBase, body string) block {
 	t.Helper()
 	var res api.ModifyResult
-	mustJSON(t, http.MethodPost, objBase+"/editor/blocks", body,
+	mustJSON(t, http.MethodPost, objBase+"/editor/editor_blocks/blocks", body,
 		http.StatusCreated, &res)
 	if len(res.RecordIds) == 0 || res.RecordIds[0] == "" {
 		t.Fatalf("createBlock: no recordIds in %+v", res)
@@ -574,7 +569,7 @@ func createBlock(t *testing.T, objBase, body string) block {
 func patchBlock(t *testing.T, objBase, blockId, body string) api.ModifyResult {
 	t.Helper()
 	var resp api.ModifyResult
-	mustJSON(t, http.MethodPatch, objBase+"/editor/blocks/"+blockId, body,
+	mustJSON(t, http.MethodPatch, objBase+"/editor/editor_blocks/blocks/"+blockId, body,
 		http.StatusOK, &resp)
 	return resp
 }
@@ -628,7 +623,7 @@ func getMarkdownContent(t *testing.T, mdURL string) string {
 	return resp.Content
 }
 
-// markdownSetResponse mirrors the wire shape of PUT /editor/markdown.
+// markdownSetResponse mirrors the wire shape of PUT /editor/editor_blocks/markdown.
 // Re-declared here (rather than imported from internal/api) because the
 // handler ships the response as an inline map without a Go type — same
 // approach the in-process tests take.

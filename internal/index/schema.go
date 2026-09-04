@@ -121,7 +121,9 @@ func (c *SchemaChunker) resolve(sp space.Space) *schemaCatalog {
 // schemaCatalog).
 func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (searchable []schemaDataset, unsearchable []string) {
 	for _, ds := range list {
-		if ds.TypeId == "" || skip[ds.Name] || strings.Contains(ds.Name, ":") {
+		// Module-served collections (editor, chat) have their own
+		// chunkers; this one indexes records datasets only.
+		if len(ds.Owners) != 1 || (ds.Module != "" && ds.Module != space.RecordsModule) || skip[ds.Name] || strings.Contains(ds.Name, ":") {
 			continue
 		}
 		var doc struct {
@@ -154,7 +156,7 @@ func parseSchemaDatasets(list []space.DatasetSchema, skip map[string]bool) (sear
 		}
 		searchable = append(searchable, schemaDataset{
 			name:       ds.Name,
-			typeId:     ds.TypeId,
+			typeId:     ds.Owners[0],
 			titleField: doc.Search.Title,
 			textFields: textFields,
 			scope:      scope,

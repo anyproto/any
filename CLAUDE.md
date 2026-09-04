@@ -68,8 +68,9 @@ Implementation slices landed:
    stop-sharing; sidebar gets a "join via invite" form. Body
    validation runs before resolveSpace so 400s don't pay for a space
    lookup.
-6. **Chat built-in type** — `internal/chat` registers a `handler.Type`
-   for per-object `chat_messages` records. Bespoke endpoints under
+6. **Chat module** (registered as a built-in type until item 43 turned
+   it into a `handler.Module`) — `internal/chat` serves the shared
+   `chat_messages` collection on objects whose type declares the module. Bespoke endpoints under
    `/v1/spaces/:id/objects/:objectId/chat/messages` cover writes only —
    send / edit / delete and the `…/:msgId/reactions/:emoji` toggle.
    Every write returns the shared `api.ModifyResult`
@@ -118,9 +119,9 @@ Implementation slices landed:
    editor now actually wire `Dataset.Indexes`
    (the per-handler `Indexes()` methods used to be dead code — no
    built-in index was ensured before this).
-7. **Atomic blocks + markdown bridge** — `internal/editor` registers
-   a `handler.Type` for the `editor_blocks` dataset, one record per
-   block. Per-block fields: `type` (paragraph / heading / list_item /
+7. **Atomic blocks + markdown bridge** — `internal/editor` serves the
+   editor collections (a `handler.Module` since item 43; routes carry
+   `:collection`), one record per block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
    level syntax), `nav.parentId`, `nav.pos` (lexid). An empty
    paragraph is a `paragraph` record with `text: ""`; the markdown
@@ -879,20 +880,15 @@ Implementation slices landed:
     (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
     § Meta.
 
-30. **Built-in `page` type** — `internal/page` registers the marker
-    type `page` (singular, no dataset, no properties): the shared
-    "this object is a document" declaration in `any.types`. Replaces
-    each client minting its own user `pages` type (owner-primary
-    check-then-create still raced across members — real spaces carried
-    up to five parallel "Pages" types). Name via `any.name`, labels via
-    the built-in `any.tags` (SDK-side free-form string array, this
-    slice's SDK bump), body via `editor_blocks`, tree via `nav.*`. No
-    properties by design: the SDK
-    freezes registered types' property definitions, so built-in
-    selects would have permanently empty option sets. Registration
-    only — no handler/CLI surface; the xKey guard fences `page` from
-    user types. Contract: docs/03-api.md § Types (Built-in `page`
-    type).
+30. **Built-in `page` type — REMOVED by item 43.** It was the marker
+    type for "this object is a document" (no dataset, no properties —
+    the SDK freezes registered types' property definitions, so a
+    built-in could never carry per-space columns), introduced because
+    each client minting its own `pages` type raced into parallel
+    definitions. The convergence problem is now solved by registering
+    the document type as a bundle (`page/v1` by convention), which is
+    a user type with properties, a weight, a layout and an editor part.
+    `any.tags` (the SDK's free-form string array on `any`) stays.
 
 31. **Devices registry + active-app election (SYN-165)** — the
     account's device list in the tech-space system dataset `devices`
@@ -1515,6 +1511,61 @@ Implementation slices landed:
     § Runtime dataset schemas, docs/06-errors.md; SDK
     docs/06-data-structure.md § The `x-format` descriptor.
 
+43. **Types, parts and modules** — a type is properties plus **parts**
+    (display units a client renders), each part owning datasets served
+    by a **module**: `records` (the runtime schema handler, item 32,
+    now always namespaced to the collection `<typeId>_<key>`), `editor`
+    and `chat` (`handler.Module`s in `internal/editor` / `internal/chat`
+    — `NewModule()`, registered through `sdkconfig.Config.Modules` in
+    `serverModules()`; the SDK registers a module's canonical
+    collection statically and mints a `handler.Dataset` per namespaced
+    instance). A shared dataset (`"shared": true`) is the module's
+    canonical collection — `editor_blocks`, `chat_messages` — so an
+    object carrying two document types has one body; `chat` is
+    shared-only, `records` never shares. **The write gate is "the object
+    carries a declaring type"**: the SDK checks ownership at local
+    write time (`space.ErrDatasetNotDeclared` → `400
+    dataset.not_declared`), inbound apply stays read-tolerant, and no
+    write attaches a type (`editor.EnsureType` / `chat.ensureType` are
+    gone). The built-in `page` / `editor` / `chat` types are gone with
+    `internal/page` and `internal/ensure`; documents and chats are user
+    types registered as bundles (`Install.Parts`; `EnsureBundleRequest.
+    Parts` — bundles declare `parts`, not `datasets`). Surface:
+    `GET/POST …/types/:typeId/parts`, `PATCH/DELETE …/parts/:partId`,
+    `POST …/parts/:partId/datasets` (`handlers_typeparts.go`; dataset
+    routes keep their paths, `AddDatasetResponse` gained `collection`);
+    `PATCH …/types/:typeId` with `weight` / `layout` (meta-type
+    built-ins `type.weight` / `type.layout`, `TypesAPI.Patch`; create
+    takes them too); editor routes are `…/editor/:collection/{blocks,
+    markdown}` (`editorCollection` resolves the segment against
+    `Space.Datasets`, `404 dataset.not_found` off-catalog); chat paths
+    unchanged; discovery rows carry `owners` / `module` / `shared`
+    (`DatasetSchema.TypeId` removed). Errors: `dataset.not_declared`,
+    `dataset.key_conflict` (replaces `name_conflict`),
+    `dataset.shared_conflict`, `dataset.module_unknown`,
+    `dataset.module_owned`. Search: `index.ModuleChunker` (one per
+    module, resolved per space from `Space.Datasets`, entries carry the
+    real collection, `DynamicChunker` eviction on owners) with
+    `MultiReconciler` for the editor's per-collection window diff
+    (`worker.reconcileMulti`); the schema chunker skips non-records
+    collections. Push: chats are the objects carrying an owner of
+    `chat_messages` (`chatOwners` / `chatOwnersFilter`), not
+    `any.types: chat`; `chat.unreadCount` / `chat.notifyMode` keep
+    their paths (module namespace on the objects row via
+    `store.ModuleGrants`). Tests mint module types with
+    `installModuleType` / `mustCreateModuleObject`
+    (`internal/server/modules_test.go`, e2e twins in
+    `internal/e2e/modules_test.go`). CLI: `any type part
+    list/add/patch/remove`, `any type update`, `any type dataset add
+    <spaceId> <typeId> <partId>`, `--collection` on every editor
+    command. Contract: docs/03-api.md § Parts and modules + § Objects
+    + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
+    docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
+    (docs/07-roadmap.md): namespaced chat, `data_view` as a module,
+    full type declarations on bundles (properties / layout / weight
+    with deterministic property ids) and the well-known `page/v1` /
+    `chat/v1` / `wiki/v1` contracts.
+
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1693,12 +1744,17 @@ These cut across files and are easy to violate accidentally:
   backend — one log stream for the whole process. Don't introduce a second logger.
 - **POST `/v1/spaces/:spaceId/query`** uses POST (not GET) because the filter/sort
   body doesn't fit a query string. Don't "fix" this to GET.
-- **Dataset reads go through `/query` and `/query/subscribe`.** Built-in types
-  (chat, editor) keep bespoke handlers for *writes* only (POST/PATCH/DELETE and
-  reactions). Reads always go through the per-object query primitive with the
-  matching `dataset` value (`chat_messages`, `editor_blocks`, ...). One read
-  path per dataset, one wire shape per snapshot. Sole exception: `GET
-  /editor/markdown` is a render transform, not a dataset read.
+- **Dataset reads go through `/query` and `/query/subscribe`.** The compiled-in
+  modules (chat, editor) keep bespoke handlers for *writes* only (POST/PATCH/
+  DELETE and reactions). Reads always go through the per-object query primitive
+  with the matching `dataset` value — the collection name (`chat_messages`,
+  `editor_blocks`, a namespaced `<typeId>_<key>`, ...). One read path per
+  dataset, one wire shape per snapshot. Sole exception: `GET
+  /editor/:collection/markdown` is a render transform, not a dataset read.
+- **No write attaches a type.** A module collection lives on an object only
+  while the object carries a type whose part declares it (item 43); a write
+  without one is `400 dataset.not_declared`. Never add a "ensure the type is
+  attached" step to a write path — clients attach types deliberately.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
 - **any-store filters are built with the typed `any-store/v2/query` package**

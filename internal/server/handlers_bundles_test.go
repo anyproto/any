@@ -71,7 +71,8 @@ func TestServer_BundleEnsureInstallsThenAdopts(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleEnsure")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["chat"]}`
+	chatType := installModuleType(t, e, sp.Id, "chat")
+	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + chatType + `"]}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed {
@@ -116,8 +117,9 @@ func TestServer_BundleEnsureRootProperties(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleProps")
+	pageType := installModuleType(t, e, sp.Id, "editor")
 	res := ensureBundle(t, e, sp.Id,
-		`{"id":"notes/v1","name":"Notes","rootTypes":["page"],`+
+		`{"id":"notes/v1","name":"Notes","rootTypes":["`+pageType+`"],`+
 			`"rootProperties":{"any":{"description":"Seeded description"}}}`)
 
 	var props map[string]any
@@ -363,7 +365,7 @@ func TestServer_BundleEnsurePreflight(t *testing.T) {
 		{"unknown type", `{"id":"a/v1","rootTypes":["no_such_type"]}`, "type.not_found"},
 		{"unknown property type", `{"id":"a/v1","rootProperties":{"no_such_type":{"x":1}}}`, "type.not_found"},
 		{"unknown field", `{"id":"a/v1","source":"marketplace"}`, "request.unknown_field"},
-		{"types not an array", `{"id":"a/v1","rootTypes":"chat"}`, "request.schema"},
+		{"types not an array", `{"id":"a/v1","rootTypes":"chat_host"}`, "request.schema"},
 		{"props not an object", `{"id":"a/v1","rootProperties":[]}`, "request.schema"},
 		{"id too long", `{"id":"` + strings.Repeat("x", 257) + `"}`, "request.invalid_field"},
 		{"name too long", `{"id":"a/v1","name":"` + strings.Repeat("x", 1025) + `"}`, "request.invalid_field"},
@@ -420,7 +422,8 @@ func TestServer_BundleEnsureDerivedRoot(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleDerived")
-	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["chat"],"derived":true}`
+	chatType := installModuleType(t, e, sp.Id, "chat")
+	body := `{"id":"` + testBundleId + `","name":"General","rootTypes":["` + chatType + `"],"derived":true}`
 
 	first := ensureBundle(t, e, sp.Id, body)
 	if !first.Installed || !first.Bundle.Derived || first.Bundle.RootId == "" {
@@ -508,8 +511,9 @@ func TestServer_BundleDerivedRootProperties(t *testing.T) {
 	e := buildEcho(d)
 
 	sp := createSpaceInfo(t, e, "BundleDerivedProps")
+	pageType := installModuleType(t, e, sp.Id, "editor")
 	res := ensureBundle(t, e, sp.Id,
-		`{"id":"notes/v1","name":"Notes","rootTypes":["page"],"derived":true,`+
+		`{"id":"notes/v1","name":"Notes","rootTypes":["`+pageType+`"],"derived":true,`+
 			`"rootProperties":{"any":{"description":"Seeded description"}}}`)
 
 	var props map[string]any

@@ -11,9 +11,10 @@ import (
 
 // favoritesEnsureBody is the canonical favorites/v1 install request
 // from the client contract (docs/25-favorites.md): a CREATED root
-// (Ensure mints and self-types it) carrying the `entries` declaration.
-const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","datasets":[{
-	"name": "entries",
+// (Ensure mints and self-types it) carrying the `entries` part; the
+// records live in the namespaced collection `<rootId>_entries`.
+const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","parts":[{"key":"entries","datasets":[{
+	"key": "entries",
 	"idRule": "user",
 	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
 	"idMaxLen": 256,
@@ -29,7 +30,7 @@ const favoritesEnsureBody = `{"id":"favorites/v1","name":"Favorites","datasets":
 		{"key": "createdAt", "stamp": "createTime"},
 		{"key": "modifiedAt", "stamp": "modifyTime"}
 	]
-}]}`
+}]}]}`
 
 // TestServer_FavoritesClientFlow pins the favourites client contract:
 // locked reads (synced flag), client-registered install on a created
@@ -87,12 +88,13 @@ func TestServer_FavoritesClientFlow(t *testing.T) {
 	// Declaration discoverable under typeId = rootId.
 	var defs api.TypeDatasetsListResponse
 	decodeGet(t, e, base+"/types/"+root+"/datasets", &defs)
-	if len(defs.Datasets) != 1 || defs.Datasets[0].Name != "entries" {
+	if len(defs.Datasets) != 1 || defs.Datasets[0].Key != "entries" || defs.Datasets[0].Collection != root+"_entries" {
 		t.Fatalf("datasets on root: %+v", defs)
 	}
+	entries := defs.Datasets[0].Collection
 
 	// Star an item (id = link) and create a folder — one upsert.
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"any://o/sp1/obj1","fields":{"parentId":"f:aaa","pos":"a1","name":"Doc","iconCid":"bafyicon","types":["page"]}},
 		{"id":"f:aaa","fields":{"parentId":"","pos":"a0","name":"Work"}}]}`)
 	if rec.Code != http.StatusOK {
@@ -107,7 +109,7 @@ func TestServer_FavoritesClientFlow(t *testing.T) {
 	}
 
 	// Id pattern and required fields are enforced per record.
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"not-a-link","fields":{"parentId":"","pos":"a2"}},
 		{"id":"f:no-pos","fields":{"parentId":""}}]}`)
 	if rec.Code == http.StatusOK {
@@ -122,7 +124,7 @@ func TestServer_FavoritesClientFlow(t *testing.T) {
 
 	// Read back: stamps present, client mirror fields intact.
 	rec = doJSON(t, e, http.MethodPost, base+"/query",
-		`{"objectId":"`+root+`","dataset":"entries","filter":{"id":"any://o/sp1/obj1"}}`)
+		`{"objectId":"`+root+`","dataset":"`+entries+`","filter":{"id":"any://o/sp1/obj1"}}`)
 	var q api.QueryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &q); err != nil || len(q.Records) != 1 {
 		t.Fatalf("query: %v %s", err, rec.Body.String())
@@ -138,24 +140,24 @@ func TestServer_FavoritesClientFlow(t *testing.T) {
 	}
 
 	// Stamped fields reject client writes.
-	rec = doJSON(t, e, http.MethodPost, base+"/modify", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/modify", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"any://o/sp1/obj1","ops":[{"type":"$set","path":"creator","value":"me"}]}]}`)
 	if rec.Code == http.StatusOK && !hasRejection(rec.Body.Bytes()) {
 		t.Fatalf("client write of a stamped field must not apply: %s", rec.Body.String())
 	}
 
 	// Un-star = soft delete; re-star = upsert clears it and re-places.
-	rec = doJSON(t, e, http.MethodPost, base+"/modify", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/modify", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"any://o/sp1/obj1","ops":[{"type":"$set","path":"removed","value":true}]}]}`)
 	if rec.Code != http.StatusOK || hasRejection(rec.Body.Bytes()) {
 		t.Fatalf("soft delete: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, base+"/query",
-		`{"objectId":"`+root+`","dataset":"entries","filter":{"id":"any://o/sp1/obj1"}}`)
+		`{"objectId":"`+root+`","dataset":"`+entries+`","filter":{"id":"any://o/sp1/obj1"}}`)
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"removed":true`)) {
 		t.Fatalf("soft delete not applied: %s", rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"any://o/sp1/obj1","fields":{"parentId":"","pos":"a5","removed":false}}]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("re-star: %d %s", rec.Code, rec.Body.String())
@@ -163,8 +165,8 @@ func TestServer_FavoritesClientFlow(t *testing.T) {
 
 	// The declaration is the client's: additive evolution through the
 	// type routes works (no server-owned reservation).
-	rec = doJSON(t, e, http.MethodPost, base+"/types/"+root+"/datasets",
-		`{"name":"favorites_meta","idRule":"user","fields":[{"key":"v","kind":"string"}]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+root+"/parts/"+defs.Datasets[0].PartId+"/datasets",
+		`{"key":"favorites_meta","idRule":"user","fields":[{"key":"v","kind":"string"}]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("evolve: %d %s", rec.Code, rec.Body.String())
 	}

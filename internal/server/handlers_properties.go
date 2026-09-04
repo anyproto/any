@@ -120,7 +120,7 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	// on the 5-minute tick. Kick is hash-gated and nearly free, so we
 	// don't bother inspecting the patch keys; remote-origin writes
 	// still ride the tick (docs/20-push.md § Settings).
-	if d.push != nil && typeId == chat.TypeId {
+	if d.push != nil && typeId == chat.Module {
 		d.push.Kick()
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))

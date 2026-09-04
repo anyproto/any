@@ -1,11 +1,26 @@
 ---
 title: Page
-description: The built-in page marker type — how a document is declared, what fields it is made of, and how to list and file pages.
+description: How a document is declared — a user type whose part shares the editor module — what fields a page is made of, and how to list and file pages.
 order: 30
 ---
 # Page
 
-`page` is the built-in marker for "this object is a document". It is a pure declaration: no dataset, no properties. Everything a page is made of — name, labels, body, tree position, recency — comes from fields every object already has.
+A page is an object carrying a **document type**: a user type with one part whose dataset names the `editor` module. There is no built-in page type — you declare yours, and normally register it as a [bundle](../collaboration/bundles.html) so every client and device converges on one.
+
+## Declaring the type
+
+```bash
+PAGE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Page", "xKey": "page", "weight": 10, "layout": {"type": "page"}}' | jq -r .typeId)
+
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$PAGE/parts \
+  -H 'Content-Type: application/json' \
+  -d '{"key": "body", "name": "Body", "ui": {"type": "document"},
+       "datasets": [{"module": "editor", "shared": true}]}'
+```
+
+`"shared": true` puts the body in the module's canonical collection, `editor_blocks` — the one every document type shares, so an object that is both a page and, say, a meeting has one body. `weight` makes the type the object's **primary** type (the highest weight wins) and `layout` is the descriptor a client renders for it; both are opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what a registered built-in could never do.
 
 ## What a page is made of
 
@@ -13,48 +28,41 @@ order: 30
 |---------|----------------|
 | Display name | `any.name` |
 | Labels | the built-in `any.tags` (free-form string array) |
-| Body | the [editor](editor.html) type's `editor_blocks` dataset, attached on the first block write |
+| Body | the `editor_blocks` collection the type's part declares — [editor](editor.html) |
+| Columns | the type's own properties, at `<typeId>.<propId>` |
 | Position in the tree | `nav.parentId`, `nav.pos`, `nav.type` (see [objects](../database/objects.html)) |
 | Recency | the derived row-root `modifiedAt` instant, with `modifiedBy` naming who signed that change (see [system fields](../database/system-fields.html)) |
 
 ## Creating and listing pages
 
-File a document by creating an object with the `page` type:
+File a document by creating an object with the type:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
   -H 'Content-Type: application/json' \
-  -d '{"types": ["page"], "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}'
+  -d '{"types": ["'$PAGE'"], "initialProperties": {"any": {"name": "Reading list", "tags": ["books"]}}}'
 ```
 
-Then write its body through the editor — a first block write attaches the `editor` type for you:
+Then write its body through the editor — the object already holds the collection because it carries the declaring type:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/markdown/append \
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown/append \
   -H 'Content-Type: application/json' \
   -d '{"content": "# Reading list\n\n- [ ] Children of Time"}'
 ```
 
-List a space's documents with a filter on the type marker, most recently edited first:
+List a space's documents with a filter on the type, most recently edited first:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 50}'
+  -d '{"filter": {"any.types": "'$PAGE'"}, "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
-The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element.
+The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets`, matched with `{"any.types": {"$in": [...]}}`.
 
-## Why a registered marker
+## Why a bundle, not a built-in
 
-`page` is registered by the server, not created by a client, so it exists in every space by construction. That replaces the pattern where each client mints its own user "pages" type: the check-then-create race across members left real spaces with several parallel "Pages" types, and documents filed under different ones. With one built-in id there is nothing to race for.
+In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both — real spaces carried several parallel "Pages" types. A registered built-in avoided that but could not carry properties (registered types' definitions are frozen). Registering the type as a bundle keeps it a plain user type — properties, weight, layout, parts — while the registry converges every device on one id: `POST …/bundles` with the type declared on the root is adopt-or-install, so whoever runs it second adopts the first one's type.
 
-> **Why it matters.** In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both. A registered type sidesteps the problem entirely — every peer agrees on the id before any of them writes a byte.
-
-A user type that claims the `page` xKey collides with the built-in id and is rejected with `409 type.xkey_conflict`. Existing user types with a similar name are left untouched.
-
-## No properties, by design
-
-`page` declares no properties. Registered types' property definitions are frozen — they cannot be added, patched or removed (`400 type.registered`) — so a built-in `choice` would carry a permanently empty, uneditable option set. Per-space columns such as "status" or "priority" remain a user-type concern: attach a user type alongside `page` and put the properties there. See [types and properties](../database/types-and-properties.html).
-
-> **Note.** A page's body is not part of the `page` type. It is the `editor` type's dataset on the same object, which is why an object can be a page with no blocks yet (an empty `records` array on the `editor_blocks` query) and why the body is searchable through the editor chunker under the `basic` scope (see [search](../search/index.html)).
+> **Note.** A page's body is not part of the type's row. It is the editor collection on the same object, which is why an object can be a page with no blocks yet (an empty `records` array on the `editor_blocks` query) and why the body is searchable through the editor chunker under the `basic` scope (see [search](../search/index.html)).

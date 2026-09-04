@@ -96,11 +96,16 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `dataset.unknown` | 400 | no handler or runtime definition registered |
+| `dataset.unknown` | 400 | no records collection of that name in the space (module collections are never upsertable) |
+| `dataset.not_declared` | 400 | a write into a collection none of the object's types declare — attach the declaring type first |
+| `dataset.not_found` | 404 | the editor route's `:collection` is not an editor dataset in this space |
 | `dataset.validation` | 400 | schema or handler rejected the ops |
-| `dataset.name_conflict` | 409 | name already used in the space (`details.name`) |
-| `dataset.decl_invalid` | 400 | malformed dataset declaration |
-| `dataset.immutable` | 400 | PATCH of a pinned definition path (`details.path`) |
+| `dataset.key_conflict` | 409 | a part or dataset with this key already exists on the type (`details.key`) |
+| `dataset.shared_conflict` | 400 | `shared` on a module without a canonical collection, a shared key that is not the canonical name, or a namespaced dataset on a shared-only module |
+| `dataset.module_unknown` | 400 | the dataset names a module the server does not compile in |
+| `dataset.module_owned` | 409 | fields declared on a module-served dataset |
+| `dataset.decl_invalid` | 400 | malformed part or dataset declaration |
+| `dataset.immutable` | 400 | PATCH of a pinned part or definition path (`details.path`) |
 | `upsert.requires_user_ids` | 400 | dataset not declared `idRule: user` |
 | `upsert.immutable_field` / `upsert.not_author` / `upsert.record_deleted` / `upsert.rejected` | 200 | per-record codes inside `rejections[]` — never HTTP errors |
 | `filter.unknown_operator` | 400 | operator outside the grammar (`details.operator`, `details.path`) |
@@ -115,7 +120,7 @@ Panics are converted to `500 internal` with a generic message.
 | `type.not_found` | 404 | unknown typeId |
 | `type.xkey_required` | 400 | create without an `xKey` |
 | `type.xkey_conflict` | 409 | `xKey` collides with an existing type's xKey or id (`details.xKey`, `details.existingTypeId`) |
-| `type.registered` | 400 | add/patch/remove on a registered built-in type |
+| `type.registered` | 400 | add/patch/remove a property, part or dataset, or PATCH the type, on a registered built-in type |
 | `property.not_found` | 404 | unknown propId |
 | `property.kind_mismatch` | 400 | write violated the immutable kind |
 | `property.immutable` | 400 | PATCH of a pinned path (`details.path`) |

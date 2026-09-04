@@ -91,17 +91,17 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	spaceId := sp.Id
 
 	// --- Chat object + 2 messages ---
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 	msg1 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"hello one"}`, http.StatusCreated)
 	msg2 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"hello two"}`, http.StatusCreated)
 	msg1Id, msg2Id := msg1.RecordIds[0], msg2.RecordIds[0]
 
 	// --- Editor object + 2 blocks ---
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
 	edBase := "/v1/spaces/" + spaceId + "/objects/" + edObj
-	blk1 := mustModify(t, e, http.MethodPost, edBase+"/editor/blocks", `{"type":"paragraph","text":"block one"}`, http.StatusCreated)
-	mustModify(t, e, http.MethodPost, edBase+"/editor/blocks", `{"type":"paragraph","text":"block two"}`, http.StatusCreated)
+	blk1 := mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks", `{"type":"paragraph","text":"block one"}`, http.StatusCreated)
+	mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks", `{"type":"paragraph","text":"block two"}`, http.StatusCreated)
 	blk1Id := blk1.RecordIds[0]
 
 	// --- Indexed properties: type with meta {"index":"agent"} flags ---
@@ -155,8 +155,10 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get space: %v", err)
 	}
-	chatCh := mustOneChunker(t, d, chat.Dataset)
-	edCh := mustOneChunker(t, d, editor.Dataset)
+	// Module chunkers register under the module's virtual name; the
+	// entries they yield carry the real collection.
+	chatCh := mustOneChunker(t, d, chat.Module)
+	edCh := mustOneChunker(t, d, editor.Module)
 	propCh := mustOneChunker(t, d, index.DatasetProp)
 
 	// --- ChunksSince(0): full content ---
@@ -231,20 +233,22 @@ func TestIndexChunkers_FullFlow(t *testing.T) {
 	assertTombstone(t, delEntries, msg1Id, chatMax2)
 
 	// --- Deletion: editor block → window reconcile ---
-	// Editor is a Reconciler: deleting a block doesn't stream a per-record
-	// tombstone; the whole object's windows are rebuilt (PrefixDelete +
-	// the surviving block's window). The anchor moves to the survivor.
-	doJSONExpect(t, e, http.MethodDelete, edBase+"/editor/blocks/"+blk1Id, http.StatusOK)
-	rc, ok := edCh.(index.Reconciler)
-	if !ok {
-		t.Fatal("editor chunker should implement index.Reconciler")
+	// Editor reconciles per collection: deleting a block doesn't stream
+	// a per-record tombstone; the object's windows are rebuilt for every
+	// editor collection it holds and the indexer diffs each set against
+	// the store. The anchor moves to the survivor.
+	doJSONExpect(t, e, http.MethodDelete, edBase+"/editor/editor_blocks/blocks/"+blk1Id, http.StatusOK)
+	rc, ok := edCh.(index.MultiReconciler)
+	if !ok || !rc.Reconciles() {
+		t.Fatal("editor chunker should implement index.MultiReconciler")
 	}
-	recon, err := rc.Reconcile(ctx, sdkSpace, edObj, 0)
+	sets, err := rc.ReconcileAll(ctx, sdkSpace, edObj, 0)
 	if err != nil {
 		t.Fatalf("editor reconcile after delete: %v", err)
 	}
-	if len(recon) != 1 || recon[0].Data != "block two" {
-		t.Fatalf("editor reconcile = %+v, want one window 'block two'", recon)
+	recon := sets[editor.Dataset]
+	if len(sets) != 1 || len(recon) != 1 || recon[0].Data != "block two" {
+		t.Fatalf("editor reconcile = %+v, want one editor_blocks window 'block two'", sets)
 	}
 
 	// --- Deletion: memory object → no entries from the prop chunker ---

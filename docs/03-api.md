@@ -36,8 +36,12 @@
     - [One record at a version](#one-record-at-a-version)
     - [Diff](#diff)
   - [Types](#types)
+    - [Parts and modules](#parts-and-modules)
+    - [Runtime dataset schemas](#runtime-dataset-schemas)
+    - [Upsert records](#upsert-records)
+    - [Built-in `data_view` type](#built-in-data_view-type)
   - [Properties (values on objects)](#properties-values-on-objects)
-  - [Chat (built-in `chat` type)](#chat-built-in-chat-type)
+  - [Chat (the `chat` module)](#chat-the-chat-module)
     - [Message wire shape (read path)](#message-wire-shape-read-path)
     - [Send](#send)
     - [Read](#read)
@@ -81,13 +85,14 @@
 - **Binding**: use `echo.Context.Bind` for request bodies. Share the
   request/response types between server and CLI via `internal/api/`.
 - **Dataset reads go through `/query` and `/query/subscribe`.**
-  Built-in types (chat, editor) keep bespoke handlers for *writes*
-  only — POST/PATCH/DELETE and reactions. Reads always go through
-  the per-object query primitive with the matching `dataset` value
-  (`chat_messages`, `editor_blocks`, etc.). One read path for every
-  dataset, one wire shape for every snapshot. The lone exception is
-  `GET /editor/markdown`, which renders blocks to markdown bytes —
-  a transform, not a dataset read.
+  The compiled-in modules (chat, editor) keep bespoke handlers for
+  *writes* only — POST/PATCH/DELETE and reactions. Reads always go
+  through the per-object query primitive with the matching `dataset`
+  value — the collection name (`chat_messages`, `editor_blocks`, a
+  namespaced `<typeId>_<key>`, …). One read path for every dataset,
+  one wire shape for every snapshot. The lone exception is
+  `GET …/editor/:collection/markdown`, which renders blocks to
+  markdown bytes — a transform, not a dataset read.
 
 ### Write responses
 
@@ -695,17 +700,25 @@ device or head-synced in arrives as an `added` change.
 #### Dataset schema discovery
 
 ```
-GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, typeId? } ] }   Space.Datasets
-GET /v1/datasets                   → { datasets: [ { name, schema } ] }            Service.Datasets
+GET /v1/spaces/:spaceId/datasets   → { datasets: [ { name, schema, owners?, module, shared? } ] }   Space.Datasets
+GET /v1/datasets                   → { datasets: [ { name, schema, module } ] }                    Service.Datasets
 ```
 
 `schema` is a standard **JSON Schema** object per dataset
 (`{type:"object", properties:{…}, additionalProperties:<dynamic>}`).
-`typeId` names the owning type for ext-type and runtime-defined
-datasets (absent for space-level built-ins) — records exist only on
-objects carrying that type, so consumers gate indexing/eviction on it.
-Each property carries an `x-scope` extension keyword classifying the
-field:
+`name` is the collection — what `dataset` names on every read and
+write. `module` is the serving module (`records` for schema-enforced
+runtime datasets, `chat` / `editor` for the compiled-in ones, absent
+only on the SDK's own system datasets). `owners` lists the types whose
+parts declare the collection: the one declaring type of a namespaced
+`<typeId>_<key>` instance, every type sharing a module's canonical
+collection (`shared: true` — `editor_blocks`, `chat_messages`). A
+collection lives on an object only while the object carries one of its
+owners, so consumers gate indexing/eviction on that set; a canonical
+collection with no owners yet is listed with an empty `owners`, and no
+object can hold it until a type declares the module (§ Parts and
+modules). Each property carries an `x-scope` extension keyword
+classifying the field:
 
 - `synced` — user/DAG-written, synced to everyone in the space;
 - `derived` — handler-computed, read-only to writers (e.g. chat
@@ -719,11 +732,13 @@ field:
 
 `additionalProperties:true` marks a dynamic dataset (free-form keys
 allowed, defaulting to synced — e.g. the per-type `objects` namespace and
-the chat/editor datasets, which declare their known fields while staying
-open). The per-space form lists every dataset the space hosts (`objects`,
-`chat_messages`, `editor_blocks`, …, plus every runtime definition); the
-account-wide form lists the tech-space system datasets (`spaces`,
-`profile`) behind the space-list query/subscribe above.
+the chat/editor collections, which declare their known fields while
+staying open). The per-space form lists every collection the space
+hosts (`objects`, the module canonicals `chat_messages` /
+`editor_blocks`, every namespaced instance and runtime definition the
+space's types declare); the account-wide form lists the tech-space
+system datasets (`spaces`, `profile`) behind the space-list
+query/subscribe above.
 
 Datasets with behavioral schema declarations (§ Runtime dataset schemas)
 carry further extension keywords in the document:
@@ -954,7 +969,7 @@ reclaimed). In a path segment the slash is percent-encoded:
 `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
-`{id, name?, rootTypes?, rootProperties?, derived?, datasets?}`. With a winner already
+`{id, name?, rootTypes?, rootProperties?, derived?, parts?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -1038,20 +1053,27 @@ past it is the deliberate trade that lets an offline 1-1 have a chat at
 all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
-**Bundle datasets.** `datasets: [...]` (the same draft shape as
-`POST …/types/:typeId/datasets`, ≤32 entries) declares runtime
-datasets on a **derived** root. The root then implements itself as a
-type — `any.types = ["__type__", "<rootId>"]`, `typeId = rootId` — so
-`GET …/types/:rootId/datasets` and `GET …/datasets` list the
-declarations, and records go through `POST …/upsert` / `…/modify` /
-`…/query[/subscribe]` with `objectId = rootId`. Declared once, in one
-change, on install; an adopt declares them only on a root that carries
-no declaration yet. Later evolution is `POST/PATCH/DELETE
-…/types/:rootId/datasets…` — `Ensure` never patches, adds or
-resurrects a dataset. Dataset names are unique per space: a name
-another type or bundle owns, or a reserved one, fails with `400
-request.invalid_field` before the permanent root is derived;
-`datasets` combines with `derived: true` or stands alone (a created root the server mints and self-types); `rootTypes`/`rootProperties` next to `datasets` need `derived: true`.
+**Bundle parts.** `parts: [...]` (the same draft shape as
+`POST …/types/:typeId/parts`, ≤32 entries) declares parts — and the
+datasets under them — on the root. The root then implements itself as
+a type: `any.types = ["__type__", "<rootId>"]`, `typeId = rootId`, so
+`GET …/types/:rootId/parts` / `…/datasets` and `GET …/datasets` list
+the declarations. A records dataset the bundle declares is namespaced
+to the root: its collection is `<rootId>_<key>` (read it off
+`collection` in the parts list), and records go through `POST …/upsert`
+/ `…/modify` / `…/query[/subscribe]` with `objectId = rootId` and that
+collection as `dataset`. A part naming a module (`{"module": "chat",
+"shared": true}`) makes the root hold that module's canonical
+collection — this is how the well-known chat bundle gives a space its
+chat. Declared once, in one change, on install; an adopt declares them
+only on a root that carries no declaration yet. Later evolution is
+`POST/PATCH/DELETE …/types/:rootId/parts…` and `…/datasets…` — `Ensure`
+never patches, adds or resurrects a part. A malformed declaration
+(unknown module, a field on a module dataset, a duplicate key) fails
+with the § Parts and modules codes before the permanent root is
+derived. `parts` combines with `derived: true` or stands alone (a
+created root the server mints and self-types); `rootTypes` /
+`rootProperties` next to `parts` need `derived: true`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
@@ -1073,7 +1095,7 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list / resolve — `datasets` required, roots
+- `bundles` ensure / get / list / resolve — `parts` required, roots
   minted by Ensure (`rootTypes` / `rootProperties` / `children`
   refused). The normal shape is the default CREATED root — deletable
   (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
@@ -1084,7 +1106,8 @@ settings — lives in bundles on the account's **tech space**, whose id
   the general-chat convention, above all in a 1-1, where the
   convergence gate cannot work). Records-shaped bundles merge, so they
   are created;
-- `types` reads and `types/:rootId/datasets…` on bundle roots;
+- `types` reads and `types/:rootId/parts…` / `types/:rootId/datasets…`
+  on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`; `GET …/objects/:objectId`;
 - `GET` the space (a synthetic row: `spaceType: any.techspace`,
@@ -1109,7 +1132,7 @@ already runs the same wait as its convergence gate. The raw `bundles`
 dataset via `POST …/query[/subscribe]` stays the live local view.
 
 **Favourites** is a client-registered bundle (`favorites/v1`, created
-root, `entries` declaration) — a documented convention like
+root, an `entries` part) — a documented convention like
 `general-chat/v1`, no server code. Model and client contract:
 `docs/25-favorites.md`.
 
@@ -1187,22 +1210,35 @@ anyway, which is what the per-space chat convention does.
 | GET    | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Get` — the objects row; `404 object.not_found` / `410 object.deleted` |
 | DELETE | `/v1/spaces/:spaceId/objects/:objectId`                   | `Objects.Delete`                   |
 | GET    | `/v1/spaces/:spaceId/objects/:objectId/backlinks`         | reverse reference lookup (no SDK method) |
-| GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | render blocks as markdown |
-| PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | bulk parse markdown → blocks |
-| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown`              | targeted oldText → newText replacements |
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown/append`       | append markdown at tail (no read/diff) |
-| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks`                | create one block         |
-| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | $set / $unset one block  |
-| DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`       | tombstone one block      |
+| GET    | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | render blocks as markdown |
+| PUT    | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | bulk parse markdown → blocks |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown`        | targeted oldText → newText replacements |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/markdown/append` | append markdown at tail (no read/diff) |
+| POST   | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/blocks`          | create one block         |
+| PATCH  | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId` | $set / $unset one block  |
+| DELETE | `/v1/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId` | tombstone one block      |
 
-Object bodies are stored as a tree of atomic blocks on a per-object
-`editor_blocks` dataset (one record per block) and exposed through the
-`…/editor/**` route namespace. The atomic surface is the four
-`…/editor/blocks` endpoints; the two `…/editor/markdown` routes are
-a lossless import/export layer over the same dataset for LLM tools,
-"Export as .md" / "Import .md" flows, and programmatic API users that
-don't want to walk the block tree. Liveness goes through the
-per-object query/subscribe endpoint with `dataset=editor_blocks`.
+Object bodies are stored as a tree of atomic blocks in an **editor
+collection** (one record per block) served by the compiled-in `editor`
+module, and exposed through the `…/editor/:collection/**` route
+namespace. `:collection` is the collection a type's part declared with
+`{"module": "editor"}` (§ Parts and modules): the canonical
+`editor_blocks` for a shared part — the body every document type
+shares, so an object carrying two such types has one body — or a
+namespaced `<typeId>_<key>` instance for a part that wants its own
+editor (a meeting type's `notes` next to its body). An object holds a
+collection only while it carries a type whose part declares it: a
+write into a collection none of the object's types declare is `400
+dataset.not_declared` (attach the type first — the write never attaches
+one); a `:collection` no editor part in the space declares is `404
+dataset.not_found`. There is no built-in document type: a client's
+page type is a user type — normally the well-known `page/v1` bundle —
+whose part shares the editor. The atomic surface is the three
+`…/blocks` endpoints; the `…/markdown` routes are a lossless
+import/export layer over the same collection for LLM tools, "Export as
+.md" / "Import .md" flows, and programmatic API users that don't want
+to walk the block tree. Liveness goes through the per-object
+query/subscribe endpoint with `dataset=<collection>`.
 
 The `editor/markdown` routes are aggregating endpoints (each one
 bundles several SDK calls) and are a deliberate exception to the
@@ -1217,7 +1253,7 @@ fire under the hood. `PUT` replies with `{"inserted": [...],
 "updated": [...], "deleted": [...], "unchanged": N}` where the slices
 contain block ids.
 
-`PATCH …/editor/markdown` is the surgical variant of `PUT` — for
+`PATCH …/editor/:collection/markdown` is the surgical variant of `PUT` — for
 callers (LLM agents above all) that know the *text* they want changed
 but not the block ids. The body is a batch of exact-match
 replacements against the rendered document:
@@ -1266,7 +1302,7 @@ read-modify-write: a stale quote fails loudly instead of silently
 reverting concurrent edits elsewhere in the document, and the caller
 ships O(edit) bytes instead of O(document).
 
-`POST …/editor/markdown/append` is the append-only fast path. It
+`POST …/editor/:collection/markdown/append` is the append-only fast path. It
 parses the supplied `{"content": "..."}`, looks up only the tail
 position (one indexed `-nav.pos` query, never the existing block
 bodies), allocates lexids past the last block, and creates every
@@ -1312,16 +1348,17 @@ Consequences worth designing against:
   external tool, a paste, or a client that does not implement this
   rule loses its empty paragraphs. Editors that want them preserved
   must both emit and parse blank runs this way.
-- `POST …/editor/markdown/append` is the exception: a fragment is
+- `POST …/editor/:collection/markdown/append` is the exception: a fragment is
   positioned by the append itself, so blank lines wrapping it are
   framing and are dropped. Empty paragraphs *between* the fragment's
   own blocks are kept, and blank-only content stays a 200 no-op.
 
 #### Blocks
 
-One record per block, stored on a per-object `editor_blocks` dataset.
-Nest via `nav.parentId`; order siblings via `nav.pos` (lexid). Wire
-shape:
+One record per block, stored in the object's editor collection
+(`editor_blocks`, or a namespaced instance — `:collection` in every
+route below; the examples use the canonical name). Nest via
+`nav.parentId`; order siblings via `nav.pos` (lexid). Wire shape:
 
 ```json
 {
@@ -1365,7 +1402,7 @@ blocks yet.
 
 ##### Create
 
-`POST /v1/spaces/:spaceId/objects/:objectId/editor/blocks`
+`POST /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/blocks`
 
 ```json
 { "type":  "paragraph",
@@ -1385,7 +1422,7 @@ server-allocated block id. Read the block back via `POST /query` with
 
 ##### Patch
 
-`PATCH /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`
+`PATCH /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/blocks/:blockId`
 
 ```json
 { "set":   { "text": "...", "style.level": 2 },
@@ -1414,13 +1451,13 @@ on the affected paths to pre-seed dedup against the matching live event.
 
 ##### Delete
 
-`DELETE /v1/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId`
+`DELETE /v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/blocks/:blockId`
 → 200 with the shared write result `{versionId, changeId, recordIds}`
 (`recordIds=[blockId]`). Tombstones the record (sticky — re-creating
 the same id is rejected). Children of the deleted block are NOT
 cascaded; the client either deletes the descendants explicitly or
-rewrites the document via `PUT /editor/markdown`, which diffs the whole
-body.
+rewrites the document via `PUT …/editor/:collection/markdown`, which
+diffs the whole body.
 
 ##### Subscribe
 
@@ -1437,8 +1474,8 @@ entering, mutating, or leaving the visible window. `added` records
 include the full block as `doc` plus its per-field ops; `updated`
 records carry the post-apply doc and the ops that triggered the
 change; `removed` carries just the id. The same events fire whether
-the change originated from a PATCH /editor/blocks call or a PUT
-/editor/markdown bulk rewrite. See `04-events.md`.
+the change originated from a PATCH `…/blocks` call or a PUT
+`…/markdown` bulk rewrite. See `04-events.md`.
 
 #### `nav` auto-stamping on `Objects.Create`
 
@@ -1934,13 +1971,18 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | GET    | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.List`        |
 | POST   | `/v1/spaces/:spaceId/types`                                   | `TypesAPI.Create`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Get`         |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Patch` — name / description / icon / weight / layout |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId`                           | `TypesAPI.Delete`      |
 | GET    | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.Properties`  |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/properties`                | `TypesAPI.AddProperty` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.RemoveProperty` |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/properties/:propId`        | `TypesAPI.PatchProperty` |
-| GET    | `/v1/spaces/:spaceId/types/:typeId/datasets`                  | `TypesAPI.Datasets`    |
-| POST   | `/v1/spaces/:spaceId/types/:typeId/datasets`                  | `TypesAPI.AddDataset`  |
+| GET    | `/v1/spaces/:spaceId/types/:typeId/parts`                     | `TypesAPI.Parts` — parts with their datasets |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/parts`                     | `TypesAPI.AddPart` — a part and its datasets, one change |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/parts/:partId`             | `TypesAPI.PatchPart`   |
+| DELETE | `/v1/spaces/:spaceId/types/:typeId/parts/:partId`             | `TypesAPI.RemovePart` — the part and every dataset under it |
+| POST   | `/v1/spaces/:spaceId/types/:typeId/parts/:partId/datasets`    | `TypesAPI.AddDataset`  |
+| GET    | `/v1/spaces/:spaceId/types/:typeId/datasets`                  | `TypesAPI.Datasets` — the flat compiled view |
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.PatchDataset` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.RemoveDataset` |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields`    | `TypesAPI.AddDatasetField` |
@@ -1955,8 +1997,12 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Built-in types (`chat`, `nav`, …) are registered,
-not created here, and resolve by their literal id.
+display-name renames. Built-in types (`data_view`, `nav`) are
+registered, not created here, and resolve by their literal id. There
+is no built-in `page`, `editor` or `chat` type: documents and chats are
+user types whose parts declare the `editor` / `chat` module (§ Parts
+and modules), normally registered through a well-known bundle so every
+client lands on one type.
 
 `GET …/types` returns the synthetic built-ins first — `any`,
 `spaceIndex` and `type` (the meta-type: the shape of type objects
@@ -1975,13 +2021,26 @@ Storage note for anyone reading raw rows (`GET …/properties/:objectId`,
 the `__type__` marker in `any.types`. `TypeInfo.xKey` is the supported
 read; the raw path is for debugging.
 
-The create body is strictly `{name?, description?, iconCid?, xKey}` —
-**inline property definitions are not part of type create** (no SDK
-surface accepts them). A `properties` key, or any other unknown
-top-level key, answers `400 request.unknown_field` pointing at the
-per-field route: create the type, then add each property via
-`POST …/types/:typeId/properties` (each add materializes the schema
-immediately).
+The create body is `{name?, description?, iconCid?, xKey, weight?,
+layout?}` — **inline property definitions are not part of type
+create** (no SDK surface accepts them). A `properties` key, or any
+other unknown top-level key, answers `400 request.unknown_field`
+pointing at the per-field route: create the type, then add each
+property via `POST …/types/:typeId/properties` (each add materializes
+the schema immediately) and each part via `POST …/types/:typeId/parts`.
+
+`weight` and `layout` are the type's rendering slice, stored on the
+meta-type (`type.weight`, `type.layout` on the raw row, next to
+`type.xkey`). An object carries several types; the one with the
+highest `weight` is its **primary** type — the one whose `layout` a
+client renders (`any` and the built-ins carry no weight and never
+win; ties break on type id). `layout` is an opaque descriptor object
+in the x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
+`{"type": "page"}` or `{"type": "tabs"}` — the client's vocabulary,
+checked only for being an object. **`PATCH …/types/:typeId`** takes
+`{name?, description?, iconCid?, weight?, layout?}`: absent keeps, an
+empty string clears a text field, `"layout": null` clears the layout;
+`204`, `400 type.registered` on a built-in, `404 type.not_found`.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id
@@ -2112,23 +2171,124 @@ the definition and returns `204`. Existing instance values are **not**
 cleaned up — subsequent writes to that propId are dropped op-by-op
 (dangling-tolerant). Unknown/already-removed propId → `404 sdk.not_found`.
 
-#### Runtime dataset schemas
+#### Parts and modules
 
-A declarative dataset schema, defined at runtime on a **user type**,
-enforced generically by the SDK apply path on every peer as the
-definition syncs — a schema alone expresses what previously took a
-compiled-in handler: required fields, write-once vs author-mutable
-fields, author-only delete, derived creator/time stamps, user-supplied
-record ids, search extraction. Registered built-in types (`chat`,
-`editor`, …) refuse (`400 type.registered`) — their datasets are
-statically declared. SDK contract (vocabulary, convergence rules,
-storage model, runtime registration): the SDK's
-`docs/17-user-datasets.md`.
+A type is properties (the columns on its objects) plus **parts**: the
+display units a client renders for an object of the type — a body, a
+transcript, a task list — each owning one or more **datasets**. Every
+dataset is served by a **module**: `records`, the built-in generic
+module (a schema-enforced dataset, § Runtime dataset schemas below),
+or a compiled-in module with its own handler and write surface —
+`editor` (block bodies, § Objects) and `chat` (messages, § Chat). The
+part is what the client renders; the module is what the server
+enforces.
 
-`POST …/types/:typeId/datasets` → `201 {datasetDefId}`:
+Where a dataset's records live is the **collection** — the `dataset`
+value on every read and write:
+
+- **namespaced** (the default): `<typeId>_<key>`. Owned by this type
+  alone; two types each declaring a `notes` editor part have two
+  bodies. `records` datasets are always namespaced.
+- **shared** (`"shared": true`): the module's canonical collection —
+  `editor_blocks`, `chat_messages`. Every type declaring a shared
+  editor part contributes to the same body, so an object carrying two
+  document-ish types has one body, not two. The key is the canonical
+  name (omit it or spell it exactly; anything else is `400
+  dataset.shared_conflict`); one shared dataset per module per type
+  (a second is `409 dataset.key_conflict` on the canonical key); only
+  modules with a canonical collection share (`records` never does —
+  `400 dataset.shared_conflict`). `chat` is shared-only in v1.
+
+**An object holds a collection while it carries a declaring type.**
+The write gate is on the object's `any.types`: a write into a
+collection none of the object's types declare — the SDK's local
+write-time check, on every module's write path — is `400
+dataset.not_declared`. Attach the type first (object create `types`,
+`POST …/properties/:objectId/attach/:typeId`); no write attaches one.
+Inbound changes are read-tolerant, so a peer that removed a part still
+applies data from before the removal. Removing a part withdraws the
+declaration: the collection stops accepting writes on objects that
+carry no other declaring type; existing records are not cleaned up.
+
+`POST …/types/:typeId/parts` → `201 {partId}` — the part and every
+dataset under it land in one change:
 
 ```json
-{ "name": "articles", "displayName": "Articles",
+{ "key": "body", "name": "Description", "pos": "a0",
+  "ui": { "type": "document" },
+  "datasets": [ { "module": "editor", "shared": true } ] }
+```
+
+```json
+{ "key": "transcript", "name": "Transcript", "ui": { "type": "table" },
+  "uses": ["speakers"],
+  "datasets": [ { "key": "segments", "idRule": "user",
+      "fields": [ { "key": "time", "kind": "number" },
+                  { "key": "speaker", "kind": "string" },
+                  { "key": "text", "kind": "string", "mutableBy": "any" } ] } ] }
+```
+
+- `key` — a slug (`[a-z][a-z0-9_]*`, ≤64), unique among the type's
+  parts, pinned (`409 dataset.key_conflict`; `400 dataset.decl_invalid`
+  for a non-slug).
+- `name` / `icon` / `pos` / `hidden` — the display slice; clients sort
+  parts by `pos` (lexid) and hide `hidden` ones by default.
+- `ui` — the widget descriptor, an object in the x-format shape
+  (`{type, config}`) with a client-owned vocabulary (`document`,
+  `table`, `board`, `chat`, …); replaced whole; absent = the first
+  dataset's module default.
+- `uses` — keys of other datasets **of this type** the part renders
+  without owning (a transcript part reading the `speakers` dataset).
+- `datasets` — the initial declarations, each `{key?, module?, shared?,
+  …}` plus the records-module schema fields below. `module` defaults to
+  `records`; an unknown module is `400 dataset.module_unknown`. A
+  module-served dataset (`editor`, `chat`) carries **no** `fields` —
+  the module owns the schema — so any field declaration on it is `409
+  dataset.module_owned`.
+
+`GET …/types/:typeId/parts` → `{parts: [{id, key, name?, icon?, pos?,
+hidden?, ui?, uses?, datasets: [<DatasetDef>…]}]}` — the compiled
+view, each dataset carrying its `collection`, `module`, `shared` and
+`partId` (the same `DatasetDef` shape `GET …/datasets` lists flat).
+Parts and datasets fold by key across replicas (two devices declaring
+the same key while apart converge on one definition; a disagreement on
+a pinned leaf marks it `invalid`).
+
+**`PATCH …/parts/:partId`** takes `{set, unset}` over the mutable
+leaves `name`, `icon`, `pos` (strings), `hidden` (boolean), `ui` (an
+object, replaced whole), `uses` (an array of keys); `key` is pinned
+(`400 dataset.immutable`). **`DELETE …/parts/:partId`** removes the
+part and every dataset under it (`204`; `404 sdk.not_found`). Datasets
+are added later with `POST …/parts/:partId/datasets` → `201
+{datasetDefId, collection}` and evolve through the dataset routes.
+Every write on a registered built-in type is `400 type.registered`.
+
+Rendering rule for clients: take the object's primary type (highest
+`weight`), render its `layout` with the parts of **every** carried
+type, ordered by `pos`; a shared collection appears once however many
+types share it. Types remain plain user types — a client that wants
+every peer to agree on "the page type" registers it as a bundle
+(§ Bundles) rather than minting one per device.
+
+#### Runtime dataset schemas
+
+A declarative dataset schema, defined at runtime under a part of a
+**user type**, enforced generically by the SDK apply path on every
+peer as the definition syncs — a schema alone expresses what
+previously took a compiled-in handler: required fields, write-once vs
+author-mutable fields, author-only delete, derived creator/time
+stamps, user-supplied record ids, search extraction. This is the
+`records` module — the default when a dataset names none. Registered
+built-in types (`data_view`, `nav`) refuse (`400 type.registered`) —
+their datasets are statically declared. SDK contract (vocabulary,
+convergence rules, storage model, runtime registration): the SDK's
+`docs/17-user-datasets.md`.
+
+`POST …/types/:typeId/parts/:partId/datasets` → `201 {datasetDefId,
+collection}` (or inline in the part's `datasets` on `POST …/parts`):
+
+```json
+{ "key": "articles", "displayName": "Articles",
   "idRule": "user", "deleteBy": "author",
   "search": { "title": "title", "text": "body" },
   "fields": [
@@ -2140,14 +2300,15 @@ storage model, runtime registration): the SDK's
     { "key": "updatedAt", "stamp": "modifyTime" } ] }
 ```
 
-- `name` — the dataset's collection name; pinned, space-unique (`409
-  dataset.name_conflict` against built-ins, handler datasets and other
-  runtime definitions; `prop` / `schema` are reserved by the search
-  indexer → `400 request.invalid_field`). The preflight fast-fails the
-  local case only — definitions racing in from other members resolve
-  deterministically SDK-side (smallest definition id wins; built-in and
-  compiled-in names always win; the loser stays listed but never
-  registers).
+- `key` — the dataset's slug inside the type; pinned, unique among the
+  type's parts and datasets (`409 dataset.key_conflict`). The records
+  live in the namespaced collection **`<typeId>_<key>`** — the
+  `collection` the reply and every listing carry, and the `dataset`
+  value on reads and writes. Keys are never space-unique: two types
+  can each declare `entries`, and the search indexer's virtual names
+  cannot collide with a namespaced collection. Definitions racing in
+  from other members fold by key SDK-side (smallest definition id
+  wins; a pinned-leaf disagreement marks the fold `invalid`).
 - `idRule` — `auto` (default; record ids derived from the change,
   explicit client ids rejected) or `user` (caller-supplied ids under
   `idPattern` / `idMaxLen`, defaults `[A-Za-z0-9._:-]+` / 128; the id
@@ -2209,9 +2370,9 @@ A malformed declaration (unknown enum labels, `mutableBy: author`
 without a creator stamp, duplicate stamp kinds, …) → `400
 request.invalid_field` or `400 dataset.decl_invalid`.
 
-**Semantics of the pinning model:** behavioral parts — `name` (the
-collection name), `dynamic`, `idRule`/`idPattern`/`idMaxLen`,
-`deleteBy`, `skipHistory`, field
+**Semantics of the pinning model:** behavioral parts — `key` (and with
+it the collection name), `module`, `shared`, `dynamic`,
+`idRule`/`idPattern`/`idMaxLen`, `deleteBy`, `skipHistory`, field
 `key`/`kind`/`shape`/`scope`/`required`/`mutableBy`/`stamp` — are
 pinned for the definition's life; remove and re-add under a new
 definition to change them. Display parts patch:
@@ -2240,29 +2401,31 @@ dataset — is refused). The SDK keys field definitions by (typeId,
 fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
-`{datasets: [{id, name, displayName?, description?, dynamic?, idRule,
-idPattern?, idMaxLen?, deleteBy, skipHistory?, search?, fields: [{id,
-key, name?, kind, scope, required?, mutableBy, stamp?}], invalid?,
-invalidReason?}]}`. `invalid` marks a definition whose folded
-declaration fails validation — it never registers or accepts data but
-stays listed so it can be repaired (add the missing field) or removed.
-Field read-back drops `description` and nested `shape` (leaf kind
-only). Runtime datasets also appear in the space's discovery document
-(§ Dataset schema discovery) with `typeId` and the behavioral `x-*`
-keywords.
+`{datasets: [{id, key, collection, module, shared?, partId,
+displayName?, description?, dynamic?, idRule, idPattern?, idMaxLen?,
+deleteBy, skipHistory?, search?, fields: [{id, key, name?, kind,
+scope, required?, mutableBy, stamp?}], invalid?, invalidReason?}]}`.
+`invalid` marks a definition whose folded declaration fails validation
+— it never registers or accepts data but stays listed so it can be
+repaired (add the missing field) or removed. Field read-back drops
+`description` and nested `shape` (leaf kind only). Runtime datasets
+also appear in the space's discovery document (§ Dataset schema
+discovery) under their collection name with `owners`, `module` and the
+behavioral `x-*` keywords.
 
 `DELETE …/datasets/:defId` tombstones the definition (unknown defId →
 `404 sdk.not_found`, existence-preflighted). Existing record data is
 **not** cleaned up (the property-removal stance); subsequent writes
 drop once peers apply the removal; the search index evicts the
-dataset's docs lazily (docs/13-index.md § Removal semantics).
+collection's docs lazily (docs/13-index.md § Removal semantics).
 
 **Data path:** the existing dataset-parameterized surface works as-is —
 `POST /v1/spaces/:spaceId/modify` / `/delete-records` write,
-`POST …/query[/subscribe]` read (dataset = the definition's `name`;
-records live on objects carrying the owning type — the first write
-needs the type attached, e.g. via object create `types`). `id: user`
-datasets additionally get the batch upsert below.
+`POST …/query[/subscribe]` read (dataset = the definition's
+`collection`; records live on objects carrying the owning type — the
+first write needs the type attached, e.g. via object create `types`;
+`400 dataset.not_declared` otherwise). `id: user` datasets additionally
+get the batch upsert below.
 
 #### Upsert records
 
@@ -2305,31 +2468,26 @@ reuse), `upsert.rejected` (creation screening: missing required field,
 id pattern/length violation, undeclared field on a non-dynamic dataset,
 write to a stamped field — the specific cause in `reason`). Whole-call
 errors: `400 upsert.requires_user_ids` (dataset not declared
-`idRule: user`), `400 dataset.unknown`.
+`idRule: user`), `400 dataset.unknown` (no such records collection in
+the space — a module collection such as `chat_messages` is never
+upsertable), `400 dataset.not_declared` (the object carries no type
+declaring it).
 
-#### Built-in `page` type
+#### Documents and chats are user types
 
-`page` (singular) is the built-in marker for "this object is a
-document". It is a pure declaration — no dataset, no properties: the
-display name lives on `any.name`, labels on the built-in `any.tags`
-(free-form string array — filter with `{"any.tags": "<label>"}`), the
-block body on the `editor` type's `editor_blocks` dataset (attached on
-first block write), tree position on `nav.*`, recency on the derived
-`modifiedAt` / `modifiedBy`. Clients file a document by creating the
-object with `{"types": ["page"]}` and list a space's documents with
-`{"filter": {"any.types": "page"}}` on `…/objects/query[/subscribe]`.
-
-Being registered (not created), `page` exists in every space by
-construction — the replacement for each client minting its own user
-"pages" type, which raced across members and left spaces with several
-parallel "Pages" types. Existing user `pages` types are not migrated or
-touched; new user types claiming the `page` xKey collide with the
-built-in id (`409 type.xkey_conflict`).
-
-`page` declares no properties **by design**: registered types' property
-definitions are frozen (no add/patch/remove — `400 type.registered`),
-so a built-in choice would carry a permanently empty, uneditable option
-set. Per-space columns remain a user-type concern.
+There is no built-in `page`, `editor` or `chat` type. "This object is a
+document" is a user type whose part shares the editor module; "this
+object is a chat" is one whose part shares the chat module (§ Parts
+and modules). What used to be the reason for a built-in — every client
+minting its own type and racing into parallel definitions — is solved
+by registering the type through a bundle (§ Bundles), which converges
+on one type per space: a client's document type is normally the
+well-known `page/v1` bundle, a space's chat the `general-chat/v1`
+bundle with a chat part. Listing a space's documents is a filter on
+the type ids that declare the editor (`owners` of `editor_blocks` in
+§ Dataset schema discovery): `{"filter": {"any.types": {"$in":
+[<owners>]}}}` on `…/objects/query[/subscribe]`. Being user types,
+they carry properties, a `weight` and a `layout` like any other.
 
 #### Built-in `data_view` type
 
@@ -2412,7 +2570,7 @@ the type's datasets stay as orphan data, read-tolerant by design, and
 re-attaching brings them back into view. See `08-clients.md`
 § "Preflight-validate writes against the bound types".
 
-### Chat (built-in `chat` type)
+### Chat (the `chat` module)
 
 | Method | Path                                                                     | Purpose                  |
 |--------|--------------------------------------------------------------------------|--------------------------|
@@ -2424,21 +2582,29 @@ re-attaching brings them back into view. See `08-clients.md`
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/read`             | mark msg + all above read |
 | POST   | `/v1/spaces/:spaceId/objects/:objectId/chat/messages/:msgId/reactions-read`   | mark msg's reactions read |
 
+A chat is an object holding the `chat_messages` collection — served by
+the compiled-in `chat` module, which an object holds while it carries
+a type whose part declares `{"module": "chat", "shared": true}`
+(§ Parts and modules; chat is shared-only, one collection per object).
+The routes below write into it; a write on an object with no such
+type is `400 dataset.not_declared`.
+
 **Finding the chat object.** A space's chats are not server-owned:
 register one through the bundles API (§ Bundles) and use its `rootId`
 as the `<objectId>` below.
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"], "derived": true }
+{ "id": "general-chat/v1", "name": "General", "derived": true,
+  "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
 → 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```
 
 Ensure is adopt-or-install, so every client that runs it lands on the
 same object instead of each minting a chat of its own — the failure
-mode this replaces, most visible in 1-1 direct spaces. `rootTypes:
-["chat"]` attaches the chat type at creation, so the root accepts
-`chat/messages` writes immediately. `id` is yours to choose;
+mode this replaces, most visible in 1-1 direct spaces. The `parts`
+declaration makes the root its own type with a chat part, so it
+accepts `chat/messages` writes immediately. `id` is yours to choose;
 `general-chat/v1` is the convention for "the chat of this space", and a
 space can carry as many purpose-specific chat bundles as you want.
 

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -15,7 +17,8 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
-// Runtime dataset schemas on user types (SDK TypesAPI dataset CRUD).
+// Datasets on user types (SDK TypesAPI dataset CRUD), declared under
+// parts (handlers_typeparts.go).
 // A declaration alone gives a dataset enforced semantics — required
 // fields, write-once vs author-mutable fields, author-only delete,
 // derived creator/time stamps, user-supplied record ids — applied by
@@ -33,14 +36,6 @@ import (
 //	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/types/{typeId}/datasets [get]
-//
-// reservedIndexDatasetName reports whether name collides with the
-// search indexer's virtual chunker doc-id namespaces — reserved on
-// every dataset-declaration path (types route and bundle ensure).
-func reservedIndexDatasetName(name string) bool {
-	return name == index.DatasetProp || name == index.DatasetSchemaVirtual
-}
-
 func (d *deps) typeDatasets(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -64,32 +59,39 @@ func (d *deps) typeDatasets(c echo.Context) error {
 	return c.JSON(http.StatusOK, api.TypeDatasetsListResponse{Datasets: out})
 }
 
-// typeAddDataset handles POST /v1/spaces/:spaceId/types/:typeId/datasets.
+// typeAddDataset handles POST /v1/spaces/:spaceId/types/:typeId/parts/:partId/datasets.
 //
-//	@Summary	Define a dataset on a type
+//	@Summary	Declare a dataset on a part
 //	@Tags		types
 //	@Accept		json
 //	@Produce	json
 //	@Param		spaceId	path		string					true	"Space ID"
 //	@Param		typeId	path		string					true	"Type ID"
+//	@Param		partId	path		string					true	"Part ID"
 //	@Param		body	body		api.DatasetDraftRequest	true	"Dataset draft"
 //	@Success	201		{object}	api.AddDatasetResponse
 //	@Failure	400		{object}	api.ErrorEnvelope
+//	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/types/{typeId}/datasets [post]
+//	@Router		/spaces/{spaceId}/types/{typeId}/parts/{partId}/datasets [post]
 func (d *deps) typeAddDataset(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
 		return errResp
 	}
 	typeId := c.Param("typeId")
-	if typeId == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
+	partId := c.Param("partId")
+	if typeId == "" || partId == "" {
+		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId and partId required", nil)
 	}
 	req, ok := bindBodyStrict[api.DatasetDraftRequest](c, "")
 	if !ok {
 		return nil
+	}
+	if req.Key == "" && !req.Shared {
+		return writeError(c, http.StatusBadRequest, "request.missing_field",
+			"key required (a shared dataset may omit it — it is the module's canonical collection)", nil)
 	}
 	// Existence preflight: the SDK writes to whatever object :typeId
 	// names, so without it a non-type objectId gets a 201 and a
@@ -97,37 +99,37 @@ func (d *deps) typeAddDataset(c echo.Context) error {
 	if errResp, done := requireType(c, sp, typeId); done {
 		return errResp
 	}
-	if req.Name == "" {
-		return writeError(c, http.StatusBadRequest, "request.missing_field", "name required", nil)
-	}
-	// The index store keys documents objectId:<dataset>:<recordId>
-	// under the search indexer's virtual chunker names — a user dataset
-	// claiming one would collide with their doc-id namespaces.
-	if reservedIndexDatasetName(req.Name) {
-		return writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"dataset name is reserved by the search indexer",
-			map[string]any{"name": req.Name})
-	}
-	// Name-conflict preflight against everything this space already
-	// hosts (built-ins, handler datasets, other runtime definitions) —
-	// the SDK rejects these too but without an errors.Is-able sentinel.
-	for _, ds := range sp.Datasets() {
-		if ds.Name == req.Name {
-			return writeError(c, http.StatusConflict, "dataset.name_conflict",
-				"dataset name already in use in this space",
-				map[string]any{"name": req.Name, "typeId": ds.TypeId})
-		}
-	}
-
 	draft, code, reason := datasetDraftFromAPI(*req)
 	if code != "" {
 		return writeError(c, http.StatusBadRequest, code, reason, nil)
 	}
-	defId, err := sp.Types().AddDataset(c.Request().Context(), typeId, draft)
+	defId, err := sp.Types().AddDataset(c.Request().Context(), typeId, partId, draft)
 	if err != nil {
-		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId})
+		details := map[string]any{"typeId": typeId, "partId": partId}
+		if draft.Key != "" {
+			details["key"] = draft.Key
+		}
+		return d.datasetWriteError(c, err, details)
 	}
-	return c.JSON(http.StatusCreated, api.AddDatasetResponse{DatasetDefId: defId})
+	def, err := findDatasetDefById(c.Request().Context(), sp, typeId, defId)
+	if err != nil {
+		return d.datasetWriteError(c, err, map[string]any{"typeId": typeId, "partId": partId})
+	}
+	return c.JSON(http.StatusCreated, api.AddDatasetResponse{DatasetDefId: defId, Collection: def.Collection})
+}
+
+// findDatasetDefById reads one compiled definition back by head id.
+func findDatasetDefById(ctx context.Context, sp space.Space, typeId, defId string) (space.DatasetDef, error) {
+	defs, err := sp.Types().Datasets(ctx, typeId)
+	if err != nil {
+		return space.DatasetDef{}, err
+	}
+	for _, def := range defs {
+		if def.Id == defId {
+			return def, nil
+		}
+	}
+	return space.DatasetDef{}, fmt.Errorf("%w: dataset definition %q on type %q", space.ErrNotFound, defId, typeId)
 }
 
 // typeAddDatasetField handles POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields.
@@ -628,13 +630,24 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 			sanitizeSDKMessage(err), details)
 	case errors.Is(err, space.ErrPinnedField):
 		return writeError(c, http.StatusBadRequest, "dataset.immutable", "a patched path is pinned", details)
+	case errors.Is(err, space.ErrModuleOwned):
+		return writeError(c, http.StatusConflict, "dataset.module_owned",
+			"the module owns this dataset's schema — it declares no fields", details)
 	case errors.Is(err, space.ErrNotFound):
-		return writeError(c, http.StatusNotFound, "sdk.not_found", "type or dataset definition not found", details)
+		return writeError(c, http.StatusNotFound, "sdk.not_found", "type, part or dataset definition not found", details)
 	case errors.Is(err, handler.ErrValidation):
 		return sdkValidationError(c, err, details)
-	case strings.Contains(msg, "already registered"), strings.Contains(msg, "already defined on type"):
-		return writeError(c, http.StatusConflict, "dataset.name_conflict",
-			"dataset name already in use in this space", details)
+	case strings.Contains(msg, "unknown module"):
+		return writeError(c, http.StatusBadRequest, "dataset.module_unknown",
+			sanitizeSDKMessage(err), details)
+	case strings.Contains(msg, "already declares a shared"), strings.Contains(msg, "two shared"),
+		strings.Contains(msg, "admits only shared"), strings.Contains(msg, "has no shared collection"),
+		strings.Contains(msg, "is keyed"):
+		return writeError(c, http.StatusBadRequest, "dataset.shared_conflict",
+			sanitizeSDKMessage(err), details)
+	case strings.Contains(msg, "already declared on type"), strings.Contains(msg, "declared twice"):
+		return writeError(c, http.StatusConflict, "dataset.key_conflict",
+			"a part or dataset with this key already exists on the type", details)
 	case strings.Contains(msg, "not found on type"):
 		return writeError(c, http.StatusNotFound, "sdk.not_found", "dataset definition not found on this type", details)
 	case strings.Contains(msg, "invalid dataset declaration"),
@@ -643,7 +656,9 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 		strings.Contains(msg, "already declares field"),
 		strings.Contains(msg, "would invalidate dataset"),
 		strings.Contains(msg, "Kind required"),
-		strings.Contains(msg, "Kind and Shape.Kind disagree"):
+		strings.Contains(msg, "Kind and Shape.Kind disagree"),
+		strings.Contains(msg, "key must"),
+		strings.Contains(msg, "must match"):
 		return writeError(c, http.StatusBadRequest, "dataset.decl_invalid",
 			sanitizeSDKMessage(err), details)
 	default:
@@ -681,7 +696,9 @@ func sanitizeSDKMessage(err error) string {
 // parsing enum labels. Returns ("", "") code/reason on success.
 func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, string, string) {
 	draft := space.DatasetDraft{
-		Name:        req.Name,
+		Key:         req.Key,
+		Module:      req.Module,
+		Shared:      req.Shared,
 		DisplayName: req.DisplayName,
 		Description: req.Description,
 		Dynamic:     req.Dynamic,
@@ -820,7 +837,11 @@ func datasetShapeFromAPI(s *api.DatasetFieldShape) (*handler.FieldShape, bool) {
 func datasetDefToAPI(def space.DatasetDef) api.DatasetDefResponse {
 	out := api.DatasetDefResponse{
 		Id:            def.Id,
-		Name:          def.Name,
+		Key:           def.Key,
+		Collection:    def.Collection,
+		Module:        def.Module,
+		Shared:        def.Shared,
+		PartId:        def.PartId,
 		DisplayName:   def.DisplayName,
 		Description:   def.Description,
 		Dynamic:       def.Dynamic,

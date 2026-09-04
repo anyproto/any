@@ -36,7 +36,7 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 		`{"name":"bundles"}`, http.StatusCreated, &sp)
 
 	const bundleId = "general-chat/v1"
-	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"]}`
+	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("chat") + `}`
 
 	var installed api.BundleEnsureResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/bundles",

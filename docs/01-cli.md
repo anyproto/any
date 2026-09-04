@@ -275,17 +275,22 @@ any aggregate $SPID $OBJID --dataset chat_messages \
 ### Editor
 
 ```
-any editor blocks create <spaceId> <objectId> --type T [--text "..."] [--style JSON] [--parent ID] [--pos LEXID]
-any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]...
-any editor blocks delete <spaceId> <objectId> <blockId>
-any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all]
-any editor edit          <spaceId> <objectId> --edits JSON|@FILE|-
+any editor blocks create <spaceId> <objectId> --type T [--text "..."] [--style JSON] [--parent ID] [--pos LEXID] [--collection NAME]
+any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]... [--collection NAME]
+any editor blocks delete <spaceId> <objectId> <blockId> [--collection NAME]
+any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all] [--collection NAME]
+any editor edit          <spaceId> <objectId> --edits JSON|@FILE|- [--collection NAME]
 ```
 
 `editor blocks` maps 1:1 onto the atomic block write endpoints
-(reads go through `any query … --dataset editor_blocks`).
+(reads go through `any query … --dataset <collection>`). Every editor
+command takes `--collection` (default `editor_blocks`, the canonical
+collection a shared editor part declares); pass a namespaced
+`<typeId>_<key>` to address a part's own editor. The object must carry
+a type whose part declares the collection (`dataset.not_declared`
+otherwise — see `03-api.md` § Parts and modules).
 
-`editor edit` is `PATCH …/editor/markdown` — targeted oldText →
+`editor edit` is `PATCH …/editor/:collection/markdown` — targeted oldText →
 newText replacements against the rendered markdown. Each `oldText`
 must match the current rendering exactly (whole-line fuzzy fallback
 tolerates unicode punctuation and trailing whitespace) and, unless
@@ -402,6 +407,9 @@ mongo: `09-query.md` § Projection.
 
 ```
 any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-cid ...]
+                [--weight N] [--layout '<json>']
+any type update <spaceId> <typeId> [--name ...] [--description ...] [--icon ...]
+                [--weight N] [--layout '<json>'|'']
 any type list   <spaceId>
 
 any type property list   <spaceId> <typeId>
@@ -415,9 +423,16 @@ any type property remove <spaceId> <typeId> <propId>
 any type property option set    <spaceId> <typeId> <propId> <key> [--name ...] [--color ...] [--pos ...]
 any type property option delete <spaceId> <typeId> <propId> <key>
 
-# runtime dataset schemas (03-api.md § Runtime dataset schemas):
+# parts — display units owning datasets served by a module
+# (03-api.md § Parts and modules):
+any type part list   <spaceId> <typeId>
+any type part add    <spaceId> <typeId> --draft '<json>|@FILE|-'
+any type part patch  <spaceId> <typeId> <partId> --set '<json>' [--unset <path> ...]
+any type part remove <spaceId> <typeId> <partId>
+
+# runtime dataset schemas under a part (03-api.md § Runtime dataset schemas):
 any type dataset list   <spaceId> <typeId>
-any type dataset add    <spaceId> <typeId> --draft '<json>|@FILE|-'
+any type dataset add    <spaceId> <typeId> <partId> --draft '<json>|@FILE|-'
 any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
 any type dataset remove <spaceId> <typeId> <defId>
 any type dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
@@ -425,10 +440,20 @@ any type dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>
 any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
 
 # batch ingest into an id:user dataset (the record id is the
-# idempotency key — identical re-runs are no-ops):
+# idempotency key — identical re-runs are no-ops; NAME is the
+# collection, <typeId>_<key> for a records dataset):
 any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
            [--page-size N] [--trace-id ...]
 ```
+
+`type update` patches the display and rendering slice; cobra's
+`Changed` distinguishes an absent flag (keep) from an empty one
+(clear), and `--layout ''` clears the layout. A part draft is the
+`PartDraftRequest` shape — `{"key": "body", "datasets": [{"module":
+"editor", "shared": true}]}` declares a shared editor body; `{"key":
+"transcript", "ui": {"type": "table"}, "datasets": [{"key":
+"segments", "idRule": "user", "fields": […]}]}` a records dataset in
+the namespaced collection `<typeId>_segments`.
 
 `--kind` is pinned; everything descriptive — slug, icon, order, options,
 relation targets, per-format config — is the `--x-format` descriptor

@@ -28,13 +28,13 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/types
 any type list $SPACE
 ```
 
-Each row is `{id, name, description?, iconCid?, xKey, builtIn}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type, one `xkey` property) — then every registered built-in (`chat`, `editor`, `page`, `nav`), then user types. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
+Each row is `{id, name, description?, iconCid?, xKey, builtIn}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type, one `xkey` property) — then every registered built-in (`data_view`, `nav`), then user types. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404 type.not_found` for an unknown id. A `200 []` from the properties list always means "exists, no properties yet".
 
-### The built-in `page` type
+### Parts, weight and layout
 
-`page` is a pure marker for "this object is a document": no dataset, no properties. Name lives on `any.name`, labels on `any.tags`, body on the `editor` type's `editor_blocks` dataset, tree position on `nav.*`. File a document with `{"types": ["page"]}` and list documents with `{"filter": {"any.types": "page"}}`. Registered types' property definitions are frozen (`400 type.registered`), which is why `page` declares none — per-space columns are a user-type concern. See [Page](../types/page.html).
+A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning datasets a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **weight** decides which of an object's types is primary (the highest wins) and its **layout** is the descriptor a client renders for that primary type; both are set at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, weight?, layout?}`). There is no built-in `page` type: a document type is a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html).
 
 ## Add a property
 

@@ -86,11 +86,16 @@ object.deleted                   # 410 — GET …/objects/:objectId on a delete
 object.id_required               # 400 — the object id in the path or body is a serialized nil ("None", "null", "undefined", …): the caller's id variable was unset; never a store lookup failure
 object.type_required
 
-dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a dataset the object does not carry: not declared in the space, or declared but not on this object's type (details.dataset); declare it on the type or check the name. A read of an unknown dataset answers 200 {"records": []}
+dataset.unknown                  # 400 — a record write (modify / delete-records / upsert) names a collection the space does not serve as a records dataset (details.dataset): no part declares it, or it is a module collection (chat_messages, editor_blocks — written through the module's routes, never upsertable). A read of an unknown dataset answers 200 {"records": []}
+dataset.not_declared             # 400 — a write into a collection none of the object's types declare (details.dataset, details.objectId): the space serves it, but this object carries no type whose part declares it — attach the type first; no write attaches one
+dataset.not_found                # 404 — the :collection of an editor route is not an editor dataset in this space (details.collection): neither editor_blocks nor a namespaced <typeId>_<key> instance a part declares with module "editor"
 dataset.validation               # schema or handler rejected ops
-dataset.name_conflict            # 409 — AddDataset name already in use in the space (built-in, handler dataset, or another runtime definition; details.name)
-dataset.decl_invalid             # 400 — malformed dataset declaration (author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
-dataset.immutable                # 400 — PATCH a pinned dataset-def path (head: description, displayName, search.title/text/scope are mutable; field: name, description, xFormat.*); details.path
+dataset.key_conflict             # 409 — a part or dataset with this key already exists on the type (details.key); a second shared dataset of one module collides on the canonical key
+dataset.shared_conflict          # 400 — shared on a module with no canonical collection (records), a shared key that is not the canonical name, or a namespaced dataset on a shared-only module (chat)
+dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
+dataset.module_owned             # 409 — a field declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields
+dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
+dataset.immutable                # 400 — PATCH a pinned part or dataset-def path (part: name, icon, pos, hidden, ui, uses are mutable; head: description, displayName, search.title/text/scope; field: name, description, xFormat.*); details.path
 
 upsert.requires_user_ids         # 400 — upsert on a dataset not declared idRule "user"
 # per-record rejection codes inside the 200 body's rejections[] (never HTTP errors):
@@ -102,7 +107,7 @@ filter.invalid                   # 400 — any other filter-grammar violation (w
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
-type.registered                  # 400 — add/patch/remove a property or dataset on a registered built-in type (declarations are static)
+type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type (declarations are static)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind
 property.xkey_conflict           # 409 — add/rename a property to an xKey another property of the type holds (details.xKey, details.existingPropId); a preflight, not a guarantee
@@ -123,7 +128,7 @@ history.version_not_found        # 404 — unknown version (ChangeId), or not in
 history.view_too_large           # 413 — materializing that version blew the SDK's view bound; narrow with dataset/recordId
 history.truncated                # 404 — the causal past needed is not on this device (reserved; the SDK keeps full history today)
 
-markdown.no_match                # 400 — an edits[i].oldText not found in the current rendering (details.editIndex); GET .../editor/markdown and quote exactly
+markdown.no_match                # 400 — an edits[i].oldText not found in the current rendering (details.editIndex); GET .../editor/:collection/markdown and quote exactly
 markdown.ambiguous_match         # 400 — oldText occurs >1 times without replaceAll (details.editIndex, details.occurrences); add context or set replaceAll
 markdown.overlapping_edits       # 400 — two edits matched intersecting text (details.editIndices); merge them into one edit
 

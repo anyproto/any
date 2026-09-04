@@ -20,7 +20,7 @@ Both are POST because a filter does not fit a query string. Both have a `/subscr
 # every page in the space, newest edits first
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}'
+  -d '{"filter": {"any.types": "<pageTypeId>"}, "sort": ["-modifiedAt"], "limit": 20}'
 
 # the blocks of one document, in order
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
@@ -83,7 +83,7 @@ When a field is an array, the filter compares against its elements:
 - **`$in`** means *intersects*: `{"<t>.tags": {"$in": ["a", "b"]}}`;
 - **`$all`** means *superset*: `{"<t>.tags": {"$all": ["a", "b"]}}`.
 
-There is deliberately no `$contains` — the scalar spelling already is it. `{"any.types": "page"}` is how you filter objects by type.
+There is deliberately no `$contains` — the scalar spelling already is it. `{"any.types": "<typeId>"}` is how you filter objects by type.
 
 ### Dates
 
@@ -138,7 +138,7 @@ A type's `xKey` is a client-side label, never a server path.
 
 ```bash
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 50
-any query-subscribe $SPACE --properties --filter '{"any.types": "page"}' --sort -modifiedAt --limit 20
+any query-subscribe $SPACE --properties --filter '{"any.types": "'$PAGE'"}' --sort -modifiedAt --limit 20
 ```
 
 ## Related

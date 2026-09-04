@@ -352,6 +352,14 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "object.not_found",
 			"object not found in this space (unknown or deleted)", details)
 	}
+	// A write to a collection none of the object's types declare: no
+	// type attaches on write, the caller attaches a declaring type first.
+	if errors.Is(err, space.ErrDatasetNotDeclared) {
+		return writeError(c, http.StatusBadRequest, "dataset.not_declared",
+			"the object carries no type whose parts declare this collection — attach a declaring type "+
+				"(POST /v1/spaces/{spaceId}/properties/{objectId}/attach/{typeId}) or declare the dataset on one of its types",
+			details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
@@ -442,8 +450,8 @@ func unknownDatasetError(c echo.Context, err error, details map[string]any) (err
 	}
 	name, _ := details["dataset"].(string)
 	return writeError(c, http.StatusBadRequest, "dataset.unknown",
-		fmt.Sprintf("dataset %q is not declared on this object; declare it on the object's type "+
-			"(POST /v1/spaces/{spaceId}/types/{typeId}/datasets) or check the name "+
+		fmt.Sprintf("dataset %q is not a records dataset this space declares; declare it under a part of "+
+			"the object's type (POST /v1/spaces/{spaceId}/types/{typeId}/parts) or check the name "+
 			"(GET /v1/spaces/{spaceId}/datasets lists what the space has)", name),
 		details), true
 }

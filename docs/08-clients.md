@@ -6,30 +6,32 @@ on top of the contract in `03-api.md` (endpoints + bodies) and
 `04-events.md` (SSE lifecycle). Read those for the wire shapes; read this
 for *how to use them*.
 
-## 1. Writes go through the type's handler methods
+## 1. Writes go through the module's handler methods
 
-Built-in datasets are written **only** through their bespoke handler
+Module collections are written **only** through their bespoke handler
 endpoints — never through a generic write path:
 
 - chat: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/chat/messages[/:msgId]`
   and `…/:msgId/reactions/:emoji`
-- editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/blocks[/:id]`
+- editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/:collection/blocks[/:id]`
+  — `:collection` is `editor_blocks` for the shared body, or the
+  namespaced `<typeId>_<key>` of a part with its own editor
 
 The handler is what stamps server-owned fields (`creator` / `createdAt` /
 `modifiedAt`), enforces author-only edit/delete, and keys reactions per
 identity. Bypassing it would skip all of that. The write-shaped
-exceptions are the `…/editor/markdown` routes, which are render/import
-*transforms* over `editor_blocks`, not dataset writes. Pick by change
-shape:
+exceptions are the `…/editor/:collection/markdown` routes, which are
+render/import *transforms* over the editor collection, not dataset
+writes. Pick by change shape:
 
 - **Targeted change** ("tick this box", "fix this line") →
-  `PATCH …/editor/markdown` with `{edits: [{oldText, newText}]}`.
+  `PATCH …/editor/:collection/markdown` with `{edits: [{oldText, newText}]}`.
   Never do `GET → string-replace → PUT`: the PATCH matches
   server-side against the current state, so it can't clobber
   concurrent edits and a stale quote fails loudly
   (`markdown.no_match` → re-`GET` and quote the exact text).
-- **Full rewrite / import** → `PUT …/editor/markdown`.
-- **Tail growth** (logs, transcripts) → `POST …/editor/markdown/append`.
+- **Full rewrite / import** → `PUT …/editor/:collection/markdown`.
+- **Tail growth** (logs, transcripts) → `POST …/editor/:collection/markdown/append`.
 
 An editor that renders empty paragraphs must emit and parse blank
 runs the way the markdown routes encode them — one blank line
@@ -52,23 +54,26 @@ it against remote changes). Read the resulting record back through
 ## 2. Preflight-validate writes against the bound types
 
 An object carries an `any.types` array — the type IDs bound to it. Bind at
-create time:
+create time, or later through `POST …/properties/:objectId/attach/:typeId`:
 
 ```
 POST /v1/spaces/:spaceId/objects
-{ "types": ["chat"], ... }
+{ "types": ["<pageTypeId>"], ... }
 ```
 
-(Dedicated runtime attach/detach SDK methods are planned but not landed yet —
-bind at create for now.)
-
-- **Don't call a dataset write endpoint unless the target object has the
-  matching type bound.** A write to `chat_messages` / `editor_blocks` on an
-  object missing `"chat"` / `"editor"` in its `any.types` is rejected by the
-  SDK handler with `dataset.validation` (400). Check the object's `any.types`
-  (read its row from the per-space `objects` collection) before writing, or
-  create the object with the type bound up front. Don't fire the write and
-  hope.
+- **Don't call a dataset write endpoint unless the target object carries
+  a type that declares the collection.** A collection — `chat_messages`,
+  `editor_blocks`, a namespaced `<typeId>_<key>` — lives on an object
+  only while one of its `any.types` has a part declaring it
+  (`03-api.md` § Parts and modules); a write without one is `400
+  dataset.not_declared`, and no write attaches a type for you. Resolve
+  the declaring types once per space from `GET /v1/spaces/:id/datasets`
+  (the collection's `owners`), check the object's `any.types` (read its
+  row from the per-space `objects` collection) before writing, or create
+  the object with the type bound up front. Don't fire the write and hope.
+  Your document type is a user type — register it as a bundle so every
+  client and device converges on one (`page/v1` by convention) instead
+  of minting a type per client.
 
 - **Preflight-validate property values against the bound type's property
   definitions.** v1 does **not** enforce property schema server-side —
@@ -89,8 +94,10 @@ bind at create for now.)
 
 One read path per dataset: a snapshot via `POST /v1/spaces/:id/query`, or a
 live stream via `POST /v1/spaces/:id/query/subscribe`. For per-object
-built-ins pass `objectId` + `dataset` (`chat_messages`, `editor_blocks`, …);
-the cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
+collections pass `objectId` + `dataset` — the collection name
+(`chat_messages`, `editor_blocks`, a namespaced `<typeId>_<key>`; read
+them off `GET /v1/spaces/:id/datasets` or the type's `…/parts`); the
+cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
 Body shape (filter / sort / limit / offset / includeTotal / mailboxCapacity /
 driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 `04-events.md`.
@@ -159,7 +166,8 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 **Where `<chatObjectId>` comes from:** register the space's chat as a
 bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
 with
-`{"id":"general-chat/v1","name":"General","rootTypes":["chat"],"derived":true}`.
+`{"id":"general-chat/v1","name":"General","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`
+— the part is what makes the root hold the chat collection.
 The call is adopt-or-install, so every client lands on one object
 instead of each creating its own, and `derived` makes that object's id
 a function of the bundle id — computed offline, identical on every
@@ -616,7 +624,7 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    by taking `rootId` off the row; subscribe to the raw `bundles`
    dataset for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
-   "datasets": [...]}` — a CREATED root minted by the server, deletable
+   "parts": [...]}` — a CREATED root minted by the server, deletable
    (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
    call installs, later calls adopt. Do NOT reach for `"derived": true`
    because a converged id sounds convenient — bundles exist precisely so
@@ -629,10 +637,11 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    loser's records into the winner through your own schema, then
    `POST …/bundles/:id/resolve` with the loser root id.
 
-Dataset names are unique per space: part of the bundle's versioned
-vocabulary, chosen once — `favorites/v1` owns `entries` the way it owns
-its id (guide: `25-favorites.md`), and a future bundle picks names that
-don't collide. Tree edge cases — an entry whose folder is removed, a
+A bundle's records datasets are namespaced to its root: `favorites/v1`
+declares an `entries` part and reads and writes the collection
+`<rootId>_entries` (read the name off the parts list — guide:
+`25-favorites.md`), so two bundles never collide on a key. Tree edge
+cases — an entry whose folder is removed, a
 move that forms a cycle across devices — are read-side product rules:
 compute the same view from the same records everywhere, never repair
 with writes.

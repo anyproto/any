@@ -80,7 +80,7 @@ func TestServer_History(t *testing.T) {
 
 	create := func(text string) (blockId, changeId string) {
 		t.Helper()
-		rec := doJSON(t, e, http.MethodPost, base+"/editor/blocks",
+		rec := doJSON(t, e, http.MethodPost, base+"/editor/editor_blocks/blocks",
 			fmt.Sprintf(`{"type":"paragraph","text":%q}`, text))
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create %q: %d %s", text, rec.Code, rec.Body.String())
@@ -96,14 +96,14 @@ func TestServer_History(t *testing.T) {
 	blk2, v2 := create("second")
 
 	// Patch blk1.
-	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+blk1, `{"set":{"text":"first (edited)"}}`)
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+blk1, `{"set":{"text":"first (edited)"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 	}
 	v3 := decodeModifyResult(t, rec.Body.Bytes()).ChangeId
 
 	// Delete blk2.
-	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+blk2, "")
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+blk2, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}

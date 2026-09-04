@@ -10,31 +10,26 @@ import (
 	"github.com/anyproto/any/internal/index"
 )
 
-// Chunker streams chat_messages records as index entries under scope
-// "chat". One entry per message; Data is the message `text` only —
-// creator, reactions, and attachments are deliberately excluded in
-// phase 1. Deleted messages (and empty-text messages) yield Data "".
-type Chunker struct{}
+// NewChunker constructs the chat module chunker: chat_messages records
+// as index entries under scope "chat", one entry per message, on every
+// chat collection the space declares (the canonical one, chat being
+// shared-only). Data is the message `text` only — creator, reactions,
+// and attachments are deliberately excluded. Deleted messages (and
+// empty-text messages) yield Data "".
+func NewChunker() *index.ModuleChunker {
+	return index.NewModuleChunker(Module, index.ModuleStream(streamMessages))
+}
 
-// NewChunker constructs the chat messages chunker.
-func NewChunker() *Chunker { return &Chunker{} }
-
-func (Chunker) Dataset() string { return Dataset }
-
-// TypeId gates the chunker on chat-type membership: the indexer evicts
-// objectId:chat_messages: when the type is detached.
-func (Chunker) TypeId() string { return TypeId }
-
-// ChunksSince streams the object's messages past the cursor, ascending
-// by ApplySeq. Deleted rows yield a tombstone (Data ""); live rows yield
-// their text.
-func (Chunker) ChunksSince(ctx context.Context, sp space.Space, objectId string, since uint64, yield func(index.IndexEntry) error) error {
-	q := sp.Query(objectId, Dataset)
+// streamMessages streams one chat collection's messages past the
+// cursor, ascending by ApplySeq. Deleted rows yield a tombstone (Data
+// ""); live rows yield their text.
+func streamMessages(ctx context.Context, sp space.Space, objectId, collection string, since uint64, yield func(index.IndexEntry) error) error {
+	q := sp.Query(objectId, collection)
 	return index.RecordsSince(ctx, q, since, func(rec *anyenc.Value, seq uint64) error {
 		entry := index.IndexEntry{
 			Scope:    index.ScopeChat,
 			ObjectId: objectId,
-			Dataset:  Dataset,
+			Dataset:  collection,
 			RecordId: string(rec.GetStringBytes("id")),
 			ApplySeq: seq,
 		}

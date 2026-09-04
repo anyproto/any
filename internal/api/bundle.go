@@ -60,14 +60,14 @@ type BundleEnsureRequest struct {
 	// on a created root is adopted rather than migrated. Ask for it
 	// for a space's chat; not for anything a user may remove.
 	Derived bool `json:"derived,omitempty"`
-	// Datasets declares runtime datasets on the derived root (same
-	// shape as POST …/types/:typeId/datasets); the root becomes a type
-	// implementing itself, typeId = rootId, and the datasets are
-	// written through POST …/upsert / …/modify on the root. Declared
-	// once on install; later evolution goes through the
-	// …/types/:rootId/datasets routes. Derived installs only; required
-	// on the tech space.
-	Datasets []DatasetDraftRequest `json:"datasets,omitempty"`
+	// Parts declares the root's parts with their datasets (same shape
+	// as POST …/types/:typeId/parts); the root becomes a type
+	// implementing itself, typeId = rootId, and the records are written
+	// through POST …/upsert / …/modify on the root (dataset = the
+	// computed collection, `<rootId>_<key>` for a namespaced one).
+	// Declared once on install; later evolution goes through the
+	// …/types/:rootId/parts routes. Required on the tech space.
+	Parts []PartDraftRequest `json:"parts,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.

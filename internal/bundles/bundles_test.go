@@ -28,7 +28,7 @@ type fakeSpace struct {
 	indexErr error
 	// waited records the deadline the gate gave WaitIndexSynced.
 	waited time.Duration
-	// types serves the root's dataset declarations for the adopt-side
+	// types serves the root's part declarations for the adopt-side
 	// settled check; nil = every root reads as declaration-less.
 	types *fakeTypes
 }
@@ -36,11 +36,11 @@ type fakeSpace struct {
 // fakeTypes stubs the one TypesAPI read Ensure performs.
 type fakeTypes struct {
 	space.TypesAPI
-	defs map[string][]space.DatasetDef
+	defs map[string][]space.PartDef
 	err  error
 }
 
-func (f *fakeTypes) Datasets(_ context.Context, typeId string) ([]space.DatasetDef, error) {
+func (f *fakeTypes) Parts(_ context.Context, typeId string) ([]space.PartDef, error) {
 	if f == nil {
 		return nil, nil
 	}
@@ -656,21 +656,21 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	}
 }
 
-// TestEnsureDatasetsAdoptStaysRead pins the reader-side contract for
-// datasets-carrying re-ensures: once the installed root carries its
+// TestEnsurePartsAdoptStaysRead pins the reader-side contract for
+// parts-carrying re-ensures: once the installed root carries its
 // declaration (first-write-pinned), adoption is a pure read and must
 // not reach the SDK's Ensure — its write gate would reject readers and
 // guests re-running the documented idempotent request. A root without
 // a declaration still falls through so the SDK can declare.
-func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
+func TestEnsurePartsAdoptStaysRead(t *testing.T) {
 	ctx := context.Background()
 	inst := Install{Id: "notes/v1", Derived: true,
-		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}}}
 
 	sp := newInstallFake(space.PermissionReader, nil)
 	sp.bundles.getErr = nil
 	sp.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
-	sp.types = &fakeTypes{defs: map[string][]space.DatasetDef{"root-1": {{Name: "entries"}}}}
+	sp.types = &fakeTypes{defs: map[string][]space.PartDef{"root-1": {{Key: "entries"}}}}
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
 	if err != nil || installed || b.RootId != "root-1" {
 		t.Fatalf("reader adopt: b=%+v installed=%v err=%v", b, installed, err)
@@ -690,16 +690,16 @@ func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
 	}
 }
 
-// TestEnsureCreatedWithDatasets pins the SDK-minted created-root path:
-// a datasets-carrying non-derived install passes no NewRoot (Ensure
+// TestEnsureCreatedWithParts pins the SDK-minted created-root path:
+// a parts-carrying non-derived install passes no NewRoot (Ensure
 // mints and self-types the root — the only create the tech space
 // allows) and reports installed from the SDK's registered bool.
-func TestEnsureCreatedWithDatasets(t *testing.T) {
+func TestEnsureCreatedWithParts(t *testing.T) {
 	sp := newInstallFake(space.PermissionOwner, nil)
 	ctx := context.Background()
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
 		Id: "favorites/v1", Name: "Favorites",
-		Datasets: []space.DatasetDraft{{Name: "entries"}},
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}},
 	})
 	if err != nil || !installed || b.RootId != "minted-root" {
 		t.Fatalf("created+datasets install: b=%+v installed=%v err=%v", b, installed, err)
@@ -708,7 +708,7 @@ func TestEnsureCreatedWithDatasets(t *testing.T) {
 		t.Fatalf("ensure calls = %d", len(sp.bundles.ensured))
 	}
 	req := sp.bundles.ensured[0]
-	if req.DerivedRoot || req.NewRoot != nil || len(req.Datasets) != 1 {
+	if req.DerivedRoot || req.NewRoot != nil || len(req.Parts) != 1 {
 		t.Fatalf("request shape: %+v", req)
 	}
 	if sp.objects.created != 0 {
@@ -716,14 +716,14 @@ func TestEnsureCreatedWithDatasets(t *testing.T) {
 	}
 }
 
-// TestEnsureDatasetsAdoptRoles pins the settled verdicts around the
+// TestEnsurePartsAdoptRoles pins the settled verdicts around the
 // heal fallthrough: a defs-read error or a read-only role always
 // adopts (never the SDK write gate); only a writer with a
 // declaration-less root falls through so the SDK heals.
-func TestEnsureDatasetsAdoptRoles(t *testing.T) {
+func TestEnsurePartsAdoptRoles(t *testing.T) {
 	ctx := context.Background()
 	inst := Install{Id: "notes/v1", Derived: true,
-		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}}}
 	row := space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
 
 	// Reader + defs-read error: adopt.

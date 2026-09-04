@@ -32,13 +32,18 @@ Keep the id:
 SPACE=bafyreig…
 ```
 
-## 2. Create an object
+## 2. Create a page type, then an object
 
-Bind the built-in `page` type and set a name. Properties always ride `initialProperties` keyed by type; the universal `any` type owns `name` / `description`.
+A document is an object carrying a type whose part declares the `editor` module — there is no built-in page type. Create one (a client normally registers it as a [bundle](../collaboration/bundles.html) so every device agrees on it), then bind it and set a name. Properties always ride `initialProperties` keyed by type; the universal `any` type owns `name` / `description`.
 
 ```bash
+PAGE=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/json' \
+  -d '{"name":"Page","xKey":"page","weight":10,"layout":{"type":"page"}}' | jq -r .typeId)
+curl -s -X POST $API/spaces/$SPACE/types/$PAGE/parts -H 'content-type: application/json' \
+  -d '{"key":"body","datasets":[{"module":"editor","shared":true}]}'
+
 curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}'
+  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Reading list"}}}'
 ```
 
 ```json
@@ -53,13 +58,13 @@ Reads are POSTs with a Mongo-style body. The cross-object query reads the space'
 
 ```bash
 curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20,"includeTotal":true}'
+  -d '{"filter":{"any.types":"'$PAGE'"},"sort":["-modifiedAt"],"limit":20,"includeTotal":true}'
 ```
 
 ```json
 { "records": [
     { "id": "bafyreib…",
-      "any": { "types": ["page","nav"], "name": "Reading list" },
+      "any": { "types": ["<PAGE>","nav"], "name": "Reading list" },
       "nav": { "type": 1, "parentId": "", "pos": "PPQY" },
       "author": "A8tR…", "spaceId": "bafyreig…",
       "createdAt": { "$date": "2026-08-24T10:01:00.000Z" },
@@ -69,7 +74,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
   "total": 1, "hasNext": false }
 ```
 
-A scalar against an array field is the "contains" spelling (`{"any.types":"page"}`). Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
+A scalar against an array field is the "contains" spelling (`{"any.types":"<typeId>"}`). Timestamps are `{"$date": …}` instants and must be written the same way in filters ([Reading data](../database/reading-data.html)).
 
 ## 4. Subscribe
 
@@ -77,7 +82,7 @@ Same body, sibling path, `-N` to keep the stream open. The response is `text/eve
 
 ```bash
 curl -s -N -X POST $API/spaces/$SPACE/objects/query/subscribe -H 'content-type: application/json' \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.types":"'$PAGE'"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 ```

@@ -153,7 +153,19 @@ const docTemplate = `{
             },
             "api.AddDatasetResponse": {
                 "properties": {
+                    "collection": {
+                        "description": "Collection is the computed collection name the new dataset's\nrecords live in.",
+                        "type": "string"
+                    },
                     "datasetDefId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AddPartResponse": {
+                "properties": {
+                    "partId": {
                         "type": "string"
                     }
                 },
@@ -465,14 +477,6 @@ const docTemplate = `{
             },
             "api.BundleEnsureRequest": {
                 "properties": {
-                    "datasets": {
-                        "description": "Datasets declares runtime datasets on the derived root (same\nshape as POST …/types/:typeId/datasets); the root becomes a type\nimplementing itself, typeId = rootId, and the datasets are\nwritten through POST …/upsert / …/modify on the root. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/datasets routes. Derived installs only; required\non the tech space.",
-                        "items": {
-                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
                     "derived": {
                         "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
                         "type": "boolean"
@@ -484,6 +488,14 @@ const docTemplate = `{
                     "name": {
                         "description": "Name is the display name, written on install.",
                         "type": "string"
+                    },
+                    "parts": {
+                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Required on the tech space.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.PartDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "rootProperties": {
                         "additionalProperties": {
@@ -643,6 +655,9 @@ const docTemplate = `{
             },
             "api.DatasetDefResponse": {
                 "properties": {
+                    "collection": {
+                        "type": "string"
+                    },
                     "deleteBy": {
                         "type": "string"
                     },
@@ -675,17 +690,28 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "invalid": {
-                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why). Invalid definitions never\nregister or accept data but stay listed so they can be repaired\n(add the missing field) or removed.",
+                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why) — a records fold missing a\ncreator stamp behind an author rule, an unknown module, a shared\nrule violation. Invalid definitions never register or accept data\nbut stay listed so they can be repaired or removed.",
                         "type": "boolean"
                     },
                     "invalidReason": {
                         "type": "string"
                     },
-                    "name": {
+                    "key": {
+                        "description": "Key is the slug inside the type; collection is the name reads and\nwrites address (` + "`" + `dataset` + "`" + ` on /query, /modify, /upsert …) — the\nmodule's canonical collection when shared, ` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `\notherwise. Server-computed, never client-set.",
+                        "type": "string"
+                    },
+                    "module": {
+                        "type": "string"
+                    },
+                    "partId": {
+                        "description": "PartId is the owning part's id.",
                         "type": "string"
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "type": "boolean"
@@ -710,7 +736,7 @@ const docTemplate = `{
                         "type": "boolean"
                     },
                     "fields": {
-                        "description": "Fields are the initial field definitions. Declare required\nfields here — fields added later cannot be required.",
+                        "description": "Fields are the initial field definitions (records datasets only —\na module owns its schema). Declare required fields here — fields\nadded later cannot be required.",
                         "items": {
                             "$ref": "#/components/schemas/api.DatasetFieldDraft"
                         },
@@ -727,12 +753,20 @@ const docTemplate = `{
                         "description": "IdRule: \"auto\" (default — ids derived from the change) or \"user\"\n(caller-supplied ids, constrained by idPattern/idMaxLen; the id\ndoubles as the upsert idempotency key).",
                         "type": "string"
                     },
-                    "name": {
-                        "description": "Name is the dataset's collection name — pinned. No \"_\" prefix,\ndots, slashes or colons; built-in names are reserved.",
+                    "key": {
+                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned. A namespaced dataset lives in the collection\n` + "`" + `\u003ctypeId\u003e_\u003ckey\u003e` + "`" + `; a shared dataset's key is its module's canonical\ncollection name and may be omitted.",
+                        "type": "string"
+                    },
+                    "module": {
+                        "description": "Module is the serving module: \"records\" (the default), \"editor\"\nor \"chat\".",
                         "type": "string"
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "description": "Shared makes the type participate in the module's canonical\ncollection (editor_blocks, chat_messages) instead of a namespaced\none, so two types sharing the editor give an object carrying both\na single body. Editor: either; chat: shared only; records: never.",
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "description": "SkipHistory keeps the dataset out of the version-history index.",
@@ -893,8 +927,20 @@ const docTemplate = `{
             },
             "api.DatasetSchema": {
                 "properties": {
+                    "module": {
+                        "description": "Module is the serving module (\"records\", \"editor\", \"chat\"; empty\nfor built-ins and registered-type datasets); Shared marks a\nmodule's canonical collection.",
+                        "type": "string"
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "owners": {
+                        "description": "Owners are the types that declare the dataset: one for a\nregistered-type or namespaced dataset, every type sharing the\nmodule for a canonical collection (empty while nothing declares\nit), none for space-level built-ins. Records exist only on objects\ncarrying one of them; consumers gate indexing/eviction on it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "schema": {
                         "items": {
@@ -903,9 +949,8 @@ const docTemplate = `{
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "typeId": {
-                        "description": "TypeId is the owning type for ext-type and runtime-defined\ndatasets (\"\" for space-level built-ins). Records exist only on\nobjects carrying this type; consumers gate indexing/eviction on it.",
-                        "type": "string"
+                    "shared": {
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -2291,6 +2336,117 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.PartDefResponse": {
+                "properties": {
+                    "datasets": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDefResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pos": {
+                        "type": "string"
+                    },
+                    "ui": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "uses": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.PartDraftRequest": {
+                "properties": {
+                    "datasets": {
+                        "description": "Datasets are the part's initial dataset declarations.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "description": "Key is the part's slug ([a-z][a-z0-9_]*, ≤ 64), unique within the\ntype — pinned.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name / Icon / Pos are the display slice; clients sort parts by\npos. Hidden parts are not shown by default but stay revealable.",
+                        "type": "string"
+                    },
+                    "pos": {
+                        "type": "string"
+                    },
+                    "ui": {
+                        "description": "UI is the widget descriptor — {type, config} in the xFormat shape\n(v1 slugs: document, chat, table, list, board, gallery, chart,\nproperties; open set, an unknown slug renders the module default).\nWritten whole.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "uses": {
+                        "description": "Uses names other datasets OF THIS TYPE the part renders without\nowning them (dataset keys).",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.PartPatchRequest": {
+                "properties": {
+                    "set": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "unset": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.PeerSyncStats": {
                 "properties": {
                     "changed": {
@@ -3237,12 +3393,59 @@ const docTemplate = `{
                     "id": {
                         "type": "string"
                     },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "weight": {
+                        "description": "Weight / Layout — see TypesCreateRequest. Zero / absent on\nbuilt-ins.",
+                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"chat\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.TypePartsListResponse": {
+                "properties": {
+                    "parts": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.PartDefResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.TypePatchRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "iconCid": {
+                        "type": "string"
+                    },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "weight": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -3255,8 +3458,19 @@ const docTemplate = `{
                     "iconCid": {
                         "type": "string"
                     },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "weight": {
+                        "description": "Weight picks the primary type of a multi-typed object: the highest\nwins, tie broken by type id. Layout is how the primary type's\nheader and parts compose — {type, config} in the xFormat shape (v1\nslugs: page, tabs, chat, profile; open set, unknown renders as\npage). Both mutable via PATCH …/types/:typeId.",
+                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). REQUIRED on create and unique per space: the\nserver rejects an empty xKey (type.xkey_required) and one that\ncollides with an existing type's xKey or id (type.xkey_conflict).\nClients derive it as a slug of Name. It's the only human handle a\ntype resolves by — the display Name is not a resolution key.",
@@ -9782,7 +9996,7 @@ const docTemplate = `{
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/blocks": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks": {
             "post": {
                 "parameters": [
                     {
@@ -9798,6 +10012,15 @@ const docTemplate = `{
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -9862,7 +10085,7 @@ const docTemplate = `{
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId}": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks/{blockId}": {
             "delete": {
                 "parameters": [
                     {
@@ -9961,6 +10184,15 @@ const docTemplate = `{
                         }
                     },
                     {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Block ID",
                         "in": "path",
                         "name": "blockId",
@@ -10038,7 +10270,7 @@ const docTemplate = `{
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/markdown": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown": {
             "get": {
                 "parameters": [
                     {
@@ -10112,6 +10344,15 @@ const docTemplate = `{
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -10194,6 +10435,15 @@ const docTemplate = `{
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "requestBody": {
@@ -10254,7 +10504,7 @@ const docTemplate = `{
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/markdown/append": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown/append": {
             "post": {
                 "parameters": [
                     {
@@ -10270,6 +10520,15 @@ const docTemplate = `{
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -12079,6 +12338,87 @@ const docTemplate = `{
                 "tags": [
                     "types"
                 ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.TypePatchRequest",
+                                        "summary": "body",
+                                        "description": "Fields to change"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to change",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a type's display and rendering metadata",
+                "tags": [
+                    "types"
+                ]
             }
         },
         "/spaces/{spaceId}/types/{typeId}/datasets": {
@@ -12136,94 +12476,6 @@ const docTemplate = `{
                     }
                 },
                 "summary": "List a type's runtime dataset definitions",
-                "tags": [
-                    "types"
-                ]
-            },
-            "post": {
-                "parameters": [
-                    {
-                        "description": "Space ID",
-                        "in": "path",
-                        "name": "spaceId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Type ID",
-                        "in": "path",
-                        "name": "typeId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/api.DatasetDraftRequest",
-                                        "summary": "body",
-                                        "description": "Dataset draft"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Dataset draft",
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.AddDatasetResponse"
-                                }
-                            }
-                        },
-                        "description": "Created"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Conflict"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Define a dataset on a type",
                 "tags": [
                     "types"
                 ]
@@ -12645,6 +12897,425 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Patch a dataset field's display fields and descriptor",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TypePartsListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a type's parts with their datasets",
+                "tags": [
+                    "types"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.PartDraftRequest",
+                                        "summary": "body",
+                                        "description": "Part draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Part draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddPartResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Declare a part (with its datasets) on a type",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts/{partId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a part and its datasets",
+                "tags": [
+                    "types"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.PartPatchRequest",
+                                        "summary": "body",
+                                        "description": "set/unset paths"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "set/unset paths",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a part's display slice",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts/{partId}/datasets": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetDraftRequest",
+                                        "summary": "body",
+                                        "description": "Dataset draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Dataset draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddDatasetResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Declare a dataset on a part",
                 "tags": [
                     "types"
                 ]

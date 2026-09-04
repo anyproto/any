@@ -15,6 +15,25 @@ type TypesCreateRequest struct {
 	// Clients derive it as a slug of Name. It's the only human handle a
 	// type resolves by — the display Name is not a resolution key.
 	XKey string `json:"xKey,omitempty"`
+	// Weight picks the primary type of a multi-typed object: the highest
+	// wins, tie broken by type id. Layout is how the primary type's
+	// header and parts compose — {type, config} in the xFormat shape (v1
+	// slugs: page, tabs, chat, profile; open set, unknown renders as
+	// page). Both mutable via PATCH …/types/:typeId.
+	Weight int             `json:"weight,omitempty"`
+	Layout json.RawMessage `json:"layout,omitempty"`
+}
+
+// TypePatchRequest is the body of PATCH /v1/spaces/:spaceId/types/:typeId
+// — a user type's display and rendering metadata. Absent fields keep
+// their value; an empty string clears a text field; `"layout": null`
+// clears the layout. At least one field is required.
+type TypePatchRequest struct {
+	Name        *string         `json:"name,omitempty"`
+	Description *string         `json:"description,omitempty"`
+	IconCID     *string         `json:"iconCid,omitempty"`
+	Weight      *int            `json:"weight,omitempty"`
+	Layout      json.RawMessage `json:"layout,omitempty"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.
@@ -91,6 +110,10 @@ type TypeInfo struct {
 	// it as the stable type handle in dotted property paths.
 	XKey    string `json:"xKey,omitempty"`
 	BuiltIn bool   `json:"builtIn,omitempty"`
+	// Weight / Layout — see TypesCreateRequest. Zero / absent on
+	// built-ins.
+	Weight int             `json:"weight,omitempty"`
+	Layout json.RawMessage `json:"layout,omitempty"`
 }
 
 // TypesListResponse is the body of GET /v1/spaces/:spaceId/types.

@@ -9,9 +9,10 @@ per-device copy in browser storage.
 `data_view` is a **registered built-in type**, not a type a client
 creates. Two clients (or two devices of one client) that each
 check-then-create a "views" type both pass their local check and then
-merge, leaving the space with parallel type definitions — the same
-proliferation the built-in `page` type solved for documents. A
-registered type exists in every space by construction.
+merge, leaving the space with parallel type definitions — the
+proliferation a client-registered bundle solves for document types
+(`03-api.md` § Bundles). A registered type exists in every space by
+construction.
 
 ## Data model
 

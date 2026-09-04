@@ -49,8 +49,7 @@ func TestE2E_MultipeerChatMentions(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"chat-mentions"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId

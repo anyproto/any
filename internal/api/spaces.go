@@ -85,7 +85,7 @@ type SpaceInfo struct {
 	CreatedAt          time.Time      `json:"createdAt"`
 	Settings           map[string]any `json:"settings,omitempty"`
 	SpaceIndexObjectId string         `json:"spaceIndexObjectId,omitempty"`
-	Push                 *SpacePushKeys `json:"push,omitempty"`
+	Push               *SpacePushKeys `json:"push,omitempty"`
 	// Derived marks a space created by the account's own derivation
 	// (POST /v1/spaces/derived/:name or another consumer of the SDK's
 	// Derive). Derived spaces are permanent — DELETE refuses them with

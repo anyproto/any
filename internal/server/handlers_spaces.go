@@ -78,19 +78,21 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
 	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
 
-	// Editor (built-in type — see internal/editor). Atomic blocks +
-	// markdown bridge, both backed by the per-object editor_blocks
-	// dataset. Liveness reuses the per-object query/subscribe endpoint
-	// with dataset=editor_blocks.
-	g.GET("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownGet)
-	g.PUT("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownSet)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/markdown", d.markdownEdit)
-	g.POST("/spaces/:spaceId/objects/:objectId/editor/markdown/append", d.markdownAppend)
-	g.POST("/spaces/:spaceId/objects/:objectId/editor/blocks", d.blocksCreate)
-	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksPatch)
-	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/blocks/:blockId", d.blocksDelete)
+	// Editor (module — see internal/editor). Atomic blocks + markdown
+	// bridge on one editor collection: the canonical editor_blocks a
+	// type shares, or a namespaced <typeId>_<key> instance a part
+	// declares. Liveness reuses the per-object query/subscribe endpoint
+	// with dataset=<collection>.
+	g.GET("/spaces/:spaceId/objects/:objectId/editor/:collection/markdown", d.markdownGet)
+	g.PUT("/spaces/:spaceId/objects/:objectId/editor/:collection/markdown", d.markdownSet)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/:collection/markdown", d.markdownEdit)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/:collection/markdown/append", d.markdownAppend)
+	g.POST("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks", d.blocksCreate)
+	g.PATCH("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksPatch)
+	g.DELETE("/spaces/:spaceId/objects/:objectId/editor/:collection/blocks/:blockId", d.blocksDelete)
 
-	// Chat (built-in type — see internal/chat). Writes only here;
+	// Chat (module — see internal/chat; shared-only, so the collection
+	// is always chat_messages). Writes only here;
 	// reads + liveness go through /query and /query/subscribe with
 	// dataset=chat_messages.
 	g.POST("/spaces/:spaceId/objects/:objectId/chat/messages", d.chatSend)
@@ -126,18 +128,26 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/types", d.typeList)
 	g.POST("/spaces/:spaceId/types", d.typeCreate)
 	g.GET("/spaces/:spaceId/types/:typeId", d.typeGet)
+	g.PATCH("/spaces/:spaceId/types/:typeId", d.typePatch)
 	g.DELETE("/spaces/:spaceId/types/:typeId", notImplemented("Types.Delete"))
 	g.GET("/spaces/:spaceId/types/:typeId/properties", d.typeProperties)
 	g.POST("/spaces/:spaceId/types/:typeId/properties", d.typeAddProperty)
 	g.DELETE("/spaces/:spaceId/types/:typeId/properties/:propId", d.typeRemoveProperty)
 	g.PATCH("/spaces/:spaceId/types/:typeId/properties/:propId", d.typePatchProperty)
 
-	// Runtime dataset schemas on user types (handlers_typedatasets.go).
-	// Behavioral parts pin first-write; display parts patch; the data
-	// path is the existing dataset-parameterized modify/query plus
-	// POST /spaces/:spaceId/upsert for id:user datasets.
+	// Parts and their datasets on user types (handlers_typeparts.go,
+	// handlers_typedatasets.go). A part is a display unit owning
+	// datasets served by a module; behavioral parts pin first-write,
+	// display parts patch; the data path is the existing
+	// dataset-parameterized modify/query (dataset = the computed
+	// collection) plus POST /spaces/:spaceId/upsert for id:user
+	// records datasets.
+	g.GET("/spaces/:spaceId/types/:typeId/parts", d.typeParts)
+	g.POST("/spaces/:spaceId/types/:typeId/parts", d.typeAddPart)
+	g.PATCH("/spaces/:spaceId/types/:typeId/parts/:partId", d.typePatchPart)
+	g.DELETE("/spaces/:spaceId/types/:typeId/parts/:partId", d.typeRemovePart)
+	g.POST("/spaces/:spaceId/types/:typeId/parts/:partId/datasets", d.typeAddDataset)
 	g.GET("/spaces/:spaceId/types/:typeId/datasets", d.typeDatasets)
-	g.POST("/spaces/:spaceId/types/:typeId/datasets", d.typeAddDataset)
 	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typePatchDataset)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typeRemoveDataset)
 	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/fields", d.typeAddDatasetField)

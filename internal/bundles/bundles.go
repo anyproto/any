@@ -80,9 +80,9 @@ type Install struct {
 	// 1-1's, where nobody is the owner) that is the point; for
 	// anything a user may remove it is the wrong trade.
 	Derived bool
-	// Datasets are declared on the derived root at install; the root
-	// then implements itself as a type (typeId = rootId). Derived only.
-	Datasets []space.DatasetDraft
+	// Parts are declared on the root at install (derived or created);
+	// the root then implements itself as a type (typeId = rootId).
+	Parts []space.PartDraft
 }
 
 // Resolver installs bundles and deletes their losing roots, carrying
@@ -215,10 +215,10 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// contract promises — a reader/guest re-running the documented
 	// idempotent ensure must not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
-		if len(inst.Datasets) == 0 {
+		if len(inst.Parts) == 0 {
 			return true
 		}
-		defs, err := sp.Types().Datasets(ctx, b.RootId)
+		defs, err := sp.Types().Parts(ctx, b.RootId)
 		if err != nil || len(defs) > 0 {
 			// A transient read error must not push the caller into the
 			// SDK Ensure's write gate — adopt; the declaration heals on
@@ -255,12 +255,12 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
-		req.Datasets = inst.Datasets
-	} else if len(inst.Datasets) > 0 {
+		req.Parts = inst.Parts
+	} else if len(inst.Parts) > 0 {
 		// SDK-minted created root: Ensure creates the object, stamps
 		// it as its own type and declares — the only create the tech
 		// space allows, and the same shape everywhere.
-		req.Datasets = inst.Datasets
+		req.Parts = inst.Parts
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -287,7 +287,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived || (len(inst.Datasets) > 0 && !inst.Derived) {
+	if inst.Derived || (len(inst.Parts) > 0 && !inst.Derived) {
 		// Derived: registered is exact. SDK-minted created root: the
 		// minted id is not observable here, so registered is the
 		// answer, with the same narrow inbound-race weakness the

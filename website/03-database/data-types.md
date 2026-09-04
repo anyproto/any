@@ -79,7 +79,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Related", "xKey": "related", "kind": "array",
        "xFormat": {"type": "relation", "config": {"multiple": true},
-                   "relation": {"targetTypes": ["page"]}}}'
+                   "relation": {"targetTypes": ["<pageTypeId>"]}}}'
 ```
 
 ## Scopes
@@ -109,7 +109,7 @@ any datasets $SPACE
 ```
 
 ```json
-{ "datasets": [ { "name": "chat_messages", "typeId": "chat",
+{ "datasets": [ { "name": "chat_messages", "module": "chat", "shared": true, "owners": ["<typeId>"],
   "schema": { "type": "object", "additionalProperties": true,
     "properties": {
       "text":      { "type": "string",  "x-scope": "synced" },

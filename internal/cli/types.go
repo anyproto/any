@@ -20,7 +20,9 @@ func newTypeCmd() *cobra.Command {
 	cmd.AddCommand(
 		newTypeCreateCmd(),
 		newTypeListCmd(),
+		newTypeUpdateCmd(),
 		newTypePropertyCmd(),
+		newTypePartCmd(),
 		newTypeDatasetCmd(),
 	)
 	return cmd
@@ -258,8 +260,9 @@ func newTypePropertyOptionSetCmd() *cobra.Command {
 
 // newTypeDatasetCmd is `any type dataset <subcommand>` — the runtime
 // dataset-schema verbs, 1:1 with the endpoints under
-// /v1/spaces/:id/types/:typeId/datasets. Data flows through the
-// existing modify/query surface plus `any upsert` for id:user datasets.
+// /v1/spaces/:id/types/:typeId/datasets (add goes through the owning
+// part: …/parts/:partId/datasets). Data flows through the existing
+// modify/query surface plus `any upsert` for id:user datasets.
 func newTypeDatasetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dataset",
@@ -295,10 +298,10 @@ func newTypeDatasetListCmd() *cobra.Command {
 func newTypeDatasetAddCmd() *cobra.Command {
 	var draft string
 	cmd := &cobra.Command{
-		Use:   "add <spaceId> <typeId>",
-		Short: "define a dataset on a type from a JSON draft",
-		Long: `Define a runtime dataset (api.DatasetDraftRequest shape):
-  {"name": "articles", "idRule": "user", "deleteBy": "author",
+		Use:   "add <spaceId> <typeId> <partId>",
+		Short: "declare a dataset on a part from a JSON draft",
+		Long: `Declare a dataset on an existing part (api.DatasetDraftRequest shape):
+  {"key": "articles", "idRule": "user", "deleteBy": "author",
    "search": {"title": "title", "text": "body", "scope": "news"},
    "fields": [
      {"key": "title", "kind": "string", "required": true, "mutableBy": "author",
@@ -311,18 +314,22 @@ search.text is a bare field key or a non-empty array of keys, e.g.
 "search": {"title": "subject", "text": ["body", "notes"]} — the index
 joins the mapped fields into one body. A field's xFormat is the same
 descriptor a property carries (docs/27-descriptors.md).
-Behavioral parts (name, idRule, deleteBy, field kinds/flags) are pinned;
-display parts patch via 'type dataset patch' and 'type dataset field
-patch'. Declare required fields here — fields added later cannot be
-required.`,
-		Args: cobra.ExactArgs(2),
+A module-served dataset names its module instead of fields:
+  {"module": "editor", "shared": true}          the shared editor body
+  {"key": "summary", "module": "editor"}        a second, namespaced editor
+Behavioral parts (key, module, shared, idRule, deleteBy, field
+kinds/flags) are pinned; display parts patch via 'type dataset patch'
+and 'type dataset field patch'. Declare required fields here — fields
+added later cannot be required. The reply carries the computed
+collection reads and writes address.`,
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var req api.DatasetDraftRequest
 			if err := readJSONBody(draft, &req); err != nil {
 				return err
 			}
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypeAddDataset(cmd.Context(), args[0], args[1], req)
+			out, err := cl.TypeAddDataset(cmd.Context(), args[0], args[1], args[2], req)
 			if err != nil {
 				return err
 			}
@@ -342,8 +349,8 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
-search.text, search.scope. Everything else is pinned — remove and
-re-add. Values are strings; search.text also takes a non-empty array
+search.text, search.scope. Everything else (key, module, shared, id
+rule, delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
 of field keys.
 
 Examples:

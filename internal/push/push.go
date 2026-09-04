@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-store/v2/anyenc"
 	"github.com/anyproto/any-store/v2/query"
 	"github.com/anyproto/any-sync/app/logger"
 	"github.com/anyproto/anytype-push-server/pushclient/pushapi"
@@ -453,13 +454,28 @@ func (s *Service) reconcile(ctx context.Context, register []string, subs []space
 	return true
 }
 
-// chatTypeFilter matches objects rows whose `any.types` array carries
-// the chat built-in (any-store Comp semantics: an eq comparison
-// against an array path matches per element — same membership shape
-// ensureType reads back). Static filter — built once, immutable.
-var chatTypeFilter = query.Key{
-	Path:   []string{"any", "types"},
-	Filter: query.NewComp(query.CompOpEq, chat.TypeId),
+// chatOwners returns the types declaring the space's chat collection —
+// the canonical chat_messages, shared by every type that names the
+// chat module in a part. Empty when nothing declares it yet.
+func chatOwners(sp space.Space) []string {
+	for _, ds := range sp.Datasets() {
+		if ds.Name == chat.Dataset {
+			return ds.Owners
+		}
+	}
+	return nil
+}
+
+// chatOwnersFilter matches objects rows whose `any.types` array carries
+// one of the declaring types (any-store `$in` against an array path
+// matches per element).
+func chatOwnersFilter(owners []string) query.Filter {
+	a := &anyenc.Arena{}
+	vals := make([]*anyenc.Value, len(owners))
+	for i, o := range owners {
+		vals[i] = a.NewString(o)
+	}
+	return query.Key{Path: []string{"any", "types"}, Filter: query.NewInValue(vals...)}
 }
 
 // collectChatModes enumerates every ACTIVE space's chat objects and
@@ -537,7 +553,11 @@ func (s *Service) chatModes(ctx context.Context, spaceId string) ([]chatNotify, 
 	}
 	// Sorted by id so the topic order — and therefore desiredHash —
 	// is deterministic across rounds.
-	rows, err := sp.QueryObjects().Filter(chatTypeFilter).Sort("id").All(ctx)
+	owners := chatOwners(sp)
+	if len(owners) == 0 {
+		return nil, nil
+	}
+	rows, err := sp.QueryObjects().Filter(chatOwnersFilter(owners)).Sort("id").All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +565,7 @@ func (s *Service) chatModes(ctx context.Context, spaceId string) ([]chatNotify, 
 	for _, row := range rows {
 		entries = append(entries, chatNotify{
 			objectId: string(row.GetStringBytes("id")),
-			mode:     string(row.GetStringBytes(chat.TypeId, chat.PropNotifyMode)),
+			mode:     string(row.GetStringBytes(chat.Module, chat.PropNotifyMode)),
 		})
 	}
 	return entries, nil

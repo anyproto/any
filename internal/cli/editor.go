@@ -32,10 +32,11 @@ func newEditorCmd() *cobra.Command {
 // batch via --edits.
 func newEditorEditCmd() *cobra.Command {
 	var (
-		oldText  string
-		newText  string
-		all      bool
-		editsRaw string
+		collection string
+		oldText    string
+		newText    string
+		all        bool
+		editsRaw   string
 	)
 	cmd := &cobra.Command{
 		Use:   "edit <spaceId> <objectId>",
@@ -69,13 +70,14 @@ Examples:
 				return fmt.Errorf("supply --old TEXT (with --new) or --edits JSON")
 			}
 			cl := newClient(flags.Timeout)
-			out, err := cl.MarkdownEdit(cmd.Context(), args[0], args[1], req)
+			out, err := cl.MarkdownEdit(cmd.Context(), args[0], args[1], collection, req)
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	addCollectionFlag(cmd, &collection)
 	cmd.Flags().StringVar(&oldText, "old", "", "exact text to replace (must be unique unless --all)")
 	cmd.Flags().StringVar(&newText, "new", "", "replacement text (empty = delete the matched text)")
 	cmd.Flags().BoolVar(&all, "all", false, "replace every occurrence instead of requiring a unique match")
@@ -101,11 +103,12 @@ func newBlocksCmd() *cobra.Command {
 
 func newBlocksCreateCmd() *cobra.Command {
 	var (
-		blockType string
-		text      string
-		styleRaw  string
-		parentId  string
-		pos       string
+		collection string
+		blockType  string
+		text       string
+		styleRaw   string
+		parentId   string
+		pos        string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <spaceId> <objectId>",
@@ -130,13 +133,14 @@ func newBlocksCreateCmd() *cobra.Command {
 				req.Nav = &api.BlockNav{ParentId: parentId, Pos: pos}
 			}
 			cl := newClient(flags.Timeout)
-			out, err := cl.BlocksCreate(cmd.Context(), args[0], args[1], req)
+			out, err := cl.BlocksCreate(cmd.Context(), args[0], args[1], collection, req)
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	addCollectionFlag(cmd, &collection)
 	cmd.Flags().StringVar(&blockType, "type", "", "block type (paragraph, heading, list_item, code, quote, divider, ...)")
 	cmd.Flags().StringVar(&text, "text", "", "inline markdown payload (no block-level syntax)")
 	cmd.Flags().StringVar(&styleRaw, "style", "", "JSON object with style metadata (e.g. '{\"level\":2}')")
@@ -147,8 +151,9 @@ func newBlocksCreateCmd() *cobra.Command {
 
 func newBlocksPatchCmd() *cobra.Command {
 	var (
-		setRaw   string
-		unsetRaw []string
+		collection string
+		setRaw     string
+		unsetRaw   []string
 	)
 	cmd := &cobra.Command{
 		Use:   "patch <spaceId> <objectId> <blockId>",
@@ -167,30 +172,42 @@ func newBlocksPatchCmd() *cobra.Command {
 				req.Unset = unsetRaw
 			}
 			cl := newClient(flags.Timeout)
-			out, err := cl.BlocksPatch(cmd.Context(), args[0], args[1], args[2], req)
+			out, err := cl.BlocksPatch(cmd.Context(), args[0], args[1], collection, args[2], req)
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	addCollectionFlag(cmd, &collection)
 	cmd.Flags().StringVar(&setRaw, "set", "", `JSON map of dotted path → new value (e.g. '{"text":"...","style.level":2}')`)
 	cmd.Flags().StringSliceVar(&unsetRaw, "unset", nil, `dotted path(s) to $unset (repeatable)`)
 	return cmd
 }
 
 func newBlocksDeleteCmd() *cobra.Command {
-	return &cobra.Command{
+	var collection string
+	cmd := &cobra.Command{
 		Use:   "delete <spaceId> <objectId> <blockId>",
 		Short: "DELETE one block (sticky tombstone; children NOT cascaded)",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
-			out, err := cl.BlocksDelete(cmd.Context(), args[0], args[1], args[2])
+			out, err := cl.BlocksDelete(cmd.Context(), args[0], args[1], collection, args[2])
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	addCollectionFlag(cmd, &collection)
+	return cmd
+}
+
+// addCollectionFlag adds --collection: the editor collection the
+// command writes — the canonical editor_blocks a type shares (the
+// default), or a namespaced <typeId>_<key> instance a part declares.
+func addCollectionFlag(cmd *cobra.Command, dst *string) {
+	cmd.Flags().StringVar(dst, "collection", api.CollectionEditorBlocks,
+		"editor collection: editor_blocks (shared) or a namespaced <typeId>_<key> instance")
 }

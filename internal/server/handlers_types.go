@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -69,11 +70,17 @@ func (d *deps) typeCreate(c echo.Context) error {
 		}
 	}
 
+	layout, code, reason := layoutFromWire(req.Layout)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "layout"})
+	}
 	typeId, err := sp.Types().Create(c.Request().Context(), space.TypeCreateParams{
 		Name:        req.Name,
 		Description: req.Description,
 		IconCID:     req.IconCID,
 		XKey:        req.XKey,
+		Weight:      req.Weight,
+		Layout:      layout,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -461,14 +468,21 @@ func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 	if xkey == "" && t.BuiltIn {
 		xkey = t.Id
 	}
-	return api.TypeInfo{
+	out := api.TypeInfo{
 		Id:          t.Id,
 		Name:        t.Name,
 		Description: t.Description,
 		IconCID:     t.IconCID,
 		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
+		Weight:      t.Weight,
 	}
+	if len(t.Layout) > 0 {
+		if raw, err := json.Marshal(t.Layout); err == nil {
+			out.Layout = raw
+		}
+	}
+	return out
 }
 
 func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
