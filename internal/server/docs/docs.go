@@ -6394,6 +6394,7 @@ const docTemplate = `{
         },
         "/spaces/{spaceId}/acl/cancel-join": {
             "post": {
+                "description": "Withdraws this account's pending join request. The space row flips to status \"deleted\" on this device; POST /v1/spaces/join with a valid invite re-requests. 409 space.join_not_pending when the row is not joining, or when the owner accepted or declined first — the row then settles to active or deleted on its own.",
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -6408,6 +6409,26 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.not_found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "space.join_not_pending"
                     },
                     "500": {
                         "content": {

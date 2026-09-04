@@ -73,7 +73,8 @@ space.not_found
 space.exists                     # create conflict
 space.not_joined                 # operation requires membership
 space.not_accepted               # 409 — join pending approval; space not materialized yet
-space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start
+space.deleted                    # 409 — space is deleted (row is a tombstone); 1-1s re-creatable via one-to-one start; a declined or withdrawn join re-requestable via POST /v1/spaces/join
+space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing to withdraw: the row is not joining, or the owner accepted/declined first (the row settles to active/deleted on its own)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 space.unsupported                # 405 — the surface is not available on the tech space (object/type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes)

@@ -124,7 +124,7 @@ any acl stop-sharing <spaceId>
 |-----------|--------|
 | `ownership` | hands the owner role to `newOwner`; the previous owner keeps `oldOwnerPerm` |
 | `self-remove` | requests your own removal; your row shows `removing` until applied |
-| `cancel-join` | withdraws a pending join request; row shows `canceled` |
+| `cancel-join` | withdraws your own pending join request: the owner's members row shows `canceled`, your space row reads `deleted`, and a fresh `POST /v1/spaces/join` re-requests |
 | `stop-sharing` | drops every other member and rotates the read key — the space becomes private to the owner again |
 
 > **Note.** A one-to-one space has an immutable two-writer ACL, so none of these operations apply to it. "Accepting" a direct chat is a device-local decision, described on [One-to-one](one-to-one.html).

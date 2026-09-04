@@ -50,7 +50,7 @@ any join <invite>
 
 The join is a **request**: the SDK posts it, writes a `joining` row into the joiner's space list, and returns `202`. The joiner polls `GET /v1/spaces/:id/members/me` (or watches the [space list](../realtime/space-list.html)) for the status to flip to `active` once the owner accepts with [`POST …/acl/accept`](acl.html). `metadata` seeds the name other members see until the joiner's encrypted [profile](../auth/profile.html) resolves. A malformed or unrecognized token returns `400 invite.invalid`.
 
-Until accepted, the joiner can withdraw with `POST /v1/spaces/:spaceId/acl/cancel-join`.
+Until accepted, the joiner can withdraw with `POST /v1/spaces/:spaceId/acl/cancel-join`: the row then reads `deleted` and a later join with a valid token re-requests. Once the owner has accepted or declined, the call answers `409 space.join_not_pending` and the row settles on its own.
 
 ## List and revoke
 

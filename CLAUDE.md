@@ -1481,6 +1481,28 @@ Implementation slices landed:
     `--mode managed` + token + keychain restore-at-launch (it stops the
     sidecar with an ungated `POST /v1/shutdown` today, which now 403s
     on a standalone server); IOS-615 is unblocked.
+44. **`cancel-join` is account-level** — `POST /v1/spaces/:id/acl/
+    cancel-join` no longer goes through `resolveSpace`: the only state
+    it applies to is a pending join, and that is exactly the row
+    `Spaces().Get` refuses (`space.not_accepted`), so the route was
+    unreachable. It now calls the SDK's `Service.CancelJoin`, which
+    posts the withdrawal through any-sync's joining client (ACL chain
+    served by the nodes, no local space — the same component `Join`
+    uses), stops the join waiter and stamps the row's device-local
+    `localStatus=deleted` — the end state an owner decline already
+    left, so the joiner's row reads `deleted` and re-requests via
+    `POST /v1/spaces/join` (the SDK's `Join` now revives such a row
+    instead of leaving it dead, and refuses a synced tombstone before
+    the RPC → `409 space.deleted`). Errors: `404 space.not_found`,
+    `409 space.join_not_pending` (`space.ErrJoinNotPending` — row not
+    joining, or the owner resolved the request first; consensus is
+    linear so the row settles to active/deleted on its own).
+    `space.ACL.CancelJoinRequest` stays for a loaded space. Pending
+    joins and their cancels are device-local by design (`localStatus`
+    / `aclHeadId` are ScopeLocal); the ACL is the account-wide truth.
+    Tests: `TestServer_ACLCancelJoin_RowGate`,
+    `TestE2E_MultipeerCancelJoin`, SDK `TestE2E_JoinCancelRejoin`.
+    Contract: docs/03-api.md § ACL, docs/06-errors.md.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

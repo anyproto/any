@@ -314,5 +314,12 @@ func (d *deps) spaceJoin(c echo.Context) error {
 	if errors.Is(err, space.ErrInvalidInvite) {
 		return inviteDecodeError(c)
 	}
+	// A synced tombstone is sticky: the SDK refuses before posting a
+	// request nothing local could complete. (A declined or withdrawn
+	// join is NOT this — that row re-requests fine.)
+	if errors.Is(err, space.ErrSpaceDeleted) {
+		return writeError(c, http.StatusConflict, "space.deleted",
+			"the space was deleted on this account", map[string]any{"spaceId": inv.SpaceId})
+	}
 	return aclOpError(c, err, nil)
 }
