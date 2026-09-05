@@ -300,11 +300,22 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Built-in hidden types `page` / `miniapp` / `bin`** (SYN-213,
+  SYN-215, SYN-219) — three registered `hidden` types an object opts
+  into: `page` (one static part sharing `editor_blocks`, the plain
+  document a client may use instead of declaring its own), `miniapp`
+  (property `bundle`, the installed bundle an object runs) and `bin`
+  (move = attach, restore = detach on the existing routes; the server
+  stamps `movedAt` / `movedBy` in the same change and clears them on
+  restore). Contract: docs/03-api.md § Types → Built-in hidden types.
+  Still open on the same foundation: `dataview` (SYN-217), `nav` →
+  `wiki` (SYN-214), general chat under the reserved module (SYN-216),
+  the `system:` catalog (SYN-218).
 - **Types, parts and modules** — a type is properties plus parts, each
   part owning datasets a module serves: `records` (the runtime schema
   handler, now always namespaced to `<typeId>_<key>`), `editor` and
   `chat` (compiled-in modules with a canonical shared collection). The
-  built-in `page` / `editor` / `chat` types are gone — an object holds
+  built-in `editor` / `chat` types are gone — an object holds
   a collection while it carries a declaring type (`400
   dataset.not_declared` otherwise; no write attaches a type), documents
   and chats are user types registered as bundles, and bundles declare

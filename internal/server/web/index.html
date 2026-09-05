@@ -2332,9 +2332,10 @@
 
   // ---------- page: objects ----------
   function renderObjectsPage(sp, typeFilter) {
-    // Registered types (data_view, nav) surface as builtIn=true but
-    // should still appear here — the exclusions are the synthetic
-    // types no object attaches (SYNTHETIC_TYPE_IDS).
+    // Registered types (data_view, nav, the hidden page / miniapp /
+    // bin) surface as builtIn=true but should still appear here — the
+    // exclusions are the synthetic types no object attaches
+    // (SYNTHETIC_TYPE_IDS).
     const filterableTypes = Object.values(sp.types).filter(t => !SYNTHETIC_TYPE_IDS.has(t.id));
     const allObjects = Object.values(sp.objects);
     const filteredObjects = typeFilter

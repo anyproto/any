@@ -5,9 +5,19 @@ order: 30
 ---
 # Page
 
-A page is an object carrying a **document type**: a user type with one part whose dataset names the `editor` module. There is no built-in page type — you declare yours, and normally register it as a [bundle](../collaboration/bundles.html) so every client and device converges on one.
+A page is an object carrying a **document type**: a type with one part whose dataset names the `editor` module. Two kinds qualify. The built-in `page` type is the plain document — hidden from the type picker, present in every space, no properties of its own; attach it (or pass it in `types` at create) and the object holds a body. A **user document type** is one you declare yourself, with the same kind of part, and normally register as a [bundle](../collaboration/bundles.html) so every client and device converges on one — that is the type to use when a page needs columns, a weight or a layout. Both share the one `editor_blocks` collection, so an object carrying both has one body.
 
-## Declaring the type
+## The built-in `page`
+
+```bash
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
+  -H 'Content-Type: application/json' \
+  -d '{"types": ["page"], "initialProperties": {"any": {"name": "Reading list"}}}'
+```
+
+That is the whole declaration: `page` is registered, not created, so there is nothing to ensure and nothing that can fork. It is `hidden` (`GET …/types` lists it only with `?includeHidden=true`; `GET …/types/page` resolves it always) and carries no `weight` or `layout` — an object that is only a `page` renders by the client's default.
+
+## Declaring your own type
 
 ```bash
 PAGE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SP/types \
@@ -20,7 +30,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$PAGE/parts \
        "datasets": [{"module": "editor", "shared": true}]}'
 ```
 
-`"shared": true` puts the body in the module's canonical collection, `editor_blocks` — the one every document type shares, so an object that is both a page and, say, a meeting has one body. `weight` makes the type the object's **primary** type (the highest weight wins) and `layout` is the descriptor a client renders for it; both are opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what a registered built-in could never do.
+`"shared": true` puts the body in the module's canonical collection, `editor_blocks` — the one every document type shares, so an object that is both a page and, say, a meeting has one body. `weight` makes the type the object's **primary** type (the highest weight wins) and `layout` is the descriptor a client renders for it; both are opaque client vocabulary. The type carries properties like any other — a status, a priority, a relation — which is what the registered built-in cannot.
 
 ## What a page is made of
 
@@ -29,7 +39,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$PAGE/parts \
 | Display name | `any.name` |
 | Labels | the built-in `any.tags` (free-form string array) |
 | Body | the `editor_blocks` collection the type's part declares — [editor](editor.html) |
-| Columns | the type's own properties, at `<typeId>.<propId>` |
+| Columns | a user document type's own properties, at `<typeId>.<propId>` (the built-in `page` has none) |
 | Position in the tree | `nav.parentId`, `nav.pos`, `nav.type` (see [objects](../database/objects.html)) |
 | Recency | the derived row-root `modifiedAt` instant, with `modifiedBy` naming who signed that change (see [system fields](../database/system-fields.html)) |
 
@@ -59,10 +69,10 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
   -d '{"filter": {"any.types": "'$PAGE'"}, "sort": ["-modifiedAt"], "limit": 50}'
 ```
 
-The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets`, matched with `{"any.types": {"$in": [...]}}`.
+The same body against `…/objects/query/subscribe` gives a live document list. Filter by label with `{"any.tags": "books"}` — array fields match on any element. "Every object with a body, whatever its type" is a filter on every type that shares the editor: the `owners` of `editor_blocks` in `GET /v1/spaces/:spaceId/datasets` (the built-in `page` is always among them), matched with `{"any.types": {"$in": [...]}}`.
 
-## Why a bundle, not a built-in
+## Built-in or bundle
 
-In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both — real spaces carried several parallel "Pages" types. A registered built-in avoided that but could not carry properties (registered types' definitions are frozen). Registering the type as a bundle keeps it a plain user type — properties, weight, layout, parts — while the registry converges every device on one id: `POST …/bundles` with the type declared on the root is adopt-or-install, so whoever runs it second adopts the first one's type.
+In a local-first system there is no central moment where "the pages type" gets created. Two members working offline would each create one, and the CRDT would faithfully keep both — real spaces carried several parallel "Pages" types. The built-in `page` avoids that by being registered: it exists everywhere, but its definition is frozen — no properties, no weight, no layout. Registering your own type as a bundle keeps it a plain user type — properties, weight, layout, parts — while the registry converges every device on one id: `POST …/bundles` with the type declared on the root is adopt-or-install, so whoever runs it second adopts the first one's type. Pick `page` for a plain body, a bundle-registered type for a document that is also a record.
 
 > **Note.** A page's body is not part of the type's row. It is the editor collection on the same object, which is why an object can be a page with no blocks yet (an empty `records` array on the `editor_blocks` query) and why the body is searchable through the editor chunker under the `basic` scope (see [search](../search/index.html)).

@@ -511,6 +511,10 @@ any properties attach      <spaceId> <objectId> <typeId>
 any properties detach      <spaceId> <objectId> <typeId>
 ```
 
+`attach … bin` moves an object to the bin and `detach … bin` restores
+it — the server stamps `bin.movedAt` / `bin.movedBy` on the move and
+clears them on restore (03-api.md § Types → Built-in hidden types).
+
 ### Members, invites & ACL
 
 ```

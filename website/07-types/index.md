@@ -44,11 +44,11 @@ Every write endpoint returns the same small result instead of the record body:
 
 ## Where the objects come from
 
-Modules attach to ordinary objects through their types. A document is an object carrying your page type — a user type with an editor part — and blocks in `editor_blocks`. A chat is an object carrying a type with a chat part — and for "the chat of this space", the object is registered as a [bundle](../collaboration/bundles.html) with a derived root and the chat part declared on it, so every device and member computes the same object id and the conversation can never fork. There is no built-in `page`, `editor` or `chat` type: what used to need one — every client minting its own type and racing into parallel definitions — is solved by registering the type as a bundle instead.
+Modules attach to ordinary objects through their types. A document is an object carrying a document type — the built-in `page`, or your own user type with an editor part — and blocks in `editor_blocks`. A chat is an object carrying a type with a chat part — and for "the chat of this space", the object is registered as a [bundle](../collaboration/bundles.html) with a derived root and the chat part declared on it, so every device and member computes the same object id and the conversation can never fork. There is no built-in `editor` or `chat` type: what used to need one — every client minting its own type and racing into parallel definitions — is solved by registering the type as a bundle instead.
 
 <div class="cards">
 <a href="chat.html"><strong>Chat</strong><span>A complete messenger on one CRDT dataset: send, edit, react, mentions, private read tracking, unread counters.</span></a>
 <a href="editor.html"><strong>Editor</strong><span>Block-structured documents: atomic block writes plus a lossless markdown bridge for imports, exports and LLM edits.</span></a>
-<a href="page.html"><strong>Page</strong><span>How a document type is declared — a user type with an editor part — and the fields a page is made of.</span></a>
+<a href="page.html"><strong>Page</strong><span>The built-in `page` and how your own document type is declared — a type with an editor part — and the fields a page is made of.</span></a>
 <a href="links.html"><strong>Links</strong><span>The canonical any:// grammar for objects, records, mentions, spaces, property values and files.</span></a>
 </div>

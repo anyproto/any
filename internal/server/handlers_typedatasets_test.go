@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/page"
 )
 
 func TestDatasetEnumParsers(t *testing.T) {
@@ -716,7 +718,9 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 	for _, s := range ds.Datasets {
 		seen[s.Name] = s
 	}
-	if s := seen["editor_blocks"]; s.Module != "editor" || !s.Shared || len(s.Owners) != 1 || s.Owners[0] != typeId {
+	// The built-in page shares the canonical collection in every space,
+	// so the user type joins it as a second owner.
+	if s := seen["editor_blocks"]; s.Module != "editor" || !s.Shared || !slices.Contains(s.Owners, typeId) || !slices.Contains(s.Owners, page.TypeId) {
 		t.Errorf("editor_blocks discovery = %+v", s)
 	}
 	if s := seen[typeId+"_notes"]; s.Module != "editor" || s.Shared || len(s.Owners) != 1 || s.Owners[0] != typeId {

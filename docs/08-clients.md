@@ -152,6 +152,16 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   by type, so a bare literal never compares against an instant and a
   range filter that forgets the wrapper comes back empty.
 
+- **Ordinary lists exclude the bin.** An object moved to the bin carries
+  the built-in `bin` type (`03-api.md` § Types → Built-in hidden types);
+  every list, tree and picker adds `{"any.types": {"$nin": ["bin"]}}` to
+  its filter, and the bin view is `{"any.types": "bin"}` sorted
+  `-bin.movedAt`, rendering `bin.movedBy` through the members list like
+  `modifiedBy`. Move and restore are the plain
+  `…/properties/:objectId/attach/bin` / `detach/bin` calls — the server
+  stamps and clears the two properties — and permanent deletion stays
+  `DELETE …/objects/:id`.
+
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
   over HTTP — POST a pipeline to the sibling `…/aggregate` endpoints
