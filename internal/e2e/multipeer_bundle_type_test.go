@@ -87,4 +87,18 @@ func TestE2E_MultipeerBundleDeclaredType(t *testing.T) {
 			t.Errorf("%s: type = %+v", p.base, info)
 		}
 	}
+
+	// A hidden records host installed by the owner reads hidden on the
+	// joiner too: the flag rides the root's own row.
+	hiddenBody := `{"id":"notes-test/v1","name":"Notes","derived":true,"hidden":true,"parts":` + modulePartsBody("editor") + `}`
+	var hiddenOwner api.BundleEnsureResponse
+	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/bundles", hiddenBody, http.StatusOK, &hiddenOwner)
+	var hiddenJoiner api.TypeInfo
+	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
+		hiddenJoiner = api.TypeInfo{}
+		code := tryJSON(t, http.MethodGet, joiner.base+"/v1/spaces/"+sp.Id+"/types/"+hiddenOwner.Bundle.RootId, "", &hiddenJoiner)
+		return code == http.StatusOK && hiddenJoiner.Hidden
+	}) {
+		t.Fatalf("hidden flag never reached the joiner: %+v", hiddenJoiner)
+	}
 }

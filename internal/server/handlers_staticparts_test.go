@@ -62,7 +62,8 @@ func TestServer_RegisteredTypeParts(t *testing.T) {
 	if len(parts.Parts) != 2 {
 		t.Fatalf("parts = %+v, want two", parts.Parts)
 	}
-	notes, logPart := parts.Parts[0], parts.Parts[1]
+	// Parts come back by key, like a user type's: "log" before "notes".
+	logPart, notes := parts.Parts[0], parts.Parts[1]
 	if notes.Id != "notes" || notes.Key != "notes" || notes.Name != "Notes" || notes.Pos != "a0" || string(notes.UI) != `{"type":"table"}` {
 		t.Errorf("notes part = %+v", notes)
 	}
@@ -173,7 +174,8 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 
 	sp := createSpaceInfo(t, e, "BundleType")
 	base := "/v1/spaces/" + sp.Id
-	body := `{"id":"wiki-test/v1","name":"Wiki","derived":true,"weight":1,"layout":{"type":"page"},` +
+	// `1.0` is a JSON number too: it must land as weight 1, not 0.
+	body := `{"id":"wiki-test/v1","name":"Wiki","derived":true,"weight":1.0,"layout":{"type":"page"},"rootProperties":null,` +
 		`"properties":[{"xKey":"parentId","name":"Parent","kind":"string"},` +
 		`{"xKey":"pos","name":"Position","kind":"string","xFormat":{"type":"text"}}]}`
 	first := ensureBundle(t, e, sp.Id, body)
@@ -236,15 +238,17 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 		code   string
 	}{
 		"xKey required":    {`{"id":"v/v1","properties":[{"name":"x","kind":"string"}]}`, http.StatusBadRequest, "request.missing_field"},
-		"xKey twice":       {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"},{"xKey":"a","kind":"number"}]}`, http.StatusConflict, "property.xkey_conflict"},
+		"xKey twice":       {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"},{"xKey":"a","kind":"number"}]}`, http.StatusBadRequest, "request.invalid_field"},
 		"kind required":    {`{"id":"v/v1","properties":[{"xKey":"a"}]}`, http.StatusBadRequest, "request.schema"},
 		"unknown key":      {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string","format":"x"}]}`, http.StatusBadRequest, "request.unknown_field"},
 		"layout shape":     {`{"id":"v/v1","layout":{"config":{}}}`, http.StatusBadRequest, "request.invalid_field"},
 		"weight shape":     {`{"id":"v/v1","weight":"heavy"}`, http.StatusBadRequest, "request.schema"},
+		"weight fraction":  {`{"id":"v/v1","weight":2.5,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusBadRequest, "request.schema"},
 		"hidden shape":     {`{"id":"v/v1","hidden":"yes"}`, http.StatusBadRequest, "request.schema"},
-		"created + types":  {`{"id":"v/v1","weight":2,"rootTypes":["x"]}`, http.StatusBadRequest, "request.invalid_field"},
+		"metadata alone":   {`{"id":"v/v1","weight":2,"hidden":true,"layout":{"type":"page"}}`, http.StatusBadRequest, "request.invalid_field"},
+		"created + types":  {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootTypes":["x"]}`, http.StatusBadRequest, "request.invalid_field"},
 		"too many":         {`{"id":"v/v1","properties":[` + repeatProps(65) + `]}`, http.StatusBadRequest, "request.invalid_field"},
-		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"weight":1}`, http.StatusConflict, api.ErrBundleReserved},
+		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"weight":1,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusConflict, api.ErrBundleReserved},
 		"reserved id bare": {`{"id":"system:x"}`, http.StatusConflict, api.ErrBundleReserved},
 	} {
 		rec := doJSON(t, e, http.MethodPost, base+"/bundles", tc.body)
@@ -260,6 +264,33 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 	rec = doJSON(t, e, http.MethodGet, base+"/bundles/"+escapedBundleId("system:wiki/v1"), "")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("a reserved id must install nothing: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The tech space takes a properties-only bundle, and its columns
+	// evolve through the property routes on the root.
+	var acc api.AccountResponse
+	decodeGet(t, e, "/v1/account", &acc)
+	techBase := "/v1/spaces/" + acc.TechSpaceId
+	rec = doJSON(t, e, http.MethodPost, techBase+"/bundles", `{"id":"labels-test/v1","derived":true,"weight":1}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("tech bundle with metadata alone: %d %s", rec.Code, rec.Body.String())
+	}
+	labels := ensureBundle(t, e, acc.TechSpaceId, `{"id":"labels-test/v1","name":"Labels","derived":true,"hidden":true,"properties":[{"xKey":"color","kind":"string"}]}`)
+	if !labels.Installed || labels.Bundle.RootId == "" {
+		t.Fatalf("tech properties-only install: %+v", labels)
+	}
+	var techProps api.PropertiesListResponse
+	decodeGet(t, e, techBase+"/types/"+labels.Bundle.RootId+"/properties", &techProps)
+	if len(techProps.Properties) != 1 || techProps.Properties[0].XKey != "color" {
+		t.Fatalf("tech bundle properties = %+v", techProps.Properties)
+	}
+	rec = doJSON(t, e, http.MethodPatch, techBase+"/types/"+labels.Bundle.RootId+"/properties/"+techProps.Properties[0].Id, `{"set":{"name":"Colour"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch a tech bundle property: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, techBase+"/types/"+labels.Bundle.RootId+"/properties", `{"xKey":"icon","kind":"string"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add a property on a tech bundle root: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

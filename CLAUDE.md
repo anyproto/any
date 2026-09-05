@@ -734,7 +734,7 @@ Implementation slices landed:
     ones, most visibly in a 1-1) — the convergence point moved from a
     hardcoded derive to the registry, so different clients can register
     different things. Convention: bundle id `general-chat/v1`,
-    `rootTypes: ["chat"]`, `derived: true` (item 35 — the chat root's
+    a `chat` part (`{"module": "chat", "shared": true}`), `derived: true` (item 35 — the chat root's
     id is computed from the bundle id, so it can never fork; chat
     content cannot be merged across objects, so a fork has to be
     impossible rather than resolvable). Contract: docs/03-api.md § Chat (Finding the
@@ -886,7 +886,7 @@ Implementation slices landed:
     built-in could never carry per-space columns), introduced because
     each client minting its own `pages` type raced into parallel
     definitions. The convergence problem is now solved by registering
-    the document type as a bundle (`page/v1` by convention), which is
+    the document type as a bundle (declaring an editor part), which is
     a user type with properties, a weight, a layout and an editor part.
     `any.tags` (the SDK's free-form string array on `any`) stays.
 
@@ -949,7 +949,7 @@ Implementation slices landed:
     mapping in `datasetWriteError` (sentinels + STOPGAP string-matched
     decl errors — SDK sentinel follow-up in docs/07-roadmap.md, along
     with the dogfood handler-collapse audit and the removed-def index
-    sweep). CLI: `any type dataset …`, `any upsert`. Contract:
+    sweep). CLI: `any type part dataset …`, `any upsert`. Contract:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
     docs/17-user-datasets.md (vocabulary, convergence rules, storage
@@ -1506,7 +1506,7 @@ Implementation slices landed:
     `x-format` per field — `handler.Field` carries them too, so
     built-ins can declare descriptors later). CLI: `any type property
     add --kind … --x-format '<json>'`, option sugar on
-    `xFormat.options.*`, `any type dataset field patch`. Contract:
+    `xFormat.options.*`, `any type part dataset field patch`. Contract:
     docs/27-descriptors.md (client rules), docs/03-api.md § Types +
     § Runtime dataset schemas, docs/06-errors.md; SDK
     docs/06-data-structure.md § The `x-format` descriptor.
@@ -1556,7 +1556,7 @@ Implementation slices landed:
     `installModuleType` / `mustCreateModuleObject`
     (`internal/server/modules_test.go`, e2e twins in
     `internal/e2e/modules_test.go`). CLI: `any type part
-    list/add/patch/remove`, `any type update`, `any type dataset add
+    list/add/patch/remove`, `any type update`, `any type part dataset add
     <spaceId> <typeId> <partId>`, `--collection` on every editor
     command. Contract: docs/03-api.md § Parts and modules + § Objects
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
@@ -1575,22 +1575,30 @@ Implementation slices landed:
     `type.registered`; a type with datasets and no parts reads one
     implicit part per dataset. (b) **Reserved modules**
     (`handler.Module.Reserved`, requires `SharedOnly`): a runtime part
-    / dataset / bundle draft naming one is `space.ErrModuleReserved` →
-    `400 dataset.module_reserved`; only `EnsureBundleRequest.
-    SystemInstall` (the server's own catalog path, never client input)
-    or a static part may declare it. Nothing shipped is reserved yet —
+    / dataset / bundle draft naming one is `400
+    dataset.module_reserved` — decided server-side from the compiled
+    catalog (`reservedModule`, before a bundle's convergence wait) with
+    the SDK's `space.ErrModuleReserved` as the backstop; only the SDK's
+    `space.SystemInstall()` ensure option (the server's own catalog
+    path — `bundles.Install.SystemInstall`, never client input) or a
+    static part may declare it. Nothing shipped is reserved yet —
     `chat` flips with the general-chat ticket. (c) **Bundles declare a
     full type**: `properties` (each with an `xKey`; the propId is
     derived from `(rootId, xKey)` — `crdt.DeriveRecordId` over
     `bundle-property:<root>:<xKey>` — so two blind installs mint one
-    column per handle; adopt heals per id and never resurrects a
-    removed definition), `layout`, `weight`, `hidden` (EXPLICIT — a
-    records host asks for it, a type objects carry stays listed; the
-    pair-1 "hidden by construction" rule is gone, docs/25-favorites.md
-    and the general-chat recipes carry `"hidden": true`). The tech
-    space accepts parts OR properties. (d) `system:` bundle ids are
-    the server's (`bundles.ReservedId`) → `409 bundle.reserved` on a
-    client ensure. (e) CLI: `any bundle ensure/list/get/resolve`
+    column per handle; the SDK's property handler projects the shortId
+    row for a duplicate create too, or the peer's later data writes
+    would park; adopt heals a property only when neither its id (live
+    or tombstoned) nor a live definition with its handle exists —
+    never resurrects or doubles), `layout`, `weight`, `hidden`
+    (EXPLICIT — a records host asks for it, a type objects carry stays
+    listed; the pair-1 "hidden by construction" rule is gone,
+    docs/25-favorites.md and the general-chat recipes carry `"hidden":
+    true`; the three need `parts` or `properties`). The tech space
+    accepts parts OR properties and admits the property mutators on
+    bundle roots. (d) `system:` bundle ids are the server's
+    (`bundles.ReservedId`) → `409 bundle.reserved` on a client ensure.
+    (e) CLI: `any bundle ensure/list/get/resolve/child`
     (`internal/cli/bundles.go`, `internal/client/bundles.go`); `any
     type dataset …` moved under `any type part dataset …`. Test seam:
     `extraCatalog` in `internal/server/sdk.go` (a hidden `testdoc`

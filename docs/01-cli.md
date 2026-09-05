@@ -431,7 +431,8 @@ any type part patch  <spaceId> <typeId> <partId> --set '<json>' [--unset <path> 
 any type part remove <spaceId> <typeId> <partId>
 
 # the datasets under a part (03-api.md § Runtime dataset schemas);
-# `type part list` shows every dataset with its part:
+# `type part list` shows every dataset with its part, `dataset list` flat:
+any type part dataset list   <spaceId> <typeId>
 any type part dataset add    <spaceId> <typeId> <partId> --draft '<json>|@FILE|-'
 any type part dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
 any type part dataset remove <spaceId> <typeId> <defId>
@@ -453,25 +454,28 @@ any bundle ensure  <spaceId> --body '<json>|@FILE|-'
 any bundle list    <spaceId>
 any bundle get     <spaceId> <bundleId>
 any bundle resolve <spaceId> <bundleId> <loserRootId>
+any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
 ```
 
 `ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
 — the id, the root strategy (`derived`) and what the root declares:
-`parts`, `properties` (each with an `xKey`; the property id derives
-from it), `layout`, `weight`, `hidden`. Adopt-or-install: the reply
-carries the converged row and whether THIS call installed it. `get`
-and `list` are locked on registry convergence and report `synced`.
-`resolve` deletes a losing root after its content was merged. Bundle
-ids are passed verbatim (`general-chat/v1`); the CLI encodes the path.
-Ids under `system:` are the server's and are refused.
+`parts` or `properties` (each property with an `xKey`; the property
+id derives from it), plus `layout`, `weight`, `hidden` describing that
+type. Adopt-or-install: the reply carries the converged row and
+whether THIS call installed it. `get` and `list` are locked on
+registry convergence and report `synced`. `resolve` deletes a losing
+root after its content was merged; `child` derives a setup object
+under the winner. Bundle ids are passed verbatim (`general-chat/v1`);
+the CLI encodes the path. Ids under `system:` are the server's and are
+refused.
 
 `type update` patches the display and rendering slice; cobra's
 `Changed` distinguishes an absent flag (keep) from an empty one
 (clear), and `--layout ''` clears the layout. `--meta k=v` is
 repeatable and per key (a value that parses as a JSON scalar is taken
 as such, `k=` unsets); `--hidden=false` unhides. `type list` omits
-hidden types (bundle roots, types marked hidden) without
-`--include-hidden`. A part draft is the
+hidden types (a records-hosting bundle root, a type marked hidden)
+without `--include-hidden`. A part draft is the
 `PartDraftRequest` shape — `{"key": "body", "datasets": [{"module":
 "editor", "shared": true}]}` declares a shared editor body; `{"key":
 "transcript", "ui": {"type": "table"}, "datasets": [{"key":
@@ -494,7 +498,7 @@ any type property patch S T P --set '{"xFormat.options.high.name":"High","xForma
 any type property patch S T P --set '{"xFormat.config.multiple":true}'
 any type property patch S T P --unset xFormat.options.high
 any type property option set S T P high --name High --color red --pos a0
-any type dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
+any type part dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
 ```
 
 Property **value** read/write stays under `any properties …` (values on

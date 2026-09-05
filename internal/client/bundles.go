@@ -50,3 +50,12 @@ func (c *Client) BundleResolve(ctx context.Context, spaceId, bundleId, loserRoot
 	return c.do(ctx, http.MethodPost, bundlePath(spaceId, bundleId, "/resolve"),
 		api.BundleResolveRequest{LoserRootId: loserRootId}, nil)
 }
+
+// BundleChild derives a setup object under the bundle's winner.
+func (c *Client) BundleChild(ctx context.Context, spaceId, bundleId string, req api.BundleChildRequest) (*api.BundleChildResponse, error) {
+	var out api.BundleChildResponse
+	if err := c.do(ctx, http.MethodPost, bundlePath(spaceId, bundleId, "/children"), req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

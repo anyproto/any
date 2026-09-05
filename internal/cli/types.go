@@ -119,7 +119,7 @@ func newTypeListCmd() *cobra.Command {
 			return printJSON(out)
 		},
 	}
-	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "also list hidden types (bundle roots, types marked hidden)")
+	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "also list hidden types (a records-hosting bundle root, a type marked hidden)")
 	return cmd
 }
 
@@ -323,15 +323,32 @@ func newTypeDatasetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dataset",
 		Aliases: []string{"ds"},
-		Short:   "add / patch / remove a part's dataset definitions",
+		Short:   "list / add / patch / remove a part's dataset definitions",
 	}
 	cmd.AddCommand(
+		newTypeDatasetListCmd(),
 		newTypeDatasetAddCmd(),
 		newTypeDatasetPatchCmd(),
 		newTypeDatasetRemoveCmd(),
 		newTypeDatasetFieldCmd(),
 	)
 	return cmd
+}
+
+func newTypeDatasetListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list <spaceId> <typeId>",
+		Short: "list a type's dataset definitions flat (every part's)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			out, err := cl.TypeDatasets(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
 }
 
 func newTypeDatasetAddCmd() *cobra.Command {

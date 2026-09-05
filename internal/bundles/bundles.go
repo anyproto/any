@@ -89,20 +89,22 @@ type Install struct {
 	// handle. Every draft carries an XKey.
 	Properties []space.PropertyDraft
 	// Layout, Weight and Hidden seed the root type's metadata on
-	// install; adopt never patches them. Hidden is explicit.
+	// install; adopt never patches them. Hidden is explicit. They need
+	// Parts or Properties — the SDK refuses them alone.
 	Layout map[string]any
 	Weight int
 	Hidden bool
 	// SystemInstall marks the server's own catalog install: it lifts the
-	// reserved-module refusal. Never set from client input.
+	// reserved-module refusal (the SDK's SystemInstall ensure option).
+	// Never set from client input.
 	SystemInstall bool
 }
 
 // DeclaresType reports whether the install makes the root a type
-// implementing itself — any of Parts, Properties, Layout, Weight or
-// Hidden.
+// implementing itself — Parts or Properties (the SDK's
+// EnsureBundleRequest.DeclaresType rule).
 func (i Install) DeclaresType() bool {
-	return len(i.Parts) > 0 || len(i.Properties) > 0 || len(i.Layout) > 0 || i.Weight != 0 || i.Hidden
+	return len(i.Parts) > 0 || len(i.Properties) > 0
 }
 
 // ReservedIdPrefix marks the bundle ids the server's embedded catalog
@@ -269,8 +271,12 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			}
 			for _, p := range inst.Properties {
 				if _, ok := have[p.XKey]; !ok {
-					// Absent by handle — or removed on purpose, which the
-					// SDK's per-id check tells apart and leaves alone.
+					// Absent by handle — the SDK's own rule (a definition
+					// is present when its id exists, live or tombstoned,
+					// or a live one carries the handle). A handle whose
+					// definition was removed on purpose falls through
+					// too: the SDK sees the tombstone and writes nothing,
+					// so the cost is one no-op Ensure per call.
 					missing = true
 					break
 				}
@@ -307,14 +313,17 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		Id: inst.Id, Name: inst.Name,
 		Parts: inst.Parts, Properties: inst.Properties,
 		Layout: inst.Layout, Weight: inst.Weight, Hidden: inst.Hidden,
-		SystemInstall: inst.SystemInstall,
+	}
+	var opts []space.EnsureOption
+	if inst.SystemInstall {
+		opts = append(opts, space.SystemInstall())
 	}
 	var created string
 	if inst.Derived {
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
-	} else if inst.DeclaresType() {
+	} else if req.DeclaresType() {
 		// SDK-minted created root: Ensure creates the object, stamps
 		// it as its own type and declares — the only create the tech
 		// space allows, and the same shape everywhere.
@@ -328,7 +337,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			return rootId, err
 		}
 	}
-	b, registered, err := sp.Bundles().Ensure(createCtx, req)
+	b, registered, err := sp.Bundles().Ensure(createCtx, req, opts...)
 	if err != nil {
 		return space.Bundle{}, false, fmt.Errorf("bundle %s: ensure: %w", inst.Id, err)
 	}
@@ -344,7 +353,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived || inst.DeclaresType() {
+	if inst.Derived || req.DeclaresType() {
 		// Derived: registered is exact. SDK-minted created root: the
 		// minted id is not observable here, so registered is the
 		// answer, with the same narrow inbound-race weakness the

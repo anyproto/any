@@ -18,7 +18,32 @@ func newBundleCmd() *cobra.Command {
 		newBundleListCmd(),
 		newBundleGetCmd(),
 		newBundleResolveCmd(),
+		newBundleChildCmd(),
 	)
+	return cmd
+}
+
+func newBundleChildCmd() *cobra.Command {
+	var (
+		seed  string
+		types []string
+	)
+	cmd := &cobra.Command{
+		Use:   "child <spaceId> <bundleId> --seed SEED [--type T ...]",
+		Short: "derive a setup object under the bundle's winner (deterministic per seed)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			out, err := cl.BundleChild(cmd.Context(), args[0], args[1], api.BundleChildRequest{Seed: seed, Types: types})
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	cmd.Flags().StringVar(&seed, "seed", "", "child seed (permanent; a successor object takes a new one)")
+	cmd.Flags().StringArrayVar(&types, "type", nil, "type id to attach on first materialization (repeatable)")
+	_ = cmd.MarkFlagRequired("seed")
 	return cmd
 }
 

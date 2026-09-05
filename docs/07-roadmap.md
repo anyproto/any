@@ -246,11 +246,10 @@ pluggable embedders, parallel batched pipelines),
 - **Wiki folder marker.** The well-known `wiki/v1` bundle wants a
   "folder" flag next to its page type; whether that is a property, a
   `layout`, or a second type is a client decision still open.
-- **Bundle-declared types beyond the root.** A bundle declares parts on
-  its root only; a bundle that ships several types (a meeting type plus
-  a decision type) still creates them one by one. Deterministic
-  property ids and a full type declaration per bundle are the next SDK
-  step.
+- **Bundle-declared types beyond the root.** A bundle declares one
+  type — its root's parts, properties (handle-derived ids), layout,
+  weight and hidden flag; a bundle that ships several types (a meeting
+  type plus a decision type) still creates the others one by one.
 
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 

@@ -383,7 +383,7 @@ func errCode(t *testing.T, body []byte) string {
 // TestServer_TypeHiddenAndMeta pins the two type flags: hidden types
 // stay out of the default listing and come back with includeHidden
 // (GET by id always resolves them; a bundle's self-typed root is
-// hidden by construction); meta is a per-key scalar bag — create
+// hidden when its install asks); meta is a per-key scalar bag — create
 // takes it whole, PATCH sets and unsets per key, bad keys and values
 // are refused at the boundary.
 func TestServer_TypeHiddenAndMeta(t *testing.T) {

@@ -1072,10 +1072,11 @@ all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
 **Bundle-declared types.** A bundle may declare a full type on its
-root — `parts`, `properties`, `layout`, `weight`, `hidden`; any of them
-makes the root implement itself as a type: `any.types = ["__type__",
-"<rootId>"]`, `typeId = rootId`, readable through `GET …/types/:rootId`
-and its `parts` / `properties` / `datasets` routes.
+root — `parts` or `properties` make the root implement itself as a
+type (`any.types = ["__type__", "<rootId>"]`, `typeId = rootId`,
+readable through `GET …/types/:rootId` and its `parts` / `properties`
+/ `datasets` routes); `layout`, `weight` and `hidden` describe that
+type and ride along (alone they are `400 request.invalid_field`).
 
 - `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
   ≤32 entries) declares parts and the datasets under them. A records
@@ -1092,7 +1093,7 @@ and its `parts` / `properties` / `datasets` routes.
   …/types/:typeId/properties`, ≤64 entries, ≤64 KiB) declares property
   definitions, so the root is a type **objects carry** — a wiki's
   `parentId` / `pos`. Every draft carries an `xKey`, unique in the body
-  (`400 request.missing_field` / `409 property.xkey_conflict`), because
+  (`400 request.missing_field` / `400 request.invalid_field`), because
   the **property id is derived from (rootId, xKey)**: two devices that
   install while apart mint ONE column per handle, not the two the
   descriptor model otherwise allows (docs/27-descriptors.md § Handles)
@@ -1112,9 +1113,10 @@ and its `parts` / `properties` / `datasets` routes.
 Declared once on install: parts in one change, properties in one. An
 adopt heals what is **absent** and never patches — parts only on a
 root carrying no part declaration at all, properties per handle (a
-definition the root lacks is written; one removed through `DELETE
-…/types/:rootId/properties/:propId` stays removed, its tombstone keeps
-the id). Later evolution is `POST/PATCH/DELETE …/types/:rootId/parts…`,
+definition the root lacks is written; one it carries under any id, or
+removed through `DELETE …/types/:rootId/properties/:propId` — the
+tombstone keeps the id — is left alone, so nothing is doubled or
+resurrected). Later evolution is `POST/PATCH/DELETE …/types/:rootId/parts…`,
 `…/datasets…` and `…/properties…` — `Ensure` never patches, adds or
 resurrects a declaration, and never touches the root's name, layout,
 weight or hidden flag once stamped. A malformed declaration (unknown
@@ -1157,7 +1159,7 @@ settings — lives in bundles on the account's **tech space**, whose id
   convergence gate cannot work). Records-shaped bundles merge, so they
   are created;
 - `types` reads and `types/:rootId/parts…` / `types/:rootId/datasets…`
-  on bundle roots;
+  / `types/:rootId/properties…` on bundle roots;
 - records on bundle roots: `query[/subscribe]`, `modify`, `upsert`,
   `delete-records`, `aggregate`; `GET …/objects/:objectId`;
 - `GET` the space (a synthetic row: `spaceType: any.techspace`,
@@ -1281,9 +1283,9 @@ collection only while it carries a type whose part declares it: a
 write into a collection none of the object's types declare is `400
 dataset.not_declared` (attach the type first — the write never attaches
 one); a `:collection` no editor part in the space declares is `404
-dataset.not_found`. There is no built-in document type: a client's
-page type is a user type — normally the well-known `page/v1` bundle —
-whose part shares the editor. The atomic surface is the three
+dataset.not_found`. There is no built-in document type yet: a client's
+page type is a user type whose part shares the editor — registered as
+a bundle so every peer lands on one. The atomic surface is the three
 `…/blocks` endpoints; the `…/markdown` routes are a lossless
 import/export layer over the same collection for LLM tools, "Export as
 .md" / "Import .md" flows, and programmatic API users that don't want
@@ -2101,9 +2103,11 @@ type.not_found`.
 `hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
 the picker view — unless the request carries `?includeHidden=true`;
 `GET …/types/:typeId` resolves a hidden type always, so an object
-carrying one still renders. A bundle's self-typed root is hidden by
-construction: it exists to host the bundle's datasets, and attaching
-it elsewhere would grant that object the bundle's collections.
+carrying one still renders. A bundle root is hidden when its install
+asks for it (`hidden` in § Bundles): a root that only hosts its
+bundle's records should be, since attaching it elsewhere would grant
+that object the bundle's collections; a root that is a type objects
+carry stays listed.
 
 `meta` (`type.meta`) is the open bag of consumer flags on a type — one
 string, bool or number per single-level key (no `.`, no `$`, ≤64
@@ -2273,9 +2277,12 @@ value on every read and write:
 
 A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
-dataset.module_reserved`. No shipped module is reserved yet; the
-mechanism is what lets the server's catalog own the one install of a
-module (the general chat under `chat`) without a client racing it.
+dataset.module_reserved`, decided from the compiled-in catalog before
+any wait. Only the server's own catalog install and a registered
+type's static part may declare it. No shipped module is reserved yet;
+the mechanism is what lets the server's catalog own the one install
+of a module (the general chat under `chat`) without a client racing
+it.
 
 **An object holds a collection while it carries a declaring type.**
 The write gate is on the object's `any.types`: a write into a
@@ -2559,8 +2566,8 @@ object is a chat" is one whose part shares the chat module (§ Parts
 and modules). What used to be the reason for a built-in — every client
 minting its own type and racing into parallel definitions — is solved
 by registering the type through a bundle (§ Bundles), which converges
-on one type per space: a client's document type is normally the
-well-known `page/v1` bundle, a space's chat the `general-chat/v1`
+on one type per space: a client's document type is a bundle-declared
+type with an editor part, a space's chat the `general-chat/v1`
 bundle with a chat part. Listing a space's documents is a filter on
 the type ids that declare the editor (`owners` of `editor_blocks` in
 § Dataset schema discovery): `{"filter": {"any.types": {"$in":
@@ -2673,7 +2680,8 @@ as the `<objectId>` below.
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "derived": true,
+{ "id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
+  "layout": { "type": "chat" },
   "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
 → 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```

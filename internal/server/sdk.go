@@ -135,6 +135,20 @@ func serverModules() []handler.Module {
 	return append(out, extraCatalog.modules...)
 }
 
+// reservedModule reports whether a module name is registered as
+// reserved to the server's own installs (handler.Module.Reserved).
+func reservedModule(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, m := range serverModules() {
+		if m.Name == name {
+			return m.Reserved
+		}
+	}
+	return false
+}
+
 // staticDatasetNames collects every compiled-in dataset name across
 // serverTypes() and the modules' canonical collections — indexed or
 // not — so the schema chunker never treats a compiled-in dataset as a

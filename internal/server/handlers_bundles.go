@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -222,18 +223,26 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		inst.Layout = layout
 	}
 	if v := root.Get("weight"); v != nil && v.Type() != fastjson.TypeNull {
-		if v.Type() != fastjson.TypeNumber {
-			return inst, writeError(c, http.StatusBadRequest, "request.schema", "weight must be a number", nil), true
+		// GetFloat64, not GetInt: fastjson's GetInt answers 0 for `1.0`,
+		// which would silently drop the weight.
+		f := v.GetFloat64()
+		if v.Type() != fastjson.TypeNumber || f != math.Trunc(f) || f > math.MaxInt32 || f < math.MinInt32 {
+			return inst, writeError(c, http.StatusBadRequest, "request.schema", "weight must be an integer", nil), true
 		}
-		inst.Weight = v.GetInt()
+		inst.Weight = int(f)
 	}
 	if v := root.Get("hidden"); v != nil && v.Type() != fastjson.TypeNull &&
 		v.Type() != fastjson.TypeTrue && v.Type() != fastjson.TypeFalse {
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "hidden must be a boolean", nil), true
 	}
 	inst.Hidden = root.GetBool("hidden")
+	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden) {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"layout/weight/hidden describe a type — declare parts or properties with them", nil), true
+	}
+	rootProps := root.Get("rootProperties")
 	if inst.DeclaresType() && !inst.Derived &&
-		(len(root.GetArray("rootTypes")) > 0 || root.Get("rootProperties") != nil) {
+		(len(root.GetArray("rootTypes")) > 0 || (rootProps != nil && rootProps.Type() != fastjson.TypeNull)) {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"rootTypes/rootProperties are not available on a created root that declares a type — the server mints and self-types it (use derived: true to combine them)", nil), true
 	}
@@ -351,7 +360,7 @@ func bundlePropertiesFromBody(c echo.Context, body []byte) ([]space.PropertyDraf
 		}
 		if _, dup := seen[reqs[i].XKey]; dup {
 			details["xKey"] = reqs[i].XKey
-			return nil, writeError(c, http.StatusConflict, "property.xkey_conflict",
+			return nil, writeError(c, http.StatusBadRequest, "request.invalid_field",
 				fmt.Sprintf("properties[%d]: xKey declared twice", i), details), true
 		}
 		seen[reqs[i].XKey] = struct{}{}
