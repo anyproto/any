@@ -570,7 +570,7 @@ is a contract:
   leaves so a bundle upgrade does not clobber a user's rename.
 - **Autonumber, non-date ranges, unit/measure properties.**
 - **Built-in dataset fields.** `chat_messages`, `editor_blocks`,
-  `data_views` and the `objects` row's `any.*` fields are declared in Go.
+  `dataviews` / `views` and the `objects` row's `any.*` fields are declared in Go.
   The SDK's `handler.Field` now carries `Description` / `XFormat` and
   discovery renders them, but no built-in declares one yet — a client
   still hardcodes that `any.icon` is an icon and `chat_messages.text` is

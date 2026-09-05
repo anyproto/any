@@ -163,7 +163,7 @@ Not this repo's work; gate on the SDK:
 - **Scoped datasets (SYN-174).** Records that exist only for one
   account or one device — the SDK scopes FIELDS, and the private tiers
   of saved views (`24-data-views.md`) need scoped RECORDS. Shape agreed:
-  scope the whole dataset (parallel `data_views_account` / `_device`),
+  scope the whole dataset (parallel `views_account` / `_device`),
   not a per-record flag — one dataset is one version domain, and mixing
   DAG / tech-tree / local-lexid versions in one dataset breaks
   versionId ordering and subscribe dedup. Account tier rides the
@@ -239,10 +239,12 @@ pluggable embedders, parallel batched pipelines),
   registration declares flags or counters, so a module tracked on
   namespaced instances alone would classify reads without
   materializing them.
-- **`data_view` as a module.** Saved views stay a registered built-in
-  type owning `data_views`; the same declaration could be a `views`
-  module a part declares (`{"module": "views"}`), which would let a
-  type carry several view sets. Blocked on a client need.
+- **`dataview` as a module.** Saved views stay a registered built-in
+  type owning `dataviews` / `views`; the same declaration could be a
+  `views` module a part of any type declares (`{"module": "views"}`),
+  so a type's own part carries the views element. Blocked on a client
+  need — the built-in's second level already covers "many tables on one
+  object".
 - **Wiki folder marker.** The well-known `wiki/v1` bundle wants a
   "folder" flag next to its page type; whether that is a property, a
   `layout`, or a second type is a client decision still open.
@@ -287,7 +289,7 @@ pluggable embedders, parallel batched pipelines),
   plus a target member.
 - **Built-in field descriptors.** `handler.Field` carries
   `Description` / `XFormat` and discovery renders them, but
-  `chat_messages`, `editor_blocks`, `data_views` and the `any.*` row
+  `chat_messages`, `editor_blocks`, `dataviews` / `views` and the `any.*` row
   fields declare none — clients still hardcode that `any.icon` is an
   icon and `chat_messages.text` is markdown.
 - **Nested descriptors.** `items` / `properties` are not settable over
@@ -300,6 +302,15 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **`dataview`: many dataviews, each with many views (SYN-217)** — the
+  built-in `data_view` / `data_views` became the hidden `dataview` type
+  with one part `views` owning two records datasets: `dataviews` (one
+  record per table on the host: name, icon, pos) and `views` (one per
+  view, keyed to its dataview) — so an object holds several independent
+  tables. Same declaration rules (id:user, stamps, dynamic,
+  mutable/deletable by anyone); the `dataview` reference is not
+  validated and deletion does not cascade. No `dataview` module, no
+  back-compat. Contract: docs/24-data-views.md.
 - **Built-in hidden types `page` / `miniapp` / `bin`** (SYN-213,
   SYN-215, SYN-219) — three registered `hidden` types an object opts
   into: `page` (one static part sharing `editor_blocks`, the plain

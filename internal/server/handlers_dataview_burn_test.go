@@ -24,7 +24,7 @@ func TestServer_DataView_DeletedIdIsBurned(t *testing.T) {
 
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/delete-records", fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, "recordIds": ["default"]
-	}`, objectId, dataview.Dataset))
+	}`, objectId, dataview.DatasetViews))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete view: %d %s", rec.Code, rec.Body.String())
 	}

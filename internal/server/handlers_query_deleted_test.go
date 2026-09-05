@@ -27,7 +27,7 @@ func TestServer_Query_IncludeDeleted(t *testing.T) {
 
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/delete-records", fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, "recordIds": ["v-2"]
-	}`, objectId, dataview.Dataset))
+	}`, objectId, dataview.DatasetViews))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
@@ -39,7 +39,7 @@ func TestServer_Query_IncludeDeleted(t *testing.T) {
 	}
 	query := func(extra string) (api.QueryResponse, []row) {
 		t.Helper()
-		body := fmt.Sprintf(`{"objectId": %q, "dataset": %q, "sort": ["-id"]%s}`, objectId, dataview.Dataset, extra)
+		body := fmt.Sprintf(`{"objectId": %q, "dataset": %q, "sort": ["-id"]%s}`, objectId, dataview.DatasetViews, extra)
 		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", body)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("query %s: %d %s", extra, rec.Code, rec.Body.String())
@@ -91,7 +91,7 @@ func TestServer_Query_IncludeDeleted(t *testing.T) {
 
 	// Refused on subscribe (the live window cannot carry tombstones)…
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query/subscribe",
-		fmt.Sprintf(`{"objectId": %q, "dataset": %q, "includeDeleted": true}`, objectId, dataview.Dataset))
+		fmt.Sprintf(`{"objectId": %q, "dataset": %q, "includeDeleted": true}`, objectId, dataview.DatasetViews))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("subscribe with includeDeleted: %d %s, want 400", rec.Code, rec.Body.String())
 	}

@@ -21,7 +21,7 @@ account
 
 - A **space** is the unit of sharing and encryption. Every member holds the same data; every write is a change in a per-object DAG that syncs to everyone.
 - An **object** is a document. It carries a list of **types** in `any.types`, property values keyed by `<typeId>.<propId>`, and any number of per-object **datasets** (collections of records that belong to that object — chat messages, editor blocks, or a runtime dataset you declare).
-- A **type** declares properties (kind, format, scope) and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). Built-in types (`data_view`, `nav`, and the hidden `page` / `miniapp` / `bin`) exist in every space; chat types and your own document types are registered as bundles.
+- A **type** declares properties (kind, format, scope) and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). Built-in types (`nav`, and the hidden `dataview` / `page` / `miniapp` / `bin`) exist in every space; chat types and your own document types are registered as bundles.
 
 ## One read path, many write paths
 

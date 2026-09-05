@@ -28,7 +28,7 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/types
 any type list $SPACE
 ```
 
-Each row is `{id, name, description?, iconCid?, xKey, builtIn, weight?, layout?, hidden?, meta?}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type: `xkey`, `weight`, `layout`, `hidden`, `meta`) — then every registered built-in (`data_view`, `nav`, and the hidden `page` / `miniapp` / `bin` — capability types an object opts into), then user types; hidden types appear only with `includeHidden=true`. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
+Each row is `{id, name, description?, iconCid?, xKey, builtIn, weight?, layout?, hidden?, meta?}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type: `xkey`, `weight`, `layout`, `hidden`, `meta`) — then every registered built-in (`nav`, and the hidden `dataview` / `page` / `miniapp` / `bin` — capability types an object opts into), then user types; hidden types appear only with `includeHidden=true`. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404 type.not_found` for an unknown id. A `200 []` from the properties list always means "exists, no properties yet".
 

@@ -1233,8 +1233,9 @@ Implementation slices landed:
     roots (`NewRoot` optional), tech `ResolveLoser`, bundle-root-only
     `Objects().Delete`, catalog release on type-object purge.
 
-39. **Built-in `data_view` type: saved views (SYN-175)** —
-    `internal/dataview` registers `data_view`, attachable to ANY object
+39. **Built-in `data_view` type: saved views (SYN-175)** — SUPERSEDED
+    by item 47 (`dataview`, two levels); the rules below carry over.
+    `internal/dataview` registered `data_view`, attachable to ANY object
     including a TYPE object (that is how "views on a type" works —
     `AttachType` has no meta-type guard), owning the `data_views`
     dataset: one record per saved view
@@ -1563,10 +1564,10 @@ Implementation slices landed:
     command. Contract: docs/03-api.md § Parts and modules + § Objects
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
     docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
-    (docs/07-roadmap.md): namespaced chat, `data_view` as a module,
-    the built-in `dataview` type, `nav` → `wiki`, and the server
-    catalog (`GET/POST /v1/catalog…`) that installs the well-known
-    `system:` bundles (`page` / `miniapp` / `bin` shipped — item 46).
+    (docs/07-roadmap.md): namespaced chat, `dataview` as a module,
+    `nav` → `wiki`, and the server catalog (`GET/POST /v1/catalog…`)
+    that installs the well-known `system:` bundles (`page` / `miniapp`
+    / `bin` shipped — item 46; `dataview` — item 47).
     **Pair 2 — the foundation for those tickets** (same PR pair):
     (a) registered types declare **static parts** (`handler.Type.Parts`
     — entries of the type's `Datasets` by name, or module datasets the
@@ -1662,6 +1663,35 @@ Implementation slices landed:
     now pins only `editor` / `chat` absent. Contract: docs/03-api.md
     § Types → Built-in hidden types + § Properties, docs/08-clients.md
     § 3, docs/01-cli.md.
+
+47. **`dataview`: many dataviews, each with many views (SYN-217)** —
+    `internal/dataview` now registers the HIDDEN type `dataview`
+    (replaces `data_view` / `data_views`, no back-compat) with one
+    static part `views` (`ui {"type":"table"}`) owning two records
+    datasets on the generic schema handler: `dataviews` (one record per
+    table on the host — `name`+`pos` required, `icon`, stamps) and
+    `views` (one per view — `dataview`+`name`+`pos`+`layout` required,
+    `icon`/`query`/`layoutSettings` synced, `localSettings` ScopeLocal,
+    stamps). The added level is what lets one object carry several
+    independent tables. Item 39's rules carry over unchanged: IdUser +
+    burned ids + the deterministic ensure sequence, MutableByAnyone /
+    DeleteByAnyone, Dynamic, opaque `query`/`layoutSettings`, no
+    bespoke endpoints, no CLI, no chunker. Two decisions: a view's
+    `dataview` is required but NOT validated against the collection and
+    a dataview delete does NOT cascade (orphans stay readable through
+    `{"dataview": id}` and writable — the client deletes or re-parents
+    with `$set dataview`; a server rule would let a dataview deleted on
+    one device turn every view write elsewhere into a failure); view
+    ids are one namespace per host, convention `<dataviewId>.<key>`
+    for a non-default dataview's views. Indexes: `dataviews.idx_pos`,
+    `views.idx_dataview_pos` (the documented per-dataview read) +
+    `idx_pos`. No `dataview` module (roadmap). Tests:
+    handlers_dataview_test.go (`setupViewFixture` attaches the type AND
+    ensures the `default` dataview; `ensureDataview` / `listDataviews`
+    / `queryViews`; `TestServer_DataView_ManyDataviews` pins filter,
+    move, no-cascade), e2e `TestE2E_MultipeerDataViews` syncs both
+    levels. Contract: docs/24-data-views.md, docs/03-api.md § Types →
+    Built-in `dataview` type, docs/08-clients.md § 13.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1927,7 +1957,7 @@ auto-start.
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
-| `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
+| `docs/24-data-views.md` | saved views — the hidden `dataview` type, `dataviews` + `views` record shapes (many tables per host, each with its views), what stays opaque and why, shared/account/device tiers, the client grouping recipe |
 | `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
 | `docs/27-descriptors.md` | property & field descriptors — the `xFormat` bag: guarantee boundary (`kind` vs hint), the six interpreted keys, merge model, leaf-only PATCH rule, v1 slug vocabulary + value checks, composites, client rendering/tolerance/ordering rules, what the server enforces, not-covered list |

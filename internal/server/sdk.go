@@ -123,7 +123,7 @@ var extraCatalog struct {
 // reserves the id against user types.
 func serverTypes() []handler.Type {
 	out := []handler.Type{
-		dataview.NewType(), // data_views: one saved view per record, on any host object
+		dataview.NewType(), // hidden: dataviews + views records on any host object
 		nav.NewType(),      // property-only: no dataset, just nav.* schema
 		page.NewType(),     // hidden: one part sharing the editor's canonical collection
 		miniapp.NewType(),  // hidden, property-only: the installed bundle an object runs
@@ -185,7 +185,7 @@ func staticDatasetNames() []string {
 // Indexed: editor blocks (coalesced windows), chat messages, and object
 // properties (name / description under "basic"; user values default-on
 // under "props", meta.index overriding — see internal/index/prop.go).
-// Deliberately NOT indexed: saved views (`data_views` — navigation
+// Deliberately NOT indexed: saved views (`dataviews` / `views` — navigation
 // chrome, not knowledge) have no chunker. Agent data, enrichments,
 // programs and mini apps are harness-declared runtime datasets: indexed
 // via the schema chunker under their declared search scope, or not at

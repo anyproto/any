@@ -52,8 +52,8 @@ func TestServer_TypeCreate_XKeyValidation(t *testing.T) {
 	}
 
 	// 4. An xKey shadowing a built-in type's literal id also collides
-	//    (built-ins carry xKey "" but resolve by id, e.g. "data_view").
-	rec = doJSON(t, e, http.MethodPost, typesURL, `{"name":"NotChat","xKey":"data_view"}`)
+	//    (built-ins carry xKey "" but resolve by id, e.g. "dataview").
+	rec = doJSON(t, e, http.MethodPost, typesURL, `{"name":"NotChat","xKey":"dataview"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("builtin-id xKey: status=%d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
@@ -232,7 +232,7 @@ func TestServer_BuiltinTypesReportXKey(t *testing.T) {
 
 	// The single-type reads: the shared mapper, plus nav's hardcoded
 	// short-circuit, which bypasses it entirely.
-	for _, id := range []string{"any", "spaceIndex", "type", "data_view", "nav"} {
+	for _, id := range []string{"any", "spaceIndex", "type", "dataview", "nav"} {
 		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET /types/%s: status=%d body=%s", id, rec.Code, rec.Body.String())

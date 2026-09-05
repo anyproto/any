@@ -670,26 +670,35 @@ Saved views (`24-data-views.md`) are the first place a client both
 the call patterns matter more than the record shape.
 
 - **Bind the type once, at create where you can.** A new host object
-  takes `{"types": ["data_view"]}` on `POST …/objects`; an existing one
-  needs `POST …/properties/:objectId/attach/data_view`. Attach is
+  takes `{"types": ["dataview"]}` on `POST …/objects`; an existing one
+  needs `POST …/properties/:objectId/attach/dataview`. Attach is
   idempotent, so calling it on every open is *correct but wasteful* —
   it is a DAG write. Attach when you first add a view, not when you
   open the object.
 
-- **Ensure the default view, never create-on-open.** Upsert a fixed
-  record id (`default`) so two devices opening the same object converge
-  on one view instead of minting two. **Then read `rejections`.** A
-  deleted id is burned forever, and re-upserting it returns `200` with a
-  rejection and creates nothing — a client that checks only the status
-  code renders an empty view list with no error. On a rejection, fall
-  through to the next id in a deterministic sequence (`default-2`,
-  `default-3`, …); walking the same sequence everywhere is what keeps
-  devices converging on the same replacement.
+- **Ensure the default dataview and its default view, never
+  create-on-open.** Two levels: a `dataviews` record (`default`,
+  `{name, pos}`) and a `views` record (`default`, `{dataview:
+  "default", name, layout, pos}`), each upserted under a fixed id so two
+  devices opening the same object converge on one table with one view
+  instead of minting two. **Then read `rejections`.** A deleted id is
+  burned forever, and re-upserting it returns `200` with a rejection and
+  creates nothing — a client that checks only the status code renders an
+  empty view list with no error. On a rejection, fall through to the
+  next id in a deterministic sequence (`default-2`, `default-3`, …);
+  walking the same sequence everywhere is what keeps devices converging
+  on the same replacement. View ids are one namespace per host, so a
+  second dataview's views take `<dataviewId>.<key>` ids
+  (`board.default`) and walk their own sequence.
 
-- **Never offer to delete the last view.** "At least one view always
-  exists" cannot be enforced server-side — the delete gate is
-  per-record, not per-collection — so it is your rule. It also protects
-  users from burning the well-known id.
+- **Never offer to delete the last view — and delete a dataview's
+  views yourself.** "At least one dataview with one view always exists"
+  cannot be enforced server-side — the delete gate is per-record, not
+  per-collection — so it is your rule; it also protects users from
+  burning the well-known ids. Deleting a dataview does not cascade: its
+  views stay as orphans (`{"filter": {"dataview": "<id>"}}` still finds
+  them), so delete them in the same batch, or re-parent them with one
+  `$set dataview`.
 
 - **Patch by path; a root `$set` merges, it does not replace.**
   `{"type": "$set", "path": "layoutSettings.order", "value": [...]}`
@@ -707,10 +716,12 @@ the call patterns matter more than the record shape.
   the merge of `layoutSettings` and `localSettings`, local winning per
   key.
 
-- **One subscription for the view list, not one per view.** The view
-  list is a single `…/query/subscribe` window on `dataset:
-  "data_views"` sorted by `pos` — §10's budget applies unchanged. The
-  *contents* of the active view are a second window; inactive views cost
+- **One subscription per list, not one per view.** The dataview list is
+  a `…/query/subscribe` window on `dataset: "dataviews"` sorted by
+  `pos`; the active dataview's view list is a second window on
+  `dataset: "views"` with `{"filter": {"dataview": "<id>"}}`, sorted
+  by `pos` (indexed) — §10's budget applies unchanged. The *contents* of
+  the active view are a third window; inactive dataviews and views cost
   nothing.
 
 - **Save the query keyed by `propId`, and scope it by type.** `xKey`
