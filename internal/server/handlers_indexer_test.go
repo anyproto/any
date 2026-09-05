@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/indexer"
 )
 
@@ -195,9 +194,12 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 		t.Fatalf("pre-detach hits = %v, want 2", hitRecordIds(res))
 	}
 
-	// Detach the chat type: the row re-streams with a bumped _applySeq and
-	// the next advance prefix-evicts objectId:chat_messages:.
-	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chat.TypeId); err != nil {
+	// Detach the declaring type: the row re-streams with a bumped
+	// _applySeq and the next advance prefix-evicts
+	// objectId:chat_messages: — the object no longer holds the
+	// collection (no owner of chat_messages among its types).
+	chatType := installModuleType(t, e, spaceId, "chat")
+	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chatType); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
@@ -208,8 +210,11 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 		t.Fatalf("post-detach hits = %v, want none", hitRecordIds(res))
 	}
 
-	// Re-attach (a new send re-attaches the type) — only the new message
-	// indexes; rows below the cursor do not resurrect.
+	// Re-attach the declaring type (no write attaches one) — only the
+	// new message indexes; rows below the cursor do not resurrect.
+	if _, err := sdkSpace.Properties().AttachType(ctx, chatObj, chatType); err != nil {
+		t.Fatal(err)
+	}
 	msg3 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable charlie"}`, http.StatusCreated)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
@@ -510,8 +515,9 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "DeleteEviction")
+	chatType := installModuleType(t, e, spaceId, "chat")
 	obj := mustCreateObject(t, e, spaceId,
-		`{"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+		`{"types":["`+chatType+`"],"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + obj
 	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"ephemeral quokka message"}`, http.StatusCreated)
