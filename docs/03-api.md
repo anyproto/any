@@ -962,10 +962,14 @@ the space's registry (the `bundles` dataset on the spaceIndex object;
 design in the SDK's `docs/bundles.md`), with every setup object derived
 from that root, so one converged id names the whole install.
 
-Clients register their own: the server keeps no catalog and installs
-nothing on its own. What it does own is the registry mechanics —
-picking the winner when two devices install concurrently, and refusing
-to delete a losing root before it has stopped arriving.
+Clients register their own: the server keeps no catalog of client
+bundles and installs nothing on a client's behalf. What it does own is
+the registry mechanics — picking the winner when two devices install
+concurrently, and refusing to delete a losing root before it has
+stopped arriving — and one id namespace: **ids under `system:` are the
+server's** (its embedded catalog installs there), so a client ensure
+with such an id is `409 bundle.reserved`, before any wait. Reads,
+resolve and children on a `system:` id work like on any other.
 
 ```
 POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, installed}
@@ -982,7 +986,8 @@ reclaimed). In a path segment the slash is percent-encoded:
 `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
-`{id, name?, rootTypes?, rootProperties?, derived?, parts?}`. With a winner already
+`{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
+layout?, weight?, hidden?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -1066,30 +1071,62 @@ past it is the deliberate trade that lets an offline 1-1 have a chat at
 all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
-**Bundle parts.** `parts: [...]` (the same draft shape as
-`POST …/types/:typeId/parts`, ≤32 entries) declares parts — and the
-datasets under them — on the root. The root then implements itself as
-a type: `any.types = ["__type__", "<rootId>"]`, `typeId = rootId`, so
-`GET …/types/:rootId/parts` / `…/datasets` and `GET …/datasets` list
-the declarations. A records dataset the bundle declares is namespaced
-to the root: its collection is `<rootId>_<key>` (read it off
-`collection` in the parts list), and records go through `POST …/upsert`
-/ `…/modify` / `…/query[/subscribe]` with `objectId = rootId` and that
-collection as `dataset`. A part naming a module (`{"module": "chat",
-"shared": true}`) makes the root hold that module's canonical
-collection — this is how the well-known chat bundle gives a space its
-chat. Declared once, in one change, on install; an adopt declares them
-only on a root that carries no declaration yet. Later evolution is
-`POST/PATCH/DELETE …/types/:rootId/parts…` and `…/datasets…` — `Ensure`
-never patches, adds or resurrects a part. A malformed declaration
-(unknown module, a field on a module dataset, a duplicate key) fails
-with the § Parts and modules codes before the permanent root is
-derived. `parts` combines with `derived: true` or stands alone (a
-created root the server mints and self-types); `rootTypes` /
-`rootProperties` next to `parts` need `derived: true`.
+**Bundle-declared types.** A bundle may declare a full type on its
+root — `parts`, `properties`, `layout`, `weight`, `hidden`; any of them
+makes the root implement itself as a type: `any.types = ["__type__",
+"<rootId>"]`, `typeId = rootId`, readable through `GET …/types/:rootId`
+and its `parts` / `properties` / `datasets` routes.
+
+- `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
+  ≤32 entries) declares parts and the datasets under them. A records
+  dataset the bundle declares is namespaced to the root: its
+  collection is `<rootId>_<key>` (read it off `collection` in the
+  parts list), and records go through `POST …/upsert` / `…/modify` /
+  `…/query[/subscribe]` with `objectId = rootId` and that collection as
+  `dataset`. A part naming a module (`{"module": "chat", "shared":
+  true}`) makes the root hold that module's canonical collection —
+  this is how the well-known chat bundle gives a space its chat. A part
+  naming a module reserved to the server (§ Parts and modules) is
+  `400 dataset.module_reserved`.
+- `properties: [...]` (the same draft shape as `POST
+  …/types/:typeId/properties`, ≤64 entries, ≤64 KiB) declares property
+  definitions, so the root is a type **objects carry** — a wiki's
+  `parentId` / `pos`. Every draft carries an `xKey`, unique in the body
+  (`400 request.missing_field` / `409 property.xkey_conflict`), because
+  the **property id is derived from (rootId, xKey)**: two devices that
+  install while apart mint ONE column per handle, not the two the
+  descriptor model otherwise allows (docs/27-descriptors.md § Handles)
+  — a forked tree is not a repairable outcome. Resolve `xKey → propId`
+  through `GET …/types/:rootId/properties`; a property added later
+  through `POST …/types/:rootId/properties` gets an ordinary id. Each
+  draft passes the property gate (kind required, descriptor against
+  kind, `meta` narrowed to `index`).
+- `layout` / `weight` (the type's rendering slice, § Types) and
+  `hidden` are written with the root's name on install. **`hidden` is
+  explicit**: a root that only hosts its bundle's records (favourites,
+  an app's setup) should ask for it — a listed type is one a picker
+  offers for attachment elsewhere, which would grant that object the
+  bundle's collections — while a root that is a type objects carry (a
+  page, a wiki) stays listed.
+
+Declared once on install: parts in one change, properties in one. An
+adopt heals what is **absent** and never patches — parts only on a
+root carrying no part declaration at all, properties per handle (a
+definition the root lacks is written; one removed through `DELETE
+…/types/:rootId/properties/:propId` stays removed, its tombstone keeps
+the id). Later evolution is `POST/PATCH/DELETE …/types/:rootId/parts…`,
+`…/datasets…` and `…/properties…` — `Ensure` never patches, adds or
+resurrects a declaration, and never touches the root's name, layout,
+weight or hidden flag once stamped. A malformed declaration (unknown
+module, a field on a module dataset, a duplicate key, a property
+without an xKey) fails before the permanent root is derived. The
+declaration combines with `derived: true` or stands alone (a created
+root the server mints and self-types); `rootTypes` / `rootProperties`
+next to a declaration need `derived: true`.
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
-`rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
+`rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
+entries / 64 KiB, `properties` ≤64 entries / 64 KiB. Type ids must exist
 in the space (`400 type.not_found` — the create path would otherwise
 drop an unknown type and report success) and property values must fit
 their descriptor slug (`400 property.format_violation`); both are
@@ -1108,9 +1145,9 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list / resolve — `parts` required, roots
-  minted by Ensure (`rootTypes` / `rootProperties` / `children`
-  refused). The normal shape is the default CREATED root — deletable
+- `bundles` ensure / get / list / resolve — `parts` or `properties`
+  required, roots minted by Ensure (`rootTypes` / `rootProperties` /
+  `children` refused). The normal shape is the default CREATED root — deletable
   (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
   installed and a fresh install works), forking on concurrent offline
   installs and resolving like in any space. `derived: true` is the
@@ -2011,11 +2048,15 @@ existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
 display-name renames. Built-in types (`data_view`, `nav`) are
-registered, not created here, and resolve by their literal id. There
-is no built-in `page`, `editor` or `chat` type: documents and chats are
-user types whose parts declare the `editor` / `chat` module (§ Parts
-and modules), normally registered through a well-known bundle so every
-client lands on one type.
+registered, not created here, and resolve by their literal id; a
+registered type's parts are static — `GET …/types/:typeId/parts` reads
+them compiled (keys as ids, a static dataset's collection is its name,
+`module: records` on a schema-only dataset), every write on them is
+`400 type.registered`, and a registered type may be `hidden` like a
+user one. There is no built-in `page`, `editor` or `chat` type:
+documents and chats are user types whose parts declare the `editor` /
+`chat` module (§ Parts and modules), normally registered through a
+well-known bundle so every client lands on one type.
 
 `GET …/types` returns the synthetic built-ins first — `any`,
 `spaceIndex` and `type` (the meta-type: the shape of type objects
@@ -2229,6 +2270,12 @@ value on every read and write:
   (a second is `409 dataset.key_conflict` on the canonical key); only
   modules with a canonical collection share (`records` never does —
   `400 dataset.shared_conflict`). `chat` is shared-only in v1.
+
+A module may be **reserved** to the server's own installs: a part or
+dataset draft naming it — on a type, or in a bundle body — is `400
+dataset.module_reserved`. No shipped module is reserved yet; the
+mechanism is what lets the server's catalog own the one install of a
+module (the general chat under `chat`) without a client racing it.
 
 **An object holds a collection while it carries a declaring type.**
 The write gate is on the object's `any.types`: a write into a

@@ -166,8 +166,10 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 **Where `<chatObjectId>` comes from:** register the space's chat as a
 bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
 with
-`{"id":"general-chat/v1","name":"General","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`
-— the part is what makes the root hold the chat collection.
+`{"id":"general-chat/v1","name":"General","derived":true,"hidden":true,"layout":{"type":"chat"},"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`
+— the part is what makes the root hold the chat collection, `hidden`
+keeps the root's type out of pickers (it hosts the chat, nothing
+attaches it elsewhere).
 The call is adopt-or-install, so every client lands on one object
 instead of each creating its own, and `derived` makes that object's id
 a function of the bundle id — computed offline, identical on every
@@ -624,7 +626,9 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    by taking `rootId` off the row; subscribe to the raw `bundles`
    dataset for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
-   "parts": [...]}` — a CREATED root minted by the server, deletable
+   "hidden": true, "parts": [...]}` — a CREATED root minted by the
+   server, hidden from pickers (it hosts records, nothing attaches it
+   elsewhere), deletable
    (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
    call installs, later calls adopt. Do NOT reach for `"derived": true`
    because a converged id sounds convenient — bundles exist precisely so

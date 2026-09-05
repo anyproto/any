@@ -21,6 +21,7 @@ func newTypePartCmd() *cobra.Command {
 		newTypePartAddCmd(),
 		newTypePartPatchCmd(),
 		newTypePartRemoveCmd(),
+		newTypeDatasetCmd(),
 	)
 	return cmd
 }
@@ -60,7 +61,7 @@ and every dataset under it:
 A shared dataset is the module's canonical collection (editor_blocks,
 chat_messages); a namespaced one lives in <typeId>_<key>. The part key
 is pinned; name, icon, pos, hidden, ui and uses patch via 'type part
-patch'; datasets are added with 'type dataset add'.`,
+patch'; datasets are added with 'type part dataset add'.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var req api.PartDraftRequest

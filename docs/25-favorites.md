@@ -61,7 +61,8 @@ row), with the canonical request:
 
 ```
 POST /v1/spaces/<techSpaceId>/bundles
-{ "id": "favorites/v1", "name": "Favorites", "parts": [{ "key": "entries", "datasets": [{
+{ "id": "favorites/v1", "name": "Favorites", "hidden": true,
+  "parts": [{ "key": "entries", "datasets": [{
     "key": "entries", "idRule": "user", "dynamic": true,
     "idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$", "idMaxLen": 256,
     "fields": [

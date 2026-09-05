@@ -11,12 +11,14 @@ import (
 )
 
 // newTypeCmd is the root for `any type <subcommand>` — mirrors the HTTP
-// namespace under /v1/spaces/:id/types. Type create/list plus the
-// property sub-group (list / add / patch / remove / option).
+// namespace under /v1/spaces/:id/types. Type create/list/update plus
+// the property sub-group (list / add / patch / remove / option) and the
+// part sub-group (list / add / patch / remove, with the datasets under
+// a part).
 func newTypeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "type",
-		Short: "types + property definitions in a space",
+		Short: "types, property definitions and parts in a space",
 	}
 	cmd.AddCommand(
 		newTypeCreateCmd(),
@@ -24,7 +26,6 @@ func newTypeCmd() *cobra.Command {
 		newTypeUpdateCmd(),
 		newTypePropertyCmd(),
 		newTypePartCmd(),
-		newTypeDatasetCmd(),
 	)
 	return cmd
 }
@@ -312,41 +313,25 @@ func newTypePropertyOptionSetCmd() *cobra.Command {
 	return cmd
 }
 
-// newTypeDatasetCmd is `any type dataset <subcommand>` — the runtime
-// dataset-schema verbs, 1:1 with the endpoints under
-// /v1/spaces/:id/types/:typeId/datasets (add goes through the owning
-// part: …/parts/:partId/datasets). Data flows through the existing
-// modify/query surface plus `any upsert` for id:user datasets.
+// newTypeDatasetCmd is `any type part dataset <subcommand>` — the
+// dataset verbs under a part, 1:1 with the endpoints under
+// /v1/spaces/:id/types/:typeId/parts/:partId/datasets (add) and
+// …/types/:typeId/datasets/:defId (patch / remove / fields). `type
+// part list` shows every dataset with its part. Data flows through the
+// existing modify/query surface plus `any upsert` for id:user datasets.
 func newTypeDatasetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dataset",
 		Aliases: []string{"ds"},
-		Short:   "list / add / patch / remove runtime dataset definitions",
+		Short:   "add / patch / remove a part's dataset definitions",
 	}
 	cmd.AddCommand(
-		newTypeDatasetListCmd(),
 		newTypeDatasetAddCmd(),
 		newTypeDatasetPatchCmd(),
 		newTypeDatasetRemoveCmd(),
 		newTypeDatasetFieldCmd(),
 	)
 	return cmd
-}
-
-func newTypeDatasetListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list <spaceId> <typeId>",
-		Short: "list a type's runtime dataset definitions",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := newClient(flags.Timeout)
-			out, err := cl.TypeDatasets(cmd.Context(), args[0], args[1])
-			if err != nil {
-				return err
-			}
-			return printJSON(out)
-		},
-	}
 }
 
 func newTypeDatasetAddCmd() *cobra.Command {
@@ -372,10 +357,10 @@ A module-served dataset names its module instead of fields:
   {"module": "editor", "shared": true}          the shared editor body
   {"key": "summary", "module": "editor"}        a second, namespaced editor
 Behavioral parts (key, module, shared, idRule, deleteBy, field
-kinds/flags) are pinned; display parts patch via 'type dataset patch'
-and 'type dataset field patch'. Declare required fields here — fields
-added later cannot be required. The reply carries the computed
-collection reads and writes address.`,
+kinds/flags) are pinned; display parts patch via 'type part dataset
+patch' and 'type part dataset field patch'. Declare required fields
+here — fields added later cannot be required. The reply carries the
+computed collection reads and writes address.`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var req api.DatasetDraftRequest
@@ -408,8 +393,8 @@ rule, delete gate) is pinned — remove and re-add. Values are strings; search.t
 of field keys.
 
 Examples:
-  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
-  any type dataset patch S T D --set '{"search.text":["body","notes"]}'`,
+  any type part dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
+  any type part dataset patch S T D --set '{"search.text":["body","notes"]}'`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetPatchRequest{}
@@ -464,8 +449,8 @@ The behavioral declaration (key, kind, shape, scope, required,
 mutableBy, stamp) is pinned.
 
 Examples:
-  any type dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
-  any type dataset field patch S T D F --unset xFormat.options.old`,
+  any type part dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
+  any type part dataset field patch S T D F --unset xFormat.options.old`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetFieldPatchRequest{}

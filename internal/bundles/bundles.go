@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,7 +84,34 @@ type Install struct {
 	// Parts are declared on the root at install (derived or created);
 	// the root then implements itself as a type (typeId = rootId).
 	Parts []space.PartDraft
+	// Properties are declared on the root at install with ids derived
+	// from (root, xKey), so concurrent installs mint one column per
+	// handle. Every draft carries an XKey.
+	Properties []space.PropertyDraft
+	// Layout, Weight and Hidden seed the root type's metadata on
+	// install; adopt never patches them. Hidden is explicit.
+	Layout map[string]any
+	Weight int
+	Hidden bool
+	// SystemInstall marks the server's own catalog install: it lifts the
+	// reserved-module refusal. Never set from client input.
+	SystemInstall bool
 }
+
+// DeclaresType reports whether the install makes the root a type
+// implementing itself — any of Parts, Properties, Layout, Weight or
+// Hidden.
+func (i Install) DeclaresType() bool {
+	return len(i.Parts) > 0 || len(i.Properties) > 0 || len(i.Layout) > 0 || i.Weight != 0 || i.Hidden
+}
+
+// ReservedIdPrefix marks the bundle ids the server's embedded catalog
+// owns. A client install under it is refused; the prefix is the rule,
+// the catalog its only writer.
+const ReservedIdPrefix = "system:"
+
+// ReservedId reports whether a bundle id is under the server's prefix.
+func ReservedId(id string) bool { return strings.HasPrefix(id, ReservedIdPrefix) }
 
 // Resolver installs bundles and deletes their losing roots, carrying
 // the timing decisions that must not be re-made from scratch on every
@@ -208,21 +236,47 @@ func (r *Resolver) Reset() {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
-	// A datasets-carrying request reaches the SDK's Ensure only when
-	// the adopted root does not carry a declaration yet (the SDK
-	// declares on its own adopt path). Once the declaration exists it
-	// is first-write-pinned, so adoption stays the pure read the
-	// contract promises — a reader/guest re-running the documented
-	// idempotent ensure must not land in Ensure's write gate.
+	// A type-declaring request reaches the SDK's Ensure only when the
+	// adopted root does not carry the declaration yet (the SDK heals
+	// on its own adopt path: parts when none exist, properties per
+	// handle). Once the declaration exists it is first-write-pinned, so
+	// adoption stays the pure read the contract promises — a
+	// reader/guest re-running the documented idempotent ensure must
+	// not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
-		if len(inst.Parts) == 0 {
+		if len(inst.Parts) == 0 && len(inst.Properties) == 0 {
 			return true
 		}
-		defs, err := sp.Types().Parts(ctx, b.RootId)
-		if err != nil || len(defs) > 0 {
-			// A transient read error must not push the caller into the
-			// SDK Ensure's write gate — adopt; the declaration heals on
-			// a later ensure.
+		missing := false
+		if len(inst.Parts) > 0 {
+			defs, err := sp.Types().Parts(ctx, b.RootId)
+			if err != nil {
+				// A transient read error must not push the caller into
+				// the SDK Ensure's write gate — adopt; the declaration
+				// heals on a later ensure.
+				return true
+			}
+			missing = len(defs) == 0
+		}
+		if !missing && len(inst.Properties) > 0 {
+			props, err := sp.Types().Properties(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			have := make(map[string]struct{}, len(props))
+			for _, p := range props {
+				have[p.XKey] = struct{}{}
+			}
+			for _, p := range inst.Properties {
+				if _, ok := have[p.XKey]; !ok {
+					// Absent by handle — or removed on purpose, which the
+					// SDK's per-id check tells apart and leaves alone.
+					missing = true
+					break
+				}
+			}
+		}
+		if !missing {
 			return true
 		}
 		switch sp.Info().OwnRole {
@@ -249,18 +303,21 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		}
 	}
 
-	req := space.EnsureBundleRequest{Id: inst.Id, Name: inst.Name}
+	req := space.EnsureBundleRequest{
+		Id: inst.Id, Name: inst.Name,
+		Parts: inst.Parts, Properties: inst.Properties,
+		Layout: inst.Layout, Weight: inst.Weight, Hidden: inst.Hidden,
+		SystemInstall: inst.SystemInstall,
+	}
 	var created string
 	if inst.Derived {
 		req.DerivedRoot = true
 		req.RootTypes = inst.RootTypes
 		req.RootProperties = inst.RootProperties
-		req.Parts = inst.Parts
-	} else if len(inst.Parts) > 0 {
+	} else if inst.DeclaresType() {
 		// SDK-minted created root: Ensure creates the object, stamps
 		// it as its own type and declares — the only create the tech
 		// space allows, and the same shape everywhere.
-		req.Parts = inst.Parts
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -287,7 +344,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// the one root they share, and materializing a root someone else
 	// registered reports false.
 	installed := registered && created != "" && b.RootId == created
-	if inst.Derived || (len(inst.Parts) > 0 && !inst.Derived) {
+	if inst.Derived || inst.DeclaresType() {
 		// Derived: registered is exact. SDK-minted created root: the
 		// minted id is not observable here, so registered is the
 		// answer, with the same narrow inbound-race weakness the

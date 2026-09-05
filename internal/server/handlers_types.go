@@ -122,40 +122,9 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-
-	// Kind is the guarantee and is always explicit — nothing is
-	// defaulted from the descriptor.
-	if req.Kind == "" {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"kind is required (string / number / boolean / array / object / datetime)", nil)
-	}
-	kind, ok := propertyKindFromString(req.Kind)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"unknown property kind",
-			map[string]any{"kind": req.Kind})
-	}
-	for k := range req.Meta {
-		if k != index.MetaIndexKey {
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"meta holds only "+index.MetaIndexKey+"; descriptive keys live under xFormat",
-				map[string]any{"key": k})
-		}
-	}
-	xf, code, reason := validateDescriptor(req.XFormat, req.Kind)
+	draft, code, reason, details := propertyDraftFromAPI(*req)
 	if code != "" {
-		return writeError(c, http.StatusBadRequest, code, reason, nil)
-	}
-
-	var scope space.Scope // zero value = synced (SDK default)
-	if req.Scope != "" {
-		var ok bool
-		scope, ok = space.ParseScope(req.Scope)
-		if !ok || scope == space.ScopeDerived {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"scope must be one of synced, account, local",
-				map[string]any{"scope": req.Scope})
-		}
+		return writeError(c, http.StatusBadRequest, code, reason, details)
 	}
 
 	// xKey is unique within the type — a read-then-create preflight,
@@ -171,15 +140,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		}
 	}
 
-	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, space.PropertyDraft{
-		Name:        req.Name,
-		Description: req.Description,
-		XKey:        req.XKey,
-		Kind:        kind,
-		Meta:        req.Meta,
-		XFormat:     xf,
-		Scope:       scope,
-	})
+	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, draft)
 	if err != nil {
 		if errors.Is(err, space.ErrTypeRegistered) {
 			return writeError(c, http.StatusBadRequest, "type.registered",
@@ -189,6 +150,50 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
+}
+
+// propertyDraftFromAPI is the one gate a property definition passes on
+// its way to the SDK — POST …/properties and a bundle's `properties`
+// alike: kind required and known (nothing is defaulted from the
+// descriptor), meta narrowed to the index flag, the descriptor
+// validated against the kind, scope creatable. Returns ("", "", nil)
+// code/reason/details on success.
+func propertyDraftFromAPI(req api.AddPropertyRequest) (space.PropertyDraft, string, string, map[string]any) {
+	var draft space.PropertyDraft
+	if req.Kind == "" {
+		return draft, "request.schema", "kind is required (string / number / boolean / array / object / datetime)", nil
+	}
+	kind, ok := propertyKindFromString(req.Kind)
+	if !ok {
+		return draft, "request.schema", "unknown property kind", map[string]any{"kind": req.Kind}
+	}
+	for k := range req.Meta {
+		if k != index.MetaIndexKey {
+			return draft, "request.invalid_field",
+				"meta holds only " + index.MetaIndexKey + "; descriptive keys live under xFormat",
+				map[string]any{"key": k}
+		}
+	}
+	xf, code, reason := validateDescriptor(req.XFormat, req.Kind)
+	if code != "" {
+		return draft, code, reason, nil
+	}
+	var scope space.Scope // zero value = synced (SDK default)
+	if req.Scope != "" {
+		scope, ok = space.ParseScope(req.Scope)
+		if !ok || scope == space.ScopeDerived {
+			return draft, "request.schema", "scope must be one of synced, account, local", map[string]any{"scope": req.Scope}
+		}
+	}
+	return space.PropertyDraft{
+		Name:        req.Name,
+		Description: req.Description,
+		XKey:        req.XKey,
+		Kind:        kind,
+		Meta:        req.Meta,
+		XFormat:     xf,
+		Scope:       scope,
+	}, "", "", nil
 }
 
 // requireXKeyFree 409s when another of the type's definitions already

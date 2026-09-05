@@ -450,12 +450,17 @@ func TestServer_TypeHiddenAndMeta(t *testing.T) {
 		}
 	}
 
-	// A bundle root with parts is a hidden type.
-	res := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes","parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"title","kind":"string"}]}]}]}`)
+	// A bundle root with parts is hidden when the install asks for it
+	// (a records host) and listed otherwise (a type objects carry).
+	res := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes","hidden":true,"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"title","kind":"string"}]}]}]}`)
 	if _, listed := listIds("")[res.Bundle.RootId]; listed {
-		t.Error("bundle root listed as a pickable type")
+		t.Error("hidden bundle root listed as a pickable type")
 	}
 	if root, ok := listIds("?includeHidden=true")[res.Bundle.RootId]; !ok || !root.Hidden {
 		t.Errorf("bundle root = %+v (ok=%v), want hidden", root, ok)
+	}
+	page := ensureBundle(t, e, sp.Id, `{"id":"page-test/v1","name":"Page","layout":{"type":"page"},"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
+	if root, ok := listIds("")[page.Bundle.RootId]; !ok || root.Hidden {
+		t.Errorf("declared type root = %+v (ok=%v), want listed", root, ok)
 	}
 }

@@ -12,7 +12,8 @@ server hands back:
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "derived": true,
+{ "id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
+  "layout": { "type": "chat" },
   "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
 → 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```

@@ -633,6 +633,9 @@ func (d *deps) datasetWriteError(c echo.Context, err error, details map[string]a
 	case errors.Is(err, space.ErrModuleOwned):
 		return writeError(c, http.StatusConflict, "dataset.module_owned",
 			"the module owns this dataset's schema — it declares no fields", details)
+	case errors.Is(err, space.ErrModuleReserved):
+		return writeError(c, http.StatusBadRequest, api.ErrDatasetModuleReserved,
+			"the module is reserved to the server's own installs — a runtime declaration cannot name it", details)
 	case errors.Is(err, space.ErrNotFound):
 		return writeError(c, http.StatusNotFound, "sdk.not_found", "type, part or dataset definition not found", details)
 	case errors.Is(err, handler.ErrValidation):

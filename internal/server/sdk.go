@@ -101,15 +101,26 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
 }
 
+// extraCatalog is the test seam for the compiled-in catalog: types and
+// modules a test binary registers next to the server's own, so
+// registered-type parts, hidden built-ins and reserved modules can be
+// exercised over HTTP without shipping a production entry for them.
+// Set from a test file's init; empty in the server binary.
+var extraCatalog struct {
+	types   []handler.Type
+	modules []handler.Module
+}
+
 // serverTypes is the hardcoded type set this server adds on top of the
 // SDK's built-ins — the types that are not modules: a saved-view
 // dataset on any host object and the nav property namespace. Each entry
 // registers its handler(s) with every per-object Controller.
 func serverTypes() []handler.Type {
-	return []handler.Type{
+	out := []handler.Type{
 		dataview.NewType(), // data_views: one saved view per record, on any host object
 		nav.NewType(),      // property-only: no dataset, just nav.* schema
 	}
+	return append(out, extraCatalog.types...)
 }
 
 // serverModules is the dataset-module set: compiled-in behaviours a
@@ -117,10 +128,11 @@ func serverTypes() []handler.Type {
 // collection — the editor's block tree and the chat message stream.
 // Shared by OpenSDK and the index registry.
 func serverModules() []handler.Module {
-	return []handler.Module{
+	out := []handler.Module{
 		editor.NewModule(),
 		chat.NewModule(),
 	}
+	return append(out, extraCatalog.modules...)
 }
 
 // staticDatasetNames collects every compiled-in dataset name across

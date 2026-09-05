@@ -1,12 +1,16 @@
 package api
 
+import "encoding/json"
+
 // Bundles registry — the per-space record of what has been installed
 // into a space (a marketplace bundle, a chat, an app's setup). Clients
 // register their own; the server keeps no catalog of its own.
 //
 // Wire note: bundle ids carry a version suffix and therefore a slash
 // ("general-chat/v1"). In a path segment they must be percent-encoded
-// (`general-chat%2Fv1`); request bodies take them verbatim.
+// (`general-chat%2Fv1`); request bodies take them verbatim. Ids under
+// the `system:` prefix are the server's (its embedded catalog installs
+// them) — a client install under it is refused.
 
 // Bundle is one row of a space's bundles registry.
 type Bundle struct {
@@ -66,8 +70,28 @@ type BundleEnsureRequest struct {
 	// through POST …/upsert / …/modify on the root (dataset = the
 	// computed collection, `<rootId>_<key>` for a namespaced one).
 	// Declared once on install; later evolution goes through the
-	// …/types/:rootId/parts routes. Required on the tech space.
+	// …/types/:rootId/parts routes. Parts or properties are required
+	// on the tech space.
 	Parts []PartDraftRequest `json:"parts,omitempty"`
+	// Properties declares property definitions on the root (same shape
+	// as POST …/types/:typeId/properties, xKey REQUIRED and unique):
+	// the root becomes a type objects carry, and each property's id is
+	// derived from (rootId, xKey) so two devices installing while apart
+	// mint one column per handle. Resolve xKey → propId through
+	// GET …/types/:rootId/properties. Declared once on install (an
+	// adopt fills in only definitions the root lacks); later evolution
+	// goes through the …/types/:rootId/properties routes.
+	Properties []AddPropertyRequest `json:"properties,omitempty"`
+	// Layout and Weight seed the root type's rendering slice (same
+	// shape as POST …/types); Hidden keeps it out of GET …/types. All
+	// three are written on install only — an adopt never patches them.
+	// Hidden is explicit: a root that only hosts its bundle's records
+	// should ask for it (a listed type is one a client may attach
+	// elsewhere, granting that object the bundle's collections); a root
+	// that is a type objects carry stays listed.
+	Layout json.RawMessage `json:"layout,omitempty"`
+	Weight int             `json:"weight,omitempty"`
+	Hidden bool            `json:"hidden,omitempty"`
 }
 
 // BundleEnsureResponse is the reply to an Ensure call.
@@ -140,4 +164,10 @@ const (
 	// still inside the quiescence window, so what is stored locally is
 	// not yet the whole of it. Retryable.
 	ErrBundleLoserNotReady = "bundle.loser_not_ready"
+	// ErrBundleReserved — the id is under the server's `system:` prefix;
+	// only the server's own catalog installs there.
+	ErrBundleReserved = "bundle.reserved"
+	// ErrDatasetModuleReserved — a part or dataset draft names a module
+	// reserved to the server's own installs.
+	ErrDatasetModuleReserved = "dataset.module_reserved"
 )

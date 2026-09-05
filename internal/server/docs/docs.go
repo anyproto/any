@@ -481,18 +481,37 @@ const docTemplate = `{
                         "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
                         "type": "boolean"
                     },
+                    "hidden": {
+                        "type": "boolean"
+                    },
                     "id": {
                         "description": "Id is the bundle identifier. Required.",
                         "type": "string"
+                    },
+                    "layout": {
+                        "description": "Layout and Weight seed the root type's rendering slice (same\nshape as POST …/types); Hidden keeps it out of GET …/types. All\nthree are written on install only — an adopt never patches them.\nHidden is explicit: a root that only hosts its bundle's records\nshould ask for it (a listed type is one a client may attach\nelsewhere, granting that object the bundle's collections); a root\nthat is a type objects carry stays listed.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "name": {
                         "description": "Name is the display name, written on install.",
                         "type": "string"
                     },
                     "parts": {
-                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Required on the tech space.",
+                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, ` + "`" + `\u003crootId\u003e_\u003ckey\u003e` + "`" + ` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
                         "items": {
                             "$ref": "#/components/schemas/api.PartDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "properties": {
+                        "description": "Properties declares property definitions on the root (same shape\nas POST …/types/:typeId/properties, xKey REQUIRED and unique):\nthe root becomes a type objects carry, and each property's id is\nderived from (rootId, xKey) so two devices installing while apart\nmint one column per handle. Resolve xKey → propId through\nGET …/types/:rootId/properties. Declared once on install (an\nadopt fills in only definitions the root lacks); later evolution\ngoes through the …/types/:rootId/properties routes.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.AddPropertyRequest"
                         },
                         "type": "array",
                         "uniqueItems": false
@@ -512,6 +531,9 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "weight": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"

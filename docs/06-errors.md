@@ -80,6 +80,12 @@ space.unsupported                # 405 — the surface is not available on the t
 
 invite.invalid                   # invite token malformed or unrecognized
 
+bundle.not_found                 # 404 — no live install for the bundle id in this space
+bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet; retry
+bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
+bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
+bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
+
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
 object.deleted                   # 410 — GET …/objects/:objectId on a deleted object (distinct from never-existed)
@@ -94,6 +100,7 @@ dataset.key_conflict             # 409 — a part or dataset with this key alrea
 dataset.shared_conflict          # 400 — shared on a module with no canonical collection (records), a shared key that is not the canonical name, or a namespaced dataset on a shared-only module (chat)
 dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
 dataset.module_owned             # 409 — a field declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields
+dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs
 dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
 dataset.immutable                # 400 — PATCH a pinned part or dataset-def path (part: name, icon, pos, hidden, ui, uses are mutable; head: description, displayName, search.title/text/scope; field: name, description, xFormat.*); details.path
 

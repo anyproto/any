@@ -1562,9 +1562,44 @@ Implementation slices landed:
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
     docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
     (docs/07-roadmap.md): namespaced chat, `data_view` as a module,
-    full type declarations on bundles (properties / layout / weight
-    with deterministic property ids) and the well-known `page/v1` /
-    `chat/v1` / `wiki/v1` contracts.
+    the built-in `page` / `miniapp` / `bin` / `dataview` types, `nav`
+    → `wiki`, and the server catalog (`GET/POST /v1/catalog…`) that
+    installs the well-known `system:` bundles.
+    **Pair 2 — the foundation for those tickets** (same PR pair):
+    (a) registered types declare **static parts** (`handler.Type.Parts`
+    — entries of the type's `Datasets` by name, or module datasets the
+    SDK instantiates like a runtime declaration: shared ⇒ owner of the
+    canonical, namespaced ⇒ `<typeId>_<key>` registered with the
+    module's DataVersion) and a `Hidden` flag; `GET …/types/:id/parts`
+    reads them compiled with keys as ids, writes stay
+    `type.registered`; a type with datasets and no parts reads one
+    implicit part per dataset. (b) **Reserved modules**
+    (`handler.Module.Reserved`, requires `SharedOnly`): a runtime part
+    / dataset / bundle draft naming one is `space.ErrModuleReserved` →
+    `400 dataset.module_reserved`; only `EnsureBundleRequest.
+    SystemInstall` (the server's own catalog path, never client input)
+    or a static part may declare it. Nothing shipped is reserved yet —
+    `chat` flips with the general-chat ticket. (c) **Bundles declare a
+    full type**: `properties` (each with an `xKey`; the propId is
+    derived from `(rootId, xKey)` — `crdt.DeriveRecordId` over
+    `bundle-property:<root>:<xKey>` — so two blind installs mint one
+    column per handle; adopt heals per id and never resurrects a
+    removed definition), `layout`, `weight`, `hidden` (EXPLICIT — a
+    records host asks for it, a type objects carry stays listed; the
+    pair-1 "hidden by construction" rule is gone, docs/25-favorites.md
+    and the general-chat recipes carry `"hidden": true`). The tech
+    space accepts parts OR properties. (d) `system:` bundle ids are
+    the server's (`bundles.ReservedId`) → `409 bundle.reserved` on a
+    client ensure. (e) CLI: `any bundle ensure/list/get/resolve`
+    (`internal/cli/bundles.go`, `internal/client/bundles.go`); `any
+    type dataset …` moved under `any type part dataset …`. Test seam:
+    `extraCatalog` in `internal/server/sdk.go` (a hidden `testdoc`
+    type with two static datasets + the reserved `reserved_notes`
+    module, registered from `handlers_staticparts_test.go`'s init).
+    Contract: docs/03-api.md § Bundles (Bundle-declared types) +
+    § Types + § Parts and modules, docs/06-errors.md, docs/01-cli.md;
+    SDK docs/bundles.md § Bundle-declared types, docs/17-user-datasets.md
+    § Static parts on registered types.
     **CRDT version mark** (same pair): the SDK stamps
     `space.CRDTVersion` on the tech space's index object (`crdtVersion`
     system dataset, monotonic by handler rule) at Open; a higher stored
@@ -1577,8 +1612,8 @@ Implementation slices landed:
     releases from this one on. Contract: docs/02-server.md § Startup /
     § Health, docs/06-errors.md; SDK docs/08-versioning.md.
     **Type `hidden` + `meta`** (same pair): `type.hidden` keeps a type
-    out of `GET …/types` unless `?includeHidden=true` (bundle roots are
-    hidden by construction); `type.meta` is an opaque per-key scalar
+    out of `GET …/types` unless `?includeHidden=true` (a bundle root is
+    hidden when its install says so); `type.meta` is an opaque per-key scalar
     bag patched per key (`null` unsets) — the SDK's objects-row handler
     now admits nested `$set` paths under object-kind properties for it.
     The web UI lists with `includeHidden=true`.

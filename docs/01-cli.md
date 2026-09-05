@@ -314,8 +314,8 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
 The `<objectId>` for a space's shared chat is the `rootId` of its chat
-bundle — register it with `POST /v1/spaces/:spaceId/bundles` (see
-`docs/03-api.md` § Bundles); there is no CLI surface for bundles yet.
+bundle — register it with `any bundle ensure` (§ Bundles below,
+`docs/03-api.md` § Bundles) and read the root off the reply.
 
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
@@ -430,14 +430,14 @@ any type part add    <spaceId> <typeId> --draft '<json>|@FILE|-'
 any type part patch  <spaceId> <typeId> <partId> --set '<json>' [--unset <path> ...]
 any type part remove <spaceId> <typeId> <partId>
 
-# runtime dataset schemas under a part (03-api.md § Runtime dataset schemas):
-any type dataset list   <spaceId> <typeId>
-any type dataset add    <spaceId> <typeId> <partId> --draft '<json>|@FILE|-'
-any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
-any type dataset remove <spaceId> <typeId> <defId>
-any type dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
-any type dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset <path> ...]
-any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
+# the datasets under a part (03-api.md § Runtime dataset schemas);
+# `type part list` shows every dataset with its part:
+any type part dataset add    <spaceId> <typeId> <partId> --draft '<json>|@FILE|-'
+any type part dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset <path> ...]
+any type part dataset remove <spaceId> <typeId> <defId>
+any type part dataset field add    <spaceId> <typeId> <defId> --field '<json>|@FILE|-'
+any type part dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset <path> ...]
+any type part dataset field remove <spaceId> <typeId> <defId> <fieldId>
 
 # batch ingest into an id:user dataset (the record id is the
 # idempotency key — identical re-runs are no-ops; NAME is the
@@ -445,6 +445,25 @@ any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
 any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
            [--page-size N] [--trace-id ...]
 ```
+
+### Bundles
+
+```
+any bundle ensure  <spaceId> --body '<json>|@FILE|-'
+any bundle list    <spaceId>
+any bundle get     <spaceId> <bundleId>
+any bundle resolve <spaceId> <bundleId> <loserRootId>
+```
+
+`ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
+— the id, the root strategy (`derived`) and what the root declares:
+`parts`, `properties` (each with an `xKey`; the property id derives
+from it), `layout`, `weight`, `hidden`. Adopt-or-install: the reply
+carries the converged row and whether THIS call installed it. `get`
+and `list` are locked on registry convergence and report `synced`.
+`resolve` deletes a losing root after its content was merged. Bundle
+ids are passed verbatim (`general-chat/v1`); the CLI encodes the path.
+Ids under `system:` are the server's and are refused.
 
 `type update` patches the display and rendering slice; cobra's
 `Changed` distinguishes an absent flag (keep) from an empty one
