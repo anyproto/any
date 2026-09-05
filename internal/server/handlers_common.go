@@ -352,6 +352,14 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "object.not_found",
 			"object not found in this space (unknown or deleted)", details)
 	}
+	// The account's data was written by a newer release: the SDK is
+	// read-only until this server is upgraded (GET /v1/health reports
+	// the versions).
+	if errors.Is(err, space.ErrCRDTVersionNewer) {
+		return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
+			"the account's data was written by a newer version — this server is read-only until it is upgraded",
+			crdtVersionDetails(err, details))
+	}
 	// A write to a collection none of the object's types declare: no
 	// type attaches on write, the caller attaches a declaring type first.
 	if errors.Is(err, space.ErrDatasetNotDeclared) {
@@ -420,6 +428,22 @@ func filterParseError(c echo.Context, pe *query.ParseError, details map[string]a
 		msg += " at " + pe.Path
 	}
 	return writeError(c, http.StatusBadRequest, "filter.invalid", msg+": "+pe.Reason, details)
+}
+
+// crdtVersionDetails adds the stored/supported CRDT versions carried
+// by a space.CRDTVersionNewerError to an error's details.
+func crdtVersionDetails(err error, details map[string]any) map[string]any {
+	var newer *space.CRDTVersionNewerError
+	if !errors.As(err, &newer) {
+		return details
+	}
+	out := make(map[string]any, len(details)+2)
+	for k, v := range details {
+		out[k] = v
+	}
+	out["stored"] = newer.Stored
+	out["supported"] = newer.Supported
+	return out
 }
 
 // sdkValidationError maps the SDK's write-time property schema rejection

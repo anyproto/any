@@ -766,4 +766,9 @@ func TestHealth_BootstrappingFalseAfterBootPass(t *testing.T) {
 	if h.Account == "" {
 		t.Error("authorized health must report the account id")
 	}
+	// The account's CRDT version mark: stamped by this SDK on first
+	// open, equal to what it supports, not newer.
+	if h.CRDTVersion == nil || h.CRDTVersion.Supported == 0 || h.CRDTVersion.Stored != h.CRDTVersion.Supported || h.CRDTVersion.Newer {
+		t.Errorf("crdtVersion = %+v, want stored == supported and not newer", h.CRDTVersion)
+	}
 }

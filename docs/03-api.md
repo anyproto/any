@@ -160,12 +160,25 @@ serving, offline catch-up in background; per-space convergence stays
 on `/sync-status`. `false` when unauthorized and after the pass
 completes. See `02-server.md` § Startup / § Health.
 
+`crdtVersion` (`{supported, stored, newer}`, absent when unauthorized):
+the account's CRDT data-model version — the one this server's SDK
+writes (`supported`), the one recorded on the account's tech space
+(`stored`; every release stamps it on first open, and the mark only
+ever rises), and `newer`, true when the recorded one is above the
+supported one. A newer account refuses to boot (`POST /v1/auth` →
+`409 sdk.crdt_version_newer`, `any run` exits with the same reason);
+when the raise arrives through sync while the server is running — a
+second device upgraded first — the account turns **read-only**: reads
+keep serving, every synced write answers `409 sdk.crdt_version_newer`,
+and a client shows "upgrade required" off this field. See
+`02-server.md` § Health.
+
 ### Auth
 
 | Method | Path        | Purpose                                                                 |
 |--------|-------------|-------------------------------------------------------------------------|
 | GET    | `/v1/auth`  | authorization state, ownership mode + capabilities, local accounts      |
-| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK; `replace` switches    |
+| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK; `replace` switches; `409 sdk.crdt_version_newer` for an account a newer release wrote |
 | DELETE | `/v1/auth`  | tear the account down in place, stay up unauthorized (managed only)     |
 
 A server started without a resolvable account (fresh data dir, several

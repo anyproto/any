@@ -565,6 +565,21 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
+            "api.CRDTVersionState": {
+                "description": "CRDTVersion is the account's CRDT data-model version state\n(absent when unauthorized): the version this server's SDK\nsupports, the one recorded on the account's tech space, and\n` + "`" + `newer` + "`" + ` — true when the recorded one is above the supported one,\nwhich makes the account read-only until the server is upgraded\n(every synced write answers 409 sdk.crdt_version_newer).",
+                "properties": {
+                    "newer": {
+                        "type": "boolean"
+                    },
+                    "stored": {
+                        "type": "integer"
+                    },
+                    "supported": {
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "api.ChatAgentMeta": {
                 "properties": {
                     "debugLink": {
@@ -1294,6 +1309,9 @@ const docTemplate = `{
                     "bootstrapping": {
                         "description": "Bootstrapping is true while the booted SDK's background boot pass\n(eager space loading + offline catch-up) is still running. The\nserver serves throughout; per-space convergence is /sync-status.\nFalse when unauthorized and after the pass completes.",
                         "type": "boolean"
+                    },
+                    "crdtVersion": {
+                        "$ref": "#/components/schemas/api.CRDTVersionState"
                     },
                     "startedAt": {
                         "type": "string"

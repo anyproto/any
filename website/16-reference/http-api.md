@@ -31,7 +31,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/health` | — | `{status, version, account, bootstrapping}` | works unauthorized (`account: ""`); `bootstrapping` is true while the background catch-up pass runs |
+| GET | `/v1/health` | — | `{status, version, account, bootstrapping, crdtVersion?}` | works unauthorized (`account: ""`); `bootstrapping` is true while the background catch-up pass runs; `crdtVersion {supported, stored, newer}` — `newer` means the account was written by a newer release and this server is read-only |
 | POST | `/v1/shutdown` | header `X-Any-Control-Token` | 204 | managed servers only (`403 shutdown.not_managed` on standalone; `403 control.forbidden` without the token); drains in-flight streams for up to 10 s |
 | GET | `/v1/openapi.json` | — | OpenAPI 3.1 document | 404 on the mobile build |
 

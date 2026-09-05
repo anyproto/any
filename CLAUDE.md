@@ -1565,6 +1565,17 @@ Implementation slices landed:
     full type declarations on bundles (properties / layout / weight
     with deterministic property ids) and the well-known `page/v1` /
     `chat/v1` / `wiki/v1` contracts.
+    **CRDT version mark** (same pair): the SDK stamps
+    `space.CRDTVersion` on the tech space's index object (`crdtVersion`
+    system dataset, monotonic by handler rule) at Open; a higher stored
+    mark refuses Open (`space.ErrCRDTVersionNewer` →
+    `409 sdk.crdt_version_newer` on `POST /v1/auth` and on every synced
+    write once a raise arrives at runtime — the account turns
+    read-only). `GET /v1/health` carries `crdtVersion {supported,
+    stored, newer}` (`deps.crdtVersion`). Bump the SDK constant when a
+    release writes data the previous one cannot read; the guard covers
+    releases from this one on. Contract: docs/02-server.md § Startup /
+    § Health, docs/06-errors.md; SDK docs/08-versioning.md.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if

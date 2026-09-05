@@ -169,6 +169,7 @@ search.bad_scope                 # 400 — scope not a valid slug ([a-z0-9_-], m
 
 sdk.not_implemented              # 501 — SDK placeholder (sync-status, some Properties/Types subroutes)
 sdk.not_found                    # 404 — SDK reports the target is gone (deleted object, unknown property, etc.)
+sdk.crdt_version_newer           # 409 — the account's data was written by a newer release (details.stored > details.supported): POST /v1/auth refuses to boot it; a running server whose account is raised by another device turns read-only — every synced write answers this until the server is upgraded (GET /v1/health.crdtVersion)
 
 server.unavailable               # 503 — request cancelled / server shutting down
 internal                         # catch-all for 500s

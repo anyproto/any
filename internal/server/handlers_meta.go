@@ -173,7 +173,22 @@ func (d *deps) health(c echo.Context) error {
 		StartedAt:     d.startedAt,
 		Account:       d.accountID(),
 		Bootstrapping: d.bootstrapping(),
+		CRDTVersion:   d.crdtVersion(),
 	})
+}
+
+// crdtVersion reports the booted SDK's account CRDT-version state;
+// nil when unauthorized.
+func (d *deps) crdtVersion() *api.CRDTVersionState {
+	if !d.ready.Load() || !d.gate.enter() {
+		return nil
+	}
+	defer d.gate.leave()
+	if d.sdk == nil {
+		return nil
+	}
+	st := d.sdk.CRDTVersion()
+	return &api.CRDTVersionState{Supported: st.Supported, Stored: st.Stored, Newer: st.Newer}
 }
 
 // shutdownHandler handles POST /v1/shutdown. Lifetime belongs to the

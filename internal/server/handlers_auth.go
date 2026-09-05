@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/auth"
+	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -333,6 +334,10 @@ func (d *deps) authBootError(c echo.Context, err error) error {
 	case errors.Is(err, auth.ErrPasskeyRequired), errors.Is(err, auth.ErrWrongPasskey):
 		return writeError(c, http.StatusBadRequest, "auth.passkey_required",
 			"wallet is encrypted — provide the passkey via the configured passkey env", nil)
+	case errors.Is(err, space.ErrCRDTVersionNewer):
+		return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
+			"the account's data was written by a newer version — upgrade this server before opening it",
+			crdtVersionDetails(err, nil))
 	}
 	authLog.Error("boot account", zap.Error(err))
 	return writeError(c, http.StatusInternalServerError, "internal", "account boot failed", nil)

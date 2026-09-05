@@ -177,6 +177,7 @@ Panics are converted to `500 internal` with a generic message.
 |---|---|---|
 | `sdk.not_implemented` | 501 | placeholder route (sync-status peers, attach/detach type, type delete) |
 | `sdk.not_found` | 404 | the engine reports the target gone (deleted object, unknown property or definition) |
+| `sdk.crdt_version_newer` | 409 | the account's data was written by a newer release (`details.stored` > `details.supported`): booting it refuses, a running server turns read-only until upgraded (`GET /v1/health` → `crdtVersion`) |
 | `server.unavailable` | 503 | request cancelled / server shutting down |
 | `internal` | 500 | catch-all |
 
