@@ -22,6 +22,14 @@ construction. It is `hidden`: a capability an object opts into, not a
 class a user picks (`GET …/types` lists it only with
 `?includeHidden=true`).
 
+It replaces the earlier `data_view` type and its `data_views` dataset
+with no back-compat: on an upgraded space the old collection and its
+rows stay on disk unreachable (an unregistered dataset), `data_view`
+lingers in `any.types` while `GET …/types/data_view` answers 404, and
+an old change that arrives late parks for good. Existing installs are
+abandoned in place; a client detaches `data_view` from its hosts and
+ensures the new defaults.
+
 ## Data model
 
 The type attaches to a **host object** and owns two records datasets
@@ -524,7 +532,8 @@ Views come in three tiers. **Only the shared tier ships here.**
 The private tiers need scoped **datasets** — records that only exist for
 me — not scoped fields. The SDK scopes fields, and its account mirror
 covers the `objects` rows only. When they land they are parallel
-datasets (`views_account` / `_device`), not a per-record scope
+datasets — a `_account` / `_device` twin of `views`, and of
+`dataviews` if a private table is ever wanted — not a per-record scope
 flag: one dataset is one version domain, and mixing DAG, tech-tree and
 local-lexid versions in one dataset breaks versionId ordering and
 subscribe dedup.

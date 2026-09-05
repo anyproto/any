@@ -554,6 +554,19 @@ func TestServer_DataView_ManyDataviews(t *testing.T) {
 		t.Errorf("all views = %d, want 3", len(all))
 	}
 
+	// View ids are one namespace per host, not per dataview: upserting
+	// `default` under the board MERGES into the existing default view
+	// (re-parenting it) instead of creating a second record — the
+	// mistake a client assuming per-dataview ids would make.
+	createView(t, e, spaceId, objectId, "default", `{"dataview": "board", "name": "Merged", "layout": "table", "pos": "a0"}`)
+	if all := listViews(t, e, spaceId, objectId); len(all) != 3 {
+		t.Errorf("all views after re-upserting `default` under board = %d, want 3 (one namespace)", len(all))
+	}
+	if v := getView(t, e, spaceId, objectId, "default"); v.Dataview != "board" || v.Name != "Merged" {
+		t.Errorf("default view after the merge = %+v, want re-parented to board", v)
+	}
+	createView(t, e, spaceId, objectId, "default", defaultViewPayload)
+
 	// A view moves between dataviews with one path write.
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q,
@@ -578,6 +591,26 @@ func TestServer_DataView_ManyDataviews(t *testing.T) {
 	}
 	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 1 {
 		t.Errorf("dataviews after delete = %+v, want the default only", dvs)
+	}
+	// The deleted dataview id is burned like a view id: re-ensuring it
+	// is a 200 with a rejection that creates nothing, and the recovery
+	// is the next id in the sequence.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/modify", fmt.Sprintf(`{
+		"objectId": %q, "dataset": %q,
+		"records": [{"id": "board", "upsert": true, "ops": [{"type": "$set", "path": "", "value": {"name": "Board", "pos": "a1"}}]}]
+	}`, objectId, dataview.DatasetDataviews))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-ensure a deleted dataview: %d %s", rec.Code, rec.Body.String())
+	}
+	if res := decodeModifyResult(t, rec.Body.Bytes()); len(res.Rejections) == 0 {
+		t.Errorf("re-ensuring a deleted dataview id was accepted; the burn rule changed")
+	}
+	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 1 {
+		t.Errorf("dataviews after re-ensure = %+v, want the default only (a burned id creates nothing)", dvs)
+	}
+	ensureDataview(t, e, spaceId, objectId, "board-2", `{"name": "Board", "pos": "a1"}`)
+	if dvs := listDataviews(t, e, spaceId, objectId); len(dvs) != 2 || dvs[1].Id != "board-2" {
+		t.Errorf("dataviews after recovery = %+v, want default + board-2", dvs)
 	}
 	orphans := queryViews(t, e, spaceId, objectId, map[string]any{"dataview": "board"})
 	if len(orphans) != 1 || orphans[0].Id != "board.default" {

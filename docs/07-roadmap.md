@@ -163,7 +163,8 @@ Not this repo's work; gate on the SDK:
 - **Scoped datasets (SYN-174).** Records that exist only for one
   account or one device — the SDK scopes FIELDS, and the private tiers
   of saved views (`24-data-views.md`) need scoped RECORDS. Shape agreed:
-  scope the whole dataset (parallel `views_account` / `_device`),
+  scope the whole dataset (parallel `_account` / `_device` twins of
+  `views`, and of `dataviews` if a private table is wanted),
   not a per-record flag — one dataset is one version domain, and mixing
   DAG / tech-tree / local-lexid versions in one dataset breaks
   versionId ordering and subscribe dedup. Account tier rides the

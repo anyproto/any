@@ -663,7 +663,7 @@ cases — an entry whose folder is removed, a
 move that forms a cycle across devices — are read-side product rules:
 compute the same view from the same records everywhere, never repair
 with writes.
-## 13. Saved views: ensure one, patch by path, one window per visible group
+## 13. Saved views: ensure the defaults, patch by path, one window per visible group
 
 Saved views (`24-data-views.md`) are the first place a client both
 *writes* shared configuration and *reads* it back on every render, so

@@ -13,7 +13,7 @@ import (
 // id. Re-ensuring it comes back 200 with a REJECTION and creates
 // nothing, so a client that ignores `rejections` silently renders no
 // views. The documented recovery is the next id in the deterministic
-// sequence (docs/24-data-views.md § Ensuring the default view).
+// sequence (docs/24-data-views.md § Ensuring the defaults).
 func TestServer_DataView_DeletedIdIsBurned(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()

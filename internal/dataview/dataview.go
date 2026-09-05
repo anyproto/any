@@ -150,7 +150,25 @@ func NewType() handler.Type {
 	}
 }
 
-// Shared declaration rules for both datasets.
+// stamps are the server-derived creator / time fields both datasets
+// carry; client writes to them are rejected.
+func stamps() []handler.Field {
+	return []handler.Field{
+		{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Stamp: handler.StampCreator},
+		// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the wire,
+		// memcmp-orderable and index-keyable in the store.
+		{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
+		{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
+	}
+}
+
+func str() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
+
+// object pins "must be an object" and nothing more: an object shape
+// with no declared properties accepts any keys.
+func object() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
+
+// Declaration rules shared by dataviewsSchema and viewsSchema.
 //
 // Dynamic: the schema is enforced on every peer at apply time, so a
 // closed keyspace would silently drop a newer client's undeclared key
@@ -168,21 +186,6 @@ func NewType() handler.Type {
 // any member with write permission retunes or removes it, and readers
 // are already fenced by the ACL. Author-only would freeze a departed
 // member's view forever.
-func stamps() []handler.Field {
-	return []handler.Field{
-		{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Stamp: handler.StampCreator},
-		// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the wire,
-		// memcmp-orderable and index-keyable in the store.
-		{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
-		{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
-	}
-}
-
-func str() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
-
-// object pins "must be an object" and nothing more: an object shape
-// with no declared properties accepts any keys.
-func object() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
 
 // dataviewsSchema declares the dataview record: a named, ordered table
 // on the host.

@@ -1666,7 +1666,10 @@ Implementation slices landed:
 
 47. **`dataview`: many dataviews, each with many views (SYN-217)** —
     `internal/dataview` now registers the HIDDEN type `dataview`
-    (replaces `data_view` / `data_views`, no back-compat) with one
+    (replaces `data_view` / `data_views`, no back-compat — an upgraded
+    space keeps the old rows on disk unreachable, `data_view` lingers
+    in `any.types` while its GET 404s, late old changes park for good;
+    installs are abandoned in place and clients detach the type) with one
     static part `views` (`ui {"type":"table"}`) owning two records
     datasets on the generic schema handler: `dataviews` (one record per
     table on the host — `name`+`pos` required, `icon`, stamps) and
