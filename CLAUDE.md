@@ -880,7 +880,8 @@ Implementation slices landed:
     (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
     § Meta.
 
-30. **Built-in `page` type — REMOVED by item 43.** It was the marker
+30. **Built-in `page` type — removed by item 45, back as a hidden
+    registered type with one editor part in item 46.** It was the marker
     type for "this object is a document" (no dataset, no properties —
     the SDK freezes registered types' property definitions, so a
     built-in could never carry per-space columns), introduced because
@@ -1527,8 +1528,9 @@ Implementation slices landed:
     write time (`space.ErrDatasetNotDeclared` → `400
     dataset.not_declared`), inbound apply stays read-tolerant, and no
     write attaches a type (`editor.EnsureType` / `chat.ensureType` are
-    gone). The built-in `page` / `editor` / `chat` types are gone with
-    `internal/page` and `internal/ensure`; documents and chats are user
+    gone). The built-in `editor` / `chat` types are gone with
+    `internal/ensure` (`page` left too and returned hidden in item 46);
+    documents and chats are user
     types registered as bundles (`Install.Parts`; `EnsureBundleRequest.
     Parts` — bundles declare `parts`, not `datasets`). Surface:
     `GET/POST …/types/:typeId/parts`, `PATCH/DELETE …/parts/:partId`,

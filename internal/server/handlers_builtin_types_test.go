@@ -92,6 +92,8 @@ func TestServer_BuiltinTypesHidden(t *testing.T) {
 		rec = doJSON(t, e, http.MethodPost, base+"/types/"+id+"/parts", `{"key":"x","datasets":[{"module":"editor","shared":true}]}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("add part on %s: %d %s, want 400", id, rec.Code, rec.Body.String())
+		} else {
+			assertErrorCode(t, rec, "type.registered")
 		}
 	}
 }
@@ -166,6 +168,25 @@ func TestServer_PageType(t *testing.T) {
 		t.Fatalf("attach page: %d %s", rec.Code, rec.Body.String())
 	}
 	blocksCreate(t, e, base+"/objects/"+bare, `{"type":"paragraph","text":"now"}`)
+
+	// page and a user document type on one object share the canonical
+	// collection: one body, whichever type's part admitted the write,
+	// and detaching page leaves the body to the other type.
+	userDoc := installModuleType(t, e, sp.Id, editor.Module)
+	both := mustCreateObject(t, e, sp.Id, `{"types":["`+page.TypeId+`","`+userDoc+`"]}`)
+	bothBase := base + "/objects/" + both
+	blocksCreate(t, e, bothBase, `{"type":"paragraph","text":"one"}`)
+	blocksCreate(t, e, bothBase, `{"type":"paragraph","text":"two"}`)
+	if got := len(blocksList(t, e, bothBase).Records); got != 2 {
+		t.Errorf("blocks on a page+user-typed object = %d, want 2 in one body", got)
+	}
+	rec = doJSON(t, e, http.MethodPost, base+"/properties/"+both+"/detach/"+page.TypeId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detach page: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := getMarkdown(t, e, bothBase+"/editor/editor_blocks/markdown"); got != "one\n\ntwo" {
+		t.Errorf("body after detaching page = %q, want it intact under the user type", got)
+	}
 }
 
 // TestServer_MiniappType pins the built-in mini-app marker: one string
@@ -245,18 +266,21 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	attachURL := fmt.Sprintf("%s/properties/%s/attach/%s", base, obj, bin.TypeId)
 	detachURL := fmt.Sprintf("%s/properties/%s/detach/%s", base, obj, bin.TypeId)
 
-	// stamps reads the bin namespace: (movedAt, movedBy, present).
+	// stamps reads the bin namespace: (movedAt, movedBy, present). A
+	// restored row carries NO `bin` key at all — an empty `bin: {}` would
+	// read as a carrier to a client testing the key.
 	stamps := func() (time.Time, string, bool) {
 		t.Helper()
 		row := propertiesRecord(t, e, sp.Id, obj)
-		ns, _ := row[bin.TypeId].(map[string]any)
-		at, hasAt := ns[bin.PropMovedAt].(map[string]any)
-		by, hasBy := ns[bin.PropMovedBy].(string)
-		if !hasAt && !hasBy {
+		nsRaw, hasNs := row[bin.TypeId]
+		if !hasNs {
 			return time.Time{}, "", false
 		}
+		ns, _ := nsRaw.(map[string]any)
+		at, hasAt := ns[bin.PropMovedAt].(map[string]any)
+		by, hasBy := ns[bin.PropMovedBy].(string)
 		if !hasAt || !hasBy {
-			t.Fatalf("bin namespace half-stamped: %v", ns)
+			t.Fatalf("bin namespace present but not fully stamped: %v", nsRaw)
 		}
 		s, _ := at["$date"].(string)
 		ts, err := time.Parse(time.RFC3339Nano, s)
@@ -359,5 +383,16 @@ func TestServer_BinMoveRestore(t *testing.T) {
 	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/attach/%s", base, "not-an-object", bin.TypeId), "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("move a bogus id: %d %s, want 404", rec.Code, rec.Body.String())
+	}
+
+	// Restore on an object that was never binned is a no-op 200 and
+	// leaves no `bin` key behind.
+	never := mustCreateObject(t, e, sp.Id, `{}`)
+	rec = doJSON(t, e, http.MethodPost, fmt.Sprintf("%s/properties/%s/detach/%s", base, never, bin.TypeId), "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("restore a never-binned object: %d %s", rec.Code, rec.Body.String())
+	}
+	if row := propertiesRecord(t, e, sp.Id, never); row[bin.TypeId] != nil || hasType(objectTypes(t, e, sp.Id, never), bin.TypeId) {
+		t.Errorf("never-binned object gained a bin namespace: %v", row[bin.TypeId])
 	}
 }

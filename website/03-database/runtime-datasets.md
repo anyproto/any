@@ -7,7 +7,7 @@ order: 90
 
 A runtime dataset is a collection you define under a **part** of one of your own types, at runtime, with a declarative schema — the `records` module ([modules](../types/index.html)). The schema syncs like any other data, and every peer enforces it on apply — required fields, who may edit a field after creation, who may delete a record, server-derived creator and time stamps, and whether record ids are auto-derived or caller-supplied.
 
-The records live in a collection **namespaced to the type**, `<typeId>_<key>` — the `collection` every declaration reply and listing carries, and the `dataset` value on every read and write. Two types can each declare `entries` without colliding. Registered built-in types (`data_view`, `nav`) refuse runtime definitions with `400 type.registered`. Runtime datasets are for *your* types.
+The records live in a collection **namespaced to the type**, `<typeId>_<key>` — the `collection` every declaration reply and listing carries, and the `dataset` value on every read and write. Two types can each declare `entries` without colliding. Registered built-in types (`data_view`, `nav`, `page`, …) refuse runtime definitions with `400 type.registered`. Runtime datasets are for *your* types.
 
 > **Why it matters.** There is no server-side function to put validation in. Every device applies every change, so the rules have to travel with the data. A dataset declaration is that rule set: an offline peer, a second device, and a member on another continent all reject the same malformed write, without ever agreeing on a leader.
 

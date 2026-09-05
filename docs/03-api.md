@@ -2368,7 +2368,7 @@ previously took a compiled-in handler: required fields, write-once vs
 author-mutable fields, author-only delete, derived creator/time
 stamps, user-supplied record ids, search extraction. This is the
 `records` module — the default when a dataset names none. Registered
-built-in types (`data_view`, `nav`) refuse (`400 type.registered`) —
+built-in types (`data_view`, `nav`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
 `docs/17-user-datasets.md`.

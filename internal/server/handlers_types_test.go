@@ -303,7 +303,7 @@ func TestServer_TypeProperties_NotFound(t *testing.T) {
 // server types: `editor` and `chat` are absent from the catalog,
 // unresolvable by id, and their names are free for client-registered
 // types; the editor and chat collections come from a type's part
-// declaring the module instead. (`page` is a hidden built-in again —
+// declaring the module instead. (`page` is a hidden built-in —
 // handlers_builtin_types_test.go — so a client document type takes
 // another handle.)
 func TestServer_NoBuiltinContentTypes(t *testing.T) {

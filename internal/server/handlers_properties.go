@@ -233,25 +233,26 @@ func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
 // never lacks its stamps and a restored object never keeps stale ones,
 // and one changeId names the move. movedBy is this account, the
 // change's signer; movedAt the server clock, written as an instant.
+// Restore unsets the whole `bin` namespace: a per-leaf $unset leaves
+// an empty `bin: {}` behind, which reads as a carrier to any client
+// testing the key.
 func (d *deps) binBinding(ctx context.Context, sp space.Space, objectId string, attach bool) (space.ModifyResult, error) {
-	movedAt, movedBy := bin.TypeId+"."+bin.PropMovedAt, bin.TypeId+"."+bin.PropMovedBy
 	var ops []space.Op
 	if attach {
 		ops = []space.Op{
 			{Type: space.OpAddToSet, Path: "any.types", Value: bin.TypeId},
-			{Type: space.OpSet, Path: movedAt, Value: time.Now().UTC()},
-			{Type: space.OpSet, Path: movedBy, Value: d.sdk.Account().Id()},
+			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedAt, Value: time.Now().UTC()},
+			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedBy, Value: d.sdk.Account().Id()},
 		}
 	} else {
 		ops = []space.Op{
 			{Type: space.OpPull, Path: "any.types", Value: bin.TypeId},
-			{Type: space.OpUnset, Path: movedAt},
-			{Type: space.OpUnset, Path: movedBy},
+			{Type: space.OpUnset, Path: bin.TypeId},
 		}
 	}
 	return sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
-		Dataset:  "objects",
+		Dataset:  objectsDataset,
 		Records:  []space.RecordModify{{Id: objectId, Upsert: true, Ops: ops}},
 	})
 }

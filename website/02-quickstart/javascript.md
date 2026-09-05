@@ -33,7 +33,7 @@ const SPACE = space.id;                              // "bafyreig…"
 
 ## 2. Create a page type, then an object
 
-A document is an object carrying a type whose part declares the `editor` module — there is no built-in page type (clients register theirs as a bundle so every device agrees on one).
+A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one).
 
 ```js
 const { typeId: PAGE } = await call("POST", `/spaces/${SPACE}/types`,

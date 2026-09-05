@@ -153,7 +153,7 @@ func buildModifyBatch(root *fastjson.Value) (space.ModifyBatch, error) {
 	// validates per-prop scope + kind — the generic route must not
 	// bypass that.
 	if batch.Scope == space.ScopeLocal {
-		if batch.Dataset == "objects" {
+		if batch.Dataset == objectsDataset {
 			return space.ModifyBatch{}, fmt.Errorf("local-scope writes to the objects dataset go through POST …/properties/:objectId/set/:typeId")
 		}
 		if len(batch.TraceIds) > 0 {

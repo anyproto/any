@@ -34,7 +34,7 @@ SPACE=bafyreig…
 
 ## 2. Create a page type, then an object
 
-A document is an object carrying a type whose part declares the `editor` module — there is no built-in page type. Create one (a client normally registers it as a [bundle](../collaboration/bundles.html) so every device agrees on it), then bind it and set a name. Properties always ride `initialProperties` keyed by type; the universal `any` type owns `name` / `description`.
+A document is an object carrying a type whose part declares the `editor` module. The built-in `page` type is the plain one — hidden from the picker, present in every space, no properties — so `"types": ["page"]` is enough; a client that needs columns declares its own document type (normally registered as a [bundle](../collaboration/bundles.html) so every device agrees on it). Properties always ride `initialProperties` keyed by type; the universal `any` type owns `name` / `description`.
 
 ```bash
 PAGE=$(curl -s -X POST $API/spaces/$SPACE/types -H 'content-type: application/json' \
