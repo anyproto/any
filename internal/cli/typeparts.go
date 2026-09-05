@@ -134,6 +134,8 @@ func newTypeUpdateCmd() *cobra.Command {
 		name, desc, iconCID string
 		weight              int
 		layoutRaw           string
+		hidden              bool
+		metaRaw             []string
 	)
 	cmd := &cobra.Command{
 		Use:   "update <spaceId> <typeId>",
@@ -169,8 +171,23 @@ Examples:
 					req.Layout = json.RawMessage(layoutRaw)
 				}
 			}
-			if req.Name == nil && req.Description == nil && req.IconCID == nil && req.Weight == nil && req.Layout == nil {
-				return fmt.Errorf("nothing to update: pass at least one of --name, --description, --icon, --weight, --layout")
+			if cmd.Flags().Changed("hidden") {
+				req.Hidden = &hidden
+			}
+			if len(metaRaw) > 0 {
+				meta, err := parseMetaFlags(metaRaw)
+				if err != nil {
+					return err
+				}
+				req.Meta = make(map[string]json.RawMessage, len(meta))
+				for k, v := range meta {
+					raw, _ := json.Marshal(v) // nil marshals to null = unset
+					req.Meta[k] = raw
+				}
+			}
+			if req.Name == nil && req.Description == nil && req.IconCID == nil && req.Weight == nil && req.Layout == nil &&
+				req.Hidden == nil && len(req.Meta) == 0 {
+				return fmt.Errorf("nothing to update: pass at least one of --name, --description, --icon, --weight, --layout, --hidden, --meta")
 			}
 			cl := newClient(flags.Timeout)
 			return cl.TypePatch(cmd.Context(), args[0], args[1], req)
@@ -181,5 +198,7 @@ Examples:
 	cmd.Flags().StringVar(&iconCID, "icon", "", "icon CID")
 	cmd.Flags().IntVar(&weight, "weight", 0, "primary-type weight (highest carried type renders)")
 	cmd.Flags().StringVar(&layoutRaw, "layout", "", `layout descriptor JSON, e.g. '{"type":"page"}' ('' clears)`)
+	cmd.Flags().BoolVar(&hidden, "hidden", false, "hide (--hidden) or unhide (--hidden=false) the type")
+	cmd.Flags().StringArrayVar(&metaRaw, "meta", nil, "consumer flag key=value (repeatable; key= unsets)")
 	return cmd
 }

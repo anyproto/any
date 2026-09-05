@@ -1484,7 +1484,7 @@
       }
       sp.moduleOwners = owners;
     }
-    const r = await api.get('/v1/spaces/' + spaceId + '/types');
+    const r = await api.get('/v1/spaces/' + spaceId + '/types?includeHidden=true');
     if (!r.ok) { toast('err', 'list types failed', r.body); return; }
     const list = (r.json && r.json.types) || [];
     const seen = new Set();

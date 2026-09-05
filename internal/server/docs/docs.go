@@ -3405,6 +3405,10 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "hidden": {
+                        "description": "Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden\ntypes unless includeHidden=true.",
+                        "type": "boolean"
+                    },
                     "iconCid": {
                         "type": "string"
                     },
@@ -3417,6 +3421,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "name": {
                         "type": "string"
@@ -3449,6 +3457,9 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "hidden": {
+                        "type": "boolean"
+                    },
                     "iconCid": {
                         "type": "string"
                     },
@@ -3458,6 +3469,15 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
                     },
                     "name": {
                         "type": "string"
@@ -3473,6 +3493,10 @@ const docTemplate = `{
                     "description": {
                         "type": "string"
                     },
+                    "hidden": {
+                        "description": "Hidden keeps the type out of GET …/types by default (pass\nincludeHidden=true to list it) and out of a client's pickers;\nGET …/types/:typeId always resolves it. Meta is the open bag of\nconsumer flags — one string, bool or number per single-level key\n(no '.', no '$', ≤64 bytes), written per key so concurrent\nwriters merge; opaque to the server. Both mutable via PATCH.",
+                        "type": "boolean"
+                    },
                     "iconCid": {
                         "type": "string"
                     },
@@ -3482,6 +3506,10 @@ const docTemplate = `{
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
                     },
                     "name": {
                         "type": "string"

@@ -407,10 +407,10 @@ mongo: `09-query.md` § Projection.
 
 ```
 any type create <spaceId> --name "..." --xkey ... [--description "..."] [--icon-cid ...]
-                [--weight N] [--layout '<json>']
+                [--weight N] [--layout '<json>'] [--hidden] [--meta k=v ...]
 any type update <spaceId> <typeId> [--name ...] [--description ...] [--icon ...]
-                [--weight N] [--layout '<json>'|'']
-any type list   <spaceId>
+                [--weight N] [--layout '<json>'|''] [--hidden[=false]] [--meta k=v|k= ...]
+any type list   <spaceId> [--include-hidden]
 
 any type property list   <spaceId> <typeId>
 any type property add    <spaceId> <typeId> --name ... --kind string|number|boolean|array|object|datetime
@@ -448,7 +448,11 @@ any upsert <spaceId> <objectId> --dataset NAME --records '<json>|@FILE|-'
 
 `type update` patches the display and rendering slice; cobra's
 `Changed` distinguishes an absent flag (keep) from an empty one
-(clear), and `--layout ''` clears the layout. A part draft is the
+(clear), and `--layout ''` clears the layout. `--meta k=v` is
+repeatable and per key (a value that parses as a JSON scalar is taken
+as such, `k=` unsets); `--hidden=false` unhides. `type list` omits
+hidden types (bundle roots, types marked hidden) without
+`--include-hidden`. A part draft is the
 `PartDraftRequest` shape — `{"key": "body", "datasets": [{"module":
 "editor", "shared": true}]}` declares a shared editor body; `{"key":
 "transcript", "ui": {"type": "table"}, "datasets": [{"key":

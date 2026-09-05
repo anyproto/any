@@ -28,13 +28,15 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/types
 any type list $SPACE
 ```
 
-Each row is `{id, name, description?, iconCid?, xKey, builtIn}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type, one `xkey` property) — then every registered built-in (`data_view`, `nav`), then user types. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
+Each row is `{id, name, description?, iconCid?, xKey, builtIn, weight?, layout?, hidden?, meta?}`. The list starts with three synthetic built-ins — `any` (the universal type: `any.name`, `any.description`, `any.icon`, `any.tags`, `any.types`), `spaceIndex` and `type` (the meta-type: `xkey`, `weight`, `layout`, `hidden`, `meta`) — then every registered built-in (`data_view`, `nav`), then user types; hidden types appear only with `includeHidden=true`. Built-ins report `builtIn: true` with `xKey` equal to their id, which reserves those ids against user types. The three synthetic ids cannot be attached to an object; a "filter by type" UI skips them.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404 type.not_found` for an unknown id. A `200 []` from the properties list always means "exists, no properties yet".
 
 ### Parts, weight and layout
 
 A type is more than its columns. Its **parts** are the display units a client renders for an object of the type — a body, a transcript, a task list — each owning datasets a module serves (`POST …/types/:typeId/parts`; see [Modules](../types/index.html) and [Runtime datasets](runtime-datasets.html)). Its **weight** decides which of an object's types is primary (the highest wins) and its **layout** is the descriptor a client renders for that primary type; both are set at create or through `PATCH …/types/:typeId` (`{name?, description?, iconCid?, weight?, layout?}`). There is no built-in `page` type: a document type is a user type with an editor part, registered as a bundle so every device agrees on one. See [Page](../types/page.html).
+
+Two more flags live on the type: `hidden` keeps it out of `GET …/types` (pass `includeHidden=true` to see it; `GET …/types/:typeId` always resolves it) — a bundle's self-typed root is hidden by construction — and `meta` is an open bag of consumer flags, one string, bool or number per key, patched per key through `PATCH …/types/:typeId` (`null` unsets) so devices touching different keys merge. The server interprets none of the keys.
 
 ## Add a property
 

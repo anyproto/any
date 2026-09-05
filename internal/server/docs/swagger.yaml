@@ -2701,6 +2701,11 @@ components:
           type: boolean
         description:
           type: string
+        hidden:
+          description: |-
+            Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden
+            types unless includeHidden=true.
+          type: boolean
         iconCid:
           type: string
         id:
@@ -2710,6 +2715,9 @@ components:
             type: integer
           type: array
           uniqueItems: false
+        meta:
+          additionalProperties: {}
+          type: object
         name:
           type: string
         weight:
@@ -2737,6 +2745,8 @@ components:
       properties:
         description:
           type: string
+        hidden:
+          type: boolean
         iconCid:
           type: string
         layout:
@@ -2744,6 +2754,12 @@ components:
             type: integer
           type: array
           uniqueItems: false
+        meta:
+          additionalProperties:
+            items:
+              type: integer
+            type: array
+          type: object
         name:
           type: string
         weight:
@@ -2753,6 +2769,15 @@ components:
       properties:
         description:
           type: string
+        hidden:
+          description: |-
+            Hidden keeps the type out of GET …/types by default (pass
+            includeHidden=true to list it) and out of a client's pickers;
+            GET …/types/:typeId always resolves it. Meta is the open bag of
+            consumer flags — one string, bool or number per single-level key
+            (no '.', no '$', ≤64 bytes), written per key so concurrent
+            writers merge; opaque to the server. Both mutable via PATCH.
+          type: boolean
         iconCid:
           type: string
         layout:
@@ -2760,6 +2785,9 @@ components:
             type: integer
           type: array
           uniqueItems: false
+        meta:
+          additionalProperties: {}
+          type: object
         name:
           type: string
         weight:

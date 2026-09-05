@@ -20,9 +20,12 @@ func (c *Client) TypesCreate(ctx context.Context, spaceId string, req api.TypesC
 }
 
 // TypesList lists the types in a space (built-ins + user-defined).
-func (c *Client) TypesList(ctx context.Context, spaceId string) (*api.TypesListResponse, error) {
+func (c *Client) TypesList(ctx context.Context, spaceId string, includeHidden bool) (*api.TypesListResponse, error) {
 	var out api.TypesListResponse
 	path := fmt.Sprintf("/v1/spaces/%s/types", url.PathEscape(spaceId))
+	if includeHidden {
+		path += "?includeHidden=true"
+	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}

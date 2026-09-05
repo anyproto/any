@@ -2019,7 +2019,8 @@ client lands on one type.
 
 `GET …/types` returns the synthetic built-ins first — `any`,
 `spaceIndex` and `type` (the meta-type: the shape of type objects
-themselves, one `xkey` property) — then every registered type, then the
+themselves: `xkey`, `weight`, `layout`, `hidden`, `meta`) — then every
+registered type, then the
 space's user types. Built-ins and registered types report `builtIn:
 true` with `xKey` equal to their id, which is what reserves those ids
 against user types (`409 type.xkey_conflict`); user types report
@@ -2035,8 +2036,8 @@ the `__type__` marker in `any.types`. `TypeInfo.xKey` is the supported
 read; the raw path is for debugging.
 
 The create body is `{name?, description?, iconCid?, xKey, weight?,
-layout?}` — **inline property definitions are not part of type
-create** (no SDK surface accepts them). A `properties` key, or any
+layout?, hidden?, meta?}` — **inline property definitions are not part
+of type create** (no SDK surface accepts them). A `properties` key, or any
 other unknown top-level key, answers `400 request.unknown_field`
 pointing at the per-field route: create the type, then add each
 property via `POST …/types/:typeId/properties` (each add materializes
@@ -2051,9 +2052,26 @@ win; ties break on type id). `layout` is an opaque descriptor object
 in the x-format shape — `{"type": "<slug>", "config": {…}}`, e.g.
 `{"type": "page"}` or `{"type": "tabs"}` — the client's vocabulary,
 checked only for being an object. **`PATCH …/types/:typeId`** takes
-`{name?, description?, iconCid?, weight?, layout?}`: absent keeps, an
-empty string clears a text field, `"layout": null` clears the layout;
-`204`, `400 type.registered` on a built-in, `404 type.not_found`.
+`{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}`:
+absent keeps, an empty string clears a text field, `"layout": null`
+clears the layout; `204`, `400 type.registered` on a built-in, `404
+type.not_found`.
+
+`hidden` (bool, `type.hidden`) keeps the type out of `GET …/types` —
+the picker view — unless the request carries `?includeHidden=true`;
+`GET …/types/:typeId` resolves a hidden type always, so an object
+carrying one still renders. A bundle's self-typed root is hidden by
+construction: it exists to host the bundle's datasets, and attaching
+it elsewhere would grant that object the bundle's collections.
+
+`meta` (`type.meta`) is the open bag of consumer flags on a type — one
+string, bool or number per single-level key (no `.`, no `$`, ≤64
+bytes; `400 request.invalid_field` otherwise), opaque to the server.
+Create takes it whole; PATCH patches it **per key** — a scalar sets
+the key, `null` unsets it, keys not named are untouched — so two
+devices writing different keys merge instead of clobbering each
+other. Consumers read the keys they own (an indexer flag, a client's
+tags); the server interprets none of them today.
 
 `GET …/types/:typeId` and `GET …/types/:typeId/properties` answer `404
 type.not_found` for an unknown typeId (deleted, never existed, or an id

@@ -367,6 +367,22 @@ func (d *deps) typePatch(c echo.Context) error {
 		Description: req.Description,
 		IconCID:     req.IconCID,
 		Weight:      req.Weight,
+		Hidden:      req.Hidden,
+	}
+	if len(req.Meta) > 0 {
+		patch.Meta = make(map[string]any, len(req.Meta))
+		for k, raw := range req.Meta {
+			var v any
+			if len(raw) > 0 && string(raw) != "null" {
+				if err := json.Unmarshal(raw, &v); err != nil {
+					return writeError(c, http.StatusBadRequest, "request.invalid_field", "meta value is not valid JSON", map[string]any{"path": "meta." + k})
+				}
+			}
+			if code, reason := checkTypeMetaEntry(k, v); code != "" {
+				return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
+			}
+			patch.Meta[k] = v // nil = unset
+		}
 	}
 	if len(req.Layout) > 0 {
 		if string(req.Layout) == "null" {
@@ -380,9 +396,9 @@ func (d *deps) typePatch(c echo.Context) error {
 		}
 	}
 	if patch.Name == nil && patch.Description == nil && patch.IconCID == nil && patch.Weight == nil &&
-		patch.Layout == nil && !patch.ClearLayout {
+		patch.Layout == nil && !patch.ClearLayout && patch.Hidden == nil && len(patch.Meta) == 0 {
 		return writeError(c, http.StatusBadRequest, "request.missing_field",
-			"at least one of name, description, iconCid, weight, layout is required", nil)
+			"at least one of name, description, iconCid, weight, layout, hidden, meta is required", nil)
 	}
 	if errResp, done := requireType(c, sp, typeId); done {
 		return errResp
@@ -395,6 +411,20 @@ func (d *deps) typePatch(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// checkTypeMetaEntry validates one meta entry: a single-level key
+// (no '.', no '$', ≤64 bytes) and a scalar value — string, bool,
+// number, or nil (an unset on PATCH). Returns ("", "") when fine.
+func checkTypeMetaEntry(key string, v any) (code, reason string) {
+	if key == "" || len(key) > 64 || strings.ContainsAny(key, ".$") {
+		return "request.invalid_field", "meta keys are single-level: no '.', no '$', at most 64 bytes"
+	}
+	switch v.(type) {
+	case nil, string, bool, float64, int, int64:
+		return "", ""
+	}
+	return "request.invalid_field", "meta values are strings, booleans or numbers"
 }
 
 // layoutFromWire validates a type's layout descriptor: an object whose

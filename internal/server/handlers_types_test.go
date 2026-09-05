@@ -126,8 +126,9 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 		t.Fatalf("catalog missing rows: meta=%v movie=%v", sawMeta, sawMovie)
 	}
 
-	// The meta-type describes type objects: the `xkey` handle plus the
-	// rendering pair `weight` / `layout`.
+	// The meta-type describes type objects: the `xkey` handle, the
+	// rendering pair `weight` / `layout`, the `hidden` flag and the
+	// `meta` bag.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/type/properties", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("meta-type properties: status=%d body=%s", rec.Code, rec.Body.String())
@@ -140,8 +141,9 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 	for _, p := range props.Properties {
 		metaKinds[p.Id] = p.Kind
 	}
-	if len(metaKinds) != 3 || metaKinds["xkey"] != "string" || metaKinds["weight"] != "number" || metaKinds["layout"] != "object" {
-		t.Fatalf("meta-type properties = %+v, want xkey/weight/layout", props.Properties)
+	if len(metaKinds) != 5 || metaKinds["xkey"] != "string" || metaKinds["weight"] != "number" || metaKinds["layout"] != "object" ||
+		metaKinds["hidden"] != "boolean" || metaKinds["meta"] != "object" {
+		t.Fatalf("meta-type properties = %+v, want xkey/weight/layout/hidden/meta", props.Properties)
 	}
 
 	// Raw row: xkey under the meta-type namespace, name still universal.
@@ -376,4 +378,84 @@ func errCode(t *testing.T, body []byte) string {
 		t.Fatalf("decode error envelope: %v (body=%s)", err, body)
 	}
 	return env.Error.Code
+}
+
+// TestServer_TypeHiddenAndMeta pins the two type flags: hidden types
+// stay out of the default listing and come back with includeHidden
+// (GET by id always resolves them; a bundle's self-typed root is
+// hidden by construction); meta is a per-key scalar bag — create
+// takes it whole, PATCH sets and unsets per key, bad keys and values
+// are refused at the boundary.
+func TestServer_TypeHiddenAndMeta(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "TypeFlags")
+	base := "/v1/spaces/" + sp.Id
+	rec := doJSON(t, e, http.MethodPost, base+"/types",
+		`{"name":"Draft","xKey":"draft","hidden":true,"meta":{"index":"none","rank":3,"beta":true}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	listIds := func(q string) map[string]api.TypeInfo {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, base+"/types"+q, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list%s: %d %s", q, rec.Code, rec.Body.String())
+		}
+		var list api.TypesListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]api.TypeInfo{}
+		for _, ti := range list.Types {
+			out[ti.Id] = ti
+		}
+		return out
+	}
+	if _, listed := listIds("")[created.TypeId]; listed {
+		t.Error("hidden type listed by default")
+	}
+	ti, listed := listIds("?includeHidden=true")[created.TypeId]
+	if !listed || !ti.Hidden || ti.Meta["index"] != "none" || ti.Meta["rank"] != float64(3) || ti.Meta["beta"] != true {
+		t.Fatalf("includeHidden row = %+v (listed=%v)", ti, listed)
+	}
+	rec = doJSON(t, e, http.MethodGet, base+"/types/"+created.TypeId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get hidden type: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Per-key patch: set one, unset one, leave one; unhide.
+	rec = doJSON(t, e, http.MethodPatch, base+"/types/"+created.TypeId,
+		`{"hidden":false,"meta":{"index":"basic","beta":null}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+	}
+	ti, listed = listIds("")[created.TypeId]
+	if !listed || ti.Hidden {
+		t.Fatalf("unhidden type must list by default: %+v listed=%v", ti, listed)
+	}
+	if ti.Meta["index"] != "basic" || ti.Meta["rank"] != float64(3) || len(ti.Meta) != 2 {
+		t.Errorf("meta after per-key patch = %v, want index=basic rank=3", ti.Meta)
+	}
+	for _, body := range []string{`{"meta":{"a.b":"x"}}`, `{"meta":{"$x":"y"}}`, `{"meta":{"obj":{"k":1}}}`, `{"meta":{"arr":[1]}}`} {
+		rec = doJSON(t, e, http.MethodPatch, base+"/types/"+created.TypeId, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("patch %s: %d %s, want 400", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A bundle root with parts is a hidden type.
+	res := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes","parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"title","kind":"string"}]}]}]}`)
+	if _, listed := listIds("")[res.Bundle.RootId]; listed {
+		t.Error("bundle root listed as a pickable type")
+	}
+	if root, ok := listIds("?includeHidden=true")[res.Bundle.RootId]; !ok || !root.Hidden {
+		t.Errorf("bundle root = %+v (ok=%v), want hidden", root, ok)
+	}
 }

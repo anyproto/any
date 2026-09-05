@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -29,16 +30,32 @@ func newTypeCmd() *cobra.Command {
 }
 
 func newTypeCreateCmd() *cobra.Command {
-	var name, desc, iconCID, xkey string
+	var (
+		name, desc, iconCID, xkey string
+		weight                    int
+		layoutRaw                 string
+		hidden                    bool
+		metaRaw                   []string
+	)
 	cmd := &cobra.Command{
 		Use:   "create <spaceId>",
 		Short: "create a user-defined type",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			req := api.TypesCreateRequest{Name: name, Description: desc, IconCID: iconCID, XKey: xkey, Weight: weight, Hidden: hidden}
+			if layoutRaw != "" {
+				if !json.Valid([]byte(layoutRaw)) {
+					return fmt.Errorf("--layout is not valid JSON")
+				}
+				req.Layout = json.RawMessage(layoutRaw)
+			}
+			meta, err := parseMetaFlags(metaRaw)
+			if err != nil {
+				return err
+			}
+			req.Meta = meta
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypesCreate(cmd.Context(), args[0], api.TypesCreateRequest{
-				Name: name, Description: desc, IconCID: iconCID, XKey: xkey,
-			})
+			out, err := cl.TypesCreate(cmd.Context(), args[0], req)
 			if err != nil {
 				return err
 			}
@@ -49,23 +66,60 @@ func newTypeCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&desc, "description", "", "description")
 	cmd.Flags().StringVar(&iconCID, "icon-cid", "", "icon CID")
 	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key (required, unique per space)")
+	cmd.Flags().IntVar(&weight, "weight", 0, "primary-type weight (highest carried type renders)")
+	cmd.Flags().StringVar(&layoutRaw, "layout", "", `layout descriptor JSON, e.g. '{"type":"page"}'`)
+	cmd.Flags().BoolVar(&hidden, "hidden", false, "keep the type out of default listings and pickers")
+	cmd.Flags().StringArrayVar(&metaRaw, "meta", nil, "consumer flag key=value (repeatable; value parsed as JSON scalar, else a string)")
 	return cmd
 }
 
+// parseMetaFlags turns repeatable key=value flags into the meta bag: a
+// value that parses as a JSON scalar (true, 3, "x") is taken as such,
+// anything else is a string; an empty value unsets the key.
+func parseMetaFlags(raw []string) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]any, len(raw))
+	for _, kv := range raw {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("--meta expects key=value, got %q", kv)
+		}
+		if v == "" {
+			out[k] = nil
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			switch parsed.(type) {
+			case string, bool, float64:
+				out[k] = parsed
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
 func newTypeListCmd() *cobra.Command {
-	return &cobra.Command{
+	var includeHidden bool
+	cmd := &cobra.Command{
 		Use:   "list <spaceId>",
 		Short: "list types in a space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypesList(cmd.Context(), args[0])
+			out, err := cl.TypesList(cmd.Context(), args[0], includeHidden)
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "also list hidden types (bundle roots, types marked hidden)")
+	return cmd
 }
 
 // newTypePropertyCmd is `any type property <subcommand>` — the property

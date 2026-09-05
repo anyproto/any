@@ -198,7 +198,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | — | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`chat`, `editor`, `page`, `nav`), then user types |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`data_view`, `nav`), then user types; hidden types (bundle roots, `hidden: true`) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey}` | 201 `TypeInfo` | `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
@@ -206,7 +206,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | POST | `…/types/:typeId/properties` | `{name, kind?, xKey?, format?, meta?, scope?}` | 201 | `400 property.format_invalid`, `400 type.registered` |
 | PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `400 property.immutable`, `400 property.format_invalid`, `404 sdk.not_found` |
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
-| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?}` | 204 | rendering slice; `400 type.registered` |
+| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered` |
 | GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
 | POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
 | PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |

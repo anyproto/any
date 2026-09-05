@@ -74,6 +74,11 @@ func (d *deps) typeCreate(c echo.Context) error {
 	if code != "" {
 		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "layout"})
 	}
+	for k, v := range req.Meta {
+		if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
+		}
+	}
 	typeId, err := sp.Types().Create(c.Request().Context(), space.TypeCreateParams{
 		Name:        req.Name,
 		Description: req.Description,
@@ -81,6 +86,8 @@ func (d *deps) typeCreate(c echo.Context) error {
 		XKey:        req.XKey,
 		Weight:      req.Weight,
 		Layout:      layout,
+		Hidden:      req.Hidden,
+		Meta:        req.Meta,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -216,11 +223,18 @@ func (d *deps) typeList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
+	// Hidden types (a client's choice, or a bundle's self-typed root)
+	// stay out of the default listing — the picker view — and come back
+	// with includeHidden=true; GET …/types/:typeId resolves them always.
+	includeHidden := c.QueryParam("includeHidden") == "true"
 	// nav is registered with the SDK (config.Config.Types, see sdk.go) as a
 	// property-only type, so Types().List already surfaces it with
 	// BuiltIn=true — do NOT inject it again here or clients see "nav" twice.
 	out := make([]api.TypeInfo, 0, len(infos))
 	for _, t := range infos {
+		if t.Hidden && !includeHidden {
+			continue
+		}
 		out = append(out, typeInfoToAPI(t))
 	}
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
@@ -476,6 +490,8 @@ func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
 		Weight:      t.Weight,
+		Hidden:      t.Hidden,
+		Meta:        t.Meta,
 	}
 	if len(t.Layout) > 0 {
 		if raw, err := json.Marshal(t.Layout); err == nil {

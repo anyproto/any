@@ -1576,6 +1576,12 @@ Implementation slices landed:
     release writes data the previous one cannot read; the guard covers
     releases from this one on. Contract: docs/02-server.md § Startup /
     § Health, docs/06-errors.md; SDK docs/08-versioning.md.
+    **Type `hidden` + `meta`** (same pair): `type.hidden` keeps a type
+    out of `GET …/types` unless `?includeHidden=true` (bundle roots are
+    hidden by construction); `type.meta` is an opaque per-key scalar
+    bag patched per key (`null` unsets) — the SDK's objects-row handler
+    now admits nested `$set` paths under object-kind properties for it.
+    The web UI lists with `includeHidden=true`.
 
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
