@@ -12,6 +12,7 @@ import (
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/commonspace/settings"
 
 	"github.com/anyproto/any/internal/api"
 )
@@ -146,6 +147,7 @@ func (d *deps) objectCreate(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/objects/{objectId} [delete]
 func (d *deps) objectDelete(c echo.Context) error {
@@ -157,6 +159,11 @@ func (d *deps) objectDelete(c echo.Context) error {
 	if err := sp.Objects().Delete(c.Request().Context(), objectId); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+		}
+		if errors.Is(err, settings.ErrCantDeleteDerivedObject) {
+			return writeError(c, http.StatusConflict, "object.derived_undeletable",
+				"derived objects are permanent and cannot be deleted",
+				map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 		}
 		return writeError(c, http.StatusNotFound, "sdk.not_found",
 			"object not found or already deleted",

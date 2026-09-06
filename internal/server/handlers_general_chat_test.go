@@ -139,3 +139,32 @@ func countObjects(t *testing.T, e http.Handler, spaceId string) int {
 	}
 	return out.Total
 }
+
+// TestServer_DerivedObjectUndeletable pins the delete mapping: a derived
+// bundle root (the general chat) is permanent and must say so, rather
+// than reporting the object as missing. An ordinary object still
+// deletes, and an unknown id still 404s.
+func TestServer_DerivedObjectUndeletable(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "DerivedDelete")
+	base := "/v1/spaces/" + sp.Id
+
+	chatRoot := mustCreateModuleObject(t, e, sp.Id, "chat")
+	rec := doJSON(t, e, http.MethodDelete, base+"/objects/"+chatRoot, "")
+	assertStatusCode(t, rec, http.StatusConflict, "object.derived_undeletable")
+
+	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"types":["page"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
+	}
+	var obj api.ObjectsCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &obj); err != nil {
+		t.Fatalf("decode object: %v", err)
+	}
+	doJSONExpect(t, e, http.MethodDelete, base+"/objects/"+obj.ObjectId, http.StatusNoContent)
+
+	rec = doJSON(t, e, http.MethodDelete, base+"/objects/"+obj.ObjectId, "")
+	assertStatusCode(t, rec, http.StatusNotFound, "sdk.not_found")
+}

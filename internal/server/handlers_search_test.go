@@ -235,13 +235,15 @@ func TestSearch_FullFlow(t *testing.T) {
 	}
 
 	// --- Object deletion purges its docs ---
-	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+chatObj, http.StatusNoContent)
+	// The general chat root is derived and undeletable, so the deletable
+	// editor object carries this case.
+	doJSONExpect(t, e, http.MethodDelete, "/v1/spaces/"+spaceId+"/objects/"+edObj, http.StatusNoContent)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
-	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "zeppelin"}, http.StatusOK)
+	res = doSearch(t, e, spaceId, api.SearchRequest{Query: "quarterly budget", Mode: api.SearchModeFTS}, http.StatusOK)
 	if len(res.Hits) != 0 {
-		t.Fatalf("hits after object delete = %v, want none", hitRecordIds(res))
+		t.Fatalf("hits after object delete = %+v, want none", res.Hits)
 	}
 
 	// --- Validation ---
