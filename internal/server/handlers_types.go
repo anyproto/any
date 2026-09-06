@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/nav"
 )
 
@@ -68,11 +70,24 @@ func (d *deps) typeCreate(c echo.Context) error {
 		}
 	}
 
+	layout, code, reason := layoutFromWire(req.Layout)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "layout"})
+	}
+	for k, v := range req.Meta {
+		if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
+		}
+	}
 	typeId, err := sp.Types().Create(c.Request().Context(), space.TypeCreateParams{
 		Name:        req.Name,
 		Description: req.Description,
 		IconCID:     req.IconCID,
 		XKey:        req.XKey,
+		Weight:      req.Weight,
+		Layout:      layout,
+		Hidden:      req.Hidden,
+		Meta:        req.Meta,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -107,45 +122,25 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	if !ok {
 		return nil
 	}
+	draft, code, reason, details := propertyDraftFromAPI(*req)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, details)
+	}
 
-	// Kind may be omitted when a format is declared — the SDK defaults
-	// it from format.type (links ⇒ array, date/datetime ⇒ string).
-	var kind space.PropertyKind
-	if req.Kind != "" || req.Format == nil {
-		var ok bool
-		kind, ok = propertyKindFromString(req.Kind)
-		if !ok {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"unknown property kind",
-				map[string]any{"kind": req.Kind})
+	// xKey is unique within the type — a read-then-create preflight,
+	// not a guarantee (two devices working apart can both land the same
+	// handle; both columns then persist — docs/27-descriptors.md).
+	if req.XKey != "" {
+		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 		}
-	}
-	if reason := validateFormatSemantics(req.Format, req.Kind); reason != "" {
-		return writeError(c, http.StatusBadRequest, "property.format_invalid",
-			reason, map[string]any{"format": req.Format})
-	}
-
-	var scope space.Scope // zero value = synced (SDK default)
-	if req.Scope != "" {
-		var ok bool
-		scope, ok = space.ParseScope(req.Scope)
-		if !ok || scope == space.ScopeDerived {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"scope must be one of synced, account, local",
-				map[string]any{"scope": req.Scope})
+		if errResp, done := requireXKeyFree(c, defs, req.XKey, ""); done {
+			return errResp
 		}
 	}
 
-	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, space.PropertyDraft{
-		Name:        req.Name,
-		Description: req.Description,
-		XKey:        req.XKey,
-		XKind:       req.XKind,
-		Kind:        kind,
-		Meta:        req.Meta,
-		Format:      formatDraftFromAPI(req.Format),
-		Scope:       scope,
-	})
+	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, draft)
 	if err != nil {
 		if errors.Is(err, space.ErrTypeRegistered) {
 			return writeError(c, http.StatusBadRequest, "type.registered",
@@ -155,6 +150,64 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
+}
+
+// propertyDraftFromAPI is the one gate a property definition passes on
+// its way to the SDK — POST …/properties and a bundle's `properties`
+// alike: kind required and known (nothing is defaulted from the
+// descriptor), meta narrowed to the index flag, the descriptor
+// validated against the kind, scope creatable. Returns ("", "", nil)
+// code/reason/details on success.
+func propertyDraftFromAPI(req api.AddPropertyRequest) (space.PropertyDraft, string, string, map[string]any) {
+	var draft space.PropertyDraft
+	if req.Kind == "" {
+		return draft, "request.schema", "kind is required (string / number / boolean / array / object / datetime)", nil
+	}
+	kind, ok := propertyKindFromString(req.Kind)
+	if !ok {
+		return draft, "request.schema", "unknown property kind", map[string]any{"kind": req.Kind}
+	}
+	for k := range req.Meta {
+		if k != index.MetaIndexKey {
+			return draft, "request.invalid_field",
+				"meta holds only " + index.MetaIndexKey + "; descriptive keys live under xFormat",
+				map[string]any{"key": k}
+		}
+	}
+	xf, code, reason := validateDescriptor(req.XFormat, req.Kind)
+	if code != "" {
+		return draft, code, reason, nil
+	}
+	var scope space.Scope // zero value = synced (SDK default)
+	if req.Scope != "" {
+		scope, ok = space.ParseScope(req.Scope)
+		if !ok || scope == space.ScopeDerived {
+			return draft, "request.schema", "scope must be one of synced, account, local", map[string]any{"scope": req.Scope}
+		}
+	}
+	return space.PropertyDraft{
+		Name:        req.Name,
+		Description: req.Description,
+		XKey:        req.XKey,
+		Kind:        kind,
+		Meta:        req.Meta,
+		XFormat:     xf,
+		Scope:       scope,
+	}, "", "", nil
+}
+
+// requireXKeyFree 409s when another of the type's definitions already
+// carries xKey (selfId excludes the property being patched). An unknown
+// type lists no properties, so the write that follows reports it.
+func requireXKeyFree(c echo.Context, defs []space.PropertyDef, xKey, selfId string) (errResp error, done bool) {
+	for _, def := range defs {
+		if def.XKey == xKey && def.Id != selfId {
+			return writeError(c, http.StatusConflict, "property.xkey_conflict",
+				"xKey already in use by another property of this type",
+				map[string]any{"xKey": xKey, "existingPropId": def.Id}), true
+		}
+	}
+	return nil, false
 }
 
 // typeList handles GET /v1/spaces/:spaceId/types.
@@ -175,11 +228,18 @@ func (d *deps) typeList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
+	// Hidden types (a client's choice, or a bundle's self-typed root)
+	// stay out of the default listing — the picker view — and come back
+	// with includeHidden=true; GET …/types/:typeId resolves them always.
+	includeHidden := c.QueryParam("includeHidden") == "true"
 	// nav is registered with the SDK (config.Config.Types, see sdk.go) as a
 	// property-only type, so Types().List already surfaces it with
 	// BuiltIn=true — do NOT inject it again here or clients see "nav" twice.
 	out := make([]api.TypeInfo, 0, len(infos))
 	for _, t := range infos {
+		if t.Hidden && !includeHidden {
+			continue
+		}
 		out = append(out, typeInfoToAPI(t))
 	}
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
@@ -273,10 +333,10 @@ func (d *deps) typeProperties(c echo.Context) error {
 
 // typePatchProperty handles PATCH /v1/spaces/:spaceId/types/:typeId/properties/:propId.
 // It wraps TypesAPI.PatchProperty — a generic per-path patch covering
-// rename (#1) and select/multiselect option CRUD + colors + order
-// (#3/#5). Body: {set: {"dotted.path": value}, unset: ["dotted.path"]}.
-// Pinned paths (kind/scope/items/properties, the whole format object,
-// format.type) return 400 property.immutable.
+// rename, the handle, the index flag and every descriptor path (slug,
+// icon, order, options, relation, config). Body:
+// {set: {"dotted.path": value}, unset: ["dotted.path"]}. Pinned paths
+// (kind/scope/items/properties) return 400 property.immutable.
 //
 //	@Summary	Patch a property definition (rename, options, colors, order)
 //	@Tags		types
@@ -314,6 +374,7 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 	if len(req.Set) > 0 {
 		patch.Set = make(map[string]any, len(req.Set))
 	}
+	var newXKey, newSlug string
 	for path, raw := range req.Set {
 		storagePath, code, reason := patchPathToStorage(path, true)
 		if code != "" {
@@ -324,6 +385,12 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, vcode, reason, map[string]any{"path": path})
 		}
 		patch.Set[storagePath] = val
+		switch storagePath {
+		case propFieldXKey:
+			newXKey, _ = val.(string)
+		case propFieldXFormat + "." + xfType:
+			newSlug, _ = val.(string)
+		}
 	}
 	for _, path := range req.Unset {
 		storagePath, code, reason := patchPathToStorage(path, false)
@@ -331,6 +398,31 @@ func (d *deps) typePatchProperty(c echo.Context) error {
 			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": path})
 		}
 		patch.Unset = append(patch.Unset, storagePath)
+	}
+
+	// The two leaves with a cross-definition rule: a handle must stay
+	// unique within the type, and a slug can only move within the
+	// pinned kind. Both need the current definitions — one read, only
+	// when either leaf is touched.
+	if newXKey != "" || newSlug != "" {
+		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
+		if err != nil {
+			return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
+		}
+		if newXKey != "" {
+			if errResp, done := requireXKeyFree(c, defs, newXKey, propId); done {
+				return errResp
+			}
+		}
+		for _, def := range defs {
+			if newSlug == "" || def.Id != propId {
+				continue
+			}
+			if reason := slugKindMismatch(newSlug, propertyKindToString(def.Kind)); reason != "" {
+				return writeError(c, http.StatusBadRequest, "property.format_invalid", reason,
+					map[string]any{"path": wireXFormat + "." + xfType})
+			}
+		}
 	}
 
 	if err := sp.Types().PatchProperty(c.Request().Context(), typeId, propId, patch); err != nil {
@@ -349,9 +441,6 @@ func (d *deps) propertyWriteError(c echo.Context, err error, typeId, propId stri
 		return writeError(c, http.StatusNotFound, "sdk.not_found", "type or property not found", details)
 	case errors.Is(err, space.ErrPinnedField):
 		return writeError(c, http.StatusBadRequest, "property.immutable", "a patched path is immutable", details)
-	case errors.Is(err, space.ErrPropertyNoFormat):
-		return writeError(c, http.StatusBadRequest, "property.format_invalid",
-			"property has no format; format.* paths require a format declared at creation", details)
 	case errors.Is(err, space.ErrTypeRegistered):
 		return writeError(c, http.StatusBadRequest, "type.registered",
 			"type is a registered built-in; its properties are statically declared", details)
@@ -398,14 +487,23 @@ func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 	if xkey == "" && t.BuiltIn {
 		xkey = t.Id
 	}
-	return api.TypeInfo{
+	out := api.TypeInfo{
 		Id:          t.Id,
 		Name:        t.Name,
 		Description: t.Description,
 		IconCID:     t.IconCID,
 		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
+		Weight:      t.Weight,
+		Hidden:      t.Hidden,
+		Meta:        t.Meta,
 	}
+	if len(t.Layout) > 0 {
+		if raw, err := json.Marshal(t.Layout); err == nil {
+			out.Layout = raw
+		}
+	}
+	return out
 }
 
 func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
@@ -414,9 +512,9 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 		Name:        p.Name,
 		Description: p.Description,
 		XKey:        p.XKey,
-		XKind:       p.XKind,
 		Kind:        propertyKindToString(p.Kind),
 		Meta:        p.Meta,
+		XFormat:     xformatToWire(p.XFormat),
 	}
 	if p.Scope != 0 {
 		out.Scope = p.Scope.String()
@@ -434,7 +532,6 @@ func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {
 	if len(p.Required) > 0 {
 		out.Required = append([]string(nil), p.Required...)
 	}
-	out.Format = formatToAPI(p.Format)
 	return out
 }
 

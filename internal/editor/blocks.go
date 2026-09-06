@@ -48,18 +48,11 @@ import (
 	"github.com/anyproto/any-sync-sdk/handler"
 )
 
-// TypeId is the type identifier callers register block-bearing objects
-// under. Reserved — content-addressable user-derived type ids never
-// produce this string. Most objects don't explicitly carry the type
-// (blocks live on any object's editor_blocks dataset); registering the
-// handler is what matters.
-const TypeId = "editor"
-
-// Display metadata used when surfacing the built-in via Types.List.
-const (
-	Name        = "Editor"
-	Description = "Markdown + atomic block tree for an object's body"
-)
+// Module is the module slug a type names in a part's dataset
+// declaration (`{"module": "editor"}`). The SDK instantiates the block
+// handler once for the shared canonical collection (Dataset) and once
+// per namespaced `<typeId>_<key>` instance a type declares.
+const Module = "editor"
 
 // Dataset is the per-object dataset that holds the block records.
 const Dataset = "editor_blocks"
@@ -102,7 +95,7 @@ const dataVersion = "editor_blocks-v1"
 // Validation limits. Conservative; revisit if real usage hits them.
 const (
 	MaxTextBytes     = 64 * 1024 // ~64 KiB per block; larger than chat MaxTextBytes by intent
-	MaxTypeBytes     = 64       // "check_list_item" is the longest known value
+	MaxTypeBytes     = 64        // "check_list_item" is the longest known value
 	MaxLangBytes     = 64
 	MaxParentIdBytes = 256
 	MaxPosBytes      = 256
@@ -125,25 +118,28 @@ const (
 	TypeImage         = "image"
 )
 
-// NewType returns the handler.Type to add to config.Config.Types so
-// the SDK accepts writes on the editor_blocks dataset.
+// NewModule returns the handler.Module to add to config.Config.Modules
+// so the SDK serves every editor collection — the canonical
+// `editor_blocks` shared by every type declaring `{"module": "editor",
+// "shared": true}` and each namespaced instance — with the block
+// handler.
 //
 //	cfg := config.Config{
-//	    Types: []handler.Type{ blocks.NewType(), chat.NewType() },
+//	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },
 //	    ...
 //	}
-func NewType() handler.Type {
-	return handler.Type{
-		Id:          TypeId,
-		Name:        Name,
-		Description: Description,
-		Datasets: []handler.Dataset{{
-			Name:        Dataset,
-			DataVersion: dataVersion,
-			Handler:     blocksHandler{},
-			Schema:      datasetSchema(),
-			Indexes:     blocksHandler{}.Indexes(),
-		}},
+func NewModule() handler.Module {
+	return handler.Module{
+		Name:        Module,
+		Canonical:   Dataset,
+		DataVersion: dataVersion,
+		New: func(handler.ModuleInstance) handler.Dataset {
+			return handler.Dataset{
+				Handler: blocksHandler{},
+				Schema:  datasetSchema(),
+				Indexes: blocksHandler{}.Indexes(),
+			}
+		},
 	}
 }
 

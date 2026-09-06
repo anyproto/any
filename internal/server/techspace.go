@@ -71,12 +71,22 @@ var techAllowedRoutes = map[string]struct{}{
 	"GET /v1/spaces/:spaceId/types":                                            {},
 	"GET /v1/spaces/:spaceId/types/:typeId":                                    {},
 	"GET /v1/spaces/:spaceId/types/:typeId/properties":                         {},
+	"GET /v1/spaces/:spaceId/types/:typeId/parts":                              {},
+	"POST /v1/spaces/:spaceId/types/:typeId/parts":                             {},
+	"PATCH /v1/spaces/:spaceId/types/:typeId/parts/:partId":                    {},
+	"DELETE /v1/spaces/:spaceId/types/:typeId/parts/:partId":                   {},
+	"POST /v1/spaces/:spaceId/types/:typeId/parts/:partId/datasets":            {},
 	"GET /v1/spaces/:spaceId/types/:typeId/datasets":                           {},
-	"POST /v1/spaces/:spaceId/types/:typeId/datasets":                          {},
 	"PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId":                  {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId":                 {},
 	"POST /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields":            {},
+	"PATCH /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId":  {},
 	"DELETE /v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId": {},
+	// Property definitions on bundle roots evolve here like parts do;
+	// the SDK's tech handle fences them to bundle roots.
+	"POST /v1/spaces/:spaceId/types/:typeId/properties":           {},
+	"PATCH /v1/spaces/:spaceId/types/:typeId/properties/:propId":  {},
+	"DELETE /v1/spaces/:spaceId/types/:typeId/properties/:propId": {},
 
 	// children stay off the list (phase-2, not exposed). resolve is
 	// load-bearing: created installs can fork across offline devices,

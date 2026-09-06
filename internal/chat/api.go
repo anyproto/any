@@ -11,7 +11,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/ensure"
 )
 
 // ErrNotFound signals that a referenced messageId does not exist on
@@ -23,12 +22,6 @@ var ErrNotFound = errors.New("chat: message not found")
 // other than the original message's creator. Maps to 403
 // chat.not_author at the HTTP layer.
 var ErrNotAuthor = errors.New("chat: not the message author")
-
-// ensureType attaches the chat type to the object's any.types so the
-// membership-gated chat_messages write is admitted by the SDK.
-func ensureType(ctx context.Context, sp space.Space, objectId string) error {
-	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
-}
 
 // SendOpts is the input to Send. Text is required only when Attachments
 // is empty (an attachment-only message is valid) and is validated by
@@ -56,9 +49,6 @@ type SendOpts struct {
 // event it'll receive over /query/subscribe. The full record is read
 // back through /query, never re-rendered here.
 func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (space.ModifyResult, error) {
-	if err := ensureType(ctx, sp, objectId); err != nil {
-		return space.ModifyResult{}, fmt.Errorf("chat: send: ensure type: %w", err)
-	}
 	payload := map[string]any{
 		FieldText: opts.Text,
 	}

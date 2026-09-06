@@ -31,11 +31,18 @@ const space = await call("POST", "/spaces", { name: "Notebook" });
 const SPACE = space.id;                              // "bafyreig…"
 ```
 
-## 2. Create an object
+## 2. Create a page type, then an object
+
+A document is an object carrying a type whose part declares the `editor` module — the built-in `page` for a plain body, or a document type of your own (registered as a bundle so every device agrees on one).
 
 ```js
+const { typeId: PAGE } = await call("POST", `/spaces/${SPACE}/types`,
+  { name: "Page", xKey: "page", weight: 10, layout: { type: "page" } });
+await call("POST", `/spaces/${SPACE}/types/${PAGE}/parts`,
+  { key: "body", datasets: [{ module: "editor", shared: true }] });
+
 const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
-  types: ["page"],
+  types: [PAGE],
   initialProperties: { any: { name: "Reading list" } },
 });
 ```
@@ -44,7 +51,7 @@ const { objectId } = await call("POST", `/spaces/${SPACE}/objects`, {
 
 ```js
 const page = await call("POST", `/spaces/${SPACE}/objects/query`, {
-  filter: { "any.types": "page" },
+  filter: { "any.types": PAGE },
   sort: ["-modifiedAt"],
   limit: 20,
   includeTotal: true,
@@ -89,7 +96,7 @@ const ctl = new AbortController();
 const window = new Map();                            // id → record: hold a window, not a database
 
 for await (const { event, data } of sse(`/spaces/${SPACE}/objects/query/subscribe`,
-    { filter: { "any.types": "page" }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
+    { filter: { "any.types": PAGE }, sort: ["-modifiedAt"], limit: 20 }, ctl.signal)) {
   if (event === "ready") continue;                   // stream is live after this
   if (event === "snapshot") { for (const r of data.records) window.set(r.id, r); render(); }
   if (event === "changes") {

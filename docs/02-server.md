@@ -109,6 +109,13 @@ account is standalone-only — a managed login with its phrase lands in
    turn in the pass, reads against it serve the pre-offline state.
    `GET /v1/health` reports the pass via `bootstrapping` (see § Health);
    per-space convergence stays on `/sync-status`.
+   Opening checks the account's **CRDT version mark** first: the tech
+   space records the newest data-model version any release wrote the
+   account with, and a mark above this server's SDK refuses the boot
+   (`any run` exits with the reason; over HTTP `409
+   sdk.crdt_version_newer`) so an older release never writes into data
+   shaped by rules it does not know. A lower or absent mark is raised
+   to this release's version.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth`
    returns `401 auth.required` until `POST /v1/auth` creates / restores
@@ -280,7 +287,8 @@ the whole process.
   "version":       "any v0.1.0 (sdk v0.0.0)",
   "startedAt":     "2026-04-23T18:12:00Z",
   "account":       "A3...accountId...",
-  "bootstrapping": false
+  "bootstrapping": false,
+  "crdtVersion":   { "supported": 1, "stored": 1, "newer": false }
 }
 ```
 
@@ -293,6 +301,16 @@ pass (eager space loading + offline catch-up) is still running: the
 server is serving, catch-up happens in the background. `false` when
 unauthorized and once the pass completes. Per-space convergence stays
 on `/sync-status` — this flag only reports the one-shot boot pass.
+
+`crdtVersion` is the account's CRDT data-model version state (absent
+when unauthorized): `supported` is what this server's SDK writes,
+`stored` what the account's tech space records, `newer` whether the
+stored one is ahead. `newer` flips at runtime when another device on a
+newer release raises the mark: the server keeps serving reads and
+refuses every synced write with `409 sdk.crdt_version_newer` until it
+is upgraded — the signal for a client's "upgrade required" state. The
+mark exists from this release on, so only releases carrying it refuse
+each other; an older release without the check runs unguarded.
 
 ## One server = one account
 

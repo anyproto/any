@@ -146,7 +146,19 @@
             },
             "api.AddDatasetResponse": {
                 "properties": {
+                    "collection": {
+                        "description": "Collection is the computed collection name the new dataset's\nrecords live in.",
+                        "type": "string"
+                    },
                     "datasetDefId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.AddPartResponse": {
+                "properties": {
+                    "partId": {
                         "type": "string"
                     }
                 },
@@ -157,9 +169,6 @@
                     "description": {
                         "type": "string"
                     },
-                    "format": {
-                        "$ref": "#/components/schemas/api.PropertyFormat"
-                    },
                     "kind": {
                         "type": "string"
                     },
@@ -167,7 +176,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "Meta is an opaque consumer flag map, stored verbatim on the\nproperty definition. meta[\"index\"] = \"\u003cscope\u003e\" marks the property\nfor the search indexer (docs/13-index.md).",
+                        "description": "Meta holds the consumer flags the server interprets — today only\nmeta[\"index\"] = \"\u003cscope\u003e\" | \"none\" for the search indexer\n(docs/13-index.md). Any other key is rejected; descriptive\nmetadata lives under xFormat.",
                         "type": "object"
                     },
                     "name": {
@@ -177,11 +186,16 @@
                         "description": "Scope is the property's write/sync class: \"synced\" (default,\neveryone in the space), \"account\" (this account's devices only),\nor \"local\" (this device only, never synced). \"derived\" is\nreserved for built-ins and rejected. Pinned by the first write,\nlike kind — changing a property's scope means defining a new\nproperty. Property VALUE writes auto-route by the declared scope\n(POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).",
                         "type": "string"
                     },
-                    "xKey": {
-                        "type": "string"
+                    "xFormat": {
+                        "description": "XFormat is the property's descriptor: everything descriptive\nbeyond the kind — the semantic slug, icon, ordering key, option\nset, relation targets, per-format config (docs/27-descriptors.md).\nAn object; the server validates the keys it interprets (type,\nicon, pos, options, relation, config) against the vocabulary and\nthe slug against kind, stores vendor-namespaced keys verbatim,\nand reserves validate / compute. Every path under it is mutable\nvia PATCH.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
-                    "xKind": {
-                        "description": "XKind is a free-form classification hint, stored verbatim and\nnever interpreted by the server (space.PropertyDraft.XKind).\nIt is the field a caller uses to record a client-side kind\nmarker WITHOUT overloading XKey, which is the stable handle\ncallers address the property by. Freely mutable afterwards via\nPATCH `xKind`; settable here so a caller need not POST-then-PATCH.",
+                    "xKey": {
+                        "description": "XKey is the property's handle — an alias, not a storage key\n(values live under the content-addressed propId). Unique within\nthe type (409 property.xkey_conflict); mutable via PATCH.",
                         "type": "string"
                     }
                 },
@@ -456,25 +470,44 @@
             },
             "api.BundleEnsureRequest": {
                 "properties": {
-                    "datasets": {
-                        "description": "Datasets declares runtime datasets on the derived root (same\nshape as POST …/types/:typeId/datasets); the root becomes a type\nimplementing itself, typeId = rootId, and the datasets are\nwritten through POST …/upsert / …/modify on the root. Declared\nonce on install; later evolution goes through the\n…/types/:rootId/datasets routes. Derived installs only; required\non the tech space.",
-                        "items": {
-                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
-                        },
-                        "type": "array",
-                        "uniqueItems": false
-                    },
                     "derived": {
                         "description": "Derived installs the bundle on the root derived from its id\nrather than a created one. Every device computes that id\noffline, so the install never forks and never waits for the\nregistry to converge — which is the only way both sides of a\n1-1 (where nobody is the owner) can install while apart.\n\nPermanent in both directions: a derived root cannot be deleted,\nso the bundle can never be uninstalled, and an existing install\non a created root is adopted rather than migrated. Ask for it\nfor a space's chat; not for anything a user may remove.",
+                        "type": "boolean"
+                    },
+                    "hidden": {
                         "type": "boolean"
                     },
                     "id": {
                         "description": "Id is the bundle identifier. Required.",
                         "type": "string"
                     },
+                    "layout": {
+                        "description": "Layout and Weight seed the root type's rendering slice (same\nshape as POST …/types); Hidden keeps it out of GET …/types. All\nthree are written on install only — an adopt never patches them.\nHidden is explicit: a root that only hosts its bundle's records\nshould ask for it (a listed type is one a client may attach\nelsewhere, granting that object the bundle's collections); a root\nthat is a type objects carry stays listed.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
                     "name": {
                         "description": "Name is the display name, written on install.",
                         "type": "string"
+                    },
+                    "parts": {
+                        "description": "Parts declares the root's parts with their datasets (same shape\nas POST …/types/:typeId/parts); the root becomes a type\nimplementing itself, typeId = rootId, and the records are written\nthrough POST …/upsert / …/modify on the root (dataset = the\ncomputed collection, `\u003crootId\u003e_\u003ckey\u003e` for a namespaced one).\nDeclared once on install; later evolution goes through the\n…/types/:rootId/parts routes. Parts or properties are required\non the tech space.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.PartDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "properties": {
+                        "description": "Properties declares property definitions on the root (same shape\nas POST …/types/:typeId/properties, xKey REQUIRED and unique):\nthe root becomes a type objects carry, and each property's id is\nderived from (rootId, xKey) so two devices installing while apart\nmint one column per handle. Resolve xKey → propId through\nGET …/types/:rootId/properties. Declared once on install (an\nadopt fills in only definitions the root lacks); later evolution\ngoes through the …/types/:rootId/properties routes.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.AddPropertyRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "rootProperties": {
                         "additionalProperties": {
@@ -491,6 +524,9 @@
                         },
                         "type": "array",
                         "uniqueItems": false
+                    },
+                    "weight": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -540,6 +576,21 @@
                     "loserRootId": {
                         "description": "LoserRootId is the losing root to delete, cascading to its\nderived children. Call it only once whatever mattered has been\nmerged out — the server never merges for you.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CRDTVersionState": {
+                "description": "CRDTVersion is the account's CRDT data-model version state\n(absent when unauthorized): the version this server's SDK\nsupports, the one recorded on the account's tech space, and\n`newer` — true when the recorded one is above the supported one,\nwhich makes the account read-only until the server is upgraded\n(every synced write answers 409 sdk.crdt_version_newer).",
+                "properties": {
+                    "newer": {
+                        "type": "boolean"
+                    },
+                    "stored": {
+                        "type": "integer"
+                    },
+                    "supported": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -634,6 +685,9 @@
             },
             "api.DatasetDefResponse": {
                 "properties": {
+                    "collection": {
+                        "type": "string"
+                    },
                     "deleteBy": {
                         "type": "string"
                     },
@@ -666,17 +720,28 @@
                         "type": "string"
                     },
                     "invalid": {
-                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why). Invalid definitions never\nregister or accept data but stay listed so they can be repaired\n(add the missing field) or removed.",
+                        "description": "Invalid marks a definition whose folded declaration fails\nvalidation (invalidReason says why) — a records fold missing a\ncreator stamp behind an author rule, an unknown module, a shared\nrule violation. Invalid definitions never register or accept data\nbut stay listed so they can be repaired or removed.",
                         "type": "boolean"
                     },
                     "invalidReason": {
                         "type": "string"
                     },
-                    "name": {
+                    "key": {
+                        "description": "Key is the slug inside the type; collection is the name reads and\nwrites address (`dataset` on /query, /modify, /upsert …) — the\nmodule's canonical collection when shared, `\u003ctypeId\u003e_\u003ckey\u003e`\notherwise. Server-computed, never client-set.",
+                        "type": "string"
+                    },
+                    "module": {
+                        "type": "string"
+                    },
+                    "partId": {
+                        "description": "PartId is the owning part's id.",
                         "type": "string"
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "type": "boolean"
@@ -701,7 +766,7 @@
                         "type": "boolean"
                     },
                     "fields": {
-                        "description": "Fields are the initial field definitions. Declare required\nfields here — fields added later cannot be required.",
+                        "description": "Fields are the initial field definitions (records datasets only —\na module owns its schema). Declare required fields here — fields\nadded later cannot be required.",
                         "items": {
                             "$ref": "#/components/schemas/api.DatasetFieldDraft"
                         },
@@ -718,12 +783,20 @@
                         "description": "IdRule: \"auto\" (default — ids derived from the change) or \"user\"\n(caller-supplied ids, constrained by idPattern/idMaxLen; the id\ndoubles as the upsert idempotency key).",
                         "type": "string"
                     },
-                    "name": {
-                        "description": "Name is the dataset's collection name — pinned. No \"_\" prefix,\ndots, slashes or colons; built-in names are reserved.",
+                    "key": {
+                        "description": "Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)\n— pinned. A namespaced dataset lives in the collection\n`\u003ctypeId\u003e_\u003ckey\u003e`; a shared dataset's key is its module's canonical\ncollection name and may be omitted.",
+                        "type": "string"
+                    },
+                    "module": {
+                        "description": "Module is the serving module: \"records\" (the default), \"editor\"\nor \"chat\".",
                         "type": "string"
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
+                    },
+                    "shared": {
+                        "description": "Shared makes the type participate in the module's canonical\ncollection (editor_blocks, chat_messages) instead of a namespaced\none, so two types sharing the editor give an object carrying both\na single body. Editor: either; chat: shared only; records: never.",
+                        "type": "boolean"
                     },
                     "skipHistory": {
                         "description": "SkipHistory keeps the dataset out of the version-history index.",
@@ -734,8 +807,11 @@
             },
             "api.DatasetFieldDef": {
                 "properties": {
+                    "description": {
+                        "type": "string"
+                    },
                     "id": {
-                        "description": "Id is the field definition record's id — the identity\nDELETE …/fields/:fieldId targets.",
+                        "description": "Id is the field definition record's id — the identity\nPATCH / DELETE …/fields/:fieldId target.",
                         "type": "string"
                     },
                     "key": {
@@ -756,8 +832,19 @@
                     "scope": {
                         "type": "string"
                     },
+                    "shape": {
+                        "$ref": "#/components/schemas/api.DatasetFieldShape"
+                    },
                     "stamp": {
                         "type": "string"
+                    },
+                    "xFormat": {
+                        "description": "XFormat is the field's descriptor as stored; absent when none was\ndeclared.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -796,12 +883,41 @@
                     "stamp": {
                         "description": "Stamp: \"creator\" | \"createTime\" | \"modifyTime\" — value derived at\napply time, client writes rejected.",
                         "type": "string"
+                    },
+                    "xFormat": {
+                        "description": "XFormat is the field's descriptor — the same object a property\ndefinition carries (AddPropertyRequest.XFormat), validated the\nsame way against the field's kind. Mutable via\nPATCH …/fields/:fieldId.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.DatasetFieldPatchRequest": {
+                "properties": {
+                    "set": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "unset": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
             },
             "api.DatasetFieldShape": {
-                "description": "Shape optionally refines array/object values.",
+                "description": "Shape is the full declared value shape (kind plus items /\nproperties) when one was declared beyond the bare kind.",
                 "properties": {
                     "items": {
                         "$ref": "#/components/schemas/api.DatasetFieldShape"
@@ -841,8 +957,20 @@
             },
             "api.DatasetSchema": {
                 "properties": {
+                    "module": {
+                        "description": "Module is the serving module (\"records\", \"editor\", \"chat\"; empty\nfor built-ins and registered-type datasets); Shared marks a\nmodule's canonical collection.",
+                        "type": "string"
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "owners": {
+                        "description": "Owners are the types that declare the dataset: one for a\nregistered-type or namespaced dataset, every type sharing the\nmodule for a canonical collection (empty while nothing declares\nit), none for space-level built-ins. Records exist only on objects\ncarrying one of them; consumers gate indexing/eviction on it.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     },
                     "schema": {
                         "items": {
@@ -851,9 +979,8 @@
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "typeId": {
-                        "description": "TypeId is the owning type for ext-type and runtime-defined\ndatasets (\"\" for space-level built-ins). Records exist only on\nobjects carrying this type; consumers gate indexing/eviction on it.",
-                        "type": "string"
+                    "shared": {
+                        "type": "boolean"
                     }
                 },
                 "type": "object"
@@ -1197,6 +1324,9 @@
                     "bootstrapping": {
                         "description": "Bootstrapping is true while the booted SDK's background boot pass\n(eager space loading + offline catch-up) is still running. The\nserver serves throughout; per-space convergence is /sync-status.\nFalse when unauthorized and after the pass completes.",
                         "type": "boolean"
+                    },
+                    "crdtVersion": {
+                        "$ref": "#/components/schemas/api.CRDTVersionState"
                     },
                     "startedAt": {
                         "type": "string"
@@ -2239,6 +2369,117 @@
                 },
                 "type": "object"
             },
+            "api.PartDefResponse": {
+                "properties": {
+                    "datasets": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDefResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "pos": {
+                        "type": "string"
+                    },
+                    "ui": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "uses": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.PartDraftRequest": {
+                "properties": {
+                    "datasets": {
+                        "description": "Datasets are the part's initial dataset declarations.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.DatasetDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "icon": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "description": "Key is the part's slug ([a-z][a-z0-9_]*, ≤ 64), unique within the\ntype — pinned.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name / Icon / Pos are the display slice; clients sort parts by\npos. Hidden parts are not shown by default but stay revealable.",
+                        "type": "string"
+                    },
+                    "pos": {
+                        "type": "string"
+                    },
+                    "ui": {
+                        "description": "UI is the widget descriptor — {type, config} in the xFormat shape\n(v1 slugs: document, chat, table, list, board, gallery, chart,\nproperties; open set, an unknown slug renders the module default).\nWritten whole.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "uses": {
+                        "description": "Uses names other datasets OF THIS TYPE the part renders without\nowning them (dataset keys).",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.PartPatchRequest": {
+                "properties": {
+                    "set": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "unset": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
             "api.PeerSyncStats": {
                 "properties": {
                     "changed": {
@@ -2426,9 +2667,6 @@
                     "description": {
                         "type": "string"
                     },
-                    "format": {
-                        "$ref": "#/components/schemas/api.PropertyFormat"
-                    },
                     "id": {
                         "type": "string"
                     },
@@ -2442,7 +2680,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "Meta is the opaque consumer flag map set at AddProperty time\n(e.g. meta[\"index\"] = \"\u003cscope\u003e\" for the search indexer).",
+                        "description": "Meta is the consumer flag map (meta[\"index\"] for the search\nindexer).",
                         "type": "object"
                     },
                     "name": {
@@ -2466,66 +2704,15 @@
                         "description": "Scope is the property's write/sync class (synced / derived /\naccount / local). Definitions written before scopes existed\nread back as \"synced\".",
                         "type": "string"
                     },
-                    "xKey": {
-                        "type": "string"
-                    },
-                    "xKind": {
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.PropertyFormat": {
-                "description": "Format is the property's value-format annotation; absent for\nproperties that never declared one.",
-                "properties": {
-                    "filter": {
-                        "description": "Filter is a mongo-style condition object over candidate objects\n(e.g. {\"type\": {\"$in\": [\"page\"]}}); optional, links only.",
+                    "xFormat": {
+                        "description": "XFormat is the descriptor as stored — absent for a property that\nnever declared one, which renders structurally from Kind.",
                         "items": {
                             "type": "integer"
                         },
                         "type": "array",
                         "uniqueItems": false
                     },
-                    "meta": {
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "description": "Meta is an opaque, format-level string config bag.",
-                        "type": "object"
-                    },
-                    "options": {
-                        "additionalProperties": {
-                            "$ref": "#/components/schemas/api.PropertyOption"
-                        },
-                        "description": "Options is the enumerated choice set for select / multiselect,\nkeyed by the option's stable key (which IS the stored value).\nRead back on GET; write/mutate via PATCH (format.options.\u003ckey\u003e.*\npaths), not this create body's whole-map form.",
-                        "type": "object"
-                    },
-                    "type": {
-                        "description": "Type is one of the FormatType* wire strings.",
-                        "type": "string"
-                    },
-                    "ui": {
-                        "description": "UI is one of the FormatUI* wire strings; optional. links accepts\nany UI; date/datetime accept none.",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "api.PropertyOption": {
-                "properties": {
-                    "color": {
-                        "type": "string"
-                    },
-                    "meta": {
-                        "additionalProperties": {
-                            "type": "string"
-                        },
-                        "type": "object"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "pos": {
+                    "xKey": {
                         "type": "string"
                     }
                 },
@@ -3233,18 +3420,85 @@
                     "description": {
                         "type": "string"
                     },
+                    "hidden": {
+                        "description": "Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden\ntypes unless includeHidden=true.",
+                        "type": "boolean"
+                    },
                     "iconCid": {
                         "type": "string"
                     },
                     "id": {
                         "type": "string"
                     },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "weight": {
+                        "description": "Weight / Layout — see TypesCreateRequest. Zero / absent on\nbuilt-ins.",
+                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key. For builtin/registered\ntypes it equals Id (a clean literal like \"chat\"); for user types it's\nthe value set at create (or derived from Name by the client). Clients use\nit as the stable type handle in dotted property paths.",
                         "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.TypePartsListResponse": {
+                "properties": {
+                    "parts": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.PartDefResponse"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.TypePatchRequest": {
+                "properties": {
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "iconCid": {
+                        "type": "string"
+                    },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "weight": {
+                        "type": "integer"
                     }
                 },
                 "type": "object"
@@ -3254,11 +3508,30 @@
                     "description": {
                         "type": "string"
                     },
+                    "hidden": {
+                        "description": "Hidden keeps the type out of GET …/types by default (pass\nincludeHidden=true to list it) and out of a client's pickers;\nGET …/types/:typeId always resolves it. Meta is the open bag of\nconsumer flags — one string, bool or number per single-level key\n(no '.', no '$', ≤64 bytes), written per key so concurrent\nwriters merge; opaque to the server. Both mutable via PATCH.",
+                        "type": "boolean"
+                    },
                     "iconCid": {
                         "type": "string"
                     },
+                    "layout": {
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "meta": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
                     "name": {
                         "type": "string"
+                    },
+                    "weight": {
+                        "description": "Weight picks the primary type of a multi-typed object: the highest\nwins, tie broken by type id. Layout is how the primary type's\nheader and parts compose — {type, config} in the xFormat shape (v1\nslugs: page, tabs, chat, profile; open set, unknown renders as\npage). Both mutable via PATCH …/types/:typeId.",
+                        "type": "integer"
                     },
                     "xKey": {
                         "description": "XKey is the stable, caller-side programmatic key for the type\n(e.g. \"agent_memory\"). REQUIRED on create and unique per space: the\nserver rejects an empty xKey (type.xkey_required) and one that\ncollides with an existing type's xKey or id (type.xkey_conflict).\nClients derive it as a slug of Name. It's the only human handle a\ntype resolves by — the display Name is not a resolution key.",
@@ -9248,7 +9521,7 @@
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "List objects that reference an object (links-format property values)",
+                "summary": "List objects that reference an object (relation property values)",
                 "tags": [
                     "objects"
                 ]
@@ -9805,7 +10078,7 @@
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/blocks": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks": {
             "post": {
                 "parameters": [
                     {
@@ -9821,6 +10094,15 @@
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -9885,7 +10167,7 @@
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId}": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks/{blockId}": {
             "delete": {
                 "parameters": [
                     {
@@ -9984,6 +10266,15 @@
                         }
                     },
                     {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "Block ID",
                         "in": "path",
                         "name": "blockId",
@@ -10061,7 +10352,7 @@
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/markdown": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown": {
             "get": {
                 "parameters": [
                     {
@@ -10135,6 +10426,15 @@
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -10217,6 +10517,15 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "requestBody": {
@@ -10277,7 +10586,7 @@
                 ]
             }
         },
-        "/spaces/{spaceId}/objects/{objectId}/editor/markdown/append": {
+        "/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown/append": {
             "post": {
                 "parameters": [
                     {
@@ -10293,6 +10602,15 @@
                         "description": "Object ID",
                         "in": "path",
                         "name": "objectId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Editor collection (editor_blocks or \u003ctypeId\u003e_\u003ckey\u003e)",
+                        "in": "path",
+                        "name": "collection",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -12102,6 +12420,87 @@
                 "tags": [
                     "types"
                 ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.TypePatchRequest",
+                                        "summary": "body",
+                                        "description": "Fields to change"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Fields to change",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a type's display and rendering metadata",
+                "tags": [
+                    "types"
+                ]
             }
         },
         "/spaces/{spaceId}/types/{typeId}/datasets": {
@@ -12159,94 +12558,6 @@
                     }
                 },
                 "summary": "List a type's runtime dataset definitions",
-                "tags": [
-                    "types"
-                ]
-            },
-            "post": {
-                "parameters": [
-                    {
-                        "description": "Space ID",
-                        "in": "path",
-                        "name": "spaceId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "description": "Type ID",
-                        "in": "path",
-                        "name": "typeId",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "oneOf": [
-                                    {
-                                        "type": "object"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/api.DatasetDraftRequest",
-                                        "summary": "body",
-                                        "description": "Dataset draft"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "description": "Dataset draft",
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.AddDatasetResponse"
-                                }
-                            }
-                        },
-                        "description": "Created"
-                    },
-                    "400": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Bad Request"
-                    },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Conflict"
-                    },
-                    "500": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "Internal Server Error"
-                    }
-                },
-                "summary": "Define a dataset on a type",
                 "tags": [
                     "types"
                 ]
@@ -12569,6 +12880,524 @@
                     }
                 },
                 "summary": "Remove a dataset field definition",
+                "tags": [
+                    "types"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Dataset definition ID",
+                        "in": "path",
+                        "name": "defId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Field definition ID",
+                        "in": "path",
+                        "name": "fieldId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetFieldPatchRequest",
+                                        "summary": "body",
+                                        "description": "set/unset paths"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "set/unset paths",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a dataset field's display fields and descriptor",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.TypePartsListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List a type's parts with their datasets",
+                "tags": [
+                    "types"
+                ]
+            },
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.PartDraftRequest",
+                                        "summary": "body",
+                                        "description": "Part draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Part draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddPartResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Declare a part (with its datasets) on a type",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts/{partId}": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Remove a part and its datasets",
+                "tags": [
+                    "types"
+                ]
+            },
+            "patch": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.PartPatchRequest",
+                                        "summary": "body",
+                                        "description": "set/unset paths"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "set/unset paths",
+                    "required": true
+                },
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Patch a part's display slice",
+                "tags": [
+                    "types"
+                ]
+            }
+        },
+        "/spaces/{spaceId}/types/{typeId}/parts/{partId}/datasets": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Space ID",
+                        "in": "path",
+                        "name": "spaceId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Type ID",
+                        "in": "path",
+                        "name": "typeId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Part ID",
+                        "in": "path",
+                        "name": "partId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.DatasetDraftRequest",
+                                        "summary": "body",
+                                        "description": "Dataset draft"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Dataset draft",
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AddDatasetResponse"
+                                }
+                            }
+                        },
+                        "description": "Created"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Declare a dataset on a part",
                 "tags": [
                     "types"
                 ]
@@ -12959,7 +13788,7 @@
     "openapi": "3.1.0",
     "servers": [
         {
-            "url": "127.0.0.1:7001/v1"
+            "url": "http://127.0.0.1:7001/v1"
         }
     ]
 }

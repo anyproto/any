@@ -1,31 +1,44 @@
-// Package dataview registers the built-in `data_view` type — saved
-// views over a set of objects. The type attaches to ANY object,
-// including a type object (a view "on a type" hosts its records there),
-// and owns one dataset holding one record per view.
+// Package dataview registers the built-in `dataview` type — saved views
+// over a set of objects, in two levels: an object hosts many DATAVIEWS,
+// each with its own VIEWS.
 //
-// A view is name + icon + layout + a query + column settings. The
-// query and the column settings stay OPAQUE to the server: clients own
-// the filter/sort/groupBy vocabulary and decide what a rule naming a
+// The type attaches to ANY object, including a type object (a view "on
+// a type" hosts its records there), and owns two records datasets under
+// one part: `dataviews` (one record per dataview on the host — name,
+// icon, pos) and `views` (one record per view — the dataview it belongs
+// to, name, icon, pos, layout, a query, column settings). The added
+// level is what lets one object carry several independent tables, each
+// with its own set of views.
+//
+// A view is name + icon + layout + a query + column settings. The query
+// and the column settings stay OPAQUE to the server: clients own the
+// filter/sort/groupBy vocabulary and decide what a rule naming a
 // deleted property means. Validating property references here would
 // turn a deleted property into a write failure instead of a rule the
-// client marks invalid.
+// client marks invalid. The same holds one level up: a view's
+// `dataview` names a record in `dataviews` and is not validated against
+// it — a dataview deleted under its views must not make them
+// unwritable. There is no cascade; orphan views are the client's to
+// delete or re-parent.
 //
 // Why built-in: views are shared client vocabulary, not app data —
 // any-ui, mobile and desktop must land on the SAME records or a view
 // saved in one client is invisible in the next. A client-minted user
 // type passes each peer's local check-then-create and merges, leaving
-// a space with several parallel "Views" types (the proliferation the
-// `page` type solved for documents). A registered type exists in every
-// space by construction.
+// a space with several parallel "Views" types. A registered type exists
+// in every space by construction. Hidden: a capability an object opts
+// into, not a class a user picks.
 //
-// Iteration 1 is the SHARED tier: one set of views, visible to
-// everyone with space access. Account-private and device-private
-// tiers need scoped DATASETS — the SDK scopes fields, and its account
-// mirror covers `objects` rows only.
+// Iteration 1 is the SHARED tier: one set of dataviews and views,
+// visible to everyone with space access. Account-private and
+// device-private tiers need scoped DATASETS — the SDK scopes fields,
+// and its account mirror covers `objects` rows only.
 //
 // Writes go through POST /v1/spaces/:id/modify, reads through
-// /query[/subscribe] with dataset=data_views. No bespoke endpoints:
-// the record shape carries no server semantics worth an endpoint.
+// /query[/subscribe] with dataset=dataviews or views. No bespoke
+// endpoints — the record shapes carry no server semantics worth one —
+// and no `dataview` module: both datasets run on the generic `records`
+// handler.
 package dataview
 
 import (
@@ -38,22 +51,42 @@ const (
 	// TypeId is reserved — content-addressable user type ids never
 	// produce it, and the server's xKey guard rejects user types
 	// claiming it.
-	TypeId      = "data_view"
-	Name        = "Data View"
-	Description = "Saved views over a set of objects: one record per view (layout + query + column settings)"
+	TypeId      = "dataview"
+	Name        = "Data view"
+	Description = "Saved views over a set of objects: dataviews on a host, each with its own views (layout + query + column settings)"
 
-	// Dataset holds one record per saved view.
-	Dataset = "data_views"
+	// PartViews is the type's single part; it owns both datasets.
+	PartViews = "views"
 
-	// DataVersion is stamped on every change and gated by peers.
-	DataVersion = "data_views-v1"
+	// DatasetDataviews holds one record per dataview on the host.
+	DatasetDataviews = "dataviews"
+	// DatasetViews holds one record per view; `dataview` names the
+	// dataviews record it belongs to.
+	DatasetViews = "views"
+
+	// DataVersions are stamped on every change and gated by peers.
+	DataVersionDataviews = "dataviews-v1"
+	DataVersionViews     = "views-v1"
 )
 
-// Record field names.
+// Record field names shared by both datasets.
 const (
-	FieldName   = "name"
-	FieldIcon   = "icon"
-	FieldPos    = "pos"
+	FieldName = "name"
+	FieldIcon = "icon"
+	FieldPos  = "pos"
+
+	FieldCreator    = "creator"
+	FieldCreatedAt  = "createdAt"
+	FieldModifiedAt = "modifiedAt"
+)
+
+// View record fields (dataset `views`).
+const (
+	// FieldDataview is the id of the `dataviews` record the view belongs
+	// to. Required; free to rewrite (a view moves between dataviews);
+	// never validated against the collection.
+	FieldDataview = "dataview"
+
 	FieldLayout = "layout"
 
 	// FieldQuery is the /query body shape verbatim — filter / sort /
@@ -72,79 +105,122 @@ const (
 	// per top-level field, so the override cannot live inside
 	// layoutSettings.
 	FieldLocalSettings = "localSettings"
-
-	FieldCreator    = "creator"
-	FieldCreatedAt  = "createdAt"
-	FieldModifiedAt = "modifiedAt"
 )
 
 // NewType returns the handler.Type to add to config.Config.Types (see
 // internal/server/sdk.go).
 //
-// Handler is nil: the declaration below is complete enough for the
+// Handlers are nil: the declarations below are complete enough for the
 // SDK's generic schema handler — required-on-create, mutability,
 // apply-time stamps, user-supplied ids and the delete gate all come
-// from it, with no bespoke code to keep in step.
+// from them, with no bespoke code to keep in step.
 func NewType() handler.Type {
 	return handler.Type{
 		Id:          TypeId,
 		Name:        Name,
 		Description: Description,
-		Datasets: []handler.Dataset{{
-			Name:        Dataset,
-			DataVersion: DataVersion,
-			Schema:      datasetSchema(),
-			// Every documented read sorts by pos.
-			Indexes: []anystore.IndexInfo{{Name: "idx_pos", Fields: []string{FieldPos}}},
+		Hidden:      true,
+		Datasets: []handler.Dataset{
+			{
+				Name:        DatasetDataviews,
+				DataVersion: DataVersionDataviews,
+				Schema:      dataviewsSchema(),
+				// Dataviews are read in pos order.
+				Indexes: []anystore.IndexInfo{{Name: "idx_pos", Fields: []string{FieldPos}}},
+			},
+			{
+				Name:        DatasetViews,
+				DataVersion: DataVersionViews,
+				Schema:      viewsSchema(),
+				// The documented read is one dataview's views in pos
+				// order; the plain pos index serves "every view on the
+				// host".
+				Indexes: []anystore.IndexInfo{
+					{Name: "idx_dataview_pos", Fields: []string{FieldDataview, FieldPos}},
+					{Name: "idx_pos", Fields: []string{FieldPos}},
+				},
+			},
+		},
+		Parts: []handler.Part{{
+			Key:      PartViews,
+			Name:     "Views",
+			UI:       map[string]any{"type": "table"},
+			Datasets: []handler.PartDataset{{Name: DatasetDataviews}, {Name: DatasetViews}},
 		}},
 	}
 }
 
-// datasetSchema declares the view record.
+// stamps are the server-derived creator / time fields both datasets
+// carry; client writes to them are rejected.
+func stamps() []handler.Field {
+	return []handler.Field{
+		{Id: FieldCreator, Name: "Creator", Schema: handler.Leaf(handler.PropertyKindString), Stamp: handler.StampCreator},
+		// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the wire,
+		// memcmp-orderable and index-keyable in the store.
+		{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
+		{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
+	}
+}
+
+func str() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
+
+// object pins "must be an object" and nothing more: an object shape
+// with no declared properties accepts any keys.
+func object() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
+
+// Declaration rules shared by dataviewsSchema and viewsSchema.
 //
 // Dynamic: the schema is enforced on every peer at apply time, so a
 // closed keyspace would silently drop a newer client's undeclared key
 // on an older peer. The declared vocabulary is the contract; dynamic is
 // the forward-compat escape hatch.
 //
-// IdUser: the default view is a fixed record id plus upsert, never
-// create-on-open — two devices opening a fresh object would otherwise
-// race two "All" views. Concurrent creates of the same id by DIFFERENT
-// members take arrival-order-dependent creation verdicts (the SDK's
-// IdUser contract); content still converges LWW.
+// IdUser: the default dataview and the default view are fixed record
+// ids plus upsert, never create-on-open — two devices opening a fresh
+// object would otherwise race two "All" views. Concurrent creates of
+// the same id by DIFFERENT members take arrival-order-dependent
+// creation verdicts (the SDK's IdUser contract); content still
+// converges LWW.
 //
 // MutableByAnyone / DeleteByAnyone: a shared view is space furniture —
 // any member with write permission retunes or removes it, and readers
 // are already fenced by the ACL. Author-only would freeze a departed
 // member's view forever.
-func datasetSchema() handler.Schema {
-	// Opaque object payloads: an object shape with no declared
-	// properties accepts any keys, so this pins "must be an object"
-	// and nothing more.
-	object := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindObject) }
-	str := func() *handler.FieldShape { return handler.Leaf(handler.PropertyKindString) }
 
+// dataviewsSchema declares the dataview record: a named, ordered table
+// on the host.
+func dataviewsSchema() handler.Schema {
 	return handler.Schema{
 		Dynamic:  true,
 		IdRule:   handler.IdUser,
 		DeleteBy: handler.DeleteByAnyone,
-		Fields: []handler.Field{
+		Fields: append([]handler.Field{
 			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
-			// Required: views are read in `pos` order, and an absent pos
-			// sorts as "" — ahead of every positioned view, on every
-			// peer. A loud create failure beats silently pinning a view
-			// to the top of everyone's list.
+			// Required: dataviews are read in `pos` order, and an absent
+			// pos sorts as "" — ahead of every positioned one, on every
+			// peer. A loud create failure beats silently pinning a
+			// record to the top of everyone's list.
+			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
+		}, stamps()...),
+	}
+}
+
+// viewsSchema declares the view record.
+func viewsSchema() handler.Schema {
+	return handler.Schema{
+		Dynamic:  true,
+		IdRule:   handler.IdUser,
+		DeleteBy: handler.DeleteByAnyone,
+		Fields: append([]handler.Field{
+			{Id: FieldDataview, Name: "Dataview", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
+			{Id: FieldName, Name: "Name", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
+			{Id: FieldIcon, Name: "Icon", Schema: str(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
 			{Id: FieldPos, Name: "Position", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLayout, Name: "Layout", Schema: str(), Scope: handler.ScopeSynced, Required: true, MutableBy: handler.MutableByAnyone},
 			{Id: FieldQuery, Name: "Query", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLayoutSettings, Name: "Layout Settings", Schema: object(), Scope: handler.ScopeSynced, MutableBy: handler.MutableByAnyone},
 			{Id: FieldLocalSettings, Name: "Local Settings", Schema: object(), Scope: handler.ScopeLocal, MutableBy: handler.MutableByAnyone},
-			{Id: FieldCreator, Name: "Creator", Schema: str(), Stamp: handler.StampCreator},
-			// Instants, not numbers: `{"$date": "<RFC 3339>"}` on the
-			// wire, memcmp-orderable and index-keyable in the store.
-			{Id: FieldCreatedAt, Name: "Created At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampCreateTime},
-			{Id: FieldModifiedAt, Name: "Modified At", Schema: handler.Leaf(handler.PropertyKindDatetime), Stamp: handler.StampModifyTime},
-		},
+		}, stamps()...),
 	}
 }

@@ -54,17 +54,17 @@ A dataset is a Mongo-like record collection scoped to one object. Where it comes
 
 | Dataset | Contributed by | Schema owner | Write path |
 |---|---|---|---|
-| `chat_messages` | built-in type `chat` | the server's chat handler | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
-| `editor_blocks` | built-in type `editor` | the server's editor handler | `POST …/objects/:o/editor/blocks`, the markdown bridge — [Editor](../types/editor.html) |
+| `chat_messages` | a type's part declaring the `chat` module (shared) | the server's chat module | `POST …/objects/:o/chat/messages` and friends — [Chat](../types/chat.html) |
+| `editor_blocks`, `<typeId>_<key>` | a type's part declaring the `editor` module (shared, or namespaced to the type) | the server's editor module | `POST …/objects/:o/editor/:collection/blocks`, the markdown bridge — [Editor](../types/editor.html) |
 | `payloads` | files | the SDK | `POST …/objects/:o/files` — [Files](../files/index.html) |
-| `<your name>` | a runtime dataset declared on a user type | you, via the declaration | generic `POST …/modify` and `POST …/upsert` — [Runtime datasets](runtime-datasets.html) |
+| `<typeId>_<key>` | a runtime dataset declared under a part of a user type (the `records` module) | you, via the declaration | generic `POST …/modify` and `POST …/upsert` — [Runtime datasets](runtime-datasets.html) |
 
-A dataset write is accepted only on an object that carries the contributing type in `any.types` (`400 dataset.validation` otherwise), so attach types at create:
+A collection lives on an object only while the object carries a type whose part declares it (`400 dataset.not_declared` otherwise — no write attaches a type), so attach types at create:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Heat", "types": ["page", "chat", "'$MOVIE'"]}'
+  -d '{"types": ["'$PAGE'", "'$CHAT'", "'$MOVIE'"], "initialProperties": {"any": {"name": "Heat"}}}'
 ```
 
 That single object now renders as a document, hosts a discussion, and carries `movie` properties — and each concern is a separate collection with separate ordering, indexes and handlers.

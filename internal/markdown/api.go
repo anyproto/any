@@ -55,12 +55,12 @@ type SetResult struct {
 // beyond the one separating two blocks become empty paragraph
 // records, so a document's vertical spacing survives the round trip
 // (see Split).
-func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {
-	existing, err := listTopLevel(ctx, sp, objectId)
+func Set(ctx context.Context, sp space.Space, objectId, collection, content string) (SetResult, error) {
+	existing, err := listTopLevel(ctx, sp, objectId, collection)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Set: list existing: %w", err)
 	}
-	return applyDiff(ctx, sp, objectId, existing, content)
+	return applyDiff(ctx, sp, objectId, collection, existing, content)
 }
 
 // applyDiff is the shared write pipeline behind Set and EditContent:
@@ -68,7 +68,7 @@ func Set(ctx context.Context, sp space.Space, objectId, content string) (SetResu
 // the create / update / delete ops. Taking `existing` (instead of
 // listing internally) lets EditContent resolve matches and diff
 // against the same listing.
-func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []existingBlock, content string) (SetResult, error) {
+func applyDiff(ctx context.Context, sp space.Space, objectId, collection string, existing []existingBlock, content string) (SetResult, error) {
 	oldRendered := renderExisting(existing)
 
 	rawNew := Split(content)
@@ -115,12 +115,9 @@ func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []
 	}
 
 	if len(records) > 0 {
-		if err := editor.EnsureType(ctx, sp, objectId); err != nil {
-			return result, fmt.Errorf("markdown: apply: ensure type: %w", err)
-		}
 		res, err := sp.Modify(ctx, space.ModifyBatch{
 			ObjectId: objectId,
-			Dataset:  editor.Dataset,
+			Dataset:  collection,
 			Records:  records,
 		})
 		if err != nil {
@@ -156,7 +153,7 @@ func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []
 		result.Deleted = ids
 		if _, err := sp.Delete(ctx, space.DeleteBatch{
 			ObjectId:  objectId,
-			Dataset:   editor.Dataset,
+			Dataset:   collection,
 			RecordIds: ids,
 		}); err != nil {
 			return result, fmt.Errorf("markdown: apply: delete tombstones: %w", err)
@@ -190,13 +187,13 @@ func applyDiff(ctx context.Context, sp space.Space, objectId string, existing []
 //     they are for Set.
 //
 // Empty (or blank-only) content is a no-op that returns a zero result.
-func Append(ctx context.Context, sp space.Space, objectId, content string) (SetResult, error) {
+func Append(ctx context.Context, sp space.Space, objectId, collection, content string) (SetResult, error) {
 	rawNew := trimEdgeEmpties(Split(content))
 	if len(rawNew) == 0 {
 		return SetResult{}, nil
 	}
 
-	maxPos, err := editor.MaxPos(ctx, sp, objectId, editor.RootParentId)
+	maxPos, err := editor.MaxPos(ctx, sp, objectId, collection, editor.RootParentId)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Append: max pos: %w", err)
 	}
@@ -214,12 +211,9 @@ func Append(ctx context.Context, sp space.Space, objectId, content string) (SetR
 	// write — the append fast-path skips Set's full-doc read, so it must
 	// ensure type membership itself or the SDK rejects a first write to a
 	// fresh object ("object does not implement type (editor)").
-	if err := editor.EnsureType(ctx, sp, objectId); err != nil {
-		return SetResult{}, fmt.Errorf("markdown: Append: ensure type: %w", err)
-	}
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
-		Dataset:  editor.Dataset,
+		Dataset:  collection,
 		Records:  records,
 	})
 	if err != nil {
@@ -243,8 +237,8 @@ func Append(ctx context.Context, sp space.Space, objectId, content string) (SetR
 // blank lines between two content blocks are exactly one plus one per
 // empty paragraph between them, and block-type canonicalisation
 // (setext → ATX, `+` → `-`) applies the same way as on Set.
-func Get(ctx context.Context, sp space.Space, objectId string) (string, error) {
-	existing, err := listTopLevel(ctx, sp, objectId)
+func Get(ctx context.Context, sp space.Space, objectId, collection string) (string, error) {
+	existing, err := listTopLevel(ctx, sp, objectId, collection)
 	if err != nil {
 		return "", err
 	}
@@ -294,8 +288,8 @@ type existingBlock struct {
 // stays flat: nested blocks (children of list items, for example)
 // live under their parents but the markdown round-trip only walks the
 // top level. Mirrors today's md_blocks behaviour.
-func listTopLevel(ctx context.Context, sp space.Space, objectId string) ([]existingBlock, error) {
-	all, err := editor.List(ctx, sp, objectId)
+func listTopLevel(ctx context.Context, sp space.Space, objectId, collection string) ([]existingBlock, error) {
+	all, err := editor.List(ctx, sp, objectId, collection)
 	if err != nil {
 		return nil, err
 	}

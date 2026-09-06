@@ -180,7 +180,7 @@ Multiple keys in one filter object are AND-ed. Examples:
 ### Dates
 
 Timestamps — the derived `createdAt` / `modifiedAt` stamps and any
-property declared with the `date` / `datetime` format — are instants,
+`datetime`-kind property (the `date` / `datetime` slugs) — are instants,
 written and read as `{"$date": "<RFC 3339>"}`. A filter literal has to
 take the same shape:
 

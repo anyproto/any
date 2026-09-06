@@ -12,4 +12,18 @@ type HealthResponse struct {
 	// server serves throughout; per-space convergence is /sync-status.
 	// False when unauthorized and after the pass completes.
 	Bootstrapping bool `json:"bootstrapping"`
+	// CRDTVersion is the account's CRDT data-model version state
+	// (absent when unauthorized): the version this server's SDK
+	// supports, the one recorded on the account's tech space, and
+	// `newer` — true when the recorded one is above the supported one,
+	// which makes the account read-only until the server is upgraded
+	// (every synced write answers 409 sdk.crdt_version_newer).
+	CRDTVersion *CRDTVersionState `json:"crdtVersion,omitempty"`
+}
+
+// CRDTVersionState mirrors the SDK's account CRDT-version state.
+type CRDTVersionState struct {
+	Supported int  `json:"supported"`
+	Stored    int  `json:"stored"`
+	Newer     bool `json:"newer"`
 }

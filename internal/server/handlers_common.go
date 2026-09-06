@@ -236,6 +236,10 @@ func (d *deps) resolveSpace(c echo.Context) (space.Space, error, bool) {
 	return sp, nil, false
 }
 
+// objectsDataset is the per-space objects collection — the one dataset
+// every object has a row in, holding `any.*` and every type namespace.
+const objectsDataset = "objects"
+
 // resolveSpaceObject is resolveSpace plus the :objectId param check.
 func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, bool) {
 	objectId := c.Param("objectId")
@@ -352,6 +356,22 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusNotFound, "object.not_found",
 			"object not found in this space (unknown or deleted)", details)
 	}
+	// The account's data was written by a newer release: the SDK is
+	// read-only until this server is upgraded (GET /v1/health reports
+	// the versions).
+	if errors.Is(err, space.ErrCRDTVersionNewer) {
+		return writeError(c, http.StatusConflict, "sdk.crdt_version_newer",
+			"the account's data was written by a newer version — this server is read-only until it is upgraded",
+			crdtVersionDetails(err, details))
+	}
+	// A write to a collection none of the object's types declare: no
+	// type attaches on write, the caller attaches a declaring type first.
+	if errors.Is(err, space.ErrDatasetNotDeclared) {
+		return writeError(c, http.StatusBadRequest, "dataset.not_declared",
+			"the object carries no type whose parts declare this collection — attach a declaring type "+
+				"(POST /v1/spaces/{spaceId}/properties/{objectId}/attach/{typeId}) or declare the dataset on one of its types",
+			details)
+	}
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
@@ -414,6 +434,22 @@ func filterParseError(c echo.Context, pe *query.ParseError, details map[string]a
 	return writeError(c, http.StatusBadRequest, "filter.invalid", msg+": "+pe.Reason, details)
 }
 
+// crdtVersionDetails adds the stored/supported CRDT versions carried
+// by a space.CRDTVersionNewerError to an error's details.
+func crdtVersionDetails(err error, details map[string]any) map[string]any {
+	var newer *space.CRDTVersionNewerError
+	if !errors.As(err, &newer) {
+		return details
+	}
+	out := make(map[string]any, len(details)+2)
+	for k, v := range details {
+		out[k] = v
+	}
+	out["stored"] = newer.Stored
+	out["supported"] = newer.Supported
+	return out
+}
+
 // sdkValidationError maps the SDK's write-time property schema rejection
 // (handler.ErrValidation) onto a 400. A rejected write is a caller error,
 // not a server fault, so it must not surface as 500. The SDK's message is
@@ -442,8 +478,8 @@ func unknownDatasetError(c echo.Context, err error, details map[string]any) (err
 	}
 	name, _ := details["dataset"].(string)
 	return writeError(c, http.StatusBadRequest, "dataset.unknown",
-		fmt.Sprintf("dataset %q is not declared on this object; declare it on the object's type "+
-			"(POST /v1/spaces/{spaceId}/types/{typeId}/datasets) or check the name "+
+		fmt.Sprintf("dataset %q is not a records dataset this space declares; declare it under a part of "+
+			"the object's type (POST /v1/spaces/{spaceId}/types/{typeId}/parts) or check the name "+
 			"(GET /v1/spaces/{spaceId}/datasets lists what the space has)", name),
 		details), true
 }

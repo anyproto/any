@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/indexer"
 )
 
@@ -62,7 +61,7 @@ func TestIndexer_ColdSync(t *testing.T) {
 
 	// Content written with NO indexer in the process.
 	var msgIds []string
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 	for _, text := range []string{
 		`{"text":"glacier formation processes"}`,
@@ -72,8 +71,8 @@ func TestIndexer_ColdSync(t *testing.T) {
 		m := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", text, http.StatusCreated)
 		msgIds = append(msgIds, m.RecordIds[0])
 	}
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
-	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/blocks",
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
+	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"glacier travel safety notes"}`, http.StatusCreated)
 
 	// Indexer arrives late — Start must cold-align from cursor 0.
@@ -101,7 +100,7 @@ func TestIndexer_TailCatchUp(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "index.db")
 
 	spaceId := mustCreateSpace(t, e, "TailCatchUp")
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 	head := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"head message before downtime"}`, http.StatusCreated)
@@ -178,7 +177,7 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "DetachEviction")
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable alpha"}`, http.StatusCreated)
 	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable bravo"}`, http.StatusCreated)
@@ -195,9 +194,12 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 		t.Fatalf("pre-detach hits = %v, want 2", hitRecordIds(res))
 	}
 
-	// Detach the chat type: the row re-streams with a bumped _applySeq and
-	// the next advance prefix-evicts objectId:chat_messages:.
-	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chat.TypeId); err != nil {
+	// Detach the declaring type: the row re-streams with a bumped
+	// _applySeq and the next advance prefix-evicts
+	// objectId:chat_messages: — the object no longer holds the
+	// collection (no owner of chat_messages among its types).
+	chatType := installModuleType(t, e, spaceId, "chat")
+	if _, err := sdkSpace.Properties().DetachType(ctx, chatObj, chatType); err != nil {
 		t.Fatal(err)
 	}
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
@@ -208,8 +210,11 @@ func TestIndexer_TypeDetachEviction(t *testing.T) {
 		t.Fatalf("post-detach hits = %v, want none", hitRecordIds(res))
 	}
 
-	// Re-attach (a new send re-attaches the type) — only the new message
-	// indexes; rows below the cursor do not resurrect.
+	// Re-attach the declaring type (no write attaches one) — only the
+	// new message indexes; rows below the cursor do not resurrect.
+	if _, err := sdkSpace.Properties().AttachType(ctx, chatObj, chatType); err != nil {
+		t.Fatal(err)
+	}
 	msg3 := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages", `{"text":"detachable charlie"}`, http.StatusCreated)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
@@ -233,8 +238,8 @@ func TestIndexer_EditorCoalescing(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "EditorCoalescing")
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
-	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/blocks"
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
+	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/editor_blocks/blocks"
 
 	head := mustModify(t, e, http.MethodPost, base,
 		`{"type":"heading","text":"sourdough guide","style":{"level":1}}`, http.StatusCreated)
@@ -266,7 +271,7 @@ func TestIndexer_EditorCoalescing(t *testing.T) {
 	// Delete the anchor (heading) block: the window re-anchors on the next
 	// block and the old win_<heading> doc is gone (no orphan).
 	doJSONExpect(t, e, http.MethodDelete,
-		"/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/blocks/"+head.RecordIds[0], http.StatusOK)
+		"/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/editor_blocks/blocks/"+head.RecordIds[0], http.StatusOK)
 	if err := ix.SyncSpace(ctx, sdkSpace); err != nil {
 		t.Fatal(err)
 	}
@@ -307,8 +312,8 @@ func TestIndexer_EditorReconcileEmbedReuse(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "EditorEmbedReuse")
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
-	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/blocks"
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
+	base := "/v1/spaces/" + spaceId + "/objects/" + edObj + "/editor/editor_blocks/blocks"
 
 	// Two heading sections → two windows.
 	mustModify(t, e, http.MethodPost, base, `{"type":"heading","text":"alpha","style":{"level":1}}`, http.StatusCreated)
@@ -392,7 +397,7 @@ func TestIndexer_EmbedderOutage(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "EmbedderOutage")
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	msg := mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+chatObj+"/chat/messages",
 		`{"text":"resilience probe message"}`, http.StatusCreated)
 
@@ -454,7 +459,7 @@ func TestIndexer_RealtimeUpdates(t *testing.T) {
 	ix.Start(ctx)
 
 	spaceId := mustCreateSpace(t, e, "Realtime")
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 
 	keep := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
@@ -483,8 +488,8 @@ func TestIndexer_RealtimeUpdates(t *testing.T) {
 
 	// Live append on a fresh editor object (covers the markdown append
 	// fast path + a second dataset through the same worker).
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/markdown/append",
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+edObj+"/editor/editor_blocks/markdown/append",
 		`{"content":"appended delta paragraph"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("markdown append: %d %s", rec.Code, rec.Body.String())
@@ -510,8 +515,9 @@ func TestIndexer_ObjectDeleteEviction(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId := mustCreateSpace(t, e, "DeleteEviction")
+	chatType := installModuleType(t, e, spaceId, "chat")
 	obj := mustCreateObject(t, e, spaceId,
-		`{"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
+		`{"types":["`+chatType+`"],"initialProperties":{"any":{"name":"ephemeral quokka dossier"}}}`)
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + obj
 	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"ephemeral quokka message"}`, http.StatusCreated)

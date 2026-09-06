@@ -25,10 +25,11 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId, typeId, objectId := setupSubscribeFixture(t, e)
+	partId := mustAddPart(t, e, spaceId, typeId, `{"key":"idx"}`)
 	base := "/v1/spaces/" + spaceId
 
-	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
-		"name": "emails", "idRule": "user",
+	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", `{
+		"key": "emails", "idRule": "user",
 		"search": {"title": "subject", "text": ["body", "notes"], "scope": "email"},
 		"fields": [
 			{"key": "subject", "kind": "string", "mutableBy": "any"},
@@ -42,7 +43,7 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"emails","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"`+typeId+`_emails","records":[
 		{"id":"m1","fields":{"subject":"Quarterly numbers","body":"revenue is up","notes":"follow up with procurement"}},
 		{"id":"m2","fields":{"subject":"Standup","body":"skipped today"}}]}`)
 	if rec.Code != http.StatusOK {
@@ -66,7 +67,7 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 	t.Run("hits terms from every mapped field", func(t *testing.T) {
 		// "procurement" lives ONLY in the second mapped field.
 		res := search("procurement")
-		if len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" || res.Hits[0].Dataset != "emails" {
+		if len(res.Hits) != 1 || res.Hits[0].RecordId != "m1" || res.Hits[0].Dataset != typeId+"_emails" {
 			t.Fatalf("notes-only hit = %v", hitRecordIds(res))
 		}
 		if res.Hits[0].Scope != "email" {
@@ -93,7 +94,7 @@ func TestIndexer_SchemaChunkerMultiText(t *testing.T) {
 		// Stored entries keep their old mapping until the record
 		// re-indexes on its next change (docs/03-api.md § Runtime
 		// dataset schemas).
-		rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"emails","records":[
+		rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+objectId+`","dataset":"`+typeId+`_emails","records":[
 			{"id":"m1","fields":{"subject":"Quarterly numbers","body":"revenue is up","notes":"follow up with legal"}}]}`)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("upsert: %d %s", rec.Code, rec.Body.String())
@@ -124,10 +125,11 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 	defer func() { _ = ix.Close() }()
 
 	spaceId, typeId, objectId := setupSubscribeFixture(t, e)
+	partId := mustAddPart(t, e, spaceId, typeId, `{"key":"idx"}`)
 	base := "/v1/spaces/" + spaceId
 
-	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
-		"name": "articles", "idRule": "user",
+	rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", `{
+		"key": "articles", "idRule": "user",
 		"search": {"title": "title", "text": "body"},
 		"fields": [
 			{"key": "title", "kind": "string", "required": true, "mutableBy": "any"},
@@ -140,8 +142,8 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A second dataset WITHOUT x-search — must never index.
-	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
-		"name": "silent", "idRule": "user",
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", `{
+		"key": "silent", "idRule": "user",
 		"fields": [{"key": "note", "kind": "string", "mutableBy": "any"}]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add silent dataset: %d %s", rec.Code, rec.Body.String())
@@ -159,10 +161,10 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		}
 		return out
 	}
-	upsert(`{"objectId":"` + objectId + `","dataset":"articles","records":[
+	upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_articles","records":[
 		{"id":"a1","fields":{"title":"Glacier retreat","body":"annual mass balance measurements"}},
 		{"id":"a2","fields":{"title":"Tidal power","body":"estuary turbine deployment"}}]}`)
-	upsert(`{"objectId":"` + objectId + `","dataset":"silent","records":[
+	upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_silent","records":[
 		{"id":"s1","fields":{"note":"unsearchable zeppelin cargo"}}]}`)
 
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
@@ -185,7 +187,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 
 	t.Run("indexes with title and text", func(t *testing.T) {
 		res := search("glacier")
-		if len(res.Hits) != 1 || res.Hits[0].RecordId != "a1" || res.Hits[0].Dataset != "articles" {
+		if len(res.Hits) != 1 || res.Hits[0].RecordId != "a1" || res.Hits[0].Dataset != typeId+"_articles" {
 			t.Fatalf("title hit = %v", hitRecordIds(res))
 		}
 		res = search("turbine")
@@ -201,7 +203,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 	})
 
 	t.Run("mutable edit reindexes", func(t *testing.T) {
-		upsert(`{"objectId":"` + objectId + `","dataset":"articles","records":[
+		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_articles","records":[
 			{"id":"a2","fields":{"title":"Tidal power","body":"barrage lagoon feasibility"}}]}`)
 		sync()
 		if res := search("barrage"); len(res.Hits) != 1 || res.Hits[0].RecordId != "a2" {
@@ -214,7 +216,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 
 	t.Run("record delete evicts", func(t *testing.T) {
 		rec := doJSON(t, e, http.MethodPost, base+"/delete-records",
-			`{"objectId":"`+objectId+`","dataset":"articles","recordIds":["a2"]}`)
+			`{"objectId":"`+objectId+`","dataset":"`+typeId+`_articles","recordIds":["a2"]}`)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("delete-records: %d %s", rec.Code, rec.Body.String())
 		}
@@ -239,7 +241,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		if _, err := sdkSpace.Properties().AttachType(ctx, objectId, typeId); err != nil {
 			t.Fatal(err)
 		}
-		upsert(`{"objectId":"` + objectId + `","dataset":"articles","records":[
+		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_articles","records":[
 			{"id":"a3","fields":{"title":"Permafrost cores","body":"borehole sampling"}}]}`)
 		sync()
 		if res := search("permafrost"); len(res.Hits) != 1 {
@@ -248,8 +250,8 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 	})
 
 	t.Run("cleared x-search evicts on next dirty", func(t *testing.T) {
-		rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/datasets", `{
-			"name": "clippings", "idRule": "user",
+		rec := doJSON(t, e, http.MethodPost, base+"/types/"+typeId+"/parts/"+partId+"/datasets", `{
+			"key": "clippings", "idRule": "user",
 			"search": {"text": "quote"},
 			"fields": [{"key": "quote", "kind": "string", "mutableBy": "any"}]}`)
 		if rec.Code != http.StatusCreated {
@@ -259,7 +261,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		if err := json.Unmarshal(rec.Body.Bytes(), &clip); err != nil {
 			t.Fatal(err)
 		}
-		upsert(`{"objectId":"` + objectId + `","dataset":"clippings","records":[
+		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_clippings","records":[
 			{"id":"c1","fields":{"quote":"antikythera mechanism fragment"}}]}`)
 		sync()
 		if res := search("antikythera"); len(res.Hits) != 1 {
@@ -273,7 +275,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		if rec.Code != http.StatusNoContent {
 			t.Fatalf("clear x-search: %d %s", rec.Code, rec.Body.String())
 		}
-		upsert(`{"objectId":"` + objectId + `","dataset":"silent","records":[
+		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_silent","records":[
 			{"id":"s-touch","fields":{"note":"tick"}}]}`)
 		sync()
 		if res := search("antikythera"); len(res.Hits) != 0 {
@@ -288,7 +290,7 @@ func TestIndexer_SchemaChunker(t *testing.T) {
 		}
 		// The removal dirties the TYPE object; the data object needs its
 		// own dirty tick for the lazy eviction — any write on it works.
-		upsert(`{"objectId":"` + objectId + `","dataset":"silent","records":[
+		upsert(`{"objectId":"` + objectId + `","dataset":"` + typeId + `_silent","records":[
 			{"id":"s2","fields":{"note":"touch"}}]}`)
 		sync()
 		if res := search("permafrost"); len(res.Hits) != 0 {

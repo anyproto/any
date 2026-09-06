@@ -12,11 +12,16 @@ server hands back:
 
 ```
 POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "rootTypes": ["chat"], "derived": true }
+{ "id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
+  "layout": { "type": "chat" },
+  "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
 → 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
 ```
 
-The call is adopt-or-install and `"derived": true` makes the root's id
+A chat is any object carrying a type whose part declares the `chat`
+module (`03-api.md` § Parts and modules) — the `parts` declaration
+above makes the bundle root such a type, so it holds `chat_messages`
+from the first write. The call is adopt-or-install and `"derived": true` makes the root's id
 a function of the bundle id, so every client — on any device, on any
 member, online or not — computes the same `rootId`. Use it as the
 `<objectId>` in every endpoint below. Do **not** `POST /objects` a
@@ -312,8 +317,13 @@ subscription covers every chat:
 
 ```
 POST /v1/spaces/:spaceId/objects/query/subscribe
-{ "filter": {"any.types": "chat"}, "limit": 0 }
+{ "filter": {"any.types": {"$in": [<chat-declaring type ids>]}}, "limit": 0 }
 ```
+
+The type ids are the `owners` of `chat_messages` in
+`GET /v1/spaces/:spaceId/datasets` — every type in the space whose
+part declares the chat module; resolve them once per space (re-read
+when a part is added) and match per element of `any.types` with `$in`.
 
 Each frame's `updated` entries carry the full row and the ops — watch
 for `chat.unreadCount` / `chat.unreadMentions` changes:

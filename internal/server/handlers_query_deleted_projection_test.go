@@ -26,13 +26,13 @@ func TestServer_Query_IncludeDeletedProjection(t *testing.T) {
 
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/delete-records", fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, "recordIds": ["p-2"]
-	}`, objectId, dataview.Dataset))
+	}`, objectId, dataview.DatasetViews))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
 	}
 
 	body := fmt.Sprintf(`{"objectId": %q, "dataset": %q, "sort": ["-id"],
-		"includeDeleted": true, "projection": {"name": 1}}`, objectId, dataview.Dataset)
+		"includeDeleted": true, "projection": {"name": 1}}`, objectId, dataview.DatasetViews)
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/query", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())

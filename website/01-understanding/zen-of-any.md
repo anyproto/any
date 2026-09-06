@@ -27,11 +27,11 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   -d '{"objectId":"'$OBJ'","dataset":"chat_messages","sort":["-_ver.id"],"limit":50}'
 ```
 
-The single exception is `GET …/editor/markdown`, which is a render transform, not a dataset read.
+The single exception is `GET …/editor/:collection/markdown`, which is a render transform, not a dataset read.
 
-## 3. Writes go through the type's handler
+## 3. Writes go through the module's handler
 
-Built-in datasets are written only by their bespoke endpoints — chat's send/edit/delete/react, editor's block create/patch/delete — because the handler is what stamps `creator` / `createdAt`, enforces author-only rules, and keys reactions per identity. Generic datasets go through `/modify` (and `/upsert` for id-keyed ingest). Every write returns one shape and never the record body:
+Module collections are written only by their bespoke endpoints — chat's send/edit/delete/react, editor's block create/patch/delete — because the handler is what stamps `creator` / `createdAt`, enforces author-only rules, and keys reactions per identity. Generic datasets go through `/modify` (and `/upsert` for id-keyed ingest). Every write returns one shape and never the record body:
 
 ```json
 { "versionId": "…", "changeId": "bafy…", "recordIds": ["…"] }

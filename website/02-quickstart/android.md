@@ -78,7 +78,8 @@ Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, 
 
 ```kotlin
 val client = OkHttpClient()
-val body = """{"types":["page"],"initialProperties":{"any":{"name":"From Android"}}}"""
+// pageType: a type whose part declares the editor module (Types → Page)
+val body = """{"types":["$pageType"],"initialProperties":{"any":{"name":"From Android"}}}"""
 val req = Request.Builder()
     .url("${AnyClient.baseUrl}/spaces/$space/objects")
     .post(body.toRequestBody("application/json".toMediaType()))

@@ -9,8 +9,8 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-const scratchDatasets = `[{
-	"name": "entries",
+const scratchParts = `[{"key":"entries","datasets":[{
+	"key": "entries",
 	"idRule": "user",
 	"idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$",
 	"idMaxLen": 256,
@@ -20,7 +20,7 @@ const scratchDatasets = `[{
 		{"key": "creator", "stamp": "creator"},
 		{"key": "createdAt", "stamp": "createTime"}
 	]
-}]`
+}]}]`
 
 // TestServer_TechSpace pins the tech space as a :spaceId: reachable
 // for bundles, type reads, dataset declarations and records on bundle
@@ -79,21 +79,21 @@ func TestServer_TechSpace(t *testing.T) {
 		}
 	}
 
-	// Bundles: derived-only with datasets.
+	// Bundles: derived-only with parts.
 	rec := doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true}`)
 	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("ensure without datasets: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("ensure without parts: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootTypes":["any"],"datasets":`+scratchDatasets+`}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/bundles", `{"id":"notes/v1","derived":true,"rootTypes":["any"],"parts":`+scratchParts+`}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("rootTypes on the tech space: %d %s", rec.Code, rec.Body.String())
 	}
-	ens := ensureBundle(t, e, tech, `{"id":"notes/v1","name":"Favorites","derived":true,"datasets":`+scratchDatasets+`}`)
+	ens := ensureBundle(t, e, tech, `{"id":"notes/v1","name":"Favorites","derived":true,"parts":`+scratchParts+`}`)
 	if !ens.Installed || !ens.Bundle.Derived || ens.Bundle.RootId == "" {
 		t.Fatalf("ensure: %+v", ens)
 	}
 	root := ens.Bundle.RootId
-	again := ensureBundle(t, e, tech, `{"id":"notes/v1","derived":true,"datasets":`+scratchDatasets+`}`)
+	again := ensureBundle(t, e, tech, `{"id":"notes/v1","derived":true,"parts":`+scratchParts+`}`)
 	if again.Installed || again.Bundle.RootId != root {
 		t.Fatalf("re-ensure must adopt: %+v", again)
 	}
@@ -120,18 +120,19 @@ func TestServer_TechSpace(t *testing.T) {
 	}
 	var defs api.TypeDatasetsListResponse
 	decodeGet(t, e, base+"/types/"+root+"/datasets", &defs)
-	if len(defs.Datasets) != 1 || defs.Datasets[0].Name != "entries" {
+	if len(defs.Datasets) != 1 || defs.Datasets[0].Key != "entries" || defs.Datasets[0].Collection != root+"_entries" {
 		t.Fatalf("datasets on root: %+v", defs)
 	}
+	entries := defs.Datasets[0].Collection
 
 	// Records through the generic path.
-	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"entries","records":[
+	rec = doJSON(t, e, http.MethodPost, base+"/upsert", `{"objectId":"`+root+`","dataset":"`+entries+`","records":[
 		{"id":"any://o/one","fields":{"title":"One"}},
 		{"id":"f:folder","fields":{"title":"Folder"}}]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upsert: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+root+`","dataset":"entries"}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/query", `{"objectId":"`+root+`","dataset":"`+entries+`"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query: %d %s", rec.Code, rec.Body.String())
 	}
@@ -144,14 +145,14 @@ func TestServer_TechSpace(t *testing.T) {
 	}
 
 	// Evolution through the type routes on the root.
-	rec = doJSON(t, e, http.MethodPost, base+"/types/"+root+"/datasets",
-		`{"name":"tags","idRule":"user","fields":[{"key":"label","kind":"string","required":true}]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+root+"/parts",
+		`{"key":"tags","datasets":[{"key":"tags","idRule":"user","fields":[{"key":"label","kind":"string","required":true}]}]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add dataset on root: %d %s", rec.Code, rec.Body.String())
 	}
 	// …but not on the index object.
-	rec = doJSON(t, e, http.MethodPost, base+"/types/"+info.SpaceIndexObjectId+"/datasets",
-		`{"name":"nope","idRule":"user","fields":[{"key":"label","kind":"string"}]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/types/"+info.SpaceIndexObjectId+"/parts",
+		`{"key":"nope","datasets":[{"key":"nope","idRule":"user","fields":[{"key":"label","kind":"string"}]}]}`)
 	if rec.Code == http.StatusCreated {
 		t.Fatalf("dataset declared on the index object: %d %s", rec.Code, rec.Body.String())
 	}
@@ -201,7 +202,7 @@ func TestServer_TechSpace(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("aggregate on the spaces dataset: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = doJSON(t, e, http.MethodPost, base+"/aggregate", `{"objectId":"`+root+`","dataset":"entries","pipeline":[{"$merge":{"into":"x"}}]}`)
+	rec = doJSON(t, e, http.MethodPost, base+"/aggregate", `{"objectId":"`+root+`","dataset":"`+entries+`","pipeline":[{"$merge":{"into":"x"}}]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("$merge sink must be refused: %d %s", rec.Code, rec.Body.String())
 	}

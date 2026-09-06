@@ -120,7 +120,8 @@ struct Create: Encodable { let types: [String]; let initialProperties: [String: 
 var req = URLRequest(url: base.appendingPathComponent("spaces/\(space)/objects"))
 req.httpMethod = "POST"
 req.setValue("application/json", forHTTPHeaderField: "content-type")
-req.httpBody = try JSONEncoder().encode(Create(types: ["page"], initialProperties: ["any": ["name": "From iOS"]]))
+// pageType: a type whose part declares the editor module (Types → Page)
+req.httpBody = try JSONEncoder().encode(Create(types: [pageType], initialProperties: ["any": ["name": "From iOS"]]))
 let (data, _) = try await URLSession.shared.data(for: req)   // {"objectId":"bafy…"}
 ```
 

@@ -97,8 +97,9 @@ func TestServer_PropertiesAttachDetach(t *testing.T) {
 		t.Errorf("type listed %d times, want 1 (attach must be idempotent): %v", count, types)
 	}
 
-	// A record on the now-attached dataset survives detach as orphan
+	// A record on the now-attached datasets survives detach as orphan
 	// data — detaching a type is not a delete.
+	ensureDataview(t, e, sp.Id, obj.ObjectId, "default", `{"name": "Table", "pos": "a0"}`)
 	createView(t, e, sp.Id, obj.ObjectId, "default", defaultViewPayload)
 
 	rec = doJSON(t, e, http.MethodPost, detachURL, "")
@@ -151,6 +152,7 @@ func TestServer_PropertiesAttachToTypeObject(t *testing.T) {
 		t.Fatalf("attach to type object: %d %s", rec.Code, rec.Body.String())
 	}
 
+	ensureDataview(t, e, sp.Id, typeResp.TypeId, "default", `{"name": "Table", "pos": "a0"}`)
 	createView(t, e, sp.Id, typeResp.TypeId, "default", defaultViewPayload)
 	v := getView(t, e, sp.Id, typeResp.TypeId, "default")
 	if v.Name != "All" {

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/push"
 )
@@ -34,8 +36,8 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	spaceId, objectId := setupChatFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 
-	// First send attaches the chat type — the account-scoped property
-	// write below requires the type on the object's any.types.
+	// The chat namespace on the row is granted by the object's chat
+	// declaring type (the fixture's), not attached by the send.
 	chatSend(t, e, base, "hello", "")
 
 	rec := doJSON(t, e, http.MethodPost,
@@ -68,6 +70,45 @@ func TestServer_ChatNotifyMode_RowAddressing(t *testing.T) {
 	if qr.Records[0].Chat.NotifyMode != "mentions" {
 		t.Errorf("chat.notifyMode = %q, want mentions (row=%s)",
 			qr.Records[0].Chat.NotifyMode, rec.Body.String())
+	}
+
+	// The push sync loop enumerates a space's chats as the objects
+	// carrying an owner of the chat collection: the owners come from
+	// dataset discovery and an $in against any.types matches per
+	// element. A plain object is not a chat.
+	other := mustCreateObject(t, e, spaceId, `{}`)
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+spaceId+"/datasets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("datasets: %d %s", rec.Code, rec.Body.String())
+	}
+	var ds api.DatasetsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &ds); err != nil {
+		t.Fatal(err)
+	}
+	var owners []string
+	for _, s := range ds.Datasets {
+		if s.Name == chat.Dataset {
+			owners = s.Owners
+		}
+	}
+	if len(owners) != 1 || owners[0] != installModuleType(t, e, spaceId, "chat") {
+		t.Fatalf("chat_messages owners = %v, want the fixture's chat type", owners)
+	}
+	fBody, _ := json.Marshal(map[string]any{"filter": map[string]any{"any.types": map[string]any{"$in": owners}}})
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/query", string(fBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat objects query: %d %s", rec.Code, rec.Body.String())
+	}
+	var chats struct {
+		Records []struct {
+			Id string `json:"id"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &chats); err != nil {
+		t.Fatal(err)
+	}
+	if len(chats.Records) != 1 || chats.Records[0].Id != objectId {
+		t.Fatalf("chat objects = %+v, want only %s (not %s)", chats.Records, objectId, other)
 	}
 }
 

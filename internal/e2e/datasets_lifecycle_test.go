@@ -32,11 +32,22 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	dsURL := base + "/v1/spaces/" + spaceID + "/types/" + articleType + "/datasets"
 	upsertURL := base + "/v1/spaces/" + spaceID + "/upsert"
 
+	// A dataset lives under a part; a records dataset is namespaced to
+	// its type, so reads and writes name the collection <typeId>_<key>.
+	var part map[string]any
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types/"+articleType+"/parts",
+		`{"key":"articles","name":"Articles"}`, http.StatusCreated, &part)
+	partID, _ := part["partId"].(string)
+	if partID == "" {
+		t.Fatalf("no partId in %+v", part)
+	}
+	collection := articleType + "_articles"
+
 	// Define: full behavioral draft — user ids, author-only delete,
 	// stamps, one required field, search mapping.
 	var added map[string]any
-	mustJSON(t, http.MethodPost, dsURL, `{
-		"name": "articles", "displayName": "Articles",
+	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/types/"+articleType+"/parts/"+partID+"/datasets", `{
+		"key": "articles", "displayName": "Articles",
 		"idRule": "user", "deleteBy": "author",
 		"search": {"title": "title", "text": "body", "scope": "news"},
 		"fields": [
@@ -50,25 +61,29 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	if defID == "" {
 		t.Fatalf("no datasetDefId in %+v", added)
 	}
+	if got, _ := added["collection"].(string); got != collection {
+		t.Fatalf("collection = %q, want %q", got, collection)
+	}
 
 	// Discovery: the space's dataset list carries the owning type and
 	// the behavioral x-* keywords.
 	var disco struct {
 		Datasets []struct {
 			Name   string          `json:"name"`
-			TypeId string          `json:"typeId"`
+			Owners []string        `json:"owners"`
+			Module string          `json:"module"`
 			Schema json.RawMessage `json:"schema"`
 		} `json:"datasets"`
 	}
 	mustJSON(t, http.MethodGet, base+"/v1/spaces/"+spaceID+"/datasets", "", http.StatusOK, &disco)
 	found := false
 	for _, ds := range disco.Datasets {
-		if ds.Name != "articles" {
+		if ds.Name != collection {
 			continue
 		}
 		found = true
-		if ds.TypeId != articleType {
-			t.Errorf("typeId = %q, want %q", ds.TypeId, articleType)
+		if len(ds.Owners) != 1 || ds.Owners[0] != articleType || ds.Module != "records" {
+			t.Errorf("owners/module = %v/%q, want [%s]/records", ds.Owners, ds.Module, articleType)
 		}
 		var doc struct {
 			Id       string                        `json:"x-id"`
@@ -87,7 +102,7 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 	}
 
 	// Upsert: create two records.
-	upsertBody := `{"objectId":"` + objectID + `","dataset":"articles","records":[
+	upsertBody := `{"objectId":"` + objectID + `","dataset":"` + collection + `","records":[
 		{"id":"a1","fields":{"title":"Hello","body":"first"}},
 		{"id":"a2","fields":{"title":"World","body":"second"}}]}`
 	var res struct {
@@ -110,7 +125,7 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 		Records []map[string]any `json:"records"`
 	}
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceID+"/query",
-		`{"objectId":"`+objectID+`","dataset":"articles","sort":["id"]}`, http.StatusOK, &q)
+		`{"objectId":"`+objectID+`","dataset":"`+collection+`","sort":["id"]}`, http.StatusOK, &q)
 	if len(q.Records) != 2 {
 		t.Fatalf("query records = %+v", q.Records)
 	}
@@ -123,7 +138,7 @@ func TestE2E_DatasetsLifecycle(t *testing.T) {
 
 	// A client payload naming a stamped field is rejected per-record.
 	mustJSON(t, http.MethodPost, upsertURL,
-		`{"objectId":"`+objectID+`","dataset":"articles","records":[
+		`{"objectId":"`+objectID+`","dataset":"`+collection+`","records":[
 			{"id":"a3","fields":{"title":"Forged","author":"someone-else"}}]}`,
 		http.StatusOK, &res)
 	if len(res.Rejections) != 1 || res.Created != 0 {

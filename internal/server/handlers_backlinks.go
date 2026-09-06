@@ -13,26 +13,26 @@ import (
 )
 
 // Backlinks — "which objects reference X?" — the reverse direction of
-// links-format property values. The SDK exposes no reverse index, so
-// this is a consumer-side read built from what it does expose: object
-// references are properties with format "links" (arrays of
-// "any://<objectId>" URI strings, the in-space fragment-less form —
-// see propformat.go), stored at record[typeId][propId] in the shared
-// `objects` collection. Backlinks of X = rows whose links arrays
-// contain "any://<X>".
+// relation property values. The SDK exposes no reverse index, so this
+// is a consumer-side read built from what it does expose: object
+// references are properties whose descriptor slug is "relation"
+// (arrays of "any://<objectId>" URI strings, the in-space fragment-less
+// form — see descriptor.go), stored at record[typeId][propId] in the
+// shared `objects` collection. Backlinks of X = rows whose relation
+// arrays contain "any://<X>". Only top-level definitions are inspected:
+// a relation slug nested inside a composite is invisible here.
 
-// linkProp is one catalog row: a links-format property and the type
-// that declares it.
+// linkProp is one catalog row: a relation property and the type that
+// declares it.
 type linkProp struct {
 	typeId string
 	propId string
 }
 
-// linkPropCatalog resolves the space's links-format properties by
-// walking every user type's definitions. Built-in types are skipped —
-// none declare a links format (nav.parentId is a plain string; the
-// parent/child tree is queried directly by nav.parentId, not through
-// backlinks).
+// linkPropCatalog resolves the space's relation properties by walking
+// every user type's definitions. Built-in types are skipped — none
+// declare a relation (nav.parentId is a plain string; the parent/child
+// tree is queried directly by nav.parentId, not through backlinks).
 func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
 	types, err := sp.Types().List(ctx)
 	if err != nil {
@@ -48,7 +48,7 @@ func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
 			return nil, err
 		}
 		for _, d := range defs {
-			if d.Format != nil && d.Format.Type == space.FormatLinks {
+			if xfSlug(d.XFormat) == slugRelation {
 				props = append(props, linkProp{typeId: t.Id, propId: d.Id})
 			}
 		}
@@ -61,7 +61,7 @@ func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
 // No existence check on objectId — backlinks of an unknown (or
 // deleted) object is an empty list, not a 404.
 //
-//	@Summary	List objects that reference an object (links-format property values)
+//	@Summary	List objects that reference an object (relation property values)
 //	@Tags		objects
 //	@Produce	json
 //	@Param		spaceId		path		string	true	"Space ID"

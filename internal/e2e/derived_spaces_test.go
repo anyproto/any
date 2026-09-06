@@ -111,7 +111,7 @@ func TestE2E_DerivedSpaces(t *testing.T) {
 
 		var res api.BundleEnsureResponse
 		mustJSON(t, http.MethodPost, base+"/v1/spaces/"+baoId+"/bundles",
-			`{"id":"bao/v1","name":"bao","rootTypes":["page"]}`,
+			`{"id":"bao/v1","name":"bao","parts":`+modulePartsBody("editor")+`}`,
 			http.StatusOK, &res)
 		if !res.Installed || res.Bundle.RootId == "" {
 			t.Fatalf("ensure did not install: %+v", res)

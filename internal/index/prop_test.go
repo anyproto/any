@@ -150,7 +150,7 @@ func TestPropDatetimeIsIndexed(t *testing.T) {
 
 	def := space.PropertyDef{
 		Id: "p1", Name: "Due", Kind: space.PropertyKindDatetime,
-		Format: &space.PropertyFormat{Type: space.FormatDatetime},
+		XFormat: map[string]any{"type": "datetime"},
 	}
 	got, ok := resolveIndexedProp("t1", def)
 	if !ok {

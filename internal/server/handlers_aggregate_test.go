@@ -67,9 +67,9 @@ func TestServer_Aggregate_ChatMessages(t *testing.T) {
 		t.Fatalf("got %d groups, want 1: %+v", len(out.Records), out.Records)
 	}
 	var group struct {
-		Id     *string `json:"id"`
-		OldId  *string `json:"_id"`
-		N      int     `json:"n"`
+		Id    *string `json:"id"`
+		OldId *string `json:"_id"`
+		N     int     `json:"n"`
 	}
 	if err := json.Unmarshal(out.Records[0], &group); err != nil {
 		t.Fatalf("decode group: %v: %s", err, out.Records[0])

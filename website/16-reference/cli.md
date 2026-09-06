@@ -117,14 +117,14 @@ Snapshot query, modify and delete-records have no subcommand yet — call `POST 
 ## Editor
 
 ```
-any editor blocks create <spaceId> <objectId> --type T [--text S] [--style JSON] [--parent ID] [--pos LEXID]
-any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]...
-any editor blocks delete <spaceId> <objectId> <blockId>
-any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all]
-any editor edit          <spaceId> <objectId> --edits '<json>'|@FILE|-
+any editor blocks create <spaceId> <objectId> --type T [--text S] [--style JSON] [--parent ID] [--pos LEXID] [--collection NAME]
+any editor blocks patch  <spaceId> <objectId> <blockId> [--set JSON] [--unset PATH]... [--collection NAME]
+any editor blocks delete <spaceId> <objectId> <blockId> [--collection NAME]
+any editor edit          <spaceId> <objectId> --old TEXT --new TEXT [--all] [--collection NAME]
+any editor edit          <spaceId> <objectId> --edits '<json>'|@FILE|- [--collection NAME]
 ```
 
-`editor edit` is `PATCH …/editor/markdown`: each `oldText` must match the current rendering exactly (whole-line fuzzy fallback for unicode punctuation and trailing whitespace) and, without `--all`, exactly once.
+`--collection` names the editor collection (default `editor_blocks`; a namespaced `<typeId>_<key>` for a part with its own editor). `editor edit` is `PATCH …/editor/:collection/markdown`: each `oldText` must match the current rendering exactly (whole-line fuzzy fallback for unicode punctuation and trailing whitespace) and, without `--all`, exactly once.
 
 ```bash
 any editor edit $SP $DOC --old '- [ ] buy milk' --new '- [x] buy milk'
@@ -148,24 +148,32 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
 any type list   <spaceId>
 any type property list   <spaceId> <typeId>
-any type property add    <spaceId> <typeId> --name N [--xkey K]
-                         [--kind string|number|boolean|array|object|datetime]
-                         [--format-type links|date|datetime|select|multiselect] [--format-ui U] [--scope S]
+any type property add    <spaceId> <typeId> --name N --kind string|number|boolean|array|object|datetime
+                         [--xkey K] [--description D] [--scope S] [--x-format '<json>'|@FILE|-]
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset PATH]...
 any type property remove <spaceId> <typeId> <propId>
 any type property option set    <spaceId> <typeId> <propId> <key> [--name N] [--color C] [--pos LEXID]
 any type property option delete <spaceId> <typeId> <propId> <key>
 
+any type update <spaceId> <typeId> [--name N] [--description D] [--icon CID] [--weight N] [--layout '<json>'|'']
+
+any type part list   <spaceId> <typeId>
+any type part add    <spaceId> <typeId> --draft '<json>'|@FILE|-
+any type part patch  <spaceId> <typeId> <partId> --set '<json>' [--unset PATH]...
+any type part remove <spaceId> <typeId> <partId>
+
 any type dataset list   <spaceId> <typeId>
-any type dataset add    <spaceId> <typeId> --draft '<json>'|@FILE|-
+any type dataset add    <spaceId> <typeId> <partId> --draft '<json>'|@FILE|-
 any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset PATH]...
 any type dataset remove <spaceId> <typeId> <defId>
 any type dataset field add    <spaceId> <typeId> <defId> --field '<json>'|@FILE|-
+any type dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset PATH]...
 any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
 ```
 
 ```bash
-any type property patch $SP $T $P --set '{"format.options.high.name":"High","format.options.high.color":"red"}'
+any type property add $SP $T --name Stage --xkey stage --kind array --x-format '{"type":"choice"}'
+any type property patch $SP $T $P --set '{"xFormat.options.high.name":"High","xFormat.options.high.color":"red"}'
 any type property option set $SP $T $P high --name High --color red --pos a0    # same write, sugar
 ```
 

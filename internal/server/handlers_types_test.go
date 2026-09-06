@@ -52,8 +52,8 @@ func TestServer_TypeCreate_XKeyValidation(t *testing.T) {
 	}
 
 	// 4. An xKey shadowing a built-in type's literal id also collides
-	//    (built-ins carry xKey "" but resolve by id, e.g. "chat").
-	rec = doJSON(t, e, http.MethodPost, typesURL, `{"name":"NotChat","xKey":"chat"}`)
+	//    (built-ins carry xKey "" but resolve by id, e.g. "dataview").
+	rec = doJSON(t, e, http.MethodPost, typesURL, `{"name":"NotChat","xKey":"dataview"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("builtin-id xKey: status=%d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
@@ -69,8 +69,9 @@ func TestServer_TypeCreate_XKeyValidation(t *testing.T) {
 	}
 }
 
-// TestServer_MetaTypeCatalogAndXKey pins the SYN-173 wire surface: the
-// meta-type is a catalog row with one `xkey` property, a created type's
+// TestServer_MetaTypeCatalogAndXKey pins the meta-type wire surface: the
+// meta-type is a catalog row with the `xkey` / `weight` / `layout`
+// properties, a created type's
 // xKey round-trips through TypeInfo, and the raw row carries it under
 // the meta-type namespace instead of `any`.
 func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
@@ -125,7 +126,9 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 		t.Fatalf("catalog missing rows: meta=%v movie=%v", sawMeta, sawMovie)
 	}
 
-	// The meta-type describes type objects: one `xkey` property.
+	// The meta-type describes type objects: the `xkey` handle, the
+	// rendering pair `weight` / `layout`, the `hidden` flag and the
+	// `meta` bag.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/type/properties", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("meta-type properties: status=%d body=%s", rec.Code, rec.Body.String())
@@ -134,8 +137,13 @@ func TestServer_MetaTypeCatalogAndXKey(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &props); err != nil {
 		t.Fatalf("decode properties: %v", err)
 	}
-	if len(props.Properties) != 1 || props.Properties[0].Id != "xkey" {
-		t.Fatalf("meta-type properties = %+v, want a single xkey entry", props.Properties)
+	metaKinds := map[string]string{}
+	for _, p := range props.Properties {
+		metaKinds[p.Id] = p.Kind
+	}
+	if len(metaKinds) != 5 || metaKinds["xkey"] != "string" || metaKinds["weight"] != "number" || metaKinds["layout"] != "object" ||
+		metaKinds["hidden"] != "boolean" || metaKinds["meta"] != "object" {
+		t.Fatalf("meta-type properties = %+v, want xkey/weight/layout/hidden/meta", props.Properties)
 	}
 
 	// Raw row: xkey under the meta-type namespace, name still universal.
@@ -224,7 +232,7 @@ func TestServer_BuiltinTypesReportXKey(t *testing.T) {
 
 	// The single-type reads: the shared mapper, plus nav's hardcoded
 	// short-circuit, which bypasses it entirely.
-	for _, id := range []string{"any", "spaceIndex", "type", "chat", "editor", "page", "nav"} {
+	for _, id := range []string{"any", "spaceIndex", "type", "dataview", "nav"} {
 		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET /types/%s: status=%d body=%s", id, rec.Code, rec.Body.String())
@@ -291,11 +299,14 @@ func TestServer_TypeProperties_NotFound(t *testing.T) {
 	}
 }
 
-// TestServer_BuiltinPageType covers the built-in `page` marker type:
-// it is present in every space (registered, not created), resolves by
-// its literal id with an empty property list, accepts objects typed
-// under it, and its id is fenced off from user xKeys.
-func TestServer_BuiltinPageType(t *testing.T) {
+// TestServer_NoBuiltinContentTypes pins that the modules are not
+// server types: `editor` and `chat` are absent from the catalog,
+// unresolvable by id, and their names are free for client-registered
+// types; the editor and chat collections come from a type's part
+// declaring the module instead. (`page` is a hidden built-in —
+// handlers_builtin_types_test.go — so a client document type takes
+// another handle.)
+func TestServer_NoBuiltinContentTypes(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
@@ -309,7 +320,6 @@ func TestServer_BuiltinPageType(t *testing.T) {
 		t.Fatalf("decode space: %v", err)
 	}
 
-	// 1. GET /types lists page with BuiltIn=true.
 	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list types: status=%d body=%s", rec.Code, rec.Body.String())
@@ -318,45 +328,38 @@ func TestServer_BuiltinPageType(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode types: %v", err)
 	}
-	var found *api.TypeInfo
-	for i := range list.Types {
-		if list.Types[i].Id == "page" {
-			found = &list.Types[i]
+	for _, ti := range list.Types {
+		switch ti.Id {
+		case "editor", "chat":
+			t.Errorf("%s listed as a type: %+v", ti.Id, ti)
 		}
 	}
-	if found == nil {
-		t.Fatalf("page type missing from list: %s", rec.Body.String())
-	}
-	if !found.BuiltIn || found.Name != "Page" {
-		t.Errorf("page entry = %+v, want BuiltIn=true Name=Page", *found)
-	}
-
-	// 2. Resolves by literal id; declares no properties.
-	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/page", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("get page type: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/page/properties", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("page properties: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var props api.PropertiesListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &props); err != nil {
-		t.Fatalf("decode properties: %v", err)
-	}
-	if len(props.Properties) != 0 {
-		t.Errorf("page properties = %v, want []", props.Properties)
+	for _, id := range []string{"editor", "chat"} {
+		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET type %s: status=%d, want 404; body=%s", id, rec.Code, rec.Body.String())
+		}
 	}
 
-	// 3. Objects can be created typed page; labels ride the built-in
-	// `any.tags` property (page itself declares none).
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["page"],"initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
+	// The module names are ordinary user xKeys; a document type declares
+	// the editor module through a part and its objects hold a body.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Article","xKey":"editor","weight":10}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("create page object: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("user type with xKey editor: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode type: %v", err)
+	}
+	mustAddPart(t, e, sp.Id, created.TypeId, `{"key":"body","datasets":[{"module":"editor","shared":true}]}`)
+	obj := mustCreateObject(t, e, sp.Id, `{"types":["`+created.TypeId+`"],"initialProperties":{"any":{"name":"My page","tags":["draft","idea"]}}}`)
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/"+obj+"/editor/editor_blocks/blocks",
+		`{"type":"paragraph","text":"body"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("block on the page: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter":{"any.types":"page","any.tags":"draft"},"limit":10}`)
+		`{"filter":{"any.types":"`+created.TypeId+`","any.tags":"draft"},"limit":10}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("query pages by tag: status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -366,15 +369,6 @@ func TestServer_BuiltinPageType(t *testing.T) {
 	}
 	if len(qresp.Records) != 1 {
 		t.Errorf("pages tagged draft = %d records, want 1; body=%s", len(qresp.Records), rec.Body.String())
-	}
-
-	// 4. The literal id is fenced off from user xKeys.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"NotPage","xKey":"page"}`)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("xKey page: status=%d, want 409; body=%s", rec.Code, rec.Body.String())
-	}
-	if code := errCode(t, rec.Body.Bytes()); code != "type.xkey_conflict" {
-		t.Errorf("xKey page code = %q, want type.xkey_conflict", code)
 	}
 }
 
@@ -387,104 +381,87 @@ func errCode(t *testing.T, body []byte) string {
 	return env.Error.Code
 }
 
-// TestServer_AddPropertyXKind covers `xKind` on the create path: the
-// free-form classification hint rides POST …/properties, round-trips
-// through GET …/properties, and stays freely mutable via PATCH.
-//
-// It exists so a client-side kind marker does not have to be smuggled
-// through `xKey`. `xKey` is the stable handle a caller addresses the
-// property by; a marker there makes every property of that kind share
-// one key, so the two properties below — both multiselects — would be
-// indistinguishable to any consumer resolving by xKey.
-func TestServer_AddPropertyXKind(t *testing.T) {
+// TestServer_TypeHiddenAndMeta pins the two type flags: hidden types
+// stay out of the default listing and come back with includeHidden
+// (GET by id always resolves them; a bundle's self-typed root is
+// hidden when its install asks); meta is a per-key scalar bag — create
+// takes it whole, PATCH sets and unsets per key, bad keys and values
+// are refused at the boundary.
+func TestServer_TypeHiddenAndMeta(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
 	e := buildEcho(d)
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"XKindDemo"}`)
+	sp := createSpaceInfo(t, e, "TypeFlags")
+	base := "/v1/spaces/" + sp.Id
+	rec := doJSON(t, e, http.MethodPost, base+"/types",
+		`{"name":"Draft","xKey":"draft","hidden":true,"meta":{"index":"none","rank":3,"beta":true}}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST /v1/spaces: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var sp api.SpaceInfo
-	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
-		t.Fatalf("decode space: %v", err)
-	}
-
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types",
-		`{"name":"Company","xKey":"company"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create type: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
 	var created api.TypesCreateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatalf("decode type: %v", err)
+		t.Fatal(err)
 	}
-	propsURL := "/v1/spaces/" + sp.Id + "/types/" + created.TypeId + "/properties"
-
-	// Two multiselects on one type: distinct slug xKeys, the same marker.
-	for _, body := range []string{
-		`{"name":"Categories","xKey":"categories","xKind":"tags",` +
-			`"kind":"array","format":{"type":"multiselect"}}`,
-		`{"name":"Focus","xKey":"focus","xKind":"tags",` +
-			`"kind":"array","format":{"type":"multiselect"}}`,
-	} {
-		rec = doJSON(t, e, http.MethodPost, propsURL, body)
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("add property %s: status=%d body=%s", body, rec.Code, rec.Body.String())
-		}
-	}
-
-	// A property that declares no xKind reads back empty — the field is
-	// optional, not defaulted from anything.
-	rec = doJSON(t, e, http.MethodPost, propsURL, `{"name":"Domain","xKey":"domain","kind":"string"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("add plain property: status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var plain api.AddPropertyResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &plain); err != nil {
-		t.Fatalf("decode plain prop: %v", err)
-	}
-
-	byXKey := func() map[string]api.PropertyDef {
+	listIds := func(q string) map[string]api.TypeInfo {
 		t.Helper()
-		rec := doJSON(t, e, http.MethodGet, propsURL, "")
+		rec := doJSON(t, e, http.MethodGet, base+"/types"+q, "")
 		if rec.Code != http.StatusOK {
-			t.Fatalf("list properties: status=%d body=%s", rec.Code, rec.Body.String())
+			t.Fatalf("list%s: %d %s", q, rec.Code, rec.Body.String())
 		}
-		var list api.PropertiesListResponse
+		var list api.TypesListResponse
 		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
-			t.Fatalf("decode properties: %v", err)
+			t.Fatal(err)
 		}
-		out := make(map[string]api.PropertyDef, len(list.Properties))
-		for _, p := range list.Properties {
-			out[p.XKey] = p
+		out := map[string]api.TypeInfo{}
+		for _, ti := range list.Types {
+			out[ti.Id] = ti
 		}
 		return out
 	}
-
-	props := byXKey()
-	for _, xkey := range []string{"categories", "focus"} {
-		p, ok := props[xkey]
-		if !ok {
-			t.Fatalf("property %q missing from %v", xkey, props)
-		}
-		if p.XKind != "tags" {
-			t.Errorf("property %q xKind = %q, want tags", xkey, p.XKind)
-		}
+	if _, listed := listIds("")[created.TypeId]; listed {
+		t.Error("hidden type listed by default")
 	}
-	if p := props["domain"]; p.XKind != "" {
-		t.Errorf("plain property xKind = %q, want empty", p.XKind)
+	ti, listed := listIds("?includeHidden=true")[created.TypeId]
+	if !listed || !ti.Hidden || ti.Meta["index"] != "none" || ti.Meta["rank"] != float64(3) || ti.Meta["beta"] != true {
+		t.Fatalf("includeHidden row = %+v (listed=%v)", ti, listed)
 	}
-	if props["categories"].Id == props["focus"].Id {
-		t.Fatal("the two multiselects collapsed onto one property")
+	rec = doJSON(t, e, http.MethodGet, base+"/types/"+created.TypeId, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get hidden type: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// xKind stays freely mutable, like name / description / xKey.
-	rec = doJSON(t, e, http.MethodPatch, propsURL+"/"+plain.PropId, `{"set":{"xKind":"url"}}`)
+	// Per-key patch: set one, unset one, leave one; unhide.
+	rec = doJSON(t, e, http.MethodPatch, base+"/types/"+created.TypeId,
+		`{"hidden":false,"meta":{"index":"basic","beta":null}}`)
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("patch xKind: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
 	}
-	if p := byXKey()["domain"]; p.XKind != "url" {
-		t.Errorf("patched xKind = %q, want url", p.XKind)
+	ti, listed = listIds("")[created.TypeId]
+	if !listed || ti.Hidden {
+		t.Fatalf("unhidden type must list by default: %+v listed=%v", ti, listed)
+	}
+	if ti.Meta["index"] != "basic" || ti.Meta["rank"] != float64(3) || len(ti.Meta) != 2 {
+		t.Errorf("meta after per-key patch = %v, want index=basic rank=3", ti.Meta)
+	}
+	for _, body := range []string{`{"meta":{"a.b":"x"}}`, `{"meta":{"$x":"y"}}`, `{"meta":{"obj":{"k":1}}}`, `{"meta":{"arr":[1]}}`} {
+		rec = doJSON(t, e, http.MethodPatch, base+"/types/"+created.TypeId, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("patch %s: %d %s, want 400", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A bundle root with parts is hidden when the install asks for it
+	// (a records host) and listed otherwise (a type objects carry).
+	res := ensureBundle(t, e, sp.Id, `{"id":"notes/v1","name":"Notes","hidden":true,"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"title","kind":"string"}]}]}]}`)
+	if _, listed := listIds("")[res.Bundle.RootId]; listed {
+		t.Error("hidden bundle root listed as a pickable type")
+	}
+	if root, ok := listIds("?includeHidden=true")[res.Bundle.RootId]; !ok || !root.Hidden {
+		t.Errorf("bundle root = %+v (ok=%v), want hidden", root, ok)
+	}
+	page := ensureBundle(t, e, sp.Id, `{"id":"page-test/v1","name":"Page","layout":{"type":"page"},"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}`)
+	if root, ok := listIds("")[page.Bundle.RootId]; !ok || root.Hidden {
+		t.Errorf("declared type root = %+v (ok=%v), want listed", root, ok)
 	}
 }

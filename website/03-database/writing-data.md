@@ -77,7 +77,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/modify \
 
 `path` is a dotted field path (`"style.level"` touches one sub-field; `"style"` replaces the object). A record with `id: ""` and `upsert: true` is created with a derived id; a named id with `upsert` creates-or-updates. `traceIds` are opaque labels stored on the change and filterable in history.
 
-The dataset must be one the object's types declare, and the object must carry that type — otherwise `400 dataset.validation`. Built-in datasets (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic collections. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
+`dataset` is a collection name — `<typeId>_<key>` for a runtime dataset — that one of the object's types declares, and the object must carry that type — otherwise `400 dataset.not_declared` (a name the space does not serve at all is `400 dataset.unknown`). Module collections (`chat_messages`, `editor_blocks`) are written through their own handlers, which stamp derived fields and enforce authorship; `/modify` is for runtime datasets and other dynamic collections. Runtime-dataset rules (required fields, write-once, author-only) are enforced on apply — see [Runtime datasets](runtime-datasets.html).
 
 ### Local-scope writes
 
@@ -107,7 +107,7 @@ POSTs are not idempotent: each call produces a new change. The one exception is 
 
 ## Preflight, don't hope
 
-- Check the object's `any.types` before a dataset write; a missing type is a `400`, not a silent no-op.
+- Check the object's `any.types` before a dataset write — one of them must declare the collection; a missing type is a `400 dataset.not_declared`, not a silent no-op.
 - Resolve property ids from the type's definitions and validate kinds client-side.
 - Read back through `/query`; never expect a write to echo the record.
 

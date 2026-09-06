@@ -82,6 +82,20 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, sp space.Space, objectId string, since uint64) ([]IndexEntry, error)
 }
 
+// MultiReconciler is a DynamicChunker whose index unit spans multiple
+// records on SEVERAL collections at once (a module's canonical
+// collection plus namespaced instances). ReconcileAll returns the full
+// current entry set per active collection; the indexer diffs each
+// collection's stored docs (prefix objectId:<collection>:) against its
+// set exactly as Reconcile does for one dataset. Reconciles reports
+// whether the chunker takes this path at all — a streaming module
+// chunker returns false and is served through ChunksSince.
+type MultiReconciler interface {
+	DynamicChunker
+	Reconciles() bool
+	ReconcileAll(ctx context.Context, sp space.Space, objectId string, since uint64) (map[string][]IndexEntry, error)
+}
+
 // DynamicChunker is an optional Chunker capability for chunkers whose
 // dataset set is defined at runtime (schema-driven datasets). The
 // worker replaces the static Dataset()/TypeId() gate for such a

@@ -365,7 +365,9 @@ func (w *spaceWorker) collectObject(ctx context.Context, objectId string, cursor
 			continue
 		}
 		var err error
-		if rc, ok := ch.(index.Reconciler); ok {
+		if mr, ok := ch.(index.MultiReconciler); ok && mr.Reconciles() {
+			err = w.reconcileMulti(ctx, mr, objectId, cursor, page)
+		} else if rc, ok := ch.(index.Reconciler); ok {
 			err = w.reconcile(ctx, rc, objectId, cursor, page)
 		} else {
 			err = w.streamChunks(ctx, ch, objectId, cursor, page)
@@ -399,6 +401,24 @@ func (w *spaceWorker) reconcile(ctx context.Context, rc index.Reconciler, object
 		return err
 	}
 	w.plan(entries, stored, objectId, rc.Dataset(), page)
+	return nil
+}
+
+// reconcileMulti is reconcile for a module chunker spanning several
+// collections: one stored-hash diff per active collection, keyed by the
+// real collection name the entries carry.
+func (w *spaceWorker) reconcileMulti(ctx context.Context, mr index.MultiReconciler, objectId string, cursor uint64, page *pageOps) error {
+	sets, err := mr.ReconcileAll(ctx, w.sp, objectId, cursor)
+	if err != nil {
+		return err
+	}
+	for coll, entries := range sets {
+		stored, err := w.ix.store.DocHashes(ctx, w.sp.Id(), objectId+":"+coll+":")
+		if err != nil {
+			return err
+		}
+		w.plan(entries, stored, objectId, coll, page)
+	}
 	return nil
 }
 

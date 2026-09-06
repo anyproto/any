@@ -21,11 +21,11 @@ account
 
 - A **space** is the unit of sharing and encryption. Every member holds the same data; every write is a change in a per-object DAG that syncs to everyone.
 - An **object** is a document. It carries a list of **types** in `any.types`, property values keyed by `<typeId>.<propId>`, and any number of per-object **datasets** (collections of records that belong to that object — chat messages, editor blocks, or a runtime dataset you declare).
-- A **type** declares properties (kind, format, scope) and optional dataset schemas. Built-in types (`chat`, `editor`, `page`, `nav`) exist in every space.
+- A **type** declares properties (kind, format, scope) and **parts** — display units owning datasets a module serves: `records` (a runtime schema), `editor` (a block body), `chat` (a conversation). Built-in types (`nav`, and the hidden `dataview` / `page` / `miniapp` / `bin`) exist in every space; chat types and your own document types are registered as bundles.
 
 ## One read path, many write paths
 
-Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — object create, property set, generic `/modify`, and the built-in types' own handlers — and every one of them returns the same `{versionId, changeId, recordIds}` receipt.
+Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/objects/query` for the cross-object collection and `POST /v1/spaces/:spaceId/query` for one object's dataset. Each has a `/subscribe` twin that returns the same snapshot plus a live stream of changes (see [Subscribe](../realtime/subscribe.html)). Writes go through purpose-built endpoints — object create, property set, generic `/modify`, and the modules' own handlers — and every one of them returns the same `{versionId, changeId, recordIds}` receipt.
 
 > **Why it matters.** There is no server between you and your data. Queries run against a local any-store database, so a read is a local disk read, a write is immediately visible, and both work offline. Sync and merge happen underneath — the query you ran a second ago keeps answering while peers catch up.
 
@@ -41,9 +41,9 @@ Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/
 <a href="data-model.html"><strong>Data model</strong><span>N types and N datasets per object; schemas and scopes.</span></a>
 <a href="spaces.html"><strong>Spaces</strong><span>Create, list, update and delete the encrypted containers your data lives in.</span></a>
 <a href="objects.html"><strong>Objects</strong><span>Documents with types, properties, a tree position and per-object datasets.</span></a>
-<a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare property definitions, formats, select options and scopes on a type.</span></a>
+<a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare property definitions with kinds, descriptors, choice options and scopes on a type.</span></a>
 <a href="property-lifecycle.html"><strong>Property lifecycle</strong><span>What is pinned, what patches, what removal does.</span></a>
-<a href="data-types.html"><strong>Data types</strong><span>Kinds, formats, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
+<a href="data-types.html"><strong>Data types</strong><span>Kinds, the xFormat descriptor, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
 <a href="reading-data.html"><strong>Reading data</strong><span>Mongo-style filters, sort, limit/offset and cursor paging through /query.</span></a>
 <a href="writing-data.html"><strong>Writing data</strong><span>Property writes, /modify ops, local-scope writes and the ModifyResult receipt.</span></a>
 <a href="indexes.html"><strong>Indexes</strong><span>What is indexed, what is a scan, and how to keep hot queries cheap.</span></a>

@@ -31,7 +31,7 @@ Every dataset write — `/modify`, `/delete-records`, and the chat and editor ha
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/health` | — | `{status, version, account, bootstrapping}` | works unauthorized (`account: ""`); `bootstrapping` is true while the background catch-up pass runs |
+| GET | `/v1/health` | — | `{status, version, account, bootstrapping, crdtVersion?}` | works unauthorized (`account: ""`); `bootstrapping` is true while the background catch-up pass runs; `crdtVersion {supported, stored, newer}` — `newer` means the account was written by a newer release and this server is read-only |
 | POST | `/v1/shutdown` | header `X-Any-Control-Token` | 204 | managed servers only (`403 shutdown.not_managed` on standalone; `403 control.forbidden` without the token); drains in-flight streams for up to 10 s |
 | GET | `/v1/openapi.json` | — | OpenAPI 3.1 document | 404 on the mobile build |
 
@@ -81,7 +81,7 @@ curl -X POST http://127.0.0.1:7001/v1/auth -d '{}'      # any auth login
 | POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 202 `SpaceInfo` | request-to-join (status `joining`); guest tokens auto-detected; `400 invite.invalid`; `409 space.deleted` on a space this account deleted |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
 | POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
-| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, typeId?}]}` | JSON Schema with `x-scope` per field |
+| GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the collection |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
 | POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?}` | `{hits, mode, vectorStatus}` | local index, not an SDK method; `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `400 search.bad_mode`, `400 search.bad_scope` |
 
@@ -109,7 +109,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?}` | `{bundle, installed}` | adopt-or-install; `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation` |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?}` | `{bundle, installed}` | adopt-or-install; `parts` declares the root's modules and datasets; `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation` |
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle]}` | |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `Bundle` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
@@ -117,7 +117,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
-  -d '{"id":"general-chat/v1","name":"General","rootTypes":["chat"],"derived":true}'
+  -d '{"id":"general-chat/v1","name":"General","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).
@@ -135,9 +135,9 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Dune"}}}'
+  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Dune"}}}'
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/query \
-  -d '{"filter":{"any.types":"page"},"sort":["-modifiedAt"],"limit":20}'
+  -d '{"filter":{"any.types":"'$PAGE'"},"sort":["-modifiedAt"],"limit":20}'
 ```
 
 Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedAt`, `modifiedBy` (instants as `{"$date": …}`; `modifiedBy` is the identity that signed the change `modifiedAt` names). See [Objects](../database/objects.html) and [System fields](../database/system-fields.html).
@@ -146,13 +146,13 @@ Every `objects` row carries derived `author`, `createdAt`, `spaceId`, `modifiedA
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `…/objects/:objectId/editor/markdown` | — | markdown text | render transform over `editor_blocks` |
-| PUT | `…/objects/:objectId/editor/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops |
-| PATCH | `…/objects/:objectId/editor/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
-| POST | `…/objects/:objectId/editor/markdown/append` | `{content}` | PUT shape (`inserted` only) | O(fragment), no diff |
-| POST | `…/objects/:objectId/editor/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id |
-| PATCH | `…/objects/:objectId/editor/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset |
-| DELETE | `…/objects/:objectId/editor/blocks/:blockId` | — | write result | no cascade to children |
+| GET | `…/objects/:objectId/editor/:collection/markdown` | — | markdown text | render transform over the editor collection (`editor_blocks` or `<typeId>_<key>`); `404 dataset.not_found` off-catalog, `400 dataset.not_declared` when no carried type declares it |
+| PUT | `…/objects/:objectId/editor/:collection/markdown` | `{content}` | `{inserted, updated, deleted, unchanged}` | parse → diff → per-block ops |
+| PATCH | `…/objects/:objectId/editor/:collection/markdown` | `{edits: [{oldText, newText, replaceAll?}]}` | PUT shape | all-or-nothing; `400 markdown.no_match`, `markdown.ambiguous_match`, `markdown.overlapping_edits` |
+| POST | `…/objects/:objectId/editor/:collection/markdown/append` | `{content}` | PUT shape (`inserted` only) | O(fragment), no diff |
+| POST | `…/objects/:objectId/editor/:collection/blocks` | `{type, style?, text?, nav?}` | 201 write result | `recordIds[0]` is the block id |
+| PATCH | `…/objects/:objectId/editor/:collection/blocks/:blockId` | `{set: {"dotted.path": v}, unset: [path]}` | write result | required fields cannot be unset |
+| DELETE | `…/objects/:objectId/editor/:collection/blocks/:blockId` | — | write result | no cascade to children |
 
 Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_blocks", "sort": ["nav.pos"]}`. See [Editor](../types/editor.html) and [Markdown import/export](../database/markdown-import-export.html).
 
@@ -164,7 +164,7 @@ Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_bl
 | POST | `/v1/spaces/:spaceId/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | frames in [Events](events.html) |
 | POST | `/v1/spaces/:spaceId/aggregate` | `{objectId, dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only |
 | POST | `/v1/spaces/:spaceId/modify` | `{objectId, dataset, records: [{id, upsert?, ops}], traceIds?, scope?}` | write result | `scope: "local"` for device-local fields only |
-| POST | `/v1/spaces/:spaceId/upsert` | `{objectId, dataset, records: [{id, fields}], pageSize?, traceIds?}` | `{pages, created, updated, skipped, rejections}` | idempotent; `400 upsert.requires_user_ids`, `400 dataset.unknown` |
+| POST | `/v1/spaces/:spaceId/upsert` | `{objectId, dataset, records: [{id, fields}], pageSize?, traceIds?}` | `{pages, created, updated, skipped, rejections}` | idempotent; `400 upsert.requires_user_ids`, `400 dataset.unknown`, `400 dataset.not_declared` |
 | POST | `/v1/spaces/:spaceId/delete-records` | `{objectId, dataset, recordIds}` | write result | |
 
 Snapshot body (closed field set — unknown keys `400 request.unknown_field`):
@@ -198,7 +198,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | — | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`chat`, `editor`, `page`, `nav`), then user types |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`nav`, and the hidden `dataview` / `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey}` | 201 `TypeInfo` | `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |
@@ -206,8 +206,13 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 | POST | `…/types/:typeId/properties` | `{name, kind?, xKey?, format?, meta?, scope?}` | 201 | `400 property.format_invalid`, `400 type.registered` |
 | PATCH | `…/types/:typeId/properties/:propId` | `{set, unset}` | 204 | `400 property.immutable`, `400 property.format_invalid`, `404 sdk.not_found` |
 | DELETE | `…/types/:typeId/properties/:propId` | — | 204 | tombstone; values not cleaned up |
-| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | |
-| POST | `…/types/:typeId/datasets` | `{name, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId}` | `409 dataset.name_conflict`, `400 dataset.decl_invalid` |
+| PATCH | `…/types/:typeId` | `{name?, description?, iconCid?, weight?, layout?, hidden?, meta?}` | 204 | rendering slice, the hidden flag and the per-key meta bag (`null` unsets a key); `400 type.registered` |
+| GET | `…/types/:typeId/parts` | — | `{parts: [{id, key, name?, icon?, pos?, hidden?, ui?, uses?, datasets: [DatasetDef]}]}` | |
+| POST | `…/types/:typeId/parts` | `{key, name?, icon?, pos?, hidden?, ui?, uses?, datasets?: [dataset draft]}` | 201 `{partId}` | one change; `409 dataset.key_conflict`, `400 dataset.module_unknown`, `400 dataset.shared_conflict`, `409 dataset.module_owned` |
+| PATCH | `…/types/:typeId/parts/:partId` | `{set, unset}` | 204 | `name`, `icon`, `pos`, `hidden`, `ui`, `uses`; `400 dataset.immutable` |
+| DELETE | `…/types/:typeId/parts/:partId` | — | 204 | removes the part and its datasets |
+| POST | `…/types/:typeId/parts/:partId/datasets` | `{key?, module?, shared?, displayName?, idRule?, deleteBy?, search?, fields, …}` | 201 `{datasetDefId, collection}` | collection = `<typeId>_<key>` (or the module's canonical when shared); `409 dataset.key_conflict`, `400 dataset.decl_invalid` |
+| GET | `…/types/:typeId/datasets` | — | `{datasets: [DatasetDef]}` | flat compiled view; each carries `collection`, `module`, `shared`, `partId` |
 | PATCH | `…/types/:typeId/datasets/:defId` | `{set, unset}` | 204 | display leaves only; `400 dataset.immutable` |
 | DELETE | `…/types/:typeId/datasets/:defId` | — | 204 | |
 | POST | `…/types/:typeId/datasets/:defId/fields` | field def | 201 `{fieldDefId}` | never `required` |

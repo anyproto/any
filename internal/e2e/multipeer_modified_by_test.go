@@ -92,8 +92,7 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 		`{"name":"modified-by"}`, http.StatusCreated, &sp)
 
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 	if obj.ObjectId == "" {
 		t.Fatal("owner: no objectId in create response")
 	}

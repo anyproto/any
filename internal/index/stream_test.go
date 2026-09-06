@@ -23,7 +23,7 @@ type fakeQuery struct {
 	iter       *fakeIterator
 }
 
-func (q *fakeQuery) Filter(f any) space.Query { q.filters = append(q.filters, f); return q }
+func (q *fakeQuery) Filter(f any) space.Query  { q.filters = append(q.filters, f); return q }
 func (q *fakeQuery) Sort(s ...any) space.Query { q.sorts = append(q.sorts, s...); return q }
 func (q *fakeQuery) Limit(int) space.Query     { return q }
 func (q *fakeQuery) Offset(int) space.Query    { return q }
@@ -35,9 +35,9 @@ func (q *fakeQuery) Iter(context.Context) (space.Iterator, error) {
 	q.iter = &fakeIterator{recs: q.recs}
 	return q.iter, nil
 }
-func (q *fakeQuery) All(context.Context) ([]*anyenc.Value, error)  { return q.recs, nil }
-func (q *fakeQuery) One(context.Context) (*anyenc.Value, error)    { return nil, space.ErrNotFound }
-func (q *fakeQuery) Count(context.Context) (int, error)            { return len(q.recs), nil }
+func (q *fakeQuery) All(context.Context) ([]*anyenc.Value, error) { return q.recs, nil }
+func (q *fakeQuery) One(context.Context) (*anyenc.Value, error)   { return nil, space.ErrNotFound }
+func (q *fakeQuery) Count(context.Context) (int, error)           { return len(q.recs), nil }
 func (q *fakeQuery) Snapshot(context.Context, space.QueryOpts) (*space.QueryResult, error) {
 	return nil, nil
 }
