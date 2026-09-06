@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/client"
+	"github.com/anyproto/any/internal/editor"
 )
 
 // TestServer_Blocks_RoundTrip drives the create / list / patch /
@@ -63,7 +63,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 
 	// 4. Patch the first block — change text and add a style entry.
 	patchBody := `{"set":{"text":"first edited","style":{"emphasis":true}}}`
-	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+first.Id, patchBody)
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+first.Id, patchBody)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
@@ -82,7 +82,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 	}
 
 	// 5. Unset the style.
-	rec = doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+first.Id,
+	rec = doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+first.Id,
 		`{"unset":["style"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH unset: %d %s", rec.Code, rec.Body.String())
@@ -93,7 +93,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 	}
 
 	// 6. Delete the second block — now returns 200 with a ModifyResult.
-	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+second.Id, "")
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+second.Id, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body.String())
 	}
@@ -110,7 +110,7 @@ func TestServer_Blocks_RoundTrip(t *testing.T) {
 	}
 
 	// 7. Patching a deleted block returns 404.
-	rec = doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+second.Id, `{"set":{"text":"resurrect"}}`)
+	rec = doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+second.Id, `{"set":{"text":"resurrect"}}`)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("PATCH deleted: %d %s, want 404", rec.Code, rec.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 		t.Errorf("create event missing versionId")
 	}
 
-	rec := doJSON(t, e, http.MethodPatch, base+"/editor/blocks/"+created.Id, `{"set":{"text":"hello edited"}}`)
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/blocks/"+created.Id, `{"set":{"text":"hello edited"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH: %d %s", rec.Code, rec.Body.String())
 	}
@@ -233,7 +233,7 @@ func TestServer_Blocks_QuerySubscribe(t *testing.T) {
 		t.Errorf("patch event reused versionId %q", patchEvt.VersionId)
 	}
 
-	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+created.Id, "")
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+created.Id, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body.String())
 	}
@@ -260,21 +260,13 @@ func TestServer_Markdown_ConvergesWithBlocks(t *testing.T) {
 	_, viaBlocksId := setupBlocksFixture(t, e)
 	// setupBlocksFixture re-creates the space each call; we only need
 	// one space. Re-use the first space id for both objects.
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create second object: %d %s", rec.Code, rec.Body.String())
-	}
-	var second api.ObjectsCreateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
-		t.Fatalf("decode second: %v", err)
-	}
-	viaBlocksId = second.ObjectId
+	viaBlocksId = mustCreateModuleObject(t, e, spaceId, "editor")
 
 	// Path A: markdown PUT.
 	doc := "# Heading 1\n\nparagraph body\n\n## Heading 2\n\nmore body"
 	body, _ := json.Marshal(map[string]string{"content": doc})
-	rec = doJSON(t, e, http.MethodPut,
-		"/v1/spaces/"+spaceId+"/objects/"+viaMarkdownId+"/editor/markdown", string(body))
+	rec := doJSON(t, e, http.MethodPut,
+		"/v1/spaces/"+spaceId+"/objects/"+viaMarkdownId+"/editor/editor_blocks/markdown", string(body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT markdown: %d %s", rec.Code, rec.Body.String())
 	}
@@ -287,8 +279,8 @@ func TestServer_Markdown_ConvergesWithBlocks(t *testing.T) {
 	blocksCreate(t, e, mdBase, `{"type":"paragraph","text":"more body"}`)
 
 	// Compare via GET markdown — both should render to the same bytes.
-	mdViaPut := getMarkdown(t, e, "/v1/spaces/"+spaceId+"/objects/"+viaMarkdownId+"/editor/markdown")
-	mdViaBlocks := getMarkdown(t, e, "/v1/spaces/"+spaceId+"/objects/"+viaBlocksId+"/editor/markdown")
+	mdViaPut := getMarkdown(t, e, "/v1/spaces/"+spaceId+"/objects/"+viaMarkdownId+"/editor/editor_blocks/markdown")
+	mdViaBlocks := getMarkdown(t, e, "/v1/spaces/"+spaceId+"/objects/"+viaBlocksId+"/editor/editor_blocks/markdown")
 	if mdViaPut != mdViaBlocks {
 		t.Errorf("markdown content diverged\nvia PUT:\n%s\nvia blocks:\n%s", mdViaPut, mdViaBlocks)
 	}
@@ -298,7 +290,7 @@ func TestServer_Markdown_ConvergesWithBlocks(t *testing.T) {
 }
 
 // TestServer_Markdown_Append exercises the append-only fast path:
-// POST .../editor/markdown/append adds blocks at the tail without
+// POST .../editor/editor_blocks/markdown/append adds blocks at the tail without
 // reading or diffing the existing document, and the result renders
 // identically to a single PUT of the concatenated document.
 func TestServer_Markdown_Append(t *testing.T) {
@@ -311,7 +303,7 @@ func TestServer_Markdown_Append(t *testing.T) {
 
 	// Append onto an empty object — exercises the maxPos=="" seed path.
 	appendMarkdown(t, e, base, "# Heading 1\n\nfirst body")
-	if got := getMarkdown(t, e, base+"/editor/markdown"); got != "# Heading 1\n\nfirst body" {
+	if got := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); got != "# Heading 1\n\nfirst body" {
 		t.Fatalf("after first append: %q", got)
 	}
 
@@ -325,7 +317,7 @@ func TestServer_Markdown_Append(t *testing.T) {
 	}
 
 	want := "# Heading 1\n\nfirst body\n\n## Heading 2\n\nsecond body"
-	if got := getMarkdown(t, e, base+"/editor/markdown"); got != want {
+	if got := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); got != want {
 		t.Errorf("after second append:\nwant %q\ngot  %q", want, got)
 	}
 
@@ -347,7 +339,7 @@ func TestServer_Markdown_Append(t *testing.T) {
 	if len(resp.Inserted) != 0 {
 		t.Errorf("empty append inserted %v", resp.Inserted)
 	}
-	if got := getMarkdown(t, e, base+"/editor/markdown"); got != want {
+	if got := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); got != want {
 		t.Errorf("empty append changed document: %q", got)
 	}
 }
@@ -355,7 +347,7 @@ func TestServer_Markdown_Append(t *testing.T) {
 func appendMarkdown(t *testing.T, e http.Handler, base, content string) api.MarkdownSetResponse {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"content": content})
-	rec := doJSON(t, e, http.MethodPost, base+"/editor/markdown/append", string(body))
+	rec := doJSON(t, e, http.MethodPost, base+"/editor/editor_blocks/markdown/append", string(body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST markdown/append: %d %s", rec.Code, rec.Body.String())
 	}
@@ -387,7 +379,7 @@ func TestServer_Blocks_MultiRecordBatchId(t *testing.T) {
 	// `:2` suffixes on the same ChangeId-derived base.
 	doc := "one\n\ntwo\n\nthree"
 	body, _ := json.Marshal(map[string]string{"content": doc})
-	rec := doJSON(t, e, http.MethodPut, base+"/editor/markdown", string(body))
+	rec := doJSON(t, e, http.MethodPut, base+"/editor/editor_blocks/markdown", string(body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT markdown: %d %s", rec.Code, rec.Body.String())
 	}
@@ -415,12 +407,12 @@ func TestServer_Blocks_MultiRecordBatchId(t *testing.T) {
 	}
 
 	rec = doJSON(t, e, http.MethodPatch,
-		base+"/editor/blocks/"+suffixedId, `{"set":{"text":"patched"}}`)
+		base+"/editor/editor_blocks/blocks/"+suffixedId, `{"set":{"text":"patched"}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH suffixed id: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec = doJSON(t, e, http.MethodDelete, base+"/editor/blocks/"+suffixedId, "")
+	rec = doJSON(t, e, http.MethodDelete, base+"/editor/editor_blocks/blocks/"+suffixedId, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("DELETE suffixed id: %d %s", rec.Code, rec.Body.String())
 	}
@@ -448,15 +440,7 @@ func setupBlocksFixture(t *testing.T, e http.Handler) (spaceId, objectId string)
 	}
 	spaceId = sp.Id
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
-	}
-	var obj api.ObjectsCreateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &obj); err != nil {
-		t.Fatalf("decode object: %v", err)
-	}
-	objectId = obj.ObjectId
+	objectId = mustCreateModuleObject(t, e, spaceId, "editor")
 	return spaceId, objectId
 }
 
@@ -480,7 +464,7 @@ type block struct {
 // which we re-query to surface nav.pos / _ver / etc.
 func blocksCreate(t *testing.T, e http.Handler, base, body string) block {
 	t.Helper()
-	rec := doJSON(t, e, http.MethodPost, base+"/editor/blocks", body)
+	rec := doJSON(t, e, http.MethodPost, base+"/editor/editor_blocks/blocks", body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create block %s: %d %s", body, rec.Code, rec.Body.String())
 	}

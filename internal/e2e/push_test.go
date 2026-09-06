@@ -82,8 +82,7 @@ func TestE2E_Push(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/spaces",
 		`{"name":"push-e2e"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, base, sp.Id, "chat")
 	msg := fmt.Sprintf(`{"text":"ping [me](any://m/%s/%s)"}`, sp.Id, acc.Id)
 	sendChat(t, base+"/v1/spaces/"+sp.Id+"/objects/"+obj.ObjectId, msg)
 

@@ -6,30 +6,32 @@ on top of the contract in `03-api.md` (endpoints + bodies) and
 `04-events.md` (SSE lifecycle). Read those for the wire shapes; read this
 for *how to use them*.
 
-## 1. Writes go through the type's handler methods
+## 1. Writes go through the module's handler methods
 
-Built-in datasets are written **only** through their bespoke handler
+Module collections are written **only** through their bespoke handler
 endpoints — never through a generic write path:
 
 - chat: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/chat/messages[/:msgId]`
   and `…/:msgId/reactions/:emoji`
-- editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/blocks[/:id]`
+- editor: `POST/PATCH/DELETE /v1/spaces/:s/objects/:o/editor/:collection/blocks[/:id]`
+  — `:collection` is `editor_blocks` for the shared body, or the
+  namespaced `<typeId>_<key>` of a part with its own editor
 
 The handler is what stamps server-owned fields (`creator` / `createdAt` /
 `modifiedAt`), enforces author-only edit/delete, and keys reactions per
 identity. Bypassing it would skip all of that. The write-shaped
-exceptions are the `…/editor/markdown` routes, which are render/import
-*transforms* over `editor_blocks`, not dataset writes. Pick by change
-shape:
+exceptions are the `…/editor/:collection/markdown` routes, which are
+render/import *transforms* over the editor collection, not dataset
+writes. Pick by change shape:
 
 - **Targeted change** ("tick this box", "fix this line") →
-  `PATCH …/editor/markdown` with `{edits: [{oldText, newText}]}`.
+  `PATCH …/editor/:collection/markdown` with `{edits: [{oldText, newText}]}`.
   Never do `GET → string-replace → PUT`: the PATCH matches
   server-side against the current state, so it can't clobber
   concurrent edits and a stale quote fails loudly
   (`markdown.no_match` → re-`GET` and quote the exact text).
-- **Full rewrite / import** → `PUT …/editor/markdown`.
-- **Tail growth** (logs, transcripts) → `POST …/editor/markdown/append`.
+- **Full rewrite / import** → `PUT …/editor/:collection/markdown`.
+- **Tail growth** (logs, transcripts) → `POST …/editor/:collection/markdown/append`.
 
 An editor that renders empty paragraphs must emit and parse blank
 runs the way the markdown routes encode them — one blank line
@@ -52,23 +54,27 @@ it against remote changes). Read the resulting record back through
 ## 2. Preflight-validate writes against the bound types
 
 An object carries an `any.types` array — the type IDs bound to it. Bind at
-create time:
+create time, or later through `POST …/properties/:objectId/attach/:typeId`:
 
 ```
 POST /v1/spaces/:spaceId/objects
-{ "types": ["chat"], ... }
+{ "types": ["<pageTypeId>"], ... }
 ```
 
-(Dedicated runtime attach/detach SDK methods are planned but not landed yet —
-bind at create for now.)
-
-- **Don't call a dataset write endpoint unless the target object has the
-  matching type bound.** A write to `chat_messages` / `editor_blocks` on an
-  object missing `"chat"` / `"editor"` in its `any.types` is rejected by the
-  SDK handler with `dataset.validation` (400). Check the object's `any.types`
-  (read its row from the per-space `objects` collection) before writing, or
-  create the object with the type bound up front. Don't fire the write and
-  hope.
+- **Don't call a dataset write endpoint unless the target object carries
+  a type that declares the collection.** A collection — `chat_messages`,
+  `editor_blocks`, a namespaced `<typeId>_<key>` — lives on an object
+  only while one of its `any.types` has a part declaring it
+  (`03-api.md` § Parts and modules); a write without one is `400
+  dataset.not_declared`, and no write attaches a type for you. Resolve
+  the declaring types once per space from `GET /v1/spaces/:id/datasets`
+  (the collection's `owners`), check the object's `any.types` (read its
+  row from the per-space `objects` collection) before writing, or create
+  the object with the type bound up front. Don't fire the write and hope.
+  A document type is the built-in `page` (plain body, no properties)
+  or a user type of your own — register the latter as a bundle so every
+  client and device converges on one instead of minting a type per
+  client.
 
 - **Preflight-validate property values against the bound type's property
   definitions.** v1 does **not** enforce property schema server-side —
@@ -89,8 +95,10 @@ bind at create for now.)
 
 One read path per dataset: a snapshot via `POST /v1/spaces/:id/query`, or a
 live stream via `POST /v1/spaces/:id/query/subscribe`. For per-object
-built-ins pass `objectId` + `dataset` (`chat_messages`, `editor_blocks`, …);
-the cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
+collections pass `objectId` + `dataset` — the collection name
+(`chat_messages`, `editor_blocks`, a namespaced `<typeId>_<key>`; read
+them off `GET /v1/spaces/:id/datasets` or the type's `…/parts`); the
+cross-object firehose is `POST /v1/spaces/:id/objects/query[/subscribe]`.
 Body shape (filter / sort / limit / offset / includeTotal / mailboxCapacity /
 driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 `04-events.md`.
@@ -137,13 +145,26 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 - **Timestamps are instants, not numbers.** Every server-stamped time —
   the row-root stamps, chat `createdAt` / `modifiedAt`, runtime-dataset
-  stamps — and every property declared with the `date` / `datetime`
-  format reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
+  stamps — and every `datetime`-kind property (the `date` / `datetime`
+  slugs) reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
   the one key (`new Date(v.$date)`), and use the same shape in filter
   literals and writes: `{"modifiedAt": {"$gte": {"$date": "…"}}}`. A bare
   string or number does not error — ordering comparisons are bracketed
   by type, so a bare literal never compares against an instant and a
   range filter that forgets the wrapper comes back empty.
+
+- **Ordinary lists exclude the bin.** An object moved to the bin carries
+  the built-in `bin` type (`03-api.md` § Types → Built-in hidden types);
+  every list, tree and picker adds `{"any.types": {"$nin": ["bin"]}}` to
+  its filter, and the bin view is `{"any.types": "bin"}` sorted
+  `-bin.movedAt`, rendering `bin.movedBy` through the members list like
+  `modifiedBy`. Move and restore are the plain
+  `…/properties/:objectId/attach/bin` / `detach/bin` calls — the server
+  stamps and clears the two properties — and permanent deletion stays
+  `DELETE …/objects/:id`. `/search` does not know about the bin: a
+  binned object's text still surfaces as a hit, and a hit carries no
+  types, so drop binned hits by reading the hit's object row (or its
+  `any.types` from a cached list) before rendering.
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset
@@ -159,7 +180,10 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 **Where `<chatObjectId>` comes from:** register the space's chat as a
 bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
 with
-`{"id":"general-chat/v1","name":"General","rootTypes":["chat"],"derived":true}`.
+`{"id":"general-chat/v1","name":"General","derived":true,"hidden":true,"layout":{"type":"chat"},"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`
+— the part is what makes the root hold the chat collection, `hidden`
+keeps the root's type out of pickers (it hosts the chat, nothing
+attaches it elsewhere).
 The call is adopt-or-install, so every client lands on one object
 instead of each creating its own, and `derived` makes that object's id
 a function of the bundle id — computed offline, identical on every
@@ -616,7 +640,9 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    by taking `rootId` off the row; subscribe to the raw `bundles`
    dataset for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
-   "datasets": [...]}` — a CREATED root minted by the server, deletable
+   "hidden": true, "parts": [...]}` — a CREATED root minted by the
+   server, hidden from pickers (it hosts records, nothing attaches it
+   elsewhere), deletable
    (uninstall = `DELETE …/objects/<rootId>`). Idempotent: the first
    call installs, later calls adopt. Do NOT reach for `"derived": true`
    because a converged id sounds convenient — bundles exist precisely so
@@ -629,40 +655,50 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    loser's records into the winner through your own schema, then
    `POST …/bundles/:id/resolve` with the loser root id.
 
-Dataset names are unique per space: part of the bundle's versioned
-vocabulary, chosen once — `favorites/v1` owns `entries` the way it owns
-its id (guide: `25-favorites.md`), and a future bundle picks names that
-don't collide. Tree edge cases — an entry whose folder is removed, a
+A bundle's records datasets are namespaced to its root: `favorites/v1`
+declares an `entries` part and reads and writes the collection
+`<rootId>_entries` (read the name off the parts list — guide:
+`25-favorites.md`), so two bundles never collide on a key. Tree edge
+cases — an entry whose folder is removed, a
 move that forms a cycle across devices — are read-side product rules:
 compute the same view from the same records everywhere, never repair
 with writes.
-## 13. Saved views: ensure one, patch by path, one window per visible group
+## 13. Saved views: ensure the defaults, patch by path, one window per visible group
 
 Saved views (`24-data-views.md`) are the first place a client both
 *writes* shared configuration and *reads* it back on every render, so
 the call patterns matter more than the record shape.
 
 - **Bind the type once, at create where you can.** A new host object
-  takes `{"types": ["data_view"]}` on `POST …/objects`; an existing one
-  needs `POST …/properties/:objectId/attach/data_view`. Attach is
+  takes `{"types": ["dataview"]}` on `POST …/objects`; an existing one
+  needs `POST …/properties/:objectId/attach/dataview`. Attach is
   idempotent, so calling it on every open is *correct but wasteful* —
   it is a DAG write. Attach when you first add a view, not when you
   open the object.
 
-- **Ensure the default view, never create-on-open.** Upsert a fixed
-  record id (`default`) so two devices opening the same object converge
-  on one view instead of minting two. **Then read `rejections`.** A
-  deleted id is burned forever, and re-upserting it returns `200` with a
-  rejection and creates nothing — a client that checks only the status
-  code renders an empty view list with no error. On a rejection, fall
-  through to the next id in a deterministic sequence (`default-2`,
-  `default-3`, …); walking the same sequence everywhere is what keeps
-  devices converging on the same replacement.
+- **Ensure the default dataview and its default view, never
+  create-on-open.** Two levels: a `dataviews` record (`default`,
+  `{name, pos}`) and a `views` record (`default`, `{dataview:
+  "default", name, layout, pos}`), each upserted under a fixed id so two
+  devices opening the same object converge on one table with one view
+  instead of minting two. **Then read `rejections`.** A deleted id is
+  burned forever, and re-upserting it returns `200` with a rejection and
+  creates nothing — a client that checks only the status code renders an
+  empty view list with no error. On a rejection, fall through to the
+  next id in a deterministic sequence (`default-2`, `default-3`, …);
+  walking the same sequence everywhere is what keeps devices converging
+  on the same replacement. View ids are one namespace per host, so a
+  second dataview's views take `<dataviewId>.<key>` ids
+  (`board.default`) and walk their own sequence.
 
-- **Never offer to delete the last view.** "At least one view always
-  exists" cannot be enforced server-side — the delete gate is
-  per-record, not per-collection — so it is your rule. It also protects
-  users from burning the well-known id.
+- **Never offer to delete the last view — and delete a dataview's
+  views yourself.** "At least one dataview with one view always exists"
+  cannot be enforced server-side — the delete gate is per-record, not
+  per-collection — so it is your rule; it also protects users from
+  burning the well-known ids. Deleting a dataview does not cascade: its
+  views stay as orphans (`{"filter": {"dataview": "<id>"}}` still finds
+  them), so delete them in the same batch, or re-parent them with one
+  `$set dataview`.
 
 - **Patch by path; a root `$set` merges, it does not replace.**
   `{"type": "$set", "path": "layoutSettings.order", "value": [...]}`
@@ -680,10 +716,12 @@ the call patterns matter more than the record shape.
   the merge of `layoutSettings` and `localSettings`, local winning per
   key.
 
-- **One subscription for the view list, not one per view.** The view
-  list is a single `…/query/subscribe` window on `dataset:
-  "data_views"` sorted by `pos` — §10's budget applies unchanged. The
-  *contents* of the active view are a second window; inactive views cost
+- **One subscription per list, not one per view.** The dataview list is
+  a `…/query/subscribe` window on `dataset: "dataviews"` sorted by
+  `pos`; the active dataview's view list is a second window on
+  `dataset: "views"` with `{"filter": {"dataview": "<id>"}}`, sorted
+  by `pos` (indexed) — §10's budget applies unchanged. The *contents* of
+  the active view are a third window; inactive dataviews and views cost
   nothing.
 
 - **Save the query keyed by `propId`, and scope it by type.** `xKey`

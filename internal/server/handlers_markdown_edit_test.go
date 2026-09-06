@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestServer_MarkdownEdit drives PATCH .../editor/markdown through
+// TestServer_MarkdownEdit drives PATCH .../editor/editor_blocks/markdown through
 // echo against a real SDK: the checklist-tick scenario (single-block
 // style update, ids stable), replaceAll, a block-splitting edit, and
 // the idempotent no-op.
@@ -19,7 +19,7 @@ func TestServer_MarkdownEdit(t *testing.T) {
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 
 	// Seed: heading + two-item checklist.
-	rec := doJSON(t, e, http.MethodPost, base+"/editor/markdown/append",
+	rec := doJSON(t, e, http.MethodPost, base+"/editor/editor_blocks/markdown/append",
 		`{"content":"# Books\n\n- [ ] Children of Time\n\n- [ ] Blindsight"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("append: %d %s", rec.Code, rec.Body.String())
@@ -55,7 +55,7 @@ func TestServer_MarkdownEdit(t *testing.T) {
 	if ticked.Type != "check_list_item" || ticked.Style["checked"] != true {
 		t.Errorf("tick: type=%q style=%v, want check_list_item checked=true", ticked.Type, ticked.Style)
 	}
-	if got := getMarkdown(t, e, base+"/editor/markdown"); got !=
+	if got := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); got !=
 		"# Books\n\n- [x] Children of Time\n\n- [ ] Blindsight" {
 		t.Errorf("tick: markdown = %q", got)
 	}
@@ -71,7 +71,7 @@ func TestServer_MarkdownEdit(t *testing.T) {
 	if len(resp.Updated) != 2 {
 		t.Fatalf("replaceAll: %+v, want both checklist items updated", resp)
 	}
-	if got := getMarkdown(t, e, base+"/editor/markdown"); got !=
+	if got := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); got !=
 		"# Books read\n\n- [x] the Children of Time\n\n- [ ] the Blindsight" {
 		t.Errorf("replaceAll: markdown = %q", got)
 	}
@@ -113,12 +113,12 @@ func TestServer_MarkdownEdit_Errors(t *testing.T) {
 	spaceId, objectId := setupBlocksFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
 
-	rec := doJSON(t, e, http.MethodPost, base+"/editor/markdown/append",
+	rec := doJSON(t, e, http.MethodPost, base+"/editor/editor_blocks/markdown/append",
 		`{"content":"alpha\n\ndup\n\ndup"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("append: %d %s", rec.Code, rec.Body.String())
 	}
-	before := getMarkdown(t, e, base+"/editor/markdown")
+	before := getMarkdown(t, e, base+"/editor/editor_blocks/markdown")
 
 	cases := []struct {
 		name string
@@ -134,7 +134,7 @@ func TestServer_MarkdownEdit_Errors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := doJSON(t, e, http.MethodPatch, base+"/editor/markdown", tc.body)
+			rec := doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/markdown", tc.body)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("%s: code %d %s", tc.name, rec.Code, rec.Body.String())
 			}
@@ -154,7 +154,7 @@ func TestServer_MarkdownEdit_Errors(t *testing.T) {
 	}
 
 	// Ambiguity details carry the occurrence count.
-	rec = doJSON(t, e, http.MethodPatch, base+"/editor/markdown",
+	rec = doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/markdown",
 		`{"edits":[{"oldText":"dup","newText":"x"}]}`)
 	var env struct {
 		Error struct {
@@ -169,7 +169,7 @@ func TestServer_MarkdownEdit_Errors(t *testing.T) {
 	}
 
 	// Nothing was written by any of the failing requests.
-	if after := getMarkdown(t, e, base+"/editor/markdown"); after != before {
+	if after := getMarkdown(t, e, base+"/editor/editor_blocks/markdown"); after != before {
 		t.Errorf("document changed by failing edits: %q → %q", before, after)
 	}
 }
@@ -183,10 +183,10 @@ type mdEditResp struct {
 	Unchanged int      `json:"unchanged"`
 }
 
-// markdownEdit PATCHes .../editor/markdown and decodes the response.
+// markdownEdit PATCHes .../editor/editor_blocks/markdown and decodes the response.
 func markdownEdit(t *testing.T, e http.Handler, base, body string) (out mdEditResp) {
 	t.Helper()
-	rec := doJSON(t, e, http.MethodPatch, base+"/editor/markdown", body)
+	rec := doJSON(t, e, http.MethodPatch, base+"/editor/editor_blocks/markdown", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH markdown %s: %d %s", body, rec.Code, rec.Body.String())
 	}

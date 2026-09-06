@@ -57,13 +57,17 @@ SPACE=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces \
 Object creation and the generic snapshot query are likewise `curl` calls; the CLI's read surface is the live one:
 
 ```bash
+# a page type: a user type whose part declares the editor module
+PAGE=$(any type create $SPACE --name Page --xkey page --weight 10 | jq -r .typeId)
+any type part add $SPACE $PAGE --draft '{"key":"body","datasets":[{"module":"editor","shared":true}]}'
+
 OBJ=$(curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'content-type: application/json' \
-  -d '{"types":["page"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
+  -d '{"types":["'$PAGE'"],"initialProperties":{"any":{"name":"Reading list"}}}' | jq -r .objectId)
 
 # cross-object live window: the space's objects collection
 any query-subscribe $SPACE --properties \
-  --filter '{"any.types":"page"}' --sort='-modifiedAt' --limit 20 --total
+  --filter '{"any.types":"'$PAGE'"}' --sort='-modifiedAt' --limit 20 --total
 
 # per-object dataset: the blocks of one document
 any query-subscribe $SPACE $OBJ --dataset editor_blocks --sort nav.pos --limit 200
@@ -83,7 +87,7 @@ Cancel with Ctrl-C; `--timeout` does not apply to streams.
 The chat and editor handlers have full CLI coverage:
 
 ```bash
-any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'   # PATCH …/editor/markdown
+any editor edit $SPACE $OBJ --old '- [ ] Dune' --new '- [x] Dune'   # PATCH …/editor/editor_blocks/markdown
 any editor blocks create $SPACE $OBJ --type paragraph --text 'hello'
 any chat send $SPACE $CHAT --text 'hi there'
 any query-subscribe $SPACE $CHAT --dataset chat_messages --sort='-_ver.id' --limit 50

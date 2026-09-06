@@ -1,13 +1,17 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
 
 	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/bin"
 	"github.com/anyproto/any/internal/chat"
 )
 
@@ -95,16 +99,16 @@ func (d *deps) propertiesSet(c echo.Context) error {
 		patch[string(propId)] = v
 	})
 
-	// Format-bearing properties get their value shapes checked here —
-	// the SDK stores formats opaquely; this server is the semantics
-	// boundary (see propformat.go).
+	// Every value is checked against its property's current descriptor
+	// slug here — the SDK stores descriptors opaquely and enforces only
+	// kind; this server is the semantics boundary (see descriptor.go).
 	defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
-	if v := validateFormatValues(defs, patch); v != nil {
+	if v := validateDescriptorValues(defs, patch); v != nil {
 		return writeError(c, http.StatusBadRequest, "property.format_violation",
-			"value does not match the property's declared format", v.details())
+			"value does not fit the property's descriptor", v.details())
 	}
 
 	res, err := sp.Properties().Set(c.Request().Context(), objectId, typeId, patch)
@@ -120,7 +124,7 @@ func (d *deps) propertiesSet(c echo.Context) error {
 	// on the 5-minute tick. Kick is hash-gated and nearly free, so we
 	// don't bother inspecting the patch keys; remote-origin writes
 	// still ride the tick (docs/20-push.md § Settings).
-	if d.push != nil && typeId == chat.TypeId {
+	if d.push != nil && typeId == chat.Module {
 		d.push.Kick()
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
@@ -131,7 +135,8 @@ func (d *deps) propertiesSet(c echo.Context) error {
 // type to an existing object's `any.types`, admitting writes to the
 // type's membership-gated datasets. Idempotent ($addToSet at the SDK
 // layer). The object must already exist — an unknown id is
-// `404 object.not_found`, not a silent create.
+// `404 object.not_found`, not a silent create. `attach/bin` is move to
+// bin: the same change stamps `bin.movedAt` / `bin.movedBy` (binBinding).
 //
 //	@Summary	Attach a type to an object
 //	@Tags		properties
@@ -152,7 +157,8 @@ func (d *deps) propertiesAttachType(c echo.Context) error {
 // POST /v1/spaces/:spaceId/properties/:objectId/detach/:typeId — removes
 // a type from `any.types`. Idempotent ($pull). Values in that
 // namespace and records in the type's datasets stay as orphan data,
-// read-tolerant by design; detaching is not a delete.
+// read-tolerant by design; detaching is not a delete. `detach/bin` is
+// restore from the bin: the same change clears the move stamps.
 //
 //	@Summary	Detach a type from an object
 //	@Tags		properties
@@ -203,6 +209,11 @@ func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
 	if attach {
 		bind = sp.Properties().AttachType
 	}
+	if typeId == bin.TypeId {
+		bind = func(ctx context.Context, objectId, _ string) (space.ModifyResult, error) {
+			return d.binBinding(ctx, sp, objectId, attach)
+		}
+	}
 	res, err := bind(ctx, objectId, typeId)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{
@@ -212,4 +223,36 @@ func (d *deps) propertiesTypeBinding(c echo.Context, attach bool) error {
 		})
 	}
 	return c.JSON(http.StatusOK, modifyResultToAPI(res))
+}
+
+// binBinding is the attach/detach body for the built-in `bin` type
+// (internal/bin): move to bin stamps `bin.movedAt` / `bin.movedBy`,
+// restore clears them. The stamps ride the SAME synced change as the
+// membership op on the objects row — the SDK's write-time preflight
+// grants a namespace the change itself attaches — so a bin carrier
+// never lacks its stamps and a restored object never keeps stale ones,
+// and one changeId names the move. movedBy is this account, the
+// change's signer; movedAt the server clock, written as an instant.
+// Restore unsets the whole `bin` namespace: a per-leaf $unset leaves
+// an empty `bin: {}` behind, which reads as a carrier to any client
+// testing the key.
+func (d *deps) binBinding(ctx context.Context, sp space.Space, objectId string, attach bool) (space.ModifyResult, error) {
+	var ops []space.Op
+	if attach {
+		ops = []space.Op{
+			{Type: space.OpAddToSet, Path: "any.types", Value: bin.TypeId},
+			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedAt, Value: time.Now().UTC()},
+			{Type: space.OpSet, Path: bin.TypeId + "." + bin.PropMovedBy, Value: d.sdk.Account().Id()},
+		}
+	} else {
+		ops = []space.Op{
+			{Type: space.OpPull, Path: "any.types", Value: bin.TypeId},
+			{Type: space.OpUnset, Path: bin.TypeId},
+		}
+	}
+	return sp.Modify(ctx, space.ModifyBatch{
+		ObjectId: objectId,
+		Dataset:  objectsDataset,
+		Records:  []space.RecordModify{{Id: objectId, Upsert: true, Ops: ops}},
+	})
 }

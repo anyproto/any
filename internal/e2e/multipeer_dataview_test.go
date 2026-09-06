@@ -17,13 +17,19 @@ import (
 	"github.com/anyproto/any/internal/dataview"
 )
 
-// viewOn reads one data_views record from base, or ok=false if absent.
+// viewOn reads one `views` record from base, or ok=false if absent.
 func viewOn(t *testing.T, base, spaceId, objectId, viewId string) (map[string]any, bool) {
+	return recordOn(t, base, spaceId, objectId, dataview.DatasetViews, viewId)
+}
+
+// recordOn reads one record of a dataview dataset from base, or
+// ok=false if absent.
+func recordOn(t *testing.T, base, spaceId, objectId, dataset, id string) (map[string]any, bool) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"objectId": objectId,
-		"dataset":  dataview.Dataset,
-		"filter":   map[string]any{"id": viewId},
+		"dataset":  dataset,
+		"filter":   map[string]any{"id": id},
 	})
 	resp, raw := doRequest(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/query", string(body))
 	if resp.StatusCode != http.StatusOK {
@@ -40,8 +46,13 @@ func viewOn(t *testing.T, base, spaceId, objectId, viewId string) (map[string]an
 	return rec, true
 }
 
-// writeView posts one modify batch against the data_views dataset.
+// writeView posts one modify batch for the `default` view.
 func writeView(t *testing.T, base, spaceId, objectId, scope, ops string) api.ModifyResult {
+	return writeRecord(t, base, spaceId, objectId, dataview.DatasetViews, "default", scope, ops)
+}
+
+// writeRecord posts one modify batch against a dataview dataset.
+func writeRecord(t *testing.T, base, spaceId, objectId, dataset, id, scope, ops string) api.ModifyResult {
 	t.Helper()
 	// Local scope addresses existing records only — no upsert, explicit
 	// ids (docs/03-api.md § Modify records).
@@ -54,8 +65,8 @@ func writeView(t *testing.T, base, spaceId, objectId, scope, ops string) api.Mod
 	}
 	body := fmt.Sprintf(`{
 		"objectId": %q, "dataset": %q, %s
-		"records": [{"id": "default", %s"ops": %s}]
-	}`, objectId, dataview.Dataset, scopeField, upsert, ops)
+		"records": [{"id": %q, %s"ops": %s}]
+	}`, objectId, dataset, scopeField, id, upsert, ops)
 	var res api.ModifyResult
 	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+spaceId+"/modify", body, http.StatusOK, &res)
 	if len(res.Rejections) > 0 {
@@ -91,18 +102,24 @@ func TestE2E_MultipeerDataViews(t *testing.T) {
 		fmt.Sprintf("%s/v1/spaces/%s/properties/%s/attach/%s", owner.base, sp.Id, obj.ObjectId, dataview.TypeId),
 		"", http.StatusOK, &attach)
 
+	writeRecord(t, owner.base, sp.Id, obj.ObjectId, dataview.DatasetDataviews, "default", "",
+		`[{"type": "$set", "path": "", "value": {"name": "Table", "pos": "a0"}}]`)
 	writeView(t, owner.base, sp.Id, obj.ObjectId, "", `[{"type": "$set", "path": "", "value": {
-		"name": "All", "layout": "table", "pos": "a0",
+		"dataview": "default", "name": "All", "layout": "table", "pos": "a0",
 		"query": {"type": "plain", "filter": {"any.types": "page"}, "sort": ["-modifiedAt"]}
 	}}]`)
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
-	// The shared tier reaches the joiner, opaque query blob intact.
+	// The shared tier reaches the joiner — both levels, opaque query
+	// blob intact.
 	peers := []*peer{owner, joiner}
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, peers, func() bool {
+		if dv, ok := recordOn(t, joiner.base, sp.Id, obj.ObjectId, dataview.DatasetDataviews, "default"); !ok || dv["name"] != "Table" {
+			return false
+		}
 		rec, ok := viewOn(t, joiner.base, sp.Id, obj.ObjectId, "default")
-		if !ok || rec["name"] != "All" {
+		if !ok || rec["name"] != "All" || rec["dataview"] != "default" {
 			return false
 		}
 		q, _ := rec["query"].(map[string]any)

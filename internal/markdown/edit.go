@@ -15,8 +15,8 @@ import (
 // and a stale quote fails (NoMatchError) instead of clobbering
 // concurrent edits. All-or-nothing: any unresolvable edit aborts
 // before any write; byte-identical output is a no-op.
-func EditContent(ctx context.Context, sp space.Space, objectId string, edits []Edit) (SetResult, error) {
-	existing, err := listTopLevel(ctx, sp, objectId)
+func EditContent(ctx context.Context, sp space.Space, objectId, collection string, edits []Edit) (SetResult, error) {
+	existing, err := listTopLevel(ctx, sp, objectId, collection)
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Edit: list existing: %w", err)
 	}
@@ -25,5 +25,5 @@ func EditContent(ctx context.Context, sp space.Space, objectId string, edits []E
 	if err != nil {
 		return SetResult{}, fmt.Errorf("markdown: Edit: %w", err)
 	}
-	return applyDiff(ctx, sp, objectId, existing, edited)
+	return applyDiff(ctx, sp, objectId, collection, existing, edited)
 }

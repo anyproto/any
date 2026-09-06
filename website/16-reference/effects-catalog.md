@@ -43,7 +43,7 @@ A program that only reads can therefore be granted `data.read` and nothing else,
 ```python
 # a read against the local server — classified data.read
 r = http.post(f"{config.get('any.base_url')}/v1/spaces/{space}/objects/query",
-              json={"filter": {"any.types": "page"}, "limit": 10})
+              json={"filter": {"any.types": PAGE_TYPE}, "limit": 10})
 pages = r["body"]["records"]
 ```
 

@@ -56,8 +56,7 @@ func TestE2E_ChatBinary(t *testing.T) {
 	mustJSON(t, http.MethodPost, base+"/v1/spaces",
 		`{"name":"chat-binary"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, base, sp.Id, "chat")
 	chatBase := base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
 	// Send three messages. Writes return ModifyResult; sendChat reads

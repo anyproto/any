@@ -99,16 +99,12 @@ import (
 	"github.com/anyproto/any-sync-sdk/handler"
 )
 
-// TypeId is the type identifier callers register chat objects under.
-// Reserved — content-addressable user-derived type ids never produce
-// this string.
-const TypeId = "chat"
-
-// Display metadata used when surfacing the built-in via Types.List.
-const (
-	Name        = "Chat"
-	Description = "Message stream, one record per message"
-)
+// Module is the module slug a type names in a part's dataset
+// declaration (`{"module": "chat", "shared": true}`). Chat is
+// shared-only: an object carries at most one chat collection — the
+// canonical Dataset — which is what keeps a single read frontier and a
+// single push group per object.
+const Module = "chat"
 
 // Dataset is the per-object dataset that holds the message records.
 const Dataset = "chat_messages"
@@ -215,43 +211,48 @@ const (
 	MaxMentions = 64
 )
 
-// NewType returns the handler.Type to add to config.Config.Types so
-// the SDK accepts writes on the chat_messages dataset.
+// NewModule returns the handler.Module to add to config.Config.Modules
+// so the SDK serves the canonical chat_messages collection with the
+// message handler on every controller. SharedOnly: a type declares the
+// module as `{"module": "chat", "shared": true}`; namespaced chat
+// instances are refused.
 //
 //	cfg := config.Config{
-//	    Types: []handler.Type{ blocks.NewType(), chat.NewType() },
+//	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },
 //	    ...
 //	}
-func NewType() handler.Type {
-	return handler.Type{
-		Id:          TypeId,
-		Name:        Name,
-		Description: Description,
-		Datasets: []handler.Dataset{{
-			Name:           Dataset,
-			DataVersion:    dataVersion,
-			HandlerVersion: handlerVersion,
-			Handler:        messagesHandler{},
-			Schema:         datasetSchema(),
-			Indexes:        messagesHandler{}.Indexes(),
-			ReadTracking:   readTracking(),
-			// No version history for chat: clients render live records
-			// only (edits show the current text, deletes tombstone) —
-			// nothing reads a per-message timeline, so the index rows
-			// would be dead weight at chat write volume. The DAG keeps
-			// everything; flipping this later only costs a backfill.
-			SkipHistory: true,
-		}},
+func NewModule() handler.Module {
+	return handler.Module{
+		Name:           Module,
+		Canonical:      Dataset,
+		SharedOnly:     true,
+		DataVersion:    dataVersion,
+		HandlerVersion: handlerVersion,
 		// Unread counters materialized onto the chat object's row —
 		// local-scope (device-derived from the synced read frontier,
 		// never written by clients or peers) — plus the account-scoped
 		// per-chat push preference (client-written, account-synced).
-		// See reading.go.
+		// They live in the module's namespace (`chat.*`), granted to a
+		// row when one of its types declares the module. See reading.go.
 		Properties: []handler.PropertyDecl{
 			{Id: PropUnreadCount, Name: "Unread Messages", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
 			{Id: PropUnreadMentions, Name: "Unread Mentions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
 			{Id: PropUnreadReactionsCount, Name: "Unread Reactions", Kind: handler.PropertyKindNumber, Scope: handler.ScopeLocal},
 			{Id: PropNotifyMode, Name: "Notify Mode", Kind: handler.PropertyKindString, Scope: handler.ScopeAccount},
+		},
+		New: func(handler.ModuleInstance) handler.Dataset {
+			return handler.Dataset{
+				Handler:      messagesHandler{},
+				Schema:       datasetSchema(),
+				Indexes:      messagesHandler{}.Indexes(),
+				ReadTracking: readTracking(),
+				// No version history for chat: clients render live records
+				// only (edits show the current text, deletes tombstone) —
+				// nothing reads a per-message timeline, so the index rows
+				// would be dead weight at chat write volume. The DAG keeps
+				// everything; flipping this later only costs a backfill.
+				SkipHistory: true,
+			}
 		},
 	}
 }

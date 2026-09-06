@@ -1,8 +1,8 @@
 // Property PATCH/DELETE e2e: drives the generic property-patch surface
 // (PatchProperty) and property removal (RemoveProperty) end-to-end
-// through the HTTP server against the real SDK. Covers any-ui #252
-// items #1 (rename), #2 (delete), #3/#5 (select/multiselect options +
-// colors + order). See docs/03-api.md § Types.
+// through the HTTP server against the real SDK: rename, delete, choice
+// options + colors + order as xFormat paths, the leaf-only rule, the
+// slug ↔ kind rule. See docs/03-api.md § Types, docs/27-descriptors.md.
 package e2e
 
 import (
@@ -29,10 +29,10 @@ func TestE2E_PropertyPatch(t *testing.T) {
 	taskType := createType(t, base, spaceID, "Task")
 	propsURL := base + "/v1/spaces/" + spaceID + "/types/" + taskType + "/properties"
 
-	// A multiselect property (kind omitted → defaults to array).
+	// A many-valued choice property.
 	var addResp map[string]any
 	mustJSON(t, http.MethodPost, propsURL,
-		`{"name":"Tags","format":{"type":"multiselect","ui":"multiselect"}}`,
+		`{"name":"Tags","xKey":"tags","kind":"array","xFormat":{"type":"choice","config":{"multiple":true}}}`,
 		http.StatusCreated, &addResp)
 	tagsProp, _ := addResp["propId"].(string)
 	if tagsProp == "" {
@@ -40,27 +40,32 @@ func TestE2E_PropertyPatch(t *testing.T) {
 	}
 	patchURL := propsURL + "/" + tagsProp
 
-	// optionsOf reads the property back and returns its format.options map.
-	optionsOf := func() map[string]any {
+	// descriptorOf reads the property back and returns its xFormat.
+	descriptorOf := func(propId string) map[string]any {
 		t.Helper()
 		var listed map[string]any
 		mustJSON(t, http.MethodGet, propsURL, "", http.StatusOK, &listed)
 		props, _ := listed["properties"].([]any)
 		for _, p := range props {
 			pm, _ := p.(map[string]any)
-			if pm["id"] == tagsProp {
-				format, _ := pm["format"].(map[string]any)
-				opts, _ := format["options"].(map[string]any)
-				return opts
+			if pm["id"] == propId {
+				xf, _ := pm["xFormat"].(map[string]any)
+				return xf
 			}
 		}
-		t.Fatalf("prop %s not in list", tagsProp)
+		t.Fatalf("prop %s not in list", propId)
 		return nil
+	}
+	// optionsOf returns the choice property's xFormat.options map.
+	optionsOf := func() map[string]any {
+		t.Helper()
+		opts, _ := descriptorOf(tagsProp)["options"].(map[string]any)
+		return opts
 	}
 
 	t.Run("add option (atomic multi-field set) round-trips", func(t *testing.T) {
 		mustStatus(t, http.MethodPatch, patchURL,
-			`{"set":{"format.options.high.name":"High","format.options.high.color":"red","format.options.high.pos":"a0"}}`,
+			`{"set":{"xFormat.options.high.name":"High","xFormat.options.high.color":"red","xFormat.options.high.pos":"a0"}}`,
 			http.StatusNoContent)
 		opts := optionsOf()
 		high, _ := opts["high"].(map[string]any)
@@ -71,7 +76,7 @@ func TestE2E_PropertyPatch(t *testing.T) {
 
 	t.Run("recolor single leaf", func(t *testing.T) {
 		mustStatus(t, http.MethodPatch, patchURL,
-			`{"set":{"format.options.high.color":"crimson"}}`, http.StatusNoContent)
+			`{"set":{"xFormat.options.high.color":"crimson"}}`, http.StatusNoContent)
 		high, _ := optionsOf()["high"].(map[string]any)
 		if high["color"] != "crimson" || high["name"] != "High" {
 			t.Errorf("recolor lost sibling leaves: %+v", high)
@@ -80,12 +85,12 @@ func TestE2E_PropertyPatch(t *testing.T) {
 
 	t.Run("delete option then re-add same key", func(t *testing.T) {
 		mustStatus(t, http.MethodPatch, patchURL,
-			`{"unset":["format.options.high"]}`, http.StatusNoContent)
+			`{"unset":["xFormat.options.high"]}`, http.StatusNoContent)
 		if _, ok := optionsOf()["high"]; ok {
 			t.Errorf("option not deleted")
 		}
 		mustStatus(t, http.MethodPatch, patchURL,
-			`{"set":{"format.options.high.name":"Highest"}}`, http.StatusNoContent)
+			`{"set":{"xFormat.options.high.name":"Highest"}}`, http.StatusNoContent)
 		high, _ := optionsOf()["high"].(map[string]any)
 		if high["name"] != "Highest" {
 			t.Errorf("re-added option = %+v", high)
@@ -113,11 +118,16 @@ func TestE2E_PropertyPatch(t *testing.T) {
 		}
 	})
 
-	t.Run("format.type pinned rejected", func(t *testing.T) {
+	t.Run("slug moves within the kind only", func(t *testing.T) {
+		mustStatus(t, http.MethodPatch, patchURL, `{"set":{"xFormat.type":"relation"}}`, http.StatusNoContent)
+		if descriptorOf(tagsProp)["type"] != "relation" {
+			t.Errorf("slug not moved: %+v", descriptorOf(tagsProp))
+		}
+		mustStatus(t, http.MethodPatch, patchURL, `{"set":{"xFormat.type":"choice"}}`, http.StatusNoContent)
 		code := mustErrorCode(t, http.MethodPatch, patchURL,
-			`{"set":{"format.type":"select"}}`, http.StatusBadRequest)
-		if code != "property.immutable" {
-			t.Errorf("code = %q, want property.immutable", code)
+			`{"set":{"xFormat.type":"text"}}`, http.StatusBadRequest)
+		if code != "property.format_invalid" {
+			t.Errorf("code = %q, want property.format_invalid", code)
 		}
 	})
 
@@ -126,12 +136,16 @@ func TestE2E_PropertyPatch(t *testing.T) {
 	})
 
 	t.Run("set bare options container rejected (no clobber)", func(t *testing.T) {
-		// Regression: setting the whole options map to a string must not
-		// wipe the option set.
-		code := mustErrorCode(t, http.MethodPatch, patchURL,
-			`{"set":{"format.options":"x"}}`, http.StatusBadRequest)
-		if code != "request.invalid_field" {
-			t.Errorf("code = %q, want request.invalid_field", code)
+		// Setting the whole options map — to a string or an object —
+		// must not wipe the option set.
+		for _, body := range []string{`{"set":{"xFormat.options":"x"}}`, `{"set":{"xFormat.options":{"low":{"name":"Low"}}}}`} {
+			code := mustErrorCode(t, http.MethodPatch, patchURL, body, http.StatusBadRequest)
+			if code != "request.invalid_field" {
+				t.Errorf("%s: code = %q, want request.invalid_field", body, code)
+			}
+		}
+		if _, ok := optionsOf()["high"]; !ok {
+			t.Errorf("option set clobbered")
 		}
 	})
 
@@ -143,14 +157,22 @@ func TestE2E_PropertyPatch(t *testing.T) {
 		}
 	})
 
-	t.Run("format leaf on a format-less property → 400 not 500", func(t *testing.T) {
+	t.Run("descriptor grows onto a bare property; retired paths reject", func(t *testing.T) {
 		var pr map[string]any
-		mustJSON(t, http.MethodPost, propsURL, `{"name":"Plain","kind":"string"}`, http.StatusCreated, &pr)
+		mustJSON(t, http.MethodPost, propsURL, `{"name":"Plain","xKey":"plain","kind":"string"}`, http.StatusCreated, &pr)
 		plainProp, _ := pr["propId"].(string)
+		if descriptorOf(plainProp) != nil {
+			t.Errorf("bare property must read back without a descriptor")
+		}
+		mustStatus(t, http.MethodPatch, propsURL+"/"+plainProp,
+			`{"set":{"xFormat.type":"email","xFormat.icon":"envelope"}}`, http.StatusNoContent)
+		if xf := descriptorOf(plainProp); xf["type"] != "email" || xf["icon"] != "envelope" {
+			t.Errorf("grown descriptor = %+v", xf)
+		}
 		code := mustErrorCode(t, http.MethodPatch, propsURL+"/"+plainProp,
 			`{"set":{"format.ui":"select"}}`, http.StatusBadRequest)
-		if code != "property.format_invalid" {
-			t.Errorf("code = %q, want property.format_invalid (not a 500)", code)
+		if code != "request.invalid_field" {
+			t.Errorf("code = %q, want request.invalid_field", code)
 		}
 	})
 

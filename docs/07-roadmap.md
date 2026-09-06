@@ -152,8 +152,8 @@ Not this repo's work; gate on the SDK:
   (wanted for cross-device read state that survives device loss,
   though read-tracking proper syncs its frontier via tech-space KV
   instead).
-- **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
-  Still "not implemented" on the SDK side; routes 501.
+- **`Types.Delete`.** Still not exposed over HTTP (`RemoveProperty` and
+  the generic property / field PATCH shipped — status items 23 and 44).
 - **`Types.Get` for non-object ids.** The SDK only returns
   `space.ErrNotFound` when the id resolves to an existing object that
   isn't tagged as a type. Ids that aren't objects at all surface as a
@@ -163,7 +163,8 @@ Not this repo's work; gate on the SDK:
 - **Scoped datasets (SYN-174).** Records that exist only for one
   account or one device — the SDK scopes FIELDS, and the private tiers
   of saved views (`24-data-views.md`) need scoped RECORDS. Shape agreed:
-  scope the whole dataset (parallel `data_views_account` / `_device`),
+  scope the whole dataset (parallel `_account` / `_device` twins of
+  `views`, and of `dataviews` if a private table is wanted),
   not a per-record flag — one dataset is one version domain, and mixing
   DAG / tech-tree / local-lexid versions in one dataset breaks
   versionId ordering and subscribe dedup. Account tier rides the
@@ -221,10 +222,6 @@ pluggable embedders, parallel batched pipelines),
   distribution story for the llama.cpp libs (today: `make llamacpp`
   drops them next to the binary; go:embed + extract was considered and
   deferred — pure overhead while "distribution" means `make build`).
-- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
-  `index: "<scope>"`) are create-time-only until the SDK implements
-  property-meta updates — existing properties can't be re-flagged.
-
 ## How to update this file
 
 - Move items that ship to a "Done" section below (or remove them once
@@ -232,6 +229,30 @@ pluggable embedders, parallel batched pipelines),
 - Add new questions as they come up during implementation.
 - Keep the v1 goal list honest — if we cut something, strike it here
   so a reader knows scope moved.
+
+## Types, parts and modules — follow-ups (shipped, see Done)
+
+- **Namespaced chat.** Chat is shared-only in v1 (one `chat_messages`
+  per object): read tracking, push topics and the unread counters are
+  keyed by object, not by collection. A `<typeId>_<key>` chat instance
+  needs per-collection read state and topic derivation first — and the
+  SDK's read materializer is built only when a static (canonical)
+  registration declares flags or counters, so a module tracked on
+  namespaced instances alone would classify reads without
+  materializing them.
+- **`dataview` as a module.** Saved views stay a registered built-in
+  type owning `dataviews` / `views`; the same declaration could be a
+  `views` module a part of any type declares (`{"module": "views"}`),
+  so a type's own part carries the views element. Blocked on a client
+  need — the built-in's second level already covers "many tables on one
+  object".
+- **Wiki folder marker.** The well-known `wiki/v1` bundle wants a
+  "folder" flag next to its page type; whether that is a property, a
+  `layout`, or a second type is a client decision still open.
+- **Bundle-declared types beyond the root.** A bundle declares one
+  type — its root's parts, properties (handle-derived ids), layout,
+  weight and hidden flag; a bundle that ships several types (a meeting
+  type plus a decision type) still creates the others one by one.
 
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
@@ -248,17 +269,79 @@ pluggable embedders, parallel batched pipelines),
   is lazy and process-scoped (docs/13-index.md § Removal semantics);
   a boot-time per-space sweep of stored dataset segments against the
   current catalog closes both residual leaks.
-- **SDK sentinels for dataset CRUD errors.** Name conflicts and
-  declaration validation surface as `fmt.Errorf` strings today —
-  `any` preflights names and STOPGAP-matches decl messages
-  (`datasetWriteError`). Wanted: exported `errors.Is`-able sentinels
-  (decl invalid, name conflict), plus a retired-name signal for the
-  index sweep (preserve `name` on the removed def tombstone), and
-  reserving the consumer virtual dataset names (`prop`, `schema`)
-  SDK-side.
+- **SDK sentinels for dataset CRUD errors.** Key conflicts, shared
+  conflicts and declaration validation surface as `fmt.Errorf` strings
+  today — `any` STOPGAP-matches the messages (`datasetWriteError`).
+  Wanted: exported `errors.Is`-able sentinels (decl invalid, key
+  conflict, shared conflict), plus a retired-collection signal for the
+  index sweep (preserve the key on the removed def tombstone).
+
+## Property descriptors — follow-ups (SYN-211 shipped, see Done)
+
+- **`validate` / `compute` members.** Reserved in `xFormat` and refused
+  today. `validate` is one JSON-text leaf of declarative assertions
+  (required / unique / range on a property) enforced at the write
+  boundary only; `compute` is a read-time computed value (formula /
+  rollup / lookup — a stored derived value cannot depend on an edited
+  one, handlers read only their own object's immutable fields).
+- **File and member relations.** A file is `any://f/<spaceId>/<fileId>`
+  and a member is `any://m/<spaceId>/<identity>` — neither is an object,
+  so `relation.targetTypes` cannot name them. Each needs its own slug
+  plus a target member.
+- **Built-in field descriptors.** `handler.Field` carries
+  `Description` / `XFormat` and discovery renders them, but
+  `chat_messages`, `editor_blocks`, `dataviews` / `views` and the `any.*` row
+  fields declare none — clients still hardcode that `any.icon` is an
+  icon and `chat_messages.text` is markdown.
+- **Nested descriptors.** `items` / `properties` are not settable over
+  HTTP and a `relation` slug nested in a composite is invisible to
+  backlinks. Composites are validated by the vocabulary's fixed shapes
+  (`period` / `money` / `geo`) instead.
+- **Paired / inverse relations, localisation of labels, autonumber,
+  unit properties** — no contract yet; see docs/27-descriptors.md
+  § Not covered yet.
 
 ## Done
 
+- **`dataview`: many dataviews, each with many views (SYN-217)** — the
+  built-in `data_view` / `data_views` became the hidden `dataview` type
+  with one part `views` owning two records datasets: `dataviews` (one
+  record per table on the host: name, icon, pos) and `views` (one per
+  view, keyed to its dataview) — so an object holds several independent
+  tables. Same declaration rules (id:user, stamps, dynamic,
+  mutable/deletable by anyone); the `dataview` reference is not
+  validated and deletion does not cascade. No `dataview` module, no
+  back-compat. Contract: docs/24-data-views.md.
+- **Built-in hidden types `page` / `miniapp` / `bin`** (SYN-213,
+  SYN-215, SYN-219) — three registered `hidden` types an object opts
+  into: `page` (one static part sharing `editor_blocks`, the plain
+  document a client may use instead of declaring its own), `miniapp`
+  (property `bundle`, the installed bundle an object runs) and `bin`
+  (move = attach, restore = detach on the existing routes; the server
+  stamps `movedAt` / `movedBy` in the same change and clears them on
+  restore). Contract: docs/03-api.md § Types → Built-in hidden types.
+  Still open on the same foundation: `dataview` (SYN-217), `nav` →
+  `wiki` (SYN-214), general chat under the reserved module (SYN-216),
+  the `system:` catalog (SYN-218).
+- **Types, parts and modules** — a type is properties plus parts, each
+  part owning datasets a module serves: `records` (the runtime schema
+  handler, now always namespaced to `<typeId>_<key>`), `editor` and
+  `chat` (compiled-in modules with a canonical shared collection). The
+  built-in `editor` / `chat` types are gone — an object holds
+  a collection while it carries a declaring type (`400
+  dataset.not_declared` otherwise; no write attaches a type), documents
+  and chats are user types registered as bundles, and bundles declare
+  `parts` instead of `datasets`. Editor routes gained `:collection`;
+  types gained `weight` / `layout` and `PATCH …/types/:typeId`; search
+  gained per-module chunkers over every collection a module serves;
+  push resolves chats through the chat collection's owners. Contract:
+  docs/03-api.md § Parts and modules, the SDK's docs/17-user-datasets.md.
+- **Property & field descriptors (SYN-211)** — one opaque `xFormat`
+  bag on property and dataset-field definitions; the typed `format`
+  object, `xKind` and the `meta.pos` / `meta.icon` conventions removed;
+  `any` validates the vocabulary, the leaf-only PATCH rule and every
+  value write against the current slug; field-level PATCH. Contract:
+  docs/27-descriptors.md.
 - **Cross-platform single-instance lock (SYN-168)** — one
   `gofrs/flock` implementation for every platform replaces the PID
   file plus `kill(pid, 0)` liveness probe, which had no Windows

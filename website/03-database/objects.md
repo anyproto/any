@@ -13,7 +13,7 @@ An object is a document in a space: a set of attached types, property values key
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
   -H 'Content-Type: application/json' \
   -d '{
-    "types": ["page"],
+    "types": ["<pageTypeId>"],
     "initialProperties": { "any": { "name": "Dune" } }
   }'
 # → 201 {"objectId": "bafy…"}
@@ -29,7 +29,7 @@ The create body has exactly three keys:
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an object is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
-Bind types at create time. Runtime attach/detach (`POST …/properties/:objectId/attach/:typeId`) is registered but returns `501 sdk.not_implemented`, so an object that will hold chat messages or editor blocks needs `chat` / `editor` in `types` up front — a dataset write to an object missing the matching type is rejected with `400 dataset.validation`.
+Bind types at create time, or later through `POST …/properties/:objectId/attach/:typeId`. A module collection — chat messages, editor blocks, a runtime dataset — lives on an object only while it carries a type whose part declares it ([modules](../types/index.html)); a write without one is rejected with `400 dataset.not_declared`, and no write attaches a type for you.
 
 ## The object row
 
@@ -44,7 +44,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 ```json
 { "records": [ {
   "id": "bafy…",
-  "any": { "types": ["page", "nav"], "name": "Dune" },
+  "any": { "types": ["<pageTypeId>", "nav"], "name": "Dune" },
   "nav": { "type": 1, "parentId": "", "pos": "PPQY" },
   "author": "A5…", "spaceId": "bafy…",
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
@@ -92,7 +92,7 @@ Clients compute drop positions with a lexid allocator (alphabet `CharsAllNoEscap
 
 ## Backlinks
 
-Object references are property values with `format.type: "links"` — arrays of `any://<objectId>` URIs. The reverse lookup answers "which objects reference X?":
+Object references are values of `relation` properties (`xFormat.type: "relation"`) — arrays of `any://<objectId>` URIs. The reverse lookup answers "which objects reference X?":
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/backlinks
@@ -115,5 +115,5 @@ The row receives a record-level tombstone, disappears from every `objects/query`
 
 - [Types and properties](types-and-properties.html) — what `types` and `initialProperties` refer to.
 - [Reading data](reading-data.html) — the filter grammar used above.
-- [Page](../types/page.html), [Chat](../types/chat.html), [Editor](../types/editor.html) — the built-in types an object can carry.
+- [Page](../types/page.html), [Chat](../types/chat.html), [Editor](../types/editor.html) — the modules a type's parts give an object.
 - [Links](../types/links.html) — the `any://` grammar behind `links` properties and backlinks.

@@ -49,13 +49,17 @@ import (
 //	@Success	200			{object}	api.MarkdownContent
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [get]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [get]
 func (d *deps) markdownGet(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
 	if done {
 		return errResp
 	}
-	content, err := markdown.Get(c.Request().Context(), sp, objectId)
+	collection, errResp, done := d.editorCollection(c, sp)
+	if done {
+		return errResp
+	}
+	content, err := markdown.Get(c.Request().Context(), sp, objectId, collection)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -70,13 +74,18 @@ func (d *deps) markdownGet(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
+//	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
 //	@Param		body		body		api.MarkdownContent		true	"Markdown content"
 //	@Success	200			{object}	api.MarkdownSetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [put]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [put]
 func (d *deps) markdownSet(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collection, errResp, done := d.editorCollection(c, sp)
 	if done {
 		return errResp
 	}
@@ -86,7 +95,7 @@ func (d *deps) markdownSet(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	res, err := markdown.Set(c.Request().Context(), sp, objectId, req.Content)
+	res, err := markdown.Set(c.Request().Context(), sp, objectId, collection, req.Content)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -126,13 +135,18 @@ func markdownSetResponseToAPI(res markdown.SetResult) api.MarkdownSetResponse {
 //	@Produce	json
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
+//	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
 //	@Param		body		body		api.MarkdownContent		true	"Markdown content to append"
 //	@Success	200			{object}	api.MarkdownSetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown/append [post]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown/append [post]
 func (d *deps) markdownAppend(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collection, errResp, done := d.editorCollection(c, sp)
 	if done {
 		return errResp
 	}
@@ -142,7 +156,7 @@ func (d *deps) markdownAppend(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	res, err := markdown.Append(c.Request().Context(), sp, objectId, req.Content)
+	res, err := markdown.Append(c.Request().Context(), sp, objectId, collection, req.Content)
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "objectId": objectId})
 	}
@@ -160,11 +174,12 @@ func (d *deps) markdownAppend(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
+//	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
 //	@Param		body		body		api.MarkdownEditRequest	true	"Targeted replacements"
 //	@Success	200			{object}	api.MarkdownSetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/markdown [patch]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown [patch]
 func (d *deps) markdownEdit(c echo.Context) error {
 	// Body validation runs before resolveSpace so 400s don't pay for
 	// a space lookup.
@@ -188,7 +203,11 @@ func (d *deps) markdownEdit(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	res, err := markdown.EditContent(c.Request().Context(), sp, objectId, edits)
+	collection, errResp, done := d.editorCollection(c, sp)
+	if done {
+		return errResp
+	}
+	res, err := markdown.EditContent(c.Request().Context(), sp, objectId, collection, edits)
 	if err != nil {
 		return markdownEditError(c, err, sp.Id(), objectId)
 	}

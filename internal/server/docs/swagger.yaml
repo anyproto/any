@@ -97,24 +97,33 @@ components:
       type: object
     api.AddDatasetResponse:
       properties:
+        collection:
+          description: |-
+            Collection is the computed collection name the new dataset's
+            records live in.
+          type: string
         datasetDefId:
+          type: string
+      type: object
+    api.AddPartResponse:
+      properties:
+        partId:
           type: string
       type: object
     api.AddPropertyRequest:
       properties:
         description:
           type: string
-        format:
-          $ref: '#/components/schemas/api.PropertyFormat'
         kind:
           type: string
         meta:
           additionalProperties:
             type: string
           description: |-
-            Meta is an opaque consumer flag map, stored verbatim on the
-            property definition. meta["index"] = "<scope>" marks the property
-            for the search indexer (docs/13-index.md).
+            Meta holds the consumer flags the server interprets — today only
+            meta["index"] = "<scope>" | "none" for the search indexer
+            (docs/13-index.md). Any other key is rejected; descriptive
+            metadata lives under xFormat.
           type: object
         name:
           type: string
@@ -128,16 +137,25 @@ components:
             property. Property VALUE writes auto-route by the declared scope
             (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
           type: string
-        xKey:
-          type: string
-        xKind:
+        xFormat:
           description: |-
-            XKind is a free-form classification hint, stored verbatim and
-            never interpreted by the server (space.PropertyDraft.XKind).
-            It is the field a caller uses to record a client-side kind
-            marker WITHOUT overloading XKey, which is the stable handle
-            callers address the property by. Freely mutable afterwards via
-            PATCH `xKind`; settable here so a caller need not POST-then-PATCH.
+            XFormat is the property's descriptor: everything descriptive
+            beyond the kind — the semantic slug, icon, ordering key, option
+            set, relation targets, per-format config (docs/27-descriptors.md).
+            An object; the server validates the keys it interprets (type,
+            icon, pos, options, relation, config) against the vocabulary and
+            the slug against kind, stores vendor-namespaced keys verbatim,
+            and reserves validate / compute. Every path under it is mutable
+            via PATCH.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        xKey:
+          description: |-
+            XKey is the property's handle — an alias, not a storage key
+            (values live under the content-addressed propId). Unique within
+            the type (409 property.xkey_conflict); mutable via PATCH.
           type: string
       type: object
     api.AddPropertyResponse:
@@ -376,19 +394,6 @@ components:
       type: object
     api.BundleEnsureRequest:
       properties:
-        datasets:
-          description: |-
-            Datasets declares runtime datasets on the derived root (same
-            shape as POST …/types/:typeId/datasets); the root becomes a type
-            implementing itself, typeId = rootId, and the datasets are
-            written through POST …/upsert / …/modify on the root. Declared
-            once on install; later evolution goes through the
-            …/types/:rootId/datasets routes. Derived installs only; required
-            on the tech space.
-          items:
-            $ref: '#/components/schemas/api.DatasetDraftRequest'
-          type: array
-          uniqueItems: false
         derived:
           description: |-
             Derived installs the bundle on the root derived from its id
@@ -402,12 +407,55 @@ components:
             on a created root is adopted rather than migrated. Ask for it
             for a space's chat; not for anything a user may remove.
           type: boolean
+        hidden:
+          type: boolean
         id:
           description: Id is the bundle identifier. Required.
           type: string
+        layout:
+          description: |-
+            Layout and Weight seed the root type's rendering slice (same
+            shape as POST …/types); Hidden keeps it out of GET …/types. All
+            three are written on install only — an adopt never patches them.
+            Hidden is explicit: a root that only hosts its bundle's records
+            should ask for it (a listed type is one a client may attach
+            elsewhere, granting that object the bundle's collections); a root
+            that is a type objects carry stays listed.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
         name:
           description: Name is the display name, written on install.
           type: string
+        parts:
+          description: |-
+            Parts declares the root's parts with their datasets (same shape
+            as POST …/types/:typeId/parts); the root becomes a type
+            implementing itself, typeId = rootId, and the records are written
+            through POST …/upsert / …/modify on the root (dataset = the
+            computed collection, `<rootId>_<key>` for a namespaced one).
+            Declared once on install; later evolution goes through the
+            …/types/:rootId/parts routes. Parts or properties are required
+            on the tech space.
+          items:
+            $ref: '#/components/schemas/api.PartDraftRequest'
+          type: array
+          uniqueItems: false
+        properties:
+          description: |-
+            Properties declares property definitions on the root (same shape
+            as POST …/types/:typeId/properties, xKey REQUIRED and unique):
+            the root becomes a type objects carry, and each property's id is
+            derived from (rootId, xKey) so two devices installing while apart
+            mint one column per handle. Resolve xKey → propId through
+            GET …/types/:rootId/properties. Declared once on install (an
+            adopt fills in only definitions the root lacks); later evolution
+            goes through the …/types/:rootId/properties routes.
+          items:
+            $ref: '#/components/schemas/api.AddPropertyRequest'
+          type: array
+          uniqueItems: false
         rootProperties:
           additionalProperties:
             additionalProperties: {}
@@ -424,6 +472,8 @@ components:
             type: string
           type: array
           uniqueItems: false
+        weight:
+          type: integer
       type: object
     api.BundleEnsureResponse:
       properties:
@@ -472,6 +522,22 @@ components:
             derived children. Call it only once whatever mattered has been
             merged out — the server never merges for you.
           type: string
+      type: object
+    api.CRDTVersionState:
+      description: |-
+        CRDTVersion is the account's CRDT data-model version state
+        (absent when unauthorized): the version this server's SDK
+        supports, the one recorded on the account's tech space, and
+        `newer` — true when the recorded one is above the supported one,
+        which makes the account read-only until the server is upgraded
+        (every synced write answers 409 sdk.crdt_version_newer).
+      properties:
+        newer:
+          type: boolean
+        stored:
+          type: integer
+        supported:
+          type: integer
       type: object
     api.ChatAgentMeta:
       properties:
@@ -537,6 +603,8 @@ components:
       type: object
     api.DatasetDefResponse:
       properties:
+        collection:
+          type: string
         deleteBy:
           type: string
         description:
@@ -561,16 +629,29 @@ components:
         invalid:
           description: |-
             Invalid marks a definition whose folded declaration fails
-            validation (invalidReason says why). Invalid definitions never
-            register or accept data but stay listed so they can be repaired
-            (add the missing field) or removed.
+            validation (invalidReason says why) — a records fold missing a
+            creator stamp behind an author rule, an unknown module, a shared
+            rule violation. Invalid definitions never register or accept data
+            but stay listed so they can be repaired or removed.
           type: boolean
         invalidReason:
           type: string
-        name:
+        key:
+          description: |-
+            Key is the slug inside the type; collection is the name reads and
+            writes address (`dataset` on /query, /modify, /upsert …) — the
+            module's canonical collection when shared, `<typeId>_<key>`
+            otherwise. Server-computed, never client-set.
+          type: string
+        module:
+          type: string
+        partId:
+          description: PartId is the owning part's id.
           type: string
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
+        shared:
+          type: boolean
         skipHistory:
           type: boolean
       type: object
@@ -590,8 +671,9 @@ components:
           type: boolean
         fields:
           description: |-
-            Fields are the initial field definitions. Declare required
-            fields here — fields added later cannot be required.
+            Fields are the initial field definitions (records datasets only —
+            a module owns its schema). Declare required fields here — fields
+            added later cannot be required.
           items:
             $ref: '#/components/schemas/api.DatasetFieldDraft'
           type: array
@@ -606,23 +688,39 @@ components:
             (caller-supplied ids, constrained by idPattern/idMaxLen; the id
             doubles as the upsert idempotency key).
           type: string
-        name:
+        key:
           description: |-
-            Name is the dataset's collection name — pinned. No "_" prefix,
-            dots, slashes or colons; built-in names are reserved.
+            Key is the dataset's slug inside its type ([a-z][a-z0-9_]*, ≤ 64)
+            — pinned. A namespaced dataset lives in the collection
+            `<typeId>_<key>`; a shared dataset's key is its module's canonical
+            collection name and may be omitted.
+          type: string
+        module:
+          description: |-
+            Module is the serving module: "records" (the default), "editor"
+            or "chat".
           type: string
         search:
           $ref: '#/components/schemas/api.DatasetSearchFields'
+        shared:
+          description: |-
+            Shared makes the type participate in the module's canonical
+            collection (editor_blocks, chat_messages) instead of a namespaced
+            one, so two types sharing the editor give an object carrying both
+            a single body. Editor: either; chat: shared only; records: never.
+          type: boolean
         skipHistory:
           description: SkipHistory keeps the dataset out of the version-history index.
           type: boolean
       type: object
     api.DatasetFieldDef:
       properties:
+        description:
+          type: string
         id:
           description: |-
             Id is the field definition record's id — the identity
-            DELETE …/fields/:fieldId targets.
+            PATCH / DELETE …/fields/:fieldId target.
           type: string
         key:
           type: string
@@ -636,8 +734,18 @@ components:
           type: boolean
         scope:
           type: string
+        shape:
+          $ref: '#/components/schemas/api.DatasetFieldShape'
         stamp:
           type: string
+        xFormat:
+          description: |-
+            XFormat is the field's descriptor as stored; absent when none was
+            declared.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
       type: object
     api.DatasetFieldDraft:
       properties:
@@ -674,9 +782,35 @@ components:
             Stamp: "creator" | "createTime" | "modifyTime" — value derived at
             apply time, client writes rejected.
           type: string
+        xFormat:
+          description: |-
+            XFormat is the field's descriptor — the same object a property
+            definition carries (AddPropertyRequest.XFormat), validated the
+            same way against the field's kind. Mutable via
+            PATCH …/fields/:fieldId.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+      type: object
+    api.DatasetFieldPatchRequest:
+      properties:
+        set:
+          additionalProperties:
+            items:
+              type: integer
+            type: array
+          type: object
+        unset:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
       type: object
     api.DatasetFieldShape:
-      description: Shape optionally refines array/object values.
+      description: |-
+        Shape is the full declared value shape (kind plus items /
+        properties) when one was declared beyond the bare kind.
       properties:
         items:
           $ref: '#/components/schemas/api.DatasetFieldShape'
@@ -703,19 +837,32 @@ components:
       type: object
     api.DatasetSchema:
       properties:
+        module:
+          description: |-
+            Module is the serving module ("records", "editor", "chat"; empty
+            for built-ins and registered-type datasets); Shared marks a
+            module's canonical collection.
+          type: string
         name:
           type: string
+        owners:
+          description: |-
+            Owners are the types that declare the dataset: one for a
+            registered-type or namespaced dataset, every type sharing the
+            module for a canonical collection (empty while nothing declares
+            it), none for space-level built-ins. Records exist only on objects
+            carrying one of them; consumers gate indexing/eviction on it.
+          items:
+            type: string
+          type: array
+          uniqueItems: false
         schema:
           items:
             type: integer
           type: array
           uniqueItems: false
-        typeId:
-          description: |-
-            TypeId is the owning type for ext-type and runtime-defined
-            datasets ("" for space-level built-ins). Records exist only on
-            objects carrying this type; consumers gate indexing/eviction on it.
-          type: string
+        shared:
+          type: boolean
       type: object
     api.DatasetSearchFields:
       description: |-
@@ -962,6 +1109,8 @@ components:
             server serves throughout; per-space convergence is /sync-status.
             False when unauthorized and after the pass completes.
           type: boolean
+        crdtVersion:
+          $ref: '#/components/schemas/api.CRDTVersionState'
         startedAt:
           type: string
         status:
@@ -1729,6 +1878,93 @@ components:
         state:
           type: string
       type: object
+    api.PartDefResponse:
+      properties:
+        datasets:
+          items:
+            $ref: '#/components/schemas/api.DatasetDefResponse'
+          type: array
+          uniqueItems: false
+        hidden:
+          type: boolean
+        icon:
+          type: string
+        id:
+          type: string
+        key:
+          type: string
+        name:
+          type: string
+        pos:
+          type: string
+        ui:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        uses:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    api.PartDraftRequest:
+      properties:
+        datasets:
+          description: Datasets are the part's initial dataset declarations.
+          items:
+            $ref: '#/components/schemas/api.DatasetDraftRequest'
+          type: array
+          uniqueItems: false
+        hidden:
+          type: boolean
+        icon:
+          type: string
+        key:
+          description: |-
+            Key is the part's slug ([a-z][a-z0-9_]*, ≤ 64), unique within the
+            type — pinned.
+          type: string
+        name:
+          description: |-
+            Name / Icon / Pos are the display slice; clients sort parts by
+            pos. Hidden parts are not shown by default but stay revealable.
+          type: string
+        pos:
+          type: string
+        ui:
+          description: |-
+            UI is the widget descriptor — {type, config} in the xFormat shape
+            (v1 slugs: document, chat, table, list, board, gallery, chart,
+            properties; open set, an unknown slug renders the module default).
+            Written whole.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        uses:
+          description: |-
+            Uses names other datasets OF THIS TYPE the part renders without
+            owning them (dataset keys).
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
+    api.PartPatchRequest:
+      properties:
+        set:
+          additionalProperties:
+            items:
+              type: integer
+            type: array
+          type: object
+        unset:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
+      type: object
     api.PeerSyncStats:
       properties:
         changed:
@@ -1852,8 +2088,6 @@ components:
       properties:
         description:
           type: string
-        format:
-          $ref: '#/components/schemas/api.PropertyFormat'
         id:
           type: string
         items:
@@ -1864,8 +2098,8 @@ components:
           additionalProperties:
             type: string
           description: |-
-            Meta is the opaque consumer flag map set at AddProperty time
-            (e.g. meta["index"] = "<scope>" for the search indexer).
+            Meta is the consumer flag map (meta["index"] for the search
+            indexer).
           type: object
         name:
           type: string
@@ -1885,58 +2119,15 @@ components:
             account / local). Definitions written before scopes existed
             read back as "synced".
           type: string
-        xKey:
-          type: string
-        xKind:
-          type: string
-      type: object
-    api.PropertyFormat:
-      description: |-
-        Format is the property's value-format annotation; absent for
-        properties that never declared one.
-      properties:
-        filter:
+        xFormat:
           description: |-
-            Filter is a mongo-style condition object over candidate objects
-            (e.g. {"type": {"$in": ["page"]}}); optional, links only.
+            XFormat is the descriptor as stored — absent for a property that
+            never declared one, which renders structurally from Kind.
           items:
             type: integer
           type: array
           uniqueItems: false
-        meta:
-          additionalProperties:
-            type: string
-          description: Meta is an opaque, format-level string config bag.
-          type: object
-        options:
-          additionalProperties:
-            $ref: '#/components/schemas/api.PropertyOption'
-          description: |-
-            Options is the enumerated choice set for select / multiselect,
-            keyed by the option's stable key (which IS the stored value).
-            Read back on GET; write/mutate via PATCH (format.options.<key>.*
-            paths), not this create body's whole-map form.
-          type: object
-        type:
-          description: Type is one of the FormatType* wire strings.
-          type: string
-        ui:
-          description: |-
-            UI is one of the FormatUI* wire strings; optional. links accepts
-            any UI; date/datetime accept none.
-          type: string
-      type: object
-    api.PropertyOption:
-      properties:
-        color:
-          type: string
-        meta:
-          additionalProperties:
-            type: string
-          type: object
-        name:
-          type: string
-        pos:
+        xKey:
           type: string
       type: object
     api.PropertyPatchRequest:
@@ -2542,12 +2733,30 @@ components:
           type: boolean
         description:
           type: string
+        hidden:
+          description: |-
+            Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden
+            types unless includeHidden=true.
+          type: boolean
         iconCid:
           type: string
         id:
           type: string
+        layout:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        meta:
+          additionalProperties: {}
+          type: object
         name:
           type: string
+        weight:
+          description: |-
+            Weight / Layout — see TypesCreateRequest. Zero / absent on
+            built-ins.
+          type: integer
         xKey:
           description: |-
             XKey is the stable, caller-side programmatic key. For builtin/registered
@@ -2556,14 +2765,71 @@ components:
             it as the stable type handle in dotted property paths.
           type: string
       type: object
+    api.TypePartsListResponse:
+      properties:
+        parts:
+          items:
+            $ref: '#/components/schemas/api.PartDefResponse'
+          type: array
+          uniqueItems: false
+      type: object
+    api.TypePatchRequest:
+      properties:
+        description:
+          type: string
+        hidden:
+          type: boolean
+        iconCid:
+          type: string
+        layout:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        meta:
+          additionalProperties:
+            items:
+              type: integer
+            type: array
+          type: object
+        name:
+          type: string
+        weight:
+          type: integer
+      type: object
     api.TypesCreateRequest:
       properties:
         description:
           type: string
+        hidden:
+          description: |-
+            Hidden keeps the type out of GET …/types by default (pass
+            includeHidden=true to list it) and out of a client's pickers;
+            GET …/types/:typeId always resolves it. Meta is the open bag of
+            consumer flags — one string, bool or number per single-level key
+            (no '.', no '$', ≤64 bytes), written per key so concurrent
+            writers merge; opaque to the server. Both mutable via PATCH.
+          type: boolean
         iconCid:
           type: string
+        layout:
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        meta:
+          additionalProperties: {}
+          type: object
         name:
           type: string
+        weight:
+          description: |-
+            Weight picks the primary type of a multi-typed object: the highest
+            wins, tie broken by type id. Layout is how the primary type's
+            header and parts compose — {type, config} in the xFormat shape (v1
+            slugs: page, tabs, chat, profile; open set, unknown renders as
+            page). Both mutable via PATCH …/types/:typeId.
+          type: integer
         xKey:
           description: |-
             XKey is the stable, caller-side programmatic key for the type
@@ -5830,7 +6096,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: List objects that reference an object (links-format property values)
+      summary: List objects that reference an object (relation property values)
       tags:
       - objects
   /spaces/{spaceId}/objects/{objectId}/chat/messages:
@@ -6173,7 +6439,7 @@ paths:
       summary: Mark every message, mention, and reaction in the chat read
       tags:
       - chat
-  /spaces/{spaceId}/objects/{objectId}/editor/blocks:
+  /spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks:
     post:
       parameters:
       - description: Space ID
@@ -6185,6 +6451,12 @@ paths:
       - description: Object ID
         in: path
         name: objectId
+        required: true
+        schema:
+          type: string
+      - description: Editor collection (editor_blocks or <typeId>_<key>)
+        in: path
+        name: collection
         required: true
         schema:
           type: string
@@ -6221,7 +6493,7 @@ paths:
       summary: Create a block
       tags:
       - editor
-  /spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId}:
+  /spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks/{blockId}:
     delete:
       parameters:
       - description: Space ID
@@ -6284,6 +6556,12 @@ paths:
         required: true
         schema:
           type: string
+      - description: Editor collection (editor_blocks or <typeId>_<key>)
+        in: path
+        name: collection
+        required: true
+        schema:
+          type: string
       - description: Block ID
         in: path
         name: blockId
@@ -6329,7 +6607,7 @@ paths:
       summary: Patch a block (atomic set/unset)
       tags:
       - editor
-  /spaces/{spaceId}/objects/{objectId}/editor/markdown:
+  /spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown:
     get:
       parameters:
       - description: Space ID
@@ -6380,6 +6658,12 @@ paths:
         required: true
         schema:
           type: string
+      - description: Editor collection (editor_blocks or <typeId>_<key>)
+        in: path
+        name: collection
+        required: true
+        schema:
+          type: string
       requestBody:
         content:
           application/json:
@@ -6427,6 +6711,12 @@ paths:
         required: true
         schema:
           type: string
+      - description: Editor collection (editor_blocks or <typeId>_<key>)
+        in: path
+        name: collection
+        required: true
+        schema:
+          type: string
       requestBody:
         content:
           application/json:
@@ -6460,7 +6750,7 @@ paths:
       summary: Set markdown content (diff-based)
       tags:
       - editor
-  /spaces/{spaceId}/objects/{objectId}/editor/markdown/append:
+  /spaces/{spaceId}/objects/{objectId}/editor/{collection}/markdown/append:
     post:
       parameters:
       - description: Space ID
@@ -6472,6 +6762,12 @@ paths:
       - description: Object ID
         in: path
         name: objectId
+        required: true
+        schema:
+          type: string
+      - description: Editor collection (editor_blocks or <typeId>_<key>)
+        in: path
+        name: collection
         required: true
         schema:
           type: string
@@ -7700,6 +7996,55 @@ paths:
       summary: Get a type
       tags:
       - types
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.TypePatchRequest'
+                description: Fields to change
+                summary: body
+        description: Fields to change
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a type's display and rendering metadata
+      tags:
+      - types
   /spaces/{spaceId}/types/{typeId}/datasets:
     get:
       parameters:
@@ -7735,59 +8080,6 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: List a type's runtime dataset definitions
-      tags:
-      - types
-    post:
-      parameters:
-      - description: Space ID
-        in: path
-        name: spaceId
-        required: true
-        schema:
-          type: string
-      - description: Type ID
-        in: path
-        name: typeId
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              oneOf:
-              - type: object
-              - $ref: '#/components/schemas/api.DatasetDraftRequest'
-                description: Dataset draft
-                summary: body
-        description: Dataset draft
-        required: true
-      responses:
-        "201":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.AddDatasetResponse'
-          description: Created
-        "400":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
-        "409":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Conflict
-        "500":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Internal Server Error
-      summary: Define a dataset on a type
       tags:
       - types
   /spaces/{spaceId}/types/{typeId}/datasets/{defId}:
@@ -7987,6 +8279,323 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Remove a dataset field definition
+      tags:
+      - types
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Dataset definition ID
+        in: path
+        name: defId
+        required: true
+        schema:
+          type: string
+      - description: Field definition ID
+        in: path
+        name: fieldId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.DatasetFieldPatchRequest'
+                description: set/unset paths
+                summary: body
+        description: set/unset paths
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a dataset field's display fields and descriptor
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/parts:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.TypePartsListResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: List a type's parts with their datasets
+      tags:
+      - types
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.PartDraftRequest'
+                description: Part draft
+                summary: body
+        description: Part draft
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AddPartResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Declare a part (with its datasets) on a type
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/parts/{partId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Part ID
+        in: path
+        name: partId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Remove a part and its datasets
+      tags:
+      - types
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Part ID
+        in: path
+        name: partId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.PartPatchRequest'
+                description: set/unset paths
+                summary: body
+        description: set/unset paths
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a part's display slice
+      tags:
+      - types
+  /spaces/{spaceId}/types/{typeId}/parts/{partId}/datasets:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Part ID
+        in: path
+        name: partId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.DatasetDraftRequest'
+                description: Dataset draft
+                summary: body
+        description: Dataset draft
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.AddDatasetResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Declare a dataset on a part
       tags:
       - types
   /spaces/{spaceId}/types/{typeId}/properties:
@@ -8461,4 +9070,4 @@ paths:
       tags:
       - sync
 servers:
-- url: 127.0.0.1:7001/v1
+- url: http://127.0.0.1:7001/v1

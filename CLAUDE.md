@@ -68,8 +68,9 @@ Implementation slices landed:
    stop-sharing; sidebar gets a "join via invite" form. Body
    validation runs before resolveSpace so 400s don't pay for a space
    lookup.
-6. **Chat built-in type** — `internal/chat` registers a `handler.Type`
-   for per-object `chat_messages` records. Bespoke endpoints under
+6. **Chat module** (registered as a built-in type until item 43 turned
+   it into a `handler.Module`) — `internal/chat` serves the shared
+   `chat_messages` collection on objects whose type declares the module. Bespoke endpoints under
    `/v1/spaces/:id/objects/:objectId/chat/messages` cover writes only —
    send / edit / delete and the `…/:msgId/reactions/:emoji` toggle.
    Every write returns the shared `api.ModifyResult`
@@ -118,9 +119,9 @@ Implementation slices landed:
    editor now actually wire `Dataset.Indexes`
    (the per-handler `Indexes()` methods used to be dead code — no
    built-in index was ensured before this).
-7. **Atomic blocks + markdown bridge** — `internal/editor` registers
-   a `handler.Type` for the `editor_blocks` dataset, one record per
-   block. Per-block fields: `type` (paragraph / heading / list_item /
+7. **Atomic blocks + markdown bridge** — `internal/editor` serves the
+   editor collections (a `handler.Module` since item 43; routes carry
+   `:collection`), one record per block. Per-block fields: `type` (paragraph / heading / list_item /
    …), `style` (open-ended), `text` (INLINE markdown only — no block-
    level syntax), `nav.parentId`, `nav.pos` (lexid). An empty
    paragraph is a `paragraph` record with `text: ""`; the markdown
@@ -733,7 +734,7 @@ Implementation slices landed:
     ones, most visibly in a 1-1) — the convergence point moved from a
     hardcoded derive to the registry, so different clients can register
     different things. Convention: bundle id `general-chat/v1`,
-    `rootTypes: ["chat"]`, `derived: true` (item 35 — the chat root's
+    a `chat` part (`{"module": "chat", "shared": true}`), `derived: true` (item 35 — the chat root's
     id is computed from the bundle id, so it can never fork; chat
     content cannot be merged across objects, so a fork has to be
     impossible rather than resolvable). Contract: docs/03-api.md § Chat (Finding the
@@ -879,20 +880,16 @@ Implementation slices landed:
     (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
     § Meta.
 
-30. **Built-in `page` type** — `internal/page` registers the marker
-    type `page` (singular, no dataset, no properties): the shared
-    "this object is a document" declaration in `any.types`. Replaces
-    each client minting its own user `pages` type (owner-primary
-    check-then-create still raced across members — real spaces carried
-    up to five parallel "Pages" types). Name via `any.name`, labels via
-    the built-in `any.tags` (SDK-side free-form string array, this
-    slice's SDK bump), body via `editor_blocks`, tree via `nav.*`. No
-    properties by design: the SDK
-    freezes registered types' property definitions, so built-in
-    selects would have permanently empty option sets. Registration
-    only — no handler/CLI surface; the xKey guard fences `page` from
-    user types. Contract: docs/03-api.md § Types (Built-in `page`
-    type).
+30. **Built-in `page` type — removed by item 45, back as a hidden
+    registered type with one editor part in item 46.** It was the marker
+    type for "this object is a document" (no dataset, no properties —
+    the SDK freezes registered types' property definitions, so a
+    built-in could never carry per-space columns), introduced because
+    each client minting its own `pages` type raced into parallel
+    definitions. The convergence problem is now solved by registering
+    the document type as a bundle (declaring an editor part), which is
+    a user type with properties, a weight, a layout and an editor part.
+    `any.tags` (the SDK's free-form string array on `any`) stays.
 
 31. **Devices registry + active-app election (SYN-165)** — the
     account's device list in the tech-space system dataset `devices`
@@ -953,7 +950,7 @@ Implementation slices landed:
     mapping in `datasetWriteError` (sentinels + STOPGAP string-matched
     decl errors — SDK sentinel follow-up in docs/07-roadmap.md, along
     with the dogfood handler-collapse audit and the removed-def index
-    sweep). CLI: `any type dataset …`, `any upsert`. Contract:
+    sweep). CLI: `any type part dataset …`, `any upsert`. Contract:
     docs/03-api.md § Runtime dataset schemas + § Upsert records,
     docs/13-index.md § Schema chunker, docs/06-errors.md, and the SDK's
     docs/17-user-datasets.md (vocabulary, convergence rules, storage
@@ -1236,8 +1233,9 @@ Implementation slices landed:
     roots (`NewRoot` optional), tech `ResolveLoser`, bundle-root-only
     `Objects().Delete`, catalog release on type-object purge.
 
-39. **Built-in `data_view` type: saved views (SYN-175)** —
-    `internal/dataview` registers `data_view`, attachable to ANY object
+39. **Built-in `data_view` type: saved views (SYN-175)** — SUPERSEDED
+    by item 47 (`dataview`, two levels); the rules below carry over.
+    `internal/dataview` registered `data_view`, attachable to ANY object
     including a TYPE object (that is how "views on a type" works —
     `AttachType` has no meta-type guard), owning the `data_views`
     dataset: one record per saved view
@@ -1481,7 +1479,224 @@ Implementation slices landed:
     `--mode managed` + token + keychain restore-at-launch (it stops the
     sidecar with an ungated `POST /v1/shutdown` today, which now 403s
     on a standalone server); IOS-615 is unblocked.
-44. **`cancel-join` is account-level** — `POST /v1/spaces/:id/acl/
+44. **Property & field descriptors (SYN-211)** — one opaque `x-format`
+    object (wire `xFormat`) describes both type properties and runtime
+    dataset fields; the SDK stores it verbatim, created whole
+    and patched per path, and enforces only `kind`. Gone, no
+    back-compat and no migration: the typed `format` object,
+    `FormatType`, `xKind`, `format.ui`, the `meta.pos` / `meta.icon`
+    conventions and kind defaulting from a format (`kind` is required
+    on create; `meta` narrows to `index`). `any` is the semantics
+    boundary (`internal/server/descriptor.go`): on create and PATCH the
+    six interpreted keys (`type`, `icon`, `pos`, `options`, `relation`,
+    `config`) are typed, the slug is checked against the pinned kind
+    for the v1 vocabulary (text/longtext/url/email/phone, choice,
+    relation, number/currency/percent/rating/duration, checkbox,
+    date/datetime, period/money/geo; `tags` reserved), `validate` /
+    `compute` are reserved, vendor keys pass verbatim; the leaf-only
+    PATCH rule is structural — a `set` never carries an object, so a
+    container can only be unset; every property write (`/set`,
+    object-create `initialProperties`, bundle `rootProperties`) is
+    validated against the CURRENT slug incl. `config.multiple` arity
+    and the three compound shapes; `xKey` is unique within the type
+    on add and rename (`409 property.xkey_conflict`); backlinks select
+    `xFormat.type == relation`. Dataset fields round-trip
+    `description` / `shape` / `xFormat` and gain
+    `PATCH …/datasets/:defId/fields/:fieldId` (`TypesAPI.PatchDatasetField`;
+    name, description, `xFormat.*`; the descriptive slice stays out of
+    the SDK's `SchemaRev`, and discovery renders `description` /
+    `x-format` per field — `handler.Field` carries them too, so
+    built-ins can declare descriptors later). CLI: `any type property
+    add --kind … --x-format '<json>'`, option sugar on
+    `xFormat.options.*`, `any type part dataset field patch`. Contract:
+    docs/27-descriptors.md (client rules), docs/03-api.md § Types +
+    § Runtime dataset schemas, docs/06-errors.md; SDK
+    docs/06-data-structure.md § The `x-format` descriptor.
+
+45. **Types, parts and modules** — a type is properties plus **parts**
+    (display units a client renders), each part owning datasets served
+    by a **module**: `records` (the runtime schema handler, item 32,
+    now always namespaced to the collection `<typeId>_<key>`), `editor`
+    and `chat` (`handler.Module`s in `internal/editor` / `internal/chat`
+    — `NewModule()`, registered through `sdkconfig.Config.Modules` in
+    `serverModules()`; the SDK registers a module's canonical
+    collection statically and mints a `handler.Dataset` per namespaced
+    instance). A shared dataset (`"shared": true`) is the module's
+    canonical collection — `editor_blocks`, `chat_messages` — so an
+    object carrying two document types has one body; `chat` is
+    shared-only, `records` never shares. **The write gate is "the object
+    carries a declaring type"**: the SDK checks ownership at local
+    write time (`space.ErrDatasetNotDeclared` → `400
+    dataset.not_declared`), inbound apply stays read-tolerant, and no
+    write attaches a type (`editor.EnsureType` / `chat.ensureType` are
+    gone). The built-in `editor` / `chat` types are gone with
+    `internal/ensure` (`page` left too and returned hidden in item 46);
+    documents and chats are user
+    types registered as bundles (`Install.Parts`; `EnsureBundleRequest.
+    Parts` — bundles declare `parts`, not `datasets`). Surface:
+    `GET/POST …/types/:typeId/parts`, `PATCH/DELETE …/parts/:partId`,
+    `POST …/parts/:partId/datasets` (`handlers_typeparts.go`; dataset
+    routes keep their paths, `AddDatasetResponse` gained `collection`);
+    `PATCH …/types/:typeId` with `weight` / `layout` (meta-type
+    built-ins `type.weight` / `type.layout`, `TypesAPI.Patch`; create
+    takes them too); editor routes are `…/editor/:collection/{blocks,
+    markdown}` (`editorCollection` resolves the segment against
+    `Space.Datasets`, `404 dataset.not_found` off-catalog); chat paths
+    unchanged; discovery rows carry `owners` / `module` / `shared`
+    (`DatasetSchema.TypeId` removed). Errors: `dataset.not_declared`,
+    `dataset.key_conflict` (replaces `name_conflict`),
+    `dataset.shared_conflict`, `dataset.module_unknown`,
+    `dataset.module_owned`. Search: `index.ModuleChunker` (one per
+    module, resolved per space from `Space.Datasets`, entries carry the
+    real collection, `DynamicChunker` eviction on owners) with
+    `MultiReconciler` for the editor's per-collection window diff
+    (`worker.reconcileMulti`); the schema chunker skips non-records
+    collections. Push: chats are the objects carrying an owner of
+    `chat_messages` (`chatOwners` / `chatOwnersFilter`), not
+    `any.types: chat`; `chat.unreadCount` / `chat.notifyMode` keep
+    their paths (module namespace on the objects row via
+    `store.ModuleGrants`). Tests mint module types with
+    `installModuleType` / `mustCreateModuleObject`
+    (`internal/server/modules_test.go`, e2e twins in
+    `internal/e2e/modules_test.go`). CLI: `any type part
+    list/add/patch/remove`, `any type update`, `any type part dataset add
+    <spaceId> <typeId> <partId>`, `--collection` on every editor
+    command. Contract: docs/03-api.md § Parts and modules + § Objects
+    + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
+    docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
+    (docs/07-roadmap.md): namespaced chat, `dataview` as a module,
+    `nav` → `wiki`, and the server catalog (`GET/POST /v1/catalog…`)
+    that installs the well-known `system:` bundles (`page` / `miniapp`
+    / `bin` shipped — item 46; `dataview` — item 47).
+    **Pair 2 — the foundation for those tickets** (same PR pair):
+    (a) registered types declare **static parts** (`handler.Type.Parts`
+    — entries of the type's `Datasets` by name, or module datasets the
+    SDK instantiates like a runtime declaration: shared ⇒ owner of the
+    canonical, namespaced ⇒ `<typeId>_<key>` registered with the
+    module's DataVersion) and a `Hidden` flag; `GET …/types/:id/parts`
+    reads them compiled with keys as ids, writes stay
+    `type.registered`; a type with datasets and no parts reads one
+    implicit part per dataset. (b) **Reserved modules**
+    (`handler.Module.Reserved`, requires `SharedOnly`): a runtime part
+    / dataset / bundle draft naming one is `400
+    dataset.module_reserved` — decided server-side from the compiled
+    catalog (`reservedModule`, before a bundle's convergence wait) with
+    the SDK's `space.ErrModuleReserved` as the backstop; only the SDK's
+    `space.SystemInstall()` ensure option (the server's own catalog
+    path — `bundles.Install.SystemInstall`, never client input) or a
+    static part may declare it. Nothing shipped is reserved yet —
+    `chat` flips with the general-chat ticket. (c) **Bundles declare a
+    full type**: `properties` (each with an `xKey`; the propId is
+    derived from `(rootId, xKey)` — `crdt.DeriveRecordId` over
+    `bundle-property:<root>:<xKey>` — so two blind installs mint one
+    column per handle; the SDK's property handler projects the shortId
+    row for a duplicate create too, or the peer's later data writes
+    would park; adopt heals a property only when neither its id (live
+    or tombstoned) nor a live definition with its handle exists —
+    never resurrects or doubles), `layout`, `weight`, `hidden`
+    (EXPLICIT — a records host asks for it, a type objects carry stays
+    listed; the pair-1 "hidden by construction" rule is gone,
+    docs/25-favorites.md and the general-chat recipes carry `"hidden":
+    true`; the three need `parts` or `properties`). The tech space
+    accepts parts OR properties and admits the property mutators on
+    bundle roots. (d) `system:` bundle ids are the server's
+    (`bundles.ReservedId`) → `409 bundle.reserved` on a client ensure.
+    (e) CLI: `any bundle ensure/list/get/resolve/child`
+    (`internal/cli/bundles.go`, `internal/client/bundles.go`); `any
+    type dataset …` moved under `any type part dataset …`. Test seam:
+    `extraCatalog` in `internal/server/sdk.go` (a hidden `testdoc`
+    type with two static datasets + the reserved `reserved_notes`
+    module, registered from `handlers_staticparts_test.go`'s init).
+    Contract: docs/03-api.md § Bundles (Bundle-declared types) +
+    § Types + § Parts and modules, docs/06-errors.md, docs/01-cli.md;
+    SDK docs/bundles.md § Bundle-declared types, docs/17-user-datasets.md
+    § Static parts on registered types.
+    **CRDT version mark** (same pair): the SDK stamps
+    `space.CRDTVersion` on the tech space's index object (`crdtVersion`
+    system dataset, monotonic by handler rule) at Open; a higher stored
+    mark refuses Open (`space.ErrCRDTVersionNewer` →
+    `409 sdk.crdt_version_newer` on `POST /v1/auth` and on every synced
+    write once a raise arrives at runtime — the account turns
+    read-only). `GET /v1/health` carries `crdtVersion {supported,
+    stored, newer}` (`deps.crdtVersion`). Bump the SDK constant when a
+    release writes data the previous one cannot read; the guard covers
+    releases from this one on. Contract: docs/02-server.md § Startup /
+    § Health, docs/06-errors.md; SDK docs/08-versioning.md.
+    **Type `hidden` + `meta`** (same pair): `type.hidden` keeps a type
+    out of `GET …/types` unless `?includeHidden=true` (a bundle root is
+    hidden when its install says so); `type.meta` is an opaque per-key scalar
+    bag patched per key (`null` unsets) — the SDK's objects-row handler
+    now admits nested `$set` paths under object-kind properties for it.
+    The web UI lists with `includeHidden=true`.
+
+
+46. **Built-in hidden types `page` / `miniapp` / `bin` (SYN-213, SYN-215,
+    SYN-219)** — three registered `handler.Type`s an object OPTS INTO
+    (`internal/page`, `internal/miniapp`, `internal/bin`, wired in
+    `serverTypes()`), all `Hidden`: out of `GET …/types` unless
+    `includeHidden=true`, `builtIn: true` with `xKey == id` (the xKey
+    guard reserves the ids for free), static (`400 type.registered`),
+    present in every space by construction, nothing stamps them onto
+    an object. **`page`**: no properties, one static part `body` (`ui
+    {"type":"document"}`) with `{Module: editor, Shared: true}` — the
+    SDK compiles it into ownership of `editor_blocks`, so `page` is
+    always among the collection's `owners` and an object carrying it
+    takes every `…/editor/editor_blocks/**` write; optional for
+    clients (their own document types keep working, both share the
+    body); no `weight` / `layout` (registered types have none — an SDK
+    change if ever needed). **`miniapp`**: one string property
+    `bundle` (the installed bundle id), no parts. **`bin`**: properties
+    `movedAt` (datetime) + `movedBy` (account identity), no parts;
+    move = `attach/bin`, restore = `detach/bin` on the EXISTING
+    `POST …/properties/:objectId/{attach,detach}/:typeId` — the handler
+    special-cases the id (`binBinding` in handlers_properties.go): one
+    synced `Space.Modify` on the `objects` dataset carrying `$addToSet
+    any.types` + `$set bin.movedAt/movedBy` (or `$pull` + two
+    `$unset`), which works because the SDK's write-time preflight
+    grants a namespace the SAME change attaches (`buildPreflight` /
+    `collectTypeAdditions`) — one changeId names the move, no
+    half-stamped row. No create-time guard (a `types:["bin"]` create is
+    an unstamped carrier; the stamps are plain synced props a peer can
+    write anyway, so readers treat an absent stamp as unknown). Search
+    indexing of bin carriers is undecided (parked). Tests:
+    handlers_builtin_types_test.go; `TestServer_NoBuiltinContentTypes`
+    now pins only `editor` / `chat` absent. Contract: docs/03-api.md
+    § Types → Built-in hidden types + § Properties, docs/08-clients.md
+    § 3, docs/01-cli.md.
+
+47. **`dataview`: many dataviews, each with many views (SYN-217)** —
+    `internal/dataview` now registers the HIDDEN type `dataview`
+    (replaces `data_view` / `data_views`, no back-compat — an upgraded
+    space keeps the old rows on disk unreachable, `data_view` lingers
+    in `any.types` while its GET 404s, late old changes park for good;
+    installs are abandoned in place and clients detach the type) with one
+    static part `views` (`ui {"type":"table"}`) owning two records
+    datasets on the generic schema handler: `dataviews` (one record per
+    table on the host — `name`+`pos` required, `icon`, stamps) and
+    `views` (one per view — `dataview`+`name`+`pos`+`layout` required,
+    `icon`/`query`/`layoutSettings` synced, `localSettings` ScopeLocal,
+    stamps). The added level is what lets one object carry several
+    independent tables. Item 39's rules carry over unchanged: IdUser +
+    burned ids + the deterministic ensure sequence, MutableByAnyone /
+    DeleteByAnyone, Dynamic, opaque `query`/`layoutSettings`, no
+    bespoke endpoints, no CLI, no chunker. Two decisions: a view's
+    `dataview` is required but NOT validated against the collection and
+    a dataview delete does NOT cascade (orphans stay readable through
+    `{"dataview": id}` and writable — the client deletes or re-parents
+    with `$set dataview`; a server rule would let a dataview deleted on
+    one device turn every view write elsewhere into a failure); view
+    ids are one namespace per host, convention `<dataviewId>.<key>`
+    for a non-default dataview's views. Indexes: `dataviews.idx_pos`,
+    `views.idx_dataview_pos` (the documented per-dataview read) +
+    `idx_pos`. No `dataview` module (roadmap). Tests:
+    handlers_dataview_test.go (`setupViewFixture` attaches the type AND
+    ensures the `default` dataview; `ensureDataview` / `listDataviews`
+    / `queryViews`; `TestServer_DataView_ManyDataviews` pins filter,
+    move, no-cascade), e2e `TestE2E_MultipeerDataViews` syncs both
+    levels. Contract: docs/24-data-views.md, docs/03-api.md § Types →
+    Built-in `dataview` type, docs/08-clients.md § 13.
+
+48. **`cancel-join` is account-level** — `POST /v1/spaces/:id/acl/
     cancel-join` no longer goes through `resolveSpace`: the only state
     it applies to is a pending join, and that is exactly the row
     `Spaces().Get` refuses (`space.not_accepted`), so the route was
@@ -1500,7 +1715,7 @@ Implementation slices landed:
     Tests: `TestServer_ACLCancelJoin_RowGate`,
     `TestE2E_MultipeerCancelJoin`, SDK `TestE2E_JoinCancelRejoin`.
     Contract: docs/03-api.md § ACL, docs/06-errors.md.
-45. **Join lifecycle is synced (SYN-212)** — an SDK change, passthrough
+49. **Join lifecycle is synced (SYN-212)** — an SDK change, passthrough
     here. The pending join lives in the tech-space row's SYNCED
     `remoteStatus` (`joining` / `joinEnded`) instead of the device-local
     `localStatus`, so every device of the joiner's account lists the
@@ -1526,7 +1741,6 @@ Implementation slices landed:
     contract: its docs/03-space.md § Join lifecycle, docs/02-tech-space.md,
     docs/15-direct-add-invites.md; e2e `TestE2E_JoinLifecycleSynced`.
     Here: docs/03-api.md § Spaces (join) + § ACL (`cancel-join`).
-
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -1705,12 +1919,17 @@ These cut across files and are easy to violate accidentally:
   backend — one log stream for the whole process. Don't introduce a second logger.
 - **POST `/v1/spaces/:spaceId/query`** uses POST (not GET) because the filter/sort
   body doesn't fit a query string. Don't "fix" this to GET.
-- **Dataset reads go through `/query` and `/query/subscribe`.** Built-in types
-  (chat, editor) keep bespoke handlers for *writes* only (POST/PATCH/DELETE and
-  reactions). Reads always go through the per-object query primitive with the
-  matching `dataset` value (`chat_messages`, `editor_blocks`, ...). One read
-  path per dataset, one wire shape per snapshot. Sole exception: `GET
-  /editor/markdown` is a render transform, not a dataset read.
+- **Dataset reads go through `/query` and `/query/subscribe`.** The compiled-in
+  modules (chat, editor) keep bespoke handlers for *writes* only (POST/PATCH/
+  DELETE and reactions). Reads always go through the per-object query primitive
+  with the matching `dataset` value — the collection name (`chat_messages`,
+  `editor_blocks`, a namespaced `<typeId>_<key>`, ...). One read path per
+  dataset, one wire shape per snapshot. Sole exception: `GET
+  /editor/:collection/markdown` is a render transform, not a dataset read.
+- **No write attaches a type.** A module collection lives on an object only
+  while the object carries a type whose part declares it (item 43); a write
+  without one is `400 dataset.not_declared`. Never add a "ensure the type is
+  attached" step to a write path — clients attach types deliberately.
 - **POSTs are not idempotent in v1.** Each POST produces a new DAG change. No
   `Idempotency-Key` yet.
 - **any-store filters are built with the typed `any-store/v2/query` package**
@@ -1787,9 +2006,10 @@ auto-start.
 | `docs/21-events.md` | event bus — `/v1/events` publish + filtered SSE subscribe, envelope/scopes/filters, at-most-once semantics, `ui.*` types (doc 15 retired into this) |
 | `docs/22-processes.md` | process helper — `process.*` convention over the bus, `/v1/processes` endpoints, composite key, heartbeat/staleness, cancel flow, internal producers |
 | `docs/23-devices.md` | devices registry & active-app election — tech-space `devices` dataset, `/v1/devices` surface, reader-side election rule, runtime-vs-UI decision matrix |
-| `docs/24-data-views.md` | saved views — `data_view` type & `data_views` record shape, what stays opaque and why, shared/account/device tiers, the client grouping recipe |
+| `docs/24-data-views.md` | saved views — the hidden `dataview` type, `dataviews` + `views` record shapes (many tables per host, each with its views), what stays opaque and why, shared/account/device tiers, the client grouping recipe |
 | `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
+| `docs/27-descriptors.md` | property & field descriptors — the `xFormat` bag: guarantee boundary (`kind` vs hint), the six interpreted keys, merge model, leaf-only PATCH rule, v1 slug vocabulary + value checks, composites, client rendering/tolerance/ordering rules, what the server enforces, not-covered list |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

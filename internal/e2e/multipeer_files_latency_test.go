@@ -4,17 +4,17 @@
 // several sizes and the test measures, per file, how long until:
 //
 //   - attach       — Alice's POST returns (includes the SDK's
-//                    best-effort synchronous backup try);
+//     best-effort synchronous backup try);
 //   - durable      — Alice records the broker's custody receipt
-//                    (encrypt → CAR → PUT to the object store → sign);
+//     (encrypt → CAR → PUT to the object store → sign);
 //   - row @ bob    — Bob's replica materializes the payload row (pure
-//                    CRDT sync latency; timestamped via Bob's
-//                    files/query/subscribe SSE stream, not polling);
+//     CRDT sync latency; timestamped via Bob's
+//     files/query/subscribe SSE stream, not polling);
 //   - content @ bob — Bob completes a byte-identical download (public
-//                    read from the object store; the headline
-//                    "Alice sent → Bob has the file" number);
+//     read from the object store; the headline
+//     "Alice sent → Bob has the file" number);
 //   - re-download  — Bob's second download (bytes now local) for
-//                    loopback throughput reference.
+//     loopback throughput reference.
 //
 // The measured runs are STEADY-STATE: a warm-up attach first creates
 // the per-object payloads tree, resolves the broker's public-read base
@@ -99,11 +99,11 @@ func latencySizes(t *testing.T) []int {
 var latencyHTTP = &http.Client{}
 
 type latencyResult struct {
-	size      int
-	attach    time.Duration // Alice POST round-trip
-	durable   time.Duration // t0 → custody receipt on Alice ("≤ attach" when synchronous)
-	syncedRow time.Duration // t0 → payload row materialized on Bob
-	content   time.Duration // t0 → byte-identical download completed on Bob
+	size       int
+	attach     time.Duration // Alice POST round-trip
+	durable    time.Duration // t0 → custody receipt on Alice ("≤ attach" when synchronous)
+	syncedRow  time.Duration // t0 → payload row materialized on Bob
+	content    time.Duration // t0 → byte-identical download completed on Bob
 	redownload time.Duration // second (locally cached) download on Bob
 }
 
