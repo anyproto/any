@@ -213,9 +213,14 @@ const (
 
 // NewModule returns the handler.Module to add to config.Config.Modules
 // so the SDK serves the canonical chat_messages collection with the
-// message handler on every controller. SharedOnly: a type declares the
-// module as `{"module": "chat", "shared": true}`; namespaced chat
-// instances are refused.
+// message handler on every controller. SharedOnly: the one declaration
+// shape is `{"module": "chat", "shared": true}`; namespaced chat
+// instances are refused. Reserved: only the server's own catalog
+// install (`system:general-chat/v1`, docs/16-chat.md) declares it —
+// a client part, dataset or bundle naming the module is refused, and
+// the install root is the type's only carrier. Opening the module to
+// clients waits on per-collection push topics and read tracking
+// (docs/07-roadmap.md).
 //
 //	cfg := config.Config{
 //	    Modules: []handler.Module{ editor.NewModule(), chat.NewModule() },
@@ -226,6 +231,7 @@ func NewModule() handler.Module {
 		Name:           Module,
 		Canonical:      Dataset,
 		SharedOnly:     true,
+		Reserved:       true,
 		DataVersion:    dataVersion,
 		HandlerVersion: handlerVersion,
 		// Unread counters materialized onto the chat object's row —

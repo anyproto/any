@@ -116,13 +116,15 @@ type DatasetDraftRequest struct {
 	// `<typeId>_<key>`; a shared dataset's key is its module's canonical
 	// collection name and may be omitted.
 	Key string `json:"key,omitempty"`
-	// Module is the serving module: "records" (the default), "editor"
-	// or "chat".
+	// Module is the serving module: "records" (the default) or
+	// "editor". "chat" is reserved to the server (400
+	// dataset.module_reserved) — the catalog's general-chat usecase is
+	// its one declaration.
 	Module string `json:"module,omitempty"`
 	// Shared makes the type participate in the module's canonical
-	// collection (editor_blocks, chat_messages) instead of a namespaced
-	// one, so two types sharing the editor give an object carrying both
-	// a single body. Editor: either; chat: shared only; records: never.
+	// collection (editor_blocks) instead of a namespaced one, so two
+	// types sharing the editor give an object carrying both a single
+	// body. Editor: either; records: never.
 	Shared      bool   `json:"shared,omitempty"`
 	DisplayName string `json:"displayName,omitempty"`
 	Description string `json:"description,omitempty"`

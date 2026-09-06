@@ -726,20 +726,20 @@ Implementation slices landed:
       `FormatMultiselect`; `PropertyFormat/Draft.Options+Meta`;
       `PropertyOption`; exported `space.ErrPinnedField` +
       `typetype.IsPinnedPath`. Docs: 03-api.md § Types, 01-cli.md § Types.
-24. **Per-space chats are client-registered** — a space's "general"
-    chat is no longer a server concept. Clients register it as a bundle
-    (item 35) and use the returned root; `SpaceInfo.generalChatObjectId`
-    and the derived `any/general-chat/v1` object are gone with no
-    back-compat. Motivation is unchanged (clients that each
-    `Objects().Create` a chat leave a space with two or three parallel
-    ones, most visibly in a 1-1) — the convergence point moved from a
-    hardcoded derive to the registry, so different clients can register
-    different things. Convention: bundle id `general-chat/v1`,
-    a `chat` part (`{"module": "chat", "shared": true}`), `derived: true` (item 35 — the chat root's
-    id is computed from the bundle id, so it can never fork; chat
-    content cannot be merged across objects, so a fork has to be
-    impossible rather than resolvable). Contract: docs/03-api.md § Chat (Finding the
-    chat object) + § Bundles, docs/16-chat.md, docs/08-clients.md § 4.
+24. **Per-space chat is the catalog's `general-chat` usecase** — a
+    space has ONE chat, installed by `POST /v1/catalog/general-chat/
+    setup` (item 50) as the derived, hidden, self-typed root
+    `system:general-chat/v1` (handle `general_chat`, one shared `chat`
+    part). The `chat` module is `Reserved` (item 52), so no client
+    declares a chat part and that root is the type's only carrier.
+    History: `SpaceInfo.generalChatObjectId` and the server-derived
+    `any/general-chat/v1` object went first (clients registered the
+    chat as a bundle under the convention `general-chat/v1`), then the
+    client recipe went with SYN-216 — no back-compat either time. The
+    root is derived because chat content cannot be merged across
+    objects, so a fork has to be impossible rather than resolvable.
+    Contract: docs/03-api.md § Chat + § Parts and modules,
+    docs/16-chat.md, docs/08-clients.md § 4.
 25. **Version history** — read-only HTTP surface over the SDK's
     `Space.History()` (`internal/server/handlers_history.go`,
     `internal/api/history.go`; routes wired in `handlers_spaces.go`).
@@ -1069,7 +1069,7 @@ Implementation slices landed:
       readable through the generic dataset surface (that path is
       read-only — the SDK fences the dataset off modify).
     - The `id` is the whole identity — marketplace id, app slug, or a
-      versioned convention like `general-chat/v1` — so there is no
+      versioned convention like `favorites/v1` — so there is no
       separate provenance field.
     - **Derived roots (SYN-172).** `"derived": true` installs the
       bundle on the root DERIVED from its id
@@ -1586,8 +1586,8 @@ Implementation slices landed:
     the SDK's `space.ErrModuleReserved` as the backstop; only the SDK's
     `space.SystemInstall()` ensure option (the server's own catalog
     path — `bundles.Install.SystemInstall`, never client input) or a
-    static part may declare it. Nothing shipped is reserved yet —
-    `chat` flips with the general-chat ticket. (c) **Bundles declare a
+    static part may declare it. `chat` is reserved (item 52). (c)
+    **Bundles declare a
     full type**: `properties` (each with an `xKey`; the propId is
     derived from `(rootId, xKey)` — `crdt.DeriveRecordId` over
     `bundle-property:<root>:<xKey>` — so two blind installs mint one
@@ -1838,12 +1838,8 @@ Implementation slices landed:
     declares parts and one `properties` change when it declares
     properties — a peer may briefly see the parts before the property
     definitions; a bundle with no declaration mints its root through
-    the ordinary object create plus the name stamp). `chat` stays
-    unreserved here: the follow-up that reserves the chat module and
-    moves the general chat to `system:general-chat/v1` (a different
-    derived root than `general-chat/v1` — nothing migrates, so the
-    client recipe stays the convention until then) branches off this;
-    the `nav` → `wiki` follow-up is item 51. Contract:
+    the ordinary object create plus the name stamp). `chat` is reserved
+    by item 52; the `nav` → `wiki` follow-up is item 51. Contract:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
     (`xKey`, root types on created roots, root + up to 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
@@ -1868,6 +1864,41 @@ Implementation slices landed:
     module's schema, item 7). Contract: docs/03-api.md § The wiki tree,
     docs/09-query.md § Paths, docs/28-well-known-bundles.md § What
     clients delete.
+52. **General chat under the reserved `chat` module (SYN-216)** —
+    `chat.NewModule()` sets `Reserved: true`: a client part, part
+    dataset or bundle body naming `chat` is `400
+    dataset.module_reserved` (`datasetDraftFromAPI`; the catalog
+    compile goes through `systemPartDraftFromAPI`, which skips the
+    check — the SDK sees the install under `SystemInstall`). The one
+    declaration is the catalog's `general-chat` usecase (item 24), on
+    regular spaces and 1-1s alike — a derived root converges on both
+    sides of a 1-1 by construction, so no 1-1-specific path exists.
+    **Sole-carrier rule (SDK)**: a user type whose part declares a
+    reserved module is carried only by its own root — the properties
+    handler's local pre-flight (`checkReservedCarriers`, off
+    `Store.ReservedCarrier`) refuses every path that adds the type
+    (create `types`, `AttachType`, an `any.types` op through Modify)
+    with `handler.ErrValidationReservedCarrier` / reason
+    `reserved_carrier`; registered types with a static declaration
+    stay attachable; inbound apply is read-tolerant. `any` maps the
+    reason to `400 type.reserved_carrier` and pre-checks object create
+    (`reservedCarrierType`, reserved_carrier.go) because the SDK's
+    Create mints the tree before the bootstrap that would refuse. So
+    a space has exactly one chat; push and the notification filter
+    resolve chat owners from discovery and needed nothing. No
+    back-compat: a root registered under the former client recipe is
+    a different root, neither detected nor adopted. Tests: the module
+    helpers (`installModuleType` / `mustCreateModuleObject`,
+    `createModuleObject`) run the catalog setup for `chat` and return
+    the root as both the type and the chat object;
+    `TestServer_ChatModuleReserved`; the 1-1 e2e sets up on both
+    sides; SDK `TestPreValidate_ReservedCarrier` +
+    `TestE2E_TypeParts_RegisteredStaticAndReserved`. Contract:
+    docs/03-api.md § Chat + § Parts and modules, docs/16-chat.md,
+    docs/28-well-known-bundles.md, docs/06-errors.md; SDK
+    docs/17-user-datasets.md § Model, docs/bundles.md. **SDK
+    prerequisite:** the sole-carrier pre-flight (branch
+    cheggaaa/syn-216-reserved-type-carrier, pseudo-versioned).
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

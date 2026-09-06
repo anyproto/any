@@ -58,9 +58,8 @@ objects carry — every property needs an xKey, its id derives from it),
 xKey (the type's handle; alone it declares a marker type), layout,
 weight and hidden. rootTypes / rootProperties ride a derived root or a
 created root that declares a type.
-  {"id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
-   "layout": {"type": "chat"},
-   "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}
+  {"id": "notes/v1", "name": "Notes", "hidden": true,
+   "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}
   {"id": "wiki/v1", "name": "Wiki", "derived": true, "weight": 1,
    "properties": [{"xKey": "parentId", "name": "Parent", "kind": "string"},
                   {"xKey": "pos", "name": "Position", "kind": "string"}]}
@@ -104,7 +103,7 @@ func newBundleListCmd() *cobra.Command {
 func newBundleGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <spaceId> <bundleId>",
-		Short: "read one bundle row (the id verbatim, e.g. general-chat/v1)",
+		Short: "read one bundle row (the id verbatim, e.g. favorites/v1)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)

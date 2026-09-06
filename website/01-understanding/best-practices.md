@@ -28,7 +28,7 @@ An object's `any.types` decides which datasets it accepts: a `chat_messages` wri
 
 ## 4. Chat: newest-first, subscribe first
 
-Find the chat through the bundle registry (`general-chat/v1`, `derived: true`) so every client lands on one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `-_ver.id` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history with `{"_ver.id": {"$lt": oldest}}` ([Chat](../types/chat.html)).
+Find the chat through the catalog (`POST /v1/catalog/general-chat/setup`) so every client lands on the one object. Open the view with a **subscribe** — its `snapshot` *is* the initial load; a separate query first opens a gap/dup race. Sort `-_ver.id` everywhere: the window holds the top of the sort, so descending is the only direction where new messages enter it. Page history with `{"_ver.id": {"$lt": oldest}}` ([Chat](../types/chat.html)).
 
 ## 5. Hold a window; recover by resubscribing
 

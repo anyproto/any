@@ -971,14 +971,14 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "module": {
-                        "description": "Module is the serving module: \"records\" (the default), \"editor\"\nor \"chat\".",
+                        "description": "Module is the serving module: \"records\" (the default) or\n\"editor\". \"chat\" is reserved to the server (400\ndataset.module_reserved) — the catalog's general-chat usecase is\nits one declaration.",
                         "type": "string"
                     },
                     "search": {
                         "$ref": "#/components/schemas/api.DatasetSearchFields"
                     },
                     "shared": {
-                        "description": "Shared makes the type participate in the module's canonical\ncollection (editor_blocks, chat_messages) instead of a namespaced\none, so two types sharing the editor give an object carrying both\na single body. Editor: either; chat: shared only; records: never.",
+                        "description": "Shared makes the type participate in the module's canonical\ncollection (editor_blocks) instead of a namespaced one, so two\ntypes sharing the editor give an object carrying both a single\nbody. Editor: either; records: never.",
                         "type": "boolean"
                     },
                     "skipHistory": {

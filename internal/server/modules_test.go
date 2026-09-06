@@ -11,9 +11,11 @@ import (
 
 // Module-declaring types for tests. A chat or editor collection is
 // writable on an object only when one of the object's types declares
-// the module in a part — the production shape is a client-registered
-// bundle (page/v1, chat/v1); the tests mint a plain user type with one
-// shared part per module instead.
+// the module in a part. For the editor the tests mint a plain user
+// type with one shared part; for chat — a reserved module — the only
+// declaration is the catalog's general-chat install, so the chat
+// "type" is the general-chat root and the chat object is the root
+// itself (one chat per space).
 
 var (
 	moduleTypesMu sync.Mutex
@@ -30,6 +32,11 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 	defer moduleTypesMu.Unlock()
 	if id, ok := moduleTypes[key]; ok {
 		return id
+	}
+	if module == "chat" {
+		root := generalChatRoot(t, e, spaceId)
+		moduleTypes[key] = root
+		return root
 	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/types",
 		`{"name":"`+module+` host","xKey":"`+module+`_host","weight":10,"layout":{"type":"page"}}`)
@@ -54,6 +61,9 @@ func installModuleType(t testing.TB, e http.Handler, spaceId, module string) str
 func mustCreateModuleObject(t testing.TB, e http.Handler, spaceId, module string) string {
 	t.Helper()
 	typeId := installModuleType(t, e, spaceId, module)
+	if module == "chat" {
+		return typeId // the general-chat root is the space's one chat
+	}
 	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{"types":["`+typeId+`"]}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create %s object: %d %s", module, rec.Code, rec.Body.String())
@@ -92,3 +102,28 @@ func firstPartId(t testing.TB, e http.Handler, spaceId, typeId string) string {
 	}
 	return parts.Parts[0].Id
 }
+
+// generalChatRoot sets the catalog's general-chat usecase up in the
+// space and returns the derived root — the space's chat object and,
+// being self-typed, the one type declaring the chat module.
+func generalChatRoot(t testing.TB, e http.Handler, spaceId string) string {
+	t.Helper()
+	rec := doJSON(t, e, http.MethodPost, "/v1/catalog/general-chat/setup", `{"spaceId":"`+spaceId+`"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup general-chat: %d %s", rec.Code, rec.Body.String())
+	}
+	var out api.CatalogSetupResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode setup: %v", err)
+	}
+	for _, b := range out.Bundles {
+		if b.Id == generalChatBundleId {
+			return b.Bundle.RootId
+		}
+	}
+	t.Fatalf("setup general-chat returned no %s: %+v", generalChatBundleId, out)
+	return ""
+}
+
+// generalChatBundleId is the catalog's chat install.
+const generalChatBundleId = "system:general-chat/v1"

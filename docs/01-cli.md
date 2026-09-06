@@ -313,9 +313,11 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>
 ```
 
-The `<objectId>` for a space's shared chat is the `rootId` of its chat
-bundle — register it with `any bundle ensure` (§ Bundles below,
-`docs/03-api.md` § Bundles) and read the root off the reply.
+The `<objectId>` for a space's chat is the `rootId` of the catalog's
+`system:general-chat/v1` bundle — `any catalog setup general-chat
+<spaceId>` (§ Catalog below) installs or adopts it and prints the root.
+The chat module is reserved to the server, so that is the one chat a
+space has.
 
 `text` is markdown; `--file -` reads from stdin so multi-line content
 pipes in cleanly (`cat msg.md | any chat send … --file -`). Edit and
@@ -466,7 +468,7 @@ Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing
 root after its content was merged; `child` derives a setup object
-under the winner. Bundle ids are passed verbatim (`general-chat/v1`);
+under the winner. Bundle ids are passed verbatim (`favorites/v1`);
 the CLI encodes the path. Ids under `system:` are the server's and are
 refused.
 

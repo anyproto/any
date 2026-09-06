@@ -662,11 +662,13 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		status int
 		code   string
 	}{
-		"unknown module":      {`{"key":"x","datasets":[{"key":"x","module":"nope"}]}`, http.StatusBadRequest, "dataset.module_unknown"},
-		"records shared":      {`{"key":"x","datasets":[{"module":"records","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
-		"module with fields":  {`{"key":"x","datasets":[{"module":"editor","shared":true,"fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
-		"shared key mismatch": {`{"key":"x","datasets":[{"key":"blocks","module":"editor","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
-		"chat namespaced":     {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
+		"unknown module":         {`{"key":"x","datasets":[{"key":"x","module":"nope"}]}`, http.StatusBadRequest, "dataset.module_unknown"},
+		"records shared":         {`{"key":"x","datasets":[{"module":"records","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
+		"module with fields":     {`{"key":"x","datasets":[{"module":"editor","shared":true,"fields":[{"key":"x","kind":"string"}]}]}`, http.StatusConflict, "dataset.module_owned"},
+		"shared key mismatch":    {`{"key":"x","datasets":[{"key":"blocks","module":"editor","shared":true}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
+		"chat reserved":          {`{"key":"x","datasets":[{"key":"thread","module":"chat"}]}`, http.StatusBadRequest, "dataset.module_reserved"},
+		"chat shared":            {`{"key":"x","datasets":[{"module":"chat","shared":true}]}`, http.StatusBadRequest, "dataset.module_reserved"},
+		"shared-only namespaced": {`{"key":"x","datasets":[{"key":"thread","module":"shared_notes"}]}`, http.StatusBadRequest, "dataset.shared_conflict"},
 	} {
 		rec := doJSON(t, e, http.MethodPost, partsBase, tc.body)
 		if rec.Code != tc.status {
@@ -681,8 +683,8 @@ func TestTypeParts_ModuleDatasets(t *testing.T) {
 		t.Fatalf("parts after refusals: %v %s", err, rec.Body.String())
 	}
 
-	// Shared editor + a namespaced editor instance + a namespaced chat
-	// is refused (chat is shared-only), all under one part.
+	// Shared editor + a namespaced editor instance under one part (chat
+	// is reserved to the catalog, refused above).
 	bodyPart := mustAddPart(t, e, spaceId, typeId,
 		`{"key":"body","name":"Body","datasets":[{"module":"editor","shared":true},{"key":"notes","module":"editor"}]}`)
 	rec = doJSON(t, e, http.MethodGet, partsBase, "")

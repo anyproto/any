@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,8 +36,8 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"bundles"}`, http.StatusCreated, &sp)
 
-	const bundleId = "general-chat/v1"
-	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("chat") + `}`
+	const bundleId = "notes/v1"
+	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("editor") + `}`
 
 	var installed api.BundleEnsureResponse
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/bundles",
@@ -48,11 +49,11 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 		t.Fatalf("name not stored: %+v", installed.Bundle)
 	}
 
-	// Owner speaks first, before the joiner exists in the space.
+	// Owner writes first, before the joiner exists in the space.
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + installed.Bundle.RootId
-	m1 := sendChat(t, ownerBase, `{"text":"hello from owner"}`)
-	if m1.Id == "" {
-		t.Fatalf("m1 not stamped: %+v", m1)
+	ownerMd := ownerBase + "/editor/editor_blocks/markdown"
+	if res := putMarkdown(t, ownerMd, "hello from owner"); len(res.Inserted) != 1 {
+		t.Fatalf("owner write: %+v", res)
 	}
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
@@ -108,23 +109,29 @@ func TestE2E_MultipeerBundles(t *testing.T) {
 	}
 
 	// The joiner writes into the adopted root.
-	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + adopted.Bundle.RootId
-	m2 := sendChat(t, joinerBase, `{"text":"hello from joiner"}`)
-	if m2.Id == "" {
-		t.Fatalf("m2 not stamped: %+v", m2)
+	joinerMd := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + adopted.Bundle.RootId + "/editor/editor_blocks/markdown"
+	if res := appendMarkdownE2E(t, joinerMd+"/append", "hello from joiner"); len(res.Inserted) != 1 {
+		t.Fatalf("joiner write: %+v", res)
 	}
 
-	// Both messages converge on both peers — one object, one tree.
+	// Both blocks converge on both peers — one object, one tree.
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
-		onOwner := chatMessages(t, ownerBase)
-		onJoiner := chatMessages(t, joinerBase)
-		return findById(onOwner, m2.Id).Id == m2.Id &&
-			findById(onJoiner, m1.Id).Id == m1.Id
+		onOwner := getMarkdownContent(t, ownerMd)
+		onJoiner := getMarkdownContent(t, joinerMd)
+		return strings.Contains(onOwner, "hello from joiner") && strings.Contains(onJoiner, "hello from owner")
 	}) {
-		t.Fatalf("bundle chat did not converge: owner has m2=%v, joiner has m1=%v",
-			findById(chatMessages(t, ownerBase), m2.Id).Id != "",
-			findById(chatMessages(t, joinerBase), m1.Id).Id != "")
+		t.Fatalf("bundle body did not converge: owner=%q joiner=%q",
+			getMarkdownContent(t, ownerMd), getMarkdownContent(t, joinerMd))
 	}
+}
+
+// appendMarkdownE2E appends a fragment through the append fast path.
+func appendMarkdownE2E(t *testing.T, appendURL, content string) markdownSetResponse {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"content": content})
+	var resp markdownSetResponse
+	mustJSON(t, http.MethodPost, appendURL, string(body), http.StatusOK, &resp)
+	return resp
 }
 
 // tryJSON issues a request and returns its status instead of failing

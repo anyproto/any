@@ -11,7 +11,7 @@ The any server listens on `127.0.0.1:7001` and exposes one JSON API under `/v1/`
 
 - **Base path** `/v1/`. Media type `application/json; charset=utf-8` for every request with a body and every response, except the two raw file routes.
 - **Status codes**: `200` reads, `201` creates, `204` side-effect-only endpoints. Errors always use the envelope in [Errors](errors.html).
-- **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `general-chat/v1` becomes `general-chat%2Fv1`).
+- **Ids in paths** are URL-safe strings; segments are URL-encoded (a bundle id like `favorites/v1` becomes `favorites%2Fv1`).
 - **Body limit** 1 MB on every route except file attach.
 - **Strict bodies**: endpoints whose OpenAPI schema carries `additionalProperties: false` answer `400 request.unknown_field` for any unknown top-level key. `GET /v1/openapi.json` is the authoritative list.
 - **Unauthorized server**: until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` answers `401 auth.required`.
@@ -117,7 +117,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
-  -d '{"id":"general-chat/v1","name":"General","derived":true,"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}'
+  -d '{"id":"notes/v1","name":"Notes","hidden":true,"parts":[{"key":"body","datasets":[{"module":"editor","shared":true}]}]}'
 ```
 
 Full semantics in [Bundles](../collaboration/bundles.html).

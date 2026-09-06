@@ -49,6 +49,10 @@ becomes useful. Needs:
 
 ## Open questions (still unresolved)
 
+0. **Opening `chat` to clients.** Namespaced chat instances and
+   client-declared chat parts stay refused until push topics
+   (`groupId = sha256(chatId)`) and read tracking are per collection,
+   not per object; until then a space has the one general chat.
 1. **Port default.** Picked 7001 arbitrarily. If it collides with
    anything real, change before first ship.
 2. ~~**`any init` vs first-`any run` auto-create.**~~ Resolved: `run`
@@ -381,8 +385,17 @@ pluggable embedders, parallel batched pipelines),
   (move = attach, restore = detach on the existing routes; the server
   stamps `movedAt` / `movedBy` in the same change and clears them on
   restore). Contract: docs/03-api.md § Types → Built-in hidden types.
-  Still open on the same foundation: general chat under the reserved
-  module (SYN-216), on top of the usecase catalog.
+- **General chat under the reserved `chat` module** (SYN-216) — the
+  `chat` module is `Reserved`: a client part, dataset or bundle naming
+  it is `400 dataset.module_reserved`; the catalog's `general-chat`
+  usecase (`system:general-chat/v1`, derived, hidden, self-typed) is
+  the one declaration, on regular spaces and 1-1s alike, and its root
+  is the type's only carrier (`400 type.reserved_carrier` on create /
+  attach / an `any.types` op — the SDK's local write pre-flight). One
+  chat per space; no back-compat for the former client recipe. Push
+  and the notification filter resolve chat owners from discovery, so
+  they needed nothing. Contract: docs/03-api.md § Chat + § Parts and
+  modules, docs/16-chat.md, docs/28-well-known-bundles.md.
 - **Types, parts and modules** — a type is properties plus parts, each
   part owning datasets a module serves: `records` (the runtime schema
   handler, now always namespaced to `<typeId>_<key>`), `editor` and

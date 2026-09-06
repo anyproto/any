@@ -140,7 +140,7 @@ any chat delete <spaceId> <objectId> <msgId>
 any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 ```
 
-`<objectId>` is the `rootId` of the space's chat bundle. Text is markdown; `--file -` reads stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
+`<objectId>` is the `rootId` of the space's chat — `any catalog setup general-chat <spaceId>` installs or adopts it and prints the root. Text is markdown; `--file -` reads stdin. Edit and delete work on your own messages only. Reading is `any query-subscribe … --dataset chat_messages`.
 
 ## Types and properties
 

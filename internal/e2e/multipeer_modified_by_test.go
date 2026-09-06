@@ -68,7 +68,7 @@ func accountId(t *testing.T, base string) string {
 
 // TestE2E_MultipeerModifiedBy pins the whole `modifiedBy` contract
 // across replicas: the owner creates an object, the joiner writes to it
-// through a synced dataset (chat), and both peers' objects rows
+// through a synced dataset (editor blocks), and both peers' objects rows
 // converge to modifiedBy = joiner / author = owner with modifiedAt at
 // the joiner's write; a later owner write flips modifiedBy back on both
 // sides. `any` passes the rows through raw, so this is the SDK stamp
@@ -91,28 +91,22 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"modified-by"}`, http.StatusCreated, &sp)
 
+	// A created object with a synced dataset (editor blocks); the
+	// space's chat is a derived root, which carries no author.
 	var obj api.ObjectsCreateResponse
-	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "editor")
 	if obj.ObjectId == "" {
 		t.Fatal("owner: no objectId in create response")
 	}
 
-	ownerChat := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
-	joinerChat := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
+	ownerDoc := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
+	joinerDoc := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 
-	// Both identities are taken from a stamp the peer itself produced
-	// (a chat message's `creator`), so the comparisons below cannot be
-	// thrown off by an encoding difference. /v1/account reports that
-	// same StrKey account id — pinned here because clients read the two
-	// together to answer "did I write this last?".
-	m1 := sendChat(t, ownerChat, `{"text":"from owner"}`)
-	ownerId := m1.Creator
-	if ownerId == "" {
-		t.Fatalf("owner's message not stamped: %+v", m1)
-	}
-	if got := accountId(t, owner.base); got != ownerId {
-		t.Errorf("owner /v1/account id = %q, want the stamped identity %q", got, ownerId)
-	}
+	// Identities are the StrKey account ids /v1/account reports — the
+	// encoding the row stamps carry, so clients read the two together
+	// to answer "did I write this last?".
+	ownerId := accountId(t, owner.base)
+	b1 := createBlock(t, ownerDoc, `{"type":"paragraph","text":"from owner"}`)
 
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
@@ -148,12 +142,17 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 		t.Fatalf("author = %q, want the creating account %q", initial.Author, ownerId)
 	}
 
-	// The joiner needs the chat tree locally before it can post into it.
-	// Forced sync is safe (and fast) for a per-object tree.
+	// The joiner needs the object's tree locally before it can write
+	// into it. Forced sync is safe (and fast) for a per-object tree.
 	if !pollUntilSynced(t, 3*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
-		return findMessage(chatMessages(t, joinerChat), "from owner").Id == m1.Id
+		for _, b := range listBlocks(t, joinerDoc).Records {
+			if b.Id == b1.Id {
+				return true
+			}
+		}
+		return false
 	}) {
-		t.Fatal("joiner never saw the owner's message")
+		t.Fatal("joiner never saw the owner's block")
 	}
 
 	// The write under test: a second account writes a dataset of the
@@ -162,14 +161,12 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 	// second resolution — keep this write in a later second than the
 	// owner's first one.
 	time.Sleep(1100 * time.Millisecond)
-	m2 := sendChat(t, joinerChat, `{"text":"from joiner"}`)
-	joinerId := m2.Creator
-	if joinerId == "" || joinerId == ownerId {
-		t.Fatalf("joiner's message not stamped by a second account: %+v", m2)
+	joinerId := accountId(t, joiner.base)
+	if joinerId == ownerId {
+		t.Fatalf("joiner shares the owner's account %q", joinerId)
 	}
-	if got := accountId(t, joiner.base); got != joinerId {
-		t.Errorf("joiner /v1/account id = %q, want the stamped identity %q", got, joinerId)
-	}
+	t2 := time.Now().Unix()
+	createBlock(t, joinerDoc, `{"type":"paragraph","text":"from joiner"}`)
 
 	afterJoiner := converge("after the joiner's write", 3*time.Minute, func(r objectRow) bool {
 		return r.ModifiedBy == joinerId
@@ -177,8 +174,8 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 	if afterJoiner.Author != ownerId {
 		t.Errorf("author = %q after the joiner's write, want the creator %q", afterJoiner.Author, ownerId)
 	}
-	if at := afterJoiner.ModifiedAt.seconds(); at < m2.CreatedAt {
-		t.Errorf("modifiedAt = %d, want the joiner write's time %d or later", at, m2.CreatedAt)
+	if at := afterJoiner.ModifiedAt.seconds(); at < t2 {
+		t.Errorf("modifiedAt = %d, want the joiner write's time %d or later", at, t2)
 	}
 	if at, prev := afterJoiner.ModifiedAt.seconds(), initial.ModifiedAt.seconds(); at <= prev {
 		t.Errorf("modifiedAt = %d, want past the create stamp %d", at, prev)
@@ -186,15 +183,16 @@ func TestE2E_MultipeerModifiedBy(t *testing.T) {
 
 	// And back: the pair follows the latest change whoever signs it.
 	time.Sleep(1100 * time.Millisecond)
-	m3 := sendChat(t, ownerChat, `{"text":"from owner again"}`)
+	t3 := time.Now().Unix()
+	createBlock(t, ownerDoc, `{"type":"paragraph","text":"from owner again"}`)
 	afterOwner := converge("after the owner's second write", 3*time.Minute, func(r objectRow) bool {
 		return r.ModifiedBy == ownerId
 	})
 	if afterOwner.Author != ownerId {
 		t.Errorf("author = %q, want the creator %q", afterOwner.Author, ownerId)
 	}
-	if at := afterOwner.ModifiedAt.seconds(); at < m3.CreatedAt {
-		t.Errorf("modifiedAt = %d, want the owner's second write's time %d or later", at, m3.CreatedAt)
+	if at := afterOwner.ModifiedAt.seconds(); at < t3 {
+		t.Errorf("modifiedAt = %d, want the owner's second write's time %d or later", at, t3)
 	}
 	if at, prev := afterOwner.ModifiedAt.seconds(), afterJoiner.ModifiedAt.seconds(); at <= prev {
 		t.Errorf("modifiedAt = %d, want past the joiner write's %d", at, prev)
