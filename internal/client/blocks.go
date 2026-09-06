@@ -14,10 +14,10 @@ import (
 // empty in the request, fills in the next pos after the parent's
 // current max. Returns the modify result — recordIds[0] is the new
 // block id; read the block back via /query with dataset=editor_blocks.
-func (c *Client) BlocksCreate(ctx context.Context, spaceId, objectId string, req api.BlockCreateRequest) (*api.ModifyResult, error) {
+func (c *Client) BlocksCreate(ctx context.Context, spaceId, objectId, collection string, req api.BlockCreateRequest) (*api.ModifyResult, error) {
 	var out api.ModifyResult
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/blocks",
-		url.PathEscape(spaceId), url.PathEscape(objectId))
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/%s/blocks",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(collection))
 	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
 		return nil, err
 	}
@@ -27,10 +27,10 @@ func (c *Client) BlocksCreate(ctx context.Context, spaceId, objectId string, req
 // BlocksPatch applies a {set, unset} patch atomically to one block.
 // Empty patch is a no-op returning recordIds=[blockId] with an empty
 // versionId.
-func (c *Client) BlocksPatch(ctx context.Context, spaceId, objectId, blockId string, req api.BlockPatchRequest) (*api.ModifyResult, error) {
+func (c *Client) BlocksPatch(ctx context.Context, spaceId, objectId, collection, blockId string, req api.BlockPatchRequest) (*api.ModifyResult, error) {
 	var out api.ModifyResult
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/blocks/%s",
-		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(blockId))
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/%s/blocks/%s",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(collection), url.PathEscape(blockId))
 	if err := c.do(ctx, http.MethodPatch, path, req, &out); err != nil {
 		return nil, err
 	}
@@ -39,10 +39,10 @@ func (c *Client) BlocksPatch(ctx context.Context, spaceId, objectId, blockId str
 
 // MarkdownEdit applies targeted oldText → newText replacements
 // against an object's rendered markdown (PATCH .../editor/markdown).
-func (c *Client) MarkdownEdit(ctx context.Context, spaceId, objectId string, req api.MarkdownEditRequest) (*api.MarkdownSetResponse, error) {
+func (c *Client) MarkdownEdit(ctx context.Context, spaceId, objectId, collection string, req api.MarkdownEditRequest) (*api.MarkdownSetResponse, error) {
 	var out api.MarkdownSetResponse
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/markdown",
-		url.PathEscape(spaceId), url.PathEscape(objectId))
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/%s/markdown",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(collection))
 	if err := c.do(ctx, http.MethodPatch, path, req, &out); err != nil {
 		return nil, err
 	}
@@ -52,10 +52,10 @@ func (c *Client) MarkdownEdit(ctx context.Context, spaceId, objectId string, req
 // BlocksDelete tombstones one block. Children of the deleted block
 // are NOT cascaded. Returns the modify result (versionId of the
 // tombstone change).
-func (c *Client) BlocksDelete(ctx context.Context, spaceId, objectId, blockId string) (*api.ModifyResult, error) {
+func (c *Client) BlocksDelete(ctx context.Context, spaceId, objectId, collection, blockId string) (*api.ModifyResult, error) {
 	var out api.ModifyResult
-	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/blocks/%s",
-		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(blockId))
+	path := fmt.Sprintf("/v1/spaces/%s/objects/%s/editor/%s/blocks/%s",
+		url.PathEscape(spaceId), url.PathEscape(objectId), url.PathEscape(collection), url.PathEscape(blockId))
 	if err := c.do(ctx, http.MethodDelete, path, nil, &out); err != nil {
 		return nil, err
 	}

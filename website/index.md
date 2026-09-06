@@ -18,7 +18,7 @@ $ any run &
 <span class="out">listening 127.0.0.1:7001   network prod   bootstrapping…done</span>
 $ curl -s :7001/v1/spaces -d '{"name":"notes"}' | jq -r .id
 <span class="out">bafyrei…7q.1a2b3c</span>
-$ curl -s :7001/v1/spaces/$S/objects -d '{"name":"hello","types":["page"]}'
+$ curl -s :7001/v1/spaces/$S/objects -d '{"initialProperties":{"any":{"name":"hello"}}}'
 $ curl -sN :7001/v1/spaces/$S/objects/query/subscribe -d '{"limit":20}'
 <span class="out">event: ready
 event: snapshot   {"records":[{"id":"…","any.name":"hello"}],"total":1}
@@ -39,7 +39,7 @@ event: changes    …live from here, from every device you own</span></code></pr
 <a href="realtime/index.html"><strong>Realtime</strong><span>Subscribe, sync status, space list, event bus.</span></a>
 <a href="auth/index.html"><strong>Auth & identity</strong><span>Mnemonic accounts, devices, identities directory.</span></a>
 <a href="collaboration/index.html"><strong>Collaboration</strong><span>Members, invites, ACL, one-to-one spaces, bundles.</span></a>
-<a href="types/index.html"><strong>Built-in types</strong><span>Chat, block editor, page, any:// links.</span></a>
+<a href="types/index.html"><strong>Modules</strong><span>Chat, block editor, page types, any:// links.</span></a>
 <a href="files/index.html"><strong>Files</strong><span>Encrypted attachments, durability, cache.</span></a>
 <a href="search/index.html"><strong>Search</strong><span>Full-text, vector, hybrid — with a local embedder.</span></a>
 <a href="notifications/index.html"><strong>Notifications</strong><span>E2E push and process progress.</span></a>

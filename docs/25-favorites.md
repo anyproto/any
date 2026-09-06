@@ -10,8 +10,11 @@ converge). No favourites code exists on the server.
 
 One bundle, `favorites/v1`, on the **tech space** (`techSpaceId` from
 `GET /v1/account`), installed on a CREATED root — deletable, forking
-on concurrent offline installs (see § Forks). One dataset, `entries`:
-one record per entry, the
+on concurrent offline installs (see § Forks). One part, `entries`, with
+one records dataset of the same key — its collection is the namespaced
+**`<rootId>_entries`** (`03-api.md` § Parts and modules), the `dataset`
+value in every read and write below; read it off the parts list rather
+than composing it. One record per entry, the
 record id deterministic from what the entry IS —
 
 | entry | record id |
@@ -23,7 +26,8 @@ so two devices starring the same object write the *same* record, star
 is an idempotent upsert, and "is this starred" is a point lookup. The
 id prefix is the kind discriminator — there is no `type` field.
 
-Fields (schema is discoverable: `GET /v1/spaces/<tech>/types/<rootId>/datasets`):
+Fields (schema is discoverable: `GET /v1/spaces/<tech>/types/<rootId>/parts`,
+each dataset carrying its `collection`):
 
 | field | | |
 |---|---|---|
@@ -57,8 +61,9 @@ row), with the canonical request:
 
 ```
 POST /v1/spaces/<techSpaceId>/bundles
-{ "id": "favorites/v1", "name": "Favorites", "datasets": [{
-    "name": "entries", "idRule": "user", "dynamic": true,
+{ "id": "favorites/v1", "name": "Favorites", "hidden": true,
+  "parts": [{ "key": "entries", "datasets": [{
+    "key": "entries", "idRule": "user", "dynamic": true,
     "idPattern": "^(any://o/.+|f:[A-Za-z0-9_-]{1,64})$", "idMaxLen": 256,
     "fields": [
       {"key": "parentId", "kind": "string", "required": true, "mutableBy": "any"},
@@ -70,7 +75,7 @@ POST /v1/spaces/<techSpaceId>/bundles
       {"key": "creator", "stamp": "creator"},
       {"key": "createdAt", "stamp": "createTime"},
       {"key": "modifiedAt", "stamp": "modifyTime"}
-    ] }] }
+    ] }] }] }
 ```
 
 Idempotent — the first call installs (the server mints and self-types
@@ -95,7 +100,7 @@ Star (idempotent — re-running re-places and un-removes):
 
 ```
 POST /v1/spaces/<tech>/upsert
-{ "objectId": "<root>", "dataset": "entries", "records": [
+{ "objectId": "<root>", "dataset": "<rootId>_entries", "records": [
   { "id": "any://o/<spaceId>/<objectId>",
     "fields": { "parentId": "", "pos": "<lexid>",
                 "name": "<target any.name>", "iconCid": "<target any.iconCid>",
@@ -112,7 +117,7 @@ Un-star / delete a folder — **soft, always**:
 
 ```
 POST /v1/spaces/<tech>/modify
-{ "objectId": "<root>", "dataset": "entries", "records": [
+{ "objectId": "<root>", "dataset": "<rootId>_entries", "records": [
   { "id": "any://o/…", "ops": [ { "type": "$set", "path": "removed", "value": true } ] } ] }
 ```
 
@@ -127,7 +132,7 @@ The whole tree is one subscription — the set is small, hold it whole:
 
 ```
 POST /v1/spaces/<tech>/query/subscribe
-{ "objectId": "<root>", "dataset": "entries", "sort": ["parentId", "pos"] }
+{ "objectId": "<root>", "dataset": "<rootId>_entries", "sort": ["parentId", "pos"] }
 ```
 
 Render **from the entries alone**: the mirrored `name` / `iconCid` /

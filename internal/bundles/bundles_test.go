@@ -28,23 +28,31 @@ type fakeSpace struct {
 	indexErr error
 	// waited records the deadline the gate gave WaitIndexSynced.
 	waited time.Duration
-	// types serves the root's dataset declarations for the adopt-side
+	// types serves the root's part declarations for the adopt-side
 	// settled check; nil = every root reads as declaration-less.
 	types *fakeTypes
 }
 
-// fakeTypes stubs the one TypesAPI read Ensure performs.
+// fakeTypes stubs the two TypesAPI reads Ensure performs.
 type fakeTypes struct {
 	space.TypesAPI
-	defs map[string][]space.DatasetDef
-	err  error
+	defs  map[string][]space.PartDef
+	props map[string][]space.PropertyDef
+	err   error
 }
 
-func (f *fakeTypes) Datasets(_ context.Context, typeId string) ([]space.DatasetDef, error) {
+func (f *fakeTypes) Parts(_ context.Context, typeId string) ([]space.PartDef, error) {
 	if f == nil {
 		return nil, nil
 	}
 	return f.defs[typeId], f.err
+}
+
+func (f *fakeTypes) Properties(_ context.Context, typeId string) ([]space.PropertyDef, error) {
+	if f == nil {
+		return nil, nil
+	}
+	return f.props[typeId], f.err
 }
 
 func (f *fakeSpace) Id() string                { return f.id }
@@ -122,6 +130,7 @@ type fakeBundles struct {
 	failOn  map[string]error
 	calls   int
 	ensured []space.EnsureBundleRequest
+	options []space.EnsureOptions
 	// after runs at the end of Ensure, standing in for the side
 	// effects the SDK's install has on local state.
 	after func()
@@ -129,9 +138,10 @@ type fakeBundles struct {
 
 // Ensure records the request and registers a row for it, standing in
 // for the SDK's adopt-or-install.
-func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest) (space.Bundle, bool, error) {
+func (f *fakeBundles) Ensure(ctx context.Context, req space.EnsureBundleRequest, opts ...space.EnsureOption) (space.Bundle, bool, error) {
 	f.mu.Lock()
 	f.ensured = append(f.ensured, req)
+	f.options = append(f.options, space.ApplyEnsureOptions(opts...))
 	registered := f.row.RootId == ""
 	f.mu.Unlock()
 	rootId := "derived-root"
@@ -656,21 +666,21 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	}
 }
 
-// TestEnsureDatasetsAdoptStaysRead pins the reader-side contract for
-// datasets-carrying re-ensures: once the installed root carries its
+// TestEnsurePartsAdoptStaysRead pins the reader-side contract for
+// parts-carrying re-ensures: once the installed root carries its
 // declaration (first-write-pinned), adoption is a pure read and must
 // not reach the SDK's Ensure — its write gate would reject readers and
 // guests re-running the documented idempotent request. A root without
 // a declaration still falls through so the SDK can declare.
-func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
+func TestEnsurePartsAdoptStaysRead(t *testing.T) {
 	ctx := context.Background()
 	inst := Install{Id: "notes/v1", Derived: true,
-		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}}}
 
 	sp := newInstallFake(space.PermissionReader, nil)
 	sp.bundles.getErr = nil
 	sp.bundles.row = space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
-	sp.types = &fakeTypes{defs: map[string][]space.DatasetDef{"root-1": {{Name: "entries"}}}}
+	sp.types = &fakeTypes{defs: map[string][]space.PartDef{"root-1": {{Key: "entries"}}}}
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
 	if err != nil || installed || b.RootId != "root-1" {
 		t.Fatalf("reader adopt: b=%+v installed=%v err=%v", b, installed, err)
@@ -690,16 +700,16 @@ func TestEnsureDatasetsAdoptStaysRead(t *testing.T) {
 	}
 }
 
-// TestEnsureCreatedWithDatasets pins the SDK-minted created-root path:
-// a datasets-carrying non-derived install passes no NewRoot (Ensure
+// TestEnsureCreatedWithParts pins the SDK-minted created-root path:
+// a parts-carrying non-derived install passes no NewRoot (Ensure
 // mints and self-types the root — the only create the tech space
 // allows) and reports installed from the SDK's registered bool.
-func TestEnsureCreatedWithDatasets(t *testing.T) {
+func TestEnsureCreatedWithParts(t *testing.T) {
 	sp := newInstallFake(space.PermissionOwner, nil)
 	ctx := context.Background()
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
 		Id: "favorites/v1", Name: "Favorites",
-		Datasets: []space.DatasetDraft{{Name: "entries"}},
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}},
 	})
 	if err != nil || !installed || b.RootId != "minted-root" {
 		t.Fatalf("created+datasets install: b=%+v installed=%v err=%v", b, installed, err)
@@ -708,7 +718,7 @@ func TestEnsureCreatedWithDatasets(t *testing.T) {
 		t.Fatalf("ensure calls = %d", len(sp.bundles.ensured))
 	}
 	req := sp.bundles.ensured[0]
-	if req.DerivedRoot || req.NewRoot != nil || len(req.Datasets) != 1 {
+	if req.DerivedRoot || req.NewRoot != nil || len(req.Parts) != 1 {
 		t.Fatalf("request shape: %+v", req)
 	}
 	if sp.objects.created != 0 {
@@ -716,14 +726,14 @@ func TestEnsureCreatedWithDatasets(t *testing.T) {
 	}
 }
 
-// TestEnsureDatasetsAdoptRoles pins the settled verdicts around the
+// TestEnsurePartsAdoptRoles pins the settled verdicts around the
 // heal fallthrough: a defs-read error or a read-only role always
 // adopts (never the SDK write gate); only a writer with a
 // declaration-less root falls through so the SDK heals.
-func TestEnsureDatasetsAdoptRoles(t *testing.T) {
+func TestEnsurePartsAdoptRoles(t *testing.T) {
 	ctx := context.Background()
 	inst := Install{Id: "notes/v1", Derived: true,
-		Datasets: []space.DatasetDraft{{Name: "entries"}}}
+		Parts: []space.PartDraft{{Key: "entries", Datasets: []space.DatasetDraft{{Key: "entries"}}}}}
 	row := space.Bundle{Id: "notes/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
 
 	// Reader + defs-read error: adopt.
@@ -748,5 +758,70 @@ func TestEnsureDatasetsAdoptRoles(t *testing.T) {
 	}
 	if len(sp2.bundles.ensured) != 0 {
 		t.Fatalf("declaration-less adopt pushed the reader into SDK Ensure")
+	}
+}
+
+// TestEnsurePropertiesAdoptRoles pins the settled verdict for a
+// properties-declaring install: a root carrying every handle adopts
+// as a pure read; a writer with a missing handle falls through so the
+// SDK heals; a reader with a missing handle adopts (it cannot heal and
+// must never hit the write gate).
+func TestEnsurePropertiesAdoptRoles(t *testing.T) {
+	ctx := context.Background()
+	inst := Install{Id: "wiki/v1", Derived: true, Weight: 1,
+		Properties: []space.PropertyDraft{{XKey: "parentId", Kind: space.PropertyKindString}, {XKey: "pos", Kind: space.PropertyKindString}}}
+	row := space.Bundle{Id: "wiki/v1", RootId: "root-1", Roots: []string{"root-1"}, Derived: true}
+	both := map[string][]space.PropertyDef{"root-1": {{Id: "p1", XKey: "parentId"}, {Id: "p2", XKey: "pos"}}}
+	one := map[string][]space.PropertyDef{"root-1": {{Id: "p1", XKey: "parentId"}}}
+
+	// Every handle present: adopt, no SDK call, even for a writer.
+	sp := newInstallFake(space.PermissionWriter, nil)
+	sp.bundles.getErr = nil
+	sp.bundles.row = row
+	sp.types = &fakeTypes{props: both}
+	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, inst)
+	if err != nil || installed || b.RootId != "root-1" {
+		t.Fatalf("settled adopt: b=%+v installed=%v err=%v", b, installed, err)
+	}
+	if len(sp.bundles.ensured) != 0 {
+		t.Fatalf("settled properties adopt reached SDK Ensure %d time(s)", len(sp.bundles.ensured))
+	}
+
+	// A writer with a missing handle falls through so the SDK heals it.
+	sp2 := newInstallFake(space.PermissionWriter, nil)
+	sp2.bundles.getErr = nil
+	sp2.bundles.row = row
+	sp2.types = &fakeTypes{props: one}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp2, inst); err != nil {
+		t.Fatalf("writer heal: %v", err)
+	}
+	if len(sp2.bundles.ensured) != 1 || len(sp2.bundles.ensured[0].Properties) != 2 || sp2.bundles.ensured[0].Weight != 1 {
+		t.Fatalf("writer with a missing handle must reach SDK Ensure once with the declaration, got %+v", sp2.bundles.ensured)
+	}
+	if sp2.bundles.options[0].SystemInstall {
+		t.Fatal("a client install must not carry the system-install option")
+	}
+
+	// A reader with a missing handle adopts.
+	sp3 := newInstallFake(space.PermissionReader, nil)
+	sp3.bundles.getErr = nil
+	sp3.bundles.row = row
+	sp3.types = &fakeTypes{props: one}
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp3, inst); err != nil {
+		t.Fatalf("reader adopt on a missing handle: %v", err)
+	}
+	if len(sp3.bundles.ensured) != 0 {
+		t.Fatalf("missing handle pushed the reader into SDK Ensure")
+	}
+
+	// The server's own install carries the option through.
+	sp4 := newInstallFake(space.PermissionOwner, nil)
+	sys := inst
+	sys.SystemInstall = true
+	if _, _, err := newTestResolver(0).Ensure(ctx, ctx, sp4, sys); err != nil {
+		t.Fatalf("system install: %v", err)
+	}
+	if len(sp4.bundles.options) != 1 || !sp4.bundles.options[0].SystemInstall {
+		t.Fatalf("system install must reach the SDK as the ensure option, got %+v", sp4.bundles.options)
 	}
 }

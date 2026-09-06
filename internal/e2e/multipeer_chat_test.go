@@ -230,8 +230,7 @@ func TestE2E_MultipeerChat(t *testing.T) {
 		`{"name":"chat"}`, http.StatusCreated, &sp)
 
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 	if obj.ObjectId == "" {
 		t.Fatalf("owner: no objectId in create response")
 	}
@@ -371,8 +370,7 @@ func TestE2E_MultipeerChatEditConverges(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"chat-edit"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId

@@ -31,10 +31,17 @@ import "encoding/json"
 type DatasetSchema struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`
-	// TypeId is the owning type for ext-type and runtime-defined
-	// datasets ("" for space-level built-ins). Records exist only on
-	// objects carrying this type; consumers gate indexing/eviction on it.
-	TypeId string `json:"typeId,omitempty"`
+	// Owners are the types that declare the dataset: one for a
+	// registered-type or namespaced dataset, every type sharing the
+	// module for a canonical collection (empty while nothing declares
+	// it), none for space-level built-ins. Records exist only on objects
+	// carrying one of them; consumers gate indexing/eviction on it.
+	Owners []string `json:"owners,omitempty"`
+	// Module is the serving module ("records", "editor", "chat"; empty
+	// for built-ins and registered-type datasets); Shared marks a
+	// module's canonical collection.
+	Module string `json:"module,omitempty"`
+	Shared bool   `json:"shared,omitempty"`
 }
 
 // DatasetsResponse is the body of GET /v1/spaces/:spaceId/datasets and

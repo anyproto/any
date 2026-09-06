@@ -138,7 +138,7 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 		select {
 		case bres := <-batchCh:
 			if bres.err != nil {
-				return d.streamQuerySubscribeFinish(w, res.Sub, bres.err, c.Request().Context().Err() != nil)
+				return d.streamQuerySubscribeFinish(w, res.Sub, bres.err)
 			}
 			batchCh = waitQueryBatch(mailbox, waitCtx)
 			if len(bres.events) == 0 {
@@ -164,20 +164,24 @@ func (d *deps) streamQuerySubscribe(c echo.Context, res *space.QueryResult, incl
 //   - mb.ErrClosed + Sub.Err()==ErrSubscriptionDrifted  → closed{drifted}
 //   - mb.ErrClosed + Sub.Err()==nil + engine teardown   → closed{server_shutdown | deauthorized}
 //   - mb.ErrClosed + Sub.Err()==nil + nothing else      → closed{sdk_closed}
-//   - context error + engine teardown, client present  → closed{server_shutdown | deauthorized}
-//   - context error, client gone                        → nothing
+//   - context error + engine teardown                   → closed{server_shutdown | deauthorized}
+//   - context error, no teardown                        → nothing (the client hung up)
 //
 // Sub.Err() returning nil on a closed mailbox covers both deliberate
 // caller close and SDK-driven teardown; we lean on shutdownCtx to
 // disambiguate the latter. The wait itself returns a context error
 // when shutdownCtx fires before the SDK closes the mailbox — the
-// normal teardown ordering — so that path emits the frame too.
-func (d *deps) streamQuerySubscribeFinish(w http.ResponseWriter, sub space.QuerySubscription, err error, clientGone bool) error {
+// normal teardown ordering — so that path emits the frame too. The
+// request context is no evidence of a hang-up during a teardown: the
+// gate cancels it with the engine (routes.go), racing the wait, so a
+// teardown always writes the frame — to a client that did leave, the
+// write fails and nothing is lost.
+func (d *deps) streamQuerySubscribeFinish(w http.ResponseWriter, sub space.QuerySubscription, err error) error {
 	teardown := d.shutdownCtx != nil && d.shutdownCtx.Err() != nil
 	reason := ""
 	switch {
 	case !errors.Is(err, mb.ErrClosed):
-		if clientGone || !teardown {
+		if !teardown {
 			// The client hung up. Nothing to send.
 			return nil
 		}

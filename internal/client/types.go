@@ -20,9 +20,12 @@ func (c *Client) TypesCreate(ctx context.Context, spaceId string, req api.TypesC
 }
 
 // TypesList lists the types in a space (built-ins + user-defined).
-func (c *Client) TypesList(ctx context.Context, spaceId string) (*api.TypesListResponse, error) {
+func (c *Client) TypesList(ctx context.Context, spaceId string, includeHidden bool) (*api.TypesListResponse, error) {
 	var out api.TypesListResponse
 	path := fmt.Sprintf("/v1/spaces/%s/types", url.PathEscape(spaceId))
+	if includeHidden {
+		path += "?includeHidden=true"
+	}
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
@@ -77,11 +80,55 @@ func (c *Client) TypeDatasets(ctx context.Context, spaceId, typeId string) (*api
 	return &out, nil
 }
 
-// TypeAddDataset defines a dataset on a type. Returns the definition id.
-func (c *Client) TypeAddDataset(ctx context.Context, spaceId, typeId string, req api.DatasetDraftRequest) (*api.AddDatasetResponse, error) {
+// TypePatch patches a type's display and rendering metadata. Returns
+// nil on success (204).
+func (c *Client) TypePatch(ctx context.Context, spaceId, typeId string, req api.TypePatchRequest) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s", url.PathEscape(spaceId), url.PathEscape(typeId))
+	return c.do(ctx, http.MethodPatch, path, req, nil)
+}
+
+// TypeParts lists a type's parts with their datasets.
+func (c *Client) TypeParts(ctx context.Context, spaceId, typeId string) (*api.TypePartsListResponse, error) {
+	var out api.TypePartsListResponse
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/parts", url.PathEscape(spaceId), url.PathEscape(typeId))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TypeAddPart declares a part (with its datasets) on a type. Returns
+// the part id.
+func (c *Client) TypeAddPart(ctx context.Context, spaceId, typeId string, req api.PartDraftRequest) (*api.AddPartResponse, error) {
+	var out api.AddPartResponse
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/parts", url.PathEscape(spaceId), url.PathEscape(typeId))
+	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TypePatchPart applies a {set, unset} patch over a part's display
+// slice. Returns nil on success (204).
+func (c *Client) TypePatchPart(ctx context.Context, spaceId, typeId, partId string, req api.PartPatchRequest) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/parts/%s",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(partId))
+	return c.do(ctx, http.MethodPatch, path, req, nil)
+}
+
+// TypeRemovePart removes a part and its datasets (record data stays).
+func (c *Client) TypeRemovePart(ctx context.Context, spaceId, typeId, partId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/parts/%s",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(partId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// TypeAddDataset declares a dataset on a part. Returns the definition
+// id and the computed collection.
+func (c *Client) TypeAddDataset(ctx context.Context, spaceId, typeId, partId string, req api.DatasetDraftRequest) (*api.AddDatasetResponse, error) {
 	var out api.AddDatasetResponse
-	path := fmt.Sprintf("/v1/spaces/%s/types/%s/datasets",
-		url.PathEscape(spaceId), url.PathEscape(typeId))
+	path := fmt.Sprintf("/v1/spaces/%s/types/%s/parts/%s/datasets",
+		url.PathEscape(spaceId), url.PathEscape(typeId), url.PathEscape(partId))
 	if err := c.do(ctx, http.MethodPost, path, req, &out); err != nil {
 		return nil, err
 	}

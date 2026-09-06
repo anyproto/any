@@ -50,7 +50,7 @@ Bundles follow the same shape: `POST …/bundles` with `"derived": true` is adop
 
 ```sh
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "rootTypes": ["chat"], "derived": true}'
+  -d '{"id": "general-chat/v1", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
 # → {"bundle": {"id": "general-chat/v1", "rootId": "bafy…", "derived": true}, "installed": true}
 ```
 

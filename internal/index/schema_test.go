@@ -27,19 +27,19 @@ func schemaDoc(t *testing.T, search map[string]any) json.RawMessage {
 func TestParseSchemaDatasets(t *testing.T) {
 	skip := map[string]bool{"chat_messages": true, DatasetProp: true, DatasetSchemaVirtual: true}
 	list := []space.DatasetSchema{
-		{Name: "objects", JSONSchema: schemaDoc(t, nil)},                                                          // built-in: TypeId ""
-		{Name: "chat_messages", TypeId: "chat", JSONSchema: schemaDoc(t, map[string]any{"text": "text"})},         // static: skipped
-		{Name: "articles", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]any{"title": "title", "text": "body"})},
-		{Name: "notes", TypeId: "t1", JSONSchema: schemaDoc(t, map[string]any{"text": "content"})},                // text-only
-		{Name: "headlines", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]any{"title": "headline"})},          // title-only
-		{Name: "plain", TypeId: "t2", JSONSchema: schemaDoc(t, nil)},                                              // no x-search: tracked, not searchable
-		{Name: "broken", TypeId: "t2", JSONSchema: json.RawMessage(`{"x-search": 42}`)},                           // malformed: tracked, not searchable
-		{Name: "odd:name", TypeId: "t2", JSONSchema: schemaDoc(t, map[string]any{"text": "x"})},                   // colon: ignored entirely
-		{Name: "scoped", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "recipes"})}, // declared scope
-		{Name: "badscope", TypeId: "t3", JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "Not A Slug"})}, // invalid scope: tracked, not searchable
-		{Name: "emails", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"title": "subject", "text": []string{"body", "notes"}})}, // multi-field text
-		{Name: "single", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"text": []string{"body"}})},        // one-element array
-		{Name: "badtext", TypeId: "t4", JSONSchema: schemaDoc(t, map[string]any{"text": 42})},                     // wrong text type: tracked, not searchable
+		{Name: "objects", JSONSchema: schemaDoc(t, nil)},                                                            // built-in: no owners
+		{Name: "chat_messages", Owners: []string{"chat"}, JSONSchema: schemaDoc(t, map[string]any{"text": "text"})}, // static: skipped
+		{Name: "articles", Owners: []string{"t1"}, JSONSchema: schemaDoc(t, map[string]any{"title": "title", "text": "body"})},
+		{Name: "notes", Owners: []string{"t1"}, JSONSchema: schemaDoc(t, map[string]any{"text": "content"})},                                      // text-only
+		{Name: "headlines", Owners: []string{"t2"}, JSONSchema: schemaDoc(t, map[string]any{"title": "headline"})},                                // title-only
+		{Name: "plain", Owners: []string{"t2"}, JSONSchema: schemaDoc(t, nil)},                                                                    // no x-search: tracked, not searchable
+		{Name: "broken", Owners: []string{"t2"}, JSONSchema: json.RawMessage(`{"x-search": 42}`)},                                                 // malformed: tracked, not searchable
+		{Name: "odd:name", Owners: []string{"t2"}, JSONSchema: schemaDoc(t, map[string]any{"text": "x"})},                                         // colon: ignored entirely
+		{Name: "scoped", Owners: []string{"t3"}, JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "recipes"})},                       // declared scope
+		{Name: "badscope", Owners: []string{"t3"}, JSONSchema: schemaDoc(t, map[string]any{"text": "x", "scope": "Not A Slug"})},                  // invalid scope: tracked, not searchable
+		{Name: "emails", Owners: []string{"t4"}, JSONSchema: schemaDoc(t, map[string]any{"title": "subject", "text": []string{"body", "notes"}})}, // multi-field text
+		{Name: "single", Owners: []string{"t4"}, JSONSchema: schemaDoc(t, map[string]any{"text": []string{"body"}})},                              // one-element array
+		{Name: "badtext", Owners: []string{"t4"}, JSONSchema: schemaDoc(t, map[string]any{"text": 42})},                                           // wrong text type: tracked, not searchable
 	}
 	searchable, unsearchable := parseSchemaDatasets(list, skip)
 
@@ -126,16 +126,16 @@ func TestParseSearchTextFields(t *testing.T) {
 		want   []string
 		wantOk bool
 	}{
-		{"", nil, true},                                // absent
-		{`""`, nil, true},                              // empty string = no mapping
-		{`"body"`, []string{"body"}, true},             // bare string
-		{`["body"]`, []string{"body"}, true},           // one-element array
+		{"", nil, true},                      // absent
+		{`""`, nil, true},                    // empty string = no mapping
+		{`"body"`, []string{"body"}, true},   // bare string
+		{`["body"]`, []string{"body"}, true}, // one-element array
 		{`["body","notes"]`, []string{"body", "notes"}, true},
 		{`["body","","notes"]`, []string{"body", "notes"}, true}, // empty keys dropped defensively
-		{`[]`, nil, true},                              // empty array = no mapping
-		{`42`, nil, false},                             // wrong type
-		{`["body",42]`, nil, false},                    // non-string element
-		{`{"k":"v"}`, nil, false},                      // wrong type
+		{`[]`, nil, true},                                        // empty array = no mapping
+		{`42`, nil, false},                                       // wrong type
+		{`["body",42]`, nil, false},                              // non-string element
+		{`{"k":"v"}`, nil, false},                                // wrong type
 	}
 	for _, tc := range cases {
 		got, ok := parseSearchTextFields(json.RawMessage(tc.raw))

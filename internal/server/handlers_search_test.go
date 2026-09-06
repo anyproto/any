@@ -125,7 +125,7 @@ func TestSearch_FullFlow(t *testing.T) {
 	}
 	spaceId := sp.Id
 
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	chatBase := "/v1/spaces/" + spaceId + "/objects/" + chatObj
 	msg := mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"the zeppelin disaster of 1937"}`, http.StatusCreated)
@@ -133,9 +133,9 @@ func TestSearch_FullFlow(t *testing.T) {
 	mustModify(t, e, http.MethodPost, chatBase+"/chat/messages",
 		`{"text":"lunch plans for tomorrow"}`, http.StatusCreated)
 
-	edObj := mustCreateObject(t, e, spaceId, `{}`)
+	edObj := mustCreateModuleObject(t, e, spaceId, "editor")
 	edBase := "/v1/spaces/" + spaceId + "/objects/" + edObj
-	blk := mustModify(t, e, http.MethodPost, edBase+"/editor/blocks",
+	blk := mustModify(t, e, http.MethodPost, edBase+"/editor/editor_blocks/blocks",
 		`{"type":"paragraph","text":"quarterly budget review notes"}`, http.StatusCreated)
 	blkId := blk.RecordIds[0]
 
@@ -282,7 +282,7 @@ func TestSearch_NoEmbedderAndDisabled(t *testing.T) {
 	ix := newTestIndexer(t, d, nil)
 	defer func() { _ = ix.Close() }()
 
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+chatObj+"/chat/messages",
 		`{"text":"orbital mechanics primer"}`, http.StatusCreated)
 	sdkSpace, err := d.sdk.Spaces().Get(ctx, spaceId)
@@ -330,7 +330,7 @@ func TestSearch_WorkerPath(t *testing.T) {
 	}
 	spaceId := sp.Id
 
-	chatObj := mustCreateObject(t, e, spaceId, `{}`)
+	chatObj := mustCreateModuleObject(t, e, spaceId, "chat")
 	mustModify(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects/"+chatObj+"/chat/messages",
 		`{"text":"asynchronous worker pipeline check"}`, http.StatusCreated)
 

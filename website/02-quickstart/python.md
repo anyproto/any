@@ -31,11 +31,18 @@ space = call("POST", "/spaces", {"name": "Notebook"})
 SPACE = space["id"]                                # "bafyreig…"
 ```
 
-## 2. Create an object
+## 2. Create a page type, then an object
+
+A document is an object carrying a type whose part declares the `editor` module — there is no built-in page type (clients register theirs as a bundle so every device agrees on one).
 
 ```python
+PAGE = call("POST", f"/spaces/{SPACE}/types",
+            {"name": "Page", "xKey": "page", "weight": 10, "layout": {"type": "page"}})["typeId"]
+call("POST", f"/spaces/{SPACE}/types/{PAGE}/parts",
+     {"key": "body", "datasets": [{"module": "editor", "shared": True}]})
+
 obj = call("POST", f"/spaces/{SPACE}/objects", {
-    "types": ["page"],
+    "types": [PAGE],
     "initialProperties": {"any": {"name": "Reading list"}},
 })
 OBJ = obj["objectId"]
@@ -45,7 +52,7 @@ OBJ = obj["objectId"]
 
 ```python
 page = call("POST", f"/spaces/{SPACE}/objects/query", {
-    "filter": {"any.types": "page"},
+    "filter": {"any.types": PAGE},
     "sort": ["-modifiedAt"],
     "limit": 20,
     "includeTotal": True,
@@ -86,7 +93,7 @@ def sse(path, body):
 window = {}                                           # id → record
 
 for event, data in sse(f"/spaces/{SPACE}/objects/query/subscribe",
-                       {"filter": {"any.types": "page"}, "sort": ["-modifiedAt"], "limit": 20}):
+                       {"filter": {"any.types": PAGE}, "sort": ["-modifiedAt"], "limit": 20}):
     if event == "ready":
         continue
     if event == "snapshot":

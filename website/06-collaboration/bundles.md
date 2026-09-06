@@ -27,7 +27,7 @@ Bundle ids carry a slash — the version suffix is part of the id (`general-chat
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "name": "General", "rootTypes": ["chat"], "derived": true}'
+  -d '{"id": "general-chat/v1", "name": "General", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
 ```
 
 ```json
@@ -41,6 +41,7 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
 | `name` | stamped as `any.name` on the root; ≤1024 B |
 | `rootTypes` | types attached to the root; must exist in the space; ≤32 |
 | `rootProperties` | initial property values, validated against their formats; ≤64 KiB |
+| `parts` | parts declared on the root, which then implements itself as a type (`typeId = rootId`) — the [modules](../types/index.html) it holds and its records datasets (`<rootId>_<key>`); ≤32; the same draft shape as `POST …/types/:typeId/parts` |
 | `derived` | install on the root derived from the bundle id (below) |
 
 With a winner already registered, Ensure is a **pure read** — nothing is written, a reader or guest can resolve an install they could not create, and `installed` is `false`. Otherwise the server creates the root with the requested types and properties, registers it in one change, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Type existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 property.format_violation`) never leaves an orphan.
@@ -74,16 +75,16 @@ A space's "general" chat is not a server concept; clients register it:
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "rootTypes": ["chat"], "derived": true}'
+  -d '{"id": "general-chat/v1", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
 ```
 
-Use the returned `rootId` as the [chat](../types/chat.html) object. Different clients that agree on the id agree on the chat.
+Use the returned `rootId` as the [chat](../types/chat.html) object — the chat part declared on the root is what makes it hold `chat_messages`. Different clients that agree on the id agree on the chat.
 
 ## Children
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/general-chat%2Fv1/children \
-  -d '{"seed": "settings", "types": ["page"]}'
+  -d '{"seed": "settings", "types": ["'$PAGE'"]}'
 # → { "objectId": "bafy…" }
 ```
 

@@ -52,8 +52,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 		`{"name":"md-write"}`, http.StatusCreated, &sp)
 
 	var objResp map[string]any
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &objResp)
+	objResp = map[string]any{"objectId": createModuleObject(t, owner.base, sp.Id, "editor")}
 	objectID, _ := objResp["objectId"].(string)
 	if objectID == "" {
 		t.Fatalf("objectId empty: %+v", objResp)
@@ -63,7 +62,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"content": ownerInitial})
 	var setResp map[string]any
 	mustJSON(t, http.MethodPut,
-		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/markdown",
+		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/editor_blocks/markdown",
 		string(body), http.StatusOK, &setResp)
 	if ins, _ := setResp["inserted"].([]any); len(ins) != 2 {
 		t.Fatalf("owner initial set: inserted=%v want 2 entries", ins)
@@ -74,7 +73,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 
 	// 3. Joiner reads the owner's markdown — sanity that owner→joiner
 	// per-tree sync still works at all on this fixture.
-	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
+	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/editor_blocks/markdown"
 	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
@@ -127,7 +126,7 @@ func TestE2E_MultipeerJoinerMarkdownWrite(t *testing.T) {
 	// 6. Owner converges to the joiner's content. The recently-fixed
 	// broadcast-ctx bug aside, the only path back to owner is the
 	// per-tree HeadUpdate broadcast triggered by AddContent.
-	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
+	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/editor_blocks/markdown"
 	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, ownerMdURL, "")
@@ -176,8 +175,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 		`{"name":"delete-prop"}`, http.StatusCreated, &sp)
 
 	var objResp map[string]any
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &objResp)
+	objResp = map[string]any{"objectId": createModuleObject(t, owner.base, sp.Id, "editor")}
 	objectID, _ := objResp["objectId"].(string)
 	if objectID == "" {
 		t.Fatalf("objectId empty: %+v", objResp)
@@ -186,7 +184,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"content": "alpha\n\nbeta"})
 	var ownerSet map[string]any
 	mustJSON(t, http.MethodPut,
-		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/markdown",
+		owner.base+"/v1/spaces/"+sp.Id+"/objects/"+objectID+"/editor/editor_blocks/markdown",
 		string(body), http.StatusOK, &ownerSet)
 	insertedAny, _ := ownerSet["inserted"].([]any)
 	if len(insertedAny) != 2 {
@@ -205,7 +203,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	// initial cold-pull with the delete itself.
 	joinSpace(t, owner, joiner, sp.Id, api.SpacePermissionWriter)
 
-	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
+	mdURL := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/editor_blocks/markdown"
 	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{owner, joiner}, func() bool {
 		var got map[string]any
 		resp, raw := doRequest(t, http.MethodGet, mdURL, "")
@@ -251,7 +249,7 @@ func TestE2E_MultipeerJoinerDeletePropagation(t *testing.T) {
 	}
 
 	// The actual assertion: owner must see the tombstone.
-	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/markdown"
+	ownerMdURL := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + objectID + "/editor/editor_blocks/markdown"
 	ownerEditorBlocksQueryURL := owner.base + "/v1/spaces/" + sp.Id + "/query"
 	queryBody := fmt.Sprintf(`{"objectId":%q,"dataset":"editor_blocks"}`, objectID)
 	if !pollUntilSynced(t, 2*time.Minute, sp.Id, []*peer{joiner, owner}, func() bool {

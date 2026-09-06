@@ -11,8 +11,6 @@ import (
 	"github.com/anyproto/any-store/v2/anyenc"
 
 	"github.com/anyproto/any-sync-sdk/space"
-
-	"github.com/anyproto/any/internal/ensure"
 )
 
 // ErrNotFound signals that a referenced blockId does not exist on the
@@ -65,8 +63,8 @@ type PatchInput struct {
 //
 // Empty result for objects with no body blocks yet (the dataset is
 // empty until the first create).
-func List(ctx context.Context, sp space.Space, objectId string) ([]Block, error) {
-	docs, err := sp.Query(objectId, Dataset).
+func List(ctx context.Context, sp space.Space, objectId, collection string) ([]Block, error) {
+	docs, err := sp.Query(objectId, collection).
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("blocks: List: query: %w", err)
@@ -85,8 +83,8 @@ func List(ctx context.Context, sp space.Space, objectId string) ([]Block, error)
 
 // Get fetches one block by id and returns its wire shape (with _ver).
 // Wraps space.ErrNotFound as ErrNotFound so callers can map to 404.
-func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, error) {
-	doc, err := sp.Query(objectId, Dataset).
+func Get(ctx context.Context, sp space.Space, objectId, collection, blockId string) (Block, error) {
+	doc, err := sp.Query(objectId, collection).
 		Filter(map[string]any{"id": blockId}).
 		One(ctx)
 	if err != nil {
@@ -112,22 +110,12 @@ func Get(ctx context.Context, sp space.Space, objectId, blockId string) (Block, 
 // and allocates the next lexid past it. Concurrent inserts may
 // collide on the same pos — that's OK for sibling ordering; the
 // lexid alphabet has enough headroom for clients to re-rank later.
-// EnsureType attaches the editor type to the object's any.types so the
-// membership-gated editor_blocks write is admitted by the SDK. Shared
-// by Create and markdown.Set.
-func EnsureType(ctx context.Context, sp space.Space, objectId string) error {
-	return ensure.TypeAttached(ctx, sp, objectId, TypeId)
-}
-
-func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput) (space.ModifyResult, error) {
+func Create(ctx context.Context, sp space.Space, objectId, collection string, in CreateInput) (space.ModifyResult, error) {
 	if in.Type == "" {
 		return space.ModifyResult{}, fmt.Errorf("blocks: Create: type required")
 	}
-	if err := EnsureType(ctx, sp, objectId); err != nil {
-		return space.ModifyResult{}, fmt.Errorf("blocks: Create: ensure type: %w", err)
-	}
 	if in.Pos == "" {
-		maxPos, err := MaxPos(ctx, sp, objectId, in.ParentId)
+		maxPos, err := MaxPos(ctx, sp, objectId, collection, in.ParentId)
 		if err != nil {
 			return space.ModifyResult{}, fmt.Errorf("blocks: Create: lookup max pos: %w", err)
 		}
@@ -150,7 +138,7 @@ func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
-		Dataset:  Dataset,
+		Dataset:  collection,
 		Records: []space.RecordModify{{
 			Id:     "",
 			Upsert: true,
@@ -182,8 +170,8 @@ func Create(ctx context.Context, sp space.Space, objectId string, in CreateInput
 // becomes the SDK's space.Op.Path and the JSON value (as
 // json.RawMessage) gets unmarshalled into a Go-native value the SDK
 // accepts. Unset entries become $unset ops, payload-less.
-func Patch(ctx context.Context, sp space.Space, objectId, blockId string, in PatchInput) (space.ModifyResult, error) {
-	if _, err := Get(ctx, sp, objectId, blockId); err != nil {
+func Patch(ctx context.Context, sp space.Space, objectId, collection, blockId string, in PatchInput) (space.ModifyResult, error) {
+	if _, err := Get(ctx, sp, objectId, collection, blockId); err != nil {
 		return space.ModifyResult{}, err
 	}
 
@@ -211,7 +199,7 @@ func Patch(ctx context.Context, sp space.Space, objectId, blockId string, in Pat
 
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
-		Dataset:  Dataset,
+		Dataset:  collection,
 		Records: []space.RecordModify{{
 			Id:  blockId,
 			Ops: ops,
@@ -230,10 +218,10 @@ func Patch(ctx context.Context, sp space.Space, objectId, blockId string, in Pat
 // with the same id would be rejected by the SDK's tombstone rule.
 // Children of the deleted block aren't cascaded automatically; the
 // caller (or the markdown bulk path) is responsible for cleaning up.
-func Delete(ctx context.Context, sp space.Space, objectId, blockId string) (space.ModifyResult, error) {
+func Delete(ctx context.Context, sp space.Space, objectId, collection, blockId string) (space.ModifyResult, error) {
 	res, err := sp.Delete(ctx, space.DeleteBatch{
 		ObjectId:  objectId,
-		Dataset:   Dataset,
+		Dataset:   collection,
 		RecordIds: []string{blockId},
 	})
 	if err != nil {
@@ -245,8 +233,8 @@ func Delete(ctx context.Context, sp space.Space, objectId, blockId string) (spac
 // MaxPos returns the highest nav.pos string among blocks with the
 // given parentId, or "" when the parent has no children yet. Used by
 // Create to allocate the default tail position.
-func MaxPos(ctx context.Context, sp space.Space, objectId, parentId string) (string, error) {
-	doc, err := sp.Query(objectId, Dataset).
+func MaxPos(ctx context.Context, sp space.Space, objectId, collection, parentId string) (string, error) {
+	doc, err := sp.Query(objectId, collection).
 		Filter(map[string]any{"nav.parentId": parentId}).
 		Sort("-nav.pos").
 		Limit(1).

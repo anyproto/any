@@ -17,7 +17,7 @@ func TestServer_MarkdownEmptyParagraphs(t *testing.T) {
 
 	spaceId, objectId := setupBlocksFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
-	md := base + "/editor/markdown"
+	md := base + "/editor/editor_blocks/markdown"
 
 	// One empty paragraph between two paragraphs.
 	resp := markdownSet(t, e, md, "alpha\n\n\nbeta")
@@ -72,7 +72,7 @@ func TestServer_MarkdownEmptyParagraphEdges(t *testing.T) {
 
 	spaceId, objectId := setupBlocksFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
-	md := base + "/editor/markdown"
+	md := base + "/editor/editor_blocks/markdown"
 
 	// A single trailing newline is still just a terminator.
 	markdownSet(t, e, md, "alpha\n")
@@ -135,7 +135,7 @@ func TestServer_MarkdownEditDeletesWholeBlock(t *testing.T) {
 
 	spaceId, objectId := setupBlocksFixture(t, e)
 	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
-	md := base + "/editor/markdown"
+	md := base + "/editor/editor_blocks/markdown"
 
 	markdownSet(t, e, md, "alpha\n\nbeta\n\ngamma")
 	resp := markdownEdit(t, e, base, `{"edits":[{"oldText":"beta","newText":""}]}`)

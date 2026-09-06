@@ -229,6 +229,28 @@ pluggable embedders, parallel batched pipelines),
 - Keep the v1 goal list honest — if we cut something, strike it here
   so a reader knows scope moved.
 
+## Types, parts and modules — follow-ups (shipped, see Done)
+
+- **Namespaced chat.** Chat is shared-only in v1 (one `chat_messages`
+  per object): read tracking, push topics and the unread counters are
+  keyed by object, not by collection. A `<typeId>_<key>` chat instance
+  needs per-collection read state and topic derivation first — and the
+  SDK's read materializer is built only when a static (canonical)
+  registration declares flags or counters, so a module tracked on
+  namespaced instances alone would classify reads without
+  materializing them.
+- **`data_view` as a module.** Saved views stay a registered built-in
+  type owning `data_views`; the same declaration could be a `views`
+  module a part declares (`{"module": "views"}`), which would let a
+  type carry several view sets. Blocked on a client need.
+- **Wiki folder marker.** The well-known `wiki/v1` bundle wants a
+  "folder" flag next to its page type; whether that is a property, a
+  `layout`, or a second type is a client decision still open.
+- **Bundle-declared types beyond the root.** A bundle declares one
+  type — its root's parts, properties (handle-derived ids), layout,
+  weight and hidden flag; a bundle that ships several types (a meeting
+  type plus a decision type) still creates the others one by one.
+
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
 - **Dogfood the generic schema handler.** Collapse remaining zero-logic
@@ -244,14 +266,12 @@ pluggable embedders, parallel batched pipelines),
   is lazy and process-scoped (docs/13-index.md § Removal semantics);
   a boot-time per-space sweep of stored dataset segments against the
   current catalog closes both residual leaks.
-- **SDK sentinels for dataset CRUD errors.** Name conflicts and
-  declaration validation surface as `fmt.Errorf` strings today —
-  `any` preflights names and STOPGAP-matches decl messages
-  (`datasetWriteError`). Wanted: exported `errors.Is`-able sentinels
-  (decl invalid, name conflict), plus a retired-name signal for the
-  index sweep (preserve `name` on the removed def tombstone), and
-  reserving the consumer virtual dataset names (`prop`, `schema`)
-  SDK-side.
+- **SDK sentinels for dataset CRUD errors.** Key conflicts, shared
+  conflicts and declaration validation surface as `fmt.Errorf` strings
+  today — `any` STOPGAP-matches the messages (`datasetWriteError`).
+  Wanted: exported `errors.Is`-able sentinels (decl invalid, key
+  conflict, shared conflict), plus a retired-collection signal for the
+  index sweep (preserve the key on the removed def tombstone).
 
 ## Property descriptors — follow-ups (SYN-211 shipped, see Done)
 
@@ -280,6 +300,19 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **Types, parts and modules** — a type is properties plus parts, each
+  part owning datasets a module serves: `records` (the runtime schema
+  handler, now always namespaced to `<typeId>_<key>`), `editor` and
+  `chat` (compiled-in modules with a canonical shared collection). The
+  built-in `page` / `editor` / `chat` types are gone — an object holds
+  a collection while it carries a declaring type (`400
+  dataset.not_declared` otherwise; no write attaches a type), documents
+  and chats are user types registered as bundles, and bundles declare
+  `parts` instead of `datasets`. Editor routes gained `:collection`;
+  types gained `weight` / `layout` and `PATCH …/types/:typeId`; search
+  gained per-module chunkers over every collection a module serves;
+  push resolves chats through the chat collection's owners. Contract:
+  docs/03-api.md § Parts and modules, the SDK's docs/17-user-datasets.md.
 - **Property & field descriptors (SYN-211)** — one opaque `xFormat`
   bag on property and dataset-field definitions; the typed `format`
   object, `xKind` and the `meta.pos` / `meta.icon` conventions removed;

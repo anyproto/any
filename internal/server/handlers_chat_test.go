@@ -525,11 +525,9 @@ func chatRowUnreadReactions(t *testing.T, e http.Handler, spaceId, objectId stri
 
 // --- helpers ---------------------------------------------------------------
 
-// setupChatFixture creates a space and an object on it. The object is
-// stamped with the chat type so the client doesn't have to know the
-// type id (mirroring how the user would build a chat object via the
-// types API). Reusing chat.TypeId directly here keeps the test
-// hermetic; production callers go through Types.List + Objects.Create.
+// setupChatFixture creates a space and a chat object on it: an object
+// carrying a user type whose part shares the chat module (the
+// production shape is the chat/v1 bundle; the test mints a plain type).
 func setupChatFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	t.Helper()
 
@@ -543,18 +541,7 @@ func setupChatFixture(t *testing.T, e http.Handler) (spaceId, objectId string) {
 	}
 	spaceId = sp.Id
 
-	// The chat type is registered as a built-in handler.Type at SDK
-	// boot, so we don't go through Types.Create. We just create an
-	// object and chat messages will land on its chat_messages dataset.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+spaceId+"/objects", `{}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("create object: %d %s", rec.Code, rec.Body.String())
-	}
-	var obj api.ObjectsCreateResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &obj); err != nil {
-		t.Fatalf("decode object: %v", err)
-	}
-	objectId = obj.ObjectId
+	objectId = mustCreateModuleObject(t, e, spaceId, "chat")
 	return spaceId, objectId
 }
 

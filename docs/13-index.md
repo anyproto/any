@@ -57,17 +57,31 @@ the affected window can't be located incrementally.
 
 ## Chunkers, scopes, gating
 
-| Chunker                 | Dataset (doc-id segment) | `TypeId()` gate | Scope of entries | `Data` |
+| Chunker                 | Dataset (doc-id segment) | Gate | Scope of entries | `Data` |
 |-------------------------|--------------------------|-----------------|------------------|--------|
-| `editor.NewChunker()`   | `editor_blocks`          | `editor`        | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
-| `chat.NewChunker()`     | `chat_messages`          | `chat`          | `chat`           | the message's `text` only |
+| `editor.NewChunker()`   | every `editor` collection — `editor_blocks` + each namespaced `<typeId>_<key>` instance (`Dataset()` = the virtual name `editor`) | per collection: an owner type attached | `basic`          | a **coalesced window** of consecutive blocks (recordId `win_<anchor>`) |
+| `chat.NewChunker()`     | `chat_messages` (`Dataset()` = `chat`) | per collection: an owner type attached | `chat`           | the message's `text` only |
 | `index.NewPropChunker(excl…)`| `prop` (virtual)    | — (ungated)     | `props` (default) / per-prop override | property values, `"<name>: <value>"` (see below) |
 | `index.NewSchemaChunker(static…)`| `schema` (virtual) | — (self-gated per dataset) | `basic` (default) / per-dataset `x-search.scope` | runtime-dataset records by their x-search mapping (see below) |
 
+- **Module chunkers index every collection a module serves.** The
+  editor and chat chunkers are `index.ModuleChunker`s: one registered
+  chunker per module, resolved per space from `Space.Datasets` — the
+  module's canonical collection plus every namespaced instance a
+  type's part declares. Entries carry the real collection as their
+  `Dataset`, so doc ids stay per collection (`objectId:<collection>:`);
+  the chunker's own `Dataset()` is the module's virtual name and never
+  a doc-id segment. The gate is collection ownership (the discovery
+  document's `owners`): the chunker implements `DynamicChunker`, and
+  the worker prefix-evicts `objectId:<collection>:` for every collection
+  of the module none of whose owners is in the object's `any.types`,
+  plus collections that vanished from the catalog since process start
+  (a removed part — same restart caveat as runtime datasets, § Removal
+  semantics).
 - **Chat = one record per chunk.** `chat_messages` indexes one entry per
   message (creator / reactions / attachments excluded — text only).
-- **Editor = coalesced windows.** `editor_blocks` does NOT index one doc
-  per block: consecutive blocks (in document order — the `List` tree
+- **Editor = coalesced windows.** An editor collection does NOT index one
+  doc per block: consecutive blocks (in document order — the `List` tree
   walk) are grouped into ~1.5 KB windows broken before each heading
   (`internal/editor/window.go`), one index doc per window, anchored on
   the window's first block (`recordId = win_<firstBlockId>`), `Data` =
@@ -75,11 +89,13 @@ the affected window can't be located incrementally.
   one-block chunks (mean ~98 chars) hurt vector recall and BM25 length
   normalization; coalescing fixes both (chunker-hybrid-search-report
   § 3–4, eval § 9.1). Because a window spans several records, the editor
-  chunker is a **`index.Reconciler`** — it returns the object's full
-  current window set and the indexer diffs it against the stored docs by
-  **content hash** (see below): only changed/new windows re-embed,
-  unchanged ones keep their vectors. So an append re-embeds one window,
-  not the whole doc. The read is still O(doc) per edit (re-reads the
+  chunker is a **`index.MultiReconciler`** — it returns the object's
+  full current window set per editor collection it holds
+  (`ReconcileAll`) and the indexer diffs each set against that
+  collection's stored docs by **content hash** (see below): only
+  changed/new windows re-embed, unchanged ones keep their vectors. So
+  an append re-embeds one window, not the whole doc, and an edit in a
+  part's own editor never touches the shared body's docs. The read is still O(doc) per edit (re-reads the
   blocks to form windows), but that's cheap against the local DB; the
   expensive axis (embedding) is incremental.
 - **Programs are not indexed.** `program` is a harness-declared user
@@ -91,9 +107,12 @@ the affected window can't be located incrementally.
 - **Scopes are an open set** of slugs (`index.ValidScope`: 1..64 chars
   of `[a-z0-9_-]`); `basic` / `chat` / `props` are the established
   vocabulary, and property meta flags can mint new ones. `props` is FTS-only (see the prop chunker below).
-- **`TypeId()` gating**: the indexer runs a gated chunker only while the
-  type literal is in the object's `any.types`; when it is not, it
-  prefix-evicts `objectId:<dataset>:` instead (see eviction below).
+- **`TypeId()` gating**: a chunker naming a type literal runs only
+  while that type is in the object's `any.types`; when it is not, the
+  indexer prefix-evicts `objectId:<dataset>:` instead (see eviction
+  below). No compiled-in chunker uses it today — module and runtime
+  datasets gate per collection through `DynamicChunker` — but the
+  contract stays for a chunker bound to one type.
 
 ### The prop chunker (`internal/index/prop.go`)
 
@@ -209,10 +228,12 @@ user dataset names at the creation API.
   resolve serves the paired EvictDatasets + ChunksSince calls (a
   one-shot per-space handoff; each space has a single advance
   goroutine).
-- **Static skip set**: every compiled-in dataset name (from the
-  server's `handler.Type` list) plus the virtual names is never
-  treated as runtime — belt-and-braces against definitions synced from
-  a peer with a different compiled-in set.
+- **Static skip set**: every compiled-in dataset name (the server's
+  `handler.Type` datasets and the modules' canonical collections) plus
+  the virtual names is never treated as runtime — belt-and-braces
+  against definitions synced from a peer with a different compiled-in
+  set; module-served collections are the module chunker's, never the
+  schema chunker's (discovery `module != records`).
 
 ### Chunking long records (`internal/indexer/chunk.go`)
 
@@ -244,10 +265,11 @@ re-prefixed title) but not of chunk 0: hashing `Data` alone would refresh
 the tail and leave chunk 0 serving the old title in its BM25F field. The
 indexer uses it to avoid re-embedding unchanged content:
 
-- **Reconcile diff (editor).** `worker.reconcile` reads the object's
-  stored `(id, hash)` for `objectId:dataset:` (`Store.DocHashes`), diffs
-  against the chunker's full window set, and emits deletes for vanished
-  ids, upserts for new/changed ones, and **nothing** for unchanged ids —
+- **Reconcile diff (editor).** `worker.reconcileMulti` reads, per
+  editor collection the object holds, the stored `(id, hash)` for
+  `objectId:<collection>:` (`Store.DocHashes`), diffs against that
+  collection's full window set, and emits deletes for vanished ids,
+  upserts for new/changed ones, and **nothing** for unchanged ids —
   their docs (and vectors) stay. An append re-embeds only the new window.
 - **Per-record skip (chat / memory).** On an incremental advance,
   `worker.streamChunks` batch-reads the changed records' stored hashes
@@ -275,9 +297,9 @@ Three granularities, all addSeq-consistent (discovered through the same
 |---------------|----------------|-----------------|
 | record deleted / value cleared (per-record chunker) | the chunker (streams the tombstoned record / empty value) | entry with `Data == ""` → range delete `[objectId:dataset:recordId, +" ")` (the record's every chunk) |
 | record shrank to fewer chunks | the indexer (`planDocs` diffs the new chunk set against `DocHashesByRecords`) | delete the trailing chunk ids, upsert the changed ones |
-| any change to a **coalescing** dataset (editor) | the `Reconciler` chunker + indexer hash-diff | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
-| type detached (`DetachType` — bumps `_addSeq`) | the indexer (gated chunker's `TypeId()` ∉ `any.types`; runtime datasets via the schema chunker's `EvictDatasets`) | prefix delete `objectId:dataset:` |
-| runtime dataset definition removed | the schema chunker (name vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
+| any change to a **coalescing** collection (editor) | the `MultiReconciler` chunker + indexer hash-diff, per collection | delete the window ids that vanished, upsert the changed/new ones, leave unchanged ones — expresses block edits / deletes / merges that shift a window's shape, without re-embedding untouched windows |
+| type detached (`DetachType` — bumps `_addSeq`) | the indexer (a gated chunker's `TypeId()` ∉ `any.types`; module and runtime collections via their chunker's `EvictDatasets` — no owner type attached) | prefix delete `objectId:dataset:` |
+| part or runtime dataset definition removed | the module / schema chunker (the collection vanishes from the catalog → per-space retired set, held for the process lifetime) | prefix delete `objectId:dataset:` on each object's NEXT dirty tick |
 | object deleted (`Objects().Delete`) | the indexer (`ObjectChange.Deleted` in the change feed) | prefix delete `objectId:` |
 
 Object deletion leaves **no tombstone**: the SDK purges the shared

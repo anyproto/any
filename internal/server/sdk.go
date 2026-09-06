@@ -20,7 +20,6 @@ import (
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/nav"
-	"github.com/anyproto/any/internal/page"
 )
 
 // logConfigOnce gates Config.ApplyGlobal so the zap defaults are set
@@ -70,6 +69,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 		Sync:    sdkconfig.Sync{ChangeBatchSize: cfg.Sync.ChangeBatchSize},
 		P2P:     sdkconfig.P2P{Enabled: cfg.P2P.Enabled, Port: cfg.P2P.Port, ServiceName: cfg.P2P.ServiceName},
 		Types:   serverTypes(),
+		Modules: serverModules(),
 	}
 	if cfg.Sync.DialTimeout != "" {
 		d, err := time.ParseDuration(cfg.Sync.DialTimeout)
@@ -101,30 +101,69 @@ func OpenSDK(ctx context.Context, cfg config.Config, dataDir string, provider au
 	return anysyncsdk.Open(ctx, sdkCfg, provider)
 }
 
+// extraCatalog is the test seam for the compiled-in catalog: types and
+// modules a test binary registers next to the server's own, so
+// registered-type parts, hidden built-ins and reserved modules can be
+// exercised over HTTP without shipping a production entry for them.
+// Set from a test file's init; empty in the server binary.
+var extraCatalog struct {
+	types   []handler.Type
+	modules []handler.Module
+}
+
 // serverTypes is the hardcoded type set this server adds on top of the
-// SDK's built-ins. Each entry registers its handler(s) with every
-// per-object Controller, so writes targeting the type's dataset(s)
-// flow through the type's validation logic. Shared by OpenSDK and the
-// index registry's static-dataset skip list.
+// SDK's built-ins — the types that are not modules: a saved-view
+// dataset on any host object and the nav property namespace. Each entry
+// registers its handler(s) with every per-object Controller.
 func serverTypes() []handler.Type {
-	return []handler.Type{
-		editor.NewType(),
-		chat.NewType(),
+	out := []handler.Type{
 		dataview.NewType(), // data_views: one saved view per record, on any host object
 		nav.NewType(),      // property-only: no dataset, just nav.* schema
-		page.NewType(),     // marker-only: the shared "this object is a document" type
 	}
+	return append(out, extraCatalog.types...)
+}
+
+// serverModules is the dataset-module set: compiled-in behaviours a
+// type declares at runtime inside its parts and the SDK instantiates per
+// collection — the editor's block tree and the chat message stream.
+// Shared by OpenSDK and the index registry.
+func serverModules() []handler.Module {
+	out := []handler.Module{
+		editor.NewModule(),
+		chat.NewModule(),
+	}
+	return append(out, extraCatalog.modules...)
+}
+
+// reservedModule reports whether a module name is registered as
+// reserved to the server's own installs (handler.Module.Reserved).
+func reservedModule(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, m := range serverModules() {
+		if m.Name == name {
+			return m.Reserved
+		}
+	}
+	return false
 }
 
 // staticDatasetNames collects every compiled-in dataset name across
-// serverTypes() — indexed or not — so the schema chunker never treats a
-// compiled-in dataset as runtime (belt-and-braces against definitions
-// synced from a peer without this server's config).
+// serverTypes() and the modules' canonical collections — indexed or
+// not — so the schema chunker never treats a compiled-in dataset as a
+// runtime records one (belt-and-braces against definitions synced from
+// a peer without this server's config).
 func staticDatasetNames() []string {
 	var out []string
 	for _, t := range serverTypes() {
 		for _, ds := range t.Datasets {
 			out = append(out, ds.Name)
+		}
+	}
+	for _, m := range serverModules() {
+		if m.Canonical != "" {
+			out = append(out, m.Canonical)
 		}
 	}
 	return out

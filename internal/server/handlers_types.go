@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -69,11 +70,24 @@ func (d *deps) typeCreate(c echo.Context) error {
 		}
 	}
 
+	layout, code, reason := layoutFromWire(req.Layout)
+	if code != "" {
+		return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "layout"})
+	}
+	for k, v := range req.Meta {
+		if code, reason := checkTypeMetaEntry(k, v); code != "" {
+			return writeError(c, http.StatusBadRequest, code, reason, map[string]any{"path": "meta." + k})
+		}
+	}
 	typeId, err := sp.Types().Create(c.Request().Context(), space.TypeCreateParams{
 		Name:        req.Name,
 		Description: req.Description,
 		IconCID:     req.IconCID,
 		XKey:        req.XKey,
+		Weight:      req.Weight,
+		Layout:      layout,
+		Hidden:      req.Hidden,
+		Meta:        req.Meta,
 	})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
@@ -108,40 +122,9 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-
-	// Kind is the guarantee and is always explicit — nothing is
-	// defaulted from the descriptor.
-	if req.Kind == "" {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"kind is required (string / number / boolean / array / object / datetime)", nil)
-	}
-	kind, ok := propertyKindFromString(req.Kind)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "request.schema",
-			"unknown property kind",
-			map[string]any{"kind": req.Kind})
-	}
-	for k := range req.Meta {
-		if k != index.MetaIndexKey {
-			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"meta holds only "+index.MetaIndexKey+"; descriptive keys live under xFormat",
-				map[string]any{"key": k})
-		}
-	}
-	xf, code, reason := validateDescriptor(req.XFormat, req.Kind)
+	draft, code, reason, details := propertyDraftFromAPI(*req)
 	if code != "" {
-		return writeError(c, http.StatusBadRequest, code, reason, nil)
-	}
-
-	var scope space.Scope // zero value = synced (SDK default)
-	if req.Scope != "" {
-		var ok bool
-		scope, ok = space.ParseScope(req.Scope)
-		if !ok || scope == space.ScopeDerived {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"scope must be one of synced, account, local",
-				map[string]any{"scope": req.Scope})
-		}
+		return writeError(c, http.StatusBadRequest, code, reason, details)
 	}
 
 	// xKey is unique within the type — a read-then-create preflight,
@@ -157,15 +140,7 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		}
 	}
 
-	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, space.PropertyDraft{
-		Name:        req.Name,
-		Description: req.Description,
-		XKey:        req.XKey,
-		Kind:        kind,
-		Meta:        req.Meta,
-		XFormat:     xf,
-		Scope:       scope,
-	})
+	propId, err := sp.Types().AddProperty(c.Request().Context(), typeId, draft)
 	if err != nil {
 		if errors.Is(err, space.ErrTypeRegistered) {
 			return writeError(c, http.StatusBadRequest, "type.registered",
@@ -175,6 +150,50 @@ func (d *deps) typeAddProperty(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "typeId": typeId})
 	}
 	return c.JSON(http.StatusCreated, api.AddPropertyResponse{PropId: propId})
+}
+
+// propertyDraftFromAPI is the one gate a property definition passes on
+// its way to the SDK — POST …/properties and a bundle's `properties`
+// alike: kind required and known (nothing is defaulted from the
+// descriptor), meta narrowed to the index flag, the descriptor
+// validated against the kind, scope creatable. Returns ("", "", nil)
+// code/reason/details on success.
+func propertyDraftFromAPI(req api.AddPropertyRequest) (space.PropertyDraft, string, string, map[string]any) {
+	var draft space.PropertyDraft
+	if req.Kind == "" {
+		return draft, "request.schema", "kind is required (string / number / boolean / array / object / datetime)", nil
+	}
+	kind, ok := propertyKindFromString(req.Kind)
+	if !ok {
+		return draft, "request.schema", "unknown property kind", map[string]any{"kind": req.Kind}
+	}
+	for k := range req.Meta {
+		if k != index.MetaIndexKey {
+			return draft, "request.invalid_field",
+				"meta holds only " + index.MetaIndexKey + "; descriptive keys live under xFormat",
+				map[string]any{"key": k}
+		}
+	}
+	xf, code, reason := validateDescriptor(req.XFormat, req.Kind)
+	if code != "" {
+		return draft, code, reason, nil
+	}
+	var scope space.Scope // zero value = synced (SDK default)
+	if req.Scope != "" {
+		scope, ok = space.ParseScope(req.Scope)
+		if !ok || scope == space.ScopeDerived {
+			return draft, "request.schema", "scope must be one of synced, account, local", map[string]any{"scope": req.Scope}
+		}
+	}
+	return space.PropertyDraft{
+		Name:        req.Name,
+		Description: req.Description,
+		XKey:        req.XKey,
+		Kind:        kind,
+		Meta:        req.Meta,
+		XFormat:     xf,
+		Scope:       scope,
+	}, "", "", nil
 }
 
 // requireXKeyFree 409s when another of the type's definitions already
@@ -209,11 +228,18 @@ func (d *deps) typeList(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
+	// Hidden types (a client's choice, or a bundle's self-typed root)
+	// stay out of the default listing — the picker view — and come back
+	// with includeHidden=true; GET …/types/:typeId resolves them always.
+	includeHidden := c.QueryParam("includeHidden") == "true"
 	// nav is registered with the SDK (config.Config.Types, see sdk.go) as a
 	// property-only type, so Types().List already surfaces it with
 	// BuiltIn=true — do NOT inject it again here or clients see "nav" twice.
 	out := make([]api.TypeInfo, 0, len(infos))
 	for _, t := range infos {
+		if t.Hidden && !includeHidden {
+			continue
+		}
 		out = append(out, typeInfoToAPI(t))
 	}
 	return c.JSON(http.StatusOK, api.TypesListResponse{Types: out})
@@ -461,14 +487,23 @@ func typeInfoToAPI(t space.TypeInfo) api.TypeInfo {
 	if xkey == "" && t.BuiltIn {
 		xkey = t.Id
 	}
-	return api.TypeInfo{
+	out := api.TypeInfo{
 		Id:          t.Id,
 		Name:        t.Name,
 		Description: t.Description,
 		IconCID:     t.IconCID,
 		XKey:        xkey,
 		BuiltIn:     t.BuiltIn,
+		Weight:      t.Weight,
+		Hidden:      t.Hidden,
+		Meta:        t.Meta,
 	}
+	if len(t.Layout) > 0 {
+		if raw, err := json.Marshal(t.Layout); err == nil {
+			out.Layout = raw
+		}
+	}
+	return out
 }
 
 func propertyDefToAPI(p space.PropertyDef) api.PropertyDef {

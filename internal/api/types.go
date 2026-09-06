@@ -15,6 +15,37 @@ type TypesCreateRequest struct {
 	// Clients derive it as a slug of Name. It's the only human handle a
 	// type resolves by — the display Name is not a resolution key.
 	XKey string `json:"xKey,omitempty"`
+	// Weight picks the primary type of a multi-typed object: the highest
+	// wins, tie broken by type id. Layout is how the primary type's
+	// header and parts compose — {type, config} in the xFormat shape (v1
+	// slugs: page, tabs, chat, profile; open set, unknown renders as
+	// page). Both mutable via PATCH …/types/:typeId.
+	Weight int             `json:"weight,omitempty"`
+	Layout json.RawMessage `json:"layout,omitempty"`
+	// Hidden keeps the type out of GET …/types by default (pass
+	// includeHidden=true to list it) and out of a client's pickers;
+	// GET …/types/:typeId always resolves it. Meta is the open bag of
+	// consumer flags — one string, bool or number per single-level key
+	// (no '.', no '$', ≤64 bytes), written per key so concurrent
+	// writers merge; opaque to the server. Both mutable via PATCH.
+	Hidden bool           `json:"hidden,omitempty"`
+	Meta   map[string]any `json:"meta,omitempty"`
+}
+
+// TypePatchRequest is the body of PATCH /v1/spaces/:spaceId/types/:typeId
+// — a user type's display and rendering metadata. Absent fields keep
+// their value; an empty string clears a text field; `"layout": null`
+// clears the layout. `meta` patches the flag bag per key: a scalar
+// sets the key, `null` unsets it, keys not named are untouched. At
+// least one field is required.
+type TypePatchRequest struct {
+	Name        *string                    `json:"name,omitempty"`
+	Description *string                    `json:"description,omitempty"`
+	IconCID     *string                    `json:"iconCid,omitempty"`
+	Weight      *int                       `json:"weight,omitempty"`
+	Layout      json.RawMessage            `json:"layout,omitempty"`
+	Hidden      *bool                      `json:"hidden,omitempty"`
+	Meta        map[string]json.RawMessage `json:"meta,omitempty"`
 }
 
 // TypesCreateResponse is the body returned by POST /v1/spaces/:spaceId/types.
@@ -91,6 +122,14 @@ type TypeInfo struct {
 	// it as the stable type handle in dotted property paths.
 	XKey    string `json:"xKey,omitempty"`
 	BuiltIn bool   `json:"builtIn,omitempty"`
+	// Weight / Layout — see TypesCreateRequest. Zero / absent on
+	// built-ins.
+	Weight int             `json:"weight,omitempty"`
+	Layout json.RawMessage `json:"layout,omitempty"`
+	// Hidden / Meta — see TypesCreateRequest. GET …/types omits hidden
+	// types unless includeHidden=true.
+	Hidden bool           `json:"hidden,omitempty"`
+	Meta   map[string]any `json:"meta,omitempty"`
 }
 
 // TypesListResponse is the body of GET /v1/spaces/:spaceId/types.

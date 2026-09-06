@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -10,33 +11,52 @@ import (
 )
 
 // newTypeCmd is the root for `any type <subcommand>` — mirrors the HTTP
-// namespace under /v1/spaces/:id/types. Type create/list plus the
-// property sub-group (list / add / patch / remove / option).
+// namespace under /v1/spaces/:id/types. Type create/list/update plus
+// the property sub-group (list / add / patch / remove / option) and the
+// part sub-group (list / add / patch / remove, with the datasets under
+// a part).
 func newTypeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "type",
-		Short: "types + property definitions in a space",
+		Short: "types, property definitions and parts in a space",
 	}
 	cmd.AddCommand(
 		newTypeCreateCmd(),
 		newTypeListCmd(),
+		newTypeUpdateCmd(),
 		newTypePropertyCmd(),
-		newTypeDatasetCmd(),
+		newTypePartCmd(),
 	)
 	return cmd
 }
 
 func newTypeCreateCmd() *cobra.Command {
-	var name, desc, iconCID, xkey string
+	var (
+		name, desc, iconCID, xkey string
+		weight                    int
+		layoutRaw                 string
+		hidden                    bool
+		metaRaw                   []string
+	)
 	cmd := &cobra.Command{
 		Use:   "create <spaceId>",
 		Short: "create a user-defined type",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			req := api.TypesCreateRequest{Name: name, Description: desc, IconCID: iconCID, XKey: xkey, Weight: weight, Hidden: hidden}
+			if layoutRaw != "" {
+				if !json.Valid([]byte(layoutRaw)) {
+					return fmt.Errorf("--layout is not valid JSON")
+				}
+				req.Layout = json.RawMessage(layoutRaw)
+			}
+			meta, err := parseMetaFlags(metaRaw)
+			if err != nil {
+				return err
+			}
+			req.Meta = meta
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypesCreate(cmd.Context(), args[0], api.TypesCreateRequest{
-				Name: name, Description: desc, IconCID: iconCID, XKey: xkey,
-			})
+			out, err := cl.TypesCreate(cmd.Context(), args[0], req)
 			if err != nil {
 				return err
 			}
@@ -47,23 +67,60 @@ func newTypeCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&desc, "description", "", "description")
 	cmd.Flags().StringVar(&iconCID, "icon-cid", "", "icon CID")
 	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key (required, unique per space)")
+	cmd.Flags().IntVar(&weight, "weight", 0, "primary-type weight (highest carried type renders)")
+	cmd.Flags().StringVar(&layoutRaw, "layout", "", `layout descriptor JSON, e.g. '{"type":"page"}'`)
+	cmd.Flags().BoolVar(&hidden, "hidden", false, "keep the type out of default listings and pickers")
+	cmd.Flags().StringArrayVar(&metaRaw, "meta", nil, "consumer flag key=value (repeatable; value parsed as JSON scalar, else a string)")
 	return cmd
 }
 
+// parseMetaFlags turns repeatable key=value flags into the meta bag: a
+// value that parses as a JSON scalar (true, 3, "x") is taken as such,
+// anything else is a string; an empty value unsets the key.
+func parseMetaFlags(raw []string) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]any, len(raw))
+	for _, kv := range raw {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("--meta expects key=value, got %q", kv)
+		}
+		if v == "" {
+			out[k] = nil
+			continue
+		}
+		var parsed any
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			switch parsed.(type) {
+			case string, bool, float64:
+				out[k] = parsed
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
 func newTypeListCmd() *cobra.Command {
-	return &cobra.Command{
+	var includeHidden bool
+	cmd := &cobra.Command{
 		Use:   "list <spaceId>",
 		Short: "list types in a space",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypesList(cmd.Context(), args[0])
+			out, err := cl.TypesList(cmd.Context(), args[0], includeHidden)
 			if err != nil {
 				return err
 			}
 			return printJSON(out)
 		},
 	}
+	cmd.Flags().BoolVar(&includeHidden, "include-hidden", false, "also list hidden types (a records-hosting bundle root, a type marked hidden)")
+	return cmd
 }
 
 // newTypePropertyCmd is `any type property <subcommand>` — the property
@@ -256,15 +313,17 @@ func newTypePropertyOptionSetCmd() *cobra.Command {
 	return cmd
 }
 
-// newTypeDatasetCmd is `any type dataset <subcommand>` — the runtime
-// dataset-schema verbs, 1:1 with the endpoints under
-// /v1/spaces/:id/types/:typeId/datasets. Data flows through the
+// newTypeDatasetCmd is `any type part dataset <subcommand>` — the
+// dataset verbs under a part, 1:1 with the endpoints under
+// /v1/spaces/:id/types/:typeId/parts/:partId/datasets (add) and
+// …/types/:typeId/datasets/:defId (patch / remove / fields). `type
+// part list` shows every dataset with its part. Data flows through the
 // existing modify/query surface plus `any upsert` for id:user datasets.
 func newTypeDatasetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "dataset",
 		Aliases: []string{"ds"},
-		Short:   "list / add / patch / remove runtime dataset definitions",
+		Short:   "list / add / patch / remove a part's dataset definitions",
 	}
 	cmd.AddCommand(
 		newTypeDatasetListCmd(),
@@ -279,7 +338,7 @@ func newTypeDatasetCmd() *cobra.Command {
 func newTypeDatasetListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list <spaceId> <typeId>",
-		Short: "list a type's runtime dataset definitions",
+		Short: "list a type's dataset definitions flat (every part's)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
@@ -295,10 +354,10 @@ func newTypeDatasetListCmd() *cobra.Command {
 func newTypeDatasetAddCmd() *cobra.Command {
 	var draft string
 	cmd := &cobra.Command{
-		Use:   "add <spaceId> <typeId>",
-		Short: "define a dataset on a type from a JSON draft",
-		Long: `Define a runtime dataset (api.DatasetDraftRequest shape):
-  {"name": "articles", "idRule": "user", "deleteBy": "author",
+		Use:   "add <spaceId> <typeId> <partId>",
+		Short: "declare a dataset on a part from a JSON draft",
+		Long: `Declare a dataset on an existing part (api.DatasetDraftRequest shape):
+  {"key": "articles", "idRule": "user", "deleteBy": "author",
    "search": {"title": "title", "text": "body", "scope": "news"},
    "fields": [
      {"key": "title", "kind": "string", "required": true, "mutableBy": "author",
@@ -311,18 +370,22 @@ search.text is a bare field key or a non-empty array of keys, e.g.
 "search": {"title": "subject", "text": ["body", "notes"]} — the index
 joins the mapped fields into one body. A field's xFormat is the same
 descriptor a property carries (docs/27-descriptors.md).
-Behavioral parts (name, idRule, deleteBy, field kinds/flags) are pinned;
-display parts patch via 'type dataset patch' and 'type dataset field
-patch'. Declare required fields here — fields added later cannot be
-required.`,
-		Args: cobra.ExactArgs(2),
+A module-served dataset names its module instead of fields:
+  {"module": "editor", "shared": true}          the shared editor body
+  {"key": "summary", "module": "editor"}        a second, namespaced editor
+Behavioral parts (key, module, shared, idRule, deleteBy, field
+kinds/flags) are pinned; display parts patch via 'type part dataset
+patch' and 'type part dataset field patch'. Declare required fields
+here — fields added later cannot be required. The reply carries the
+computed collection reads and writes address.`,
+		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var req api.DatasetDraftRequest
 			if err := readJSONBody(draft, &req); err != nil {
 				return err
 			}
 			cl := newClient(flags.Timeout)
-			out, err := cl.TypeAddDataset(cmd.Context(), args[0], args[1], req)
+			out, err := cl.TypeAddDataset(cmd.Context(), args[0], args[1], args[2], req)
 			if err != nil {
 				return err
 			}
@@ -342,13 +405,13 @@ func newTypeDatasetPatchCmd() *cobra.Command {
 		Use:   "patch <spaceId> <typeId> <defId>",
 		Short: "PATCH a dataset definition's display leaves",
 		Long: `Mutable paths: description, displayName, search.title,
-search.text, search.scope. Everything else is pinned — remove and
-re-add. Values are strings; search.text also takes a non-empty array
+search.text, search.scope. Everything else (key, module, shared, id
+rule, delete gate) is pinned — remove and re-add. Values are strings; search.text also takes a non-empty array
 of field keys.
 
 Examples:
-  any type dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
-  any type dataset patch S T D --set '{"search.text":["body","notes"]}'`,
+  any type part dataset patch S T D --set '{"displayName":"Articles","search.title":"headline"}'
+  any type part dataset patch S T D --set '{"search.text":["body","notes"]}'`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetPatchRequest{}
@@ -403,8 +466,8 @@ The behavioral declaration (key, kind, shape, scope, required,
 mutableBy, stamp) is pinned.
 
 Examples:
-  any type dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
-  any type dataset field patch S T D F --unset xFormat.options.old`,
+  any type part dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
+  any type part dataset field patch S T D F --unset xFormat.options.old`,
 		Args: cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.DatasetFieldPatchRequest{}

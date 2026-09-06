@@ -250,7 +250,7 @@ func TestRequestSchemaBoundaries(t *testing.T) {
 			`{"dataset": "spaces", "total": true}`, "request.unknown_field"},
 		{"type create inline properties", http.MethodPost, "/v1/spaces/" + sp.Id + "/types",
 			`{"name": "Movie", "xKey": "movie", "properties": [{"name": "year", "kind": "number"}]}`, "request.unknown_field"},
-		{"markdown nil objectId", http.MethodPut, "/v1/spaces/" + sp.Id + "/objects/None/editor/markdown",
+		{"markdown nil objectId", http.MethodPut, "/v1/spaces/" + sp.Id + "/objects/None/editor/editor_blocks/markdown",
 			`{"content": "hi"}`, "object.id_required"},
 	}
 	for _, tc := range cases {

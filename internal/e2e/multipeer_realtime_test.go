@@ -81,8 +81,7 @@ func TestE2E_MultipeerRealtimeSync(t *testing.T) {
 
 	// Chat object + seed message, also pre-join.
 	var chatObj map[string]any
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &chatObj)
+	chatObj = map[string]any{"objectId": createModuleObject(t, owner.base, sp.Id, "chat")}
 	chatObjID, _ := chatObj["objectId"].(string)
 	ownerChat := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + chatObjID
 	joinerChat := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + chatObjID

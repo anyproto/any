@@ -1,15 +1,17 @@
 ---
 title: Editor
-description: Block-structured documents on the editor_blocks dataset — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
+description: Block-structured documents in an editor collection — atomic block writes, live subscriptions, and a lossless markdown bridge for imports, exports and LLM edits.
 order: 20
 ---
 # Editor
 
-The `editor` type stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block dataset sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
+The `editor` module stores an object's body as a tree of atomic blocks: one CRDT record per block, ordered by a lexicographic position, nested by parent id. Two members editing different paragraphs merge cleanly; an offline edit lands as a per-block change when the device reconnects. On top of the block collection sits a markdown bridge, so tools that think in text — exporters, importers, LLM agents — never have to walk the tree.
+
+An object holds an editor collection while it carries a type whose part declares the module ([modules](index.html)). Every editor route names the collection: `editor_blocks`, the canonical collection a shared part declares — the body every document type contributes to — or `<typeId>_<key>` for a part that wants an editor of its own (a meeting type's `notes` next to its body). A write into a collection none of the object's types declare is `400 dataset.not_declared`; a collection no editor part in the space declares is `404 dataset.not_found`. The examples below use `editor_blocks`.
 
 ## Blocks
 
-One record per block on the object's `editor_blocks` dataset:
+One record per block in the object's editor collection:
 
 ```json
 {
@@ -48,26 +50,26 @@ Records come back in flat `nav.pos` order, not depth-first — a client that wan
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/v1/spaces/:spaceId/objects/:objectId/editor/blocks` | create one block |
-| PATCH | `…/editor/blocks/:blockId` | `$set` / `$unset` fields on one block |
-| DELETE | `…/editor/blocks/:blockId` | tombstone one block |
+| POST | `/v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/blocks` | create one block |
+| PATCH | `…/editor/editor_blocks/blocks/:blockId` | `$set` / `$unset` fields on one block |
+| DELETE | `…/editor/editor_blocks/blocks/:blockId` | tombstone one block |
 
 Every write returns `{versionId, changeId, recordIds}`; `recordIds[0]` on create is the server-allocated block id.
 
 ```bash
 # create — nav.parentId defaults to "" (top-level), nav.pos to the next lexid past the parent's last child
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/blocks \
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks \
   -H 'Content-Type: application/json' \
   -d '{"type": "check_list_item", "style": {"checked": false}, "text": "buy milk"}'
 # → 201 { "versionId": "…", "changeId": "…", "recordIds": ["<blockId>"] }
 
 # patch — each set key is a dotted path applied as one $set, each unset entry one $unset
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/blocks/$BLK \
+curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK \
   -H 'Content-Type: application/json' \
   -d '{"set": {"style.checked": true, "text": "buy oat milk"}, "unset": ["style.level"]}'
 
 # delete
-curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/blocks/$BLK
+curl -X DELETE http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/blocks/$BLK
 ```
 
 CLI equivalents: `any editor blocks create $SP $OBJ --type paragraph --text "…" [--style JSON] [--parent ID] [--pos LEXID]`, `any editor blocks patch … --set JSON --unset PATH`, `any editor blocks delete …`.
@@ -83,19 +85,19 @@ Patch semantics worth knowing:
 
 ## The markdown bridge
 
-The `…/editor/markdown` routes are a lossless import/export layer over the same dataset — the one aggregating exception to the rule that endpoints map 1:1 onto SDK methods, kept because export/import flows and LLM tooling depend on it.
+The `…/editor/editor_blocks/markdown` routes are a lossless import/export layer over the same dataset — the one aggregating exception to the rule that endpoints map 1:1 onto SDK methods, kept because export/import flows and LLM tooling depend on it.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/v1/spaces/:spaceId/objects/:objectId/editor/markdown` | render blocks as markdown |
-| PUT | `…/editor/markdown` | parse markdown, diff against the tree, write the delta |
-| PATCH | `…/editor/markdown` | targeted `oldText → newText` replacements |
-| POST | `…/editor/markdown/append` | append a fragment at the tail without reading the document |
+| GET | `/v1/spaces/:spaceId/objects/:objectId/editor/editor_blocks/markdown` | render blocks as markdown |
+| PUT | `…/editor/editor_blocks/markdown` | parse markdown, diff against the tree, write the delta |
+| PATCH | `…/editor/editor_blocks/markdown` | targeted `oldText → newText` replacements |
+| POST | `…/editor/editor_blocks/markdown/append` | append a fragment at the tail without reading the document |
 
 **GET** reads every top-level block, renders each to its canonical bytes and joins them with `\n\n`. **PUT** parses the incoming markdown, diffs it against the current tree by (type + position + text), and emits per-block create / update / delete ops through the same write path a block PATCH uses — so the same subscribe events fire, untouched blocks keep their ids, and the reply lists what changed:
 
 ```bash
-curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/markdown \
+curl -X PUT http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: text/markdown' --data-binary @notes.md
 # → { "inserted": ["…"], "updated": ["…"], "deleted": [], "unchanged": 12 }
 ```
@@ -107,7 +109,7 @@ Re-PUTting a GET writes nothing (`unchanged` equals the block count), so a clien
 PATCH is for callers — LLM agents above all — that know the *text* they want changed but not the block ids:
 
 ```bash
-curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/markdown \
+curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SP/objects/$OBJ/editor/editor_blocks/markdown \
   -H 'Content-Type: application/json' \
   -d '{"edits": [
         {"oldText": "- [ ] Children of Time", "newText": "- [x] Children of Time"},
@@ -137,7 +139,7 @@ Because the match runs server-side against current state, a stale quote fails lo
 
 ### Append
 
-`POST …/editor/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated. Blank content is a 200 no-op.
+`POST …/editor/editor_blocks/markdown/append` with `{"content": "…"}` is the append-only fast path: it parses the fragment, looks up only the tail position (one indexed query, never the existing block bodies), and creates the new blocks in one batch. Cost is O(appended content) regardless of document size, which makes a run of N appends O(N) rather than the O(N²) of repeated PUTs — the right tool for grow-by-append pages such as logs. It is purely additive (it will happily create a block identical to an existing one), inserts no leading separator, and answers PUT's shape with only `inserted` populated. Blank content is a 200 no-op.
 
 ## Empty paragraphs and blank lines
 

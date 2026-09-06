@@ -5,7 +5,7 @@ order: 0
 ---
 # Roadmap
 
-any is a local-first database with a stable `/v1/` HTTP surface and a growing set of built-in types, collaboration primitives and a sandboxed runtime. This page tracks the surface at the feature level: what you can rely on now, what is next, and where the design is still open.
+any is a local-first database with a stable `/v1/` HTTP surface and a growing set of modules, collaboration primitives and a sandboxed runtime. This page tracks the surface at the feature level: what you can rely on now, what is next, and where the design is still open.
 
 ## Shipped
 
@@ -13,7 +13,7 @@ any is a local-first database with a stable `/v1/` HTTP surface and a growing se
 |---|---|
 | Server and accounts | `any run` on loopback, mnemonic-restored accounts with fresh device keys, per-account data dirs, `POST /v1/auth` onboarding, the OpenAPI 3.1 document at `/v1/openapi.json` — [Accounts](auth/accounts.html) |
 | Data plane | objects, types and properties with descriptors and choice options, Mongo-style query with windowed subscribe over SSE, aggregation pipelines, version history, runtime dataset schemas with idempotent upsert, datetime instants, derived `createdAt`/`modifiedAt`/`modifiedBy`/`author` — [Database](database/index.html) |
-| Built-in types | chat with reactions, mentions, threads, attachments and private read tracking; the block editor with a lossless markdown bridge and surgical text edits; the `page` marker type; `any://` links — [Types](types/index.html) |
+| Modules | chat with reactions, mentions, threads, attachments and private read tracking; the block editor with a lossless markdown bridge and surgical text edits — both served to any type whose part declares them; type parts, weight and layout; `any://` links — [Types](types/index.html) |
 | Collaboration | members, invites, guest keys, ACL operations, direct-add by identity, one-to-one spaces, well-known derived spaces, bundles with derived roots, the encrypted identities directory — [Collaboration](collaboration/index.html) |
 | Files | encrypted content-addressed files with offline-first backup, ranged download, variants, pin/offload/retry, account-wide cache control — [Files](files/index.html) |
 | Realtime | windowed query/subscribe, live space list, sync status, the account-wide event bus with device/account/space scopes, the process helper, LAN peer discovery and sync — [Realtime](realtime/index.html) |

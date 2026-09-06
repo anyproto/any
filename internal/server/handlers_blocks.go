@@ -37,13 +37,18 @@ import (
 //	@Produce	json
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
+//	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
 //	@Param		body		body		api.BlockCreateRequest	true	"Block params (type required)"
 //	@Success	201			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks [post]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks [post]
 func (d *deps) blocksCreate(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collection, errResp, done := d.editorCollection(c, sp)
 	if done {
 		return errResp
 	}
@@ -66,7 +71,7 @@ func (d *deps) blocksCreate(c echo.Context) error {
 		in.Pos = req.Nav.Pos
 	}
 
-	res, err := editor.Create(c.Request().Context(), sp, objectId, in)
+	res, err := editor.Create(c.Request().Context(), sp, objectId, collection, in)
 	if err != nil {
 		return blockOpError(c, err, sp.Id(), objectId)
 	}
@@ -81,15 +86,20 @@ func (d *deps) blocksCreate(c echo.Context) error {
 //	@Produce	json
 //	@Param		spaceId		path		string					true	"Space ID"
 //	@Param		objectId	path		string					true	"Object ID"
+//	@Param		collection	path		string					true	"Editor collection (editor_blocks or <typeId>_<key>)"
 //	@Param		blockId		path		string					true	"Block ID"
 //	@Param		body		body		api.BlockPatchRequest	true	"Set/unset ops"
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [patch]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks/{blockId} [patch]
 func (d *deps) blocksPatch(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collection, errResp, done := d.editorCollection(c, sp)
 	if done {
 		return errResp
 	}
@@ -103,7 +113,7 @@ func (d *deps) blocksPatch(c echo.Context) error {
 		return nil
 	}
 
-	res, err := editor.Patch(c.Request().Context(), sp, objectId, blockId, editor.PatchInput{
+	res, err := editor.Patch(c.Request().Context(), sp, objectId, collection, blockId, editor.PatchInput{
 		Set:   req.Set,
 		Unset: req.Unset,
 	})
@@ -124,9 +134,13 @@ func (d *deps) blocksPatch(c echo.Context) error {
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/blocks/{blockId} [delete]
+//	@Router		/spaces/{spaceId}/objects/{objectId}/editor/{collection}/blocks/{blockId} [delete]
 func (d *deps) blocksDelete(c echo.Context) error {
 	sp, objectId, errResp, done := d.resolveSpaceObject(c)
+	if done {
+		return errResp
+	}
+	collection, errResp, done := d.editorCollection(c, sp)
 	if done {
 		return errResp
 	}
@@ -134,7 +148,7 @@ func (d *deps) blocksDelete(c echo.Context) error {
 	if blockId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "blockId required", nil)
 	}
-	res, err := editor.Delete(c.Request().Context(), sp, objectId, blockId)
+	res, err := editor.Delete(c.Request().Context(), sp, objectId, collection, blockId)
 	if err != nil {
 		return blockOpError(c, err, sp.Id(), objectId)
 	}

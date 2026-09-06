@@ -88,7 +88,7 @@ func TestE2E_MultipeerOneToOne(t *testing.T) {
 	// same id on both sides by construction, so each installs its own
 	// copy immediately and they meet on the one object.
 	const bundleId = "general-chat/v1"
-	const ensureBody = `{"id":"` + bundleId + `","name":"General","rootTypes":["chat"],"derived":true}`
+	var ensureBody = `{"id":"` + bundleId + `","name":"General","parts":` + modulePartsBody("chat") + `,"derived":true}`
 
 	// FIRST attempt, both sides, no convergence polling: that is the
 	// contract — a derived install never waits and never 409s.

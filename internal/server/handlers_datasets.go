@@ -56,7 +56,7 @@ func (d *deps) systemDatasets(c echo.Context) error {
 func datasetsToAPI(in []space.DatasetSchema) api.DatasetsResponse {
 	out := make([]api.DatasetSchema, 0, len(in))
 	for _, ds := range in {
-		out = append(out, api.DatasetSchema{Name: ds.Name, Schema: json.RawMessage(ds.JSONSchema), TypeId: ds.TypeId})
+		out = append(out, api.DatasetSchema{Name: ds.Name, Schema: json.RawMessage(ds.JSONSchema), Owners: ds.Owners, Module: ds.Module, Shared: ds.Shared})
 	}
 	return api.DatasetsResponse{Datasets: out}
 }

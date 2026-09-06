@@ -122,8 +122,7 @@ func TestE2E_MultipeerChatReadTracking(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"chat-unread"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
@@ -370,8 +369,7 @@ func TestE2E_ChatReactionsRead(t *testing.T) {
 	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces",
 		`{"name":"reaction-read"}`, http.StatusCreated, &sp)
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/"+sp.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, owner.base, sp.Id, "chat")
 
 	ownerBase := owner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
 	joinerBase := joiner.base + "/v1/spaces/" + sp.Id + "/objects/" + obj.ObjectId
@@ -517,8 +515,7 @@ func TestE2E_OneToOneChatReadTracking(t *testing.T) {
 		"", http.StatusOK, new(api.SpaceInfo))
 
 	var obj api.ObjectsCreateResponse
-	mustJSON(t, http.MethodPost, alice.base+"/v1/spaces/"+oneOne.Id+"/objects",
-		`{}`, http.StatusCreated, &obj)
+	obj.ObjectId = createModuleObject(t, alice.base, oneOne.Id, "chat")
 	aliceObj := alice.base + "/v1/spaces/" + oneOne.Id + "/objects/" + obj.ObjectId
 	bobObj := bob.base + "/v1/spaces/" + oneOne.Id + "/objects/" + obj.ObjectId
 
