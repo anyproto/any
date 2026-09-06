@@ -1741,6 +1741,104 @@ Implementation slices landed:
     contract: its docs/03-space.md § Join lifecycle, docs/02-tech-space.md,
     docs/15-direct-add-invites.md; e2e `TestE2E_JoinLifecycleSynced`.
     Here: docs/03-api.md § Spaces (join) + § ACL (`cancel-join`).
+50. **Usecase catalog (`/v1/catalog`)** — the first server-side catalog
+    of well-known bundles. `internal/catalog/catalog.yml` (go:embed)
+    is loaded and structurally validated by `internal/catalog`
+    (`Load` / `Get` / `Order`; slugs, unique usecase / bundle ids /
+    type xKeys, the `system:<name>/v<n>` grammar, at least one of
+    `type` / `miniapp` / `parts`, `weight` refused next to `hidden`,
+    `requires` resolvable and acyclic — a cycle reported as its path,
+    `relation.targetTypes` resolving inside the usecase, its transitive
+    `requires` or a built-in id — else `catalog.broken_link` naming the
+    usecase to require, `miniapp.bundle` = the bundle id, module rules;
+    every problem collected as `path: code: message`, codes
+    `catalog.bad_yaml` / `unknown_field` / `bad_id` / `duplicate` /
+    `missing` / `bad_field` / `unknown_usecase` / `cycle` /
+    `broken_link` / `bad_miniapp`) and compiled by
+    `internal/server/catalog.go` into `bundles.Install`s through the
+    same draft converters and descriptor gate the HTTP ensure uses
+    (`propertyDraftFromAPI` / `partDraftFromAPI` / `layoutFromWire`,
+    `miniapp` keys against `miniapp.NewType().Properties`, xKeys
+    against `serverTypes()` ids; exported `server.ValidateCatalog`).
+    A **usecase** is a set of bundles plus the usecases it `requires`;
+    every bundle one CREATED root under a permanent `system:` id
+    declaring `type` (`{xKey, weight?, layout?, properties}` — an xKey
+    alone is a marker type) and/or `miniapp` (a value map on the
+    built-in `miniapp`, `bundle` filled with the bundle id →
+    `RootTypes: [miniapp]` + `RootProperties`) and/or `parts`; the
+    general chat is the one `derived` root. Endpoints
+    (`handlers_catalog.go`, account-scoped, behind the auth guard,
+    registered next to `/v1/devices`): `GET /v1/catalog`,
+    `GET /v1/catalog/:usecaseId` (404 `catalog.not_found`),
+    `POST /v1/catalog/:usecaseId/setup` `{spaceId}` → tech space `405
+    space.unsupported` → `Spaces().Get` → `Resolver.Setup` on a
+    detached create ctx (`internal/bundles`: the ordered closure
+    against ONE memoized `WaitIndexSynced`, then `Ensure`'s
+    adopt-or-install per entry with a `beforeInstall` hook; a failure
+    is a `SetupError` naming the install, the results before it stand)
+    → per result `typeId` = rootId when `Install.DeclaresType()` +
+    `Types().Properties(rootId)` as the xKey → propId map + the
+    `miniapp` values; error details carry `spaceId` / `usecaseId` /
+    `usecase` / `bundleId`, the next call resumes. **xKey conflict
+    hook** (`catalogBeforeInstall`, wired on BOTH routes — the catalog
+    setup and `POST …/bundles`, which now runs through `Setup` too): a
+    type in the space carrying the install's xKey (as xKey or id) →
+    `409 type.xkey_conflict` naming `existingTypeId`, install path
+    only — never on adopt, never on a declaration heal. **Miniapp
+    heal** (`healMiniapp`): on an adopt by a writer, the `miniapp`
+    values the root lacks are written through `Properties().Set`, the
+    built-in attached first when the root predates it; never
+    overwrites; readers skip. **Option heal** (`healOptions`): on the
+    same adopt, an option KEY a catalog `choice` property gained is
+    written with its catalog leaves through `PatchProperty`; a key the
+    definition carries is left as the space has it (renamed,
+    recoloured or not) — additive only, never a removal. `bundles.Install` gained `XKey` + `SystemInstall` (the
+    SDK's `space.SystemInstall()` option, lifts the reserved-module
+    refusal; never from client input); a created root that declares a
+    type is SDK-minted with `RootTypes` / `RootProperties` (no
+    `NewRoot`); `POST …/bundles` takes `xKey` (alone = marker type) and
+    accepts root types on a declaring created root. Validation: boot
+    refusal in `RunWith` (`embeddedUsecaseCatalog`, `sync.Once`),
+    `make catalog-validate [FILES=…]`
+    (`internal/catalog/cmd/catalog-validate`, one `<source>: <path>:
+    <code>: <message>` line per problem, exit 1) in `pr-checks.yml`
+    next to `go vet` and in `_build-any.yml` before the platform
+    builds; tests `internal/catalog/catalog_test.go` (embedded loads,
+    one fixture per code, cycle path, broken-link suggestion,
+    all-problems, `Order`) and `internal/server/handlers_catalog_test.go`
+    (list / get / 404; wiki → one root carrying `__type__` + itself +
+    `miniapp` with `bundle = system:wiki/v1`, hidden with `xKey: wiki`,
+    three deterministic property ids, second setup adopts; collections
+    + chat; the `crm` closure order pinned; evolution — added property
+    / `miniapp` value / option key / bundle heal on the next setup, a
+    third setup installs nothing; xKey conflict leaves `people`
+    installed; the embedded file through the gate);
+    `internal/bundles` `TestSetupWaitsOnce`; e2e
+    `internal/e2e/multipeer_catalog_test.go` (the owner sets `crm` up,
+    the joiner's setup adopts every root with the same property ids
+    and writes a person the owner reads). Shipped usecases: `wiki`,
+    `collections`, `general-chat`, `people` (person + organization),
+    `contact`, six roles (`investor`, `customer`, `partner`, `vendor`,
+    `cofounder`, `candidate`), `contacts`, `crm` — 13 usecases, 15
+    bundles, 12 types. Test seam: `deps.catalog` overrides the compiled
+    embedded catalog (`catalogForTest`). CLI: `any catalog
+    list/get/setup` (`internal/cli/catalog.go`,
+    `internal/client/catalog.go`). **SDK prerequisite (branch,
+    pseudo-versioned while the pair is open)**: `EnsureBundleRequest.
+    XKey` (stamped `type.xkey` on install, read back as
+    `TypeInfo.XKey`), `DeclaresType` = parts || properties || xKey,
+    root types / property values on an SDK-minted created root that
+    declares a type, written in ONE `objects` change with the stamp
+    (root + 3 changes: objects, properties, datasets). `chat` stays
+    unreserved here: the follow-up that reserves the chat module and
+    moves the general chat to `system:general-chat/v1` (a different
+    derived root than `general-chat/v1` — nothing migrates, so the
+    client recipe stays the convention until then) and the `nav` →
+    `wiki` follow-up both branch off this. Contract:
+    docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
+    (`xKey`, root types on created roots, root + 3) + § Types →
+    Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
+    docs/06-errors.md, docs/18-ci.md § PR checks, docs/07-roadmap.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
@@ -2010,6 +2108,7 @@ auto-start.
 | `docs/25-favorites.md` | favourites client contract — canonical `favorites/v1` install request, locked-read/ensure-on-first-write startup, fork merge+resolve, soft-delete, mirror recipe, tree-policy decisions |
 | `docs/26-local-store.md` | local store — device-local, non-CRDT collections in `sdk.db` under the `l_` tag: why the same file, the fence, model, `/v1/local` surface, limits, what it is NOT |
 | `docs/27-descriptors.md` | property & field descriptors — the `xFormat` bag: guarantee boundary (`kind` vs hint), the six interpreted keys, merge model, leaf-only PATCH rule, v1 slug vocabulary + value checks, composites, client rendering/tolerance/ordering rules, what the server enforces, not-covered list |
+| `docs/28-well-known-bundles.md` | the usecase catalog — usecases as sets of `system:` bundles + `requires`, the three `/v1/catalog` endpoints, setup semantics (closure, one wait, adopt-or-install, resume), handle conflicts, client rules (registry resolution, rendering of hidden types, fork merge by xKey), evolution, the shipped entries, validation codes |
 | `docs/search/` | search evaluation & decisions — chunking before/after, BEIR results, hybrid-knob tuning, why the defaults; complements `13-index.md` (the contract) |
 
 Keep `docs/07-roadmap.md` honest — move shipped items to its "Done" section or

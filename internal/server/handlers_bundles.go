@@ -149,13 +149,26 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	createCtx, cancel := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
 	defer cancel()
 
-	b, installed, err := d.bundleResolver().Ensure(ctx, createCtx, sp, inst)
+	// One install through the same walk a catalog setup runs, so the
+	// pre-install rule (a listed type already holding the xKey) is one
+	// rule in one place.
+	results, err := d.bundleResolver().Setup(ctx, createCtx, sp, []bundles.Install{inst}, catalogBeforeInstall)
 	if err != nil {
+		var se *bundles.SetupError
+		if errors.As(err, &se) {
+			err = se.Err
+		}
+		var xc *xKeyConflictError
+		if errors.As(err, &xc) {
+			return writeError(c, http.StatusConflict, "type.xkey_conflict",
+				"xKey already in use by another type in this space",
+				map[string]any{"xKey": xc.XKey, "existingTypeId": xc.ExistingTypeId, "spaceId": sp.Id(), "bundleId": inst.Id})
+		}
 		return bundleError(c, err, sp.Id(), inst.Id)
 	}
 	return c.JSON(http.StatusOK, api.BundleEnsureResponse{
-		Bundle:    bundleToAPI(b),
-		Installed: installed,
+		Bundle:    bundleToAPI(results[0].Bundle),
+		Installed: results[0].Installed,
 	})
 }
 
@@ -236,17 +249,18 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "hidden must be a boolean", nil), true
 	}
 	inst.Hidden = root.GetBool("hidden")
+	if v := root.Get("xKey"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeString {
+		return inst, writeError(c, http.StatusBadRequest, "request.schema", "xKey must be a string", nil), true
+	}
+	inst.XKey = string(root.GetStringBytes("xKey"))
+	if len(inst.XKey) > maxBundleIdBytes {
+		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"xKey too long", map[string]any{"max_bytes": maxBundleIdBytes}), true
+	}
 	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden) {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"layout/weight/hidden describe a type — declare parts or properties with them", nil), true
+			"layout/weight/hidden describe a type — declare parts, properties or an xKey with them", nil), true
 	}
-	rootProps := root.Get("rootProperties")
-	if inst.DeclaresType() && !inst.Derived &&
-		(len(root.GetArray("rootTypes")) > 0 || (rootProps != nil && rootProps.Type() != fastjson.TypeNull)) {
-		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"rootTypes/rootProperties are not available on a created root that declares a type — the server mints and self-types it (use derived: true to combine them)", nil), true
-	}
-
 	inst.Id = string(root.GetStringBytes("id"))
 	inst.Name = string(root.GetStringBytes("name"))
 	if inst.Id == "" {
@@ -626,6 +640,12 @@ func bundleError(c echo.Context, err error, spaceId, bundleId string) error {
 	if bundleId != "" {
 		details["bundleId"] = bundleId
 	}
+	return bundleErrorWith(c, err, details)
+}
+
+// bundleErrorWith is bundleError with caller-built details (a catalog
+// setup adds the usecase the failing bundle belongs to).
+func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 	switch {
 	case errors.Is(err, bundles.ErrNotInstalled), errors.Is(err, space.ErrBundleUnknown):
 		return writeError(c, http.StatusNotFound, api.ErrBundleNotFound,

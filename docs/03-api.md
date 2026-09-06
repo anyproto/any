@@ -15,6 +15,7 @@
     - [Per-space settings (account-private)](#per-space-settings-account-private)
     - [Force a head-sync round (sync now)](#force-a-head-sync-round-sync-now)
   - [Bundles](#bundles)
+  - [Catalog](#catalog)
   - [Objects](#objects)
     - [Blocks](#blocks)
       - [Read blocks](#read-blocks)
@@ -963,14 +964,14 @@ the space's registry (the `bundles` dataset on the spaceIndex object;
 design in the SDK's `docs/bundles.md`), with every setup object derived
 from that root, so one converged id names the whole install.
 
-Clients register their own: the server keeps no catalog of client
-bundles and installs nothing on a client's behalf. What it does own is
-the registry mechanics — picking the winner when two devices install
-concurrently, and refusing to delete a losing root before it has
-stopped arriving — and one id namespace: **ids under `system:` are the
-server's** (its embedded catalog installs there), so a client ensure
-with such an id is `409 bundle.reserved`, before any wait. Reads,
-resolve and children on a `system:` id work like on any other.
+Clients register their own; the server installs nothing on a client's
+behalf. What it does own is the registry mechanics — picking the winner
+when two devices install concurrently, and refusing to delete a losing
+root before it has stopped arriving — and one id namespace: **ids under
+`system:` are the server's**, installed only through its embedded
+catalog (§ Catalog, `docs/28-well-known-bundles.md`), so a client
+ensure with such an id is `409 bundle.reserved`, before any wait.
+Reads, resolve and children on a `system:` id work like on any other.
 
 ```
 POST   /v1/spaces/:spaceId/bundles                        → 200 {bundle, installed}
@@ -988,7 +989,7 @@ reclaimed). In a path segment the slash is percent-encoded:
 
 **Ensure** (`POST …/bundles`) is adopt-or-install:
 `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?,
-layout?, weight?, hidden?}`. With a winner already
+xKey?, layout?, weight?, hidden?}`. With a winner already
 registered it is a pure read — nothing is written, so a reader or guest
 member can resolve an install they could not create — and the reply is
 `installed: false`. That flag means "this call registered the install":
@@ -1073,11 +1074,12 @@ all — and with no peer connected there is nothing to narrow, so the
 wait collapses to its offline bound and the chat appears in seconds.
 
 **Bundle-declared types.** A bundle may declare a full type on its
-root — `parts` or `properties` make the root implement itself as a
-type (`any.types = ["__type__", "<rootId>"]`, `typeId = rootId`,
-readable through `GET …/types/:rootId` and its `parts` / `properties`
-/ `datasets` routes); `layout`, `weight` and `hidden` describe that
-type and ride along (alone they are `400 request.invalid_field`).
+root — `parts`, `properties` or an `xKey` make the root implement
+itself as a type (`any.types = ["__type__", "<rootId>"]`, `typeId =
+rootId`, readable through `GET …/types/:rootId` and its `parts` /
+`properties` / `datasets` routes); `layout`, `weight` and `hidden`
+describe that type and ride along (alone they are
+`400 request.invalid_field`).
 
 - `parts: [...]` (the same draft shape as `POST …/types/:typeId/parts`,
   ≤32 entries) declares parts and the datasets under them. A records
@@ -1103,6 +1105,16 @@ type and ride along (alone they are `400 request.invalid_field`).
   through `POST …/types/:rootId/properties` gets an ordinary id. Each
   draft passes the property gate (kind required, descriptor against
   kind, `meta` narrowed to `index`).
+- `xKey` is the type's handle (the same meaning as on `POST …/types`):
+  what a client resolves the type by, and what `relation.targetTypes`
+  in other declarations name. An xKey **alone** declares a marker type
+  — no columns, no parts, a flag objects carry. Unique among the
+  space's types: an install whose xKey a type in the space already
+  holds (as its xKey or its id, hidden or not) is
+  `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
+  bundleId}`), checked on the install path only — an adopted root
+  carries the handle by design and never conflicts with itself.
+  Written on install; adopt never patches it.
 - `layout` / `weight` (the type's rendering slice, § Types) and
   `hidden` are written with the root's name on install. **`hidden` is
   explicit**: a root that only hosts its bundle's records (favourites,
@@ -1111,7 +1123,13 @@ type and ride along (alone they are `400 request.invalid_field`).
   bundle's collections — while a root that is a type objects carry (a
   page, a wiki) stays listed.
 
-Declared once on install: parts in one change, properties in one. An
+An install writes the root as **root + 3 changes**: one `objects`
+change carrying the types (`__type__`, the root's own id, `rootTypes`),
+`any.name`, the type metadata (`type.xkey` / `layout` / `weight` /
+`hidden`) and the seeded `rootProperties` values; then, after the
+registry row, one `properties` change and one `datasets` change. Each
+dataset lands atomically; a peer may briefly see the definitions
+before the parts. Declared once on install. An
 adopt heals what is **absent** and never patches — parts only on a
 root carrying no part declaration at all, properties per handle (a
 definition the root lacks is written; one it carries under any id, or
@@ -1124,8 +1142,12 @@ weight or hidden flag once stamped. A malformed declaration (unknown
 module, a field on a module dataset, a duplicate key, a property
 without an xKey) fails before the permanent root is derived. The
 declaration combines with `derived: true` or stands alone (a created
-root the server mints and self-types); `rootTypes` / `rootProperties`
-next to a declaration need `derived: true`.
+root the server mints and self-types). `rootTypes` / `rootProperties`
+ride every root: a created one with no declaration, a derived one, and
+the created root of a request that declares a type — where they land
+in the root's first change next to its own type, so one object can be
+both a type and a carrier of another (the wiki root: the type its
+pages carry and a `miniapp`).
 
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
@@ -1251,6 +1273,81 @@ same bundle; the registry just converges and reports a loser. Clients
 that want to avoid the conflict entirely either agree on one installer
 out of band, or ask for a `derived` root — the id both would compute
 anyway, which is what the per-space chat convention does.
+
+### Catalog
+
+The server's own well-known bundles: a yaml catalog embedded in the
+binary, grouped into **usecases** — a set of bundles installed together
+plus `requires`, the usecases that must be present first. Every bundle
+is one created root under a permanent `system:<name>/v<n>` id,
+declaring a `type` objects carry, a `miniapp` the client opens (the
+root carries the built-in `miniapp` with `bundle` = its id), `parts`
+(records on the root), or several of those; the general chat is the
+one `derived` root. The catalog is read-only over HTTP, validated at
+build time (`make catalog-validate`, CI, boot refusal), and installs
+nothing unless a client asks. Full client contract — model, setup
+semantics, handles, rendering, forks, evolution, the shipped entries —
+in `docs/28-well-known-bundles.md`.
+
+Account-scoped, behind the auth guard, outside the space group:
+
+```
+GET  /v1/catalog                    → 200 {usecases: [CatalogUsecase]}
+GET  /v1/catalog/:usecaseId         → 200 CatalogUsecase            404 catalog.not_found
+POST /v1/catalog/:usecaseId/setup   → 200 CatalogSetupResponse
+     {spaceId}
+```
+
+`CatalogUsecase` is the entry as the catalog declares it — `{id, name,
+description?, requires?, bundles: [{id, name, description?, derived?,
+hidden?, type?: {xKey, weight?, layout?, properties?}, miniapp?,
+parts?}]}` — property and part entries in the `POST …/types/:typeId/
+properties` / `…/parts` draft shapes. Usecase ids are slugs and need
+no encoding in the path.
+
+**Setup** resolves the usecase's transitive dependency closure
+(dependencies first, deterministic), runs ONE registry-convergence
+wait for the whole list, then per bundle the § Bundles
+adopt-or-install: a live winner is adopted (a pure read; a writer's
+adopt also heals a property the root lacks by handle and a `miniapp`
+value the root lacks, attaching the built-in first when the root
+predates it), otherwise the handle check runs (no type in the space
+may already hold the bundle's xKey — `409 type.xkey_conflict`, install
+path only) and the root is minted with everything the bundle declares
+(root + 3 changes). Idempotent: a second call adopts everything. A
+failure mid-walk leaves the dependencies it installed, names the step
+in `details.usecase` / `details.bundleId`, and the next call resumes.
+Readers adopt, writers install; when the wait expires the owner
+installs anyway and any other member is `409 bundle.not_ready`.
+
+```jsonc
+// CatalogSetupResponse — every bundle the call touched, dependencies
+// first, the requested usecase's bundles last
+{ "usecase": "contact",
+  "bundles": [ { "usecase": "people", "id": "system:person/v1",
+                 "bundle": { "id": "system:person/v1", "rootId": "…", "roots": ["…"] },
+                 "installed": true, "typeId": "<rootId>", "properties": { "email": "<propId>", "…": "…" } },
+               { "usecase": "people", "id": "system:organization/v1", "…": "…" },
+               { "usecase": "contact", "id": "system:contact/v1", "…": "…" } ] }
+```
+
+`typeId` (the root id) and `properties` (every property on the root
+with an xKey, xKey → propId) are present when the bundle declares a
+type — `type`, or `parts`; `miniapp` echoes the values a miniapp
+bundle declares, `bundle` filled in; `installed` reports whether THIS
+call registered the root. Which usecases a space has is read off
+`GET …/bundles` — every member row is there under its `system:` id.
+
+Errors: `404 catalog.not_found` (`details.usecaseId`);
+`400 request.missing_field` (no `spaceId`); `405 space.unsupported`
+(the tech space is not a setup target); the space errors; per bundle
+the § Bundles set — `409 bundle.not_ready`, `403` for a member without
+write permission on an install, `409 type.xkey_conflict`
+(`details.xKey`, `details.existingTypeId`). Every error of the walk
+carries `details.spaceId`, `details.usecaseId`, and for a failing
+step `details.usecase` + `details.bundleId`. A client `POST …/bundles`
+with a `system:` id stays `409 bundle.reserved`. CLI: `any catalog
+list | get | setup`.
 
 ### Objects
 
@@ -2573,7 +2670,10 @@ minting its own type and racing into parallel definitions — is solved
 by registering the type through a bundle (§ Bundles), which converges
 on one type per space: a client's document type is a bundle-declared
 type with an editor part, a space's chat the `general-chat/v1`
-bundle with a chat part. Listing a space's documents is a filter on
+bundle with a chat part (the catalog's `general-chat` usecase declares
+the same under `system:general-chat/v1` — a different derived root;
+`docs/28-well-known-bundles.md` § What clients delete). Listing a
+space's documents is a filter on
 the type ids that declare the editor (`owners` of `editor_blocks` in
 § Dataset schema discovery — `page` is always among them):
 `{"filter": {"any.types": {"$in": [<owners>]}}}` on
@@ -2676,6 +2776,11 @@ One property, `bundle` (string): the id of the installed bundle
 client needs to know what to open. No parts. Written through the
 generic `POST …/properties/:objectId/set/miniapp`
 (`{"patch": {"bundle": "<bundleId>"}}`); the object must carry the type.
+Catalog miniapp roots (§ Catalog) carry it from their first change
+with `bundle` set to the bundle id (`system:wiki/v1`,
+`system:collections/v1`, …) plus any other `miniapp` value the catalog
+declares; a value the catalog gains later is healed onto existing
+roots at their next setup.
 
 **`bin`** — the marker of an object moved to the bin. Move to bin is
 `POST …/properties/:objectId/attach/bin`, restore is

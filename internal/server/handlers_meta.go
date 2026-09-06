@@ -47,6 +47,9 @@ type deps struct {
 	// deps construction path gets one with no explicit wiring.
 	installsOnce sync.Once
 	installs     *bundles.Resolver
+	// catalog overrides the embedded usecase catalog — tests only;
+	// nil means the compiled embedded one (server/catalog.go).
+	catalog *compiledCatalog
 
 	// events is the account-wide in-memory event bus hub
 	// (POST /v1/events → GET /v1/events/subscribe). Created lazily via

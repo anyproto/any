@@ -459,9 +459,10 @@ any bundle child   <spaceId> <bundleId> --seed SEED [--type T ...]
 
 `ensure` takes the `BundleEnsureRequest` body (`03-api.md` § Bundles)
 — the id, the root strategy (`derived`) and what the root declares:
-`parts` or `properties` (each property with an `xKey`; the property
-id derives from it), plus `layout`, `weight`, `hidden` describing that
-type. Adopt-or-install: the reply carries the converged row and
+`parts`, `properties` (each property with an `xKey`; the property id
+derives from it) or an `xKey` (the type's handle; alone it declares a
+marker type), plus `layout`, `weight`, `hidden` describing that type.
+Adopt-or-install: the reply carries the converged row and
 whether THIS call installed it. `get` and `list` are locked on
 registry convergence and report `synced`. `resolve` deletes a losing
 root after its content was merged; `child` derives a setup object
@@ -514,6 +515,24 @@ any properties detach      <spaceId> <objectId> <typeId>
 `attach … bin` moves an object to the bin and `detach … bin` restores
 it — the server stamps `bin.movedAt` / `bin.movedBy` on the move and
 clears them on restore (03-api.md § Types → Built-in hidden types).
+
+### Catalog
+
+```
+any catalog list
+any catalog get   <usecaseId>
+any catalog setup <usecaseId> <spaceId>
+```
+
+The server's embedded usecase catalog (`03-api.md` § Catalog,
+`28-well-known-bundles.md`): `list` and `get` print the entries as
+declared; `setup` sets a usecase up in a space, its `requires` first —
+adopt-or-install per bundle, idempotent, resumable after a failure —
+and prints every bundle touched with the converged row, whether THIS
+call installed it, `typeId` and the xKey → propId map. Usecase ids are
+slugs (`wiki`, `general-chat`, `crm`), passed as-is. `make
+catalog-validate [FILES=…]` checks the catalog file itself — a build
+step in the repo, not a CLI command.
 
 ### Members, invites & ACL
 

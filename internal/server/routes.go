@@ -157,6 +157,13 @@ func buildEcho(d *deps) *echo.Echo {
 	// See docs/23-devices.md.
 	registerDevicesRoutes(v1, d)
 
+	// The usecase catalog: the server's embedded well-known bundles and
+	// the one-call setup of a usecase into a space, dependencies
+	// included. Account-scoped — the catalog belongs to the server —
+	// so it sits outside the space group like /v1/devices. See
+	// docs/28-well-known-bundles.md.
+	registerCatalogRoutes(v1, d)
+
 	// Account-wide file-cache controls: local bytes held by file
 	// content across ALL spaces (SDK-level, not per-space), so like
 	// sync-status/subscribe they sit outside the space group. See

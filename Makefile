@@ -30,7 +30,7 @@ INDEX_TAGS := fts vector
 # compatibility table; verify a bump by embedding with the real model.
 LLAMACPP_VERSION := b10620
 
-.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve
+.PHONY: build test vet tidy clean swagger llamacpp llamacpp-soft any docs docs-serve catalog-validate
 
 swagger:
 	$(SWAG) init --v3.1 -g doc.go -d ./internal/server,./internal/api -o internal/server/docs --parseDependency --parseInternal
@@ -60,6 +60,13 @@ test:
 
 vet:
 	go vet -tags '$(INDEX_TAGS)' ./...
+
+# Validate the embedded usecase catalog (internal/catalog/catalog.yml)
+# and any candidate files passed as FILES — every problem with its
+# yaml path, exit 1 on any. Offline: no server, no space. CI runs it on
+# every PR and before every release build (docs/18-ci.md).
+catalog-validate:
+	go run ./internal/catalog/cmd/catalog-validate $(FILES)
 
 tidy:
 	go mod tidy

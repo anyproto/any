@@ -81,6 +81,11 @@ type Install struct {
 	// 1-1's, where nobody is the owner) that is the point; for
 	// anything a user may remove it is the wrong trade.
 	Derived bool
+	// XKey is the root type's handle (`type.xkey`) — what a client
+	// resolves the type by and what other declarations' relation
+	// targets name. An XKey alone declares a marker type (no columns,
+	// no parts). Written on install; adopt never patches it.
+	XKey string
 	// Parts are declared on the root at install (derived or created);
 	// the root then implements itself as a type (typeId = rootId).
 	Parts []space.PartDraft
@@ -101,10 +106,10 @@ type Install struct {
 }
 
 // DeclaresType reports whether the install makes the root a type
-// implementing itself — Parts or Properties (the SDK's
+// implementing itself — Parts, Properties or an XKey (the SDK's
 // EnsureBundleRequest.DeclaresType rule).
 func (i Install) DeclaresType() bool {
-	return len(i.Parts) > 0 || len(i.Properties) > 0
+	return len(i.Parts) > 0 || len(i.Properties) > 0 || i.XKey != ""
 }
 
 // ReservedIdPrefix marks the bundle ids the server's embedded catalog
@@ -238,6 +243,71 @@ func (r *Resolver) Reset() {
 // id worth handing back yet — except for a derived winner, which this
 // device mints for itself instead of refusing.
 func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst Install) (space.Bundle, bool, error) {
+	return r.ensure(ctx, createCtx, sp, inst, r.oneWait(ctx, sp), nil)
+}
+
+// SetupResult is one install a Setup call ensured, in order.
+type SetupResult struct {
+	Install   Install
+	Bundle    space.Bundle
+	Installed bool
+}
+
+// SetupError names the install a Setup call failed on. The results
+// before it stand — every step is idempotent, so the caller re-runs
+// the whole setup and resumes.
+type SetupError struct {
+	Install Install
+	Err     error
+}
+
+func (e *SetupError) Error() string { return "bundle " + e.Install.Id + ": " + e.Err.Error() }
+func (e *SetupError) Unwrap() error { return e.Err }
+
+// Setup ensures an ordered list of installs — a usecase and its
+// dependencies — against ONE registry-convergence wait. Ensure waits
+// before every install it cannot adopt, so a non-owner with an
+// unconverged registry would otherwise pay the full wait per bundle
+// before its refusal; here the first install that needs the verdict
+// pays it, the rest reuse it.
+//
+// beforeInstall runs before a root is minted for an entry (never on
+// adopt, never on a declaration heal): the caller's own pre-install
+// rules, such as a handle-conflict check. A non-nil error stops the
+// walk at that entry.
+func (r *Resolver) Setup(ctx, createCtx context.Context, sp space.Space, installs []Install,
+	beforeInstall func(ctx context.Context, sp space.Space, inst Install) error) ([]SetupResult, error) {
+	wait := r.oneWait(ctx, sp)
+	out := make([]SetupResult, 0, len(installs))
+	for _, inst := range installs {
+		b, installed, err := r.ensure(ctx, createCtx, sp, inst, wait, beforeInstall)
+		if err != nil {
+			return out, &SetupError{Install: inst, Err: err}
+		}
+		out = append(out, SetupResult{Install: inst, Bundle: b, Installed: installed})
+	}
+	return out, nil
+}
+
+// oneWait memoizes the registry-convergence wait for one call: the
+// first caller pays it, later ones read the verdict.
+func (r *Resolver) oneWait(ctx context.Context, sp space.Space) func() error {
+	var (
+		once sync.Once
+		err  error
+	)
+	return func() error {
+		once.Do(func() {
+			waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
+			err = sp.WaitIndexSynced(waitCtx)
+			cancel()
+		})
+		return err
+	}
+}
+
+func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst Install, wait func() error,
+	beforeInstall func(ctx context.Context, sp space.Space, inst Install) error) (space.Bundle, bool, error) {
 	// A type-declaring request reaches the SDK's Ensure only when the
 	// adopted root does not carry the declaration yet (the SDK heals
 	// on its own adopt path: parts when none exist, properties per
@@ -299,7 +369,7 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		return existing, false, err
 	}
 	if existing.RootId == "" {
-		if err := r.converge(ctx, sp, inst); err != nil {
+		if err := r.converge(ctx, sp, inst, wait); err != nil {
 			return space.Bundle{}, false, err
 		}
 		// The converged registry may name a winner the pre-read could
@@ -307,10 +377,18 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && settled(existing)) {
 			return existing, false, err
 		}
+		// A genuine install (no winner anywhere): the caller's own
+		// pre-install rules run now, after the wait and before the
+		// root is minted.
+		if existing.RootId == "" && beforeInstall != nil {
+			if err := beforeInstall(ctx, sp, inst); err != nil {
+				return space.Bundle{}, false, err
+			}
+		}
 	}
 
 	req := space.EnsureBundleRequest{
-		Id: inst.Id, Name: inst.Name,
+		Id: inst.Id, Name: inst.Name, XKey: inst.XKey,
 		Parts: inst.Parts, Properties: inst.Properties,
 		Layout: inst.Layout, Weight: inst.Weight, Hidden: inst.Hidden,
 	}
@@ -325,8 +403,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		req.RootProperties = inst.RootProperties
 	} else if req.DeclaresType() {
 		// SDK-minted created root: Ensure creates the object, stamps
-		// it as its own type and declares — the only create the tech
-		// space allows, and the same shape everywhere.
+		// it as its own type with the root types and seeded values in
+		// one change, and declares — the only create the tech space
+		// allows, and the same shape everywhere.
+		req.RootTypes = inst.RootTypes
+		req.RootProperties = inst.RootProperties
 	} else {
 		req.NewRoot = func(ctx context.Context) (string, error) {
 			rootId, err := sp.Objects().Create(ctx, space.CreateObjectOpts{
@@ -366,12 +447,11 @@ func (r *Resolver) Ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	return b, installed, nil
 }
 
-// converge runs the pre-install convergence wait and decides what an
-// expired one means for this caller.
-func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install) error {
-	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
-	err := sp.WaitIndexSynced(waitCtx)
-	cancel()
+// converge runs the pre-install convergence wait (memoized by the
+// caller — one wait per Ensure or Setup) and decides what an expired
+// one means for this caller.
+func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install, wait func() error) error {
+	err := wait()
 	if err == nil {
 		return nil
 	}

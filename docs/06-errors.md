@@ -86,6 +86,7 @@ bundle.not_ready                 # 409 — the winner's tree (or the registry) h
 bundle.not_loser                 # 409 — resolve target is the current winner or was never claimed
 bundle.loser_not_ready           # 409 — the losing root is still syncing / inside the grace window; the server keeps retrying
 bundle.reserved                  # 409 — a client ensure with an id under the server's `system:` prefix (the embedded catalog's ids)
+catalog.not_found                # 404 — GET /v1/catalog/:usecaseId or POST …/setup naming no usecase of the embedded catalog (details.usecaseId)
 
 
 object.not_found                 # 404 — objectId unknown or deleted in this space (per-object query, editor, markdown, history …)
@@ -114,7 +115,7 @@ filter.invalid                   # 400 — any other filter-grammar violation (w
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
-type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId)
+type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId); also raised by POST …/bundles and POST /v1/catalog/:usecaseId/setup when an install's xKey is held by a type in the space — install path only, never on adopt (details.bundleId; a setup adds details.usecase, details.usecaseId)
 type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type (declarations are static)
 property.not_found
 property.kind_mismatch           # write violated the immutable kind

@@ -46,6 +46,8 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      - name: Validate the usecase catalog
+        run: make catalog-validate
 
   # `make test` is the canonical command (go test -tags 'fts vector' ./...);
   # the index lives behind those tags, so an untagged run would exercise a

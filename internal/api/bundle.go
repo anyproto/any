@@ -48,10 +48,14 @@ type BundleEnsureRequest struct {
 	// Name is the display name, written on install.
 	Name string `json:"name,omitempty"`
 	// RootTypes are attached to the root object at birth, so the
-	// install's datasets are writable on it with no extra call.
+	// install's datasets are writable on it with no extra call. On a
+	// root that declares a type they ride the root's first change next
+	// to its own type — one object that is both a type and a carrier
+	// of another (the wiki: the type its pages carry and a `miniapp`).
 	RootTypes []string `json:"rootTypes,omitempty"`
 	// RootProperties seeds the root's property values, keyed
-	// typeId → propId → value (same shape as POST /objects).
+	// typeId → propId → value (same shape as POST /objects), written
+	// with RootTypes.
 	RootProperties map[string]map[string]any `json:"rootProperties,omitempty"`
 	// Derived installs the bundle on the root derived from its id
 	// rather than a created one. Every device computes that id
@@ -82,6 +86,13 @@ type BundleEnsureRequest struct {
 	// adopt fills in only definitions the root lacks); later evolution
 	// goes through the …/types/:rootId/properties routes.
 	Properties []AddPropertyRequest `json:"properties,omitempty"`
+	// XKey is the root type's handle (same meaning as on POST …/types):
+	// what a client resolves the type by, and what relation.targetTypes
+	// in other declarations name. Unique within the space among listed
+	// types (409 type.xkey_conflict). An xKey alone declares a MARKER
+	// type — no properties, no parts, just a flag objects carry.
+	// Written on install only.
+	XKey string `json:"xKey,omitempty"`
 	// Layout and Weight seed the root type's rendering slice (same
 	// shape as POST …/types); Hidden keeps it out of GET …/types. All
 	// three are written on install only — an adopt never patches them.

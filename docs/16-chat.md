@@ -48,6 +48,16 @@ knowing:
 Additional, purpose-specific chats are still fine — give each its own
 bundle id.
 
+The server's catalog offers the same declaration as the `general-chat`
+usecase (`POST /v1/catalog/general-chat/setup {spaceId}`) under the id
+`system:general-chat/v1`. Because a derived root's id is a function of
+the bundle id, that call derives a **different root** than
+`general-chat/v1`: a space set up with the recipe above keeps its chat
+there, the usecase adds a second, empty one, and nothing migrates. Keep
+using the recipe above; the id moves with the follow-up that reserves
+the `chat` module to the catalog (`28-well-known-bundles.md` § What
+clients delete).
+
 ## The model in four sentences
 
 Messages are records on the chat object's `chat_messages` dataset,

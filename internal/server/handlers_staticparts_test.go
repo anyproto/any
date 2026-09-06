@@ -246,7 +246,7 @@ func TestServer_BundleDeclaredType(t *testing.T) {
 		"weight fraction":  {`{"id":"v/v1","weight":2.5,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusBadRequest, "request.schema"},
 		"hidden shape":     {`{"id":"v/v1","hidden":"yes"}`, http.StatusBadRequest, "request.schema"},
 		"metadata alone":   {`{"id":"v/v1","weight":2,"hidden":true,"layout":{"type":"page"}}`, http.StatusBadRequest, "request.invalid_field"},
-		"created + types":  {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootTypes":["x"]}`, http.StatusBadRequest, "request.invalid_field"},
+		"created + types":  {`{"id":"v/v1","properties":[{"xKey":"a","kind":"string"}],"rootTypes":["x"]}`, http.StatusBadRequest, "type.not_found"},
 		"too many":         {`{"id":"v/v1","properties":[` + repeatProps(65) + `]}`, http.StatusBadRequest, "request.invalid_field"},
 		"reserved id":      {`{"id":"system:wiki/v1","derived":true,"weight":1,"properties":[{"xKey":"a","kind":"string"}]}`, http.StatusConflict, api.ErrBundleReserved},
 		"reserved id bare": {`{"id":"system:x"}`, http.StatusConflict, api.ErrBundleReserved},
