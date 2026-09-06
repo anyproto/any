@@ -154,6 +154,10 @@ func TestServer_DerivedObjectUndeletable(t *testing.T) {
 	chatRoot := mustCreateModuleObject(t, e, sp.Id, "chat")
 	rec := doJSON(t, e, http.MethodDelete, base+"/objects/"+chatRoot, "")
 	assertStatusCode(t, rec, http.StatusConflict, "object.derived_undeletable")
+	// The refusal must leave the root readable: the SDK reclaims local
+	// state right after its own DeleteTree, so the derived check running
+	// first is what this pins.
+	doJSONExpect(t, e, http.MethodGet, base+"/objects/"+chatRoot, http.StatusOK)
 
 	rec = doJSON(t, e, http.MethodPost, base+"/objects", `{"types":["page"]}`)
 	if rec.Code != http.StatusCreated {

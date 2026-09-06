@@ -46,7 +46,10 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
    `xKey`, `weight`, `layout`, `hidden`, `builtIn`.
 3. `POST /v1/spaces/:spaceId/objects/query` with
    `{"filter": {"any.types": "miniapp"}}` — the installed apps. Each row
-   carries `miniapp.bundle`, the bundle id that installed it.
+   carries `miniapp.bundle`, the bundle id that installed it. This one
+   query does **not** take the `__type__` exclusion below: a miniapp row
+   is a bundle root, and the roots that also declare a type (wiki,
+   contacts) are exactly the ones the exclusion would drop.
 
 Do not install anything at startup. Set a usecase up when the user asks
 for the feature (§ Usecases).
@@ -101,9 +104,15 @@ meta-type — never offer them in a type picker.
 ### Which type a client renders
 
 An object carries several types. The one with the highest `weight` is the
-**primary** type, and its `layout` is what the client renders. `any` and
-the built-ins carry no weight and never win; ties break on type id. So a
-person who is also a contact (weight 10 vs 5) renders the person profile.
+**primary** type. `any` and the built-ins carry no weight and never win;
+ties break on type id. So a person who is also a contact (weight 10 vs 5)
+renders the person profile.
+
+Render the primary type's `layout` **with the parts of every carried
+type**, ordered by `pos` — a shared collection appears once however many
+types share it. Rendering only the primary type's parts is the common
+mistake: a person object that also carries `page` has a document body,
+and it disappears from the UI.
 
 `layout` is opaque to the server — `{"type": "<slug>", "config": {…}}` in
 the descriptor shape, your vocabulary.
@@ -131,12 +140,15 @@ is the descriptor: an opaque bag whose interpreted keys are `type`,
 
 ### Value shapes that bite
 
+[`27-descriptors.md`](27-descriptors.md) governs this table — check it there
+before relying on a slug not listed.
+
 | descriptor `type` | kind | value |
 |---|---|---|
 | `text` / `url` / `email` / `phone` | `string` | a string |
 | `date` / `datetime` | `datetime` | `{"$date": "2026-08-05T17:00:00.000Z"}` — `date` must land on midnight UTC |
 | `relation` | `array` | `["any://<objectId>"]` — **a bare object id is rejected** |
-| `choice` | `string` \| `array` | the option **key**, not its name; `array` + `config.multiple` for multi |
+| `choice` | `array` | **always an array** of option **keys**, not names — a single choice is `["qualified"]`; `config.multiple` controls arity, not kind |
 | `number` / `currency` / `percent` | `number` | a number |
 | `checkbox` | `boolean` | a bool |
 
@@ -153,9 +165,13 @@ options are leaves under `xFormat.options.<key>.{name,color,pos}`:
              "xFormat.options.vip.name": "VIP",
              "xFormat.options.vip.pos": "a0"}}
 
-`kind`, `scope` and `xFormat.type` are pinned → `400 property.immutable`.
-Option delete is a hard `$unset` and is dangling-tolerant: values keep the
-orphan key, so renaming an option is one write and zero object writes.
+`kind`, `scope`, `items` and `properties` are pinned → `400
+property.immutable`. `xFormat.type` is **not** pinned — the slug moves within
+what `kind` already allows (`text`→`url`, `number`→`currency`), which is what
+bounds the damage ([`27-descriptors.md`](27-descriptors.md) § `type` is
+mutable). Option delete is a hard `$unset` and is dangling-tolerant: values
+keep the orphan key, so renaming an option is one write and zero object
+writes.
 
 ## Reading data
 
@@ -174,8 +190,13 @@ marker:
 
 ```json
 {"$and": [{"any.types": "<typeId>"},
-          {"any.types": {"$ne": "__type__"}}]}
+          {"any.types": {"$ne": "__type__"}},
+          {"any.types": {"$nin": ["bin"]}}]}
 ```
+
+The third clause is the other half: a binned object keeps its type
+membership, so an ordinary list must exclude `bin` carriers too
+(§ Content surfaces).
 
 A type created through `POST …/types` carries only `__type__` and does
 not self-match — but write the filter this way regardless, so it keeps
@@ -217,14 +238,16 @@ while the object carries a type whose part declares it; a write without
 one is `400 dataset.not_declared`. Attach deliberately — at create via
 `types`, or `POST …/properties/:objectId/attach/:typeId`.
 
-Every write returns `{versionId, changeId, recordIds}`, not the body.
-Read it back through query.
+Record writes (modify, upsert, the chat and block endpoints) return
+`{versionId, changeId, recordIds}`, not the body — read it back through
+query. Object and type creation are the exception: they answer with the
+new id under a per-kind key (`objectId`, `typeId`).
 
 ## Content surfaces
 
 | surface | how |
 |---|---|
-| **Document** | carry `page` (or your own type with an editor part). Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read via `dataset=editor_blocks` sorted on `nav.pos`. |
+| **Document** | carry `page` (or your own type with an editor part). Blocks: `…/objects/:o/editor/:collection/blocks`; whole body: `GET/PUT/PATCH …/editor/:collection/markdown`. Read with `dataset` set to **the same `:collection`**, sorted on `nav.pos` — `editor_blocks` for the shared part `page` uses, `<typeId>_<key>` for a type that declares its own namespaced editor part. |
 | **Chat** | one per space, the `general-chat` usecase. Writes: `…/objects/:chatRoot/chat/messages`. Read via `dataset=chat_messages` sorted on `_ver.id`. |
 | **Wiki tree** | the `wiki` usecase's three properties on objects that carry it: `parentId` (`""` = top level), `pos` (lexid), `folder`. Children = objects query filtered on the parent property, sorted on the pos property. The server allocates no positions. |
 | **Saved views** | the `dataview` type: `dataviews` (tables on a host) and `views` (views of a table). |
