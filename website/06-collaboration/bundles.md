@@ -23,17 +23,17 @@ POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 { objectId }
 
 `synced: true` means an absent bundle is definitively not installed.
 
-Bundle ids carry a slash — the version suffix is part of the id (`general-chat/v1`), and ids are permanent, so a successor install takes a new one. In a path segment the slash is percent-encoded: `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
+Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1`), and ids are permanent, so a successor install takes a new one. In a path segment the slash is percent-encoded: `/bundles/favorites%2Fv1`. Request bodies take the id verbatim.
 
 ## Ensure: adopt or install
 
 ```bash
 curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "name": "General", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
+  -d '{"id": "notes/v1", "name": "Notes", "hidden": true, "parts": [{"key": "body", "datasets": [{"module": "editor", "shared": true}]}]}'
 ```
 
 ```json
-{ "bundle": { "id": "general-chat/v1", "rootId": "bafy…", "roots": ["bafy…"], "losers": [], "derived": true },
+{ "bundle": { "id": "notes/v1", "rootId": "bafy…", "roots": ["bafy…"], "losers": [], "derived": false },
   "installed": true }
 ```
 
@@ -77,21 +77,21 @@ If a created and a derived root are both claimed for one id, the derived one win
 
 > **Why it matters.** A hosted chat service allocates one channel id and everyone uses it. Two encrypted peers that have never spoken cannot ask anyone for an id — but they can both compute one. Derivation replaces the allocator.
 
-## The general-chat convention
+## The general chat
 
-A space's "general" chat is not a server concept; clients register it:
+A space's chat is the server's: the `chat` module is reserved, so no client bundle may declare a chat part (`400 dataset.module_reserved`). The catalog's `general-chat` usecase installs the one chat, a derived root:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
+curl -s -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
+  -d '{"spaceId": "'$SPACE'"}'
 ```
 
-Use the returned `rootId` as the [chat](../types/chat.html) object — the chat part declared on the root is what makes it hold `chat_messages`. Different clients that agree on the id agree on the chat.
+Use the returned `rootId` as the [chat](../types/chat.html) object. Every client that runs the setup lands on the same root, on both sides of a 1-1 too, and no other object may carry its type.
 
 ## Children
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/general-chat%2Fv1/children \
+curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/children \
   -d '{"seed": "settings", "types": ["'$PAGE'"]}'
 # → { "objectId": "bafy…" }
 ```
@@ -102,7 +102,7 @@ A child is a setup object derived under the bundle's current winner: determinist
 
 ```bash
 curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/bundles
-curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/general-chat%2Fv1     # 404 bundle.not_found
+curl -s http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1     # 404 bundle.not_found
 ```
 
 Rows are also readable through the ordinary dataset surface — `POST /v1/spaces/:spaceId/query` with `{"objectId": "<spaceIndexObjectId>", "dataset": "bundles"}` — which is how a client [subscribes](../realtime/subscribe.html) to live conflict updates. That path is read-only; no client can forge a claim. Raw rows carry the stored `rootId` register and no `derived` field — the derived-root verdict is applied by `GET …/bundles[/:bundleId]`, so read those when a bundle may be derived.
@@ -112,7 +112,7 @@ Rows are also readable through the ordinary dataset surface — `POST /v1/spaces
 `losers` is the live conflict set: claimed roots that are neither the winner nor already deleted. Non-empty means two devices installed concurrently and the loser may hold real content. Cleanup is the client's call — merge what matters out of the losing root and its children, then:
 
 ```bash
-curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/general-chat%2Fv1/resolve \
+curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles/notes%2Fv1/resolve \
   -d '{"loserRootId": "bafy…"}'
 # → 204
 ```

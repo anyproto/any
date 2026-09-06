@@ -43,7 +43,9 @@ general chat is the one `derived: true` bundle — chat content cannot
 be merged across objects (`creator` / `createdAt` come from the change
 envelope), and a 1-1 space has no owner to break a tie — so its root
 is a function of (space, bundle id): it never forks and can never be
-deleted.
+deleted. It is also the one declaration of the reserved `chat` module,
+and its root is the only object that may carry its type: a space has
+one chat.
 
 **Naming.** Usecase ids are slugs (`[a-z][a-z0-9-]*`: `wiki`,
 `general-chat`, `contacts`); they never enter a space and need no
@@ -300,7 +302,7 @@ leaves their values orphaned (readable, no schema).
 |---|---|---|---|
 | `wiki` | — | `system:wiki/v1` | type `wiki` (hidden; `parentId`, `pos` — both kept out of the search index — and `folder`, a checkbox) + miniapp |
 | `collections` | — | `system:collections/v1` | miniapp only — a feature switch: installing it turns the types feature on in clients |
-| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part |
+| `general-chat` | — | `system:general-chat/v1` | derived, hidden; type `general_chat` with `layout {type: chat}` and one shared `chat` part — the reserved module's only declaration, the root its only carrier |
 | `people` | — | `system:person/v1` | type `person` (weight 10, layout `profile`; email, phone, organization → `organization`, job_title, location, linkedin, birthday, tags) + shared editor `body` part |
 | | | `system:organization/v1` | type `organization` (weight 10, layout `profile`; kind, domain, categories, location, size, linkedin, main_contact → `person`) + shared editor `body` part |
 | `contact` | `people` | `system:contact/v1` | type `contact` (weight 5; owner → `person`, status, source, referred_by → `person`, last_contact, next_follow_up) — the relationship facet on a person or organisation |
@@ -380,19 +382,18 @@ tree only when it carries the type, and `pos` is the client's lexid
 inert. Editor block records keep their own `nav.parentId` / `nav.pos`
 — that is the block module's per-document tree, unrelated.
 
-The client recipe for the space's chat registers `general-chat/v1`
-with a chat part. The catalog's `general-chat` usecase declares the
-same root shape under `system:general-chat/v1` — a derived, hidden
-root with a shared `chat` part — plus the type handle `general_chat`
-the client recipe does not declare. The ids
-differ, and a derived root's id is a function of the bundle id, so
-**`POST /v1/catalog/general-chat/setup` derives a different root than
-`general-chat/v1`**: a space set up under the client recipe keeps its
-chat there, and setting the usecase up creates a second, empty chat.
-Nothing migrates. The client recipe (`16-chat.md` § Finding the chat
-object, `08-clients.md` § 4) stays the convention until the follow-up
-that reserves the `chat` module to the catalog; the switch of ids
-belongs to that change.
+**Client-registered chats.** The `chat` module is reserved to the
+server: a client part, dataset or bundle naming it is `400
+dataset.module_reserved`, and the space's chat is the catalog's
+`general-chat` usecase — `POST /v1/catalog/general-chat/setup`, root
+`system:general-chat/v1`, a derived hidden root with a shared `chat`
+part and the handle `general_chat` (`16-chat.md` § Finding the chat
+object). The root is its type's only carrier (`400
+type.reserved_carrier` on any other object), so a space has exactly one
+chat. No back-compat: a chat registered under the former client recipe
+(`general-chat/v1`) is a different root the server neither detects nor
+adopts — the usecase installs the chat anew, and the old root is left
+behind.
 
 ## See also
 

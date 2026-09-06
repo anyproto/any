@@ -19,7 +19,7 @@ At serve boot anyrt registers the **`bao/v1` [bundle](../collaboration/bundles.h
 | `bao/brain/v1` | `agent_memory_items`, `agent_job_state`, `agent_roi_injections` | guest (`any@v1`) |
 | `bao/log/v1` *of the chat's bundle* | `agent_turns`, `agent_chunks` | guest |
 
-Turn logs are per chat: the general chat is the `general-chat/v1` bundle root, and its log is a child of *that* bundle, so it cascade-deletes with the chat. Each store is ensured by its writer, idempotently, on first use.
+Turn logs are per chat: the general chat is the catalog's `system:general-chat/v1` root, and its log is a child of *that* bundle. Each store is ensured by its writer, idempotently, on first use.
 
 Resolve a child yourself:
 

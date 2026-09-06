@@ -6,57 +6,43 @@ live in `03-api.md § Chat`; this doc is about using them correctly.
 
 ## Finding the chat object for a space
 
-Most clients want "the chat for this space" — a single well-known chat,
-not one per client. Register it as a **bundle** and use the root the
-server hands back:
+A space has **one chat** — the general chat — installed by the
+server's catalog. Set the usecase up and use the root the server
+hands back:
 
 ```
-POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
-  "layout": { "type": "chat" },
-  "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
-→ 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
+POST /v1/catalog/general-chat/setup
+{ "spaceId": "<spaceId>" }
+→ 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
+        "bundle": { "rootId": "<chat object>", "derived": true, ... },
+        "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-A chat is any object carrying a type whose part declares the `chat`
-module (`03-api.md` § Parts and modules) — the `parts` declaration
-above makes the bundle root such a type, so it holds `chat_messages`
-from the first write. The call is adopt-or-install and `"derived": true` makes the root's id
-a function of the bundle id, so every client — on any device, on any
-member, online or not — computes the same `rootId`. Use it as the
-`<objectId>` in every endpoint below. Do **not** `POST /objects` a
-fresh chat per client: a space would then carry two or three parallel
-chats depending on who spoke first (the failure mode bundles exist to
-prevent, most visible in 1-1 direct spaces).
+The install is a bundle whose root is its own type with a part that
+declares the `chat` module (`03-api.md` § Parts and modules), so the
+root holds `chat_messages` from the first write. Use `rootId` as the
+`<objectId>` in every endpoint below. The call is adopt-or-install and
+idempotent: the first caller installs, every later caller — any
+member, any device, online or not — gets the same root, because the
+root is **derived**: its id is a function of the space and the bundle
+id, computed offline. That is what makes the chat unforkable, which
+it has to be — chat content cannot be merged across objects (`creator`
+and `createdAt` are stamped from the change envelope, so copying
+messages into another object re-attributes and re-times every one of
+them). Two sides of a 1-1 install their own copy on the first attempt
+and meet on the one object.
 
-Ask for the derived root **because chat content cannot be merged across
-objects**: `creator` and `createdAt` are stamped from the change
-envelope, so copying messages into another object re-attributes and
-re-times every one of them. A fork is therefore not something to clean
-up afterwards — it has to be impossible. Two consequences worth
-knowing:
+Two consequences:
 
 - **The chat is permanent.** A derived root cannot be deleted, so the
-  bundle id stays bound to it for the space's lifetime. That is the
-  right trade for "the chat of this space" — and the wrong one for a
-  bundle a user may uninstall.
-- **An existing created chat is adopted, not migrated.** A space set up
-  before this convention keeps its created root (`derived: false` in
-  the reply), including the provisional-`rootId` and `losers` caveats
-  in `03-api.md` § Bundles.
-
-Additional, purpose-specific chats are still fine — give each its own
-bundle id.
-
-The server's catalog offers the same declaration as the `general-chat`
-usecase (`POST /v1/catalog/general-chat/setup {spaceId}`) under the id
-`system:general-chat/v1`. Because a derived root's id is a function of
-the bundle id, that call derives a **different root** than
-`general-chat/v1`: a space set up with the recipe above keeps its chat
-there, the usecase adds a second, empty one, and nothing migrates. Keep
-using the recipe above; the id moves with the follow-up that reserves
-the `chat` module to the catalog (`28-well-known-bundles.md` § What
-clients delete).
+  bundle id stays bound to it for the space's lifetime.
+- **There is no other chat.** The `chat` module is reserved to the
+  server: a client part, dataset or bundle naming it is `400
+  dataset.module_reserved`, and the general-chat root is the only
+  object that may carry its type — creating or attaching another
+  object with it is `400 type.reserved_carrier`. `POST /objects` never
+  makes a chat. Per-collection chats (a client's own chat types) wait
+  on per-collection push topics and read tracking (`07-roadmap.md`).
 
 ## The model in four sentences
 

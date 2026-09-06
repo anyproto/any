@@ -177,31 +177,19 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 ## 4. Chat: newest-first reads and backward pagination
 
-**Where `<chatObjectId>` comes from:** register the space's chat as a
-bundle and use the root it returns — `POST /v1/spaces/:spaceId/bundles`
-with
-`{"id":"general-chat/v1","name":"General","derived":true,"hidden":true,"layout":{"type":"chat"},"parts":[{"key":"chat","datasets":[{"module":"chat","shared":true}]}]}`
-— the part is what makes the root hold the chat collection, `hidden`
-keeps the root's type out of pickers (it hosts the chat, nothing
-attaches it elsewhere).
-The call is adopt-or-install, so every client lands on one object
-instead of each creating its own, and `derived` makes that object's id
-a function of the bundle id — computed offline, identical on every
-device and member, so the chat cannot fork even when two sides install
-while apart (the 1-1 case, where neither participant is the owner). The
-trade is permanence: a derived root can never be deleted. Additional
-purpose-specific chats get their own bundle id. Full guidance:
-`16-chat.md` § Finding the chat object, `03-api.md` § Bundles.
-
-The server's catalog declares the same chat as the `general-chat`
-usecase — `POST /v1/catalog/general-chat/setup {spaceId}` — under the
-id `system:general-chat/v1`. A derived root's id is a function of the
-bundle id, so that call derives a DIFFERENT root than
-`general-chat/v1`: a space set up with the recipe above keeps its chat
-there, and the usecase would add a second, empty one. The recipe above
-stays the convention until the follow-up that reserves the `chat`
-module to the catalog moves the id (`28-well-known-bundles.md` § What
-clients delete).
+**Where `<chatObjectId>` comes from:** the space's one chat is the
+catalog's `general-chat` usecase — `POST /v1/catalog/general-chat/setup
+{"spaceId": …}` — and `<chatObjectId>` is the `rootId` of its
+`system:general-chat/v1` bundle in the reply. The call is
+adopt-or-install, so every client lands on one object, and the root is
+derived — its id is a function of the space and the bundle id,
+computed offline, identical on every device and member, so the chat
+cannot fork even when two sides install while apart (the 1-1 case,
+where neither participant is the owner). The `chat` module is reserved
+to the server: no client declares a chat part, and the general-chat
+root is the only object that may carry its type, so there is no other
+chat to find. Full guidance: `16-chat.md` § Finding the chat object,
+`03-api.md` § Chat.
 
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
@@ -440,6 +428,12 @@ participants through the normal members collection. Deleting a 1-1 is
 local-only and re-derivable: `DELETE /v1/spaces/:spaceId` offloads it, and
 a later `POST /v1/spaces/one-to-one` brings it back.
 
+The 1-1's chat is the same general chat as everywhere else: both
+participants run `POST /v1/catalog/general-chat/setup {"spaceId": …}`
+(§ 4) — the initiator right after creating the space, the acceptor
+after accept — and land on the one derived root on the first attempt,
+with no convergence wait between them (`16-chat.md` § Finding the chat object).
+
 ## 8. Members-with-roles vs. the identities directory
 
 Two surfaces resolve "who is this person," and they answer different
@@ -657,9 +651,9 @@ spaces, is a bundle on the **tech space** (`techSpaceId` from
    call installs, later calls adopt. Do NOT reach for `"derived": true`
    because a converged id sounds convenient — bundles exist precisely so
    a converged install does not need a derived object. Derive only when
-   a fork would be UNMERGEABLE (chat-like content; the 1-1 general chat
-   is the canonical case), and accept the price: permanent,
-   uninstallable.
+   a fork would be UNMERGEABLE (chat-like content — the server's own
+   general chat is the canonical case), and accept the price:
+   permanent, uninstallable.
 3. **On a fork** (two devices installed while apart): the registry
    converges on one winner, the other lands in `losers`. Merge the
    loser's records into the winner through your own schema, then

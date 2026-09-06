@@ -1090,9 +1090,9 @@ describe that type and ride along (alone they are
   `…/query[/subscribe]` with `objectId = rootId` and that collection as
   `dataset`. A part naming a module (`{"module": "chat", "shared":
   true}`) makes the root hold that module's canonical collection —
-  this is how the well-known chat bundle gives a space its chat. A part
-  naming a module reserved to the server (§ Parts and modules) is
-  `400 dataset.module_reserved`.
+  this is how a client's document bundle gives its root a body. A part
+  naming a module reserved to the server (`chat`, § Parts and modules)
+  is `400 dataset.module_reserved`.
 - `properties: [...]` (the same draft shape as `POST
   …/types/:typeId/properties`, ≤64 entries, ≤64 KiB) declares property
   definitions, so the root is a type **objects carry** — a wiki's
@@ -1184,7 +1184,7 @@ settings — lives in bundles on the account's **tech space**, whose id
   installs and resolving like in any space. `derived: true` is the
   EXCEPTION, not a peer option: a permanent, uninstallable root,
   justified only when a fork would be unmergeable (chat-like content —
-  the general-chat convention, above all in a 1-1, where the
+  the server's general chat, above all in a 1-1, where the
   convergence gate cannot work). Records-shaped bundles merge, so they
   are created;
 - `types` reads and `types/:rootId/parts…` / `types/:rootId/datasets…`
@@ -1289,7 +1289,8 @@ is one created root under a permanent `system:<name>/v<n>` id,
 declaring a `type` objects carry, a `miniapp` the client opens (the
 root carries the built-in `miniapp` with `bundle` = its id), `parts`
 (records on the root), or several of those; the general chat is the
-one `derived` root. The catalog is read-only over HTTP, validated at
+one `derived` root and the one declaration of the reserved `chat`
+module. The catalog is read-only over HTTP, validated at
 build time (`make catalog-validate`, CI, boot refusal), and installs
 nothing unless a client asks. Full client contract — model, setup
 semantics, handles, rendering, forks, evolution, the shipped entries —
@@ -2412,10 +2413,15 @@ A module may be **reserved** to the server's own installs: a part or
 dataset draft naming it — on a type, or in a bundle body — is `400
 dataset.module_reserved`, decided from the compiled-in catalog before
 any wait. Only the server's own catalog install and a registered
-type's static part may declare it. No shipped module is reserved yet;
-the mechanism is what lets the server's catalog own the one install
-of a module (the general chat under `chat`) without a client racing
-it.
+type's static part may declare it. **`chat` is reserved**: the one
+declaration is the catalog's `system:general-chat/v1` (§ Chat), so a
+space has one chat and no client can race it. The install root is
+also the module's **only carrier** — the root is its own type, and
+attaching that type to any other object (create `types`,
+`…/attach/:typeId`, an `any.types` op through `…/modify`) is `400
+type.reserved_carrier` (the SDK's local write pre-flight; the create
+path is refused before the tree is minted). A registered type's
+static declaration is not a carrier.
 
 **An object holds a collection while it carries a declaring type.**
 The write gate is on the object's `any.types`: a write into a
@@ -2701,10 +2707,9 @@ modules). What used to be the reason for a built-in — every client
 minting its own type and racing into parallel definitions — is solved
 by registering the type through a bundle (§ Bundles), which converges
 on one type per space: a client's document type is a bundle-declared
-type with an editor part, a space's chat the `general-chat/v1`
-bundle with a chat part (the catalog's `general-chat` usecase declares
-the same under `system:general-chat/v1` — a different derived root;
-`docs/28-well-known-bundles.md` § What clients delete). Listing a
+type with an editor part. A space's chat is not a client's to declare:
+`chat` is reserved, and the catalog's `general-chat` usecase installs
+the one chat (§ Chat). Listing a
 space's documents is a filter on
 the type ids that declare the editor (`owners` of `editor_blocks` in
 § Dataset schema discovery — `page` is always among them):
@@ -2885,42 +2890,41 @@ Built-in hidden types).
 A chat is an object holding the `chat_messages` collection — served by
 the compiled-in `chat` module, which an object holds while it carries
 a type whose part declares `{"module": "chat", "shared": true}`
-(§ Parts and modules; chat is shared-only, one collection per object).
-The routes below write into it; a write on an object with no such
-type is `400 dataset.not_declared`.
+(§ Parts and modules). The module is **reserved to the server**: no
+client part, dataset or bundle may declare it (`400
+dataset.module_reserved`), and the one declaration is the catalog's
+`general-chat` usecase — so **a space has exactly one chat**, the
+general chat, on regular spaces and 1-1s alike. The routes below
+write into it; a write on any other object is `400
+dataset.not_declared`.
 
-**Finding the chat object.** A space's chats are not server-owned:
-register one through the bundles API (§ Bundles) and use its `rootId`
-as the `<objectId>` below.
+**Finding the chat object.** Set the usecase up (§ Catalog) and use
+the root it returns as the `<objectId>` below:
 
 ```
-POST /v1/spaces/:spaceId/bundles
-{ "id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
-  "layout": { "type": "chat" },
-  "parts": [ { "key": "chat", "datasets": [ { "module": "chat", "shared": true } ] } ] }
-→ 200 { "bundle": { "rootId": "<chat object>", "derived": true, ... }, "installed": true|false }
+POST /v1/catalog/general-chat/setup
+{ "spaceId": "<spaceId>" }
+→ 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
+        "bundle": { "rootId": "<chat object>", "derived": true, ... },
+        "installed": true|false, "typeId": "<chat object>" } ] }
 ```
 
-Ensure is adopt-or-install, so every client that runs it lands on the
-same object instead of each minting a chat of its own — the failure
-mode this replaces, most visible in 1-1 direct spaces. The `parts`
-declaration makes the root its own type with a chat part, so it
-accepts `chat/messages` writes immediately. `id` is yours to choose;
-`general-chat/v1` is the convention for "the chat of this space", and a
-space can carry as many purpose-specific chat bundles as you want.
-
-`"derived": true` is part of the convention: the chat's root id is
-computed from the bundle id, so every member and device lands on it
-offline, two sides of a 1-1 included, and the chat can never fork into
-two parallel conversations. It also makes the chat permanent — a
-derived root cannot be deleted (§ Bundles → Derived roots), which is
-what you want for "the chat of this space" and not what you want for a
-bundle a user may uninstall.
-
-One caveat carries over from § Bundles for a **created** chat root
-(`derived` absent): `rootId` is provisional until the space syncs
-(re-read after), and two members ensuring concurrently produce
-`losers` to handle. A derived root has neither problem.
+The install is `system:general-chat/v1`: a **derived**, **hidden**
+root that is its own type (handle `general_chat`, `layout
+{"type": "chat"}`) with one shared `chat` part, so it takes
+`chat/messages` writes from the first call. Setup is adopt-or-install
+and idempotent — every client, member and device lands on the same
+object, and because the root is derived its id is a function of the
+space and the bundle id: computed offline, two sides of a 1-1
+included, so the chat can never fork into two parallel conversations
+(chat content cannot be merged across objects — `creator` and
+`createdAt` come from the change envelope). The price is permanence:
+a derived root cannot be deleted (§ Bundles → Derived roots). The
+root is the type's **only carrier** — creating or attaching another
+object with it is `400 type.reserved_carrier` (§ Parts and modules),
+so there is no second chat to find. Clients that want to react to
+"the chat exists" subscribe to the space's `bundles` dataset
+(§ Bundles) or to the root's `chat_messages`.
 
 Read tracking: `…/:msgId/read` marks the message and everything
 ordered before it (`_ver.id` order) read; `…/read-all` clears the

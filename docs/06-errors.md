@@ -102,7 +102,7 @@ dataset.key_conflict             # 409 — a part or dataset with this key alrea
 dataset.shared_conflict          # 400 — shared on a module with no canonical collection (records), a shared key that is not the canonical name, or a namespaced dataset on a shared-only module (chat)
 dataset.module_unknown           # 400 — the dataset names a module this server does not compile in (records, editor, chat)
 dataset.module_owned             # 409 — a field declaration on a module-served dataset (editor, chat): the module owns the schema, the dataset declares no fields
-dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs
+dataset.module_reserved          # 400 — a part or dataset draft (on a type, or in a bundle body) names a module reserved to the server's own installs (`chat` — the catalog's general-chat usecase is its one declaration)
 dataset.decl_invalid             # 400 — malformed part or dataset declaration (non-slug key, author mutability without a creator stamp, duplicate stamp kind, required additive field, …)
 dataset.immutable                # 400 — PATCH a pinned part or dataset-def path (part: name, icon, pos, hidden, ui, uses are mutable; head: description, displayName, search.title/text/scope; field: name, description, xFormat.*); details.path
 
@@ -115,6 +115,7 @@ filter.invalid                   # 400 — any other filter-grammar violation (w
 
 type.not_found                   # 404 — unknown typeId on GET …/types/:typeId and GET …/types/:typeId/properties (existence-checked: a real type with no properties answers 200 [], an unknown id never does)
 type.xkey_required               # 400 — create without an xKey (a type needs a stable handle)
+type.reserved_carrier            # 400 — object create `types`, POST …/attach/:typeId, or an `any.types` op through …/modify names a type whose part declares a reserved module (the general-chat root): that type is carried only by its own root (details.typeId)
 type.xkey_conflict               # 409 — xKey collides with an existing type's xKey or id in the space (details.xKey, details.existingTypeId); also raised by POST …/bundles and POST /v1/catalog/:usecaseId/setup when an install's xKey is held by a type in the space — install path only, never on adopt (details.bundleId; a setup adds details.usecase, details.usecaseId)
 type.registered                  # 400 — add/patch/remove a property, part or dataset, or PATCH the type itself, on a registered built-in type (declarations are static)
 property.not_found

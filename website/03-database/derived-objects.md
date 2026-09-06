@@ -46,12 +46,12 @@ any space derived
 any space derived create bao
 ```
 
-Bundles follow the same shape: `POST …/bundles` with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint.
+Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's chat is the canonical case, installed by the server's catalog:
 
 ```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
-  -d '{"id": "general-chat/v1", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
-# → {"bundle": {"id": "general-chat/v1", "rootId": "bafy…", "derived": true}, "installed": true}
+curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
+  -d '{"spaceId": "'$SPACE'"}'
+# → {"usecase": "general-chat", "bundles": [{"id": "system:general-chat/v1", "bundle": {"rootId": "bafy…", "derived": true}, "installed": true}]}
 ```
 
 Clients subscribe to a derived object like any other — for space metadata, a [subscribe](../realtime/subscribe.html) stream over the objects collection filtered on `spaceIndexObjectId`.

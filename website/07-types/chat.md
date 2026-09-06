@@ -13,16 +13,17 @@ Messages are records on the chat object's `chat_messages` dataset, ordered by `_
 
 ## Finding the chat object
 
-Most clients want "the chat for this space" — one well-known chat, not one per client. Register it as a [bundle](../collaboration/bundles.html) and use the root the server hands back:
+A space has one chat, installed by the server's [catalog](../collaboration/bundles.html#catalog):
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
+curl -X POST http://127.0.0.1:7001/v1/catalog/general-chat/setup \
   -H 'Content-Type: application/json' \
-  -d '{"id": "general-chat/v1", "name": "General", "derived": true, "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}'
-# → 200 { "bundle": { "rootId": "<chat object>", "derived": true, … }, "installed": true|false }
+  -d '{"spaceId": "'$SP'"}'
+# → 200 { "usecase": "general-chat", "bundles": [ { "id": "system:general-chat/v1",
+#          "bundle": { "rootId": "<chat object>", "derived": true, … }, "installed": true|false } ] }
 ```
 
-The `parts` declaration makes the root its own type with a chat part, so it accepts messages from the first write. The call is adopt-or-install, and `"derived": true` makes the root id a pure function of the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`. Use it as `<objectId>` in every endpoint below. Do **not** `POST /objects` a fresh chat per client: a space would carry two or three parallel chats depending on who spoke first, and chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them). Two consequences: the chat is permanent (a derived root cannot be deleted), and a space that already has a created chat root is adopted (`derived: false` in the reply), not migrated. Additional purpose-specific chats get their own bundle id.
+The install is a derived, hidden root that is its own type with a chat part, so it accepts messages from the first write. Use its `rootId` as `<objectId>` in every endpoint below. The call is adopt-or-install, and a derived root's id is a pure function of the space and the bundle id — every client, on any device, for any member, online or not, computes the same `rootId`, two sides of a 1-1 included. The `chat` module is reserved to the server: no client declares a chat part, and the general-chat root is the only object that may carry its type (`400 type.reserved_carrier` otherwise), so `POST /objects` never makes a chat and there is no second chat to find. Chat content cannot be merged across objects (`creator` and `createdAt` are stamped from the change envelope, so copying messages re-attributes and re-times them), which is why the one chat is derived and permanent.
 
 ## Endpoints
 
