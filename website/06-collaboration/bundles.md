@@ -9,17 +9,19 @@ A bundle is one thing installed into a space — a chat, an app's setup, a marke
 
 ## Why a registry
 
-Clients that each `create a chat object if none exists` leave a space with two or three parallel chats, most visibly in a one-to-one. The registry (the `bundles` dataset on the space's index object) is the convergence point: the server keeps no catalog and installs nothing on its own; what it owns is picking the winner when two devices install concurrently, and refusing to delete a losing root before it has stopped arriving.
+Clients that each `create a chat object if none exists` leave a space with two or three parallel chats, most visibly in a one-to-one. The registry (the `bundles` dataset on the space's index object) is the convergence point: clients register their own bundles and the server installs nothing on a client's behalf; what it owns is picking the winner when two devices install concurrently, refusing to delete a losing root before it has stopped arriving, and one id namespace — ids under `system:` are the server's, installed only through its embedded catalog (`409 bundle.reserved` on a client ensure).
 
 ## Endpoints
 
 ```
 POST   /v1/spaces/:spaceId/bundles                        → 200 { bundle, installed }
-GET    /v1/spaces/:spaceId/bundles                        → 200 { bundles: [...] }
-GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 Bundle
+GET    /v1/spaces/:spaceId/bundles                        → 200 { bundles: [...], synced }
+GET    /v1/spaces/:spaceId/bundles/:bundleId              → 200 { bundle, synced }
 POST   /v1/spaces/:spaceId/bundles/:bundleId/resolve      → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 { objectId }
 ```
+
+`synced: true` means an absent bundle is definitively not installed.
 
 Bundle ids carry a slash — the version suffix is part of the id (`general-chat/v1`), and ids are permanent, so a successor install takes a new one. In a path segment the slash is percent-encoded: `/bundles/general-chat%2Fv1`. Request bodies take the id verbatim.
 
@@ -42,7 +44,13 @@ curl -s -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/bundles \
 | `rootTypes` | types attached to the root; must exist in the space; ≤32 |
 | `rootProperties` | initial property values, validated against their formats; ≤64 KiB |
 | `parts` | parts declared on the root, which then implements itself as a type (`typeId = rootId`) — the [modules](../types/index.html) it holds and its records datasets (`<rootId>_<key>`); ≤32; the same draft shape as `POST …/types/:typeId/parts` |
+| `properties` | property definitions on the root type; ≤64; the same draft shape as `POST …/types/:typeId/properties` |
+| `xKey` | the root type's handle, unique among the space's types; `409 type.xkey_conflict` |
+| `layout` / `weight` | the root type's rendering slice, as on `POST …/types` |
+| `hidden` | keeps the root type out of `GET …/types` |
 | `derived` | install on the root derived from the bundle id (below) |
+
+A bundle may declare a full type on its root — parts, properties, a handle, layout, weight, hidden. Ids under `system:` are the server's: `409 bundle.reserved` on a client ensure.
 
 With a winner already registered, Ensure is a **pure read** — nothing is written, a reader or guest can resolve an install they could not create, and `installed` is `false`. Otherwise the server creates the root with the requested types and properties, registers it in one change, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Type existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 property.format_violation`) never leaves an orphan.
 

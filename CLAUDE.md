@@ -1348,7 +1348,7 @@ Implementation slices landed:
     `_ver` and no delivery counters, and `$project` inside
     `/v1/local/aggregate` is the pipeline equivalent). Grammar is mongo's: a flat object of dotted field
     paths to `1` / `-1`, mode inferred (`{"any":1}` include,
-    `{"_ver":-1}` exclude), deepest mark wins so `{"nav":1,"nav.pos":-1}`
+    `{"_ver":-1}` exclude), deepest mark wins so `{"any":1,"any.tags":-1}`
     is a subtree minus a leaf. **Zero SDK work**: any-store has no
     find-path projection and `ProjectionOpts` is only `IncludeDeleted`,
     so this is `any`'s serialisation boundary — `internal/server/
@@ -1804,8 +1804,9 @@ Implementation slices landed:
     `make catalog-validate [FILES=…]`
     (`internal/catalog/cmd/catalog-validate`, one `<source>: <path>:
     <code>: <message>` line per problem, exit 1) in `pr-checks.yml`
-    next to `go vet` and in `_build-any.yml` before the platform
-    builds; tests `internal/catalog/catalog_test.go` (embedded loads,
+    next to `go vet` and in `_build-any.yml`'s desktop build job, which
+    `publish` depends on, so a broken catalog can neither merge nor
+    ship; tests `internal/catalog/catalog_test.go` (embedded loads,
     one fixture per code, cycle path, broken-link suggestion,
     all-problems, `Order`) and `internal/server/handlers_catalog_test.go`
     (list / get / 404; wiki → one root carrying `__type__` + itself +
@@ -1831,14 +1832,20 @@ Implementation slices landed:
     `TypeInfo.XKey`), `DeclaresType` = parts || properties || xKey,
     root types / property values on an SDK-minted created root that
     declares a type, written in ONE `objects` change with the stamp
-    (root + 3 changes: objects, properties, datasets). `chat` stays
+    (root + up to 3 changes: one `objects` change carrying the types,
+    `any.name`, the type metadata and the seeded `rootProperties`; then,
+    after the registry row, one `datasets` change when the bundle
+    declares parts and one `properties` change when it declares
+    properties — a peer may briefly see the parts before the property
+    definitions; a bundle with no declaration mints its root through
+    the ordinary object create plus the name stamp). `chat` stays
     unreserved here: the follow-up that reserves the chat module and
     moves the general chat to `system:general-chat/v1` (a different
     derived root than `general-chat/v1` — nothing migrates, so the
     client recipe stays the convention until then) branches off this;
     the `nav` → `wiki` follow-up is item 51. Contract:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
-    (`xKey`, root types on created roots, root + 3) + § Types →
+    (`xKey`, root types on created roots, root + up to 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
     docs/06-errors.md, docs/18-ci.md § PR checks, docs/07-roadmap.md.
 51. **`nav` removed — the tree is the `wiki` usecase** — `internal/nav`

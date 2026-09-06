@@ -1115,7 +1115,9 @@ describe that type and ride along (alone they are
   `409 type.xkey_conflict` (`details: {xKey, existingTypeId,
   bundleId}`), checked on the install path only — an adopted root
   carries the handle by design and never conflicts with itself.
-  Written on install; adopt never patches it.
+  Written on install. A writer's adopt fills in a handle the root
+  lacks (an install that predates it); an existing handle is never
+  changed.
 - `layout` / `weight` (the type's rendering slice, § Types) and
   `hidden` are written with the root's name on install. **`hidden` is
   explicit**: a root that only hosts its bundle's records (favourites,
@@ -1124,13 +1126,16 @@ describe that type and ride along (alone they are
   bundle's collections — while a root that is a type objects carry (a
   page, a wiki) stays listed.
 
-An install writes the root as **root + 3 changes**: one `objects`
+An install writes the root as **root + up to 3 changes**: one `objects`
 change carrying the types (`__type__`, the root's own id, `rootTypes`),
 `any.name`, the type metadata (`type.xkey` / `layout` / `weight` /
 `hidden`) and the seeded `rootProperties` values; then, after the
-registry row, one `properties` change and one `datasets` change. Each
-dataset lands atomically; a peer may briefly see the definitions
-before the parts. Declared once on install. An
+registry row, one `datasets` change when the bundle declares parts and
+one `properties` change when it declares properties. Each dataset
+lands atomically; a peer may briefly see the parts before the property
+definitions. A bundle with no declaration (a bare miniapp) mints its
+root through the ordinary object create plus the name stamp. Declared
+once on install. An
 adopt heals what is **absent** and never patches — parts only on a
 root carrying no part declaration at all, properties per handle (a
 definition the root lacks is written; one it carries under any id, or
@@ -1150,7 +1155,7 @@ in the root's first change next to its own type, so one object can be
 both a type and a carrier of another (the wiki root: the type its
 pages carry and a `miniapp`).
 
-Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
+Input is bounded and pre-flighted: `id` ≤256 B, `xKey` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB, `parts` ≤32
 entries / 64 KiB, `properties` ≤64 entries / 64 KiB. Type ids must exist
 in the space (`400 type.not_found` — the create path would otherwise
@@ -1171,9 +1176,9 @@ settings — lives in bundles on the account's **tech space**, whose id
 `GET /v1/account` returns as `techSpaceId`. The tech space is a valid
 `:spaceId` for:
 
-- `bundles` ensure / get / list / resolve — `parts` or `properties`
-  required, roots minted by Ensure (`rootTypes` / `rootProperties` /
-  `children` refused). The normal shape is the default CREATED root — deletable
+- `bundles` ensure / get / list / resolve — a type declaration
+  required (`parts`, `properties` or an `xKey`), roots minted by Ensure
+  (`rootTypes` / `rootProperties` / `children` refused). The normal shape is the default CREATED root — deletable
   (`DELETE …/objects/:rootId` = uninstall; the id then reads as not
   installed and a fresh install works), forking on concurrent offline
   installs and resolving like in any space. `derived: true` is the
@@ -1315,7 +1320,9 @@ value the root lacks, attaching the built-in first when the root
 predates it), otherwise the handle check runs (no type in the space
 may already hold the bundle's xKey — `409 type.xkey_conflict`, install
 path only) and the root is minted with everything the bundle declares
-(root + 3 changes). Idempotent: a second call adopts everything. A
+(root + up to 3 changes). Idempotent: a second call adopts everything. A
+heal that fails (a permission or sync race) is not an error: the setup
+still answers 200 and the next setup retries it. A
 failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
 Readers adopt, writers install; when the wait expires the owner
@@ -1674,7 +1681,7 @@ placement is three ordinary property values at
 `<wikiTypeId>.<propId>`, written like any other property. A page in
 the tree carries `page` for its body and the wiki type for its place:
 
-```json
+```
 POST /v1/spaces/:spaceId/objects
 {
   "types": ["page", "<wikiTypeId>"],
@@ -1690,7 +1697,7 @@ choice — the wiki type only places it.
 
 Children of a node, in order (`""` as the parent lists the top level):
 
-```json
+```
 POST /v1/spaces/:spaceId/objects/query
 {
   "filter": { "<wikiTypeId>.<parentIdPropId>": "<parentObjectId>" },
@@ -1699,9 +1706,10 @@ POST /v1/spaces/:spaceId/objects/query
 ```
 
 The columns are ordinary properties: unindexed on the `objects`
-collection (a scan, `09-query.md` § Indexes), excluded from search
-(`meta.index: none`), and plain strings rather than relations —
-`/backlinks` never reports a parent link.
+collection (a scan, `09-query.md` § Indexes); `parentId` and `pos` are
+kept out of search with `meta.index: none` and are plain strings
+rather than relations, so `/backlinks` never reports a parent link
+(`folder`, a boolean, is never indexed at all).
 
 **`pos` is the client's.** The server allocates nothing: the client
 computes every position with the lexid allocator the editor's blocks

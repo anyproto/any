@@ -77,7 +77,7 @@ space.deleted                    # 409 — space is deleted (row is a tombstone)
 space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing to withdraw: the row is not joining, or the owner accepted first (the row settles to active on its own); a request gone with no membership behind it is settled by the call itself (204, row deleted)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
-space.unsupported                # 405 — the surface is not available on the tech space (object/type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes)
+space.unsupported                # 405 — the surface is not available on the tech space (object/type lifecycle, members, files, chat, editor, history, search, metadata, settings, non-bundle writes, catalog setup)
 
 invite.invalid                   # invite token malformed or unrecognized
 

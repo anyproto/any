@@ -109,7 +109,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?}` | `{bundle, installed}` | adopt-or-install; `parts` declares the root's modules and datasets; `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation` |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?, xKey?, layout?, weight?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a full type on its root (`parts` its modules and datasets, `properties`, `xKey`, `layout`, `weight`, `hidden`); `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `409 bundle.reserved` for a `system:` id |
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle]}` | |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `Bundle` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
@@ -136,7 +136,7 @@ Full semantics in [Bundles](../collaboration/bundles.html).
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{id, …}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)) |
+| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)) |
 | POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` collection |
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |

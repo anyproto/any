@@ -317,9 +317,12 @@ pluggable embedders, parallel batched pipelines),
   `children` endpoint derives setup objects, but nothing in the
   catalog drives it.
 - **One any-sync change per type install.** A CRDT change targets one
-  dataset, so an install is root + 3 changes (objects, properties,
-  datasets) and a peer may briefly see the definitions before the
-  parts. Needs a sectioned change format (`[{dataset, dataVersion,
+  dataset, so an install is root + up to 3 changes (one `objects`
+  change carrying the types, `any.name`, the type metadata and the
+  seeded `rootProperties`; then, after the registry row, one `datasets`
+  change when the bundle declares parts and one `properties` change
+  when it declares properties) and a peer may briefly see the parts
+  before the property definitions. Needs a sectioned change format (`[{dataset, dataVersion,
   records}]`) behind a `CRDTVersion` bump, the apply pipeline running
   sections in one transaction, and every consumer that assumes one
   changeId = one dataset (history list / diff / record-at, the changes
@@ -359,7 +362,7 @@ pluggable embedders, parallel batched pipelines),
   handle and missing `miniapp` values. Ships `wiki`, `collections`,
   `general-chat`, `people`, `contact`, six roles, `contacts`, `crm`.
   `POST …/bundles` gains `xKey`; root types ride created roots that
-  declare a type; an install is root + 3 changes. Contract:
+  declare a type; an install is root + up to 3 changes. Contract:
   docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles.
 - **`dataview`: many dataviews, each with many views (SYN-217)** — the
   built-in `data_view` / `data_views` became the hidden `dataview` type
@@ -686,15 +689,17 @@ pluggable embedders, parallel batched pipelines),
   streams emit their terminal frame before the listener tears down.
   CLI `any subscribe …` and `internal/client.StreamSubscribe…` ship
   alongside.
-- **Nav virtual built-in + tree UI** — `internal/nav` defines a
+- **Nav virtual built-in + tree UI** — `internal/nav` defined a
   synthetic `nav` type (`type` 1=item / 2=folder, `parentId`, `pos`
-  via lexid). `POST /v1/spaces/:id/objects` auto-stamps these on every
-  create (`injectNavDefaults` — caller-supplied values win, otherwise
+  via lexid). `POST /v1/spaces/:id/objects` auto-stamped these on every
+  create (`injectNavDefaults` — caller-supplied values won, otherwise
   defaults: item, root parent, next-pos after the folder's current max).
-  `GET /v1/spaces/:id/types` surfaces `nav` alongside the SDK types so
-  the UI can render an editor for it. The web UI's left sidebar is now
-  a lazy-loaded tree (queries `nav.parentId` per folder); the space
-  picker moved to the right sidebar.
+  `GET /v1/spaces/:id/types` surfaced `nav` alongside the SDK types so
+  the UI could render an editor for it. The web UI's left sidebar
+  became a lazy-loaded tree (queries `nav.parentId` per folder); the
+  space picker moved to the right sidebar. Superseded: `nav` was
+  removed and the tree became the `wiki` catalog usecase (see the
+  entry above).
 - **Dataset schemas + space-list query/subscribe + discovery** — on the
   SDK's unified tech-space query (`Service.Query` / `SpaceIndexObjectId`)
   and required-schema work (`handler.Dataset.Schema`, `Space.Datasets` /

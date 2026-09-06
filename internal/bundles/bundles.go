@@ -316,7 +316,7 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	// reader/guest re-running the documented idempotent ensure must
 	// not land in Ensure's write gate.
 	settled := func(b space.Bundle) bool {
-		if len(inst.Parts) == 0 && len(inst.Properties) == 0 {
+		if !inst.DeclaresType() {
 			return true
 		}
 		missing := false

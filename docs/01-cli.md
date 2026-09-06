@@ -15,7 +15,7 @@
 ## Command surface
 
 > **v1 status:** Meta, Account, Chat, Editor, Subscribe, Aggregate,
-> Members, Invites, Join, ACL, Debug, Sync-status, and
+> Members, Invites, Join, ACL, Debug, Sync-status, Bundles, Catalog, and
 > `any space {get,update}` are wired in `internal/cli/`. Everything else in this doc is the
 > planned 1:1 mirror of the HTTP surface — already callable via
 > `curl`, but no CLI subcommand yet. Sections that are not yet

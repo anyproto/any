@@ -91,7 +91,9 @@ type BundleEnsureRequest struct {
 	// in other declarations name. Unique within the space among listed
 	// types (409 type.xkey_conflict). An xKey alone declares a MARKER
 	// type — no properties, no parts, just a flag objects carry.
-	// Written on install only.
+	// Written on install. A writer's adopt fills in a handle the root
+	// lacks (an install that predates it); an existing handle is never
+	// changed.
 	XKey string `json:"xKey,omitempty"`
 	// Layout and Weight seed the root type's rendering slice (same
 	// shape as POST …/types); Hidden keeps it out of GET …/types. All

@@ -536,7 +536,7 @@ const docTemplate = `{
                         "type": "integer"
                     },
                     "xKey": {
-                        "description": "XKey is the root type's handle (same meaning as on POST …/types):\nwhat a client resolves the type by, and what relation.targetTypes\nin other declarations name. Unique within the space among listed\ntypes (409 type.xkey_conflict). An xKey alone declares a MARKER\ntype — no properties, no parts, just a flag objects carry.\nWritten on install only.",
+                        "description": "XKey is the root type's handle (same meaning as on POST …/types):\nwhat a client resolves the type by, and what relation.targetTypes\nin other declarations name. Unique within the space among listed\ntypes (409 type.xkey_conflict). An xKey alone declares a MARKER\ntype — no properties, no parts, just a flag objects carry.\nWritten on install. A writer's adopt fills in a handle the root\nlacks (an install that predates it); an existing handle is never\nchanged.",
                         "type": "string"
                     }
                 },
