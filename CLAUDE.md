@@ -1792,9 +1792,9 @@ Implementation slices landed:
     same adopt, an option KEY a catalog `choice` property gained is
     written with its catalog leaves through `PatchProperty`; a key the
     definition carries is left as the space has it (renamed,
-    recoloured or not) — additive only, never a removal. `bundles.Install` gained `XKey` + `SystemInstall` (the
-    SDK's `space.SystemInstall()` option, lifts the reserved-module
-    refusal; never from client input); a created root that declares a
+    recoloured or not) — additive only, never a removal. `bundles.Install` gained `XKey` (next to the `SystemInstall`
+    flag that maps to the SDK's `space.SystemInstall()` option — lifts
+    the reserved-module refusal; never from client input); a created root that declares a
     type is SDK-minted with `RootTypes` / `RootProperties` (no
     `NewRoot`); `POST …/bundles` takes `xKey` (alone = marker type) and
     accepts root types on a declaring created root. Validation: boot

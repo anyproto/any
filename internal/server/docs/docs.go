@@ -671,7 +671,7 @@ const docTemplate = `{
                     },
                     "miniapp": {
                         "additionalProperties": {},
-                        "description": "Miniapp is the value map the catalog declares on the built-in\n` + "`" + `miniapp` + "`" + ` type, ` + "`" + `bundle` + "`" + ` included — what a writer's setup put or\nfilled in on the root (a reader's adopt cannot fill; read the\nroot for what it carries).",
+                        "description": "Miniapp is the value map the catalog declares on the built-in\n` + "`" + `miniapp` + "`" + ` type, ` + "`" + `bundle` + "`" + ` included — what an install writes and an\nadopt by a writer fills in where absent. Read the root for what it\ncarries.",
                         "type": "object"
                     },
                     "properties": {

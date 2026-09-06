@@ -262,10 +262,13 @@ may, without a new bundle id:
 | a bundle added to a usecase, a usecase added to `requires` | at the next setup: installed like any other step |
 
 Everything else on an existing install — an option's leaves once
-present, a removed option, other `xFormat` edits, display `name`,
-`weight`, `layout` and `hidden` — is the space's to change after
-install (client `PATCH` calls on the space's copy); the catalog never
-patches or removes what a root carries.
+present, other `xFormat` edits, display `name`, `weight`, `layout` and
+`hidden` — is the space's to change after install (client `PATCH`
+calls on the space's copy); the catalog never patches or removes what
+a root carries. The additive rule has one edge: an option key the
+space deleted is absent, so the next setup writes it again — remove a
+catalog option by shipping a catalog without it and leaving the space's
+copy alone, not by deleting it in the space.
 
 What needs a **new bundle id** (`/v2`, a new root; the old install
 stays and the client migrates content): changing or removing a part or
@@ -318,7 +321,7 @@ start, all of them listed), in the test suite (a broken embedded
 catalog fails `make test`), and as a **build step** —
 `make catalog-validate [FILES="candidate.yml …"]` checks the embedded
 catalog and any candidate files, prints one
-`<source>: <path>: <code>: <message>` line per problem and exits 1 on
+`<source>: <path>: <code>: <message>` line per problem and exits 1 (2 when a candidate file cannot be read) on
 any (`embedded catalog: ok` otherwise). CI runs it on every pull
 request and before every release build (`18-ci.md`), so a broken
 catalog can neither merge nor ship. Offline: no server, no space.

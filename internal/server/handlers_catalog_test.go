@@ -99,6 +99,11 @@ func TestServer_CatalogListAndGet(t *testing.T) {
 	if got := wiki.Bundles[0].Miniapp["bundle"]; got != "system:wiki/v1" {
 		t.Fatalf("wiki miniapp.bundle = %v", got)
 	}
+	// A bundle declared as `miniapp: {}` lists what setup writes: the
+	// bundle id filled in, never an absent key.
+	if got := ids["collections"].Bundles[0].Miniapp["bundle"]; got != "system:collections/v1" {
+		t.Fatalf("collections miniapp on the wire = %v", ids["collections"].Bundles[0].Miniapp)
+	}
 
 	rec := doJSON(t, e, http.MethodGet, "/v1/catalog/nope", "")
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), api.ErrCatalogNotFound) {
@@ -539,7 +544,7 @@ func TestServer_CatalogValidateEmbedded(t *testing.T) {
 	// The server layer catches what the pure layer cannot: a slug on
 	// the wrong kind, a miniapp key the built-in lacks, an xKey equal
 	// to a registered type id.
-	bad := strings.Replace(testCatalogV1, "kind: string }", "kind: string, xFormat: { type: money } }", 1)
+	bad := strings.Replace(testCatalogV2, "kind: string }", "kind: string, xFormat: { type: money } }", 1)
 	bad = strings.Replace(bad, "miniapp: {}", "miniapp: { entry: index.html }", 1)
 	bad = strings.Replace(bad, "xKey: seam_tag }", "xKey: page }", 1)
 	problems := ValidateCatalog([]byte(bad))
@@ -548,9 +553,61 @@ func TestServer_CatalogValidateEmbedded(t *testing.T) {
 		codes = append(codes, p.Code+"@"+p.Path)
 	}
 	joined := strings.Join(codes, "\n")
-	for _, want := range []string{"property.format_invalid@usecases[1].bundles[0].type.properties[0]", "catalog.duplicate@usecases[0].bundles[0].type.xKey"} {
+	for _, want := range []string{
+		"property.format_invalid@usecases[1].bundles[0].type.properties[0]",
+		"catalog.duplicate@usecases[0].bundles[0].type.xKey",
+		"catalog.bad_miniapp@usecases[2].bundles[0].miniapp.entry",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %s in:\n%s", want, joined)
 		}
+	}
+	// A mapping with a non-string key is reported where it sits, with
+	// a path, not as an opaque bridge error.
+	numeric := strings.Replace(testCatalogV1, "open: { name: Open, pos: a0 }", "1: { name: One, pos: a0 }", 1)
+	found := false
+	for _, p := range ValidateCatalog([]byte(numeric)) {
+		if p.Code == catalog.CodeBadField && strings.Contains(p.Message, "quote") && p.Path != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("numeric option key not reported with a path: %v", ValidateCatalog([]byte(numeric)))
+	}
+}
+
+// TestServer_CatalogSetupEveryUsecase installs every shipped usecase
+// into one space: the build gate does not run the SDK's own draft
+// validators, so this is where a shipped part or property draft the
+// SDK would refuse surfaces. Every bundle ends up installed exactly
+// once across the walks.
+func TestServer_CatalogSetupEveryUsecase(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "CatalogAll")
+
+	var list api.CatalogListResponse
+	decodeGet(t, e, "/v1/catalog", &list)
+	roots := map[string]string{}
+	for _, u := range list.Usecases {
+		res := setupUsecase(t, e, u.Id, sp.Id)
+		for _, b := range res.Bundles {
+			if prev, seen := roots[b.Id]; seen {
+				if b.Installed || prev != b.Bundle.RootId {
+					t.Fatalf("%s re-installed during %s: %+v", b.Id, u.Id, b)
+				}
+				continue
+			}
+			if !b.Installed {
+				t.Fatalf("%s not installed on first sight during %s: %+v", b.Id, u.Id, b)
+			}
+			roots[b.Id] = b.Bundle.RootId
+		}
+	}
+	var bl api.BundleListResponse
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/bundles", &bl)
+	if len(bl.Bundles) != len(roots) {
+		t.Fatalf("registry has %d rows, setup touched %d bundles", len(bl.Bundles), len(roots))
 	}
 }

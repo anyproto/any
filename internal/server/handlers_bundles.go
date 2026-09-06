@@ -37,9 +37,11 @@ const (
 	maxBundlePropsBytes      = 64 * 1024
 	maxBundleProperties      = 64
 	maxBundlePropertiesBytes = 64 * 1024
+	maxTypeXKeyBytes         = 256
 )
 
-// bundleCreateTimeout bounds the detached create-and-register section.
+// bundleCreateTimeout bounds the detached create-and-register section
+// — one install here, the whole ordered walk of a catalog setup.
 const bundleCreateTimeout = 2 * time.Minute
 
 // bundleEnsureFields is the closed Ensure vocabulary, derived from the
@@ -121,9 +123,9 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	// SDK enforces the same; this spares an invalid request the wait).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
-		case len(inst.Parts) == 0 && len(inst.Properties) == 0:
+		case !inst.DeclaresType():
 			return writeError(c, http.StatusBadRequest, "request.missing_field",
-				"tech-space bundles must declare parts or properties", nil)
+				"tech-space bundles must declare a type — parts, properties or an xKey", nil)
 		case len(inst.RootTypes) > 0 || len(inst.RootProperties) > 0:
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
 				"rootTypes/rootProperties are not available on the tech space — a tech bundle root is its own type", nil)
@@ -253,9 +255,9 @@ func bundleInstallFromBody(c echo.Context, root *fastjson.Value) (bundles.Instal
 		return inst, writeError(c, http.StatusBadRequest, "request.schema", "xKey must be a string", nil), true
 	}
 	inst.XKey = string(root.GetStringBytes("xKey"))
-	if len(inst.XKey) > maxBundleIdBytes {
+	if len(inst.XKey) > maxTypeXKeyBytes {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",
-			"xKey too long", map[string]any{"max_bytes": maxBundleIdBytes}), true
+			"xKey too long", map[string]any{"max_bytes": maxTypeXKeyBytes}), true
 	}
 	if !inst.DeclaresType() && (len(inst.Layout) > 0 || inst.Weight != 0 || inst.Hidden) {
 		return inst, writeError(c, http.StatusBadRequest, "request.invalid_field",

@@ -172,6 +172,10 @@ func decode(src []byte) (document, Problems) {
 		return document{}, Problems{{Path: "", Code: CodeMissing, Message: "empty catalog"}}
 	}
 	var problems Problems
+	// Non-string mapping keys first, over the whole tree — they hide
+	// inside free-form descriptors the typed walk does not enter, and
+	// the JSON bridge below cannot carry them.
+	nonStringKeys("", raw, &problems)
 	unknownKeys("", raw, reflect.TypeOf(document{}), &problems)
 	if len(problems) > 0 {
 		return document{}, problems
@@ -189,19 +193,28 @@ func decode(src []byte) (document, Problems) {
 	return doc, nil
 }
 
+var unmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
 // unknownKeys walks the decoded yaml against the json field names of
 // the target struct types, reporting every key no struct declares
-// with its path. Maps (`json.RawMessage`, `map[string]any`) are
-// free-form and not descended.
+// with its path. Maps (`json.RawMessage`, `map[string]any`) and types
+// with their own decoding (`json.Unmarshaler`, such as a search field
+// that reads a bare string) are free-form and not descended. A mapping
+// with a non-string key (an unquoted number or boolean) is reported
+// where it sits — yaml keeps it as a Go map the JSON bridge cannot
+// carry.
 func unknownKeys(path string, v any, t reflect.Type, out *Problems) {
+	if _, bad := v.(map[any]any); bad {
+		return // reported by nonStringKeys
+	}
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	if reflect.PointerTo(t).Implements(unmarshalerType) {
+		return
+	}
 	switch t.Kind() {
 	case reflect.Struct:
-		if t == reflect.TypeOf(json.RawMessage{}) {
-			return
-		}
 		obj, ok := v.(map[string]any)
 		if !ok {
 			if v != nil {
@@ -239,6 +252,25 @@ func unknownKeys(path string, v any, t reflect.Type, out *Problems) {
 		}
 		for i, e := range arr {
 			unknownKeys(fmt.Sprintf("%s[%d]", path, i), e, t.Elem(), out)
+		}
+	}
+}
+
+// nonStringKeys reports every mapping whose keys are not all strings
+// (an unquoted number or boolean as an option key), with the path of
+// the mapping. yaml keeps such a mapping as a Go map keyed by `any`,
+// which the JSON bridge refuses without a location.
+func nonStringKeys(path string, v any, out *Problems) {
+	switch x := v.(type) {
+	case map[any]any:
+		*out = append(*out, Problem{Path: path, Code: CodeBadField, Message: "mapping keys must be strings — quote a numeric or boolean key"})
+	case map[string]any:
+		for _, k := range sortedKeys(x) {
+			nonStringKeys(join(path, k), x[k], out)
+		}
+	case []any:
+		for i, e := range x {
+			nonStringKeys(fmt.Sprintf("%s[%d]", path, i), e, out)
 		}
 	}
 }

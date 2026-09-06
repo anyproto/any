@@ -20,7 +20,10 @@ import (
 // the server's vocabulary — the slug-against-kind gate on every
 // property, the part drafts, the layout, the `miniapp` values against
 // the built-in's property list, and the xKeys against the registered
-// type ids — and is what `make catalog-validate` runs.
+// type ids — and is what `make catalog-validate` runs. It does not run
+// the SDK's own ensure validators (part / property drafts against the
+// live module set); those answer at the first setup, which is why the
+// server tests set every shipped usecase up in one space.
 
 // compiledBundle is one catalog bundle ready to install.
 type compiledBundle struct {
@@ -136,12 +139,18 @@ func compileCatalog(src []byte) (*compiledCatalog, catalog.Problems) {
 					values[k] = v
 				}
 				cb.miniapp = values
+				cb.Miniapp = values
+				// The listing serves what setup writes: the filled-in map,
+				// not the author's shorthand (`miniapp: {}` would otherwise
+				// vanish behind omitempty).
+				cat.Usecases[ui].Bundles[bi].Miniapp = values
 				inst.RootTypes = []string{miniapp.TypeId}
 				inst.RootProperties = map[string]map[string]any{miniapp.TypeId: values}
 			}
 			cb.install = inst
 			cu.bundles = append(cu.bundles, cb)
 		}
+		cu.CatalogUsecase = cat.Usecases[ui]
 		cc.usecases[u.Id] = cu
 	}
 	if len(problems) > 0 {
@@ -171,7 +180,9 @@ func miniappValueMismatch(decl handler.PropertyDecl, v any) string {
 		}
 		return "must be a boolean"
 	}
-	return ""
+	// A kind the catalog has no value grammar for yet (array, object,
+	// datetime): refused until the grammar exists, never let through.
+	return "a catalog cannot seed a value of this kind"
 }
 
 // The embedded catalog, compiled once per process. Run refuses to

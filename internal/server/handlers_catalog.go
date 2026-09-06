@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/anyproto/any-store/v2/query"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 
 	"github.com/anyproto/any-sync-sdk/space"
 
@@ -145,7 +147,10 @@ func (d *deps) catalogSetup(c echo.Context) error {
 
 	// Detached from the request, as the single-bundle ensure is: a
 	// client that disconnects mid-walk must not leave a root nothing
-	// references. Bounded by shutdown and the create timeout.
+	// references. Bounded by shutdown and the create timeout, which
+	// here covers the whole walk. No checkBundleRoot: the only root
+	// type a catalog install attaches is the registered `miniapp`,
+	// whose values the compile step already gated.
 	createCtx, cancel := context.WithTimeout(d.backgroundCtx(), bundleCreateTimeout)
 	defer cancel()
 
@@ -189,9 +194,13 @@ func (d *deps) catalogSetup(c echo.Context) error {
 					row.Properties[p.XKey] = p.Id
 				}
 			}
+			// The heals are idempotent and rerun at the next setup: a
+			// failure is logged, never a 500 on a walk whose installs
+			// all succeeded.
 			if !r.Installed {
 				if err := healOptions(ctx, sp, r.Bundle.RootId, r.Install.Properties, props); err != nil {
-					return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
+					handlerLog.Warn("catalog: option heal deferred",
+						zap.String("spaceId", sp.Id()), zap.String("bundleId", r.Install.Id), zap.Error(err))
 				}
 			}
 		}
@@ -199,7 +208,8 @@ func (d *deps) catalogSetup(c echo.Context) error {
 			row.Miniapp = cb.miniapp
 			if !r.Installed {
 				if err := healMiniapp(ctx, sp, r.Bundle.RootId, cb.miniapp); err != nil {
-					return sdkOpError(c, err, map[string]any{"spaceId": sp.Id(), "bundleId": r.Install.Id})
+					handlerLog.Warn("catalog: miniapp heal deferred",
+						zap.String("spaceId", sp.Id()), zap.String("bundleId", r.Install.Id), zap.Error(err))
 				}
 			}
 		}
@@ -222,23 +232,71 @@ func (e *xKeyConflictError) Error() string {
 
 // catalogBeforeInstall is the pre-install rule the resolver runs for a
 // catalog install: no type in the space may already hold the handle.
-// Runs only when no winner exists, so an adopted root — which carries
-// the handle by design — never conflicts with itself; the space's
-// registered built-ins were checked against the catalog at boot.
+// Runs only when no live winner exists, so an adopted root — which
+// carries the handle by design — never conflicts with itself; the
+// space's registered built-ins were checked against the catalog at
+// boot.
+//
+// A root of THIS bundle is never a conflict even when the registry
+// reads it as uninstalled: a deleted winner leaves its losers listed
+// as types (the registry says "install again", and the loser holds
+// the handle), and an owner installing past an unconverged registry
+// may already hold its own root's tree. Both are the registry's to
+// settle, not a user type in the way. Readers are left to the SDK's
+// write gate, so a member without write permission hears about the
+// permission, not the handle.
 func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Install) error {
 	if inst.XKey == "" {
+		return nil
+	}
+	switch sp.Info().OwnRole {
+	case space.PermissionOwner, space.PermissionAdmin, space.PermissionWriter:
+	default:
 		return nil
 	}
 	infos, err := sp.Types().List(ctx)
 	if err != nil {
 		return err
 	}
+	var own map[string]bool
 	for _, t := range infos {
-		if t.XKey == inst.XKey || t.Id == inst.XKey {
-			return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: t.Id}
+		if t.XKey != inst.XKey && t.Id != inst.XKey {
+			continue
 		}
+		if own == nil {
+			if own, err = bundleRoots(ctx, sp, inst.Id); err != nil {
+				return err
+			}
+		}
+		if own[t.Id] {
+			continue
+		}
+		return &xKeyConflictError{XKey: inst.XKey, ExistingTypeId: t.Id}
 	}
 	return nil
+}
+
+// bundleRoots reads every root ever claimed for a bundle id straight
+// off the registry row — the raw `roots` set, which the typed
+// Bundles().Get hides behind its live-winner verdict.
+func bundleRoots(ctx context.Context, sp space.Space, bundleId string) (map[string]bool, error) {
+	row, err := sp.Query(sp.SpaceIndexObjectId(), "bundles").
+		Filter(query.Key{Path: []string{"id"}, Filter: query.NewComp(query.CompOpEq, bundleId)}).
+		One(ctx)
+	if errors.Is(err, space.ErrNotFound) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	roots := map[string]bool{}
+	for _, v := range row.GetArray("roots") {
+		roots[string(v.GetStringBytes())] = true
+	}
+	if id := string(row.GetStringBytes("rootId")); id != "" {
+		roots[id] = true
+	}
+	return roots, nil
 }
 
 // healMiniapp writes the `miniapp` values an adopted root lacks — a
@@ -318,19 +376,29 @@ func healOptions(ctx context.Context, sp space.Space, rootId string, drafts []sp
 			}
 			leaves, _ := entry.(map[string]any)
 			for leaf, v := range leaves {
-				raw, err := json.Marshal(v)
-				if err != nil {
-					continue
+				// `meta` is a container: one leaf per key under it.
+				paths := map[string]any{wireXFormat + "." + xfOptions + "." + key + "." + leaf: v}
+				if leaf == "meta" {
+					paths = map[string]any{}
+					for mk, mv := range asMap(v) {
+						paths[wireXFormat+"."+xfOptions+"."+key+".meta."+mk] = mv
+					}
 				}
-				storagePath, code, _ := patchPathToStorage(wireXFormat+"."+xfOptions+"."+key+"."+leaf, true)
-				if code != "" {
-					continue // not a settable leaf (meta and the like): the catalog gate admitted it, the patch grammar does not
+				for wirePath, lv := range paths {
+					raw, err := json.Marshal(lv)
+					if err != nil {
+						continue
+					}
+					storagePath, code, _ := patchPathToStorage(wirePath, true)
+					if code != "" {
+						continue // the catalog gate admitted it; the patch grammar has no leaf for it
+					}
+					val, vcode, _ := patchSetValue(storagePath, raw)
+					if vcode != "" {
+						continue
+					}
+					patch.Set[storagePath] = val
 				}
-				val, vcode, _ := patchSetValue(storagePath, raw)
-				if vcode != "" {
-					continue
-				}
-				patch.Set[storagePath] = val
 			}
 		}
 		if len(patch.Set) == 0 {
@@ -341,4 +409,9 @@ func healOptions(ctx context.Context, sp space.Space, rootId string, drafts []sp
 		}
 	}
 	return nil
+}
+
+func asMap(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
 }

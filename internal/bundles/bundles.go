@@ -330,6 +330,15 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 			}
 			missing = len(defs) == 0
 		}
+		if !missing && inst.XKey != "" {
+			// A handle the root lacks (an install that predates it) is
+			// filled by the SDK's adopt path, like an absent property.
+			info, err := sp.Types().Get(ctx, b.RootId)
+			if err != nil {
+				return true
+			}
+			missing = info.XKey == ""
+		}
 		if !missing && len(inst.Properties) > 0 {
 			props, err := sp.Types().Properties(ctx, b.RootId)
 			if err != nil {
