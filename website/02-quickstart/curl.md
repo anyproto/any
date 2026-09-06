@@ -50,7 +50,7 @@ curl -s -X POST $API/spaces/$SPACE/objects -H 'content-type: application/json' \
 { "objectId": "bafyreib…" }
 ```
 
-`nav` is stamped automatically — every object gets `nav.parentId` / `nav.pos` so clients can render a tree ([Objects](../database/objects.html)). The three body keys `types`, `initialProperties`, `nav` are the whole vocabulary; anything else is `400 request.unknown_field`.
+The two body keys `types`, `initialProperties` are the whole vocabulary; anything else is `400 request.unknown_field`. The object carries exactly the types it names — a place in the space's tree is one more type, the wiki usecase's ([Objects](../database/objects.html)).
 
 ## 3. Query
 
@@ -64,8 +64,7 @@ curl -s -X POST $API/spaces/$SPACE/objects/query -H 'content-type: application/j
 ```json
 { "records": [
     { "id": "bafyreib…",
-      "any": { "types": ["<PAGE>","nav"], "name": "Reading list" },
-      "nav": { "type": 1, "parentId": "", "pos": "PPQY" },
+      "any": { "types": ["<PAGE>"], "name": "Reading list" },
       "author": "A8tR…", "spaceId": "bafyreig…",
       "createdAt": { "$date": "2026-08-24T10:01:00.000Z" },
       "modifiedAt": { "$date": "2026-08-24T10:01:00.000Z" },

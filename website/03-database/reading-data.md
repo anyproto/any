@@ -11,7 +11,7 @@ All reads go through one primitive: a windowed query over any-store, the embedde
 
 | Endpoint | Reads |
 |----------|-------|
-| `POST /v1/spaces/:spaceId/objects/query` | **Cross-object.** The space's `objects` collection — one row per object with its property values keyed `<typeId>.<propId>` plus `any.*`, `nav.*` and the row-root stamps. |
+| `POST /v1/spaces/:spaceId/objects/query` | **Cross-object.** The space's `objects` collection — one row per object with its property values keyed `<typeId>.<propId>` plus `any.*` and the row-root stamps. |
 | `POST /v1/spaces/:spaceId/query` | **Per-object.** One dataset of one object (`editor_blocks`, `chat_messages`, a runtime dataset…). Needs `objectId` + `dataset`. |
 
 Both are POST because a filter does not fit a query string. Both have a `/subscribe` sibling with the same body — see [Subscribe](../realtime/subscribe.html) — and an `/aggregate` sibling for pipelines — see [Aggregation](aggregation.html).
@@ -35,7 +35,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/query \
   "objectId":     "<oid>",          // per-object only (required there)
   "dataset":      "<name>",         // per-object only (required there)
   "filter":       { "…": "…" },     // mongo-style; omit = match all
-  "sort":         ["nav.pos", "-_ver.id"],
+  "sort":         ["-_ver.id"],
   "limit":        50,
   "offset":       0,
   "includeTotal": true              // adds total + hasNext
@@ -52,7 +52,7 @@ Response:
   "hasNext": true }     // with includeTotal
 ```
 
-Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "nav": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it.
+Without a `projection`, records ship their full stored form, including `_ver` (creation marker plus per-field high-water version ids) and `_deletedAt` / `_traces` when present. `projection` narrows them: a mongo-style map of field paths to `1` (include) or `-1` (exclude), e.g. `{"any": 1, "<typeId>": 1}`. `id` always ships, `_ver` narrows with the fields you asked for, and `{"_ver": -1}` drops it.
 
 ## Filter operators
 
@@ -101,7 +101,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["nav.parentId", "nav.pos"]`. On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right: `["<wikiTypeId>.<parentIdPropId>", "<wikiTypeId>.<posPropId>"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt"]}` is "recently modified first"; `-createdAt` is creation order.
 
 ## Paths
 
@@ -109,7 +109,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 |------|-------|
 | `<typeId>.<propId>` | Property values on the objects collection — both are content-addressed ids, resolved from `GET …/types/:typeId/properties`. |
 | `any.types`, `any.name`, `any.description`, `any.tags` | The universal built-in type. |
-| `nav.type`, `nav.parentId`, `nav.pos` | Tree placement. |
+| `<wikiTypeId>.<propId>` — the wiki type's `parentId` / `pos` / `folder` | Tree placement: ordinary properties of the hidden wiki type, ids from `POST /v1/catalog/wiki/setup` ([Objects](objects.html)). |
 | `author`, `createdAt`, `modifiedAt`, `modifiedBy`, `spaceId` | Derived row-root stamps (objects collection only). `modifiedAt` is indexed; the rest, `modifiedBy` included, are scans. |
 | `_ver.id` | The record's creation version id — the logical DAG order. |
 | `id` | The record id. |

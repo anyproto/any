@@ -521,11 +521,11 @@ const docTemplate = `{
                             "additionalProperties": {},
                             "type": "object"
                         },
-                        "description": "RootProperties seeds the root's property values, keyed\ntypeId → propId → value (same shape as POST /objects).",
+                        "description": "RootProperties seeds the root's property values, keyed\ntypeId → propId → value (same shape as POST /objects), written\nwith RootTypes.",
                         "type": "object"
                     },
                     "rootTypes": {
-                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call.",
+                        "description": "RootTypes are attached to the root object at birth, so the\ninstall's datasets are writable on it with no extra call. On a\nroot that declares a type they ride the root's first change next\nto its own type — one object that is both a type and a carrier\nof another (the wiki: the type its pages carry and a ` + "`" + `miniapp` + "`" + `).",
                         "items": {
                             "type": "string"
                         },
@@ -534,6 +534,10 @@ const docTemplate = `{
                     },
                     "weight": {
                         "type": "integer"
+                    },
+                    "xKey": {
+                        "description": "XKey is the root type's handle (same meaning as on POST …/types):\nwhat a client resolves the type by, and what relation.targetTypes\nin other declarations name. Unique within the space among listed\ntypes (409 type.xkey_conflict). An xKey alone declares a MARKER\ntype — no properties, no parts, just a flag objects carry.\nWritten on install. A writer's adopt fills in a handle the root\nlacks (an install that predates it); an existing handle is never\nchanged.",
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -598,6 +602,178 @@ const docTemplate = `{
                     },
                     "supported": {
                         "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogBundle": {
+                "properties": {
+                    "derived": {
+                        "description": "Derived installs the bundle on the root derived from its id —\nnever forks, never deletable. The general chat only.",
+                        "type": "boolean"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "description": "Hidden keeps the root's type out of pickers and out of the\nprimary-type choice; needs ` + "`" + `type` + "`" + ` or ` + "`" + `parts` + "`" + `, and excludes a\n` + "`" + `weight` + "`" + `.",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "miniapp": {
+                        "additionalProperties": {},
+                        "description": "Miniapp is a value map on the built-in ` + "`" + `miniapp` + "`" + ` type the root\ncarries: ` + "`" + `bundle` + "`" + ` is this bundle's id (filled when omitted), any\nother key must be a property the built-in declares.",
+                        "type": "object"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "parts": {
+                        "description": "Parts declare records datasets on the root (the\nPOST …/types/:typeId/parts draft shape).",
+                        "items": {
+                            "$ref": "#/components/schemas/api.PartDraftRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/api.CatalogType"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogListResponse": {
+                "properties": {
+                    "usecases": {
+                        "items": {
+                            "$ref": "#/components/schemas/api.CatalogUsecase"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogSetupBundle": {
+                "properties": {
+                    "bundle": {
+                        "$ref": "#/components/schemas/api.Bundle"
+                    },
+                    "id": {
+                        "description": "Id is the bundle id.",
+                        "type": "string"
+                    },
+                    "installed": {
+                        "description": "Installed reports whether THIS call registered the root.",
+                        "type": "boolean"
+                    },
+                    "miniapp": {
+                        "additionalProperties": {},
+                        "description": "Miniapp is the value map the catalog declares on the built-in\n` + "`" + `miniapp` + "`" + ` type, ` + "`" + `bundle` + "`" + ` included — what an install writes and an\nadopt by a writer fills in where absent. Read the root for what it\ncarries.",
+                        "type": "object"
+                    },
+                    "properties": {
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "Properties maps each declared property's xKey to its id.",
+                        "type": "object"
+                    },
+                    "typeId": {
+                        "description": "TypeId is the root's id when the bundle declares a type — the\nnamespace of its property values (` + "`" + `\u003ctypeId\u003e.\u003cpropId\u003e` + "`" + `).",
+                        "type": "string"
+                    },
+                    "usecase": {
+                        "description": "Usecase is the entry the bundle belongs to (the requested one or\na dependency).",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogSetupRequest": {
+                "properties": {
+                    "spaceId": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogSetupResponse": {
+                "properties": {
+                    "bundles": {
+                        "description": "Bundles are the installs in setup order.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.CatalogSetupBundle"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "usecase": {
+                        "description": "Usecase is the id that was asked for.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogType": {
+                "description": "Type declares the type the root implements.",
+                "properties": {
+                    "layout": {
+                        "description": "Layout is the rendering slug, ` + "`" + `{type, config?}` + "`" + `.",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "properties": {
+                        "description": "Properties are the columns (the POST …/types/:typeId/properties\ndraft shape); each carries an xKey, the property id derives from\nit.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.AddPropertyRequest"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "weight": {
+                        "description": "Weight orders the type against others an object carries (the\nhighest listed one is the primary type); meaningless on a hidden\ntype.",
+                        "type": "integer"
+                    },
+                    "xKey": {
+                        "description": "XKey is the type's handle — what clients resolve it by and what\nrelation.targetTypes name. Unique across the catalog.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "api.CatalogUsecase": {
+                "properties": {
+                    "bundles": {
+                        "description": "Bundles are the usecase's own installs, in setup order.",
+                        "items": {
+                            "$ref": "#/components/schemas/api.CatalogBundle"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "Id is the usecase slug — the ` + "`" + `:usecaseId` + "`" + ` path segment. Never\nenters a space.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "requires": {
+                        "description": "Requires lists the usecases set up before this one, transitively.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
                     }
                 },
                 "type": "object"
@@ -2165,25 +2341,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "api.ObjectCreateNav": {
-                "description": "Nav overrides the auto-stamped tree placement.",
-                "properties": {
-                    "parentId": {
-                        "type": "string"
-                    },
-                    "pos": {
-                        "type": "string"
-                    },
-                    "type": {
-                        "enum": [
-                            1,
-                            2
-                        ],
-                        "type": "integer"
-                    }
-                },
-                "type": "object"
-            },
             "api.ObjectCreateRequest": {
                 "properties": {
                     "initialProperties": {
@@ -2194,11 +2351,8 @@ const docTemplate = `{
                         "description": "InitialProperties carries the object's starting property values,\nkeyed by type id then property id — the ONLY home for them:\n{\"initialProperties\": {\"any\": {\"name\": \"Dune\"}}}. A top-level\nname/description/type-group key is rejected.",
                         "type": "object"
                     },
-                    "nav": {
-                        "$ref": "#/components/schemas/api.ObjectCreateNav"
-                    },
                     "types": {
-                        "description": "Types lists the type ids attached at create; ` + "`" + `nav` + "`" + ` is appended\nserver-side when absent.",
+                        "description": "Types lists the type ids attached at create — the object's\ncapabilities and the columns it takes. Nothing is appended\nserver-side: an object is in a space's wiki tree only when it\ncarries the wiki type (docs/28-well-known-bundles.md).",
                         "items": {
                             "type": "string"
                         },
@@ -3883,6 +4037,198 @@ const docTemplate = `{
                 "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
                 "tags": [
                     "auth"
+                ]
+            }
+        },
+        "/catalog": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CatalogListResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "List the usecase catalog",
+                "tags": [
+                    "catalog"
+                ]
+            }
+        },
+        "/catalog/{usecaseId}": {
+            "get": {
+                "parameters": [
+                    {
+                        "description": "Usecase id (a slug)",
+                        "in": "path",
+                        "name": "usecaseId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CatalogUsecase"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Read one usecase",
+                "tags": [
+                    "catalog"
+                ]
+            }
+        },
+        "/catalog/{usecaseId}/setup": {
+            "post": {
+                "parameters": [
+                    {
+                        "description": "Usecase id (a slug)",
+                        "in": "path",
+                        "name": "usecaseId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/api.CatalogSetupRequest",
+                                        "summary": "body",
+                                        "description": "Target space"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "Target space",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.CatalogSetupResponse"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Not Found"
+                    },
+                    "405": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Method Not Allowed"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Set a usecase up in a space, dependencies included",
+                "tags": [
+                    "catalog"
                 ]
             }
         },

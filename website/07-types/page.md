@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/types/$PAGE/parts \
 | Labels | the built-in `any.tags` (free-form string array) |
 | Body | the `editor_blocks` collection the type's part declares — [editor](editor.html) |
 | Columns | a user document type's own properties, at `<typeId>.<propId>` (the built-in `page` has none) |
-| Position in the tree | `nav.parentId`, `nav.pos`, `nav.type` (see [objects](../database/objects.html)) |
+| Position in the tree | the wiki type's `parentId` / `pos` / `folder` columns, when the page carries it (see [objects](../database/objects.html)) |
 | Recency | the derived row-root `modifiedAt` instant, with `modifiedBy` naming who signed that change (see [system fields](../database/system-fields.html)) |
 
 ## Creating and listing pages

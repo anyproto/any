@@ -55,7 +55,9 @@ func newBundleEnsureCmd() *cobra.Command {
 		Long: `Adopt-or-install (api.BundleEnsureRequest shape). The body declares
 what the root is: parts (datasets a module serves), properties (a type
 objects carry — every property needs an xKey, its id derives from it),
-layout, weight and hidden.
+xKey (the type's handle; alone it declares a marker type), layout,
+weight and hidden. rootTypes / rootProperties ride a derived root or a
+created root that declares a type.
   {"id": "general-chat/v1", "name": "General", "derived": true, "hidden": true,
    "layout": {"type": "chat"},
    "parts": [{"key": "chat", "datasets": [{"module": "chat", "shared": true}]}]}

@@ -31,8 +31,8 @@ type linkProp struct {
 
 // linkPropCatalog resolves the space's relation properties by walking
 // every user type's definitions. Built-in types are skipped — none
-// declare a relation (nav.parentId is a plain string; the parent/child
-// tree is queried directly by nav.parentId, not through backlinks).
+// declare a relation (the wiki's parentId is a plain string; the
+// parent/child tree is queried directly by it, not through backlinks).
 func linkPropCatalog(ctx context.Context, sp space.Space) ([]linkProp, error) {
 	types, err := sp.Types().List(ctx)
 	if err != nil {

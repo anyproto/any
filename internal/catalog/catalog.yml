@@ -1,0 +1,333 @@
+# internal/catalog/catalog.yml — the usecase catalog embedded in the any
+# binary. Contract: docs/28-well-known-bundles.md; format: the usecase
+# catalog proposal (SYN-218). Validated by `make catalog-validate`.
+#
+# A usecase is a set of bundles installed together plus the usecases it
+# requires. Every bundle is a created root under a permanent `system:` id;
+# `type` makes it a type objects carry, `miniapp` the object a client
+# opens, `parts` records on the root. Bundle ids never change — a bundle
+# that changes shape takes a new id.
+
+usecases:
+
+  # ── One object that is both the wiki app and the type its pages carry.
+  #    Hidden: the app attaches it; nothing picks it, so no weight.
+  - id: wiki
+    name: Wiki
+    description: A tree of pages — parent link, sibling order and folder flag
+    bundles:
+      - id: system:wiki/v1
+        name: Wiki
+        hidden: true
+        miniapp: { bundle: system:wiki/v1 }
+        type:
+          xKey: wiki
+          properties:
+            - { xKey: parentId, name: Parent,   kind: string,  meta: { index: none } }
+            - { xKey: pos,      name: Position, kind: string,  meta: { index: none } }
+            - { xKey: folder,   name: Folder,   kind: boolean, xFormat: { type: checkbox } }
+
+  # ── Collections: a miniapp with no types of its own. Installing it turns
+  #    the types feature on in clients — create, view and manage objects by
+  #    type. Nothing else to declare, so a bare miniapp root.
+  - id: collections
+    name: Collections
+    description: Work with types — create, view and manage objects by type
+    bundles:
+      - id: system:collections/v1
+        name: Collections
+        miniapp: {}
+
+  # ── The space's chat. The one derived root: chat content cannot be merged
+  #    across objects, and a 1-1 space has no owner to break a tie.
+  - id: general-chat
+    name: General chat
+    description: The space's chat
+    bundles:
+      - id: system:general-chat/v1
+        name: General
+        derived: true
+        hidden: true
+        type: { xKey: general_chat, layout: { type: chat } }
+        parts:
+          - key: chat
+            datasets: [ { module: chat, shared: true } ]
+
+  # ── Identities: one usecase, because Person.organization and
+  #    Organisation.main_contact reference each other and the requires graph
+  #    must stay acyclic. Person already needs Organisation for its canonical
+  #    edge, so nothing ever installed one without the other anyway.
+  - id: people
+    name: People and organisations
+    description: The two identities every relationship hangs off
+    bundles:
+      - id: system:person/v1
+        name: Person
+        type:
+          xKey: person
+          weight: 10
+          layout: { type: profile }
+          properties:
+            - { xKey: email,        name: Email,        kind: string,   xFormat: { type: email } }
+            - { xKey: phone,        name: Phone,        kind: string,   xFormat: { type: phone } }
+            - { xKey: organization, name: Organisation, kind: array, 
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
+            - { xKey: job_title,    name: Job title,    kind: string,   xFormat: { type: text } }
+            - { xKey: location,     name: Location,     kind: string,   xFormat: { type: text } }
+            - { xKey: linkedin,     name: LinkedIn,     kind: string,   xFormat: { type: url } }
+            - { xKey: birthday,     name: Birthday,     kind: datetime, xFormat: { type: date } }
+            - { xKey: tags,         name: Tags,         kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+        parts:
+          - key: body                                  # the Notes tab; shared with page
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+
+      - id: system:organization/v1
+        name: Organisation
+        type:
+          xKey: organization
+          weight: 10
+          layout: { type: profile }
+          properties:
+            - { xKey: kind,         name: Kind,         kind: array,      # what it is; roles say why you care
+                xFormat: { type: choice, options: {
+                  company: { name: Company, pos: a0 },       school: { name: School, pos: a1 },
+                  university: { name: University, pos: a2 }, nonprofit: { name: Nonprofit, pos: a3 },
+                  government: { name: Government, pos: a4 }, community: { name: Community, pos: a5 } } } }
+            - { xKey: domain,       name: Domain,       kind: string, xFormat: { type: url } }
+            - { xKey: categories,   name: Categories,   kind: array,      # industry / sector tags
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+            - { xKey: location,     name: Location,     kind: string, xFormat: { type: text } }
+            - { xKey: size,         name: Size,         kind: array, 
+                xFormat: { type: choice, options: {
+                  xs: { name: 1–10, pos: a0 },   s: { name: 11–50, pos: a1 },
+                  m:  { name: 51–200, pos: a2 }, l: { name: 201–1000, pos: a3 },
+                  xl: { name: 1000+, pos: a4 } } } }
+            - { xKey: linkedin,     name: LinkedIn,     kind: string, xFormat: { type: url } }
+            - { xKey: main_contact, name: Main contact, kind: array, 
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+        parts:
+          - key: body
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+
+  # ── The relationship facet: attached to a person or organisation you actively
+  #    manage. Weight below the identities so their profile layout keeps rendering.
+  - id: contact
+    name: Contact
+    description: Owner, source, status and the last and next touch on a person or organisation
+    requires: [ people ]
+    bundles:
+      - id: system:contact/v1
+        name: Contact
+        type:
+          xKey: contact
+          weight: 5
+          properties:
+            - { xKey: owner,          name: Owner,          kind: array,    # no member descriptor yet
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+            - { xKey: status,         name: Status,         kind: array, 
+                xFormat: { type: choice, options: {
+                  new: { name: New, pos: a0 },         active: { name: Active, pos: a1 },
+                  dormant: { name: Dormant, pos: a2 }, archived: { name: Archived, pos: a3 } } } }
+            - { xKey: source,         name: Source,         kind: array, 
+                xFormat: { type: choice, options: {
+                  referral: { name: Referral, pos: a0 }, intro: { name: Introduction, pos: a1 },
+                  event: { name: Event, pos: a2 },       inbound: { name: Inbound, pos: a3 },
+                  outbound: { name: Outbound, pos: a4 }, network: { name: Existing network, pos: a5 } } } }
+            - { xKey: referred_by,    name: Referred by,    kind: array, 
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+            - { xKey: last_contact,   name: Last contact,   kind: datetime, xFormat: { type: date } }
+            - { xKey: next_follow_up, name: Next follow-up, kind: datetime, xFormat: { type: date } }
+
+  # ── Roles: one usecase each, so a client sets one up the first time it is
+  #    chosen and an unused role never lands in a space. Every role attaches to
+  #    a person or an organisation; only Co-founder and Candidate are person-only.
+  - id: investor
+    name: Investor
+    requires: [ people ]
+    bundles:
+      - id: system:investor/v1
+        name: Investor
+        type:
+          xKey: investor
+          weight: 5
+          properties:
+            - { xKey: investor_type,   name: Investor type,   kind: array, 
+                xFormat: { type: choice, options: {
+                  angel: { name: Angel, pos: a0 },                 vc: { name: VC, pos: a1 },
+                  family_office: { name: Family office, pos: a2 }, corporate: { name: Corporate, pos: a3 },
+                  accelerator: { name: Accelerator, pos: a4 },     syndicate: { name: Syndicate, pos: a5 } } } }
+            - { xKey: investor_status, name: Investor status, kind: array, 
+                xFormat: { type: choice, options: {
+                  target: { name: Target, pos: a0 },       contacted: { name: Contacted, pos: a1 },
+                  in_talks: { name: In talks, pos: a2 },   passed: { name: Passed, pos: a3 },
+                  committed: { name: Committed, pos: a4 }, invested: { name: Invested, pos: a5 } } } }
+            - { xKey: focus,      name: Focus,      kind: array,
+                xFormat: { type: choice, options: {}, config: { multiple: true } } }
+            - { xKey: stages,     name: Stages,     kind: array,
+                xFormat: { type: choice, config: { multiple: true }, options: {
+                  pre_seed: { name: Pre-seed, pos: a0 }, seed: { name: Seed, pos: a1 },
+                  a: { name: Series A, pos: a2 },        b_plus: { name: Series B+, pos: a3 },
+                  growth: { name: Growth, pos: a4 } } } }
+            - { xKey: check_size, name: Check size, kind: number, xFormat: { type: currency } }
+            - { xKey: portfolio,  name: Portfolio,  kind: array,           # "Backed by" is derived
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] }, config: { multiple: true } } }
+
+  - id: customer
+    name: Customer
+    requires: [ people ]
+    bundles:
+      - id: system:customer/v1
+        name: Customer
+        type:
+          xKey: customer
+          weight: 5
+          properties:
+            - { xKey: account_status, name: Account status, kind: array, 
+                xFormat: { type: choice, options: {
+                  prospect: { name: Prospect, pos: a0 }, trial: { name: Trial, pos: a1 },
+                  active: { name: Active, pos: a2 },     at_risk: { name: At risk, pos: a3 },
+                  former: { name: Former, pos: a4 } } } }
+            - { xKey: plan,           name: Plan,           kind: array, 
+                xFormat: { type: choice, options: {} } }                  # product-specific, filled per space
+            - { xKey: annual_value,   name: Annual value,   kind: number,   xFormat: { type: currency } }
+            - { xKey: customer_since, name: Customer since, kind: datetime, xFormat: { type: date } }
+            - { xKey: renewal_date,   name: Renewal date,   kind: datetime, xFormat: { type: date } }
+
+  - id: partner
+    name: Partner
+    requires: [ people ]
+    bundles:
+      - id: system:partner/v1
+        name: Partner
+        type:
+          xKey: partner
+          weight: 5
+          properties:
+            - { xKey: partnership_type, name: Partnership type, kind: array, 
+                xFormat: { type: choice, options: {
+                  integration: { name: Integration, pos: a0 }, reseller: { name: Reseller, pos: a1 },
+                  referral: { name: Referral, pos: a2 },       co_marketing: { name: Co-marketing, pos: a3 },
+                  technology: { name: Technology, pos: a4 },   community: { name: Community, pos: a5 } } } }
+            - { xKey: partner_status,   name: Partner status,   kind: array, 
+                xFormat: { type: choice, options: {
+                  exploring: { name: Exploring, pos: a0 }, active: { name: Active, pos: a1 },
+                  paused: { name: Paused, pos: a2 },       ended: { name: Ended, pos: a3 } } } }
+            - { xKey: since,            name: Since,            kind: datetime, xFormat: { type: date } }
+            - { xKey: review_date,      name: Review date,      kind: datetime, xFormat: { type: date } }
+
+  - id: vendor
+    name: Vendor
+    requires: [ people ]
+    bundles:
+      - id: system:vendor/v1
+        name: Vendor
+        type:
+          xKey: vendor
+          weight: 5
+          properties:
+            - { xKey: services,       name: Services,       kind: array,
+                xFormat: { type: choice, config: { multiple: true }, options: {
+                  legal: { name: Legal, pos: a0 },   accounting: { name: Accounting, pos: a1 },
+                  design: { name: Design, pos: a2 }, engineering: { name: Engineering, pos: a3 },
+                  cloud: { name: Cloud, pos: a4 },   marketing: { name: Marketing, pos: a5 } } } }
+            - { xKey: vendor_status,  name: Vendor status,  kind: array, 
+                xFormat: { type: choice, options: {
+                  evaluating: { name: Evaluating, pos: a0 }, active: { name: Active, pos: a1 },
+                  paused: { name: Paused, pos: a2 },         ended: { name: Ended, pos: a3 } } } }
+            - { xKey: contract_value, name: Contract value, kind: number,   xFormat: { type: currency } }
+            - { xKey: renewal_date,   name: Renewal date,   kind: datetime, xFormat: { type: date } }
+
+  - id: cofounder
+    name: Co-founder
+    requires: [ people ]
+    bundles:
+      - id: system:cofounder/v1
+        name: Co-founder
+        type:
+          xKey: cofounder
+          weight: 5
+          properties:
+            - { xKey: founded,          name: Founded,          kind: array,    # may differ from Organisation once they move on
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
+            - { xKey: since,            name: Since,            kind: datetime, xFormat: { type: date } }
+            - { xKey: responsibilities, name: Responsibilities, kind: array,
+                xFormat: { type: choice, config: { multiple: true }, options: {
+                  product: { name: Product, pos: a0 }, engineering: { name: Engineering, pos: a1 },
+                  sales: { name: Sales, pos: a2 },     ops: { name: Ops, pos: a3 },
+                  finance: { name: Finance, pos: a4 } } } }
+            - { xKey: equity,           name: Equity,           kind: number, xFormat: { type: percent } }
+
+  - id: candidate
+    name: Candidate
+    requires: [ people ]
+    bundles:
+      - id: system:candidate/v1
+        name: Candidate
+        type:
+          xKey: candidate
+          weight: 5
+          properties:
+            - { xKey: role,            name: Role,            kind: string, xFormat: { type: text } }
+            - { xKey: candidate_stage, name: Candidate stage, kind: array, 
+                xFormat: { type: choice, options: {
+                  new: { name: New, pos: a0 },             screening: { name: Screening, pos: a1 },
+                  interview: { name: Interview, pos: a2 }, offer: { name: Offer, pos: a3 },
+                  hired: { name: Hired, pos: a4 },         closed: { name: Closed, pos: a5 } } } }
+            - { xKey: next_interview,  name: Next interview,  kind: datetime, xFormat: { type: date } }
+            - { xKey: resume,          name: Resume,          kind: string,   xFormat: { type: url } }
+
+  # ── The app: one directory of people and organisations. Its own state is the
+  #    shared record-page layout per identity type — today a dataview on the type
+  #    object, here a records part on the app root keyed by type xKey.
+  - id: contacts
+    name: Contacts
+    description: One directory of people and organisations, with their record layouts
+    requires: [ people, contact ]
+    bundles:
+      - id: system:contacts/v1
+        name: Contacts
+        miniapp: {}
+        hidden: true
+        parts:
+          - key: layouts
+            datasets:
+              - key: layouts
+                idRule: user                           # id = the identity type's xKey
+                fields:
+                  - { key: blocks, kind: array, mutableBy: any }
+
+  # ── Deals only make sense inside a CRM: the type lives in the app's usecase.
+  #    Roles are NOT required here; the client sets a role usecase up on first pick.
+  - id: crm
+    name: CRM
+    description: Deals on top of the contacts directory
+    requires: [ contacts ]
+    bundles:
+      - id: system:deal/v1
+        name: Deal
+        type:
+          xKey: deal
+          weight: 10
+          layout: { type: profile }
+          properties:
+            - { xKey: stage,        name: Stage,        kind: array, 
+                xFormat: { type: choice, options: {
+                  lead: { name: Lead, pos: a0 },         qualified: { name: Qualified, pos: a1 },
+                  proposal: { name: Proposal, pos: a2 }, negotiation: { name: Negotiation, pos: a3 },
+                  won: { name: Won, pos: a4 },           lost: { name: Lost, pos: a5 } } } }
+            - { xKey: owner,        name: Owner,        kind: array, 
+                xFormat: { type: relation, relation: { targetTypes: [ person ] } } }
+            - { xKey: organization, name: Organisation, kind: array, 
+                xFormat: { type: relation, relation: { targetTypes: [ organization ] } } }
+            - { xKey: amount,       name: Amount,       kind: number,   xFormat: { type: currency } }
+            - { xKey: close_date,   name: Close date,   kind: datetime, xFormat: { type: date } }
+        parts:
+          - key: body
+            ui: { type: document }
+            datasets: [ { module: editor, shared: true } ]
+      - id: system:crm/v1
+        name: CRM
+        miniapp: {}

@@ -21,7 +21,6 @@ import (
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
 	"github.com/anyproto/any/internal/miniapp"
-	"github.com/anyproto/any/internal/nav"
 	"github.com/anyproto/any/internal/page"
 )
 
@@ -116,15 +115,15 @@ var extraCatalog struct {
 
 // serverTypes is the hardcoded type set this server adds on top of the
 // SDK's built-ins — the types that are not modules: a saved-view
-// dataset on any host object, the nav property namespace, and the
-// hidden capability types an object opts into (page / miniapp / bin).
+// dataset on any host object and the hidden capability types an
+// object opts into (page / miniapp / bin). The wiki tree is a catalog
+// usecase, not a built-in.
 // Each entry registers its handler(s) with every per-object Controller;
 // a registered type reports builtIn with xKey = id, which is what
 // reserves the id against user types.
 func serverTypes() []handler.Type {
 	out := []handler.Type{
 		dataview.NewType(), // hidden: dataviews + views records on any host object
-		nav.NewType(),      // property-only: no dataset, just nav.* schema
 		page.NewType(),     // hidden: one part sharing the editor's canonical collection
 		miniapp.NewType(),  // hidden, property-only: the installed bundle an object runs
 		bin.NewType(),      // hidden, property-only: move-to-bin stamps (handlers_properties.go)

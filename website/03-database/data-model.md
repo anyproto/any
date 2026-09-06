@@ -38,7 +38,7 @@ Every regular object has exactly one row here, `id` = the object id. Values sit 
   "id": "bafy…obj",
   "any":            { "name": "Heat", "types": ["page", "bafy…movie"] },
   "bafy…movie":     { "Y9Hxx5xmYmF": ["personA", "personB"], "EwyHGrtTdxB": 1995 },
-  "nav":            { "type": "page", "parentId": "…", "pos": "a0" },
+  "bafy…wiki":      { "Qp3RkT2vLm9": "", "Hs8WnZ4cXb1": "a0", "Fd6JyM7tRe2": false },
   "author":         "A5k…",
   "createdAt":      { "$date": "2026-08-01T10:00:00.000Z" },
   "modifiedAt":     { "$date": "2026-08-05T17:00:00.000Z" },
@@ -46,7 +46,7 @@ Every regular object has exactly one row here, `id` = the object id. Values sit 
 }
 ```
 
-Cross-object questions ("every movie from 1995", "all pages under this folder") are queries over this collection — [Reading data](reading-data.html). Properties are written through the typed set route — [Writing data](writing-data.html). The reserved paths (`any.*`, `nav.*`, `_ver`, `_addSeq`, the stamps) are catalogued in [System fields](system-fields.html).
+Cross-object questions ("every movie from 1995", "all pages under this folder") are queries over this collection — [Reading data](reading-data.html). Properties are written through the typed set route — [Writing data](writing-data.html). The reserved paths (`any.*`, `_ver`, `_addSeq`, the stamps) are catalogued in [System fields](system-fields.html); the `bafy…wiki` group is the tree — the wiki type's `parentId` / `pos` / `folder`, ordinary properties like the movie's ([Objects](objects.html)).
 
 ## Per-object datasets
 

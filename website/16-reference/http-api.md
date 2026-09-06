@@ -109,7 +109,7 @@ Pending rows are discovered through `GET /v1/spaces?status=one_to_one_pending` /
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?}` | `{bundle, installed}` | adopt-or-install; `parts` declares the root's modules and datasets; `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation` |
+| POST | `/v1/spaces/:spaceId/bundles` | `{id, name?, rootTypes?, rootProperties?, derived?, parts?, properties?, xKey?, layout?, weight?, hidden?}` | `{bundle, installed}` | adopt-or-install; a bundle may declare a full type on its root (`parts` its modules and datasets, `properties`, `xKey`, `layout`, `weight`, `hidden`); `409 bundle.not_ready`, `400 type.not_found`, `400 property.format_violation`, `409 type.xkey_conflict`, `409 bundle.reserved` for a `system:` id |
 | GET | `/v1/spaces/:spaceId/bundles` | — | `{bundles: [Bundle]}` | |
 | GET | `/v1/spaces/:spaceId/bundles/:bundleId` | — | `Bundle` | `404 bundle.not_found` |
 | POST | `/v1/spaces/:spaceId/bundles/:bundleId/resolve` | `{loserRootId}` | 204 | `409 bundle.loser_not_ready`, `409 bundle.not_loser` |
@@ -122,11 +122,21 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SP/bundles \
 
 Full semantics in [Bundles](../collaboration/bundles.html).
 
+## Catalog
+
+| Method | Path | Body/params | Returns | Notes |
+|---|---|---|---|---|
+| GET | `/v1/catalog` | — | `{usecases}` | the server's well-known `system:` bundles, grouped into usecases |
+| GET | `/v1/catalog/:usecaseId` | — | usecase | `404 catalog.not_found` |
+| POST | `/v1/catalog/:usecaseId/setup` | `{spaceId}` | `{usecase, bundles: [{usecase, id, bundle, installed, typeId?, properties?, miniapp?}]}` | idempotent adopt-or-install, dependencies first; `properties` maps xKey → propId; `409 type.xkey_conflict`, `409 bundle.not_ready`, `405 space.unsupported` on the tech space |
+
+`wiki` is the usecase that gives a space its tree — [Objects](../database/objects.html).
+
 ## Objects
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?, nav?}` | 201 `{id, …}` | closed vocabulary (`400 request.unknown_field`); `nav.*` auto-stamped |
+| POST | `/v1/spaces/:spaceId/objects` | `{types?, initialProperties?}` | 201 `{objectId}` | closed vocabulary (`400 request.unknown_field`); nothing appended server-side — the tree is the wiki usecase's type ([Objects](../database/objects.html)) |
 | POST | `/v1/spaces/:spaceId/objects/query` | snapshot body | `{records, total?, hasNext?}` | cross-object `objects` collection |
 | POST | `/v1/spaces/:spaceId/objects/query/subscribe` | snapshot body | SSE | |
 | POST | `/v1/spaces/:spaceId/objects/aggregate` | `{pipeline, groupLimit?, accumArrayLimit?, memoryLimitBytes?, explain?}` | `{records}` \| `{plan}` | `400 aggregate.bad_pipeline`, `400 aggregate.limit_exceeded` |
@@ -198,7 +208,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`nav`, and the hidden `dataview` / `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (the hidden `dataview` / `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey}` | 201 `TypeInfo` | `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |

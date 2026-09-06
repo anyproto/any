@@ -109,6 +109,13 @@ func RunWith(ctx context.Context, cfg config.Config, opts RunOptions) error {
 		}
 	}
 
+	// The embedded usecase catalog is validated before anything boots:
+	// a broken entry is a build defect, not a runtime condition to serve
+	// around (`make catalog-validate` catches it in CI).
+	if _, err := embeddedUsecaseCatalog(); err != nil {
+		return fmt.Errorf("usecase catalog: %w", err)
+	}
+
 	shutdown := make(chan struct{}, 1)
 
 	deps := &deps{

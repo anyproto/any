@@ -101,6 +101,8 @@ jobs:
           token: ${{ secrets.ANY_CI_TOKEN }}
       - name: Install jq + unzip
         run: sudo apt-get update && sudo apt-get install -y jq unzip
+      - name: Validate the usecase catalog
+        run: make catalog-validate
       - name: Build any for published desktop platforms
         env:
           ANY_BUILD_VERSION: ${{ needs.version.outputs.version }}

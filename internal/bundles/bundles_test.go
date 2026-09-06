@@ -3,6 +3,7 @@ package bundles
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,8 +27,10 @@ type fakeSpace struct {
 	// do, and whether the registry converged.
 	role     space.Permission
 	indexErr error
-	// waited records the deadline the gate gave WaitIndexSynced.
+	// waited records the deadline the gate gave WaitIndexSynced;
+	// waits counts the calls.
 	waited time.Duration
+	waits  int
 	// types serves the root's part declarations for the adopt-side
 	// settled check; nil = every root reads as declaration-less.
 	types *fakeTypes
@@ -68,6 +71,7 @@ func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
 
 func (f *fakeSpace) Info() space.SpaceInfo { return space.SpaceInfo{Id: f.id, OwnRole: f.role} }
 func (f *fakeSpace) WaitIndexSynced(ctx context.Context) error {
+	f.waits++
 	if dl, ok := ctx.Deadline(); ok {
 		f.waited = time.Until(dl)
 	}
@@ -823,5 +827,53 @@ func TestEnsurePropertiesAdoptRoles(t *testing.T) {
 	}
 	if len(sp4.bundles.options) != 1 || !sp4.bundles.options[0].SystemInstall {
 		t.Fatalf("system install must reach the SDK as the ensure option, got %+v", sp4.bundles.options)
+	}
+}
+
+// TestSetupWaitsOnce pins the reason Setup exists: a walk over several
+// installs consults the registry-convergence wait once and reuses the
+// verdict, runs the caller's pre-install rule once per genuine
+// install, and stops at the entry the rule refuses, naming it.
+func TestSetupWaitsOnce(t *testing.T) {
+	sp := newInstallFake(space.PermissionOwner, errors.New("index wait expired"))
+	ctx := context.Background()
+	installs := []Install{{Id: "a/v1"}, {Id: "b/v1"}, {Id: "c/v1"}}
+
+	var seen []string
+	results, err := newTestResolver(0).Setup(ctx, ctx, sp, installs,
+		func(_ context.Context, _ space.Space, inst Install) error {
+			seen = append(seen, inst.Id)
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if len(results) != 3 || sp.objects.created != 3 {
+		t.Fatalf("results=%d created=%d", len(results), sp.objects.created)
+	}
+	if sp.waits != 1 {
+		t.Fatalf("WaitIndexSynced called %d times, want once", sp.waits)
+	}
+	if strings.Join(seen, ",") != "a/v1,b/v1,c/v1" {
+		t.Fatalf("pre-install hook saw %v", seen)
+	}
+
+	// A refusal by the hook stops the walk at that entry; the results
+	// before it stand and the error names the install.
+	sp = newInstallFake(space.PermissionOwner, nil)
+	refuse := errors.New("handle taken")
+	results, err = newTestResolver(0).Setup(ctx, ctx, sp, installs,
+		func(_ context.Context, _ space.Space, inst Install) error {
+			if inst.Id == "b/v1" {
+				return refuse
+			}
+			return nil
+		})
+	var se *SetupError
+	if !errors.As(err, &se) || se.Install.Id != "b/v1" || !errors.Is(err, refuse) {
+		t.Fatalf("err = %v, want SetupError on b/v1", err)
+	}
+	if len(results) != 1 || results[0].Install.Id != "a/v1" || sp.objects.created != 1 {
+		t.Fatalf("partial results = %+v created=%d", results, sp.objects.created)
 	}
 }

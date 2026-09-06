@@ -246,13 +246,12 @@ pluggable embedders, parallel batched pipelines),
   so a type's own part carries the views element. Blocked on a client
   need — the built-in's second level already covers "many tables on one
   object".
-- **Wiki folder marker.** The well-known `wiki/v1` bundle wants a
-  "folder" flag next to its page type; whether that is a property, a
-  `layout`, or a second type is a client decision still open.
-- **Bundle-declared types beyond the root.** A bundle declares one
-  type — its root's parts, properties (handle-derived ids), layout,
-  weight and hidden flag; a bundle that ships several types (a meeting
-  type plus a decision type) still creates the others one by one.
+- ~~**Wiki folder marker.**~~ Settled by the catalog: a boolean
+  `folder` property (`checkbox`) on the `wiki` type
+  (docs/28-well-known-bundles.md).
+- ~~**Bundle-declared types beyond the root.**~~ Settled by the
+  catalog: a usecase is a set of bundles, one type per bundle, with
+  `requires` between usecases; typed children under one root are out.
 
 ## Runtime dataset schemas — follow-ups (SYN-147 shipped, see Done)
 
@@ -301,8 +300,70 @@ pluggable embedders, parallel batched pipelines),
   unit properties** — no contract yet; see docs/27-descriptors.md
   § Not covered yet.
 
+## Usecase catalog — follow-ups (shipped, see Done)
+
+- **Usecase uninstall and dependency reference counting.** Uninstall
+  is per bundle (`DELETE …/objects/<rootId>`); a dependency stays
+  installed until its root is deleted, and nothing counts who still
+  needs it.
+- **A user type holding a catalog handle.** A type minted with a
+  catalog xKey before the catalog knew it blocks that usecase in that
+  space (`409 type.xkey_conflict`), and there is no type xKey rename
+  and no type delete over HTTP. Wanted: one of those — or a naming
+  convention for catalog handles that early user types are unlikely to
+  have chosen.
+- **Setup objects beyond the root.** A usecase cannot declare a "Home"
+  page, a default dataview, sample rows or a template; the per-bundle
+  `children` endpoint derives setup objects, but nothing in the
+  catalog drives it.
+- **One any-sync change per type install.** A CRDT change targets one
+  dataset, so an install is root + up to 3 changes (one `objects`
+  change carrying the types, `any.name`, the type metadata and the
+  seeded `rootProperties`; then, after the registry row, one `datasets`
+  change when the bundle declares parts and one `properties` change
+  when it declares properties) and a peer may briefly see the parts
+  before the property definitions. Needs a sectioned change format (`[{dataset, dataVersion,
+  records}]`) behind a `CRDTVersion` bump, the apply pipeline running
+  sections in one transaction, and every consumer that assumes one
+  changeId = one dataset (history list / diff / record-at, the changes
+  feed, windowed subscribe deltas, read tracking, `ModifyResult`). The
+  catalog does not depend on it — the registry row is a separate tree,
+  so an install is never atomic across trees and the adopt-heal stays.
+
 ## Done
 
+- **`nav` removed — the tree is the `wiki` usecase** — the built-in
+  `nav` type, the create-time stamping of `nav.type` / `nav.parentId` /
+  `nav.pos`, the `nav` block in the object create body (now
+  `400 request.unknown_field`) and `nav` in `GET …/types` are gone;
+  nothing is appended to `types` server-side. Tree placement is the
+  `wiki` catalog usecase's columns — `parentId`, `pos`, `folder` on the
+  hidden wiki type, ids from `POST /v1/catalog/wiki/setup` — on
+  objects that carry the type; children are an `objects/query` on the
+  parent column sorted by `pos`, a move is `…/set/<wikiTypeId>`, and
+  `pos` is allocated by the client (lexid). No back-compat: `nav.*` on
+  old rows is inert. Editor blocks keep their own `nav.parentId` /
+  `nav.pos` (the block schema). Contract: docs/03-api.md § The wiki
+  tree, docs/28-well-known-bundles.md § What clients delete.
+- **Usecase catalog** — the first server-side catalog of well-known
+  bundles: `internal/catalog/catalog.yml`, embedded, validated at boot,
+  in `make test` and by `make catalog-validate` in CI (every problem at
+  once, `path: code: message`). A usecase is a set of bundles plus
+  `requires`; every bundle a created root under a permanent
+  `system:<name>/v<n>` id declaring a type (an xKey alone is a marker
+  type), a `miniapp` (the root carries the built-in with `bundle` =
+  its id) or records parts; the general chat is the one derived root.
+  `GET /v1/catalog[/:usecaseId]`, `POST /v1/catalog/:usecaseId/setup
+  {spaceId}` — the dependency closure in order against ONE
+  registry-convergence wait, adopt-or-install per bundle, idempotent
+  and resumable (a failure names `usecase` + `bundleId`);
+  `409 type.xkey_conflict` on the install path when a type in the
+  space holds the handle; a writer's adopt heals missing properties by
+  handle and missing `miniapp` values. Ships `wiki`, `collections`,
+  `general-chat`, `people`, `contact`, six roles, `contacts`, `crm`.
+  `POST …/bundles` gains `xKey`; root types ride created roots that
+  declare a type; an install is root + up to 3 changes. Contract:
+  docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles.
 - **`dataview`: many dataviews, each with many views (SYN-217)** — the
   built-in `data_view` / `data_views` became the hidden `dataview` type
   with one part `views` owning two records datasets: `dataviews` (one
@@ -320,9 +381,8 @@ pluggable embedders, parallel batched pipelines),
   (move = attach, restore = detach on the existing routes; the server
   stamps `movedAt` / `movedBy` in the same change and clears them on
   restore). Contract: docs/03-api.md § Types → Built-in hidden types.
-  Still open on the same foundation: `dataview` (SYN-217), `nav` →
-  `wiki` (SYN-214), general chat under the reserved module (SYN-216),
-  the `system:` catalog (SYN-218).
+  Still open on the same foundation: general chat under the reserved
+  module (SYN-216), on top of the usecase catalog.
 - **Types, parts and modules** — a type is properties plus parts, each
   part owning datasets a module serves: `records` (the runtime schema
   handler, now always namespaced to `<typeId>_<key>`), `editor` and
@@ -629,15 +689,17 @@ pluggable embedders, parallel batched pipelines),
   streams emit their terminal frame before the listener tears down.
   CLI `any subscribe …` and `internal/client.StreamSubscribe…` ship
   alongside.
-- **Nav virtual built-in + tree UI** — `internal/nav` defines a
+- **Nav virtual built-in + tree UI** — `internal/nav` defined a
   synthetic `nav` type (`type` 1=item / 2=folder, `parentId`, `pos`
-  via lexid). `POST /v1/spaces/:id/objects` auto-stamps these on every
-  create (`injectNavDefaults` — caller-supplied values win, otherwise
+  via lexid). `POST /v1/spaces/:id/objects` auto-stamped these on every
+  create (`injectNavDefaults` — caller-supplied values won, otherwise
   defaults: item, root parent, next-pos after the folder's current max).
-  `GET /v1/spaces/:id/types` surfaces `nav` alongside the SDK types so
-  the UI can render an editor for it. The web UI's left sidebar is now
-  a lazy-loaded tree (queries `nav.parentId` per folder); the space
-  picker moved to the right sidebar.
+  `GET /v1/spaces/:id/types` surfaced `nav` alongside the SDK types so
+  the UI could render an editor for it. The web UI's left sidebar
+  became a lazy-loaded tree (queries `nav.parentId` per folder); the
+  space picker moved to the right sidebar. Superseded: `nav` was
+  removed and the tree became the `wiki` catalog usecase (see the
+  entry above).
 - **Dataset schemas + space-list query/subscribe + discovery** — on the
   SDK's unified tech-space query (`Service.Query` / `SpaceIndexObjectId`)
   and required-schema work (`handler.Dataset.Schema`, `Space.Datasets` /

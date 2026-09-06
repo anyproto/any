@@ -672,23 +672,23 @@
   const MD_DATASET = 'editor_blocks';
   const CHAT_DATASET = 'chat_messages';
   const CHAT_QUICK_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀'];
-  const NAV_TYPE_ID = 'nav';
-  const NAV_TYPE_ITEM = 1;
-  const NAV_TYPE_FOLDER = 2;
-  const NAV_ROOT_PARENT = '';
+  // The tree is the catalog usecase `wiki`: setup returns the wiki
+  // type id and the property ids of parentId / pos / folder, which
+  // ensureWiki caches per space as sp.wiki = {typeId, parentId, pos,
+  // folder}. Objects are in the tree only when they carry that type.
+  const WIKI_USECASE = 'wiki';
+  const WIKI_ROOT_PARENT = '';
   const ANY_AUTO_PROP_IDS = new Set(['id', 'author', 'spaceId', 'createdAt']);
   const OBJECTS_QUERY_LIMIT = 500;
   const TREE_PAGE_SIZE = 200;
 
   // ---------- lexid (JS port of github.com/anyproto/lexid) ----------
-  // The server's `nav.pos` allocator uses CharsAllNoEscape +
-  // blockSize=4 + stepSize=100. Drag/drop needs to allocate new pos
-  // values client-side; if we used a generic midstring algorithm,
-  // values would land outside the alphabet and the server's later
-  // Next() calls (e.g. on object create) would walk into undefined
-  // territory in nextChar[] lookups. So we mirror the Go logic
-  // byte-for-byte. Any divergence here will silently corrupt sort
-  // order over time — keep in sync with /home/che/go/pkg/mod/.../lexid.go.
+  // The wiki's pos values are lexids: CharsAllNoEscape + blockSize=4
+  // + stepSize=100, the same allocator the editor's blocks use. The
+  // client allocates every pos (create, drag/drop); a generic
+  // midstring algorithm would land outside the alphabet and corrupt
+  // the sort order, so the Go logic is mirrored byte-for-byte — keep
+  // in sync with github.com/anyproto/lexid.
   const LEXID_CHARS = (() => {
     // Visible ASCII (33–126) minus " (34) and \ (92).
     const out = [];
@@ -870,7 +870,7 @@
     }
     return next;
   }
-  // posBetween mirrors nav.PosBetween server-side: empty bounds mean
+  // posBetween allocates a pos between two siblings: empty bounds mean
   // "outside everything", so prev='' allocates Prev(next), next=''
   // allocates Next(prev), both empty allocates Middle().
   function navPosBetween(prev, next) {
@@ -1201,11 +1201,10 @@
     toast('ok', 'property added');
     return p;
   }
-  async function createObject(spaceId, { types, initialProperties, nav }) {
+  async function createObject(spaceId, { types, initialProperties }) {
     const body = {};
     if (types && types.length) body.types = types;
     if (initialProperties && Object.keys(initialProperties).length) body.initialProperties = initialProperties;
-    if (nav) body.nav = nav;
     const r = await api.post('/v1/spaces/' + spaceId + '/objects', body);
     if (!r.ok) { toast('err', 'create object failed', r.body); return null; }
     const o = { id: r.json.objectId, types: types || [], lastRecord: null };
@@ -1213,21 +1212,55 @@
     toast('ok', 'object created');
     return o;
   }
+  // ensureWiki resolves the space's wiki type through the catalog:
+  // adopt-or-install, idempotent, so every device of every member
+  // lands on the same type id and property ids. Cached on sp.wiki;
+  // null when the space has no wiki and this member may not install
+  // one (a reader), in which case the tree stays empty.
+  async function ensureWiki(spaceId) {
+    const sp = App.spaces[spaceId];
+    if (!sp) return null;
+    if (sp.wiki) return sp.wiki;
+    const r = await api.post('/v1/catalog/' + WIKI_USECASE + '/setup', { spaceId });
+    if (!r.ok) {
+      sp.wiki = null;
+      sp.wikiError = (r.json && r.json.error && r.json.error.code) || ('http ' + r.status);
+      return null;
+    }
+    const b = ((r.json && r.json.bundles) || []).find(x => x.typeId) || null;
+    if (!b || !b.properties || !b.properties.parentId || !b.properties.pos) {
+      sp.wiki = null;
+      sp.wikiError = 'setup reply carries no wiki type';
+      return null;
+    }
+    sp.wiki = { typeId: b.typeId, parentId: b.properties.parentId, pos: b.properties.pos, folder: b.properties.folder || '' };
+    sp.wikiError = '';
+    return sp.wiki;
+  }
+  // wikiPath composes the dotted query path of a wiki column.
+  function wikiPath(wiki, col) { return wiki.typeId + '.' + wiki[col]; }
   // loadTreeChildren queries POST /v1/spaces/:id/objects/query for
-  // direct children of `parentId`, sorted by nav.pos. Cached on
-  // App.spaces[id].tree.children[parentId]; rerunning replaces the
-  // cached list. Folder rows in the returned set seed
-  // App.spaces[id].objects so the editor / sibling code has a name to
-  // render before a full record load.
+  // direct children of `parentId` — objects carrying the wiki type
+  // whose parentId column matches — sorted by the pos column. Cached
+  // on App.spaces[id].tree.children[parentId]; rerunning replaces the
+  // cached list. Rows in the returned set seed App.spaces[id].objects
+  // so the editor / sibling code has a name to render before a full
+  // record load.
   async function loadTreeChildren(spaceId, parentId) {
     const sp = App.spaces[spaceId];
     if (!sp) return [];
     if (sp.tree.loading.has(parentId)) return sp.tree.children[parentId] || [];
     sp.tree.loading.add(parentId);
     try {
+      const wiki = await ensureWiki(spaceId);
+      if (!wiki) {
+        sp.tree.children[parentId] = [];
+        return [];
+      }
+      const filter = {}; filter[wikiPath(wiki, 'parentId')] = parentId;
       const r = await api.post('/v1/spaces/' + spaceId + '/objects/query', {
-        filter: { 'nav.parentId': parentId },
-        sort: ['nav.pos'],
+        filter,
+        sort: [wikiPath(wiki, 'pos')],
         limit: TREE_PAGE_SIZE,
       });
       if (!r.ok) {
@@ -1242,13 +1275,13 @@
         // Skip type-meta rows — types are objects too in this collection.
         const typesArr = (rec.any && Array.isArray(rec.any.types)) ? rec.any.types : [];
         if (typesArr.includes('__type__')) continue;
-        const navNode = rec.nav || {};
+        const cols = rec[wiki.typeId] || {};
         const child = {
           id: rec.id,
           name: (rec.any && rec.any.name) || '',
-          navType: navNode.type || NAV_TYPE_ITEM,
-          parentId: navNode.parentId || '',
-          pos: navNode.pos || '',
+          isFolder: !!(wiki.folder && cols[wiki.folder]),
+          parentId: cols[wiki.parentId] || '',
+          pos: cols[wiki.pos] || '',
           types: typesArr.filter(t => t !== '__type__'),
         };
         children.push(child);
@@ -1522,7 +1555,8 @@
     const sp = App.spaces[spaceId];
     if (!sp) return;
     sp.tree.children = {};
-    const ids = [NAV_ROOT_PARENT, ...Array.from(sp.tree.expanded || [])];
+    sp.wiki = null; // re-resolve: a reader's space may have gained a wiki since
+    const ids = [WIKI_ROOT_PARENT, ...Array.from(sp.tree.expanded || [])];
     await Promise.all(ids.map(id => loadTreeChildren(spaceId, id)));
     renderTree();
   }
@@ -1543,20 +1577,34 @@
     App.persist();
   }
 
-  // createTreeChild creates a new item or folder under parentId. Empty
-  // parentId means "at root". Reloads the tree so the new row appears,
-  // and navigates into the new object's editor on success.
-  async function createTreeChild(spaceId, parentId, navType) {
+  // createTreeChild creates a new page or folder under parentId. Empty
+  // parentId means "at root". The object carries the wiki type with
+  // its columns filled at birth (parent, a pos past the last sibling,
+  // the folder flag) and, for a page, the built-in `page` for a body.
+  // Reloads the tree so the new row appears, and navigates into the
+  // new object's editor on success.
+  async function createTreeChild(spaceId, parentId, folder) {
     const sp = App.spaces[spaceId];
     if (!sp) return;
+    const wiki = await ensureWiki(spaceId);
+    if (!wiki) { toast('err', 'wiki not set up in this space', sp.wikiError || ''); return; }
+    parentId = parentId || '';
+    if (!sp.tree.children[parentId]) await loadTreeChildren(spaceId, parentId);
+    const kids = sp.tree.children[parentId] || [];
+    const last = kids[kids.length - 1];
+    const cols = {};
+    cols[wiki.parentId] = parentId;
+    cols[wiki.pos] = last && last.pos ? lexidNext(last.pos) : lexidMiddle();
+    if (wiki.folder) cols[wiki.folder] = !!folder;
+    const initialProperties = {}; initialProperties[wiki.typeId] = cols;
     const o = await createObject(spaceId, {
-      types: [],
-      nav: { type: navType, parentId: parentId || '' },
+      types: folder ? [wiki.typeId] : ['page', wiki.typeId],
+      initialProperties,
     });
     if (!o) return;
     // For folders we expand them so the user sees they can drop
     // children inside.
-    if (navType === NAV_TYPE_FOLDER) sp.tree.expanded.add(o.id);
+    if (folder) sp.tree.expanded.add(o.id);
     await refreshTree(spaceId);
     App.persist();
     navigate(spaceUrl(spaceId, 'objects', o.id));
@@ -1794,7 +1842,7 @@
       // Tree's root level is always loaded for the active space.
       // Children of expanded folders re-fetched in parallel so a fresh
       // page reload restores the previous view.
-      loadTreeChildren(route.spaceId, NAV_ROOT_PARENT),
+      loadTreeChildren(route.spaceId, WIKI_ROOT_PARENT),
       ...Array.from(sp.tree.expanded || []).map(id =>
         loadTreeChildren(route.spaceId, id)
       ),
@@ -2190,14 +2238,20 @@
       root.innerHTML = '<div class="tree-empty">no space selected.</div>';
       return;
     }
-    const rootKids = sp.tree.children[NAV_ROOT_PARENT];
+    const rootKids = sp.tree.children[WIKI_ROOT_PARENT];
     if (rootKids === undefined) {
       root.innerHTML = '<div class="tree-loading">loading…</div>';
       return;
     }
+    if (!sp.wiki) {
+      root.innerHTML = '<div class="tree-empty">no wiki in this space' +
+        (sp.wikiError ? ' (' + escapeHTML(sp.wikiError) + ')' : '') +
+        ' — a member with write access sets it up by creating a page.</div>';
+      return;
+    }
     const empty = rootKids.length === 0
-      ? '<div class="tree-empty">empty — create an item or folder above.</div>'
-      : renderTreeChildren(sp, NAV_ROOT_PARENT, 0);
+      ? '<div class="tree-empty">empty — create a page or folder above.</div>'
+      : renderTreeChildren(sp, WIKI_ROOT_PARENT, 0);
     // Drop-zone footer: lets the user drop items at the end of root
     // even when the tree is empty or full.
     root.innerHTML = empty +
@@ -2210,7 +2264,7 @@
   }
 
   function renderTreeRow(sp, child, depth) {
-    const isFolder = child.navType === NAV_TYPE_FOLDER;
+    const isFolder = child.isFolder;
     const expanded = isFolder && sp.tree.expanded.has(child.id);
     const active = App.route?.objectId === child.id ? ' active' : '';
     const indent = 'padding-left:' + (8 + depth * 14) + 'px;';
@@ -2332,8 +2386,8 @@
 
   // ---------- page: objects ----------
   function renderObjectsPage(sp, typeFilter) {
-    // Registered types (nav, the hidden dataview / page / miniapp /
-    // bin) surface as builtIn=true but should still appear here — the
+    // Registered types (the hidden dataview / page / miniapp / bin)
+    // surface as builtIn=true but should still appear here — the
     // exclusions are the synthetic types no object attaches
     // (SYNTHETIC_TYPE_IDS).
     const filterableTypes = Object.values(sp.types).filter(t => !SYNTHETIC_TYPE_IDS.has(t.id));
@@ -3080,7 +3134,8 @@
   }
 
   function renderObjectTypeSection(o, t, rec) {
-    if (t.id === NAV_TYPE_ID) return ''; // nav is managed by the left tree
+    const wsp = App.activeSpace();
+    if (wsp && wsp.wiki && t.id === wsp.wiki.typeId) return ''; // the tree manages the wiki columns
     const tnode = rec[t.id] || {};
     const seen = new Set();
     const props = (t.props || []).filter(p => {
@@ -3194,7 +3249,7 @@
       const kids = sp.tree.children[cur] || [];
       for (const k of kids) {
         if (k.id === targetId) return true;
-        if (k.navType === NAV_TYPE_FOLDER) visit.push(k.id);
+        if (k.isFolder) visit.push(k.id);
       }
     }
     return false;
@@ -3205,8 +3260,8 @@
   function resolveDrop(sp, draggedId, target, zone) {
     let parentId, prevPos = '', nextPos = '';
     if (target.kind === 'root') {
-      parentId = NAV_ROOT_PARENT;
-      const kids = sp.tree.children[NAV_ROOT_PARENT] || [];
+      parentId = WIKI_ROOT_PARENT;
+      const kids = sp.tree.children[WIKI_ROOT_PARENT] || [];
       // Drop at end of root.
       const last = kids[kids.length - 1];
       prevPos = last ? last.pos : '';
@@ -3342,11 +3397,13 @@
     const result = resolveDrop(sp, draggedId, target, zone);
     if (!result) return;
     try {
-      // Single setBase on the `nav` namespace flips both fields atomically.
-      const r = await setBase(App.route.spaceId, draggedId, NAV_TYPE_ID, {
-        parentId: result.parentId,
-        pos: result.pos,
-      });
+      // One setBase on the wiki type flips both columns atomically.
+      const wiki = sp.wiki;
+      if (!wiki) return;
+      const patch = {};
+      patch[wiki.parentId] = result.parentId;
+      patch[wiki.pos] = result.pos;
+      const r = await setBase(App.route.spaceId, draggedId, wiki.typeId, patch);
       if (!r) return;
       await refreshTree(App.route.spaceId);
       App.persist();
@@ -3417,13 +3474,13 @@
           await toggleFolder(App.route.spaceId, id);
           renderTree();
         } else if (act === 'open') {
-          // Body click — open the editor. Folders can be renamed and
-          // their nav fields tweaked there. Use the chevron to expand.
+          // Body click — open the editor. Folders can be renamed
+          // there. Use the chevron to expand.
           navigate(spaceUrl(App.route.spaceId, 'objects', id));
         } else if (act === 'new-item') {
-          await createTreeChild(App.route.spaceId, id, NAV_TYPE_ITEM);
+          await createTreeChild(App.route.spaceId, id, false);
         } else if (act === 'new-folder') {
-          await createTreeChild(App.route.spaceId, id, NAV_TYPE_FOLDER);
+          await createTreeChild(App.route.spaceId, id, true);
         }
       } catch (err) {
         console.error(err);
@@ -3441,11 +3498,11 @@
       switch (act) {
         case 'tree-new-item':
           if (!spaceId) { toast('err', 'pick a space first'); break; }
-          await createTreeChild(spaceId, NAV_ROOT_PARENT, NAV_TYPE_ITEM);
+          await createTreeChild(spaceId, WIKI_ROOT_PARENT, false);
           break;
         case 'tree-new-folder':
           if (!spaceId) { toast('err', 'pick a space first'); break; }
-          await createTreeChild(spaceId, NAV_ROOT_PARENT, NAV_TYPE_FOLDER);
+          await createTreeChild(spaceId, WIKI_ROOT_PARENT, true);
           break;
         case 'tree-refresh':
           if (!spaceId) break;
@@ -3487,9 +3544,8 @@
           const o = await createObject(spaceId, { types });
           if (o) {
             App.persist();
-            // New object lands at root with a fresh nav row; full tree
-            // refresh keeps any sibling positions in sync too.
-            refreshTree(spaceId).catch(() => {});
+            // An object created here carries no wiki type, so it is
+            // not in the tree; the objects list is where it shows.
             // Navigate straight into the new object's editor — the
             // most common next step is to fill in name/properties.
             navigate(spaceUrl(spaceId, 'objects', o.id));
@@ -3536,9 +3592,8 @@
               await loadChatMessages(spaceId, id);
             }
           }
-          // bindTypes may rewrite any.types — that doesn't change
-          // tree position, but if the user binds nav explicitly we
-          // want to surface fresh rows just in case.
+          // bindTypes may attach or detach the wiki type: refresh so
+          // the tree gains or loses the row.
           refreshTree(spaceId).catch(() => {});
           App.persist();
           render();
@@ -3850,8 +3905,9 @@
       const r = await setBase(spaceId, objectId, tid, patches[tid]);
       if (!r) return;
     }
-    // Saves can touch any.name (rename) or nav.* (move/reorder) — both
-    // invalidate the tree's cached child entries. Cheap full refresh.
+    // Saves can touch any.name (rename) or the wiki columns (move /
+    // reorder) — both invalidate the tree's cached child entries.
+    // Cheap full refresh.
     refreshTree(spaceId).catch(() => {});
     App.persist();
     render();

@@ -268,7 +268,7 @@ func NewModule() handler.Module {
 // user/DAG-written → ScopeSynced; unread / unreadMention /
 // unreadReactions are device-local read-tracking flags → ScopeLocal
 // (written via the local-scope modify route, invisible to other
-// members and other devices). nav.* lives in the shared `objects`
+// members and other devices). a type's property values live in the shared `objects`
 // namespace, not here. reactions / attachments / agent carry nested
 // keyspaces (emoji→accountId→ts, attachmentId→{type,link},
 // {name,debugLink,done}) so they declare an unconstrained object

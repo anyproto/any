@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"slices"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -15,7 +14,6 @@ import (
 	"github.com/anyproto/any-sync-sdk/space"
 
 	"github.com/anyproto/any/internal/api"
-	"github.com/anyproto/any/internal/nav"
 )
 
 // objectCreateFields is the closed create vocabulary, derived from the
@@ -68,17 +66,13 @@ func (d *deps) objectCreate(c echo.Context) error {
 
 	opts := space.CreateObjectOpts{}
 	if root != nil {
-		// The three accepted fields are shape-checked before positive
+		// The accepted fields are shape-checked before positive
 		// extraction: a `types` string or an `initialProperties` array
 		// would otherwise be skipped unread — the same silent-drop trap
 		// checkUnknownFields closes for misspelled keys.
 		if v := root.Get("types"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeArray {
 			return writeError(c, http.StatusBadRequest, "request.schema",
 				"types must be an array of type ids", nil)
-		}
-		if v := root.Get("nav"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"nav must be an object with optional type / parentId / pos", nil)
 		}
 		if v := root.Get("initialProperties"); v != nil && v.Type() != fastjson.TypeNull && v.Type() != fastjson.TypeObject {
 			return writeError(c, http.StatusBadRequest, "request.schema",
@@ -113,13 +107,8 @@ func (d *deps) objectCreate(c echo.Context) error {
 		}
 	}
 
-	if errResp := injectNavDefaults(c, sp, root, &opts); errResp != nil {
-		return errResp
-	}
-
 	// Same descriptor value gate as propertiesSet, per initial type (see
-	// descriptor.go). nav injects only its own numeric props and nav
-	// declares no descriptors, so the extra lookups are user types only.
+	// descriptor.go).
 	for typeId, patch := range opts.InitialProperties {
 		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 		if err != nil {
@@ -137,128 +126,6 @@ func (d *deps) objectCreate(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
 	return c.JSON(http.StatusCreated, api.ObjectsCreateResponse{ObjectId: objectId})
-}
-
-// injectNavDefaults seeds the virtual `nav` type onto a creation. Adds
-// nav to opts.Types when missing and writes default nav.{type,
-// parentId, pos} into opts.InitialProperties — but only fields the
-// caller did not already supply, so explicit values from the body win.
-//
-// pos defaults to the next lexid after the current max pos in the
-// target folder (Middle() when the folder is empty), mirroring the
-// anytype-heart pattern: Middle on empty, Next(prev) on append. The
-// folder lookup runs before the create — the new row lands one step
-// past the rightmost sibling. Returns a non-nil echo response on
-// caller-input error (e.g. invalid nav.type).
-func injectNavDefaults(c echo.Context, sp space.Space, root *fastjson.Value, opts *space.CreateObjectOpts) error {
-	if !slices.Contains(opts.Types, nav.TypeId) {
-		opts.Types = append(opts.Types, nav.TypeId)
-	}
-
-	if opts.InitialProperties == nil {
-		opts.InitialProperties = map[string]map[string]any{}
-	}
-	navProps := opts.InitialProperties[nav.TypeId]
-	if navProps == nil {
-		navProps = map[string]any{}
-	}
-
-	var override *fastjson.Value
-	if root != nil {
-		override = root.Get("nav")
-	}
-
-	// nav.type — default 1 (item). Validate caller value if present.
-	if _, set := navProps[nav.PropType]; !set {
-		t := nav.TypeItem
-		if override != nil {
-			if v := override.Get("type"); v != nil && v.Type() == fastjson.TypeNumber {
-				t = v.GetInt()
-			}
-		}
-		if t != nav.TypeItem && t != nav.TypeFolder {
-			return writeError(c, http.StatusBadRequest, "request.schema",
-				"nav.type must be 1 (item) or 2 (folder)",
-				map[string]any{"got": t})
-		}
-		navProps[nav.PropType] = t
-	}
-
-	// nav.parentId — default "" (root). Caller-supplied values can
-	// arrive either as a Go string (in-process) or *fastjson.Value
-	// (from the request body via handler parsing); both shapes need
-	// to land in `parentId` so the per-folder max-pos lookup queries
-	// the right folder.
-	parentId := nav.RootParentId
-	if existing, set := navProps[nav.PropParentId]; set {
-		switch x := existing.(type) {
-		case string:
-			parentId = x
-		case *fastjson.Value:
-			if x != nil && x.Type() == fastjson.TypeString {
-				parentId = string(x.GetStringBytes())
-			}
-		}
-	} else {
-		if override != nil {
-			if v := override.Get("parentId"); v != nil && v.Type() == fastjson.TypeString {
-				parentId = string(v.GetStringBytes())
-			}
-		}
-		navProps[nav.PropParentId] = parentId
-	}
-
-	// nav.pos — caller wins; otherwise derive from the folder's
-	// current max. Cheap one-row query: filter by parentId, sort
-	// descending, limit 1.
-	if _, set := navProps[nav.PropPos]; !set {
-		var pos string
-		if override != nil {
-			if v := override.Get("pos"); v != nil && v.Type() == fastjson.TypeString {
-				pos = string(v.GetStringBytes())
-			}
-		}
-		if pos == "" {
-			lastPos, err := lookupMaxNavPos(c.Request().Context(), sp, parentId)
-			if err != nil {
-				return writeError(c, http.StatusInternalServerError, "internal",
-					"nav.pos lookup: "+err.Error(),
-					map[string]any{"spaceId": sp.Id(), "parentId": parentId})
-			}
-			pos = nav.NextPos(lastPos)
-		}
-		navProps[nav.PropPos] = pos
-	}
-
-	opts.InitialProperties[nav.TypeId] = navProps
-	return nil
-}
-
-// lookupMaxNavPos returns the highest nav.pos string among objects in
-// the given folder, or "" when the folder is empty. Errors propagate
-// to the caller — typically transient SDK / store conditions, treated
-// as a 500 by injectNavDefaults rather than silently picking an
-// arbitrary pos.
-func lookupMaxNavPos(ctx context.Context, sp space.Space, parentId string) (string, error) {
-	doc, err := sp.QueryObjects().
-		Filter(map[string]any{"nav.parentId": parentId}).
-		Sort("-nav.pos").
-		Limit(1).
-		One(ctx)
-	if err != nil {
-		if errors.Is(err, space.ErrNotFound) {
-			return "", nil
-		}
-		return "", fmt.Errorf("query siblings of %q: %w", parentId, err)
-	}
-	if doc == nil {
-		return "", nil
-	}
-	posVal := doc.Get("nav", "pos")
-	if posVal == nil {
-		return "", nil
-	}
-	return string(posVal.GetStringBytes()), nil
 }
 
 // objectDelete handles DELETE /v1/spaces/:spaceId/objects/:objectId.

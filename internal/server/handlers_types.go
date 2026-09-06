@@ -11,7 +11,6 @@ import (
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/index"
-	"github.com/anyproto/any/internal/nav"
 )
 
 // typeCreate handles POST /v1/spaces/:spaceId/types.
@@ -61,8 +60,9 @@ func (d *deps) typeCreate(c echo.Context) error {
 		return sdkOpError(c, err, map[string]any{"spaceId": sp.Id()})
 	}
 	for _, t := range existing {
-		// Built-in types carry xKey "" but resolve by their literal Id
-		// ("chat", "nav", …), so a new xKey must dodge both namespaces.
+		// Registered types resolve by their literal Id ("page",
+		// "miniapp", …) as well as by xKey, so a new xKey must dodge
+		// both namespaces.
 		if t.XKey == req.XKey || t.Id == req.XKey {
 			return writeError(c, http.StatusConflict, "type.xkey_conflict",
 				"xKey already in use by another type in this space",
@@ -265,9 +265,6 @@ func (d *deps) typeGet(c echo.Context) error {
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
 	}
-	if typeId == nav.TypeId {
-		return c.JSON(http.StatusOK, nav.TypeInfo())
-	}
 	info, err := sp.Types().Get(c.Request().Context(), typeId)
 	if err != nil {
 		if errors.Is(err, space.ErrNotFound) {
@@ -299,9 +296,6 @@ func (d *deps) typeProperties(c echo.Context) error {
 	typeId := c.Param("typeId")
 	if typeId == "" {
 		return writeError(c, http.StatusBadRequest, "request.missing_field", "typeId required", nil)
-	}
-	if typeId == nav.TypeId {
-		return c.JSON(http.StatusOK, api.PropertiesListResponse{Properties: nav.PropertyDefs()})
 	}
 	// The SDK's Properties returns an empty slice for an unknown typeId
 	// (the type's defs collection simply doesn't exist), which is

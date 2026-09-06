@@ -79,7 +79,7 @@ Frames (one JSON object per line on stdout):
 func addWindowQueryFlags(cmd *cobra.Command, filter, sort, projection *string, limit, offset *int, includeTot *bool) {
 	cmd.Flags().StringVar(filter, "filter", "", "JSON filter object")
 	cmd.Flags().StringVar(projection, "projection", "",
-		"comma-separated field paths to return, '-' prefix to exclude (e.g. 'any,nav' or '-_ver'); id always rides along and _ver follows the projection")
+		"comma-separated field paths to return, '-' prefix to exclude (e.g. 'any,page' or '-_ver'); id always rides along and _ver follows the projection")
 	cmd.Flags().StringVar(sort, "sort", "", "comma-separated sort keys (prefix '-' for descending)")
 	cmd.Flags().IntVar(limit, "limit", 0, "window size; required when --sort is set")
 	cmd.Flags().IntVar(offset, "offset", 0, "skip the first N records of the snapshot")
@@ -163,7 +163,7 @@ func applyProjection(body map[string]any, spec string) error {
 }
 
 // parseProjectionFlag turns the --projection CSV shorthand into the
-// wire map. `any,nav,-_ver` becomes {"any":1,"nav":1,"_ver":-1} — the
+// wire map. `any,page,-_ver` becomes {"any":1,"page":1,"_ver":-1} — the
 // '-' prefix is the same exclude marker --sort uses for descending, so
 // the two flags read alike. Returns nil for an empty spec.
 func parseProjectionFlag(spec string) (map[string]int, error) {
@@ -172,8 +172,8 @@ func parseProjectionFlag(spec string) (map[string]int, error) {
 	}
 	proj := map[string]int{}
 	for _, field := range splitCSV(spec) {
-		// Trim so `--projection 'any, nav'` reads the way it looks; an
-		// untrimmed " nav" is a legal path server-side that matches
+		// Trim so `--projection 'any, page'` reads the way it looks; an
+		// untrimmed " page" is a legal path server-side that matches
 		// nothing, which would silently drop the field.
 		field = strings.TrimSpace(field)
 		mark := 1

@@ -1,6 +1,6 @@
 ---
 title: System fields
-description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author` / `modifiedBy`, and the built-in `any.*` and `nav.*` properties.
+description: The fields any stamps for you — `_ver`, `_addSeq`, `_deletedAt`, `createdAt` / `modifiedAt`, `author` / `modifiedBy`, and the built-in `any.*` properties.
 order: 140
 ---
 # System fields
@@ -58,7 +58,7 @@ Runtime datasets get the same trio on demand through `stamp: creator` / `createT
 
 ## Built-in properties on objects
 
-Objects carry a few properties under the universal `any` type and the `nav` tree type. Paths use literal keys, not content-addressed property ids.
+Objects carry a few properties under the universal `any` type. Paths use literal keys, not content-addressed property ids.
 
 | Path | Kind | Meaning |
 |---|---|---|
@@ -66,18 +66,8 @@ Objects carry a few properties under the universal `any` type and the `nav` tree
 | `any.name` | string | Display name. |
 | `any.description` | string | Description. Indexed with `any.name` under the search scope `basic`. |
 | `any.tags` | string array | Free-form labels; filter with `{"any.tags": "<label>"}`. |
-| `nav.type` | number | `1` = item, `2` = folder. |
-| `nav.parentId` | string | Id of the parent folder; `""` = root. |
-| `nav.pos` | string | Lexicographic position (lexid) among siblings. |
 
-`nav.*` is stamped on every create — `nav` is appended to `any.types` and the three values land on the row — with an optional `"nav"` block in the create body to override the defaults. `nav.pos` defaults to the next lexid after the folder's current maximum. Trees are built by querying the objects collection, not by a dedicated endpoint:
-
-```sh
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
-  -d '{"filter": {"nav.parentId": "obj_X"}, "sort": ["nav.pos"]}'
-```
-
-Moving an object is a property set on `nav` (`parentId` + `pos` in one change). Details in [Objects](objects.html).
+Tree placement is not a system field. The wiki usecase's `parentId` / `pos` / `folder` are ordinary properties of a hidden type, at `<wikiTypeId>.<propId>` on objects that carry it, and nothing is stamped on create — [Objects](objects.html).
 
 ## Field scopes
 

@@ -33,7 +33,7 @@ The objects collection has **no per-property indexes**. A cross-object filter or
   "sort": ["-_ver.id"], "limit": 50 }
 ```
 
-**List a folder through `nav`.** `{"filter": {"nav.parentId": "<folder>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits the tree index directly.
+**List a block's children through the tree index.** `{"filter": {"nav.parentId": "<block>"}, "sort": ["nav.pos"]}` on `editor_blocks` hits `(nav.parentId, nav.pos)` directly. The wiki tree on the objects collection has no such index — its `parentId` / `pos` are ordinary properties and scan ([Objects](objects.html)).
 
 **Put `$match` first in a pipeline.** [Aggregation](aggregation.html) pushes a leading `$match` down to the index plan; tombstone exclusion folds into the same prefix so it stays index-planned.
 

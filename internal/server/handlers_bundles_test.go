@@ -639,3 +639,41 @@ func TestServer_BundleEnsureRootPropertiesGate(t *testing.T) {
 		t.Fatalf("expected a fresh install: %+v", res)
 	}
 }
+
+// TestServer_BundleXKeyHealsOnAdopt pins the handle heal: an install
+// that predates the handle gains it on the next ensure that declares
+// one — a writer's adopt fills what the root lacks, nothing else moves.
+func TestServer_BundleXKeyHealsOnAdopt(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+	sp := createSpaceInfo(t, e, "BundleXKeyHeal")
+
+	parts := `"parts":[{"key":"entries","datasets":[{"key":"entries","idRule":"user","fields":[{"key":"t","kind":"string"}]}]}]`
+	first := ensureBundle(t, e, sp.Id, `{"id":"heal/v1","name":"Heal",`+parts+`}`)
+	if !first.Installed {
+		t.Fatalf("first ensure: %+v", first)
+	}
+	var info api.TypeInfo
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+first.Bundle.RootId, &info)
+	if info.XKey != "" {
+		t.Fatalf("handle present before it was declared: %+v", info)
+	}
+
+	second := ensureBundle(t, e, sp.Id, `{"id":"heal/v1","name":"Renamed","xKey":"healed",`+parts+`}`)
+	if second.Installed || second.Bundle.RootId != first.Bundle.RootId {
+		t.Fatalf("second ensure did not adopt: %+v", second)
+	}
+	decodeGet(t, e, "/v1/spaces/"+sp.Id+"/types/"+first.Bundle.RootId, &info)
+	if info.XKey != "healed" {
+		t.Fatalf("handle not healed on adopt: %+v", info)
+	}
+	if info.Name != "Heal" {
+		t.Fatalf("adopt renamed the root: %+v", info)
+	}
+	// A third ensure with the same handle changes nothing.
+	third := ensureBundle(t, e, sp.Id, `{"id":"heal/v1","xKey":"healed",`+parts+`}`)
+	if third.Installed {
+		t.Fatalf("third ensure installed: %+v", third)
+	}
+}

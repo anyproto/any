@@ -105,7 +105,6 @@ any/
 │   ├── config/           config file + env var loading
 │   ├── localstore/       local store naming + tag fence over the SDK's sdk.db
 │   ├── markdown/         block-tree diff for the markdown round-trip
-│   ├── nav/              virtual `nav` type (folder/item, parentId, pos)
 │   ├── version/          binary version string
 │   └── e2e/              full-stack tests (real SDK)
 └── docs/                 this directory

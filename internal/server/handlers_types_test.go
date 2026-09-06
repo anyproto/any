@@ -225,14 +225,34 @@ func TestServer_BuiltinTypesReportXKey(t *testing.T) {
 			t.Errorf("built-in %q xKey = %q, want the id", ti.Id, ti.XKey)
 		}
 	}
-	// any + spaceIndex + type + every registered type.
-	if builtins < 4 {
+	// any + spaceIndex + type; every registered type is hidden and shows
+	// only with includeHidden=true.
+	if builtins < 3 {
 		t.Fatalf("only %d built-ins in the catalog, want the full set: %+v", builtins, list.Types)
 	}
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types?includeHidden=true", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /types?includeHidden: %d %s", rec.Code, rec.Body.String())
+	}
+	var withHidden api.TypesListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &withHidden); err != nil {
+		t.Fatalf("decode types: %v", err)
+	}
+	hidden := 0
+	for _, ti := range withHidden.Types {
+		if ti.BuiltIn && ti.Hidden {
+			hidden++
+			if ti.XKey != ti.Id {
+				t.Errorf("hidden built-in %q xKey = %q, want the id", ti.Id, ti.XKey)
+			}
+		}
+	}
+	if hidden < 4 { // dataview, page, miniapp, bin
+		t.Fatalf("only %d hidden built-ins with includeHidden, want the registered set: %+v", hidden, withHidden.Types)
+	}
 
-	// The single-type reads: the shared mapper, plus nav's hardcoded
-	// short-circuit, which bypasses it entirely.
-	for _, id := range []string{"any", "spaceIndex", "type", "dataview", "nav"} {
+	// The single-type reads through the shared mapper.
+	for _, id := range []string{"any", "spaceIndex", "type", "dataview"} {
 		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET /types/%s: status=%d body=%s", id, rec.Code, rec.Body.String())

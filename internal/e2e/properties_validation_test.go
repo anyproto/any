@@ -5,11 +5,6 @@
 // the object doesn't implement. This test asserts the happy path lands
 // and every rejection surfaces as a 400 with the documented error code
 // (docs/06-errors.md) — not a 500.
-//
-// The built-in `nav` type (registered as a property-only type in this
-// branch — see internal/nav/nav.go::NewType) is covered alongside a
-// user-declared type so the property-only registration path is exercised
-// the same way a dataset-owning type is.
 package e2e
 
 import (
@@ -46,9 +41,6 @@ func TestE2E_PropertyValidation(t *testing.T) {
 	bookType := createType(t, base, spaceID, "Book")
 	bookTitle := addProperty(t, base, spaceID, bookType, "Title", "string")
 
-	// createObject auto-stamps nav.* defaults (number nav.type, string
-	// nav.parentId/pos) — its success already proves the nav property-only
-	// registration accepts a valid default write rather than rejecting it.
 	objectID := createObject(t, base, spaceID, movieType)
 
 	setBase := base + "/v1/spaces/" + spaceID + "/properties/" + objectID + "/set/"
@@ -106,7 +98,7 @@ func TestE2E_PropertyValidation(t *testing.T) {
 
 	t.Run("type not implemented by object", func(t *testing.T) {
 		// bookType/bookTitle are well-formed, but the object's any.types
-		// is [Movie, nav] — it never implemented Book, so the write is
+		// is [Movie] — it never implemented Book, so the write is
 		// rejected before the (valid) property is even consulted.
 		code := mustErrorCode(t, http.MethodPost, setBase+bookType,
 			fmt.Sprintf(`{"patch":{%q:"x"}}`, bookTitle), http.StatusBadRequest)
@@ -125,31 +117,6 @@ func TestE2E_PropertyValidation(t *testing.T) {
 			t.Errorf("code = %q, want property.kind_mismatch", code)
 		}
 		assertProp(t, base, spaceID, objectID, movieType, titleProp, "Casablanca")
-	})
-
-	// --- nav: the property-only built-in registered in this branch --------
-	navBase := setBase + "nav"
-
-	t.Run("nav valid number write lands", func(t *testing.T) {
-		var res map[string]any
-		mustJSON(t, http.MethodPost, navBase, `{"patch":{"type":2}}`, http.StatusOK, &res)
-		assertProp(t, base, spaceID, objectID, "nav", "type", float64(2))
-	})
-
-	t.Run("nav kind mismatch: string into nav.type", func(t *testing.T) {
-		code := mustErrorCode(t, http.MethodPost, navBase,
-			`{"patch":{"type":"folder"}}`, http.StatusBadRequest)
-		if code != "property.kind_mismatch" {
-			t.Errorf("code = %q, want property.kind_mismatch", code)
-		}
-	})
-
-	t.Run("nav unknown property", func(t *testing.T) {
-		code := mustErrorCode(t, http.MethodPost, navBase,
-			`{"patch":{"depth":3}}`, http.StatusBadRequest)
-		if code != "property.not_found" {
-			t.Errorf("code = %q, want property.not_found", code)
-		}
 	})
 
 	// A standalone server refuses HTTP shutdown; `any stop` signals it.

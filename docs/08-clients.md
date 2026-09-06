@@ -193,6 +193,16 @@ trade is permanence: a derived root can never be deleted. Additional
 purpose-specific chats get their own bundle id. Full guidance:
 `16-chat.md` § Finding the chat object, `03-api.md` § Bundles.
 
+The server's catalog declares the same chat as the `general-chat`
+usecase — `POST /v1/catalog/general-chat/setup {spaceId}` — under the
+id `system:general-chat/v1`. A derived root's id is a function of the
+bundle id, so that call derives a DIFFERENT root than
+`general-chat/v1`: a space set up with the recipe above keeps its chat
+there, and the usecase would add a second, empty one. The recipe above
+stays the convention until the follow-up that reserves the `chat`
+module to the catalog moves the id (`28-well-known-bundles.md` § What
+clients delete).
+
 Chat uses `-_ver.id` (descending) **uniformly** — initial view, live tail,
 and history paging all sort the same way. `_ver.id` is the record's
 `VersionId` at creation — its position in the any-sync DAG (the SDK's

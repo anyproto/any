@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$TYPE \
 - **Key by `propId`, never by `xKey`.** The server never sees xKeys; a patch keyed by one fails with `property.not_found`. Resolve `xKey → propId` from `GET …/types/:typeId/properties` first.
 - The endpoint auto-routes by the property's declared [scope](data-types.html). Every propId in one patch must resolve to the same scope — mixed-scope or unknown keys are rejected.
 - Values are shape-checked against the property's format (`400 property.format_violation`). Kind mismatches on format-less properties are not enforced; validate against the definition client-side.
-- Built-in paths use literal keys: `…/set/nav` with `{"patch": {"parentId": "…", "pos": "…"}}`, `…/set/any` with `{"patch": {"name": "Dune"}}`.
+- Built-in paths use literal keys: `…/set/any` with `{"patch": {"name": "Dune"}}`. A tree move is this route on the wiki type — `…/set/<wikiTypeId>` with `{"patch": {"<parentIdPropId>": "…", "<posPropId>": "…"}}` ([Objects](objects.html)).
 
 Initial values ride object create instead — `initialProperties` keyed the same way (see [Objects](objects.html)).
 
