@@ -23,30 +23,31 @@ type TypesCreateResponse struct {
 }
 
 // AddPropertyRequest is the body of POST /v1/spaces/:spaceId/types/:typeId/properties.
-// Kind is the wire string from PropertyKind* below; the server rejects
-// unknown values with 400 invalid_request. Kind may be omitted when
-// Format is set — it then defaults from the format type (links ⇒ array,
-// date/datetime ⇒ string). Items / Properties / Required from
-// space.PropertyDraft are not exposed in v1.
+// Kind is the wire string from PropertyKind* below and is required —
+// nothing is defaulted from the descriptor. Items / Properties /
+// Required from space.PropertyDraft are not exposed in v1.
 type AddPropertyRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
-	XKey        string `json:"xKey,omitempty"`
-	// XKind is a free-form classification hint, stored verbatim and
-	// never interpreted by the server (space.PropertyDraft.XKind).
-	// It is the field a caller uses to record a client-side kind
-	// marker WITHOUT overloading XKey, which is the stable handle
-	// callers address the property by. Freely mutable afterwards via
-	// PATCH `xKind`; settable here so a caller need not POST-then-PATCH.
-	XKind string `json:"xKind,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-	// Meta is an opaque consumer flag map, stored verbatim on the
-	// property definition. meta["index"] = "<scope>" marks the property
-	// for the search indexer (docs/13-index.md).
+	// XKey is the property's handle — an alias, not a storage key
+	// (values live under the content-addressed propId). Unique within
+	// the type (409 property.xkey_conflict); mutable via PATCH.
+	XKey string `json:"xKey,omitempty"`
+	Kind string `json:"kind"`
+	// Meta holds the consumer flags the server interprets — today only
+	// meta["index"] = "<scope>" | "none" for the search indexer
+	// (docs/13-index.md). Any other key is rejected; descriptive
+	// metadata lives under xFormat.
 	Meta map[string]string `json:"meta,omitempty"`
-	// Format declares the property's value convention. format.type is
-	// pinned for the property's life; ui/filter stay mutable.
-	Format *PropertyFormat `json:"format,omitempty"`
+	// XFormat is the property's descriptor: everything descriptive
+	// beyond the kind — the semantic slug, icon, ordering key, option
+	// set, relation targets, per-format config (docs/27-descriptors.md).
+	// An object; the server validates the keys it interprets (type,
+	// icon, pos, options, relation, config) against the vocabulary and
+	// the slug against kind, stores vendor-namespaced keys verbatim,
+	// and reserves validate / compute. Every path under it is mutable
+	// via PATCH.
+	XFormat json.RawMessage `json:"xFormat,omitempty"`
 	// Scope is the property's write/sync class: "synced" (default,
 	// everyone in the space), "account" (this account's devices only),
 	// or "local" (this device only, never synced). "derived" is
@@ -56,60 +57,6 @@ type AddPropertyRequest struct {
 	// (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
 	Scope string `json:"scope,omitempty"`
 }
-
-// PropertyFormat is the wire shape of a property's format annotation.
-// The server validates the semantics on its write path (type/ui
-// vocabulary, ui/type compatibility, filter parses as a query
-// condition) and validates property VALUES against the format on the
-// property-write endpoints (a datetime parses, links are well-formed
-// any:// URIs). No object-existence or object-type checks.
-type PropertyFormat struct {
-	// Type is one of the FormatType* wire strings.
-	Type string `json:"type"`
-	// UI is one of the FormatUI* wire strings; optional. links accepts
-	// any UI; date/datetime accept none.
-	UI string `json:"ui,omitempty"`
-	// Filter is a mongo-style condition object over candidate objects
-	// (e.g. {"type": {"$in": ["page"]}}); optional, links only.
-	Filter json.RawMessage `json:"filter,omitempty"`
-	// Options is the enumerated choice set for select / multiselect,
-	// keyed by the option's stable key (which IS the stored value).
-	// Read back on GET; write/mutate via PATCH (format.options.<key>.*
-	// paths), not this create body's whole-map form.
-	Options map[string]PropertyOption `json:"options,omitempty"`
-	// Meta is an opaque, format-level string config bag.
-	Meta map[string]string `json:"meta,omitempty"`
-}
-
-// PropertyOption is one select / multiselect choice. Its map key in
-// PropertyFormat.Options is the stored value; the fields below are the
-// mutable display slice.
-type PropertyOption struct {
-	Name  string            `json:"name,omitempty"`
-	Color string            `json:"color,omitempty"`
-	Pos   string            `json:"pos,omitempty"`
-	Meta  map[string]string `json:"meta,omitempty"`
-}
-
-// FormatType* are the wire strings of space.FormatType. "tags" is
-// reserved until the space-level tag table lands — the SDK rejects it.
-const (
-	FormatTypeLinks       = "links"
-	FormatTypeDate        = "date"
-	FormatTypeDatetime    = "datetime"
-	FormatTypeTags        = "tags"
-	FormatTypeSelect      = "select"
-	FormatTypeMultiselect = "multiselect"
-)
-
-// FormatUI* are the accepted presentation hints for format-bearing
-// properties. Opaque to the SDK; vocabulary enforced by this server.
-const (
-	FormatUISelect      = "select"
-	FormatUIMultiselect = "multiselect"
-	FormatUILink        = "link"
-	FormatUILinks       = "links"
-)
 
 // AddPropertyResponse is the body returned by AddProperty.
 type AddPropertyResponse struct {
@@ -158,10 +105,9 @@ type PropertyDef struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	XKey        string `json:"xKey,omitempty"`
-	XKind       string `json:"xKind,omitempty"`
 	Kind        string `json:"kind"`
-	// Meta is the opaque consumer flag map set at AddProperty time
-	// (e.g. meta["index"] = "<scope>" for the search indexer).
+	// Meta is the consumer flag map (meta["index"] for the search
+	// indexer).
 	Meta map[string]string `json:"meta,omitempty"`
 	// Scope is the property's write/sync class (synced / derived /
 	// account / local). Definitions written before scopes existed
@@ -170,9 +116,9 @@ type PropertyDef struct {
 	Items      *PropertyDef  `json:"items,omitempty"`
 	Properties []PropertyDef `json:"properties,omitempty"`
 	Required   []string      `json:"required,omitempty"`
-	// Format is the property's value-format annotation; absent for
-	// properties that never declared one.
-	Format *PropertyFormat `json:"format,omitempty"`
+	// XFormat is the descriptor as stored — absent for a property that
+	// never declared one, which renders structurally from Kind.
+	XFormat json.RawMessage `json:"xFormat,omitempty"`
 }
 
 // PropertiesListResponse is the body of GET /v1/spaces/:spaceId/types/:typeId/properties.
@@ -184,13 +130,14 @@ type PropertiesListResponse struct {
 // /v1/spaces/:spaceId/types/:typeId/properties/:propId — a generic
 // per-path patch to a property definition (space.PropertyPatch). Set
 // assigns values at dotted field paths; Unset removes them (a whole
-// option subtree, e.g. "format.options.high", is unset by naming it).
+// option subtree, e.g. "xFormat.options.high", is unset by naming it).
 //
-// Mutable paths: name, description, xKey, xKind, meta.<k>, format.ui,
-// format.filter, format.meta.<k>, format.options.<key>.{name,color,pos},
-// format.options.<key>.meta.<k>. Pinned paths (kind, scope, items,
-// properties, the whole `format` object, format.type) are rejected with
-// 400 property.immutable. At least one entry across Set/Unset required.
+// Mutable paths: name, description, xKey, meta.index, and every path
+// under xFormat. A set targets a leaf — never an object, so a
+// container (options, options.<key>, relation, config, the whole bag)
+// can only be unset, not replaced. Pinned paths (kind, scope, items,
+// properties) are rejected with 400 property.immutable. At least one
+// entry across Set/Unset required.
 type PropertyPatchRequest struct {
 	Set   map[string]json.RawMessage `json:"set,omitempty"`
 	Unset []string                   `json:"unset,omitempty"`

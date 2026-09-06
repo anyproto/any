@@ -148,9 +148,8 @@ any chat react  <spaceId> <objectId> <msgId> <emoji>          # toggle
 any type create <spaceId> --name N --xkey K [--description D] [--icon-cid CID]
 any type list   <spaceId>
 any type property list   <spaceId> <typeId>
-any type property add    <spaceId> <typeId> --name N [--xkey K]
-                         [--kind string|number|boolean|array|object|datetime]
-                         [--format-type links|date|datetime|select|multiselect] [--format-ui U] [--scope S]
+any type property add    <spaceId> <typeId> --name N --kind string|number|boolean|array|object|datetime
+                         [--xkey K] [--description D] [--scope S] [--x-format '<json>'|@FILE|-]
 any type property patch  <spaceId> <typeId> <propId> --set '<json>' [--unset PATH]...
 any type property remove <spaceId> <typeId> <propId>
 any type property option set    <spaceId> <typeId> <propId> <key> [--name N] [--color C] [--pos LEXID]
@@ -161,11 +160,13 @@ any type dataset add    <spaceId> <typeId> --draft '<json>'|@FILE|-
 any type dataset patch  <spaceId> <typeId> <defId> --set '<json>' [--unset PATH]...
 any type dataset remove <spaceId> <typeId> <defId>
 any type dataset field add    <spaceId> <typeId> <defId> --field '<json>'|@FILE|-
+any type dataset field patch  <spaceId> <typeId> <defId> <fieldId> --set '<json>' [--unset PATH]...
 any type dataset field remove <spaceId> <typeId> <defId> <fieldId>
 ```
 
 ```bash
-any type property patch $SP $T $P --set '{"format.options.high.name":"High","format.options.high.color":"red"}'
+any type property add $SP $T --name Stage --xkey stage --kind array --x-format '{"type":"choice"}'
+any type property patch $SP $T $P --set '{"xFormat.options.high.name":"High","xFormat.options.high.color":"red"}'
 any type property option set $SP $T $P high --name High --color red --pos a0    # same write, sugar
 ```
 

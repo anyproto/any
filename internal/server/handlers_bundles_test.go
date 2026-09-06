@@ -587,3 +587,51 @@ func TestServer_BundleDerivedRootPropertyTypes(t *testing.T) {
 		t.Fatalf("seeded value did not land: %+v", props)
 	}
 }
+
+// TestServer_BundleEnsureRootPropertiesGate: a root property value that
+// does not fit its descriptor slug is refused BEFORE the root is
+// created, so no install and no orphan object result.
+func TestServer_BundleEnsureRootPropertiesGate(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	sp := createSpaceInfo(t, e, "BundleGate")
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Task","xKey":"task"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create type: %d %s", rec.Code, rec.Body.String())
+	}
+	var tr api.TypesCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types/"+tr.TypeId+"/properties",
+		`{"name":"Due","xKey":"due","kind":"datetime","xFormat":{"type":"date"}}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add property: %d %s", rec.Code, rec.Body.String())
+	}
+	var pr api.AddPropertyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &pr); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"id":"tasks/v1","name":"Tasks","rootTypes":["` + tr.TypeId + `"],` +
+		`"rootProperties":{"` + tr.TypeId + `":{"` + pr.PropId + `":{"$date":"2026-07-03T12:00:00Z"}}}}`
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/bundles", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("non-midnight date must be refused: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "property.format_violation")
+	rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/bundles/tasks%2Fv1", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("a refused install must leave nothing behind: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The same install with a fitting value goes through.
+	body = `{"id":"tasks/v1","name":"Tasks","rootTypes":["` + tr.TypeId + `"],` +
+		`"rootProperties":{"` + tr.TypeId + `":{"` + pr.PropId + `":{"$date":"2026-07-03T00:00:00Z"}}}}`
+	res := ensureBundle(t, e, sp.Id, body)
+	if !res.Installed {
+		t.Fatalf("expected a fresh install: %+v", res)
+	}
+}

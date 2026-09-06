@@ -92,7 +92,7 @@ Clients compute drop positions with a lexid allocator (alphabet `CharsAllNoEscap
 
 ## Backlinks
 
-Object references are property values with `format.type: "links"` — arrays of `any://<objectId>` URIs. The reverse lookup answers "which objects reference X?":
+Object references are values of `relation` properties (`xFormat.type: "relation"`) — arrays of `any://<objectId>` URIs. The reverse lookup answers "which objects reference X?":
 
 ```bash
 curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/backlinks

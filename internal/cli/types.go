@@ -102,15 +102,29 @@ func newTypePropertyListCmd() *cobra.Command {
 }
 
 func newTypePropertyAddCmd() *cobra.Command {
-	var name, xkey, xkind, kind, formatType, formatUI, scope string
+	var name, desc, xkey, kind, scope, xformat string
 	cmd := &cobra.Command{
 		Use:   "add <spaceId> <typeId>",
-		Short: "add a property (use --format-type select|multiselect for option properties)",
-		Args:  cobra.ExactArgs(2),
+		Short: "add a property (--kind is pinned; --x-format carries the descriptor)",
+		Long: `Add a property definition. kind is the guarantee and is pinned;
+everything descriptive — slug, icon, order, options, relation targets,
+per-format config — is the x-format descriptor (docs/27-descriptors.md).
+
+Examples:
+  any type property add S T --name Stage --xkey stage --kind array \
+    --x-format '{"type":"choice","options":{"lead":{"name":"Lead","color":"grey","pos":"a0"}}}'
+  any type property add S T --name Due --xkey due --kind datetime --x-format '{"type":"date"}'
+  any type property add S T --name Company --xkey company --kind array \
+    --x-format '{"type":"relation","relation":{"targetTypes":["companies"]}}'`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			req := api.AddPropertyRequest{Name: name, XKey: xkey, XKind: xkind, Kind: kind, Scope: scope}
-			if formatType != "" {
-				req.Format = &api.PropertyFormat{Type: formatType, UI: formatUI}
+			req := api.AddPropertyRequest{Name: name, Description: desc, XKey: xkey, Kind: kind, Scope: scope}
+			if xformat != "" {
+				var xf json.RawMessage
+				if err := readJSONBody(xformat, &xf); err != nil {
+					return fmt.Errorf("--x-format: %w", err)
+				}
+				req.XFormat = xf
 			}
 			cl := newClient(flags.Timeout)
 			out, err := cl.TypeAddProperty(cmd.Context(), args[0], args[1], req)
@@ -121,12 +135,12 @@ func newTypePropertyAddCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "display name")
-	cmd.Flags().StringVar(&xkey, "xkey", "", "stable programmatic key")
-	cmd.Flags().StringVar(&xkind, "xkind", "", "free-form classification hint, stored verbatim")
-	cmd.Flags().StringVar(&kind, "kind", "", "value kind (string/number/boolean/array/object/datetime; omit to default from format)")
-	cmd.Flags().StringVar(&formatType, "format-type", "", "format: links/date/datetime/select/multiselect")
-	cmd.Flags().StringVar(&formatUI, "format-ui", "", "presentation hint: select/multiselect/link/links")
+	cmd.Flags().StringVar(&desc, "description", "", "description")
+	cmd.Flags().StringVar(&xkey, "xkey", "", "handle, unique within the type")
+	cmd.Flags().StringVar(&kind, "kind", "", "value kind: string/number/boolean/array/object/datetime (required, pinned)")
+	cmd.Flags().StringVar(&xformat, "x-format", "", "descriptor (inline JSON, @FILE, or - for stdin)")
 	cmd.Flags().StringVar(&scope, "scope", "", "write/sync class: synced (default) / account / local")
+	_ = cmd.MarkFlagRequired("kind")
 	return cmd
 }
 
@@ -137,18 +151,21 @@ func newTypePropertyPatchCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "patch <spaceId> <typeId> <propId>",
-		Short: "PATCH a property — {set,unset} over dotted paths (rename, options, colors, order)",
+		Short: "PATCH a property — {set,unset} over dotted paths (rename, handle, descriptor)",
 		Long: `Patch a property definition via dotted paths.
 
-Mutable paths: name, description, xKey, xKind, meta.<k>, format.ui,
-format.filter, format.meta.<k>, format.options.<key>.{name,color,pos},
-format.options.<key>.meta.<k>. Pinned paths (kind, scope, items,
-properties, format, format.type) are rejected.
+Mutable paths: name, description, xKey, meta.index, and every path
+under xFormat (type, icon, pos, options.<key>.{name,color,pos},
+options.<key>.meta.<k>, relation.{targetTypes,filter}, config.<k>,
+vendor subtrees). A set targets a leaf — never an object; a container
+(xFormat, options, options.<key>, relation, config) can only be unset.
+Pinned paths (kind, scope, items, properties) are rejected.
 
 Examples:
   any type property patch S T P --set '{"name":"Priority"}'
-  any type property patch S T P --set '{"format.options.high.name":"High","format.options.high.color":"red","format.options.high.pos":"a0"}'
-  any type property patch S T P --unset format.options.high`,
+  any type property patch S T P --set '{"xFormat.options.high.name":"High","xFormat.options.high.color":"red","xFormat.options.high.pos":"a0"}'
+  any type property patch S T P --set '{"xFormat.config.multiple":true}'
+  any type property patch S T P --unset xFormat.options.high`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := api.PropertyPatchRequest{}
@@ -185,11 +202,11 @@ func newTypePropertyRemoveCmd() *cobra.Command {
 }
 
 // newTypePropertyOptionCmd is convenience sugar over `property patch`
-// for select/multiselect options.
+// for choice options.
 func newTypePropertyOptionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "option",
-		Short: "set / delete a select-property option (sugar over patch)",
+		Short: "set / delete a choice-property option (sugar over patch)",
 	}
 	cmd.AddCommand(newTypePropertyOptionSetCmd(), newTypePropertyOptionDeleteCmd())
 	return cmd
@@ -208,7 +225,7 @@ func newTypePropertyOptionSetCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				set[fmt.Sprintf("format.options.%s.%s", args[3], leaf)] = b
+				set[fmt.Sprintf("xFormat.options.%s.%s", args[3], leaf)] = b
 				return nil
 			}
 			if cmd.Flags().Changed("name") {
@@ -284,17 +301,20 @@ func newTypeDatasetAddCmd() *cobra.Command {
   {"name": "articles", "idRule": "user", "deleteBy": "author",
    "search": {"title": "title", "text": "body", "scope": "news"},
    "fields": [
-     {"key": "title", "kind": "string", "required": true, "mutableBy": "author"},
+     {"key": "title", "kind": "string", "required": true, "mutableBy": "author",
+      "description": "Headline", "xFormat": {"type": "text", "icon": "heading"}},
      {"key": "body",  "kind": "string", "mutableBy": "author"},
      {"key": "author",    "stamp": "creator"},
      {"key": "createdAt", "stamp": "createTime"},
      {"key": "updatedAt", "stamp": "modifyTime"}]}
 search.text is a bare field key or a non-empty array of keys, e.g.
 "search": {"title": "subject", "text": ["body", "notes"]} — the index
-joins the mapped fields into one body.
+joins the mapped fields into one body. A field's xFormat is the same
+descriptor a property carries (docs/27-descriptors.md).
 Behavioral parts (name, idRule, deleteBy, field kinds/flags) are pinned;
-display parts patch via 'type dataset patch'. Declare required fields
-here — fields added later cannot be required.`,
+display parts patch via 'type dataset patch' and 'type dataset field
+patch'. Declare required fields here — fields added later cannot be
+required.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var req api.DatasetDraftRequest
@@ -363,9 +383,43 @@ func newTypeDatasetRemoveCmd() *cobra.Command {
 func newTypeDatasetFieldCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "field",
-		Short: "add / remove dataset field definitions (additive evolution)",
+		Short: "add / patch / remove dataset field definitions (additive evolution)",
 	}
-	cmd.AddCommand(newTypeDatasetFieldAddCmd(), newTypeDatasetFieldRemoveCmd())
+	cmd.AddCommand(newTypeDatasetFieldAddCmd(), newTypeDatasetFieldPatchCmd(), newTypeDatasetFieldRemoveCmd())
+	return cmd
+}
+
+func newTypeDatasetFieldPatchCmd() *cobra.Command {
+	var (
+		setRaw   string
+		unsetRaw []string
+	)
+	cmd := &cobra.Command{
+		Use:   "patch <spaceId> <typeId> <defId> <fieldId>",
+		Short: "PATCH a field definition's display leaves and descriptor",
+		Long: `Mutable paths: name, description, and every path under xFormat (the
+property patch rules — a set targets a leaf, containers are unset-only).
+The behavioral declaration (key, kind, shape, scope, required,
+mutableBy, stamp) is pinned.
+
+Examples:
+  any type dataset field patch S T D F --set '{"description":"Headline","xFormat.icon":"title"}'
+  any type dataset field patch S T D F --unset xFormat.options.old`,
+		Args: cobra.ExactArgs(4),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req := api.DatasetFieldPatchRequest{}
+			if setRaw != "" {
+				if err := json.Unmarshal([]byte(setRaw), &req.Set); err != nil {
+					return fmt.Errorf("--set is not valid JSON: %w", err)
+				}
+			}
+			req.Unset = unsetRaw
+			cl := newClient(flags.Timeout)
+			return cl.TypePatchDatasetField(cmd.Context(), args[0], args[1], args[2], args[3], req)
+		},
+	}
+	cmd.Flags().StringVar(&setRaw, "set", "", "JSON map of dotted path → new value")
+	cmd.Flags().StringSliceVar(&unsetRaw, "unset", nil, "dotted path(s) to remove (repeatable)")
 	return cmd
 }
 
@@ -375,7 +429,8 @@ func newTypeDatasetFieldAddCmd() *cobra.Command {
 		Use:   "add <spaceId> <typeId> <defId>",
 		Short: "append a field to a dataset definition",
 		Long: `Append one field (api.DatasetFieldDraft shape):
-  {"key": "rating", "kind": "number", "mutableBy": "any"}
+  {"key": "rating", "kind": "number", "mutableBy": "any",
+   "xFormat": {"type": "rating", "config": {"max": 5}}}
 Additive fields cannot be required.`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -412,12 +467,12 @@ func newTypePropertyOptionDeleteCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "delete <spaceId> <typeId> <propId> <key>",
 		Aliases: []string{"remove", "rm"},
-		Short:   "delete an option (unset format.options.<key>)",
+		Short:   "delete an option (unset xFormat.options.<key>)",
 		Args:    cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
 			return cl.TypePatchProperty(cmd.Context(), args[0], args[1], args[2], api.PropertyPatchRequest{
-				Unset: []string{fmt.Sprintf("format.options.%s", args[3])},
+				Unset: []string{fmt.Sprintf("xFormat.options.%s", args[3])},
 			})
 		},
 	}

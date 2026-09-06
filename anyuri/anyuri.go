@@ -96,7 +96,7 @@ type URI struct {
 }
 
 // BuildObject returns the bare in-space reference "any://<objectId>" —
-// the strict form links-format property values require. New typed
+// the strict form relation property values require. New typed
 // references should prefer BuildObjectGlobal.
 func BuildObject(objectId string) string {
 	return prefix + objectId
@@ -282,7 +282,7 @@ func IsValid(s string) bool {
 }
 
 // IsPropertyValueRef reports whether s is exactly the strict form
-// links-format property values require: the bare one-segment,
+// relation property values require: the bare one-segment,
 // fragment-less "any://<objectId>".
 func IsPropertyValueRef(s string) bool {
 	u, err := Parse(s)

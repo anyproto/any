@@ -1,11 +1,11 @@
 ---
 title: Types and properties
-description: Define types with a stable xKey, add property definitions with kinds, formats, select options and scopes, and patch them in place.
+description: Define types with a stable xKey, add property definitions with kinds, descriptors, choice options and scopes, and patch them in place.
 order: 30
 ---
 # Types and properties
 
-A type is a named schema an object can carry. It declares property definitions — each with a kind, an optional format, and a sync scope — and it is the namespace under which the object stores those values.
+A type is a named schema an object can carry. It declares property definitions — each with a kind, an optional descriptor, and a sync scope — and it is the namespace under which the object stores those values.
 
 ## Create a type
 
@@ -49,31 +49,31 @@ any type property add $SPACE $TYPE --name Author --xkey author --kind string
 | Field | Meaning |
 |-------|---------|
 | `name`, `description` | Display metadata; mutable. |
-| `xKey` | Client-side stable label. **The server never keys values by it** — values are stored and written by `propId`. |
-| `xKind` | Free-form classification hint, stored verbatim and never interpreted; mutable. Use it for a client-side kind marker so `xKey` stays a per-property handle rather than a per-kind one. |
-| `kind` | `string` / `number` / `boolean` / `array` / `object` / `datetime`. Pinned at first write. May be omitted when `format` is set. |
-| `format` | Value convention beyond the kind — see [Data types](data-types.html). `format.type` is pinned. |
+| `xKey` | The property's handle — an alias, unique within the type (`409 property.xkey_conflict`), mutable. **The server never keys values by it** — values are stored and written by `propId`. |
+| `kind` | `string` / `number` / `boolean` / `array` / `object` / `datetime`. Required and pinned at first write. |
+| `xFormat` | The descriptor — slug, icon, order, options, relation targets, config; see [Data types](data-types.html). Every path under it is mutable. |
 | `scope` | `synced` (default), `account`, or `local`. Pinned. `derived` is reserved for built-ins. |
-| `meta` | Opaque string map, stored verbatim. Conventions: `meta.index` (search scope or `"none"`), `meta.pos` (display order lexid), `meta.icon`. |
+| `meta` | `meta.index` only: the search scope, or `"none"`. |
 
-`GET …/types/:typeId/properties` returns `{properties: [{id, name, xKey, xKind?, kind, scope, format?, meta?}]}` — this is where a client resolves `xKey → propId` before writing.
+`GET …/types/:typeId/properties` returns `{properties: [{id, name, description?, xKey, kind, scope, meta?, xFormat?}]}` — this is where a client resolves `xKey → propId` before writing. Sort a property list by `xFormat.pos`, then `id`.
 
-> **Why it matters.** Definitions are synced records. A rename, a reorder via `meta.pos` or a new select option written on one device converges on every member's device through the same CRDT as the data, with no schema-migration step.
+> **Why it matters.** Definitions are synced records. A rename, a reorder via `xFormat.pos` or a new choice option written on one device converges on every member's device through the same CRDT as the data, with no schema-migration step.
 
-## Select and multiselect options
+## Choice options
 
-A `select` property stores one option key (kind `string`); `multiselect` stores an array of keys. Options live under `format.options.<key>` as `{name, color, pos, meta?}`, and the key is the value an object stores. Create the property with the format, then manage options through PATCH:
+A `choice` property stores an array of option keys — one element unless `xFormat.config.multiple` is on. Options live under `xFormat.options.<key>` as `{name, color, pos, meta?}`, and the key is the value an object stores. Declare them at create or manage them through PATCH, one leaf at a time:
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties \
   -H 'Content-Type: application/json' \
-  -d '{"name": "Priority", "xKey": "priority", "format": {"type": "select"}}'
+  -d '{"name": "Priority", "xKey": "priority", "kind": "array",
+       "xFormat": {"type": "choice"}}'
 
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$TYPE/properties/$PROP \
   -H 'Content-Type: application/json' \
-  -d '{"set": {"format.options.high.name": "High",
-              "format.options.high.color": "red",
-              "format.options.high.pos": "a0"}}'
+  -d '{"set": {"xFormat.options.high.name": "High",
+              "xFormat.options.high.color": "red",
+              "xFormat.options.high.pos": "a0"}}'
 any type property option set $SPACE $TYPE $PROP high --name High --color red --pos a0
 ```
 
@@ -85,16 +85,17 @@ Membership is not enforced on value writes: deleting an option leaves existing v
 
 ```bash
 any type property patch $SPACE $TYPE $PROP --set '{"name": "Priority"}'
-any type property patch $SPACE $TYPE $PROP --unset format.options.low
+any type property patch $SPACE $TYPE $PROP --set '{"xFormat.config.multiple": true}'
+any type property patch $SPACE $TYPE $PROP --unset xFormat.options.low
 ```
 
 | Paths | Behaviour |
 |-------|-----------|
-| `name`, `description`, `xKey`, `xKind`, `meta.<k>`, `format.ui`, `format.filter`, `format.meta.<k>`, `format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>` | Mutable. Values are strings, except `format.filter` (a condition object). |
-| `kind`, `scope`, `items`, `properties`, whole `format`, `format.type` | Pinned → `400 property.immutable`. |
-| bare containers (`meta`, `format.options`, `format.options.<key>`) | Rejected on `set`; allowed on `unset` (unsetting an option key deletes the option). |
+| `name`, `description`, `xKey`, `meta.index`, and every path under `xFormat` | Mutable. A `set` targets a leaf — a string, number, boolean or array — never an object. |
+| `kind`, `scope`, `items`, `properties` | Pinned → `400 property.immutable`. |
+| containers (`meta`, `xFormat`, `xFormat.options`, `xFormat.options.<key>`, `xFormat.relation`, `xFormat.config`) | Rejected on `set`; allowed on `unset` (unsetting an option key deletes the option). |
 
-Other failures: unknown path or non-string value → `400 request.invalid_field`; bad `format.ui` / unparseable `format.filter` → `400 property.format_invalid`; a registered built-in type → `400 type.registered`; unknown ids → `404 sdk.not_found`. Returns `204`.
+Other failures: unknown path or wrong leaf type → `400 request.invalid_field`; a slug that does not fit the kind, a reserved key or an unparseable `xFormat.relation.filter` → `400 property.format_invalid`; a taken `xKey` → `409 property.xkey_conflict`; a registered built-in type → `400 type.registered`; unknown ids → `404 sdk.not_found`. Returns `204`.
 
 ## Remove a property
 
@@ -111,7 +112,7 @@ Values sit at `record[typeId][propId]` on the object's row — `{"<typeId>": {"<
 
 ## Related
 
-- [Data types](data-types.html) — kinds, formats, instants, scopes.
+- [Data types](data-types.html) — kinds, the descriptor vocabulary, instants, scopes.
 - [Runtime datasets](runtime-datasets.html) — declaring dataset schemas on a type.
 - [Property lifecycle](property-lifecycle.html) — pins, patches, removal and read tolerance in depth.
 - [Data model](data-model.html) — how types and datasets compose on one object.

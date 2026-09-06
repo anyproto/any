@@ -104,17 +104,16 @@ components:
       properties:
         description:
           type: string
-        format:
-          $ref: '#/components/schemas/api.PropertyFormat'
         kind:
           type: string
         meta:
           additionalProperties:
             type: string
           description: |-
-            Meta is an opaque consumer flag map, stored verbatim on the
-            property definition. meta["index"] = "<scope>" marks the property
-            for the search indexer (docs/13-index.md).
+            Meta holds the consumer flags the server interprets — today only
+            meta["index"] = "<scope>" | "none" for the search indexer
+            (docs/13-index.md). Any other key is rejected; descriptive
+            metadata lives under xFormat.
           type: object
         name:
           type: string
@@ -128,16 +127,25 @@ components:
             property. Property VALUE writes auto-route by the declared scope
             (POST /v1/spaces/:spaceId/properties/:objectId/set/:typeId).
           type: string
-        xKey:
-          type: string
-        xKind:
+        xFormat:
           description: |-
-            XKind is a free-form classification hint, stored verbatim and
-            never interpreted by the server (space.PropertyDraft.XKind).
-            It is the field a caller uses to record a client-side kind
-            marker WITHOUT overloading XKey, which is the stable handle
-            callers address the property by. Freely mutable afterwards via
-            PATCH `xKind`; settable here so a caller need not POST-then-PATCH.
+            XFormat is the property's descriptor: everything descriptive
+            beyond the kind — the semantic slug, icon, ordering key, option
+            set, relation targets, per-format config (docs/27-descriptors.md).
+            An object; the server validates the keys it interprets (type,
+            icon, pos, options, relation, config) against the vocabulary and
+            the slug against kind, stores vendor-namespaced keys verbatim,
+            and reserves validate / compute. Every path under it is mutable
+            via PATCH.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+        xKey:
+          description: |-
+            XKey is the property's handle — an alias, not a storage key
+            (values live under the content-addressed propId). Unique within
+            the type (409 property.xkey_conflict); mutable via PATCH.
           type: string
       type: object
     api.AddPropertyResponse:
@@ -619,10 +627,12 @@ components:
       type: object
     api.DatasetFieldDef:
       properties:
+        description:
+          type: string
         id:
           description: |-
             Id is the field definition record's id — the identity
-            DELETE …/fields/:fieldId targets.
+            PATCH / DELETE …/fields/:fieldId target.
           type: string
         key:
           type: string
@@ -636,8 +646,18 @@ components:
           type: boolean
         scope:
           type: string
+        shape:
+          $ref: '#/components/schemas/api.DatasetFieldShape'
         stamp:
           type: string
+        xFormat:
+          description: |-
+            XFormat is the field's descriptor as stored; absent when none was
+            declared.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
       type: object
     api.DatasetFieldDraft:
       properties:
@@ -674,9 +694,35 @@ components:
             Stamp: "creator" | "createTime" | "modifyTime" — value derived at
             apply time, client writes rejected.
           type: string
+        xFormat:
+          description: |-
+            XFormat is the field's descriptor — the same object a property
+            definition carries (AddPropertyRequest.XFormat), validated the
+            same way against the field's kind. Mutable via
+            PATCH …/fields/:fieldId.
+          items:
+            type: integer
+          type: array
+          uniqueItems: false
+      type: object
+    api.DatasetFieldPatchRequest:
+      properties:
+        set:
+          additionalProperties:
+            items:
+              type: integer
+            type: array
+          type: object
+        unset:
+          items:
+            type: string
+          type: array
+          uniqueItems: false
       type: object
     api.DatasetFieldShape:
-      description: Shape optionally refines array/object values.
+      description: |-
+        Shape is the full declared value shape (kind plus items /
+        properties) when one was declared beyond the bare kind.
       properties:
         items:
           $ref: '#/components/schemas/api.DatasetFieldShape'
@@ -1852,8 +1898,6 @@ components:
       properties:
         description:
           type: string
-        format:
-          $ref: '#/components/schemas/api.PropertyFormat'
         id:
           type: string
         items:
@@ -1864,8 +1908,8 @@ components:
           additionalProperties:
             type: string
           description: |-
-            Meta is the opaque consumer flag map set at AddProperty time
-            (e.g. meta["index"] = "<scope>" for the search indexer).
+            Meta is the consumer flag map (meta["index"] for the search
+            indexer).
           type: object
         name:
           type: string
@@ -1885,58 +1929,15 @@ components:
             account / local). Definitions written before scopes existed
             read back as "synced".
           type: string
-        xKey:
-          type: string
-        xKind:
-          type: string
-      type: object
-    api.PropertyFormat:
-      description: |-
-        Format is the property's value-format annotation; absent for
-        properties that never declared one.
-      properties:
-        filter:
+        xFormat:
           description: |-
-            Filter is a mongo-style condition object over candidate objects
-            (e.g. {"type": {"$in": ["page"]}}); optional, links only.
+            XFormat is the descriptor as stored — absent for a property that
+            never declared one, which renders structurally from Kind.
           items:
             type: integer
           type: array
           uniqueItems: false
-        meta:
-          additionalProperties:
-            type: string
-          description: Meta is an opaque, format-level string config bag.
-          type: object
-        options:
-          additionalProperties:
-            $ref: '#/components/schemas/api.PropertyOption'
-          description: |-
-            Options is the enumerated choice set for select / multiselect,
-            keyed by the option's stable key (which IS the stored value).
-            Read back on GET; write/mutate via PATCH (format.options.<key>.*
-            paths), not this create body's whole-map form.
-          type: object
-        type:
-          description: Type is one of the FormatType* wire strings.
-          type: string
-        ui:
-          description: |-
-            UI is one of the FormatUI* wire strings; optional. links accepts
-            any UI; date/datetime accept none.
-          type: string
-      type: object
-    api.PropertyOption:
-      properties:
-        color:
-          type: string
-        meta:
-          additionalProperties:
-            type: string
-          type: object
-        name:
-          type: string
-        pos:
+        xKey:
           type: string
       type: object
     api.PropertyPatchRequest:
@@ -5811,7 +5812,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: List objects that reference an object (links-format property values)
+      summary: List objects that reference an object (relation property values)
       tags:
       - objects
   /spaces/{spaceId}/objects/{objectId}/chat/messages:
@@ -7968,6 +7969,67 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
       summary: Remove a dataset field definition
+      tags:
+      - types
+    patch:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      - description: Type ID
+        in: path
+        name: typeId
+        required: true
+        schema:
+          type: string
+      - description: Dataset definition ID
+        in: path
+        name: defId
+        required: true
+        schema:
+          type: string
+      - description: Field definition ID
+        in: path
+        name: fieldId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.DatasetFieldPatchRequest'
+                description: set/unset paths
+                summary: body
+        description: set/unset paths
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Internal Server Error
+      summary: Patch a dataset field's display fields and descriptor
       tags:
       - types
   /spaces/{spaceId}/types/{typeId}/properties:

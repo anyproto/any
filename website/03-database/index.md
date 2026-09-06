@@ -41,9 +41,9 @@ Reads always go through the windowed query primitive: `POST /v1/spaces/:spaceId/
 <a href="data-model.html"><strong>Data model</strong><span>N types and N datasets per object; schemas and scopes.</span></a>
 <a href="spaces.html"><strong>Spaces</strong><span>Create, list, update and delete the encrypted containers your data lives in.</span></a>
 <a href="objects.html"><strong>Objects</strong><span>Documents with types, properties, a tree position and per-object datasets.</span></a>
-<a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare property definitions, formats, select options and scopes on a type.</span></a>
+<a href="types-and-properties.html"><strong>Types and properties</strong><span>Declare property definitions with kinds, descriptors, choice options and scopes on a type.</span></a>
 <a href="property-lifecycle.html"><strong>Property lifecycle</strong><span>What is pinned, what patches, what removal does.</span></a>
-<a href="data-types.html"><strong>Data types</strong><span>Kinds, formats, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
+<a href="data-types.html"><strong>Data types</strong><span>Kinds, the xFormat descriptor, the `{"$date": …}` instant, and the synced / local / account scopes.</span></a>
 <a href="reading-data.html"><strong>Reading data</strong><span>Mongo-style filters, sort, limit/offset and cursor paging through /query.</span></a>
 <a href="writing-data.html"><strong>Writing data</strong><span>Property writes, /modify ops, local-scope writes and the ModifyResult receipt.</span></a>
 <a href="indexes.html"><strong>Indexes</strong><span>What is indexed, what is a scan, and how to keep hot queries cheap.</span></a>

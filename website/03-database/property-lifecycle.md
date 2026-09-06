@@ -13,14 +13,15 @@ A property definition is a small synced record inside its type. Its id is conten
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties \
   -H 'Content-Type: application/json' \
   -d '{"name": "Year", "xKey": "year", "kind": "number", "scope": "synced",
-       "meta": {"index": "props", "pos": "a1", "icon": "calendar"}}'
+       "meta": {"index": "props"},
+       "xFormat": {"type": "number", "pos": "a1", "icon": "calendar"}}'
 # → 201 {"propId": "EwyHGrtTdxB"}
 any type property add $SPACE $MOVIE --name Year --xkey year --kind number
 ```
 
 The `propId` is derived from the change that created the record (`base58(xxh3-64(changeId))`, up to 11 chars) — the same id on every peer, and the field key under which values are stored. Built-in properties on `any` use readable ids (`name`, `description`, `icon`, `tags`) that an 11-char base58 string can never collide with.
 
-`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — not unique, not enforced, never seen by storage — and `GET …/types` requires a type-level `xKey` for the same reason (types resolve by handle, not by display name).
+`xKey` is your stable code-side handle: clients resolve `xKey → propId` from `GET …/properties` and write by `propId`. It is metadata — unique within the type by a read-then-create preflight (`409 property.xkey_conflict`), never seen by storage, mutable — and `GET …/types` requires a type-level `xKey` for the same reason (types resolve by handle, not by display name).
 
 ## 2. What the first write pins
 
@@ -29,15 +30,14 @@ The `propId` is derived from the change that created the record (`base58(xxh3-64
 | `id` | immutable | it is the record id and the storage key |
 | `kind` (`string` / `number` / `boolean` / `array` / `object` / `datetime`) | first-write-wins | values are validated against it on every peer |
 | `scope` (`synced` / `account` / `local`) | first-write-wins | it selects the write route and version domain; a route change would strand values |
-| `format.type` (`links` / `date` / `datetime` / `select` / `multiselect`) | first-write-wins, sub-path granular | it constrains `kind`; a broad replace of `format` is dropped at apply so a type change can't be smuggled in |
-| `items`, `properties` (nested shapes) | client-soft: additions only | narrowing would invalidate stored values |
-| `name`, `description`, `xKey`, `xKind` | freely mutable | labels |
-| `meta.<k>`, `format.ui`, `format.filter`, `format.meta.<k>` | freely mutable | consumer conventions |
-| `format.options.<key>.{name,color,pos,meta.<k>}` | freely mutable per leaf; the key itself immutable | the key IS the stored value |
+| `items`, `properties` (nested shapes) | pinned | narrowing would invalidate stored values |
+| `name`, `description`, `xKey` | freely mutable | labels and the handle |
+| `meta.index` | freely mutable | the search flag |
+| `xFormat` and every path under it — `type`, `icon`, `pos`, `options.<key>.{name,color,pos,meta.<k>}`, `relation.{targetTypes,filter}`, `config.<k>`, vendor keys | freely mutable per leaf; an option key itself immutable | the descriptor is a hint, not a guarantee; the option key IS the stored value |
 
-Pins are enforced at apply time on every peer, convergently: an op that tries to change `kind` or `format.type` is dropped, not merged. Changing a pinned fact means defining a new property with a new id — the old one keeps its values.
+Pins are enforced at apply time on every peer, convergently: an op that tries to change `kind` is dropped, not merged. Changing a pinned fact means defining a new property with a new id — the old one keeps its values. The slug (`xFormat.type`) is mutable but the server only lets it move within the pinned kind — `text` to `email`, never `text` to `number`.
 
-`kind` may be omitted when `format` is given; it defaults from the format (`links`/`multiselect` ⇒ `array`, `select` ⇒ `string`, `date`/`datetime` ⇒ `datetime`). Passing `"kind": "string"` with a date format opts into the ISO-string convention instead of instants — and that choice is pinned too. Value conventions per kind and format: [Data types](data-types.html).
+`kind` is always explicit; nothing is defaulted from the descriptor. Value conventions per slug: [Data types](data-types.html).
 
 ## 3. Values
 
@@ -51,7 +51,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$MOVIE \
 
 Three rules connect values to definitions:
 
-- **The server validates shape, not membership.** A number for a `number` kind, a well-formed `{"$date": …}` for an instant, a plain `any://<objectId>` for a link (`400 property.format_violation` otherwise). A `select` value is *not* checked against `format.options` — options are dangling-tolerant by design.
+- **The server validates shape, not membership.** A number for a `number` kind, a well-formed `{"$date": …}` for an instant, a plain `any://<objectId>` for a relation, a `period` / `money` / `geo` compound in its exact shape — against the property's *current* slug (`400 property.format_violation` otherwise). A `choice` value is *not* checked against `xFormat.options` — options are dangling-tolerant by design.
 - **Read tolerance.** A value that violates the current definition, or sits under an unknown propId, is returned as-is. There is no `valid` flag and no re-validation cascade; clients decide how to render out-of-spec data.
 - **Same-name properties are not a conflict.** Two peers concurrently adding "Rating" produce two ids, both fully real. Consolidating is a user or agent decision, never a merge rule.
 
@@ -59,22 +59,22 @@ Three rules connect values to definitions:
 
 ## 4. Patch
 
-`PATCH …/properties/:propId` is one CRDT change with per-path `set` / `unset`. It covers rename, reorder, icon, index hints and the whole select-option lifecycle:
+`PATCH …/properties/:propId` is one CRDT change with per-path `set` / `unset`. It covers rename, the handle, reorder, icon, the index flag and the whole choice-option lifecycle:
 
 ```bash
 curl -X PATCH http://127.0.0.1:7001/v1/spaces/$SPACE/types/$MOVIE/properties/$GENRE \
   -H 'Content-Type: application/json' \
   -d '{"set":   {"name": "Genre",
-                 "format.options.noir.name": "Noir",
-                 "format.options.noir.color": "gray",
-                 "format.options.noir.pos": "a2"},
-       "unset": ["format.options.western"]}'
+                 "xFormat.options.noir.name": "Noir",
+                 "xFormat.options.noir.color": "gray",
+                 "xFormat.options.noir.pos": "a2"},
+       "unset": ["xFormat.options.western"]}'
 # → 204
 any type property option set $SPACE $MOVIE $GENRE noir --name Noir --color gray
 ```
 
-- `set` must target a scalar leaf; a bare container (`meta`, `format.options`, `format.options.<key>`) is rejected on `set` but allowed on `unset` — unsetting an option key deletes the option.
-- Pinned paths answer `400 property.immutable`; unknown paths `400 request.invalid_field`; a bad `format.ui` vocabulary or an unparseable `format.filter` `400 property.format_invalid`.
+- `set` targets a leaf and never carries an object; a container (`meta`, `xFormat`, `xFormat.options`, `xFormat.options.<key>`, `xFormat.relation`, `xFormat.config`) is rejected on `set` but allowed on `unset` — unsetting an option key deletes the option. That is what keeps one client from replacing the bag and dropping keys another client added.
+- Pinned paths answer `400 property.immutable`; unknown paths or wrong leaf types `400 request.invalid_field`; a slug that does not fit the kind, a reserved key or an unparseable `xFormat.relation.filter` `400 property.format_invalid`; a taken `xKey` `409 property.xkey_conflict`.
 - Deleting then re-adding the same option key works: it is a field unset, not a tombstone.
 - Definitions on registered built-in types are frozen: `400 type.registered`.
 

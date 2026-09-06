@@ -152,8 +152,8 @@ Not this repo's work; gate on the SDK:
   (wanted for cross-device read state that survives device loss,
   though read-tracking proper syncs its frontier via tech-space KV
   instead).
-- **`Types.Delete` / `Types.RemoveProperty` / `Types.UpdatePropertyMeta`.**
-  Still "not implemented" on the SDK side; routes 501.
+- **`Types.Delete`.** Still not exposed over HTTP (`RemoveProperty` and
+  the generic property / field PATCH shipped — status items 23 and 44).
 - **`Types.Get` for non-object ids.** The SDK only returns
   `space.ErrNotFound` when the id resolves to an existing object that
   isn't tagged as a type. Ids that aren't objects at all surface as a
@@ -221,10 +221,6 @@ pluggable embedders, parallel batched pipelines),
   distribution story for the llama.cpp libs (today: `make llamacpp`
   drops them next to the binary; go:embed + extract was considered and
   deferred — pure overhead while "distribution" means `make build`).
-- **`UpdatePropertyMeta` (SDK).** Property `meta` flags (e.g.
-  `index: "<scope>"`) are create-time-only until the SDK implements
-  property-meta updates — existing properties can't be re-flagged.
-
 ## How to update this file
 
 - Move items that ship to a "Done" section below (or remove them once
@@ -257,8 +253,39 @@ pluggable embedders, parallel batched pipelines),
   reserving the consumer virtual dataset names (`prop`, `schema`)
   SDK-side.
 
+## Property descriptors — follow-ups (SYN-211 shipped, see Done)
+
+- **`validate` / `compute` members.** Reserved in `xFormat` and refused
+  today. `validate` is one JSON-text leaf of declarative assertions
+  (required / unique / range on a property) enforced at the write
+  boundary only; `compute` is a read-time computed value (formula /
+  rollup / lookup — a stored derived value cannot depend on an edited
+  one, handlers read only their own object's immutable fields).
+- **File and member relations.** A file is `any://f/<spaceId>/<fileId>`
+  and a member is `any://m/<spaceId>/<identity>` — neither is an object,
+  so `relation.targetTypes` cannot name them. Each needs its own slug
+  plus a target member.
+- **Built-in field descriptors.** `handler.Field` carries
+  `Description` / `XFormat` and discovery renders them, but
+  `chat_messages`, `editor_blocks`, `data_views` and the `any.*` row
+  fields declare none — clients still hardcode that `any.icon` is an
+  icon and `chat_messages.text` is markdown.
+- **Nested descriptors.** `items` / `properties` are not settable over
+  HTTP and a `relation` slug nested in a composite is invisible to
+  backlinks. Composites are validated by the vocabulary's fixed shapes
+  (`period` / `money` / `geo`) instead.
+- **Paired / inverse relations, localisation of labels, autonumber,
+  unit properties** — no contract yet; see docs/27-descriptors.md
+  § Not covered yet.
+
 ## Done
 
+- **Property & field descriptors (SYN-211)** — one opaque `xFormat`
+  bag on property and dataset-field definitions; the typed `format`
+  object, `xKind` and the `meta.pos` / `meta.icon` conventions removed;
+  `any` validates the vocabulary, the leaf-only PATCH rule and every
+  value write against the current slug; field-level PATCH. Contract:
+  docs/27-descriptors.md.
 - **Cross-platform single-instance lock (SYN-168)** — one
   `gofrs/flock` implementation for every platform replaces the PID
   file plus `kill(pid, 0)` liveness probe, which had no Windows

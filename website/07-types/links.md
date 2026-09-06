@@ -92,11 +92,11 @@ The kind registry is open, and adding a kind must not break an existing parser:
 The pre-typed bare forms stay valid and mean **object**:
 
 ```
-any://<objectId>              in-space object reference (the links-format property-value form)
+any://<objectId>              in-space object reference (the relation property-value form)
 any://<spaceId>/<objectId>    global object reference
 ```
 
-Links-format property values and backlinks use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
+Relation property values and backlinks use the one-segment form, and agent `debugLink` fields on chat messages use `any://<spaceId>/<objectId>#turn_<n>`. Parsers accept both as kind `o`; new typed references (mentions, files, citations, records) always use the explicit-kind form. No stored value is rewritten.
 
 ## Use the package, not a regex
 

@@ -293,7 +293,7 @@ func bundleDatasetsFromBody(c echo.Context, body []byte) ([]space.DatasetDraft, 
 // checkBundleRoot pre-flights everything that would otherwise fail
 // silently or too late: a type id the space does not know (the create
 // path drops the attachment and reports success), and property values
-// that violate their declared format (the same gate propertiesSet and
+// that do not fit their descriptor slug (the same gate propertiesSet and
 // objectCreate run).
 func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Install) (error, bool) {
 	ctx := c.Request().Context()
@@ -314,9 +314,9 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 		if err != nil {
 			return sdkOpError(c, err, map[string]any{"typeId": typeId, "spaceId": sp.Id()}), true
 		}
-		if v := validateFormatValues(defs, patch); v != nil {
+		if v := validateDescriptorValues(defs, patch); v != nil {
 			return writeError(c, http.StatusBadRequest, "property.format_violation",
-				"initial property value does not match the property's declared format",
+				"initial property value does not fit the property's descriptor",
 				v.details()), true
 		}
 	}

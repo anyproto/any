@@ -74,7 +74,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/objects/aggregate", d.spaceAggregateObjects)
 	g.GET("/spaces/:spaceId/objects/:objectId", d.objectGet)
 	g.DELETE("/spaces/:spaceId/objects/:objectId", d.objectDelete)
-	// Reverse reference lookup over links-format property values —
+	// Reverse reference lookup over relation property values —
 	// consumer-side read, no SDK method behind it (handlers_backlinks.go).
 	g.GET("/spaces/:spaceId/objects/:objectId/backlinks", d.objectBacklinks)
 
@@ -141,6 +141,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typePatchDataset)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId", d.typeRemoveDataset)
 	g.POST("/spaces/:spaceId/types/:typeId/datasets/:defId/fields", d.typeAddDatasetField)
+	g.PATCH("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typePatchDatasetField)
 	g.DELETE("/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId", d.typeRemoveDatasetField)
 
 	// Properties. Scoped properties (v0.0.11) unified the former

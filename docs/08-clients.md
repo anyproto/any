@@ -137,8 +137,8 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
 
 - **Timestamps are instants, not numbers.** Every server-stamped time —
   the row-root stamps, chat `createdAt` / `modifiedAt`, runtime-dataset
-  stamps — and every property declared with the `date` / `datetime`
-  format reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
+  stamps — and every `datetime`-kind property (the `date` / `datetime`
+  slugs) reads back as `{"$date": "2026-08-05T17:00:00.000Z"}`. Unwrap
   the one key (`new Date(v.$date)`), and use the same shape in filter
   literals and writes: `{"modifiedAt": {"$gte": {"$date": "…"}}}`. A bare
   string or number does not error — ordering comparisons are bracketed

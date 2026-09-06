@@ -181,7 +181,10 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 		"fields": [
 			{"key": "title", "kind": "string", "required": true, "mutableBy": "author"},
 			{"key": "body", "kind": "string", "mutableBy": "author"},
-			{"key": "slug", "kind": "string"},
+			{"key": "slug", "kind": "string", "description": "URL slug", "xFormat": {"type": "text", "icon": "link"}},
+			{"key": "tags", "kind": "array", "mutableBy": "any",
+			 "shape": {"kind": "array", "items": {"kind": "string"}},
+			 "xFormat": {"type": "choice", "config": {"multiple": true}}},
 			{"key": "author", "stamp": "creator"},
 			{"key": "createdAt", "stamp": "createTime"},
 			{"key": "updatedAt", "stamp": "modifyTime"}
@@ -247,8 +250,23 @@ func TestTypeDatasets_Lifecycle(t *testing.T) {
 		}
 		def := list.Datasets[0]
 		if def.Id != defId || def.Name != "articles" || def.IdRule != "user" ||
-			def.DeleteBy != "author" || def.Invalid || len(def.Fields) != 6 {
+			def.DeleteBy != "author" || def.Invalid || len(def.Fields) != 7 {
 			t.Errorf("def = %+v", def)
+		}
+		// The descriptive slice and the full shape read back.
+		byKey := map[string]api.DatasetFieldDef{}
+		for _, f := range def.Fields {
+			byKey[f.Key] = f
+		}
+		if f := byKey["slug"]; f.Description != "URL slug" || string(f.XFormat) != `{"icon":"link","type":"text"}` {
+			t.Errorf("slug field = %+v", f)
+		}
+		if f := byKey["tags"]; f.Kind != "array" || f.Shape == nil || f.Shape.Items == nil || f.Shape.Items.Kind != "string" ||
+			string(f.XFormat) != `{"config":{"multiple":true},"type":"choice"}` {
+			t.Errorf("tags field = %+v (shape %+v)", f, f.Shape)
+		}
+		if f := byKey["body"]; f.XFormat != nil || f.Shape != nil || f.Description != "" {
+			t.Errorf("bare field must read back without descriptor/shape: %+v", f)
 		}
 
 		// Space-level discovery carries the owning type + x-search.
@@ -671,5 +689,133 @@ func assertErrorCode(t *testing.T, rec *httptest.ResponseRecorder, code string) 
 	}
 	if env.Error.Code != code {
 		t.Errorf("error code = %q, want %q (message: %s)", env.Error.Code, code, env.Error.Message)
+	}
+}
+
+// TestTypeDatasets_FieldPatch covers PATCH …/fields/:fieldId: the
+// display pair and every xFormat path mutate under the property PATCH
+// rules, the behavioral declaration is pinned, the slug stays within
+// the field's kind, and a field id off another dataset is a 404.
+func TestTypeDatasets_FieldPatch(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, typeId, _ := setupSubscribeFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/types/" + typeId + "/datasets"
+
+	rec := doJSON(t, e, http.MethodPost, base, `{"name":"notes","fields":[
+		{"key":"title","kind":"string","xFormat":{"type":"text","icon":"heading"}},
+		{"key":"stage","kind":"array","mutableBy":"any"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	var added api.AddDatasetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &added); err != nil {
+		t.Fatal(err)
+	}
+	rec = doJSON(t, e, http.MethodPost, base, `{"name":"other","fields":[{"key":"x","kind":"string"}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add other dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	// A field draft's descriptor is validated like a property's — against
+	// the wire kind, the shape's kind, or the kind a stamp implies.
+	for name, tc := range map[string]struct {
+		body string
+		code string
+	}{
+		"slug/kind mismatch":    {`{"name":"bad1","fields":[{"key":"x","kind":"string","xFormat":{"type":"choice"}}]}`, "property.format_invalid"},
+		"stamped field slug":    {`{"name":"bad2","fields":[{"key":"author","stamp":"creator","xFormat":{"type":"date"}}]}`, "property.format_invalid"},
+		"descriptor not object": {`{"name":"bad3","fields":[{"key":"x","kind":"string","xFormat":"email"}]}`, "request.invalid_field"},
+		"reserved key":          {`{"name":"bad4","fields":[{"key":"x","kind":"string","xFormat":{"type":"text","validate":{}}}]}`, "property.format_invalid"},
+	} {
+		rec := doJSON(t, e, http.MethodPost, base, tc.body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, tc.code)
+	}
+	// A stamped field with a slug that fits the implied kind is fine.
+	rec = doJSON(t, e, http.MethodPost, base, `{"name":"stamped","fields":[{"key":"createdAt","stamp":"createTime","xFormat":{"type":"datetime"}}]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("stamped datetime slug: %d %s", rec.Code, rec.Body.String())
+	}
+	var other api.AddDatasetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &other); err != nil {
+		t.Fatal(err)
+	}
+
+	fields := func() map[string]api.DatasetFieldDef {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, base, "")
+		var list api.TypeDatasetsListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]api.DatasetFieldDef{}
+		for _, def := range list.Datasets {
+			if def.Id != added.DatasetDefId {
+				continue
+			}
+			for _, f := range def.Fields {
+				out[f.Key] = f
+			}
+		}
+		return out
+	}
+	title := fields()["title"]
+	stage := fields()["stage"]
+	fieldURL := base + "/" + added.DatasetDefId + "/fields/"
+
+	// Display pair + descriptor leaves, a vendor subtree, an unset.
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+title.Id,
+		`{"set":{"name":"Title","description":"Headline","xFormat.icon":"title","xFormat.config.maxLen":120,"xFormat.acme.widget":"compact"},"unset":["xFormat.type"]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch field: %d %s", rec.Code, rec.Body.String())
+	}
+	if f := fields()["title"]; f.Name != "Title" || f.Description != "Headline" ||
+		string(f.XFormat) != `{"acme":{"widget":"compact"},"config":{"maxLen":120},"icon":"title"}` {
+		t.Errorf("patched field = %+v xFormat=%s", f, f.XFormat)
+	}
+	// A descriptor grows onto a bare field; the slug must fit the kind.
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.type":"choice","xFormat.options.lead.name":"Lead"}}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("grow descriptor: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.type":"text"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("cross-kind slug: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "property.format_invalid")
+	// Containers are unset-only; the declaration is pinned.
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"set":{"xFormat.options.lead":{"name":"X"}}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("object set: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "request.invalid_field")
+	for _, body := range []string{`{"set":{"kind":"string"}}`, `{"set":{"required":true}}`, `{"unset":["key"]}`} {
+		rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("pinned %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "dataset.immutable")
+	}
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+stage.Id, `{"unset":["xFormat.options.lead"]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unset option: %d %s", rec.Code, rec.Body.String())
+	}
+	// A per-path unset removes the option, not its parent container.
+	if f := fields()["stage"]; string(f.XFormat) != `{"options":{},"type":"choice"}` {
+		t.Errorf("stage xFormat = %s", f.XFormat)
+	}
+	// A field id that belongs to another dataset (or nothing) is 404.
+	rec = doJSON(t, e, http.MethodPatch, base+"/"+other.DatasetDefId+"/fields/"+title.Id, `{"set":{"name":"X"}}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("field off another dataset: %d %s", rec.Code, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "sdk.not_found")
+	rec = doJSON(t, e, http.MethodPatch, fieldURL+"nope", `{"set":{"name":"X"}}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown field: %d %s", rec.Code, rec.Body.String())
 	}
 }

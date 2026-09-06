@@ -1056,8 +1056,8 @@ request.invalid_field` before the permanent root is derived;
 Input is bounded and pre-flighted: `id` ≤256 B, `name` ≤1024 B,
 `rootTypes` ≤32 entries, `rootProperties` ≤64 KiB. Type ids must exist
 in the space (`400 type.not_found` — the create path would otherwise
-drop an unknown type and report success) and property values must match
-their declared format (`400 property.format_violation`); both are
+drop an unknown type and report success) and property values must fit
+their descriptor slug (`400 property.format_violation`); both are
 checked BEFORE the root is created, so a rejected request never leaves
 an orphan object. Bundle records are **permanent** — the registry
 refuses record deletes, so an id is spent for the space's lifetime, and
@@ -1522,13 +1522,14 @@ from local state. See `04-events.md`.
 #### Backlinks
 
 `GET /v1/spaces/:spaceId/objects/:objectId/backlinks` answers "which
-objects reference X?" — the reverse direction of links-format property
+objects reference X?" — the reverse direction of relation property
 values. The SDK exposes no reverse index, so like `/search` this is a
 consumer-side exception to the 1:1 rule: object references are
-properties with `format.type: "links"` (arrays of `"any://<objectId>"`
-URIs), stored at `record[typeId][propId]`; the handler resolves the
-space's links-format property catalog and queries the `objects`
-collection for rows whose arrays contain `"any://<X>"`.
+properties whose descriptor slug is `relation` (`xFormat.type`, arrays
+of `"any://<objectId>"` URIs), stored at `record[typeId][propId]`; the
+handler resolves the space's relation property catalog (top-level
+definitions only) and queries the `objects` collection for rows whose
+arrays contain `"any://<X>"`.
 
 ```json
 {"backlinks": [{"objectId": "…", "typeId": "…", "propId": "…"}]}
@@ -1943,6 +1944,7 @@ diffs are leaf-level; an absent side is omitted (`added` has no
 | PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.PatchDataset` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId`           | `TypesAPI.RemoveDataset` |
 | POST   | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields`    | `TypesAPI.AddDatasetField` |
+| PATCH  | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.PatchDatasetField` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId/datasets/:defId/fields/:fieldId` | `TypesAPI.RemoveDatasetField` |
 
 `POST …/types` **requires** a non-empty **`xKey`** — the stable
@@ -1988,162 +1990,122 @@ existence-checked server-side — the SDK's `Properties` returns an empty
 slice for unknown ids — so a `200 []` always means "the type exists and
 has no property definitions yet", never "no such type".
 
-`POST …/properties` accepts an optional **`xKind`** — a free-form
-classification hint, stored verbatim, never interpreted, returned by
-`GET …/properties`, and freely mutable afterwards
-(`PATCH …/properties/:propId` `{"set": {"xKind": "<hint>"}}`). It exists
-so a client-side kind marker does not have to be smuggled through
-`xKey`: `xKey` is the stable programmatic HANDLE a caller addresses the
-property by, so a marker there makes every property of that kind share
-one key (two multiselects on one type both keyed `tags`), which costs
-every other consumer a name fallback. Put the slug in `xKey`, the
-marker in `xKind`. Like `meta.icon`, the vocabulary is owned by its
-consumers — the server neither validates nor enumerates it, and other
-clients should tolerate and preserve hints they do not recognize.
-
-`POST …/properties` accepts an optional **`meta`** object (string →
-string) stored verbatim on the property definition and returned by
-`GET …/properties`. It is opaque consumer metadata; three conventions
-exist today:
-
-- **`meta.index`** controls how the search indexer treats the
-  property's value: absent ⇒ indexed under the default scope
-  `props`; `"<scope>"` ⇒ indexed under that scope; `"none"` ⇒ excluded
-  (see `docs/13-index.md` § prop chunker). String / array / number
-  kinds index; booleans and null never do.
-- **`meta.pos`** is the property's lexid display-order key — the same
-  drag-n-drop ordering mechanic `nav.pos` gives objects in the tree
-  and `format.options.<key>.pos` gives select options. Clients render
-  a type's property list sorted by `meta.pos` ascending (plain
-  lexicographic string compare), falling back to `name` (id
-  tie-break) for definitions that don't carry one. A drag writes one
-  `PATCH …/properties/:propId` `{"set": {"meta.pos": "<lexid>"}}` —
-  a per-path CRDT `$set`, so concurrent reorders LWW-converge, and
-  since definitions are synced records the order is shared by every
-  member of the space. The server neither generates nor validates
-  lexids — this is a consumer convention, exactly like `meta.index`.
-- **`meta.icon`** is the property's display icon: a string naming an
-  icon from any-ui's system icon set. Set it inline at create or with
-  `PATCH …/properties/:propId` `{"set": {"meta.icon": "<name>"}}`
-  (change) / `{"unset": ["meta.icon"]}` (revert to the client's
-  per-format default). Definitions are synced records, so the chosen
-  icon is shared by every member of the space, and concurrent changes
-  LWW-converge like any per-path `$set`. The server stores the string
-  verbatim — the icon-name vocabulary is owned by any-ui; other
-  clients should tolerate (and preserve) names they don't recognize
-  and fall back to their format default.
+`POST …/properties` — the definition. `kind` is **required** and
+pinned; nothing is defaulted from the descriptor. Body:
 
 ```json
-{ "name": "context", "kind": "string", "xKey": "context",
-  "meta": { "index": "agent", "pos": "a3", "icon": "flag" } }
+{ "name": "Stage", "xKey": "stage", "kind": "array",
+  "meta": { "index": "basic" },
+  "xFormat": { "type": "choice", "pos": "a0",
+               "config": { "multiple": false },
+               "options": { "lead": { "name": "Lead", "color": "grey", "pos": "a0" } } } }
 ```
 
-`POST …/properties` also accepts an optional **`format`** object — the
-property's value convention beyond its structural kind:
-
-```json
-{ "name": "related",
-  "format": { "type": "links", "ui": "multiselect",
-              "filter": { "type": { "$in": ["page"] } } } }
-```
-
-- `format.type` — `links` (array of `any://<objectId>` URI strings),
-  `date` (an instant at midnight UTC), `datetime` (an instant),
-  `select` (a single option key — string), `multiselect` (an array of
-  option keys). `tags` is reserved until the space-level tag table
-  lands. Pinned for the property's life and coupled to `kind` (`links` /
-  `multiselect` ⇒ `array`, `select` ⇒ `string`, `date`/`datetime` ⇒
-  `datetime`); **`kind` may be omitted** when a format is set — it
-  defaults from the format type.
-
-  An instant reads and writes as `{"$date": "<RFC 3339>"}` (writes also
-  take `{"$date": <unix millis>}`) — the native value any-store orders,
-  indexes and computes dates on (`$year`, `$dateTrunc`, `$dateDiff`;
-  docs/14-aggregation.md). Passing `"kind": "string"` alongside a
-  `date` / `datetime` format keeps the ISO-8601 convention these formats
-  carried before instants existed — `2006-01-02` for `date`, RFC 3339
-  for `datetime`. Kind is pinned at first write, so properties created
-  under the old default keep behaving exactly as they did, and every
-  date operator keeps returning null for them.
-- `format.ui` — presentation hint: `select` / `multiselect` / `link` /
-  `links`. `date`/`datetime` take no ui.
-- `format.filter` — mongo-style condition over candidate objects
-  (`links` only); must parse as a query condition.
-- `format.options` — the enumerated choice set for `select` /
-  `multiselect`, a map keyed by each option's **stable key** (the key IS
-  the value a select/multiselect value stores). Each entry is
-  `{name, color, pos, meta?}` (all strings; `pos` is a lexid display-
-  order key). Usually populated via PATCH (below), not at create.
-  Membership is **not** enforced on value writes (an option may be
-  deleted while values still reference its key — dangling-tolerant).
-- `format.meta` — an opaque format-level string→string config bag.
-
-The SDK stores formats opaquely (structure-only checks); **this server
-is the semantics boundary**. Definition-time violations → `400
-property.format_invalid`. Value writes through `POST …/set/:typeId` and
-`initialProperties` on object create are shape-checked against the
-format (a datetime-kind value must be a well-formed `{"$date": …}`
-instant and a `date` one must land on midnight UTC; a string-kind date
-must parse; links must be plain `any://<objectId>`
-URIs — no spaceId segment, no fragment) → `400
-property.format_violation` (`details: {propId, format, reason}`). No
-object-existence or object-type checks. Known gap: raw `POST
-/v1/spaces/:spaceId/modify` against the `properties` dataset bypasses
-format value validation.
-
-`POST …/properties` also accepts an optional **`scope`** — the
-property's write/sync class: `"synced"` (default — everyone in the
-space), `"account"` (this account's devices only, via the private tech
-space), or `"local"` (this device only, never synced). `"derived"` is
-reserved for built-ins → `400 request.schema`. Like `kind`, scope is
-pinned by the first write — changing it means defining a new property.
-`GET …/properties` returns each definition's `scope` (pre-scope
-definitions read back as `"synced"`). Value writes need no scope
-parameter: `/set/:typeId` auto-routes by the declared scope (below).
+- **`xKey`** — the property's handle: an alias, not a storage key
+  (values live under the content-addressed `propId`; keying a write by
+  xKey is `property.not_found`). Unique **within the type** — a
+  read-then-create preflight, `409 property.xkey_conflict`
+  (`details: {xKey, existingPropId}`); two devices working apart can
+  still both land it, and then both columns persist (docs/27-descriptors.md
+  § Handles). Mutable via PATCH, same check.
+- **`meta`** — the consumer flags the server interprets: only
+  **`meta.index`**, which controls how the search indexer treats the
+  property's value (absent ⇒ indexed under the default scope `props`;
+  `"<scope>"` ⇒ that scope; `"none"` ⇒ excluded — `docs/13-index.md`
+  § prop chunker). Any other key → `400 request.invalid_field`;
+  descriptive metadata (display order, icon, …) lives under `xFormat`.
+- **`xFormat`** — the descriptor: everything descriptive beyond the
+  kind, one object the SDK stores opaquely and **this server is the
+  semantics boundary for**. The full contract — the six interpreted keys
+  (`type`, `icon`, `pos`, `options`, `relation`, `config`), the v1 slug
+  vocabulary and the kind each requires, the merge model, the client
+  rules — is `docs/27-descriptors.md`. On create the interpreted keys are
+  typed, the slug is checked against `kind`, `tags` / `validate` /
+  `compute` are refused, vendor-namespaced keys (`acme`) pass verbatim,
+  and every key in the bag is non-empty, dot-free and not `$`-prefixed:
+  `400 request.invalid_field` for a shape problem, `400
+  property.format_invalid` for a vocabulary one. `null` reads as absent.
+- **`scope`** — the property's write/sync class: `"synced"` (default —
+  everyone in the space), `"account"` (this account's devices only, via
+  the private tech space), or `"local"` (this device only, never synced).
+  `"derived"` is reserved for built-ins → `400 request.schema`. Like
+  `kind`, scope is pinned by the first write — changing it means defining
+  a new property. `GET …/properties` returns each definition's `scope`
+  (pre-scope definitions read back as `"synced"`). Value writes need no
+  scope parameter: `/set/:typeId` auto-routes by the declared scope
+  (below).
 
 ```json
 { "name": "pin", "kind": "boolean", "xKey": "pin", "scope": "local" }
 ```
 
+`GET …/properties` reads every definition back as
+`{id, name, description?, xKey, kind, scope, meta?, xFormat?}` —
+`xFormat` verbatim as stored, absent for a property that never declared
+one (it renders structurally from `kind`).
+
+**Values are validated against the current slug** on every property
+write — `POST …/set/:typeId`, `initialProperties` on object create,
+bundle `rootProperties`: a `date` is an instant at midnight UTC, a
+`relation` an array of plain `any://<objectId>` URIs (no spaceId
+segment, no fragment), a `choice` an array of option keys (one unless
+`config.multiple`), a `period` / `money` / `geo` its exact shape, and so
+on per the vocabulary table → `400 property.format_violation`
+(`details: {propId, format, reason}`; `format` is the slug). Option
+membership is **not** enforced (dangling-tolerant), nor is object
+existence or type. An unknown slug gets no value checks. Known gap: raw
+`POST /v1/spaces/:spaceId/modify` against the `properties` dataset
+bypasses value validation.
+
 **`PATCH …/properties/:propId`** — a generic per-path patch to a property
-definition (`TypesAPI.PatchProperty`). This is the write half of a
-property rename and of select/multiselect option CRUD (create / rename /
-recolor / reorder / delete an option). Body:
+definition (`TypesAPI.PatchProperty`): rename, the handle, the index
+flag, and every descriptor path — slug, icon, order, option CRUD,
+relation targets, config. Body:
 
 ```json
-{ "set":   { "format.options.high.name": "High",
-             "format.options.high.color": "red",
-             "format.options.high.pos": "a0" },
-  "unset": [ "format.options.low" ] }
+{ "set":   { "xFormat.options.high.name": "High",
+             "xFormat.options.high.color": "red",
+             "xFormat.options.high.pos": "a0",
+             "xFormat.config.multiple": true },
+  "unset": [ "xFormat.options.low" ] }
 ```
 
 `set` maps a dotted path to its new value; `unset` lists dotted paths to
-remove (naming a whole option key, e.g. `format.options.high`, deletes
-that option). Every value is a JSON **string** except `format.filter`
-(a condition object stored as its JSON text). All ops apply in one CRDT
-change (atomic); each leaf merges per-path, so concurrent edits to
-different options/leaves converge. Deleting then re-adding the same
-option key works (it's a field unset, not a record tombstone).
+remove (naming a whole option key, e.g. `xFormat.options.high`, deletes
+that option). All ops apply in one CRDT change (atomic); each leaf
+merges per-path, so concurrent edits to different options/leaves
+converge. Deleting then re-adding the same option key works (it's a
+field unset, not a record tombstone); unsetting the last option leaves
+an empty `options` object behind.
 
-Mutable paths: `name`, `description`, `xKey`, `xKind`, `meta.<k>`,
-`format.ui`, `format.filter`, `format.meta.<k>`,
-`format.options.<key>.{name,color,pos}`, `format.options.<key>.meta.<k>`.
-A **`set`** must target a scalar leaf; a bare container
-(`meta`, `format.meta`, `format.options`, `format.options.<key>`) is
-rejected on `set` (it would clobber the whole map) but may be **`unset`**
-to clear it (e.g. unset `format.options.<key>` deletes an option).
-Pinned paths (`kind`, `scope`, `items`, `properties`, the whole `format`
-object, `format.type`) → `400 property.immutable`; an unknown/malformed
-path or a non-string value on a non-format leaf → `400
-request.invalid_field`; a format-specific value error (unknown
-`format.ui`, unparseable `format.filter`, `format.*` on a format-less
-property) → `400 property.format_invalid`. PATCH/DELETE on a registered
-built-in type → `400 type.registered`. Returns `204`; `404 sdk.not_found`
-for an unknown type/propId. At least one `set`/`unset` entry is required.
+Mutable paths: `name`, `description`, `xKey`, `meta.index`, and every
+path under `xFormat`. **A `set` targets a leaf and never carries an
+object**: `xFormat` itself, `xFormat.options`, `xFormat.options.<key>`,
+`xFormat.options.<key>.meta`, `xFormat.relation`, `xFormat.config` and
+`meta` can be **`unset`** but not set (a set would replace the whole
+container and drop what other clients wrote) → `400
+request.invalid_field`. Interpreted leaves are typed —
+`type` / `icon` / `pos` / option `name` / `color` / `pos` / `meta.<k>`
+strings, `relation.targetTypes` an array of strings, `relation.filter`
+a string that parses as a query condition, `config.<k>` a scalar —
+`400 request.invalid_field` on a wrong shape, `400
+property.format_invalid` on an unparseable filter, a set of a reserved
+key (`validate`, `compute` — unset stays allowed as the repair path), or
+a `xFormat.type` that does not fit the pinned kind (a slug only moves
+within one kind). Vendor subtrees take any non-object value at any
+depth, with the same key rules as create. Outside `xFormat` a set value
+is a JSON string — `null` is refused, a clear is an unset. Pinned paths
+(`kind`, `scope`, `items`, `properties`) → `400 property.immutable`;
+unknown paths (including the retired `format.*` and `xKind`) → `400
+request.invalid_field`; a `xKey` another property holds → `409
+property.xkey_conflict`. PATCH/DELETE on a registered built-in type →
+`400 type.registered`. Returns `204`; `404 sdk.not_found` for an
+unknown type/propId. At least one `set`/`unset` entry is required.
 
 Examples: rename `{ "set": { "name": "Priority" } }`; recolor
-`{ "set": { "format.options.high.color": "blue" } }`; delete an option
-`{ "unset": [ "format.options.high" ] }`.
+`{ "set": { "xFormat.options.high.color": "blue" } }`; delete an option
+`{ "unset": [ "xFormat.options.high" ] }`; grow a descriptor onto a bare
+property `{ "set": { "xFormat.type": "email", "xFormat.icon": "envelope" } }`.
 
 **`DELETE …/properties/:propId`** (`TypesAPI.RemoveProperty`) tombstones
 the definition and returns `204`. Existing instance values are **not**
@@ -2170,7 +2132,8 @@ storage model, runtime registration): the SDK's
   "idRule": "user", "deleteBy": "author",
   "search": { "title": "title", "text": "body" },
   "fields": [
-    { "key": "title", "kind": "string", "required": true, "mutableBy": "author" },
+    { "key": "title", "kind": "string", "required": true, "mutableBy": "author",
+      "description": "Headline", "xFormat": { "type": "text", "icon": "heading" } },
     { "key": "body",  "kind": "string", "mutableBy": "author" },
     { "key": "author",    "stamp": "creator" },
     { "key": "createdAt", "stamp": "createTime" },
@@ -2219,6 +2182,28 @@ storage model, runtime registration): the SDK's
 - `dynamic` / `skipHistory` / per-field `scope` and `shape` — as in
   compiled-in declarations. (`skipHistory` declared after the history
   index opened applies from the next index open — SDK limitation.)
+- per-field `description` and **`xFormat`** — the descriptive slice: the
+  same descriptor a property carries (`docs/27-descriptors.md`),
+  validated the same way against the field's kind (the wire `kind`, the
+  shape's top-level kind, or the kind a stamp implies — creator ⇒
+  string, times ⇒ datetime) and stored opaquely. Neither enters the
+  schema — a display edit never re-registers the dataset.
+
+`GET …/datasets` reads each field back whole: `{id, key, name?,
+description?, kind, shape?, scope, required?, mutableBy, stamp?,
+xFormat?}` — `shape` (`{kind, items?, properties?}`) only when one was
+declared beyond the bare kind. Space-level discovery
+(`GET /v1/spaces/:id/datasets`) renders `description` and `x-format` on
+the field nodes of the JSON Schema document.
+
+**`PATCH …/datasets/:defId/fields/:fieldId`** (`TypesAPI.PatchDatasetField`)
+edits one field's mutable leaves under the property PATCH rules: `name`,
+`description` (strings), and every path under `xFormat` (a `set` targets
+a leaf, containers are unset-only, interpreted leaves are typed, a slug
+move is checked against the field's kind). The behavioral declaration —
+`key`, `kind`, `shape`, `scope`, `required`, `mutableBy`, `stamp` — is
+pinned → `400 dataset.immutable`. `404 sdk.not_found` when the field is
+not on this dataset. Returns `204`.
 
 A malformed declaration (unknown enum labels, `mutableBy: author`
 without a creator stamp, duplicate stamp kinds, …) → `400
@@ -2252,10 +2237,7 @@ would silently no-op).
 undeclared on non-dynamic datasets; a removal that would invalidate
 the remaining declaration — e.g. the creator stamp of an author-gated
 dataset — is refused). The SDK keys field definitions by (typeId,
-fieldId) — `:defId` rides the URI for hierarchy only. Field records
-also carry SDK-mutable display labels (`name`/`description`), but v1
-exposes no field-scoped PATCH — the head-record patch above is the
-only definition-edit surface.
+fieldId) — `:defId` rides the URI for hierarchy only.
 
 `GET …/types/:typeId/datasets` returns the compiled view:
 `{datasets: [{id, name, displayName?, description?, dynamic?, idRule,
@@ -2346,8 +2328,8 @@ built-in id (`409 type.xkey_conflict`).
 
 `page` declares no properties **by design**: registered types' property
 definitions are frozen (no add/patch/remove — `400 type.registered`),
-so a built-in select/multiselect would carry a permanently empty,
-uneditable option set. Per-space columns remain a user-type concern.
+so a built-in choice would carry a permanently empty, uneditable option
+set. Per-space columns remain a user-type concern.
 
 #### Built-in `data_view` type
 

@@ -117,17 +117,17 @@ func (d *deps) objectCreate(c echo.Context) error {
 		return errResp
 	}
 
-	// Same format value-shape gate as propertiesSet, per initial type
-	// (see propformat.go). nav injects only its own numeric props and
-	// nav declares no formats, so the extra lookups are user types only.
+	// Same descriptor value gate as propertiesSet, per initial type (see
+	// descriptor.go). nav injects only its own numeric props and nav
+	// declares no descriptors, so the extra lookups are user types only.
 	for typeId, patch := range opts.InitialProperties {
 		defs, err := sp.Types().Properties(c.Request().Context(), typeId)
 		if err != nil {
 			continue // unknown type: the SDK rejects the write itself
 		}
-		if v := validateFormatValues(defs, patch); v != nil {
+		if v := validateDescriptorValues(defs, patch); v != nil {
 			return writeError(c, http.StatusBadRequest, "property.format_violation",
-				"initial property value does not match the property's declared format",
+				"initial property value does not fit the property's descriptor",
 				v.details())
 		}
 	}
