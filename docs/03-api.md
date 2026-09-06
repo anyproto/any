@@ -23,7 +23,8 @@
       - [Patch](#patch)
       - [Delete](#delete)
       - [Subscribe](#subscribe)
-    - [`nav` auto-stamping on `Objects.Create`](#nav-auto-stamping-on-objectscreate)
+    - [Create an object](#create-an-object)
+    - [The wiki tree](#the-wiki-tree)
     - [Moves (drag-and-drop)](#moves-drag-and-drop)
     - [Object deletion](#object-deletion)
     - [Backlinks](#backlinks)
@@ -1629,74 +1630,97 @@ change; `removed` carries just the id. The same events fire whether
 the change originated from a PATCH `…/blocks` call or a PUT
 `…/markdown` bulk rewrite. See `04-events.md`.
 
-#### `nav` auto-stamping on `Objects.Create`
+#### Create an object
 
-Every new object gets a `nav` row stamped on it server-side: `nav` is
-appended to `any.types` and three property values land on the
-per-space `objects` collection — `nav.type` (1 = item, 2 = folder),
-`nav.parentId` (string id of the parent folder; `""` = root) and
-`nav.pos` (lexid for ordering inside a parent). See `internal/nav` for
-the constants. The body accepts an optional `"nav"` block to override
-defaults:
+`POST /v1/spaces/:spaceId/objects` takes two keys:
 
 ```json
 {
   "types": ["..."],
-  "initialProperties": { "...": { "...": "..." } },
-  "nav": {
-    "type":     2,
-    "parentId": "obj_parent_id",
-    "pos":      "PPQY"
-  }
+  "initialProperties": { "<typeId>": { "<propId>": "..." } }
 }
 ```
 
-These three keys are the **whole** create vocabulary. Any other
+These two keys are the **whole** create vocabulary. Any other
 top-level key — a bare type group like `"any"`, a top-level `"name"`,
 a typo — is `400 request.unknown_field` naming the accepted set and
 where the value belongs: object properties always ride
 `initialProperties` keyed by type
 (`{"initialProperties": {"any": {"name": "Dune"}}}`). Shape is
-enforced per field too (`types` an array, `nav` and
-`initialProperties` objects, every `initialProperties` group an
-object of `{propertyId: value}`) → `400 request.schema`. Nothing in
-this body is ever silently dropped.
+enforced per field too (`types` an array, `initialProperties` an
+object, every `initialProperties` group an object of
+`{propertyId: value}`) → `400 request.schema`. Nothing in this body
+is silently dropped, and nothing is added to it server-side: the
+object carries exactly the types it names.
 
-`nav.pos` defaults to the next lexid after the current max pos in the
-target folder (queried server-side at create time); `Middle()` when
-the folder is empty. Mirrors anytype-heart's `LexId.Next(prev)`
-pattern. Trees are built by querying the per-space `objects`
-collection — no dedicated tree endpoint:
+#### The wiki tree
 
-```bash
-# children of folder X, in order:
-curl -X POST /v1/spaces/$SPID/objects/query -d '{
-  "filter": { "nav.parentId": "obj_X" },
-  "sort":   [ "nav.pos" ]
-}'
+The space's tree is the catalog usecase `wiki` (§ Catalog,
+`docs/28-well-known-bundles.md`) — no built-in type, nothing stamped
+on create, no tree endpoint. A client sets it up once per space and
+keeps the reply:
+
+```
+POST /v1/catalog/wiki/setup   {"spaceId": "<spaceId>"}
+→ the bundles[] entry with id "system:wiki/v1":
+    typeId                # <wikiTypeId>
+    properties.parentId   # <parentIdPropId> — string; "" = top level
+    properties.pos        # <posPropId>      — lexid string; orders siblings
+    properties.folder     # <folderPropId>   — boolean
 ```
 
-`nav` is a **virtual built-in type** — surfaced through
-`GET /v1/spaces/:spaceId/types` (BuiltIn=true) and
-`GET /v1/spaces/:spaceId/types/nav/properties`, but not registered
-through the SDK's `handler.Type` machinery (no separate dataset, no
-custom validator). Property paths use literal string keys
-(`nav.parentId` etc.), not content-addressable propIds.
+An object is in the tree only when it carries the wiki type; its
+placement is three ordinary property values at
+`<wikiTypeId>.<propId>`, written like any other property. A page in
+the tree carries `page` for its body and the wiki type for its place:
+
+```json
+POST /v1/spaces/:spaceId/objects
+{
+  "types": ["page", "<wikiTypeId>"],
+  "initialProperties": {
+    "<wikiTypeId>": { "<parentIdPropId>": "", "<posPropId>": "a0", "<folderPropId>": false }
+  }
+}
+```
+
+A folder is the same create with `<folderPropId>` `true` and no
+`page`. Which other types a tree object carries is the client's
+choice — the wiki type only places it.
+
+Children of a node, in order (`""` as the parent lists the top level):
+
+```json
+POST /v1/spaces/:spaceId/objects/query
+{
+  "filter": { "<wikiTypeId>.<parentIdPropId>": "<parentObjectId>" },
+  "sort":   [ "<wikiTypeId>.<posPropId>" ]
+}
+```
+
+The columns are ordinary properties: unindexed on the `objects`
+collection (a scan, `09-query.md` § Indexes), excluded from search
+(`meta.index: none`), and plain strings rather than relations —
+`/backlinks` never reports a parent link.
+
+**`pos` is the client's.** The server allocates nothing: the client
+computes every position with the lexid allocator the editor's blocks
+use (alphabet `CharsAllNoEscape`, block size 4, step 100 — match the
+Go side byte-for-byte): past the last sibling on create, between two
+siblings on a drop. No write needs a server round-trip to pick one.
 
 #### Moves (drag-and-drop)
 
-Tree moves use the existing property `set` endpoint — no dedicated move
-route. To relocate object `oid` under `newParent` at lexid pos `p`:
+A move is one property write on the wiki type — no dedicated route.
+To relocate `oid` under `newParent` at lexid `p`:
 
 ```
-POST /v1/spaces/:spaceId/properties/:oid/set/nav
-{ "patch": { "parentId": "<newParent>", "pos": "<p>" } }
+POST /v1/spaces/:spaceId/properties/:oid/set/<wikiTypeId>
+{ "patch": { "<parentIdPropId>": "<newParent>", "<posPropId>": "<p>" } }
 ```
 
-Both fields land in one DAG change. The web UI ports the lexid
-allocator to JavaScript (alphabet `CharsAllNoEscape`, blockSize=4,
-stepSize=100 — match the Go side byte-for-byte) so the client can
-compute drop-target positions without a server round-trip.
+Both fields land in one DAG change; a reorder inside the same parent
+patches `pos` alone.
 
 #### Object deletion
 
@@ -1731,8 +1755,8 @@ references count: values under a currently detached type are skipped
 check on `:objectId` — an unknown or unreferenced id returns
 `{"backlinks": []}`, not 404. Link values carry no index, so this is a
 scan over the objects collection; fine at v1 scale, a reverse index is
-a follow-up. `nav.parentId` (the tree) is not a links property — query
-children directly with `{"filter":{"nav.parentId":"<X>"}}`.
+a follow-up. The wiki tree's `parentId` is a plain string, not a
+relation — query children directly (§ The wiki tree).
 
 ### Data plane
 
@@ -1830,7 +1854,7 @@ into `/query` must treat 404 as "stale hit", not an error.
   "includeDeleted":     false,        // per-object `…/query` only — tombstones too, see below
   "mailboxCapacity":    256,          // subscribe only — default 256, min 16
   "driftBudgetPercent": 30,           // subscribe only — default 30
-  "projection": { "any": 1, "nav": 1, "_ver": -1 }   // field paths → 1 include / -1 exclude
+  "projection": { "any": 1, "<typeId>": 1, "_ver": -1 }   // field paths → 1 include / -1 exclude
 }
 ```
 
@@ -2149,7 +2173,7 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Built-in types (`nav`, and the hidden
+display-name renames. Built-in types (the hidden
 `dataview` / `page` / `miniapp` / `bin`) are registered, not created here,
 and resolve by their literal id; a registered type's parts are static —
 `GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
@@ -2465,7 +2489,7 @@ previously took a compiled-in handler: required fields, write-once vs
 author-mutable fields, author-only delete, derived creator/time
 stamps, user-supplied record ids, search extraction. This is the
 `records` module — the default when a dataset names none. Registered
-built-in types (`dataview`, `nav`, `page`, …) refuse (`400 type.registered`) —
+built-in types (`dataview`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
 `docs/17-user-datasets.md`.

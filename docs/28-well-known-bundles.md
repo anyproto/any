@@ -351,6 +351,18 @@ and the `derived` choice (a policy, not a syntax).
 
 ## What clients delete
 
+**The `nav` namespace on objects.** There is no `nav` type: reading or
+writing `nav.type` / `nav.parentId` / `nav.pos` on an object row, a
+move through `…/set/nav`, the `nav` block in the object create body
+(`400 request.unknown_field`) and `nav` in `GET …/types` are all gone,
+and nothing is appended to a created object's `types`. The tree is the
+`wiki` usecase: `POST /v1/catalog/wiki/setup` returns the type id and
+the `parentId` / `pos` / `folder` property ids, an object is in the
+tree only when it carries the type, and `pos` is the client's lexid
+(`03-api.md` § The wiki tree). `nav.*` values left on old rows are
+inert. Editor block records keep their own `nav.parentId` / `nav.pos`
+— that is the block module's per-document tree, unrelated.
+
 The client recipe for the space's chat — registering `general-chat/v1`
 with a chat part — is what the catalog's `general-chat` usecase
 declares verbatim under the id `system:general-chat/v1`. The ids

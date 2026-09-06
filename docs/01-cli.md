@@ -395,7 +395,7 @@ comma-separated list of field paths to return, `-` prefixing an
 exclusion the way `--sort` prefixes a descending key.
 
 ```bash
-any query-subscribe $SPID --properties --projection 'any,nav'   # only those subtrees
+any query-subscribe $SPID --properties --projection 'any,<typeId>'   # only those subtrees
 any query-subscribe $SPID --properties --projection '-_ver'     # everything but the version map
 ```
 

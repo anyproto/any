@@ -25,7 +25,7 @@ Short definitions, in roughly the order you meet them. Each links to the page th
 | **Type** | A named schema attached to objects (`any.types`), owning property definitions and datasets; resolved by `xKey`, stored by id. — [Types and properties](../database/types-and-properties.html) |
 | **xKey** | A type's stable programmatic handle, chosen by the client (`pages`), unique per space, unaffected by display-name renames. — [Types and properties](../database/types-and-properties.html) |
 | **propId** | The content-addressed id of a property definition; values are stored and validated at `record[typeId][propId]`, never by xKey. — [Types and properties](../database/types-and-properties.html) |
-| **nav** | The virtual built-in stamped on every object — `nav.type`, `nav.parentId`, `nav.pos` — that gives a space its tree. — [System fields](../database/system-fields.html) |
+| **Wiki tree** | The catalog usecase that gives a space its tree: a hidden `wiki` type whose `parentId` / `pos` / `folder` properties place any object that carries it; `pos` is a client-allocated lexid. — [Objects](../database/objects.html) |
 | **Scope (field)** | Where a value lives and who sees it: `synced` (every member), `account` (your devices), `local` (this device), `derived` (computed by a handler). — [System fields](../database/system-fields.html) |
 
 ## Search

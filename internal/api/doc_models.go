@@ -16,23 +16,16 @@ package api
 // unknown-field rejection from these json tags — this is the whole
 // create vocabulary.
 type ObjectCreateRequest struct {
-	// Types lists the type ids attached at create; `nav` is appended
-	// server-side when absent.
+	// Types lists the type ids attached at create — the object's
+	// capabilities and the columns it takes. Nothing is appended
+	// server-side: an object is in a space's wiki tree only when it
+	// carries the wiki type (docs/28-well-known-bundles.md).
 	Types []string `json:"types,omitempty"`
 	// InitialProperties carries the object's starting property values,
 	// keyed by type id then property id — the ONLY home for them:
 	// {"initialProperties": {"any": {"name": "Dune"}}}. A top-level
 	// name/description/type-group key is rejected.
 	InitialProperties map[string]map[string]any `json:"initialProperties,omitempty"`
-	// Nav overrides the auto-stamped tree placement.
-	Nav *ObjectCreateNav `json:"nav,omitempty"`
-}
-
-// ObjectCreateNav documents the optional nav override in ObjectCreateRequest.
-type ObjectCreateNav struct {
-	Type     int    `json:"type,omitempty" enums:"1,2"`
-	ParentId string `json:"parentId,omitempty"`
-	Pos      string `json:"pos,omitempty"`
 }
 
 // QueryBodyParams is the shared windowed query/subscribe vocabulary —

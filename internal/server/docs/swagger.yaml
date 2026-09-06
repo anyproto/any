@@ -1871,19 +1871,6 @@ components:
         versionId:
           type: string
       type: object
-    api.ObjectCreateNav:
-      description: Nav overrides the auto-stamped tree placement.
-      properties:
-        parentId:
-          type: string
-        pos:
-          type: string
-        type:
-          enum:
-          - 1
-          - 2
-          type: integer
-      type: object
     api.ObjectCreateRequest:
       properties:
         initialProperties:
@@ -1896,12 +1883,12 @@ components:
             {"initialProperties": {"any": {"name": "Dune"}}}. A top-level
             name/description/type-group key is rejected.
           type: object
-        nav:
-          $ref: '#/components/schemas/api.ObjectCreateNav'
         types:
           description: |-
-            Types lists the type ids attached at create; `nav` is appended
-            server-side when absent.
+            Types lists the type ids attached at create — the object's
+            capabilities and the columns it takes. Nothing is appended
+            server-side: an object is in a space's wiki tree only when it
+            carries the wiki type (docs/28-well-known-bundles.md).
           items:
             type: string
           type: array

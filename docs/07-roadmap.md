@@ -329,6 +329,19 @@ pluggable embedders, parallel batched pipelines),
 
 ## Done
 
+- **`nav` removed — the tree is the `wiki` usecase** — the built-in
+  `nav` type, the create-time stamping of `nav.type` / `nav.parentId` /
+  `nav.pos`, the `nav` block in the object create body (now
+  `400 request.unknown_field`) and `nav` in `GET …/types` are gone;
+  nothing is appended to `types` server-side. Tree placement is the
+  `wiki` catalog usecase's columns — `parentId`, `pos`, `folder` on the
+  hidden wiki type, ids from `POST /v1/catalog/wiki/setup` — on
+  objects that carry the type; children are an `objects/query` on the
+  parent column sorted by `pos`, a move is `…/set/<wikiTypeId>`, and
+  `pos` is allocated by the client (lexid). No back-compat: `nav.*` on
+  old rows is inert. Editor blocks keep their own `nav.parentId` /
+  `nav.pos` (the block schema). Contract: docs/03-api.md § The wiki
+  tree, docs/28-well-known-bundles.md § What clients delete.
 - **Usecase catalog** — the first server-side catalog of well-known
   bundles: `internal/catalog/catalog.yml`, embedded, validated at boot,
   in `make test` and by `make catalog-validate` in CI (every problem at
@@ -365,9 +378,8 @@ pluggable embedders, parallel batched pipelines),
   (move = attach, restore = detach on the existing routes; the server
   stamps `movedAt` / `movedBy` in the same change and clears them on
   restore). Contract: docs/03-api.md § Types → Built-in hidden types.
-  Still open on the same foundation: `nav` → `wiki` (SYN-214) and
-  general chat under the reserved module (SYN-216), both on top of the
-  usecase catalog.
+  Still open on the same foundation: general chat under the reserved
+  module (SYN-216), on top of the usecase catalog.
 - **Types, parts and modules** — a type is properties plus parts, each
   part owning datasets a module serves: `records` (the runtime schema
   handler, now always namespaced to `<typeId>_<key>`), `editor` and

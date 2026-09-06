@@ -106,7 +106,7 @@ func TestCheckUnknownFields(t *testing.T) {
 
 	// The hint lands in the message.
 	c, rec = newTestContext("")
-	_, _ = checkUnknownFields(c, fastjson.MustParse(`{"name": "x"}`), objectCreateFieldsHint, "types", "initialProperties", "nav")
+	_, _ = checkUnknownFields(c, fastjson.MustParse(`{"name": "x"}`), objectCreateFieldsHint, "types", "initialProperties")
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("decode envelope: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestDerivedAcceptedSets(t *testing.T) {
 		{"spaceListQueryFields", spaceListQueryFields,
 			[]string{"dataset", "filter", "sort", "limit", "offset", "includeTotal", "mailboxCapacity", "driftBudgetPercent", "projection"}},
 		{"objectCreateFields", objectCreateFields,
-			[]string{"types", "initialProperties", "nav"}},
+			[]string{"types", "initialProperties"}},
 	}
 	for _, tc := range cases {
 		if len(tc.fields) != len(tc.want) {
@@ -264,15 +264,21 @@ func TestRequestSchemaBoundaries(t *testing.T) {
 		}
 	}
 
-	// The accepted vocabulary still works end-to-end: a create with all
-	// three fields plus a query with every documented key answers 2xx.
+	// The accepted vocabulary still works end-to-end: a create with
+	// both fields plus a query with every documented key answers 2xx;
+	// the retired `nav` body field is an unknown field like any other.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types": ["nav"], "initialProperties": {"any": {"name": "Dune"}}, "nav": {"type": 2}}`)
+		`{"types": ["page"], "initialProperties": {"any": {"name": "Dune"}}}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("full create: %d %s", rec.Code, rec.Body.String())
 	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
+		`{"types": ["page"], "nav": {"type": 2}}`)
+	if rec.Code != http.StatusBadRequest || errEnvCode(t, rec.Body.Bytes()) != "request.unknown_field" {
+		t.Fatalf("nav body field: %d %s", rec.Code, rec.Body.String())
+	}
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
-		`{"filter": {"nav.type": 2}, "sort": ["nav.pos"], "limit": 10, "offset": 0, "includeTotal": true, "projection": {}}`)
+		`{"filter": {"any.name": "Dune"}, "sort": ["any.name"], "limit": 10, "offset": 0, "includeTotal": true, "projection": {}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("full query: %d %s", rec.Code, rec.Body.String())
 	}

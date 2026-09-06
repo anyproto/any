@@ -157,7 +157,7 @@ any aggregate $S --properties --pipeline '[{"$count": "objects"}]'
   {"$addFields": {"score": "$_score"}},
   {"$sort": {"score": -1}},
   {"$limit": 50},
-  {"$group": {"_id": "$nav.type", "n": {"$count": {}}, "best": {"$max": "$score"}}}
+  {"$group": {"_id": "$author", "n": {"$count": {}}, "best": {"$max": "$score"}}}
 ]
 ```
 

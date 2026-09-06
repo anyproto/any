@@ -15,7 +15,7 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
 
 | Endpoint | Scope | Reads |
 |----------|-------|-------|
-| `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` collection — one row per object, its computed property values keyed `<typeId>.<propId>` plus `any.*` / `nav.*` |
+| `POST /v1/spaces/:spaceId/objects/query` | **cross-object** | the per-space `objects` collection — one row per object, its computed property values keyed `<typeId>.<propId>` plus `any.*` and the row-root stamps |
 | `POST /v1/spaces/:spaceId/query` | **per-object** | one of a single object's datasets (`editor_blocks`, `chat_messages`, runtime datasets such as `program_source` / `mini_app`, …); needs `objectId` + `dataset` |
 
 ## Request body
@@ -25,12 +25,12 @@ pipelines at the sibling `…/aggregate` endpoints (snapshot-only); see
   "objectId": "<oid>",        // per-object only (required there)
   "dataset":  "<name>",       // per-object only (required there)
   "filter":   { ... },        // mongo-style; omit/empty = match all
-  "sort":     ["nav.pos", "-_ver.id"],
+  "sort":     ["-_ver.id"],
   "limit":    50,
   "offset":   0,
   "includeTotal": false,      // see the caveat below
   "includeDeleted": false,    // per-object snapshot only — see § Tombstones
-  "projection": { "any": 1, "nav": 1 }
+  "projection": { "any": 1, "<typeId>": 1 }
 }
 ```
 
@@ -51,9 +51,9 @@ a flat object mapping dotted field paths to `1` (include) or `-1`
 two marks.
 
 ```json
-{"projection": {"any": 1, "nav": 1}}      // nothing but those subtrees
+{"projection": {"any": 1, "<typeId>": 1}} // nothing but those subtrees
 {"projection": {"_ver": -1}}              // every user field, no version map
-{"projection": {"nav": 1, "nav.pos": -1}} // all of nav except one leaf
+{"projection": {"any": 1, "any.tags": -1}} // all of any except one leaf
 {"projection": {"any.name": 1}}           // one leaf out of a group
 ```
 
@@ -130,7 +130,7 @@ newer.
 - **Include and exclude mix.** Mongo rejects a projection carrying
   both; here they compose, deepest mark wins — in both directions. A
   deeper exclude carves an included subtree, and a deeper include
-  narrows one (`{"nav":1,"nav.pos":1}` is `nav.pos`, not all of `nav`).
+  narrows one (`{"any":1,"any.name":1}` is `any.name`, not all of `any`).
 - **`id` cannot be excluded** (mongo lets you drop `_id`).
 - **Protocol fields are not part of mode inference**, per the table
   above.
@@ -139,7 +139,7 @@ newer.
 ### Bounds
 
 At most 128 entries, at most 8 path segments deep. An empty path, an
-empty segment (`"nav..pos"`), the reserved `*` segment, or a value that
+empty segment (`"any..name"`), the reserved `*` segment, or a value that
 is not one of the accepted marks is `400 request.invalid_field`. An
 empty `projection` object reads as no projection at all.
 
@@ -154,7 +154,7 @@ so a projection never changes an array's length or shifts its indices.
 way `--sort` prefixes a descending key:
 
 ```
-any query-subscribe SPACE --properties --projection 'any,nav'
+any query-subscribe SPACE --properties --projection 'any,<typeId>'
 any query-subscribe SPACE --properties --projection '-_ver'
 ```
 
@@ -278,18 +278,22 @@ already wiped.
 ## Sort
 
 `sort` is an array of dotted field paths; prefix with `-` for descending.
-Multi-key sorts apply left-to-right: `["nav.parentId", "nav.pos"]`. A
-`/subscribe` with `limit > 0` requires a `sort`.
+Multi-key sorts apply left-to-right: `["<wikiTypeId>.<parentIdPropId>",
+"<wikiTypeId>.<posPropId>"]` (the wiki tree's columns, `03-api.md` § The
+wiki tree). A `/subscribe` with `limit > 0` requires a `sort`.
 
 ## Paths
 
 On the wire, property paths are `<typeId>.<propId>` — both are CID ids — plus
-the builtin literals `any.types`, `any.name`, `nav.parentId`, `nav.pos`,
-`_ver.id`, and the row-root derived stamps `author`, `createdAt`,
+the builtin literals `any.types`, `any.name`, `_ver.id`, and the row-root
+derived stamps `author`, `createdAt`,
 `modifiedAt`, `modifiedBy`, `spaceId` (objects collection only — see
 `03-api.md` § Data plane; `{"sort": ["-modifiedAt"]}` is the recency
 ordering, and `modifiedBy` — the signer of that same change — is
-unindexed, so a filter on it scans).
+unindexed, so a filter on it scans). The tree is no exception: the wiki
+type's `parentId` / `pos` / `folder` are `<wikiTypeId>.<propId>` paths,
+the ids resolved from `POST /v1/catalog/wiki/setup` (`03-api.md` § The
+wiki tree).
 
 Client helpers typically expose dotted **xKey** paths instead
 (`"recipe.tags"`, `"movie.title"`) — the *type xKey* (a stable snake_case
@@ -297,7 +301,7 @@ slug of the name, returned by type creation as `type.xKey`; builtins use
 their id) plus the *property xKey* — and resolve them to the server's
 `<typeId>.<propId>` on the way in. The xKey never reaches the server. It
 is stable across display-name renames; builtin paths (`any.types`,
-`nav.parentId`) pass through unchanged.
+`any.name`) pass through unchanged.
 
 ## Paging
 

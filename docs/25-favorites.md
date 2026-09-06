@@ -32,7 +32,7 @@ each dataset carrying its `collection`):
 | field | | |
 |---|---|---|
 | `parentId` | required | `""` = top level, else a folder's record id |
-| `pos` | required | lexid; orders siblings (nav allocator params: `CharsAllNoEscape`, 4, 100 — any-ui's `lib/lexid` port matches) |
+| `pos` | required | lexid; orders siblings (lexid allocator params: `CharsAllNoEscape`, 4, 100 — any-ui's `lib/lexid` port matches) |
 | `removed` | | `true` = soft-deleted; absent/false = live |
 | `name` | | folder name \| mirrored target `any.name` |
 | `iconCid` | | mirrored target `any.iconCid` (folders: optional) |

@@ -1,11 +1,11 @@
 ---
 title: Objects
-description: Create objects with types and initial properties, place them in the navigation tree, find what links to them, and delete them.
+description: Create objects with types and initial properties, place them in the wiki tree, find what links to them, and delete them.
 order: 20
 ---
 # Objects
 
-An object is a document in a space: a set of attached types, property values keyed by type and property id, a position in the space's tree, and any number of per-object datasets.
+An object is a document in a space: a set of attached types, property values keyed by type and property id, and any number of per-object datasets. A place in the space's tree is one more type it carries — the wiki type, below.
 
 ## Create an object
 
@@ -19,13 +19,12 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
 # → 201 {"objectId": "bafy…"}
 ```
 
-The create body has exactly three keys:
+The create body has exactly two keys:
 
 | Key | Meaning |
 |-----|---------|
-| `types` | Type ids attached at create. `nav` is appended server-side when absent. |
+| `types` | Type ids attached at create. The object carries exactly these — nothing is appended server-side. |
 | `initialProperties` | Starting values, keyed by type id then property id: `{"<typeId>": {"<propId>": value}}`. The only home for property values — a top-level `name` is rejected. |
-| `nav` | Optional tree placement override: `{type, parentId, pos}`. |
 
 Any other top-level key answers `400 request.unknown_field` naming the accepted set; a wrong shape (a string where an object is expected) is `400 request.schema`. Nothing is silently dropped. Values under `initialProperties` are checked against each property's declared format (`400 property.format_violation`).
 
@@ -44,8 +43,7 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 ```json
 { "records": [ {
   "id": "bafy…",
-  "any": { "types": ["<pageTypeId>", "nav"], "name": "Dune" },
-  "nav": { "type": 1, "parentId": "", "pos": "PPQY" },
+  "any": { "types": ["<pageTypeId>"], "name": "Dune" },
   "author": "A5…", "spaceId": "bafy…",
   "createdAt":  { "$date": "2026-08-05T17:00:00.000Z" },
   "modifiedAt": { "$date": "2026-08-05T17:00:00.000Z" },
@@ -58,37 +56,66 @@ curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
 
 `GET /v1/spaces/:spaceId/properties/:objectId` returns the same row as `{"record": {…}}` when you already hold the id.
 
-## The navigation tree (`nav`)
+## The wiki tree
 
-Every new object is stamped with three `nav` values so clients can render a tree without a dedicated endpoint:
+The space's tree is the catalog usecase `wiki`: a hidden type whose three properties place any object that carries it. There is no built-in tree type, nothing is stamped on create, and there is no tree endpoint. Set it up once per space and keep the reply — every client, device and member lands on the same ids:
 
-| Path | Meaning |
-|------|---------|
-| `nav.type` | `1` = item, `2` = folder. |
-| `nav.parentId` | Id of the parent folder; `""` is the root. |
-| `nav.pos` | A lexid ordering key among siblings. Defaults to the next position after the current maximum in the target folder. |
+```bash
+curl -X POST http://127.0.0.1:7001/v1/catalog/wiki/setup \
+  -H 'Content-Type: application/json' \
+  -d '{"spaceId": "'$SPACE'"}'
+```
 
-List a folder's children in order:
+```json
+{ "usecase": "wiki",
+  "bundles": [ { "id": "system:wiki/v1", "installed": true,
+                 "typeId": "<wikiTypeId>",
+                 "properties": { "parentId": "<parentIdPropId>", "pos": "<posPropId>", "folder": "<folderPropId>" },
+                 "…": "…" } ] }
+```
+
+| Column | Kind | Meaning |
+|--------|------|---------|
+| `parentId` | string | Id of the parent; `""` is the top level. |
+| `pos` | string | A lexid ordering key among siblings — allocated by the client. |
+| `folder` | boolean | `true` for a folder. |
+
+An object is in the tree only when it carries the wiki type; its placement is ordinary property values at `<wikiTypeId>.<propId>`. A page in the tree carries `page` for its body and the wiki type for its place; a folder carries the wiki type alone with `folder` true. Which other types a tree object carries is up to you.
+
+```bash
+# $WIKI, $PARENT_ID, $POS, $FOLDER: typeId and properties.* from the setup reply
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "types": ["page", "'$WIKI'"],
+    "initialProperties": {
+      "'$WIKI'": { "'$PARENT_ID'": "", "'$POS'": "a0", "'$FOLDER'": false },
+      "any": { "name": "Dune" }
+    }
+  }'
+```
+
+List a node's children in order (`""` as the parent lists the top level):
 
 ```bash
 curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/objects/query \
   -H 'Content-Type: application/json' \
-  -d '{"filter": {"nav.parentId": "'$FOLDER'"}, "sort": ["nav.pos"]}'
+  -d '{"filter": {"'$WIKI.$PARENT_ID'": "'$NODE'"}, "sort": ["'$WIKI.$POS'"]}'
 ```
 
-`nav` is a virtual built-in type: it appears in `GET …/types` with `builtIn: true`, its paths are literal strings (`nav.parentId`, not a content-addressed id), and it has no dataset of its own.
+The columns are plain properties: unindexed on the objects collection (a scan — [Indexes](indexes.html)), excluded from search, and strings rather than relations, so backlinks never report a parent link.
 
 ### Moving objects
 
-A drag-and-drop move is one property write on the `nav` type — both fields land in a single change:
+A drag-and-drop move is one property write on the wiki type — both fields land in a single change; a reorder inside the same parent patches `pos` alone:
 
 ```bash
-curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/nav \
+curl -X POST http://127.0.0.1:7001/v1/spaces/$SPACE/properties/$OBJ/set/$WIKI \
   -H 'Content-Type: application/json' \
-  -d '{"patch": {"parentId": "'$NEW_PARENT'", "pos": "PPQZ"}}'
+  -d '{"patch": {"'$PARENT_ID'": "'$NEW_PARENT'", "'$POS'": "a1"}}'
 ```
 
-Clients compute drop positions with a lexid allocator (alphabet `CharsAllNoEscape`, block size 4, step 100) so a move needs no server round-trip to pick a `pos`.
+The server never allocates a position. Clients compute every `pos` with the lexid allocator the editor's blocks use (alphabet `CharsAllNoEscape`, block size 4, step 100): past the last sibling on create, between two siblings on a drop — no server round-trip.
 
 ## Backlinks
 
@@ -99,7 +126,7 @@ curl http://127.0.0.1:7001/v1/spaces/$SPACE/objects/$OBJ/backlinks
 # → {"backlinks": [{"objectId": "…", "typeId": "…", "propId": "…"}]}
 ```
 
-One entry per (referencing object, property) pair; only values under a currently attached type count. An unknown or unreferenced id returns an empty array, not a 404. Link values carry no index, so this is a scan over the objects collection. `nav.parentId` is not a links property — query children directly as shown above.
+One entry per (referencing object, property) pair; only values under a currently attached type count. An unknown or unreferenced id returns an empty array, not a 404. Link values carry no index, so this is a scan over the objects collection. The wiki tree's `parentId` is a plain string, not a relation — query children as shown above.
 
 ## Delete an object
 

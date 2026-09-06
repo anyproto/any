@@ -2341,25 +2341,6 @@ const docTemplate = `{
                 },
                 "type": "object"
             },
-            "api.ObjectCreateNav": {
-                "description": "Nav overrides the auto-stamped tree placement.",
-                "properties": {
-                    "parentId": {
-                        "type": "string"
-                    },
-                    "pos": {
-                        "type": "string"
-                    },
-                    "type": {
-                        "enum": [
-                            1,
-                            2
-                        ],
-                        "type": "integer"
-                    }
-                },
-                "type": "object"
-            },
             "api.ObjectCreateRequest": {
                 "properties": {
                     "initialProperties": {
@@ -2370,11 +2351,8 @@ const docTemplate = `{
                         "description": "InitialProperties carries the object's starting property values,\nkeyed by type id then property id — the ONLY home for them:\n{\"initialProperties\": {\"any\": {\"name\": \"Dune\"}}}. A top-level\nname/description/type-group key is rejected.",
                         "type": "object"
                     },
-                    "nav": {
-                        "$ref": "#/components/schemas/api.ObjectCreateNav"
-                    },
                     "types": {
-                        "description": "Types lists the type ids attached at create; ` + "`" + `nav` + "`" + ` is appended\nserver-side when absent.",
+                        "description": "Types lists the type ids attached at create — the object's\ncapabilities and the columns it takes. Nothing is appended\nserver-side: an object is in a space's wiki tree only when it\ncarries the wiki type (docs/28-well-known-bundles.md).",
                         "items": {
                             "type": "string"
                         },

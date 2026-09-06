@@ -16,13 +16,14 @@ Implementation slices landed:
    Real routes: `GET /v1/health`, `POST /v1/shutdown`, `GET /v1/account`,
    `POST/GET/GET-:id/DELETE /v1/spaces`. Every other `/v1/spaces/**` route
    from `docs/03-api.md` is registered and returns `501 sdk.not_implemented`.
-3. **`nav` virtual built-in + tree UI** — every new object is auto-stamped
-   with `nav.type` / `nav.parentId` / `nav.pos` on create (`internal/nav`,
-   `internal/server/handlers_objects.go::injectNavDefaults`). The web UI's
-   left sidebar now renders an object tree (lazy-loaded via
-   `POST /v1/spaces/:id/objects/query` filtered by `nav.parentId`); the
-   space picker moved to the top of the right netlog sidebar as a
-   `<select>` + popup form.
+3. **Object tree = the `wiki` catalog usecase** (item 51) — no built-in
+   `nav` type, nothing stamped on create: tree placement is the wiki
+   type's `parentId` / `pos` / `folder` properties on objects that
+   carry it, ids from `POST /v1/catalog/wiki/setup` (docs/03-api.md
+   § The wiki tree). The web UI's left sidebar renders that tree
+   (lazy-loaded via `POST /v1/spaces/:id/objects/query` filtered on the
+   parent column, sorted on `pos`); the space picker sits at the top of
+   the right netlog sidebar as a `<select>` + popup form.
 4. **Windowed query/subscribe over SSE** — reads always go through
    `POST /v1/spaces/:id/[objects/]query` (snapshot) or the matching
    `.../query/subscribe` (initial snapshot + live windowed deltas).
@@ -1407,7 +1408,7 @@ Implementation slices landed:
     "_ver":-1}`; end-to-end through the handler 2.0× faster and 5.2×
     less wire. Exclude-only (`{"_ver":-1}`) is 1.2× — it still pays the
     full decode, which is why the store-side push-down stays in
-    docs/07-roadmap.md. CLI: `--projection 'any,nav'` / `'-_ver'` on
+    docs/07-roadmap.md. CLI: `--projection 'any,<typeId>'` / `'-_ver'` on
     every windowed command. Contract: docs/09-query.md § Projection,
     docs/03-api.md, docs/04-events.md.
 43. **Auth ownership model (SYN-169)** — `mode` (`--mode` / `ANY_MODE` /
@@ -1564,10 +1565,11 @@ Implementation slices landed:
     command. Contract: docs/03-api.md § Parts and modules + § Objects
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
     docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
-    (docs/07-roadmap.md): namespaced chat, `dataview` as a module,
-    `nav` → `wiki`, and the server catalog (`GET/POST /v1/catalog…`)
-    that installs the well-known `system:` bundles (`page` / `miniapp`
-    / `bin` shipped — item 46; `dataview` — item 47).
+    (docs/07-roadmap.md): namespaced chat and `dataview` as a module;
+    since shipped: the server catalog (`GET/POST /v1/catalog…`, item
+    50) that installs the well-known `system:` bundles, `nav` → `wiki`
+    on top of it (item 51), `page` / `miniapp` / `bin` (item 46),
+    `dataview` (item 47).
     **Pair 2 — the foundation for those tickets** (same PR pair):
     (a) registered types declare **static parts** (`handler.Type.Parts`
     — entries of the type's `Datasets` by name, or module datasets the
@@ -1833,12 +1835,32 @@ Implementation slices landed:
     unreserved here: the follow-up that reserves the chat module and
     moves the general chat to `system:general-chat/v1` (a different
     derived root than `general-chat/v1` — nothing migrates, so the
-    client recipe stays the convention until then) and the `nav` →
-    `wiki` follow-up both branch off this. Contract:
+    client recipe stays the convention until then) branches off this;
+    the `nav` → `wiki` follow-up is item 51. Contract:
     docs/28-well-known-bundles.md, docs/03-api.md § Catalog + § Bundles
     (`xKey`, root types on created roots, root + 3) + § Types →
     Built-in hidden types (`miniapp`), docs/01-cli.md § Catalog,
     docs/06-errors.md, docs/18-ci.md § PR checks, docs/07-roadmap.md.
+51. **`nav` removed — the tree is the `wiki` usecase** — `internal/nav`
+    is deleted, `injectNavDefaults` and the `nav` create-body field are
+    gone (`400 request.unknown_field`), nothing is appended to `types`
+    server-side, and `GET …/types` no longer lists `nav`. Tree
+    placement is three ordinary properties of the hidden wiki type
+    (`parentId` string, `""` = top level; `pos` lexid string; `folder`
+    boolean) on objects that carry it, ids from `POST
+    /v1/catalog/wiki/setup` (item 50): children = `objects/query`
+    filtered on `<wikiTypeId>.<parentIdPropId>` sorted on
+    `<wikiTypeId>.<posPropId>`, move = `…/properties/:oid/set/<wikiTypeId>`
+    with `{patch: {parentId, pos}}`, `pos` allocated client-side (lexid
+    `CharsAllNoEscape`, block 4, step 100 — the editor blocks'
+    allocator; the server allocates nothing). The web UI tree runs on
+    it: setup on space open, `page` + the wiki type on a new item (a
+    folder carries only the wiki type with `folder: true`), client-side
+    lexid. No back-compat — `nav.*` on old rows is inert. Editor block
+    records keep their own `nav.parentId` / `nav.pos` (the block
+    module's schema, item 7). Contract: docs/03-api.md § The wiki tree,
+    docs/09-query.md § Paths, docs/28-well-known-bundles.md § What
+    clients delete.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.

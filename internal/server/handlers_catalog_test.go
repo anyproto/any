@@ -176,11 +176,59 @@ func TestServer_CatalogSetupWiki(t *testing.T) {
 		t.Fatalf("second setup did not adopt: %+v", again.Bundles[0])
 	}
 
-	// A page carrying the wiki type takes its columns by id.
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects",
-		`{"types":["page","`+b.TypeId+`"],"initialProperties":{"`+b.TypeId+`":{"`+b.Properties["parentId"]+`":"","`+b.Properties["folder"]+`":true}}}`)
+	// A page carrying the wiki type takes its columns by id, and the
+	// tree is a plain query on them: children of a parent sorted by
+	// pos. An object created without the type is not in the tree, and
+	// nothing stamps a `nav` namespace any more.
+	parentProp, posProp, folderProp := b.Properties["parentId"], b.Properties["pos"], b.Properties["folder"]
+	mk := func(name, parent, pos string, folder bool) string {
+		body := `{"types":["page","` + b.TypeId + `"],"initialProperties":{"any":{"name":"` + name + `"},"` + b.TypeId +
+			`":{"` + parentProp + `":"` + parent + `","` + posProp + `":"` + pos + `","` + folderProp + `":` + map[bool]string{true: "true", false: "false"}[folder] + `}}}`
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create wiki page %s: %d %s", name, rec.Code, rec.Body.String())
+		}
+		var out api.ObjectsCreateResponse
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return out.ObjectId
+	}
+	folder := mk("Folder", "", "a0", true)
+	second := mk("Second", "", "a1", false)
+	inside := mk("Inside", folder, "a0", false)
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects", `{"types":["page"]}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("create wiki page: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("create bare page: %d %s", rec.Code, rec.Body.String())
+	}
+	var bare api.ObjectsCreateResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &bare)
+	if _, has := objectRow(t, e, sp.Id, bare.ObjectId)["nav"]; has {
+		t.Fatalf("a bare object still carries a nav namespace")
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+		`{"filter":{"`+b.TypeId+`.`+parentProp+`":""},"sort":["`+b.TypeId+`.`+posProp+`"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tree query: %d %s", rec.Code, rec.Body.String())
+	}
+	var q api.QueryResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &q)
+	var rootIds []string
+	for _, raw := range q.Records {
+		var m map[string]any
+		_ = json.Unmarshal(raw, &m)
+		rootIds = append(rootIds, m["id"].(string))
+	}
+	if !slices.Equal(rootIds, []string{folder, second}) {
+		t.Fatalf("root level = %v, want [%s %s] (folder first by pos, the bare page and the nested one absent)", rootIds, folder, second)
+	}
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/objects/query",
+		`{"filter":{"`+b.TypeId+`.`+parentProp+`":"`+folder+`"}}`)
+	_ = json.Unmarshal(rec.Body.Bytes(), &q)
+	if len(q.Records) != 1 || !strings.Contains(string(q.Records[0]), inside) {
+		t.Fatalf("folder children = %s", rec.Body.String())
+	}
+	if fr := objectRow(t, e, sp.Id, folder); fr[b.TypeId].(map[string]any)[folderProp] != true {
+		t.Fatalf("folder flag not stored: %v", fr[b.TypeId])
 	}
 }
 
