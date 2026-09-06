@@ -47,6 +47,7 @@ type page struct {
 type section struct {
 	Dir   string // e.g. 03-database
 	Slug  string // e.g. database
+	Num   string // e.g. 03 — the directory prefix, shown in the sidebar
 	Title string
 	Order int
 	Pages []*page
@@ -75,7 +76,7 @@ func run(src, out string) error {
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(html.WithUnsafe()),
 	)
-	tpl := template.Must(template.New("page").Funcs(template.FuncMap{"hasPrefix": strings.HasPrefix}).Parse(pageTpl))
+	tpl := template.Must(template.New("page").Funcs(template.FuncMap{"hasPrefix": strings.HasPrefix, "inc": func(i int) int { return i + 1 }}).Parse(pageTpl))
 
 	var sections []*section
 	byDir := map[string]*section{}
@@ -99,6 +100,7 @@ func run(src, out string) error {
 			s := &section{Dir: rel, Slug: rel, Title: humanize(rel), Order: 1 << 20}
 			if m := prefixRe.FindStringSubmatch(rel); m != nil {
 				s.Order, _ = strconv.Atoi(m[1])
+				s.Num = strconv.Itoa(s.Order)
 				s.Slug = m[2]
 				s.Title = humanize(m[2])
 			}
@@ -165,6 +167,7 @@ func run(src, out string) error {
 	}
 
 	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Order < sections[j].Order })
+	home.Body = template.HTML(numberSectionCards(string(home.Body), sections))
 	var all []*page
 	all = append(all, home)
 	for _, s := range sections {
@@ -325,42 +328,72 @@ const pageTpl = `<!doctype html>
 {{if .Page.Description}}<meta name="description" content="{{.Page.Description}}">{{end}}
 <link rel="stylesheet" href="{{.Root}}/assets/site.css">
 <link rel="icon" href="{{.Root}}/assets/favicon.svg">
-<script>try{var t=localStorage.getItem('any-docs-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
-<header class="top">
-  <button class="menu" id="menu" aria-label="Menu">☰</button>
-  <a class="brand" href="{{.Root}}/index.html"><svg class="logo" viewBox="0 0 71 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 3h5v12H0zM2.5 0h15v3h-15zM5 9h5v3H5zM25 0h5v15h-5zM51 0h5v6h-5zM30 3h3v3h-3zM31.5 6h3v3h-3zM53.5 6h15v3h-15zM33 9h3v3h-3zM36 0h10v15H36zM61 0h10v6H61zM56 9h10v6H56zM10 3h10v12H10z"/></svg><span class="tag">docs</span></a>
-  <div class="search"><input id="q" type="search" placeholder="Search docs… ( / )" autocomplete="off"><div id="results" class="results" hidden></div></div>
-  <nav class="links"><a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a></nav>
-  <button class="mode" id="mode" aria-label="Toggle theme"><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
-</header>
 <div class="shell">
 <aside class="side" id="side">
+  <div class="side-head">
+    <a class="brand" href="{{.Root}}/index.html"><span class="mark"><svg class="logo" viewBox="0 0 57 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="any"><path fill="currentColor" d="M0 2.4H4.01408V12H0V2.4ZM2.00704 0H14.0493V2.4H2.00704V0ZM4.01408 7.2H8.02817V9.6H4.01408V7.2ZM20.0704 0H24.0845V12H20.0704V0ZM40.9437 0H44.9577V4.8H40.9437V0ZM24.0845 2.4H26.493V4.8H24.0845V2.4ZM25.2887 4.8H27.6972V7.2H25.2887V4.8ZM42.9507 4.8H54.993V7.2H42.9507V4.8ZM26.493 7.2H28.9014V9.6H26.493V7.2ZM28.9014 0H36.9296V12H28.9014V0ZM48.9718 0H57V4.8H48.9718V0ZM44.9577 7.2H52.9859V12H44.9577V7.2ZM8.02817 2.4H16.0563V12H8.02817V2.4Z"/></svg><i class="cursor" aria-hidden="true"></i></span><span class="tag">docs</span></a>
+  </div>
+  <nav class="side-nav">
 {{$cur := .Page.URL}}{{$root := .Root}}
 {{range .Sections}}
   <details class="sec"{{if or (eq $cur (printf "/%s/index.html" .Slug)) (hasPrefix $cur (printf "/%s/" .Slug))}} open{{end}}>
-    <summary>{{.Title}}</summary>
+    <summary><span class="num">{{if .Num}}{{.Num}}.{{end}}</span><span class="sec-title">{{.Title}}</span><svg class="chev plus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg><svg class="chev minus" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 6.671L8 10.671L12 6.671" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></summary>
     <ul>
-    {{range .Pages}}<li><a href="{{$root}}{{.URL}}"{{if eq .URL $cur}} class="active" aria-current="page"{{end}}>{{if .IsIndex}}Overview{{else}}{{.Title}}{{end}}</a></li>
+    {{range $p := .Pages}}<li><a href="{{$root}}{{$p.URL}}"{{if eq $p.URL $cur}} class="active" aria-current="page"{{end}}><span class="item-title">{{if $p.IsIndex}}Overview{{else}}{{$p.Title}}{{end}}</span></a></li>
     {{end}}</ul>
   </details>
 {{end}}
+  </nav>
+  <div class="side-foot">
+    <a href="{{.Root}}/reference/http-api.html">API</a><a href="{{.Root}}/reference/cli.html">CLI</a><a href="https://github.com/anyproto/any">GitHub</a>
+  </div>
 </aside>
+<div class="content">
+<div class="bar">
+  <button class="menu" id="menu" aria-label="Menu">☰</button>
+  <p class="crumb">{{if .Page.Section}}<span class="sec-name">{{.Page.Section.Title}}</span><span class="sep">/</span>{{end}}{{if .Page.IsIndex}}Overview{{else}}{{.Page.Title}}{{end}}</p>
+  <div class="search" id="search"><svg class="ico" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="currentColor" d="M7 2.5C9.48528 2.5 11.5 4.51472 11.5 7C11.5 7.97182 11.1908 8.87085 10.667 9.60645L13.5303 12.4697C13.8232 12.7626 13.8232 13.2374 13.5303 13.5303C13.2374 13.8232 12.7626 13.8232 12.4697 13.5303L9.60645 10.667C8.87085 11.1908 7.97182 11.5 7 11.5C4.51472 11.5 2.5 9.48528 2.5 7C2.5 4.51472 4.51472 2.5 7 2.5ZM7 3.59961C5.12223 3.59961 3.59961 5.12223 3.59961 7C3.59961 8.87777 5.12223 10.4004 7 10.4004C8.87777 10.4004 10.4004 8.87777 10.4004 7C10.4004 5.12223 8.87777 3.59961 7 3.59961Z"/></svg><input id="q" type="search" placeholder="Search docs…" autocomplete="off"><span class="esc" aria-hidden="true">ESC</span><div id="results" class="results" hidden></div></div>
+</div>
 <main class="main">
   <article class="doc">
-    {{if .Page.Section}}<p class="crumb">{{.Page.Section.Title}}</p>{{end}}
     {{.Page.Body}}
   </article>
   <nav class="pager">
-    {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{else}}<span></span>{{end}}
+    {{if .Page.Prev}}<a class="prev" href="{{.Root}}{{.Page.Prev.URL}}"><small>Previous</small><span>{{.Page.Prev.Title}}</span></a>{{end}}
     {{if .Page.Next}}<a class="next" href="{{.Root}}{{.Page.Next.URL}}"><small>Next</small><span>{{.Page.Next.Title}}</span></a>{{end}}
   </nav>
-  <footer class="foot"><a href="https://github.com/anyproto/any/edit/main/website/{{.Page.Src}}">Edit this page on GitHub</a> · <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></footer>
+  <footer class="foot">
+    <p class="meta"><a href="https://github.com/anyproto/any/edit/main/website/{{.Page.Src}}">Edit this page on GitHub</a> · <code>website/{{.Page.Src}}</code> · <a href="{{.Root}}/llms.txt">llms.txt</a></p>
+  </footer>
 </main>
+</div>
 </div>
 <script>window.__root={{.Root}};</script>
 <script src="{{.Root}}/assets/site.js"></script>
 </body>
 </html>`
 
+// cardHrefRe matches a home-page section card: <a href="<slug>/index.html"><strong>Title</strong>
+var cardHrefRe = regexp.MustCompile(`<a href="([a-z0-9-]+)/index\.html"><strong>`)
+
+// numberSectionCards prefixes each home-page section card with the same ordinal the
+// sidebar shows, looked up from the section the card links to. A card pointing at
+// something that is not a section is left alone.
+func numberSectionCards(body string, sections []*section) string {
+	num := map[string]string{}
+	for _, s := range sections {
+		if s.Num != "" {
+			num[s.Slug] = s.Num
+		}
+	}
+	return cardHrefRe.ReplaceAllStringFunc(body, func(m string) string {
+		sub := cardHrefRe.FindStringSubmatch(m)
+		n, ok := num[sub[1]]
+		if !ok {
+			return m
+		}
+		return strings.Replace(m, "<strong>", `<strong><span class="num">`+n+`.</span>`, 1)
+	})
+}

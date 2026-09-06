@@ -1,4 +1,12 @@
 (function(){
+  var box=document.getElementById('search'),q=document.getElementById('q'),res=document.getElementById('results');
+  if(!box||!q)return;
+  document.addEventListener('keydown',function(e){
+    if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();q.select()}
+    if(e.key==='Escape'&&document.activeElement===q){q.value='';if(res)res.hidden=true;q.blur()}
+  });
+})();
+(function(){
   var btn=document.getElementById('mode');if(!btn)return;
   btn.onclick=function(){
     var cur=document.documentElement.dataset.theme;
