@@ -299,12 +299,13 @@ func TestServer_TypeProperties_NotFound(t *testing.T) {
 	}
 }
 
-// TestServer_NoBuiltinContentTypes pins that documents and chats are
-// not server types any more: `page`, `editor` and `chat` are absent
-// from the catalog, unresolvable by id, and their names are free for
-// client-registered types (the well-known bundles claim them); the
-// editor and chat collections come from a type's part declaring the
-// module instead.
+// TestServer_NoBuiltinContentTypes pins that the modules are not
+// server types: `editor` and `chat` are absent from the catalog,
+// unresolvable by id, and their names are free for client-registered
+// types; the editor and chat collections come from a type's part
+// declaring the module instead. (`page` is a hidden built-in —
+// handlers_builtin_types_test.go — so a client document type takes
+// another handle.)
 func TestServer_NoBuiltinContentTypes(t *testing.T) {
 	d, teardown := newTestDeps(t)
 	defer teardown()
@@ -329,22 +330,22 @@ func TestServer_NoBuiltinContentTypes(t *testing.T) {
 	}
 	for _, ti := range list.Types {
 		switch ti.Id {
-		case "page", "editor", "chat":
+		case "editor", "chat":
 			t.Errorf("%s listed as a type: %+v", ti.Id, ti)
 		}
 	}
-	for _, id := range []string{"page", "editor", "chat"} {
+	for _, id := range []string{"editor", "chat"} {
 		rec = doJSON(t, e, http.MethodGet, "/v1/spaces/"+sp.Id+"/types/"+id, "")
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("GET type %s: status=%d, want 404; body=%s", id, rec.Code, rec.Body.String())
 		}
 	}
 
-	// The names are ordinary user xKeys now; the type declares the
-	// editor module through a part and its objects hold a body.
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Page","xKey":"page","weight":10}`)
+	// The module names are ordinary user xKeys; a document type declares
+	// the editor module through a part and its objects hold a body.
+	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/"+sp.Id+"/types", `{"name":"Article","xKey":"editor","weight":10}`)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("user type with xKey page: status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("user type with xKey editor: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var created api.TypesCreateResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {

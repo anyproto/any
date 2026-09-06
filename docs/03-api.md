@@ -40,6 +40,7 @@
     - [Runtime dataset schemas](#runtime-dataset-schemas)
     - [Upsert records](#upsert-records)
     - [Built-in `data_view` type](#built-in-data_view-type)
+    - [Built-in hidden types: `page`, `miniapp`, `bin`](#built-in-hidden-types-page-miniapp-bin)
   - [Properties (values on objects)](#properties-values-on-objects)
   - [Chat (the `chat` module)](#chat-the-chat-module)
     - [Message wire shape (read path)](#message-wire-shape-read-path)
@@ -1283,9 +1284,11 @@ collection only while it carries a type whose part declares it: a
 write into a collection none of the object's types declare is `400
 dataset.not_declared` (attach the type first — the write never attaches
 one); a `:collection` no editor part in the space declares is `404
-dataset.not_found`. There is no built-in document type yet: a client's
-page type is a user type whose part shares the editor — registered as
-a bundle so every peer lands on one. The atomic surface is the three
+dataset.not_found`. The built-in `page` type (§ Built-in hidden types)
+is the plain document — hidden, one part sharing this collection; a
+client with its own document types declares them with an editor part,
+registered as a bundle so every peer lands on one, and an object
+carrying both has one body. The atomic surface is the three
 `…/blocks` endpoints; the `…/markdown` routes are a lossless
 import/export layer over the same collection for LLM tools, "Export as
 .md" / "Import .md" flows, and programmatic API users that don't want
@@ -2049,16 +2052,17 @@ enforces it: empty → `400 type.xkey_required`; collision with an
 existing type's `xKey` **or** id in the same space → `409
 type.xkey_conflict` (`details: {xKey, existingTypeId}`). Clients derive
 the xKey as a slug of the name (`"Pages"` → `pages`); it must survive
-display-name renames. Built-in types (`data_view`, `nav`) are
-registered, not created here, and resolve by their literal id; a
-registered type's parts are static — `GET …/types/:typeId/parts` reads
-them compiled (keys as ids, a static dataset's collection is its name,
-`module: records` on a schema-only dataset), every write on them is
-`400 type.registered`, and a registered type may be `hidden` like a
-user one. There is no built-in `page`, `editor` or `chat` type:
-documents and chats are user types whose parts declare the `editor` /
-`chat` module (§ Parts and modules), normally registered through a
-well-known bundle so every client lands on one type.
+display-name renames. Built-in types (`data_view`, `nav`, and the
+hidden `page` / `miniapp` / `bin`) are registered, not created here,
+and resolve by their literal id; a registered type's parts are static —
+`GET …/types/:typeId/parts` reads them compiled (keys as ids, a static
+dataset's collection is its name, `module: records` on a schema-only
+dataset), every write on them is `400 type.registered`, and a
+registered type may be `hidden` like a user one. There is no built-in
+`editor` or `chat` type: a chat is a user type whose part declares the
+`chat` module (§ Parts and modules), registered through a well-known
+bundle so every client lands on one type; a document is the built-in
+`page` or a user type with an editor part (§ Built-in hidden types).
 
 `GET …/types` returns the synthetic built-ins first — `any`,
 `spaceIndex` and `type` (the meta-type: the shape of type objects
@@ -2364,7 +2368,7 @@ previously took a compiled-in handler: required fields, write-once vs
 author-mutable fields, author-only delete, derived creator/time
 stamps, user-supplied record ids, search extraction. This is the
 `records` module — the default when a dataset names none. Registered
-built-in types (`data_view`, `nav`) refuse (`400 type.registered`) —
+built-in types (`data_view`, `nav`, `page`, …) refuse (`400 type.registered`) —
 their datasets are statically declared. SDK contract (vocabulary,
 convergence rules, storage model, runtime registration): the SDK's
 `docs/17-user-datasets.md`.
@@ -2558,21 +2562,25 @@ the space — a module collection such as `chat_messages` is never
 upsertable), `400 dataset.not_declared` (the object carries no type
 declaring it).
 
-#### Documents and chats are user types
+#### Documents and chats
 
-There is no built-in `page`, `editor` or `chat` type. "This object is a
-document" is a user type whose part shares the editor module; "this
-object is a chat" is one whose part shares the chat module (§ Parts
-and modules). What used to be the reason for a built-in — every client
+There is no built-in `editor` or `chat` type. "This object is a
+document" is a type whose part shares the editor module — the built-in
+`page` (§ Built-in hidden types) or a user type; "this object is a
+chat" is a user type whose part shares the chat module (§ Parts and
+modules). What used to be the reason for a built-in — every client
 minting its own type and racing into parallel definitions — is solved
 by registering the type through a bundle (§ Bundles), which converges
 on one type per space: a client's document type is a bundle-declared
 type with an editor part, a space's chat the `general-chat/v1`
 bundle with a chat part. Listing a space's documents is a filter on
 the type ids that declare the editor (`owners` of `editor_blocks` in
-§ Dataset schema discovery): `{"filter": {"any.types": {"$in":
-[<owners>]}}}` on `…/objects/query[/subscribe]`. Being user types,
-they carry properties, a `weight` and a `layout` like any other.
+§ Dataset schema discovery — `page` is always among them):
+`{"filter": {"any.types": {"$in": [<owners>]}}}` on
+`…/objects/query[/subscribe]`. Being user types, the declared ones
+carry properties, a `weight` and a `layout` like any other; `page`
+carries none — a client that needs them declares its own document
+type.
 
 #### Built-in `data_view` type
 
@@ -2623,6 +2631,55 @@ Only the **shared** tier ships; account- and device-private views need
 scoped datasets (SYN-174). Full model, the client grouping recipe, and
 the tier roadmap: `24-data-views.md`.
 
+#### Built-in hidden types: `page`, `miniapp`, `bin`
+
+Three registered types an object **opts into** rather than a class a
+user picks, so all three are `hidden`: out of `GET …/types` unless
+`?includeHidden=true`, resolvable by `GET …/types/:typeId` always,
+`builtIn: true` with `xKey` equal to the id (which reserves `page`,
+`miniapp` and `bin` against user types — `409 type.xkey_conflict`),
+static (`400 type.registered` on every write), and present in every
+space by construction — nothing installs them and nothing stamps them
+onto an object: a client decides which types its objects carry
+(`types` on `POST …/objects`, or `…/properties/:objectId/attach/:typeId`).
+
+**`page`** — the plain document. No properties; one part `body`
+(`ui: {"type": "document"}`) whose dataset is the editor module's
+shared collection, so an object carrying `page` holds `editor_blocks`
+and every `…/editor/editor_blocks/**` route works on it. Optional: a
+client that wants a plain body uses it; one with its own document types
+declares them with an editor part (§ Parts and modules) — both share
+the collection, and `page` is always among the `owners` of
+`editor_blocks`. Being registered, `page` carries no `weight` and no
+`layout`: an object carrying only `page` has no primary type and renders
+by the client's default.
+
+**`miniapp`** — the marker of an object that runs an installed bundle.
+One property, `bundle` (string): the id of the installed bundle
+(§ Bundles — `system:wiki/v1`, a marketplace id, …), which is what a
+client needs to know what to open. No parts. Written through the
+generic `POST …/properties/:objectId/set/miniapp`
+(`{"patch": {"bundle": "<bundleId>"}}`); the object must carry the type.
+
+**`bin`** — the marker of an object moved to the bin. Move to bin is
+`POST …/properties/:objectId/attach/bin`, restore is
+`…/detach/bin` — the plain type-binding routes, no wire surface of
+their own. The server stamps two properties on the move and clears them
+on restore: `movedAt` (datetime — `{"$date": …}` on the wire, the
+server clock) and `movedBy` (string — the account identity, the same
+encoding as `author` / `modifiedBy`). The membership op and the stamps
+ride **one** synced change, so the `changeId` the call returns names
+the move, a bin carrier never lacks its stamps and a restored object
+never keeps stale ones; a second move re-stamps. Clients filter carriers
+out of ordinary lists — `{"any.types": {"$nin": ["bin"]}}` — and list
+the bin with `{"any.types": "bin"}` sorted `-bin.movedAt` (not indexed;
+the bin is small). Restore brings the object back as it was: detaching
+is not a delete, nothing else on the row changes. Permanent deletion
+stays `DELETE …/objects/:objectId`. The stamps are ordinary synced
+properties: the server writes them, but a peer can write the namespace
+directly, so a reader treats an absent stamp as unknown, never as "not
+in the bin".
+
 ### Properties (values on objects)
 
 | Method | Path                                                          | Purpose                          |
@@ -2654,6 +2711,11 @@ Detaching is **not** a delete: values in that namespace and records in
 the type's datasets stay as orphan data, read-tolerant by design, and
 re-attaching brings them back into view. See `08-clients.md`
 § "Preflight-validate writes against the bound types".
+
+The built-in `bin` is the one type these routes treat specially:
+`attach/bin` also stamps `bin.movedAt` / `bin.movedBy` and `detach/bin`
+clears them, in the same change as the membership op (§ Types →
+Built-in hidden types).
 
 ### Chat (the `chat` module)
 

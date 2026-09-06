@@ -236,6 +236,10 @@ func (d *deps) resolveSpace(c echo.Context) (space.Space, error, bool) {
 	return sp, nil, false
 }
 
+// objectsDataset is the per-space objects collection — the one dataset
+// every object has a row in, holding `any.*` and every type namespace.
+const objectsDataset = "objects"
+
 // resolveSpaceObject is resolveSpace plus the :objectId param check.
 func (d *deps) resolveSpaceObject(c echo.Context) (space.Space, string, error, bool) {
 	objectId := c.Param("objectId")

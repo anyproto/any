@@ -13,13 +13,16 @@ import (
 	sdkconfig "github.com/anyproto/any-sync-sdk/config"
 	"github.com/anyproto/any-sync-sdk/handler"
 
+	"github.com/anyproto/any/internal/bin"
 	"github.com/anyproto/any/internal/chat"
 	"github.com/anyproto/any/internal/config"
 	"github.com/anyproto/any/internal/dataview"
 	"github.com/anyproto/any/internal/editor"
 	"github.com/anyproto/any/internal/index"
 	"github.com/anyproto/any/internal/indexer"
+	"github.com/anyproto/any/internal/miniapp"
 	"github.com/anyproto/any/internal/nav"
+	"github.com/anyproto/any/internal/page"
 )
 
 // logConfigOnce gates Config.ApplyGlobal so the zap defaults are set
@@ -113,12 +116,18 @@ var extraCatalog struct {
 
 // serverTypes is the hardcoded type set this server adds on top of the
 // SDK's built-ins — the types that are not modules: a saved-view
-// dataset on any host object and the nav property namespace. Each entry
-// registers its handler(s) with every per-object Controller.
+// dataset on any host object, the nav property namespace, and the
+// hidden capability types an object opts into (page / miniapp / bin).
+// Each entry registers its handler(s) with every per-object Controller;
+// a registered type reports builtIn with xKey = id, which is what
+// reserves the id against user types.
 func serverTypes() []handler.Type {
 	out := []handler.Type{
 		dataview.NewType(), // data_views: one saved view per record, on any host object
 		nav.NewType(),      // property-only: no dataset, just nav.* schema
+		page.NewType(),     // hidden: one part sharing the editor's canonical collection
+		miniapp.NewType(),  // hidden, property-only: the installed bundle an object runs
+		bin.NewType(),      // hidden, property-only: move-to-bin stamps (handlers_properties.go)
 	}
 	return append(out, extraCatalog.types...)
 }

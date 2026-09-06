@@ -71,9 +71,10 @@ POST /v1/spaces/:spaceId/objects
   (the collection's `owners`), check the object's `any.types` (read its
   row from the per-space `objects` collection) before writing, or create
   the object with the type bound up front. Don't fire the write and hope.
-  Your document type is a user type — register it as a bundle so every
-  client and device converges on one (`page/v1` by convention) instead
-  of minting a type per client.
+  A document type is the built-in `page` (plain body, no properties)
+  or a user type of your own — register the latter as a bundle so every
+  client and device converges on one instead of minting a type per
+  client.
 
 - **Preflight-validate property values against the bound type's property
   definitions.** v1 does **not** enforce property schema server-side —
@@ -151,6 +152,19 @@ driftBudgetPercent) is in `03-api.md`; SSE frame lifecycle is in
   string or number does not error — ordering comparisons are bracketed
   by type, so a bare literal never compares against an instant and a
   range filter that forgets the wrapper comes back empty.
+
+- **Ordinary lists exclude the bin.** An object moved to the bin carries
+  the built-in `bin` type (`03-api.md` § Types → Built-in hidden types);
+  every list, tree and picker adds `{"any.types": {"$nin": ["bin"]}}` to
+  its filter, and the bin view is `{"any.types": "bin"}` sorted
+  `-bin.movedAt`, rendering `bin.movedBy` through the members list like
+  `modifiedBy`. Move and restore are the plain
+  `…/properties/:objectId/attach/bin` / `detach/bin` calls — the server
+  stamps and clears the two properties — and permanent deletion stays
+  `DELETE …/objects/:id`. `/search` does not know about the bin: a
+  binned object's text still surfaces as a hit, and a hit carries no
+  types, so drop binned hits by reading the hit's object row (or its
+  `any.types` from a cached list) before rendering.
 
 - **Aggregate server-side instead of reducing client-side.** Counts per
   group, top-N rollups, tag distributions: don't page the whole dataset

@@ -198,7 +198,7 @@ A version is a `changeId`. Errors: `404 history.version_not_found`, `404 history
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`data_view`, `nav`), then user types; hidden types (bundle roots, `hidden: true`) only with `includeHidden=true` |
+| GET | `/v1/spaces/:spaceId/types` | `includeHidden?` | `{types}` | built-ins `any`, `spaceIndex`, `type` first, then registered (`data_view`, `nav`, and the hidden `page` / `miniapp` / `bin`), then user types; hidden types (bundle roots and hidden built-ins) only with `includeHidden=true` |
 | POST | `/v1/spaces/:spaceId/types` | `{name?, description?, iconCid?, xKey}` | 201 `TypeInfo` | `400 type.xkey_required`, `409 type.xkey_conflict` |
 | GET | `/v1/spaces/:spaceId/types/:typeId` | — | `TypeInfo` | `404 type.not_found` |
 | DELETE | `/v1/spaces/:spaceId/types/:typeId` | — | — | `501 sdk.not_implemented` |

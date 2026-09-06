@@ -880,7 +880,8 @@ Implementation slices landed:
     (sdkOpError). Docs: 02-server.md § Startup + § Health, 03-api.md
     § Meta.
 
-30. **Built-in `page` type — REMOVED by item 43.** It was the marker
+30. **Built-in `page` type — removed by item 45, back as a hidden
+    registered type with one editor part in item 46.** It was the marker
     type for "this object is a document" (no dataset, no properties —
     the SDK freezes registered types' property definitions, so a
     built-in could never carry per-space columns), introduced because
@@ -1511,7 +1512,7 @@ Implementation slices landed:
     § Runtime dataset schemas, docs/06-errors.md; SDK
     docs/06-data-structure.md § The `x-format` descriptor.
 
-43. **Types, parts and modules** — a type is properties plus **parts**
+45. **Types, parts and modules** — a type is properties plus **parts**
     (display units a client renders), each part owning datasets served
     by a **module**: `records` (the runtime schema handler, item 32,
     now always namespaced to the collection `<typeId>_<key>`), `editor`
@@ -1527,8 +1528,9 @@ Implementation slices landed:
     write time (`space.ErrDatasetNotDeclared` → `400
     dataset.not_declared`), inbound apply stays read-tolerant, and no
     write attaches a type (`editor.EnsureType` / `chat.ensureType` are
-    gone). The built-in `page` / `editor` / `chat` types are gone with
-    `internal/page` and `internal/ensure`; documents and chats are user
+    gone). The built-in `editor` / `chat` types are gone with
+    `internal/ensure` (`page` left too and returned hidden in item 46);
+    documents and chats are user
     types registered as bundles (`Install.Parts`; `EnsureBundleRequest.
     Parts` — bundles declare `parts`, not `datasets`). Surface:
     `GET/POST …/types/:typeId/parts`, `PATCH/DELETE …/parts/:partId`,
@@ -1562,9 +1564,9 @@ Implementation slices landed:
     + § Chat, docs/06-errors.md, docs/13-index.md, docs/16-chat.md,
     docs/25-favorites.md; SDK docs/17-user-datasets.md. Deferred
     (docs/07-roadmap.md): namespaced chat, `data_view` as a module,
-    the built-in `page` / `miniapp` / `bin` / `dataview` types, `nav`
-    → `wiki`, and the server catalog (`GET/POST /v1/catalog…`) that
-    installs the well-known `system:` bundles.
+    the built-in `dataview` type, `nav` → `wiki`, and the server
+    catalog (`GET/POST /v1/catalog…`) that installs the well-known
+    `system:` bundles (`page` / `miniapp` / `bin` shipped — item 46).
     **Pair 2 — the foundation for those tickets** (same PR pair):
     (a) registered types declare **static parts** (`handler.Type.Parts`
     — entries of the type's `Datasets` by name, or module datasets the
@@ -1626,6 +1628,40 @@ Implementation slices landed:
     now admits nested `$set` paths under object-kind properties for it.
     The web UI lists with `includeHidden=true`.
 
+
+46. **Built-in hidden types `page` / `miniapp` / `bin` (SYN-213, SYN-215,
+    SYN-219)** — three registered `handler.Type`s an object OPTS INTO
+    (`internal/page`, `internal/miniapp`, `internal/bin`, wired in
+    `serverTypes()`), all `Hidden`: out of `GET …/types` unless
+    `includeHidden=true`, `builtIn: true` with `xKey == id` (the xKey
+    guard reserves the ids for free), static (`400 type.registered`),
+    present in every space by construction, nothing stamps them onto
+    an object. **`page`**: no properties, one static part `body` (`ui
+    {"type":"document"}`) with `{Module: editor, Shared: true}` — the
+    SDK compiles it into ownership of `editor_blocks`, so `page` is
+    always among the collection's `owners` and an object carrying it
+    takes every `…/editor/editor_blocks/**` write; optional for
+    clients (their own document types keep working, both share the
+    body); no `weight` / `layout` (registered types have none — an SDK
+    change if ever needed). **`miniapp`**: one string property
+    `bundle` (the installed bundle id), no parts. **`bin`**: properties
+    `movedAt` (datetime) + `movedBy` (account identity), no parts;
+    move = `attach/bin`, restore = `detach/bin` on the EXISTING
+    `POST …/properties/:objectId/{attach,detach}/:typeId` — the handler
+    special-cases the id (`binBinding` in handlers_properties.go): one
+    synced `Space.Modify` on the `objects` dataset carrying `$addToSet
+    any.types` + `$set bin.movedAt/movedBy` (or `$pull` + two
+    `$unset`), which works because the SDK's write-time preflight
+    grants a namespace the SAME change attaches (`buildPreflight` /
+    `collectTypeAdditions`) — one changeId names the move, no
+    half-stamped row. No create-time guard (a `types:["bin"]` create is
+    an unstamped carrier; the stamps are plain synced props a peer can
+    write anyway, so readers treat an absent stamp as unknown). Search
+    indexing of bin carriers is undecided (parked). Tests:
+    handlers_builtin_types_test.go; `TestServer_NoBuiltinContentTypes`
+    now pins only `editor` / `chat` absent. Contract: docs/03-api.md
+    § Types → Built-in hidden types + § Properties, docs/08-clients.md
+    § 3, docs/01-cli.md.
 
 **Always read the relevant `docs/NN-*.md` before writing code for an area**, and if
 implementation diverges from a doc, update the doc in the same change.
